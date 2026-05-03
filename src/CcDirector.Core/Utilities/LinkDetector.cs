@@ -112,10 +112,12 @@ public static class LinkDetector
         {
             if (Overlaps(claimedRanges, m.Index, m.Index + m.Length))
                 continue;
-            string path = StripTrailingPunctuation(StripLineNumber(m.Value));
+            int rawEnd = ExtendAbsolutePathThroughSpaces(lineText, m.Index, m.Index + m.Length, pathExistsCheck);
+            string rawText = lineText.Substring(m.Index, rawEnd - m.Index);
+            string path = StripTrailingPunctuation(StripLineNumber(rawText));
             int endCol = m.Index + path.Length;
             matches.Add(new LinkMatch(m.Index, endCol, path, LinkType.Path));
-            claimedRanges.Add((m.Index, m.Index + m.Length));
+            claimedRanges.Add((m.Index, rawEnd));
         }
 
         // 4. Unix-style absolute paths
@@ -123,10 +125,12 @@ public static class LinkDetector
         {
             if (Overlaps(claimedRanges, m.Index, m.Index + m.Length))
                 continue;
-            string path = StripTrailingPunctuation(StripLineNumber(m.Value));
+            int rawEnd = ExtendAbsolutePathThroughSpaces(lineText, m.Index, m.Index + m.Length, pathExistsCheck);
+            string rawText = lineText.Substring(m.Index, rawEnd - m.Index);
+            string path = StripTrailingPunctuation(StripLineNumber(rawText));
             int endCol = m.Index + path.Length;
             matches.Add(new LinkMatch(m.Index, endCol, path, LinkType.Path));
-            claimedRanges.Add((m.Index, m.Index + m.Length));
+            claimedRanges.Add((m.Index, rawEnd));
         }
 
         // 5. Relative paths (only if session has repo path)
@@ -204,7 +208,9 @@ public static class LinkDetector
         var winMatch = AbsoluteWindowsPathRegex.Match(lineText);
         while (winMatch.Success)
         {
-            string path = StripTrailingPunctuation(StripLineNumber(winMatch.Value));
+            int rawEnd = ExtendAbsolutePathThroughSpaces(lineText, winMatch.Index, winMatch.Index + winMatch.Length, pathExistsCheck);
+            string rawText = lineText.Substring(winMatch.Index, rawEnd - winMatch.Index);
+            string path = StripTrailingPunctuation(StripLineNumber(rawText));
             if (col >= winMatch.Index && col < winMatch.Index + path.Length)
                 return (path, LinkType.Path);
             winMatch = winMatch.NextMatch();
@@ -214,7 +220,9 @@ public static class LinkDetector
         var unixMatch = AbsoluteUnixPathRegex.Match(lineText);
         while (unixMatch.Success)
         {
-            string path = StripTrailingPunctuation(StripLineNumber(unixMatch.Value));
+            int rawEnd = ExtendAbsolutePathThroughSpaces(lineText, unixMatch.Index, unixMatch.Index + unixMatch.Length, pathExistsCheck);
+            string rawText = lineText.Substring(unixMatch.Index, rawEnd - unixMatch.Index);
+            string path = StripTrailingPunctuation(StripLineNumber(rawText));
             if (col >= unixMatch.Index && col < unixMatch.Index + path.Length)
                 return (path, LinkType.Path);
             unixMatch = unixMatch.NextMatch();
@@ -364,6 +372,55 @@ public static class LinkDetector
         }
 
         return spans;
+    }
+
+    /// <summary>
+    /// Extend an absolute path match through spaces. The base regex stops at any whitespace,
+    /// but real paths may contain spaces (e.g., "D:\Center Consulting\Click Funnels\file.md").
+    /// Walks forward through whitespace-separated segments, picking the longest range where
+    /// the candidate path exists on disk. If no callback is provided or no longer prefix
+    /// exists, returns initialEnd unchanged (preserving baseline regex behavior).
+    /// </summary>
+    internal static int ExtendAbsolutePathThroughSpaces(
+        string lineText, int pathStart, int initialEnd, Func<string, bool>? pathExistsCheck)
+    {
+        if (pathExistsCheck is null) return initialEnd;
+
+        int bestEnd = initialEnd;
+        int pos = initialEnd;
+
+        while (pos < lineText.Length)
+        {
+            char c = lineText[pos];
+            // The regex stopped here. If the stop char is whitespace we can try to extend;
+            // otherwise it was a forbidden char (quote, paren, etc.) and we must stop.
+            if (c != ' ' && c != '\t') break;
+
+            while (pos < lineText.Length && (lineText[pos] == ' ' || lineText[pos] == '\t'))
+                pos++;
+            if (pos >= lineText.Length) break;
+            if (IsForbiddenPathChar(lineText[pos])) break;
+
+            while (pos < lineText.Length
+                   && lineText[pos] != ' ' && lineText[pos] != '\t'
+                   && !IsForbiddenPathChar(lineText[pos]))
+                pos++;
+
+            string candidate = StripTrailingPunctuation(StripLineNumber(
+                lineText.Substring(pathStart, pos - pathStart)));
+            string resolved = ResolvePath(candidate, null);
+            if (pathExistsCheck(resolved))
+                bestEnd = pos;
+        }
+
+        return bestEnd;
+    }
+
+    private static bool IsForbiddenPathChar(char c)
+    {
+        return c == '"' || c == '\'' || c == '`' || c == '<' || c == '>'
+            || c == '|' || c == '*' || c == '?' || c == '(' || c == ')'
+            || c == '[' || c == ']';
     }
 
     private static bool IsRelativePath(string path)

@@ -301,6 +301,107 @@ public class LinkDetectorTests
     }
 
     // ========================================================================
+    // Absolute Paths With Spaces (existence-driven extension)
+    // ========================================================================
+
+    [Fact]
+    public void FindAllLinkMatches_AbsolutePathWithSpaces_ExtendsToLongestExistingPath()
+    {
+        const string fullPath = @"D:\Test Root\Outer Folder\Inner Folder\nested\plan.md";
+        string line = $"Created at {fullPath}.";
+
+        bool Exists(string p) => p == fullPath;
+        var matches = LinkDetector.FindAllLinkMatches(line, null, Exists);
+
+        Assert.Single(matches);
+        Assert.Equal(fullPath, matches[0].Text);
+        Assert.Equal(LinkDetector.LinkType.Path, matches[0].Type);
+    }
+
+    [Fact]
+    public void FindAllLinkMatches_AbsolutePathWithSpaces_NoCallback_FallsBackToNoSpaceMatch()
+    {
+        // Without a callback we cannot validate existence, so we must preserve the
+        // baseline regex behavior of stopping at the first space.
+        var matches = LinkDetector.FindAllLinkMatches(
+            @"Created at D:\Test Root\Outer Folder\file.md.", null, null);
+
+        Assert.NotEmpty(matches);
+        Assert.Equal(@"D:\Test", matches[0].Text);
+    }
+
+    [Fact]
+    public void FindAllLinkMatches_AbsolutePathWithSpaces_DoesNotConsumeFollowingWords()
+    {
+        // "D:\file.md" exists but "D:\file.md and trailing" does not.
+        // Extension must not eat the trailing prose.
+        const string filePath = @"D:\file.md";
+        string line = $"Open {filePath} and trailing words";
+
+        bool Exists(string p) => p == filePath;
+        var matches = LinkDetector.FindAllLinkMatches(line, null, Exists);
+
+        Assert.Single(matches);
+        Assert.Equal(filePath, matches[0].Text);
+    }
+
+    [Fact]
+    public void FindAllLinkMatches_AbsolutePathWithSpaces_TrailingPeriodStripped()
+    {
+        const string filePath = @"D:\Outer Folder\file.md";
+        string line = $"See {filePath}.";
+
+        bool Exists(string p) => p == filePath;
+        var matches = LinkDetector.FindAllLinkMatches(line, null, Exists);
+
+        Assert.Single(matches);
+        Assert.Equal(filePath, matches[0].Text);
+        // EndCol should land before the trailing period
+        Assert.Equal(line.Length - 1, matches[0].EndCol);
+    }
+
+    [Fact]
+    public void FindAllLinkMatches_AbsolutePathWithSpaces_ClaimsFullRangeSoRelativeRegexDoesNotDoubleMatch()
+    {
+        // Without claiming the extended range, the relative-path regex would match
+        // "Outer Folder\nested\..." as a separate link.
+        const string fullPath = @"D:\Outer Folder\Inner Folder\nested\file.md";
+        string line = $"Created at {fullPath}.";
+
+        bool Exists(string p) => p == fullPath;
+        var matches = LinkDetector.FindAllLinkMatches(line, @"D:\repo", Exists);
+
+        Assert.Single(matches);
+        Assert.Equal(fullPath, matches[0].Text);
+    }
+
+    [Fact]
+    public void FindAllLinkMatches_AbsolutePathWithSpaces_NonExistentPath_FallsBackToNoSpaceMatch()
+    {
+        // If neither the no-space match nor any extension exists, behavior should
+        // match baseline (no-space match returned).
+        var matches = LinkDetector.FindAllLinkMatches(
+            @"Some D:\nonexistent\path here", null, NeverExists);
+
+        Assert.Single(matches);
+        Assert.Equal(@"D:\nonexistent\path", matches[0].Text);
+    }
+
+    [Fact]
+    public void DetectLinkAtPosition_AbsolutePathWithSpaces_CursorInExtension_ReturnsFullPath()
+    {
+        const string fullPath = @"D:\Outer Folder\file.md";
+        string line = $"Created at {fullPath}.";
+        int cursor = line.IndexOf("Folder", StringComparison.Ordinal) + 2;
+
+        bool Exists(string p) => p == fullPath;
+        var (text, type) = LinkDetector.DetectLinkAtPosition(line, cursor, null, Exists);
+
+        Assert.Equal(fullPath, text);
+        Assert.Equal(LinkDetector.LinkType.Path, type);
+    }
+
+    // ========================================================================
     // Unix Paths
     // ========================================================================
 
