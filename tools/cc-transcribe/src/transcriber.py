@@ -11,8 +11,11 @@ from typing import Optional
 
 from openai import OpenAI
 
-from .ffmpeg import extract_audio, get_video_duration
+from .ffmpeg import extract_audio, get_video_duration, split_audio_by_size
 from .screenshots import extract_screenshots, ScreenshotInfo
+
+
+WHISPER_MAX_UPLOAD_MB = 24.0
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +76,41 @@ def whisper_transcribe(audio_path: Path, language: Optional[str] = None) -> dict
     }
 
 
+def whisper_transcribe_chunked(
+    audio_paths: list[Path],
+    language: Optional[str] = None,
+) -> dict:
+    """Transcribe a list of audio chunks and stitch the results.
+
+    Segment timestamps are shifted by the cumulative duration of preceding
+    chunks (using each chunk's API-reported duration, not estimated split
+    length, so frame-alignment drift doesn't accumulate).
+    """
+    all_segments: list[dict] = []
+    text_parts: list[str] = []
+    cumulative_duration = 0.0
+
+    for idx, audio_path in enumerate(audio_paths, start=1):
+        logger.info(f"Transcribing chunk {idx}/{len(audio_paths)}: {audio_path.name}")
+        result = whisper_transcribe(audio_path, language)
+
+        for seg in result.get("segments", []):
+            all_segments.append({
+                "start": seg.get("start", 0.0) + cumulative_duration,
+                "end": seg.get("end", 0.0) + cumulative_duration,
+                "text": seg.get("text", ""),
+            })
+
+        text_parts.append(result.get("text", ""))
+        cumulative_duration += result.get("duration", 0.0)
+
+    return {
+        "text": " ".join(t for t in text_parts if t),
+        "segments": all_segments,
+        "duration": cumulative_duration,
+    }
+
+
 def segments_to_transcript(segments: list[dict]) -> str:
     """Convert segments to formatted transcript with timestamps."""
     lines = []
@@ -120,15 +158,27 @@ def transcribe_video(
     logger.info(f"Processing: {video_path.name}")
     logger.info(f"Duration: {int(duration//60)}m {int(duration%60)}s")
 
-    # Extract audio
+    # Extract audio (mono 64k mp3 — speech-optimized, keeps most videos under
+    # the Whisper API's 25 MB upload limit in a single call)
     logger.info("Extracting audio...")
     audio_path = output_dir / f"{video_path.stem}.mp3"
-    extract_audio(video_path, audio_path)
-    logger.info(f"Audio extracted: {audio_path.stat().st_size / 1024 / 1024:.1f} MB")
+    extract_audio(video_path, audio_path, bitrate="64k", mono=True)
+    audio_size_mb = audio_path.stat().st_size / 1024 / 1024
+    logger.info(f"Audio extracted: {audio_size_mb:.1f} MB")
 
-    # Transcribe
+    # Transcribe (auto-chunk if over Whisper's upload limit)
     logger.info("Transcribing (this may take a while)...")
-    result = whisper_transcribe(audio_path, language)
+    chunk_paths: list[Path] = []
+    if audio_size_mb > WHISPER_MAX_UPLOAD_MB:
+        logger.info(
+            f"Audio exceeds Whisper API limit ({WHISPER_MAX_UPLOAD_MB} MB), splitting..."
+        )
+        chunk_paths = split_audio_by_size(audio_path, max_size_mb=WHISPER_MAX_UPLOAD_MB)
+        logger.info(f"Split into {len(chunk_paths)} chunks")
+        result = whisper_transcribe_chunked(chunk_paths, language)
+    else:
+        result = whisper_transcribe(audio_path, language)
+
     segments = result.get("segments", [])
     transcript = segments_to_transcript(segments)
 
@@ -161,8 +211,11 @@ def transcribe_video(
             min_interval=screenshot_interval
         )
 
-    # Cleanup audio
+    # Cleanup audio (and any chunks created for the API limit)
     audio_path.unlink(missing_ok=True)
+    for chunk in chunk_paths:
+        if chunk != audio_path:
+            chunk.unlink(missing_ok=True)
 
     logger.info(f"Complete! Output: {output_dir}")
 
