@@ -164,9 +164,6 @@ public sealed class Session : IDisposable
     /// <summary>Name of the last selected tab (e.g. "Terminal", "Agent", "SourceControl"). Persisted across switches and restarts.</summary>
     public string? SelectedTabName { get; set; }
 
-    /// <summary>Opaque terminal state saved by TerminalControl on detach, restored on re-attach to preserve scrollback.</summary>
-    public object? TerminalSnapshot { get; set; }
-
     /// <summary>Queue of prompts the user wants to send later. Persisted across switches and restarts.</summary>
     public PromptQueue PromptQueue { get; } = new();
 

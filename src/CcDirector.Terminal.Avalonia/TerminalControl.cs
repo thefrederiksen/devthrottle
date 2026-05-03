@@ -62,18 +62,6 @@ public class TerminalControl : Control
         return _typefaceNormal;
     }
 
-    /// <summary>Snapshot of terminal visual state saved on detach, restored on re-attach to preserve scrollback.</summary>
-    private sealed class TerminalStateSnapshot
-    {
-        public required List<TerminalCell[]> Scrollback { get; init; }
-        public required TerminalCell[,] Cells { get; init; }
-        public required int Cols { get; init; }
-        public required int Rows { get; init; }
-        public required int ScrollOffset { get; init; }
-        public required bool UserScrolled { get; init; }
-        public required long BufferPosition { get; init; }
-    }
-
     // Link region for hover detection (uses Avalonia Rect)
     private readonly record struct LinkRegion(Rect Bounds, string Text, LinkDetector.LinkType Type);
     private readonly List<LinkRegion> _linkRegions = new();
@@ -281,63 +269,27 @@ public class TerminalControl : Control
         _session = session;
         _bufferPosition = 0;
         _scrollOffset = 0;
+        _userScrolled = false;
         _scrollback.Clear();
         _pathExistsCache.Clear();
 
         RecalculateGridSize();
 
-        // Try to restore saved terminal state (scrollback, cells, scroll position)
-        // so the user sees exactly what they had before switching away.
-        var snapshot = session.TerminalSnapshot as TerminalStateSnapshot;
-        bool restored = false;
-
-        if (snapshot != null && snapshot.Cols == _cols && snapshot.Rows == _rows)
-        {
-            _cells = snapshot.Cells;
-            _scrollback.AddRange(snapshot.Scrollback);
-            _scrollOffset = snapshot.ScrollOffset;
-            _userScrolled = snapshot.UserScrolled;
-            _bufferPosition = snapshot.BufferPosition;
-            _parser = new AnsiParser(_cells, _cols, _rows, _scrollback, ScrollbackLines, FileLog.Write);
-            restored = true;
-            FileLog.Write($"[TerminalControl] Restored snapshot: {_scrollback.Count} scrollback lines, offset={_scrollOffset}");
-        }
-        else
-        {
-            InitializeCells();
-            _parser = new AnsiParser(_cells, _cols, _rows, _scrollback, ScrollbackLines, FileLog.Write);
-        }
-
-        // Clear the snapshot now that we've consumed (or skipped) it
-        session.TerminalSnapshot = null;
-
-        // If the control hasn't been laid out yet (Bounds are 0),
-        // defer buffer parsing and poll timer until size change provides real dimensions.
-        // Parsing now would use the default 120x30 grid, causing text to appear at wrong positions.
+        // If the control hasn't been laid out yet (Bounds are 0), defer the
+        // rebuild until a size change provides real dimensions. Parsing at
+        // the default 120x30 grid would put characters in wrong positions
+        // and require a full re-replay anyway when the real size arrives.
         if (Bounds.Width <= 0 || Bounds.Height <= 0)
         {
             _pendingLayoutAttach = true;
-            // Advance buffer position past existing content so poll timer won't re-parse it
-            if (!restored && session.Buffer != null)
-            {
-                var (_, pos) = session.Buffer.GetWrittenSince(0);
-                _bufferPosition = pos;
-            }
+            EnsureCellsMatchGrid();
             FileLog.Write($"[TerminalControl] Attach deferred: waiting for layout, cols={_cols}, rows={_rows}");
             InvalidateVisual();
+            ScrollChanged?.Invoke(this, EventArgs.Empty);
             return;
         }
 
-        // Skip to end of buffer -- don't re-parse historical content.
-        // Re-parsing from byte 0 replays intermediate ink render states that leave
-        // stray characters in cells that were never properly cleared.
-        // Instead, start from current position and let SIGWINCH trigger Claude Code
-        // to redraw from scratch with clean output.
-        if (!restored && session.Buffer != null)
-        {
-            var (_, pos) = session.Buffer.GetWrittenSince(0);
-            _bufferPosition = pos;
-        }
+        RebuildFromBuffer();
 
         _pollTimer = new DispatcherTimer(DispatcherPriority.Render)
         {
@@ -353,28 +305,12 @@ public class TerminalControl : Control
 
         InvalidateVisual();
         ScrollChanged?.Invoke(this, EventArgs.Empty);
-        FileLog.Write($"[TerminalControl] Attach complete: cols={_cols}, rows={_rows}, restored={restored}, scrollback={_scrollback.Count}");
+        FileLog.Write($"[TerminalControl] Attach complete: cols={_cols}, rows={_rows}, scrollback={_scrollback.Count}");
     }
 
     public void Detach()
     {
         FileLog.Write($"[TerminalControl] Detach: sessionId={_session?.Id}, scrollback={_scrollback.Count}, offset={_scrollOffset}");
-
-        // Save terminal state so scrollback survives session switching
-        if (_session != null && _scrollback.Count > 0)
-        {
-            _session.TerminalSnapshot = new TerminalStateSnapshot
-            {
-                Scrollback = new List<TerminalCell[]>(_scrollback),
-                Cells = (TerminalCell[,])_cells.Clone(),
-                Cols = _cols,
-                Rows = _rows,
-                ScrollOffset = _scrollOffset,
-                UserScrolled = _userScrolled,
-                BufferPosition = _bufferPosition
-            };
-            FileLog.Write($"[TerminalControl] Saved snapshot: {_scrollback.Count} scrollback lines, cols={_cols}, rows={_rows}");
-        }
 
         _pollTimer?.Stop();
         _pollTimer = null;
@@ -386,40 +322,72 @@ public class TerminalControl : Control
     }
 
     /// <summary>
-    /// Force a complete terminal refresh by re-parsing the session buffer from scratch
-    /// and sending a resize signal to trigger the CLI app to redraw.
-    /// Call this when the control becomes visible after being hidden (tab switch).
+    /// Rebuild the cell grid and scrollback by replaying the entire PTY ring
+    /// buffer through a fresh ANSI parser at the current dimensions. The ring
+    /// holds the last ~2 MB of raw output, so this gives back scrollback that
+    /// survives any dimension change without juggling cached cell grids.
+    /// Caller must guarantee Bounds and _session.Buffer are valid.
+    /// </summary>
+    private void RebuildFromBuffer()
+    {
+        EnsureCellsMatchGrid();
+        _scrollback.Clear();
+        _scrollOffset = 0;
+        _userScrolled = false;
+        _pathExistsCache.Clear();
+
+        _parser = new AnsiParser(_cells, _cols, _rows, _scrollback, ScrollbackLines, FileLog.Write);
+
+        long replayedBytes = 0;
+        if (_session?.Buffer != null)
+        {
+            var (data, newPos) = _session.Buffer.GetWrittenSince(0);
+            if (data.Length > 0)
+                _parser.Parse(data);
+            _bufferPosition = newPos;
+            replayedBytes = data.Length;
+        }
+
+        FileLog.Write($"[TerminalControl] RebuildFromBuffer: cols={_cols}, rows={_rows}, replayedBytes={replayedBytes}, scrollback={_scrollback.Count}");
+    }
+
+    /// <summary>
+    /// Ensure the backing cell array's dimensions match _cols/_rows, then
+    /// reinitialize every cell to default. Call before allocating a parser
+    /// so the parser writes into a correctly-sized grid.
+    /// </summary>
+    private void EnsureCellsMatchGrid()
+    {
+        if (_cells.GetLength(0) != _cols || _cells.GetLength(1) != _rows)
+            _cells = new TerminalCell[_cols, _rows];
+
+        InitializeCells();
+    }
+
+    /// <summary>
+    /// Rebuild the terminal display by replaying the session buffer through a
+    /// fresh parser, then send SIGWINCH so the running CLI redraws to current
+    /// dimensions. User-facing escape hatch when the display or scrollbar
+    /// gets into a wedged state.
     /// </summary>
     public void ForceRefresh()
     {
         FileLog.Write($"[TerminalControl] ForceRefresh: sessionId={_session?.Id}");
 
-        if (_session?.Buffer == null || _parser == null)
+        if (_session?.Buffer == null)
             return;
 
         if (Bounds.Width <= 0 || Bounds.Height <= 0)
             return;
 
-        // Clear the grid and skip to end of buffer -- don't re-parse historical content.
-        // Re-parsing from byte 0 replays intermediate ink render states that leave
-        // stray characters in cells that were never properly cleared.
-        // Instead, start fresh and let SIGWINCH trigger Claude Code to redraw cleanly.
-        InitializeCells();
-        _scrollback.Clear();
-        _scrollOffset = 0;
-        _parser.UpdateGrid(_cells, _cols, _rows);
+        RebuildFromBuffer();
 
-        var (_, newPos) = _session.Buffer.GetWrittenSince(0);
-        _bufferPosition = newPos;
-
-        // Send a resize with current dimensions to trigger SIGWINCH -> CLI full redraw
         _session.Resize((short)_cols, (short)_rows);
 
-        _pathExistsCache.Clear();
         InvalidateVisual();
         ScrollChanged?.Invoke(this, EventArgs.Empty);
 
-        FileLog.Write($"[TerminalControl] ForceRefresh complete: cols={_cols}, rows={_rows}");
+        FileLog.Write($"[TerminalControl] ForceRefresh complete: cols={_cols}, rows={_rows}, scrollback={_scrollback.Count}");
     }
 
     /// <summary>
@@ -799,36 +767,15 @@ public class TerminalControl : Control
         int oldRows = _rows;
         RecalculateGridSize();
 
-        if (_cols != oldCols || _rows != oldRows)
-        {
-            var oldCells = _cells;
-            _cells = new TerminalCell[_cols, _rows];
-            InitializeCells();
-
-            if (!_pendingLayoutAttach)
-            {
-                // Normal resize: copy existing content
-                int copyC = Math.Min(oldCols, _cols);
-                int copyR = Math.Min(oldRows, _rows);
-                for (int r = 0; r < copyR; r++)
-                    for (int c = 0; c < copyC; c++)
-                        _cells[c, r] = oldCells[c, r];
-            }
-            // If _pendingLayoutAttach, DON'T copy old cells - they were for wrong dimensions
-
-            _parser?.UpdateGrid(_cells, _cols, _rows);
-            _session?.Resize((short)_cols, (short)_rows);
-            InvalidateVisual();
-            ScrollChanged?.Invoke(this, EventArgs.Empty);
-        }
-
-        // Complete deferred attach now that we have real dimensions
+        // Complete deferred attach: bounds just became valid, so build the
+        // grid fresh from the PTY buffer at the real dimensions.
         if (_pendingLayoutAttach)
         {
             _pendingLayoutAttach = false;
             FileLog.Write($"[TerminalControl] Deferred attach completing: cols={_cols}, rows={_rows}");
 
-            // Start poll timer - new content from Claude's redraw will arrive here
+            RebuildFromBuffer();
+
             _pollTimer = new DispatcherTimer(DispatcherPriority.Render)
             {
                 Interval = TimeSpan.FromMilliseconds(PollIntervalMs)
@@ -836,6 +783,32 @@ public class TerminalControl : Control
             _pollTimer.Tick += PollTimer_Tick;
             _pollTimer.Start();
 
+            _session?.Resize((short)_cols, (short)_rows);
+
+            InvalidateVisual();
+            // Fire after Bounds (and therefore ViewportRows) have a real value
+            // so the host scrollbar reads correct viewport size on the first
+            // update -- previously this happened during Attach when Bounds=0
+            // and the thumb came out invisible until the next manual resize.
+            ScrollChanged?.Invoke(this, EventArgs.Empty);
+            return;
+        }
+
+        if (_cols != oldCols || _rows != oldRows)
+        {
+            var oldCells = _cells;
+            _cells = new TerminalCell[_cols, _rows];
+            InitializeCells();
+
+            int copyC = Math.Min(oldCols, _cols);
+            int copyR = Math.Min(oldRows, _rows);
+            for (int r = 0; r < copyR; r++)
+                for (int c = 0; c < copyC; c++)
+                    _cells[c, r] = oldCells[c, r];
+
+            _parser?.UpdateGrid(_cells, _cols, _rows);
+            _session?.Resize((short)_cols, (short)_rows);
+            InvalidateVisual();
             ScrollChanged?.Invoke(this, EventArgs.Empty);
         }
     }
