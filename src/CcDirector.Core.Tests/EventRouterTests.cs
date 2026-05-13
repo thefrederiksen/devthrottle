@@ -15,7 +15,7 @@ public class EventRouterTests : IDisposable
     {
         var options = new AgentOptions
         {
-            ClaudePath = "cmd.exe",
+            ClaudePath = TestShell.Path,
             DefaultBufferSizeBytes = 65536,
             GracefulShutdownTimeoutSeconds = 2
         };

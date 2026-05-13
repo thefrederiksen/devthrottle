@@ -13,7 +13,7 @@ public class SessionManagerTests : IDisposable
     {
         var options = new AgentOptions
         {
-            ClaudePath = "cmd.exe", // Use cmd.exe for testing - it's always available
+            ClaudePath = TestShell.Path, // cmd.exe on Windows, /bin/sh elsewhere
             DefaultBufferSizeBytes = 65536,
             GracefulShutdownTimeoutSeconds = 2
         };

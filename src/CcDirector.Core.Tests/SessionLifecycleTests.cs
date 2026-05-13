@@ -8,7 +8,7 @@ namespace CcDirector.Core.Tests;
 
 /// <summary>
 /// Tests for session lifecycle: create, run, kill, dispose, and state transitions.
-/// Uses cmd.exe as a lightweight stand-in for claude.exe.
+/// Uses cmd.exe (Windows) or /bin/sh (Unix) as a lightweight stand-in for claude.exe.
 /// </summary>
 public class SessionLifecycleTests : IDisposable
 {
@@ -18,7 +18,7 @@ public class SessionLifecycleTests : IDisposable
     {
         var options = new AgentOptions
         {
-            ClaudePath = "cmd.exe",
+            ClaudePath = TestShell.Path,
             DefaultBufferSizeBytes = 65536,
             GracefulShutdownTimeoutSeconds = 2
         };
