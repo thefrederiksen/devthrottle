@@ -450,8 +450,33 @@ def cmd_type(args: argparse.Namespace) -> None:
     try:
         loc = page.locator(args.selector).first
         loc.press_sequentially(args.text, delay=args.delay, timeout=args.timeout * 1000)
-        actual = loc.input_value()
+        # input_value() only works on <input>/<textarea>/<select>. For
+        # contenteditable elements it raises. Typing already succeeded by
+        # this point, so swallow the inspection failure and report ok.
+        try:
+            actual = loc.input_value()
+        except Exception:
+            actual = None
         _ok({"typed": args.text, "value": actual})
+    finally:
+        pw.stop()
+
+
+def cmd_set_files(args: argparse.Namespace) -> None:
+    """Attach files to a file input (or any element bound to one).
+
+    Uses Playwright's set_input_files which handles both <input type=file>
+    and elements that expose a hidden file input via the file-chooser API.
+    Multiple --path flags attach multiple files."""
+    pw, browser, ctx, page = _connect(args.connection)
+    try:
+        loc = page.locator(args.selector).first
+        files = [str(Path(p)) for p in args.path]
+        for f in files:
+            if not Path(f).exists():
+                raise SystemExit(f"File does not exist: {f}")
+        loc.set_input_files(files, timeout=args.timeout * 1000)
+        _ok({"set_files": files, "selector": args.selector})
     finally:
         pw.stop()
 
@@ -691,6 +716,16 @@ def main() -> None:
     s = sub.add_parser("evaluate", help="Run JavaScript and return the result")
     s.add_argument("--fn", required=True)
     s.set_defaults(func=cmd_evaluate)
+
+    s = sub.add_parser("set-files", help=(
+        "Attach files to a file input or file-chooser-bound element"
+    ))
+    s.add_argument("--selector", required=True)
+    s.add_argument("--path", required=True, action="append", help=(
+        "Path to a file to attach. Repeat for multiple files."
+    ))
+    s.add_argument("--timeout", type=int, default=15)
+    s.set_defaults(func=cmd_set_files)
 
     s = sub.add_parser("screenshot", help="Capture screenshot")
     s.add_argument("--output")
