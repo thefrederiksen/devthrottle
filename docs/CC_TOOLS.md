@@ -33,6 +33,7 @@ Node.js and .NET tools include both `.cmd` (Windows) and extensionless (Git Bash
 | Tool | Description | Requirements |
 |------|-------------|--------------|
 | cc-browser | Browser automation with persistent connections and navigation skills | Chrome Extension |
+| cc-playwright | Trusted-event browser CLI for React form fills, signin/OTP, dropdowns | Python, Playwright, Brave |
 | cc-reddit | Reddit automation with human-like delays | Playwright, cc-browser |
 | cc-spotify | Spotify playback control via browser | cc-browser |
 | cc-crawl4ai | AI-ready web crawler to clean markdown | Playwright browsers |
@@ -350,6 +351,56 @@ cc-browser wait --selector ".done"
 **LinkedIn:** Use `cc-browser connections open linkedin` to launch, then use cc-browser commands with the LinkedIn navigation skill for site-specific selectors and workflows. See `cc-browser skills show linkedin`.
 
 **Note:** NEVER use cc-browser directly with Reddit. Use cc-reddit instead.
+
+---
+
+### cc-playwright
+
+Playwright-backed browser CLI. Trusted-event sibling to cc-browser for sites that reject untrusted CDP events (Luma, Stripe, react-hook-form). Launches its own Brave instance with `--remote-debugging-port` and connects via Playwright's `connect_over_cdp`, which produces `isTrusted=true` events that React forms accept.
+
+```bash
+# Lifecycle (per connection)
+cc-playwright start                       # Launch Brave, auto-allocate debug port
+cc-playwright stop                        # Kill this connection's Brave
+cc-playwright status                      # State for the current connection
+cc-playwright list                        # All connections and their state
+
+# Navigation
+cc-playwright navigate --url "https://example.com"
+cc-playwright info                        # Current URL, title, viewport
+cc-playwright tabs
+cc-playwright new-tab --url "https://example.com"
+
+# Interactions (trusted events)
+cc-playwright click --selector "button[type=submit]"
+cc-playwright click --text "Continue"
+cc-playwright click --role "button" --text "Submit"
+cc-playwright fill --selector "input[name=email]" --value "you@example.com"
+cc-playwright type --selector "input" --text "abc" --delay 50
+cc-playwright press --key Enter
+cc-playwright select --selector "select#country" --label "Canada"
+cc-playwright check --selector "input[type=checkbox]"
+cc-playwright set-files --selector "input[type=file]" --path "C:\\path\\to\\file.pdf"
+
+# Inspection
+cc-playwright snapshot                    # Interactive elements with coordinates
+cc-playwright evaluate --fn "() => document.title"
+cc-playwright screenshot [--output file.png] [--full-page]
+cc-playwright wait --selector ".loaded"
+cc-playwright wait --networkidle
+```
+
+**Named connections:** the global `--connection / -c <name>` flag (or `CC_PLAYWRIGHT_CONNECTION` env var) selects which Brave instance the command targets. Each connection auto-allocates its own port and state file, so multiple Brave instances can run side by side.
+
+```bash
+cc-playwright --connection linkedin start
+cc-playwright --connection linkedin navigate --url https://www.linkedin.com/feed/
+```
+
+**When to use which:**
+- Use **cc-browser** when you need persistent connections, your existing Brave session/cookies, or named workspaces.
+- Use **cc-playwright** when filling React-controlled forms, signin/OTP flows, payment pages up to card entry, dropdowns, file uploads, or any flow where cc-browser's clicks/fills silently fail because of `isTrusted` checks.
+- Both can run concurrently. Named cc-playwright connections share cookies with the matching cc-browser connection under `%LOCALAPPDATA%\cc-director\connections\<name>`; the implicit `default` connection uses its own profile at `%LOCALAPPDATA%\cc-playwright\profile`.
 
 ---
 

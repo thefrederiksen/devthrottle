@@ -74,6 +74,14 @@
       "requirements": ["Node.js", "Playwright"]
     },
     {
+      "name": "cc-playwright",
+      "category": "web-social",
+      "type": "python",
+      "description": "Playwright-backed browser CLI - trusted-event sibling to cc-browser for React form fills, signin/OTP flows, and dropdown selection",
+      "built": true,
+      "requirements": ["Python 3.10+", "Playwright", "Brave (Chromium)"]
+    },
+    {
       "name": "cc-reddit",
       "category": "web-social",
       "type": "python",
