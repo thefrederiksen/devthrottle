@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 import sqlite3
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -65,6 +66,12 @@ CREATE TABLE IF NOT EXISTS communications (
     facebook_specific TEXT,
     whatsapp_specific TEXT,
     youtube_specific TEXT,
+
+    -- First comment (LinkedIn/IG/FB/YouTube convention: author drops a
+    -- CTA, link, or hashtags as the first comment right after posting)
+    first_comment TEXT,
+    first_comment_posted_at TEXT,
+    first_comment_url TEXT,
 
     -- Other
     recipient TEXT,  -- JSON object
@@ -139,6 +146,9 @@ class Database:
             ("whatsapp_specific", "TEXT"),
             ("youtube_specific", "TEXT"),
             ("reason", "TEXT"),
+            ("first_comment", "TEXT"),
+            ("first_comment_posted_at", "TEXT"),
+            ("first_comment_url", "TEXT"),
         ]
 
         for col_name, col_type in new_columns:
@@ -151,6 +161,92 @@ class Database:
                 pass
 
         self.conn.commit()
+        # One-time backfill: parse the legacy "First comment to add immediately
+        # after posting:" prefix out of `notes` into the new first_comment field
+        # so historical items get the field populated. Idempotent.
+        self._backfill_first_comments_from_notes()
+
+    # Pattern used historically in `notes` to encode a follow-up comment
+    # before first_comment was a first-class field. Captures everything
+    # after the prefix (case-insensitive) up to end of notes.
+    _FIRST_COMMENT_NOTES_RE = re.compile(
+        r"first\s+comment\s+to\s+add\s+immediately\s+after\s+posting:\s*(.+)",
+        re.IGNORECASE | re.DOTALL,
+    )
+
+    def _backfill_first_comments_from_notes(self) -> int:
+        """Populate first_comment from legacy notes-encoded comments.
+
+        Looks for items where first_comment is NULL but notes contain the
+        "First comment to add immediately after posting: ..." prefix, and
+        copies the comment body into first_comment. Notes is left intact
+        (non-destructive backfill -- review can still see original context).
+
+        Returns the number of items updated. Idempotent.
+        """
+        if self.conn is None:
+            raise RuntimeError("Database not connected")
+
+        cursor = self.conn.execute(
+            "SELECT id, notes FROM communications "
+            "WHERE first_comment IS NULL AND notes IS NOT NULL AND notes != ''"
+        )
+        rows = cursor.fetchall()
+        updated = 0
+        for row in rows:
+            match = self._FIRST_COMMENT_NOTES_RE.search(row["notes"])
+            if not match:
+                continue
+            comment = match.group(1).strip()
+            if not comment:
+                continue
+            self.conn.execute(
+                "UPDATE communications SET first_comment = ? WHERE id = ?",
+                (comment, row["id"]),
+            )
+            updated += 1
+        if updated:
+            self.conn.commit()
+            logger.info("Backfilled first_comment from notes for %d item(s)", updated)
+        return updated
+
+    def update_first_comment_state(
+        self,
+        ticket_number: int,
+        posted_at: Optional[str] = None,
+        comment_url: Optional[str] = None,
+        comment_text: Optional[str] = None,
+    ) -> bool:
+        """Update first_comment fields without touching the post's status.
+
+        Use after the comment lands under a posted item. `posted_at` is the
+        ISO timestamp of when the comment was published; `comment_url` is
+        the permalink if the platform provides one; `comment_text` is only
+        passed when adding/changing the comment body itself.
+        """
+        if self.conn is None:
+            raise RuntimeError("Database not connected")
+
+        fields: List[str] = []
+        values: List[Any] = []
+        if comment_text is not None:
+            fields.append("first_comment = ?")
+            values.append(comment_text)
+        if posted_at is not None:
+            fields.append("first_comment_posted_at = ?")
+            values.append(posted_at)
+        if comment_url is not None:
+            fields.append("first_comment_url = ?")
+            values.append(comment_url)
+        if not fields:
+            return False
+        values.append(ticket_number)
+        self.conn.execute(
+            f"UPDATE communications SET {', '.join(fields)} WHERE ticket_number = ?",
+            values,
+        )
+        self.conn.commit()
+        return self.conn.total_changes > 0
 
     def close(self) -> None:
         """Close database connection."""
@@ -214,8 +310,9 @@ class Database:
                 linkedin_specific, twitter_specific, reddit_specific,
                 email_specific, article_specific,
                 facebook_specific, whatsapp_specific, youtube_specific,
-                recipient, thread_content
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                recipient, thread_content,
+                first_comment, first_comment_posted_at, first_comment_url
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 item.id,
@@ -256,6 +353,9 @@ class Database:
                 youtube_json,
                 recipient_json,
                 thread_json,
+                item.first_comment,
+                item.first_comment_posted_at,
+                item.first_comment_url,
             ),
         )
         self.conn.commit()

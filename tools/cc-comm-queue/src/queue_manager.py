@@ -181,6 +181,26 @@ class QueueManager:
             posted_url=posted_url,
         )
 
+    def mark_first_comment_posted(
+        self,
+        ticket_number: int,
+        comment_url: Optional[str] = None,
+        comment_text: Optional[str] = None,
+    ) -> bool:
+        """Record that the first_comment has been published.
+
+        Sets first_comment_posted_at to now. Optionally updates the comment
+        text (if it changed at post time) and the comment URL (permalink).
+        Does NOT touch the parent post's status.
+        """
+        from datetime import datetime
+        return self.db.update_first_comment_state(
+            ticket_number,
+            posted_at=datetime.now().isoformat(),
+            comment_url=comment_url,
+            comment_text=comment_text,
+        )
+
     def mark_error(self, ticket_number: int, error_reason: str, error_by: str = "cc_director") -> bool:
         """Mark a content item as error.
 

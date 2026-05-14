@@ -225,6 +225,15 @@ class ContentItem(BaseModel):
     posted_url: Optional[str] = None
     post_id: Optional[str] = None
 
+    # First comment (LinkedIn / Instagram / Facebook / YouTube convention:
+    # author drops a CTA, link, or hashtags as the first comment immediately
+    # after posting, to dodge the algorithm's penalty on outbound links in
+    # the body and to seed engagement). Optional; only set if the post is
+    # designed to ship with a follow-up comment.
+    first_comment: Optional[str] = None
+    first_comment_posted_at: Optional[str] = None
+    first_comment_url: Optional[str] = None
+
     # Dispatch fields
     send_timing: SendTiming = SendTiming.ASAP
     scheduled_for: Optional[str] = None  # ISO datetime, only if send_timing == SCHEDULED

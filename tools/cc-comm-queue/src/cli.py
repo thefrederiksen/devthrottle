@@ -120,6 +120,7 @@ def add(
     tags: Optional[str] = typer.Option(None, "--tags", "-t", help="Comma-separated tags"),
     reason: Optional[str] = typer.Option(None, "--reason", "-r", help="Why this content was written this way -- context for the reviewer"),
     notes: Optional[str] = typer.Option(None, "--notes", "-n", help="Notes for reviewer"),
+    first_comment: Optional[str] = typer.Option(None, "--first-comment", "--fc", help="First comment to post immediately after the parent post (LinkedIn/IG/FB/YouTube convention -- often a CTA, link, or hashtags)"),
     created_by: Optional[str] = typer.Option(None, "--created-by", help="Agent/tool name that created this"),
     # LinkedIn-specific
     linkedin_visibility: str = typer.Option("public", "--linkedin-visibility", help="LinkedIn visibility: public, connections"),
@@ -279,6 +280,7 @@ def add(
             scheduled_for=scheduled_for,
             send_from=send_from.lower() if send_from else None,
             recipient=recipient,
+            first_comment=first_comment,
         )
     except Exception as e:
         if json_output:
@@ -499,6 +501,7 @@ def list_content(
     table.add_column("Type")
     table.add_column("Persona")
     table.add_column("Status", style="yellow")
+    table.add_column("+C", justify="center", width=3)  # first-comment indicator
     table.add_column("Content", width=40)
 
     for item in items[:limit]:
@@ -514,12 +517,23 @@ def list_content(
         }.get(item.get("status", ""), "")
         status_end = status_style.replace("[", "[/") if status_style else ""
 
+        # First-comment indicator: blank if no comment, "[+]" if pending,
+        # "[*]" if posted. ASCII only -- no unicode glyphs.
+        if item.get("first_comment"):
+            if item.get("first_comment_posted_at"):
+                fc_indicator = "[dim][*][/dim]"
+            else:
+                fc_indicator = "[yellow][+][/yellow]"
+        else:
+            fc_indicator = ""
+
         table.add_row(
             item.get("id", "")[:8],
             item.get("platform", "-"),
             item.get("type", "-"),
             item.get("persona", "-"),
             f"{status_style}{item.get('status', '-')}{status_end}",
+            fc_indicator,
             content_preview,
         )
 
@@ -617,6 +631,17 @@ def show_content(
 
     # Content
     console.print(f"\n[cyan]Content:[/cyan]\n{item.get('content', '')}")
+
+    # First comment (rendered as its own labeled block so reviewers don't
+    # miss that the post ships with a follow-up comment)
+    if item.get("first_comment"):
+        if item.get("first_comment_posted_at"):
+            posted_marker = f" [dim](posted {item['first_comment_posted_at']})[/dim]"
+        else:
+            posted_marker = " [yellow](pending)[/yellow]"
+        console.print(f"\n[cyan]First comment:[/cyan]{posted_marker}\n{item['first_comment']}")
+        if item.get("first_comment_url"):
+            console.print(f"[dim]Comment URL: {item['first_comment_url']}[/dim]")
 
     # File path
     if item.get("_file_path"):
@@ -726,6 +751,49 @@ def mark_posted_cmd(
             console.print("[yellow]NOTE:[/yellow] Could not log to vault (no matching contact or cc-vault unavailable)")
     else:
         console.print(f"[red]ERROR:[/red] Failed to mark ticket #{ticket_number} as posted")
+        raise typer.Exit(1)
+
+
+@app.command("mark-comment-posted")
+def mark_comment_posted_cmd(
+    content_id: str = typer.Argument(..., help="Ticket number or content ID (can be partial)"),
+    url: Optional[str] = typer.Option(None, "--url", help="Permalink to the comment (if available)"),
+    text: Optional[str] = typer.Option(None, "--text", help="Update first_comment text (only if it changed at post time)"),
+):
+    """Mark the first_comment as posted under its parent post.
+
+    This does NOT change the parent post's status -- use mark-posted for
+    the parent. This only records that the follow-up comment landed.
+    """
+    qm = get_queue_manager()
+
+    item = None
+    ticket_number = None
+    if content_id.isdigit():
+        ticket_number = int(content_id)
+        item = qm.get_content_by_ticket(ticket_number)
+    if not item:
+        item = qm.get_content_by_id(content_id)
+        if item:
+            ticket_number = item.get("ticket_number")
+
+    if not item:
+        console.print(f"[red]ERROR:[/red] Content not found: {content_id}")
+        raise typer.Exit(1)
+    if ticket_number is None:
+        console.print("[red]ERROR:[/red] Item has no ticket number")
+        raise typer.Exit(1)
+    if not item.get("first_comment") and not text:
+        console.print(f"[red]ERROR:[/red] Item #{ticket_number} has no first_comment to mark posted. Pass --text to set it now.")
+        raise typer.Exit(1)
+
+    success = qm.mark_first_comment_posted(ticket_number, comment_url=url, comment_text=text)
+    if success:
+        console.print(f"[green]OK:[/green] Marked first comment for ticket #{ticket_number} as posted")
+        if url:
+            console.print(f"      URL: {url}")
+    else:
+        console.print(f"[red]ERROR:[/red] Failed to update first_comment state for ticket #{ticket_number}")
         raise typer.Exit(1)
 
 
