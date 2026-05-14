@@ -32,7 +32,7 @@
                 <!-- Version at bottom -->
                 <TextBlock x:Name="VersionText"
                            DockPanel.Dock="Bottom"
-                           Text="v0.3.0"
+                           Text="v0.3.1"
                            Foreground="#666666"
                            FontSize="11"
                            Margin="0,0,0,4" />
