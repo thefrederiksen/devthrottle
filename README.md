@@ -23,7 +23,7 @@ Pre-built binaries for both Windows and macOS are built automatically on every r
 | Download | Description |
 |----------|-------------|
 | **[cc-director-setup-win-x64.exe](https://github.com/thefrederiksen/cc-director/releases/latest/download/cc-director-setup-win-x64.exe)** | Installer wizard (recommended -- downloads and installs everything) |
-| **[cc-director-win-x64.exe](https://github.com/thefrederiksen/cc-director/releases/latest/download/cc-director-win-x64.exe)** | Main application (requires [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0)) |
+| **[cc-director-win-x64.exe](https://github.com/thefrederiksen/cc-director/releases/latest/download/cc-director-win-x64.exe)** | Main application (self-contained, no .NET runtime needed) |
 
 ### macOS (Apple Silicon)
 

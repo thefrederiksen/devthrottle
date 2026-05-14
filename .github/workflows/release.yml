@@ -10,8 +10,10 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------
-  # Job 1: Build the main CC Director WPF app (Windows)
+  # Job 1: Build the main CC Director Avalonia app (Windows)
   # ---------------------------------------------------------------
+  # CcDirector.Wpf was archived in commit c557e58c -- the Avalonia app
+  # is now the canonical main app for both Windows and macOS.
   build-director-win:
     name: Build CC Director (Windows)
     runs-on: windows-latest
@@ -24,34 +26,18 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
-      - name: Restore dependencies
-        run: dotnet restore cc-director.sln
-
-      # Tests run in CI on every push -- no need to re-run here.
-      # Three-step build to work around .NET 10 WPF SDK bugs
-      # (see scripts/release.ps1 for details)
-      - name: Pre-build Core dependency
-        run: dotnet build src/CcDirector.Core/CcDirector.Core.csproj -c Release --nologo -v q
-
-      - name: Build WPF with RID
-        run: dotnet build src/CcDirector.Wpf/CcDirector.Wpf.csproj -c Release -r win-x64 --self-contained false --nologo -v q
-
-      - name: Publish single-file executable
+      - name: Publish for Windows x64
         run: >
-          dotnet msbuild src/CcDirector.Wpf/CcDirector.Wpf.csproj
-          -t:Publish
-          -p:Configuration=Release
-          -p:RuntimeIdentifier=win-x64
-          -p:SelfContained=false
+          dotnet publish src/CcDirector.Avalonia/CcDirector.Avalonia.csproj
+          -c Release -r win-x64 --self-contained true
           -p:PublishSingleFile=true
           -p:IncludeNativeLibrariesForSelfExtract=true
-          -p:NoBuild=true
 
       - name: Upload cc-director artifact
         uses: actions/upload-artifact@v4
         with:
           name: cc-director-win
-          path: src/CcDirector.Wpf/bin/Release/net10.0-windows/win-x64/publish/cc-director.exe
+          path: src/CcDirector.Avalonia/bin/Release/net10.0/win-x64/publish/cc-director.exe
           if-no-files-found: error
 
   # ---------------------------------------------------------------
