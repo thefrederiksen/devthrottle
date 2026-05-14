@@ -347,19 +347,9 @@ public partial class NewSessionDialog : Window
     public bool EnableRemoteControl => RemoteControlCheckBox.IsChecked == true;
     public bool IsStudioMode => false;
 
-    /// <summary>The agent the user selected in the dropdown. Defaults to ClaudeCode.</summary>
-    public AgentKind SelectedAgentKind
-    {
-        get
-        {
-            if (AgentComboBox?.SelectedItem is ComboBoxItem item && item.Tag is string tag
-                && Enum.TryParse<AgentKind>(tag, out var kind))
-            {
-                return kind;
-            }
-            return AgentKind.ClaudeCode;
-        }
-    }
+    /// <summary>The agent the user selected via the radio buttons. Defaults to ClaudeCode.</summary>
+    public AgentKind SelectedAgentKind =>
+        AgentRadioPi?.IsChecked == true ? AgentKind.Pi : AgentKind.ClaudeCode;
 
     public NewSessionDialog(RepositoryRegistry? registry = null, SessionHistoryStore? historyStore = null)
     {
@@ -400,16 +390,27 @@ public partial class NewSessionDialog : Window
     // Parameterless constructor for XAML designer
     public NewSessionDialog() : this(null, null) { }
 
-    private void AgentComboBox_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    private void AgentRadio_CheckedChanged(object? sender, RoutedEventArgs e)
     {
-        // BypassPermissions / RemoteControl are Claude-specific flags. Disable them
-        // when the user picks Pi so the UI doesn't mislead.
-        var isClaude = SelectedAgentKind == AgentKind.ClaudeCode;
-        if (BypassPermissionsCheckBox is not null)
-            BypassPermissionsCheckBox.IsEnabled = isClaude;
-        if (RemoteControlCheckBox is not null)
-            RemoteControlCheckBox.IsEnabled = isClaude;
-        FileLog.Write($"[NewSessionDialog] AgentComboBox_SelectionChanged: agent={SelectedAgentKind}");
+        try
+        {
+            // Both radios fire when the selection swaps; only act on the one becoming checked
+            // to avoid running this twice per click.
+            if (sender is not RadioButton rb || rb.IsChecked != true) return;
+
+            // BypassPermissions / RemoteControl are Claude-specific flags. Disable them
+            // when the user picks Pi so the UI doesn't mislead.
+            var isClaude = SelectedAgentKind == AgentKind.ClaudeCode;
+            if (BypassPermissionsCheckBox is not null)
+                BypassPermissionsCheckBox.IsEnabled = isClaude;
+            if (RemoteControlCheckBox is not null)
+                RemoteControlCheckBox.IsEnabled = isClaude;
+            FileLog.Write($"[NewSessionDialog] AgentRadio_CheckedChanged: agent={SelectedAgentKind}");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[NewSessionDialog] AgentRadio_CheckedChanged FAILED: {ex.Message}");
+        }
     }
 
     private async Task LoadSessionHistoryAsync()

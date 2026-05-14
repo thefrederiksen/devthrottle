@@ -59,24 +59,26 @@
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
-                    <!-- Agent picker -->
-                    <Grid Grid.Row="0" Margin="0,0,0,12">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="200" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" Text="Agent:"
+                    <!-- Agent picker (radio buttons - both options visible) -->
+                    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,12">
+                        <TextBlock Text="Agent:"
                                    Foreground="#CCCCCC" FontSize="14"
-                                   VerticalAlignment="Center" Margin="0,0,12,0" />
-                        <ComboBox x:Name="AgentComboBox" Grid.Column="1"
-                                  Background="#1E1E1E" Foreground="#CCCCCC"
-                                  BorderBrush="#3C3C3C"
-                                  SelectedIndex="0"
-                                  SelectionChanged="AgentComboBox_SelectionChanged">
-                            <ComboBoxItem Content="Claude Code" Tag="ClaudeCode" />
-                            <ComboBoxItem Content="Pi" Tag="Pi" />
-                        </ComboBox>
-                    </Grid>
+                                   VerticalAlignment="Center" Margin="0,0,16,0" />
+                        <RadioButton x:Name="AgentRadioClaude" GroupName="Agent"
+                                     Content="Claude Code"
+                                     IsChecked="True"
+                                     Foreground="#CCCCCC" FontSize="14"
+                                     VerticalAlignment="Center"
+                                     Margin="0,0,24,0"
+                                     Tag="ClaudeCode"
+                                     IsCheckedChanged="AgentRadio_CheckedChanged" />
+                        <RadioButton x:Name="AgentRadioPi" GroupName="Agent"
+                                     Content="Pi"
+                                     Foreground="#CCCCCC" FontSize="14"
+                                     VerticalAlignment="Center"
+                                     Tag="Pi"
+                                     IsCheckedChanged="AgentRadio_CheckedChanged" />
+                    </StackPanel>
 
                     <TextBlock Grid.Row="1" Text="Select a repository:"
                                Foreground="#CCCCCC" FontSize="14" Margin="0,0,0,8" />

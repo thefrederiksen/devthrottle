@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using Avalonia.Media;
 using Avalonia.Threading;
+using CcDirector.Core.Agents;
 using CcDirector.Core.Claude;
 using CcDirector.Core.Sessions;
 
@@ -90,6 +91,23 @@ public class SessionViewModel : INotifyPropertyChanged
 
     public ISolidColorBrush ActivityBrush =>
         ActivityBrushes.TryGetValue(Session.ActivityState, out var brush) ? brush : Brushes.Gray;
+
+    // Agent badge for the session list. Colored pill shown next to the session name
+    // so it's visually obvious which agent CLI this session is running.
+    private static readonly ISolidColorBrush ClaudeAgentBrush = new SolidColorBrush(Color.FromRgb(0x25, 0x63, 0xEB));
+    private static readonly ISolidColorBrush PiAgentBrush = new SolidColorBrush(Color.FromRgb(0x8B, 0x5C, 0xF6));
+
+    public string AgentLabel => Session.AgentKind switch
+    {
+        AgentKind.Pi => "Pi",
+        _ => "Claude Code"
+    };
+
+    public ISolidColorBrush AgentBadgeBrush => Session.AgentKind switch
+    {
+        AgentKind.Pi => PiAgentBrush,
+        _ => ClaudeAgentBrush
+    };
 
     public string RepoPath => Session.RepoPath;
 
@@ -236,6 +254,8 @@ public class SessionViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(CustomColor));
         OnPropertyChanged(nameof(HasCustomColor));
         OnPropertyChanged(nameof(CustomColorBrush));
+        OnPropertyChanged(nameof(AgentLabel));
+        OnPropertyChanged(nameof(AgentBadgeBrush));
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
