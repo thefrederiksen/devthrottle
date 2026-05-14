@@ -1,3 +1,4 @@
+using CcDirector.Core.Agents;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Claude;
 using CcDirector.Core.Memory;
@@ -55,6 +56,11 @@ public sealed class Session : IDisposable
     private bool _disposed;
 
     public SessionBackendType BackendType { get; }
+
+    /// <summary>Which agent CLI this session is running (Claude Code, Pi, etc).
+    /// Defaults to ClaudeCode for sessions created via legacy code paths.</summary>
+    public AgentKind AgentKind { get; internal set; } = AgentKind.ClaudeCode;
+
     public Guid Id { get; }
     public string RepoPath { get; }
     public string WorkingDirectory { get; }

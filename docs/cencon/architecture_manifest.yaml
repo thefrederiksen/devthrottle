@@ -10,7 +10,7 @@ project:
   framework: ".NET 10"
   platform: "Windows 10/11 (WPF), Mac/Linux (experimental backend)"
 
-last_updated: "2026-05-03"
+last_updated: "2026-05-14"
 
 # C4 Level 1: System Context
 context:
@@ -193,11 +193,26 @@ containers:
     project: CcDirector.Core
     components:
       - name: SessionManager
-        description: Session lifecycle management
+        description: Session lifecycle management. Accepts an IAgent strategy to pick the underlying CLI (Claude Code or Pi).
         file: Sessions/SessionManager.cs
       - name: Session
-        description: Central session abstraction with activity state machine
+        description: Central session abstraction with activity state machine. Carries an AgentKind that identifies which CLI is bound to the session.
         file: Sessions/Session.cs
+      - name: IAgent
+        description: Strategy interface describing an agent CLI - executable path, argument conventions for new/resume, and capability flags (preassigned session IDs, Studio mode).
+        file: Agents/IAgent.cs
+      - name: AgentKind
+        description: Enum identifying which agent CLI a session is running (ClaudeCode or Pi). Persisted on the Session for restart restoration.
+        file: Agents/AgentKind.cs
+      - name: AgentLaunchSpec
+        description: Record returned from IAgent.BuildLaunchSpec - fully formed command-line args plus any Director-known preassigned session ID.
+        file: Agents/AgentLaunchSpec.cs
+      - name: ClaudeAgent
+        description: IAgent implementation for Claude Code. Builds --session-id / --resume args and prepends Studio mode wrapper.
+        file: Agents/ClaudeAgent.cs
+      - name: PiAgent
+        description: IAgent implementation for the Pi coding agent (pi.cmd). V1 spawns pi with user args - no preassigned session IDs, no Director-initiated resume, no Studio mode.
+        file: Agents/PiAgent.cs
       - name: ActivityState
         description: Claude cognitive state enum (Idle, Working, WaitingForInput, etc.)
         file: Sessions/ActivityState.cs
@@ -468,6 +483,16 @@ patterns:
       - Backends/ConPtyBackend.cs
       - Backends/PipeBackend.cs
       - Backends/UnixPtyBackend.cs
+
+  - name: Strategy Pattern (Agent)
+    implementation: IAgent interface with ClaudeAgent and PiAgent implementations
+    purpose: Abstracts which coding-agent CLI a session spawns (Claude Code, Pi, etc.) so SessionManager can build per-agent launch specs without hard-coding Claude conventions.
+    files:
+      - Agents/IAgent.cs
+      - Agents/AgentKind.cs
+      - Agents/AgentLaunchSpec.cs
+      - Agents/ClaudeAgent.cs
+      - Agents/PiAgent.cs
 
   - name: Observer Pattern
     implementation: Events (StatusChanged, OnActivityStateChanged)

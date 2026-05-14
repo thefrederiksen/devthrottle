@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using CcDirector.Core.Agents;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Storage;
 using CcDirector.Core.Utilities;
@@ -25,6 +26,11 @@ public class PersistedSession
     /// <summary>Backend type used by this session (defaults to ConPty for backward compatibility).</summary>
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public SessionBackendType BackendType { get; set; } = SessionBackendType.ConPty;
+
+    /// <summary>Which agent CLI this session was running. Defaults to ClaudeCode so
+    /// sessions persisted before this field existed deserialize correctly.</summary>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public AgentKind AgentKind { get; set; } = AgentKind.ClaudeCode;
 
     public DateTimeOffset CreatedAt { get; set; }
 

@@ -6,6 +6,7 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using CcDirector.Core.Agents;
 using CcDirector.Core.Claude;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Sessions;
@@ -346,6 +347,20 @@ public partial class NewSessionDialog : Window
     public bool EnableRemoteControl => RemoteControlCheckBox.IsChecked == true;
     public bool IsStudioMode => false;
 
+    /// <summary>The agent the user selected in the dropdown. Defaults to ClaudeCode.</summary>
+    public AgentKind SelectedAgentKind
+    {
+        get
+        {
+            if (AgentComboBox?.SelectedItem is ComboBoxItem item && item.Tag is string tag
+                && Enum.TryParse<AgentKind>(tag, out var kind))
+            {
+                return kind;
+            }
+            return AgentKind.ClaudeCode;
+        }
+    }
+
     public NewSessionDialog(RepositoryRegistry? registry = null, SessionHistoryStore? historyStore = null)
     {
         FileLog.Write("[NewSessionDialog] Constructor: initializing");
@@ -384,6 +399,18 @@ public partial class NewSessionDialog : Window
 
     // Parameterless constructor for XAML designer
     public NewSessionDialog() : this(null, null) { }
+
+    private void AgentComboBox_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        // BypassPermissions / RemoteControl are Claude-specific flags. Disable them
+        // when the user picks Pi so the UI doesn't mislead.
+        var isClaude = SelectedAgentKind == AgentKind.ClaudeCode;
+        if (BypassPermissionsCheckBox is not null)
+            BypassPermissionsCheckBox.IsEnabled = isClaude;
+        if (RemoteControlCheckBox is not null)
+            RemoteControlCheckBox.IsEnabled = isClaude;
+        FileLog.Write($"[NewSessionDialog] AgentComboBox_SelectionChanged: agent={SelectedAgentKind}");
+    }
 
     private async Task LoadSessionHistoryAsync()
     {

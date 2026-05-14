@@ -9,6 +9,7 @@ using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using CcDirector.Core.Agents;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Claude;
 using CcDirector.Core.Configuration;
@@ -326,12 +327,17 @@ public partial class MainWindow : Window
 
     // ==================== SESSION MANAGEMENT ====================
 
-    private SessionViewModel? CreateSession(string repoPath, string? resumeSessionId = null, string? claudeArgs = null)
+    private SessionViewModel? CreateSession(string repoPath, string? resumeSessionId = null, string? claudeArgs = null, AgentKind agentKind = AgentKind.ClaudeCode)
     {
-        FileLog.Write($"[MainWindow] CreateSession: repoPath={repoPath}, resume={resumeSessionId ?? "null"}, args={claudeArgs ?? "default"}");
+        FileLog.Write($"[MainWindow] CreateSession: repoPath={repoPath}, agent={agentKind}, resume={resumeSessionId ?? "null"}, args={claudeArgs ?? "default"}");
         try
         {
-            var session = _sessionManager.CreateSession(repoPath, claudeArgs, SessionBackendType.ConPty, resumeSessionId);
+            IAgent agent = agentKind switch
+            {
+                AgentKind.Pi => new PiAgent(_sessionManager.Options),
+                _ => new ClaudeAgent(_sessionManager.Options)
+            };
+            var session = _sessionManager.CreateSession(repoPath, agent, claudeArgs, SessionBackendType.ConPty, resumeSessionId);
             FileLog.Write($"[MainWindow] CreateSession: session created, id={session.Id}, pid={session.ProcessId}");
 
             var vm = new SessionViewModel(session);
@@ -1116,18 +1122,27 @@ public partial class MainWindow : Window
         }
 
         var resumeSessionId = dialog.SelectedResumeSessionId;
+        var agentKind = dialog.SelectedAgentKind;
 
-        // Build Claude arguments from dialog options
-        var claudeArgs = "";
-        if (dialog.EnableRemoteControl)
-            claudeArgs = "remote-control ";
-        if (dialog.BypassPermissions)
-            claudeArgs += "--dangerously-skip-permissions ";
-        claudeArgs = claudeArgs.Trim();
+        // Build agent arguments. Claude flags don't apply to Pi.
+        string agentArgs;
+        if (agentKind == AgentKind.ClaudeCode)
+        {
+            var claudeArgs = "";
+            if (dialog.EnableRemoteControl)
+                claudeArgs = "remote-control ";
+            if (dialog.BypassPermissions)
+                claudeArgs += "--dangerously-skip-permissions ";
+            agentArgs = claudeArgs.Trim();
+        }
+        else
+        {
+            agentArgs = string.Empty;
+        }
 
-        FileLog.Write($"[MainWindow] ShowNewSessionDialog: path={dialog.SelectedPath}, resume={resumeSessionId ?? "null"}, bypassPermissions={dialog.BypassPermissions}, remoteControl={dialog.EnableRemoteControl}");
+        FileLog.Write($"[MainWindow] ShowNewSessionDialog: path={dialog.SelectedPath}, agent={agentKind}, resume={resumeSessionId ?? "null"}, bypassPermissions={dialog.BypassPermissions}, remoteControl={dialog.EnableRemoteControl}");
 
-        var vm = CreateSession(dialog.SelectedPath, resumeSessionId, claudeArgs);
+        var vm = CreateSession(dialog.SelectedPath, resumeSessionId, agentArgs, agentKind);
         if (vm == null) return;
 
         // Track last used time for repository sorting

@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using CcDirector.Core.Agents;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Configuration;
 
@@ -36,40 +37,42 @@ public sealed class SessionManager : IDisposable
         return CreateSession(repoPath, claudeArgs, backendType, resumeSessionId: null);
     }
 
-    /// <summary>Create a session, optionally resuming a previous Claude session.</summary>
+    /// <summary>Create a session, optionally resuming a previous Claude session.
+    /// This overload preserves the original Claude-Code-only behavior and is the entry
+    /// point for legacy callers. New callers should prefer the IAgent overload.</summary>
     public Session CreateSession(string repoPath, string? claudeArgs, SessionBackendType backendType, string? resumeSessionId)
     {
+        return CreateSession(repoPath, new ClaudeAgent(_options), claudeArgs, backendType, resumeSessionId);
+    }
+
+    /// <summary>
+    /// Create a session driven by a specific <see cref="IAgent"/> (Claude Code, Pi, etc).
+    /// Agents that don't support preassigned session IDs (Pi) skip Claude's session-linking
+    /// step; Director still tracks the session via its own GUID and backend lifecycle.
+    /// </summary>
+    public Session CreateSession(string repoPath, IAgent agent, string? userArgs, SessionBackendType backendType, string? resumeSessionId)
+    {
+        if (agent is null)
+            throw new ArgumentNullException(nameof(agent));
         if (!Directory.Exists(repoPath))
             throw new DirectoryNotFoundException($"Repository path not found: {repoPath}");
 
         var id = Guid.NewGuid();
-        string args = claudeArgs ?? _options.DefaultClaudeArgs ?? string.Empty;
 
-        // For new sessions, generate a Claude session ID upfront via --session-id.
-        // This lets us link the Director session to the Claude session immediately
-        // without waiting for hooks or searching .jsonl files.
-        string? preassignedClaudeSessionId = null;
+        var studioMode = backendType == SessionBackendType.Studio;
+        var launchSpec = agent.BuildLaunchSpec(userArgs, resumeSessionId, studioMode);
+        var args = launchSpec.Arguments;
+        var preassignedClaudeSessionId = launchSpec.PreassignedSessionId;
 
         if (!string.IsNullOrEmpty(resumeSessionId))
-        {
-            // Resuming: use --resume flag with existing session ID
-            args = $"{args} --resume {resumeSessionId}".Trim();
-            _log?.Invoke($"Resuming Claude session {resumeSessionId}");
-        }
+            _log?.Invoke($"Resuming {agent.Kind} session {resumeSessionId}");
+        else if (!string.IsNullOrEmpty(preassignedClaudeSessionId))
+            _log?.Invoke($"New {agent.Kind} session with preassigned id {preassignedClaudeSessionId}");
         else
-        {
-            // New session: assign a Claude session ID upfront
-            preassignedClaudeSessionId = Guid.NewGuid().ToString();
-            args = $"{args} --session-id {preassignedClaudeSessionId}".Trim();
-            _log?.Invoke($"New session with preassigned ClaudeSessionId {preassignedClaudeSessionId}");
-        }
+            _log?.Invoke($"New {agent.Kind} session (no preassigned id)");
 
-        // Studio mode: prepend -p --output-format stream-json --verbose to args
-        if (backendType == SessionBackendType.Studio)
-        {
-            args = $"-p --output-format stream-json --verbose {args}".Trim();
+        if (studioMode)
             _log?.Invoke($"Studio mode args: {args}");
-        }
 
         ISessionBackend backend = backendType switch
         {
@@ -89,7 +92,10 @@ public sealed class SessionManager : IDisposable
             _ => throw new ArgumentOutOfRangeException(nameof(backendType))
         };
 
-        var session = new Session(id, repoPath, repoPath, claudeArgs, backend, backendType);
+        var session = new Session(id, repoPath, repoPath, userArgs, backend, backendType)
+        {
+            AgentKind = agent.Kind
+        };
 
         try
         {
@@ -100,24 +106,27 @@ public sealed class SessionManager : IDisposable
             };
 
             // Get initial terminal dimensions (default 120x30)
-            backend.Start(_options.ClaudePath, args, repoPath, 120, 30, envVars);
+            backend.Start(agent.ExecutablePath, args, repoPath, 120, 30, envVars);
             session.MarkRunning();
 
             _sessions[id] = session;
 
-            // Pre-populate ClaudeSessionId - either from --resume or --session-id.
-            // Ensures it's saved for crash recovery and registered in the lookup map
-            // so GetSessionByClaudeId can find it and hooks route correctly.
-            var knownClaudeId = resumeSessionId ?? preassignedClaudeSessionId;
-            if (!string.IsNullOrEmpty(knownClaudeId))
+            // Pre-populate ClaudeSessionId only for agents that support it (Claude).
+            // Pi creates its own session ID internally; Director leaves ClaudeSessionId null.
+            if (agent.SupportsPreassignedSessionId)
             {
-                session.ClaudeSessionId = knownClaudeId;
-                _claudeSessionMap[knownClaudeId] = id;
-                session.MarkAsPreVerified();
+                var knownClaudeId = resumeSessionId ?? preassignedClaudeSessionId;
+                if (!string.IsNullOrEmpty(knownClaudeId))
+                {
+                    session.ClaudeSessionId = knownClaudeId;
+                    _claudeSessionMap[knownClaudeId] = id;
+                    session.MarkAsPreVerified();
+                }
             }
+
             var resumeInfo = !string.IsNullOrEmpty(resumeSessionId) ? $", Resume={resumeSessionId[..8]}..." : "";
             var sessionIdInfo = !string.IsNullOrEmpty(preassignedClaudeSessionId) ? $", ClaudeSessionId={preassignedClaudeSessionId[..8]}..." : "";
-            _log?.Invoke($"Session {id} created for repo {repoPath} (PID {backend.ProcessId}, Backend={backendType}{resumeInfo}{sessionIdInfo}).");
+            _log?.Invoke($"Session {id} created for repo {repoPath} (Agent={agent.Kind}, PID {backend.ProcessId}, Backend={backendType}{resumeInfo}{sessionIdInfo}).");
 
             return session;
         }
@@ -378,6 +387,7 @@ public sealed class SessionManager : IDisposable
                 ExpectedFirstPrompt = s.ExpectedFirstPrompt ?? s.VerifiedFirstPrompt,
                 HistoryEntryId = s.HistoryEntryId,
                 BackendType = s.BackendType,
+                AgentKind = s.AgentKind,
                 RawStartupText = s.RawStartupText,
                 SelectedTabName = s.SelectedTabName,
                 QueuedPrompts = s.PromptQueue.HasItems
@@ -400,6 +410,8 @@ public sealed class SessionManager : IDisposable
             ps.Id, ps.RepoPath, ps.WorkingDirectory, ps.ClaudeArgs,
             embeddedBackend, ps.ClaudeSessionId, ps.ActivityState, ps.CreatedAt,
             ps.CustomName, ps.CustomColor, ps.PendingPromptText);
+
+        session.AgentKind = ps.AgentKind;
 
         // Set expected first prompt BEFORE verification so it can be compared
         session.ExpectedFirstPrompt = ps.ExpectedFirstPrompt;
