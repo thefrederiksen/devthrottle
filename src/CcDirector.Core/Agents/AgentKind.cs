@@ -13,5 +13,11 @@ public enum AgentKind
     ClaudeCode = 0,
 
     /// <summary>Pi coding agent (pi.cmd from @earendil-works/pi-coding-agent npm package).</summary>
-    Pi = 1
+    Pi = 1,
+
+    /// <summary>OpenAI Codex CLI (codex.cmd from @openai/codex npm package).</summary>
+    Codex = 2,
+
+    /// <summary>Google Gemini CLI (gemini.cmd from @google/gemini-cli npm package).</summary>
+    Gemini = 3
 }

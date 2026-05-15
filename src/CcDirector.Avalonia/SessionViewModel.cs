@@ -96,16 +96,22 @@ public class SessionViewModel : INotifyPropertyChanged
     // so it's visually obvious which agent CLI this session is running.
     private static readonly ISolidColorBrush ClaudeAgentBrush = new SolidColorBrush(Color.FromRgb(0x25, 0x63, 0xEB));
     private static readonly ISolidColorBrush PiAgentBrush = new SolidColorBrush(Color.FromRgb(0x8B, 0x5C, 0xF6));
+    private static readonly ISolidColorBrush CodexAgentBrush = new SolidColorBrush(Color.FromRgb(0x10, 0xA3, 0x7F));
+    private static readonly ISolidColorBrush GeminiAgentBrush = new SolidColorBrush(Color.FromRgb(0xEA, 0x43, 0x35));
 
     public string AgentLabel => Session.AgentKind switch
     {
         AgentKind.Pi => "Pi",
+        AgentKind.Codex => "Codex",
+        AgentKind.Gemini => "Gemini",
         _ => "Claude Code"
     };
 
     public ISolidColorBrush AgentBadgeBrush => Session.AgentKind switch
     {
         AgentKind.Pi => PiAgentBrush,
+        AgentKind.Codex => CodexAgentBrush,
+        AgentKind.Gemini => GeminiAgentBrush,
         _ => ClaudeAgentBrush
     };
 

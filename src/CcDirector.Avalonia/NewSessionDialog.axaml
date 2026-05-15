@@ -59,7 +59,7 @@
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
-                    <!-- Agent picker (radio buttons - both options visible) -->
+                    <!-- Agent picker (radio buttons - all options visible) -->
                     <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,12">
                         <TextBlock Text="Agent:"
                                    Foreground="#CCCCCC" FontSize="14"
@@ -76,7 +76,21 @@
                                      Content="Pi"
                                      Foreground="#CCCCCC" FontSize="14"
                                      VerticalAlignment="Center"
+                                     Margin="0,0,24,0"
                                      Tag="Pi"
+                                     IsCheckedChanged="AgentRadio_CheckedChanged" />
+                        <RadioButton x:Name="AgentRadioCodex" GroupName="Agent"
+                                     Content="Codex"
+                                     Foreground="#CCCCCC" FontSize="14"
+                                     VerticalAlignment="Center"
+                                     Margin="0,0,24,0"
+                                     Tag="Codex"
+                                     IsCheckedChanged="AgentRadio_CheckedChanged" />
+                        <RadioButton x:Name="AgentRadioGemini" GroupName="Agent"
+                                     Content="Gemini CLI"
+                                     Foreground="#CCCCCC" FontSize="14"
+                                     VerticalAlignment="Center"
+                                     Tag="Gemini"
                                      IsCheckedChanged="AgentRadio_CheckedChanged" />
                     </StackPanel>
 

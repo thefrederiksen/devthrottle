@@ -10,7 +10,7 @@ project:
   framework: ".NET 10"
   platform: "Windows 10/11 (WPF), Mac/Linux (experimental backend)"
 
-last_updated: "2026-05-14"
+last_updated: "2026-05-15"
 
 # C4 Level 1: System Context
 context:
@@ -193,7 +193,7 @@ containers:
     project: CcDirector.Core
     components:
       - name: SessionManager
-        description: Session lifecycle management. Accepts an IAgent strategy to pick the underlying CLI (Claude Code or Pi).
+        description: Session lifecycle management. Accepts an IAgent strategy to pick the underlying CLI (Claude Code, Pi, Codex, or Gemini).
         file: Sessions/SessionManager.cs
       - name: Session
         description: Central session abstraction with activity state machine. Carries an AgentKind that identifies which CLI is bound to the session.
@@ -202,7 +202,7 @@ containers:
         description: Strategy interface describing an agent CLI - executable path, argument conventions for new/resume, and capability flags (preassigned session IDs, Studio mode).
         file: Agents/IAgent.cs
       - name: AgentKind
-        description: Enum identifying which agent CLI a session is running (ClaudeCode or Pi). Persisted on the Session for restart restoration.
+        description: Enum identifying which agent CLI a session is running (ClaudeCode, Pi, Codex, Gemini). Persisted on the Session for restart restoration.
         file: Agents/AgentKind.cs
       - name: AgentLaunchSpec
         description: Record returned from IAgent.BuildLaunchSpec - fully formed command-line args plus any Director-known preassigned session ID.
@@ -213,6 +213,12 @@ containers:
       - name: PiAgent
         description: IAgent implementation for the Pi coding agent (pi.cmd). V1 spawns pi with user args - no preassigned session IDs, no Director-initiated resume, no Studio mode.
         file: Agents/PiAgent.cs
+      - name: CodexAgent
+        description: IAgent implementation for the OpenAI Codex CLI (codex.cmd from @openai/codex). V1 spawns codex with user args - no preassigned session IDs, no Director-initiated resume, no Studio mode.
+        file: Agents/CodexAgent.cs
+      - name: GeminiAgent
+        description: IAgent implementation for the Google Gemini CLI (gemini.cmd from @google/gemini-cli). V1 spawns gemini with user args - no preassigned session IDs, no Director-initiated resume, no Studio mode.
+        file: Agents/GeminiAgent.cs
       - name: ActivityState
         description: Claude cognitive state enum (Idle, Working, WaitingForInput, etc.)
         file: Sessions/ActivityState.cs
@@ -459,7 +465,7 @@ security_boundaries:
     description: IPC channels are local-only, no network exposure
     components:
       - 'Windows: \\.\pipe\CC_ClaudeDirector (Named Pipe)'
-      - 'Mac/Linux: ~/.cc-director/director.sock (Unix Socket)'
+      - 'Mac/Linux: ~/.cc_director/director.sock (Unix Socket)'
     security_note: IPC accessible only on local machine
 
   - id: file_system
@@ -485,14 +491,16 @@ patterns:
       - Backends/UnixPtyBackend.cs
 
   - name: Strategy Pattern (Agent)
-    implementation: IAgent interface with ClaudeAgent and PiAgent implementations
-    purpose: Abstracts which coding-agent CLI a session spawns (Claude Code, Pi, etc.) so SessionManager can build per-agent launch specs without hard-coding Claude conventions.
+    implementation: IAgent interface with ClaudeAgent, PiAgent, CodexAgent, and GeminiAgent implementations
+    purpose: Abstracts which coding-agent CLI a session spawns (Claude Code, Pi, OpenAI Codex, Google Gemini CLI) so SessionManager can build per-agent launch specs without hard-coding Claude conventions.
     files:
       - Agents/IAgent.cs
       - Agents/AgentKind.cs
       - Agents/AgentLaunchSpec.cs
       - Agents/ClaudeAgent.cs
       - Agents/PiAgent.cs
+      - Agents/CodexAgent.cs
+      - Agents/GeminiAgent.cs
 
   - name: Observer Pattern
     implementation: Events (StatusChanged, OnActivityStateChanged)

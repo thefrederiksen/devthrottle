@@ -14,19 +14,31 @@ public class AgentOptions
     /// Defaults to the standard npm global install location on Windows; users can override
     /// in config.json if pi is installed elsewhere.
     /// </summary>
-    public string PiPath { get; set; } = DefaultPiPath();
+    public string PiPath { get; set; } = DefaultNpmCliPath("pi");
 
-    private static string DefaultPiPath()
+    /// <summary>
+    /// Path to the OpenAI Codex CLI (<c>codex.cmd</c> from <c>@openai/codex</c>).
+    /// Defaults to the standard npm global install location on Windows.
+    /// </summary>
+    public string CodexPath { get; set; } = DefaultNpmCliPath("codex");
+
+    /// <summary>
+    /// Path to the Google Gemini CLI (<c>gemini.cmd</c> from <c>@google/gemini-cli</c>).
+    /// Defaults to the standard npm global install location on Windows.
+    /// </summary>
+    public string GeminiPath { get; set; } = DefaultNpmCliPath("gemini");
+
+    private static string DefaultNpmCliPath(string binName)
     {
-        // Windows npm global install: %APPDATA%\npm\pi.cmd
+        // Windows npm global install: %APPDATA%\npm\<bin>.cmd
         var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
         if (!string.IsNullOrEmpty(appData))
         {
-            var path = Path.Combine(appData, "npm", "pi.cmd");
-            FileLog.Write($"[AgentOptions] DefaultPiPath: resolved from %APPDATA% to {path}");
+            var path = Path.Combine(appData, "npm", binName + ".cmd");
+            FileLog.Write($"[AgentOptions] DefaultNpmCliPath({binName}): resolved from %APPDATA% to {path}");
             return path;
         }
-        FileLog.Write("[AgentOptions] DefaultPiPath: %APPDATA% unavailable, falling back to bare 'pi' (relying on PATH)");
-        return "pi";
+        FileLog.Write($"[AgentOptions] DefaultNpmCliPath({binName}): %APPDATA% unavailable, falling back to bare '{binName}' (relying on PATH)");
+        return binName;
     }
 }

@@ -348,8 +348,16 @@ public partial class NewSessionDialog : Window
     public bool IsStudioMode => false;
 
     /// <summary>The agent the user selected via the radio buttons. Defaults to ClaudeCode.</summary>
-    public AgentKind SelectedAgentKind =>
-        AgentRadioPi?.IsChecked == true ? AgentKind.Pi : AgentKind.ClaudeCode;
+    public AgentKind SelectedAgentKind
+    {
+        get
+        {
+            if (AgentRadioPi?.IsChecked == true) return AgentKind.Pi;
+            if (AgentRadioCodex?.IsChecked == true) return AgentKind.Codex;
+            if (AgentRadioGemini?.IsChecked == true) return AgentKind.Gemini;
+            return AgentKind.ClaudeCode;
+        }
+    }
 
     public NewSessionDialog(RepositoryRegistry? registry = null, SessionHistoryStore? historyStore = null)
     {
