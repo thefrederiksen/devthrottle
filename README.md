@@ -155,7 +155,7 @@ CcDirector.sln
 Claude Code ──hook──▶ PowerShell relay               Python relay script
                             │                                   │
                       Named pipe                         Unix domain socket
-                      (CC_ClaudeDirector)              (~/.cc-director/director.sock)
+                      (CC_ClaudeDirector)              (~/.cc_director/director.sock)
                             │                                   │
                             └──────────────┬────────────────────┘
                                            ▼
@@ -242,7 +242,7 @@ The core backend (`CcDirector.Core`) is now cross-platform. The UI layer (`CcDir
 
 3. **Test the Unix PTY manually** (if you're comfortable with C#):
    - The `UnixPtyBackend` should spawn processes with proper terminal emulation
-   - The `UnixSocketServer` should accept connections at `~/.cc-director/director.sock`
+   - The `UnixSocketServer` should accept connections at `~/.cc_director/director.sock`
    - The Python hook relay should send JSON to the socket
 
 4. **Report issues:**

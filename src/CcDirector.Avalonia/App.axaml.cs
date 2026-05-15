@@ -1,4 +1,5 @@
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -22,12 +23,12 @@ public partial class App : Application
     public List<RepositoryConfig> Repositories { get; private set; } = new();
     public RepositoryRegistry RepositoryRegistry { get; private set; } = null!;
     public RootDirectoryStore RootDirectoryStore { get; private set; } = null!;
-    public DirectorFileEventWatcher FileEventWatcher { get; private set; } = null!;
+    public IDirectorServer DirectorServer { get; private set; } = null!;
     public EventRouter EventRouter { get; private set; } = null!;
     public SessionStateStore SessionStateStore { get; private set; } = null!;
     public RecentSessionStore RecentSessionStore { get; private set; } = null!;
     public SessionHistoryStore SessionHistoryStore { get; private set; } = null!;
-    public NulFileWatcher NulFileWatcher { get; private set; } = null!;
+    public NulFileWatcher? NulFileWatcher { get; private set; }
     public BackupCleaner BackupCleaner { get; private set; } = null!;
     public ClaudeAccountStore ClaudeAccountStore { get; private set; } = null!;
     public ClaudeUsageService ClaudeUsageService { get; private set; } = null!;
@@ -122,16 +123,24 @@ public partial class App : Application
 
         UpdateSplashStatus(splash, "Starting event system...");
         EventRouter = new EventRouter(SessionManager, log);
-        FileEventWatcher = new DirectorFileEventWatcher(log);
-        FileEventWatcher.OnMessageReceived += EventRouter.Route;
-        FileEventWatcher.Start();
+        DirectorServer = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+            ? new DirectorFileEventWatcher(log)
+            : new UnixSocketServer(log);
+        DirectorServer.OnMessageReceived += EventRouter.Route;
+        DirectorServer.Start();
+        log($"Hook event server started: {DirectorServer.GetType().Name}");
 
         _ = InstallHooksAsync(log);
 
-        NulFileWatcher = new NulFileWatcher(log: log);
-        NulFileWatcher.OnNulFileDeleted = path => log($"Deleted NUL file: {path}");
-        NulFileWatcher.OnDeletionFailed = (path, ex) => log($"Failed to delete NUL file {path}: {ex.Message}");
-        NulFileWatcher.Start();
+        // NUL files are a Windows-only filesystem quirk (reserved device name).
+        // On Unix, "nul" is just a regular filename and creates no problems.
+        if (OperatingSystem.IsWindows())
+        {
+            NulFileWatcher = new NulFileWatcher(log: log);
+            NulFileWatcher.OnNulFileDeleted = path => log($"Deleted NUL file: {path}");
+            NulFileWatcher.OnDeletionFailed = (path, ex) => log($"Failed to delete NUL file {path}: {ex.Message}");
+            NulFileWatcher.Start();
+        }
 
         BackupCleaner = new BackupCleaner(log: log);
         BackupCleaner.OnCorruptedFileDeleted = path => log($"Deleted corrupted backup: {path}");
@@ -206,7 +215,7 @@ public partial class App : Application
             ClaudeUsageService?.Dispose();
             BackupCleaner?.Dispose();
             NulFileWatcher?.Dispose();
-            FileEventWatcher?.Dispose();
+            DirectorServer?.Dispose();
             EventRouter?.Dispose();
             SessionManager?.Dispose();
 

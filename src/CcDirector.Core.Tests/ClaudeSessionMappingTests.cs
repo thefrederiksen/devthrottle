@@ -158,14 +158,13 @@ public class ClaudeSessionMappingTests : IDisposable
     }
 
     [Fact]
-    public void GetTrackedProcessIds_ReturnsEmbeddedOnly()
+    public void GetTrackedProcessIds_ReturnsAllLiveSessionPids()
     {
-        // ConPty sessions should NOT be in tracked process IDs (that's for embedded mode)
         var session = _manager.CreateSession(Path.GetTempPath());
         Assert.True(session.ProcessId > 0);
 
         var pids = _manager.GetTrackedProcessIds();
-        Assert.Empty(pids); // ConPty, not Embedded
+        Assert.Contains(session.ProcessId, pids);
     }
 
     public void Dispose()

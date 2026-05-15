@@ -4,6 +4,9 @@ using Xunit;
 
 namespace CcDirector.Core.Tests;
 
+// Serializes execution with other tests that mutate the CC_DIRECTOR_ROOT env var.
+// xUnit runs tests in the same collection sequentially, preventing global-state interference.
+[Collection("CcStorageRoot")]
 public class SessionHistoryTests : IDisposable
 {
     private readonly string _tempDir;
