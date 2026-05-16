@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CC Director - Login</title>
+<style>
+  body {
+    margin: 0;
+    background: #1e1e1e;
+    color: #ddd;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .panel {
+    width: 100%;
+    max-width: 420px;
+    background: #252526;
+    border: 1px solid #3c3c3c;
+    border-radius: 6px;
+    padding: 24px;
+    margin: 16px;
+  }
+  h1 {
+    margin: 0 0 4px;
+    font-size: 18px;
+    letter-spacing: 0.5px;
+  }
+  p { color: #888; font-size: 13px; margin: 0 0 16px; line-height: 1.4; }
+  code {
+    background: #1e1e1e;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 12px;
+    color: #dcdcaa;
+  }
+  label { display: block; margin: 12px 0 4px; color: #888; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+  input[type=password] {
+    width: 100%;
+    background: #1e1e1e;
+    color: #ddd;
+    border: 1px solid #3c3c3c;
+    border-radius: 4px;
+    padding: 10px 12px;
+    font-size: 14px;
+    font-family: inherit;
+  }
+  button {
+    margin-top: 16px;
+    background: #0e639c;
+    color: white;
+    border: 0;
+    padding: 10px 18px;
+    border-radius: 4px;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 14px;
+    width: 100%;
+  }
+  button:hover { background: #1177bb; }
+  .error {
+    background: #4d1f1f;
+    color: #ffaaaa;
+    border: 1px solid #663030;
+    padding: 8px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    margin-bottom: 12px;
+    display: none;
+  }
+  .error.show { display: block; }
+</style>
+</head>
+<body>
+  <form class="panel" method="post" action="/login">
+    <h1>CC Director</h1>
+    <p>This Director is asking for its access token. It lives at <code>%LOCALAPPDATA%\cc-director\config\director\gateway-token.txt</code> on the machine running this Director.</p>
+    <div id="error" class="error">__ERROR__</div>
+    <label for="token">Token</label>
+    <input type="password" id="token" name="token" autocomplete="off" required autofocus />
+    <input type="hidden" name="next" value="__NEXT__" />
+    <button type="submit">Unlock</button>
+  </form>
+  <script>
+    var err = document.getElementById('error');
+    if (err.textContent === '__ERROR__' || err.textContent.trim() === '') err.style.display = 'none';
+  </script>
+</body>
+</html>

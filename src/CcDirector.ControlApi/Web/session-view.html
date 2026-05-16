@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CC Director - Session __SID__</title>
+<style>
+  body { margin: 0; background: #1e1e1e; color: #ddd; font-family: "Cascadia Code", Consolas, monospace; font-size: 13px; }
+  header { padding: 8px 12px; border-bottom: 1px solid #3c3c3c; display: flex; align-items: center; gap: 12px; background: #252526; position: sticky; top: 0; }
+  header a { color: #569cd6; text-decoration: none; font-family: -apple-system, sans-serif; font-size: 13px; }
+  header span.title { font-family: -apple-system, sans-serif; font-size: 13px; color: #888; }
+  header span.state { font-family: -apple-system, sans-serif; font-size: 11px; padding: 2px 6px; border-radius: 10px; color: #1e1e1e; background: #888; }
+  main { padding: 10px 14px; white-space: pre-wrap; word-break: break-word; }
+  form.send {
+    position: sticky;
+    bottom: 0;
+    background: #252526;
+    border-top: 1px solid #3c3c3c;
+    padding: 8px 12px;
+    display: flex;
+    gap: 8px;
+  }
+  form.send input[type=text] {
+    flex: 1;
+    background: #1e1e1e;
+    color: #ddd;
+    border: 1px solid #3c3c3c;
+    border-radius: 4px;
+    padding: 8px 10px;
+    font-family: inherit;
+    font-size: 13px;
+  }
+  form.send button {
+    background: #0e639c;
+    color: white;
+    border: 0;
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+<header>
+  <a href="/">&larr; Manager</a>
+  <span class="title">Session <code>__SID__</code></span>
+  <span class="state" id="state">?</span>
+</header>
+<main id="output">Loading...</main>
+<form class="send" onsubmit="return send(event)">
+  <input type="text" id="prompt" placeholder="Send to session... (Enter to submit)" autocomplete="off" />
+  <button type="submit">Send</button>
+</form>
+<script>
+(function () {
+  const SID = "__SID__";
+  const outEl = document.getElementById('output');
+  const stateEl = document.getElementById('state');
+  let cursor = 0;
+  let firstLoad = true;
+
+  async function poll() {
+    try {
+      const r = await fetch('/sessions/' + SID + '/buffer?since=' + cursor, { credentials: 'same-origin' });
+      if (!r.ok) { outEl.textContent = 'Lost connection (HTTP ' + r.status + ')'; return; }
+      const body = await r.json();
+      if (firstLoad || body.text) {
+        if (firstLoad) outEl.textContent = body.text || '';
+        else outEl.textContent += body.text || '';
+        firstLoad = false;
+        // Auto-scroll if user is near the bottom
+        const nearBottom = window.scrollY + window.innerHeight > document.body.scrollHeight - 80;
+        if (nearBottom) window.scrollTo(0, document.body.scrollHeight);
+      }
+      cursor = body.newCursor || cursor;
+
+      const s = await fetch('/sessions/' + SID, { credentials: 'same-origin' });
+      if (s.ok) {
+        const dto = await s.json();
+        stateEl.textContent = dto.activityState;
+        stateEl.style.background = stateColor(dto.activityState);
+      }
+    } catch (e) {
+      outEl.textContent += '\n[lost connection: ' + e.message + ']';
+    }
+  }
+
+  function stateColor(s) {
+    return ({
+      Idle: '#4ec9b0', Working: '#569cd6', WaitingForInput: '#dcdcaa',
+      WaitingForPerm: '#ce9178', Starting: '#9cdcfe', Exited: '#f44747', Failed: '#f44747'
+    })[s] || '#888';
+  }
+
+  window.send = async function (e) {
+    e.preventDefault();
+    const inp = document.getElementById('prompt');
+    const text = inp.value;
+    if (!text.trim()) return false;
+    inp.value = '';
+    inp.disabled = true;
+    try {
+      await fetch('/sessions/' + SID + '/prompt', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, appendEnter: true, waitForIdle: false }),
+      });
+    } finally {
+      inp.disabled = false;
+      inp.focus();
+    }
+    return false;
+  };
+
+  poll();
+  setInterval(poll, 800);
+})();
+</script>
+</body>
+</html>

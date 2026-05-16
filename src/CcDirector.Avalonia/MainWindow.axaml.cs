@@ -206,6 +206,10 @@ public partial class MainWindow : Window
         // Subscribe to session registration for ClaudeSessionId persistence
         _sessionManager.OnClaudeSessionRegistered += OnClaudeSessionRegistered;
 
+        // Sessions created via the Control API (web Manager) need to be wrapped
+        // into the Avalonia sidebar so the desktop user can interact with them too.
+        _sessionManager.OnSessionCreated += OnExternalSessionCreated;
+
         // Wire source control view file event
         GitChangesView.ViewFileRequested += OnGitViewFileRequested;
 
@@ -263,6 +267,12 @@ public partial class MainWindow : Window
     private async Task ShowStartupWorkspacePicker()
     {
         var app = (App)global::Avalonia.Application.Current!;
+
+        if (app.SkipWorkspacePicker)
+        {
+            FileLog.Write("[MainWindow] ShowStartupWorkspacePicker: suppressed by --skip-workspace-picker");
+            return;
+        }
 
         if (!app.WorkspaceStore.LoadAll().Any())
         {
@@ -326,6 +336,33 @@ public partial class MainWindow : Window
     }
 
     // ==================== SESSION MANAGEMENT ====================
+
+    /// <summary>
+    /// Called by SessionManager.OnSessionCreated when a session was created from outside
+    /// MainWindow (notably the web Manager via POST /sessions). Wraps the session in a
+    /// SessionViewModel and adds it to the sidebar collection on the UI thread.
+    /// </summary>
+    private void OnExternalSessionCreated(Session session)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            try
+            {
+                if (_sessions.Any(s => s.Session.Id == session.Id))
+                {
+                    FileLog.Write($"[MainWindow] OnExternalSessionCreated: session {session.Id} already wrapped, skipping");
+                    return;
+                }
+                FileLog.Write($"[MainWindow] OnExternalSessionCreated: wrapping {session.Id} (repo={session.RepoPath})");
+                var vm = new SessionViewModel(session);
+                _sessions.Add(vm);
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[MainWindow] OnExternalSessionCreated FAILED: {ex.Message}");
+            }
+        });
+    }
 
     private SessionViewModel? CreateSession(string repoPath, string? resumeSessionId = null, string? claudeArgs = null, AgentKind agentKind = AgentKind.ClaudeCode)
     {
@@ -1279,6 +1316,14 @@ public partial class MainWindow : Window
             await dialog.ShowDialog<bool?>(this);
         };
 
+        var manager = new MenuItem { Header = "Manager (multi-session)" };
+        manager.Click += (_, _) =>
+        {
+            FileLog.Write("[MainWindow] Menu: Manager");
+            // Select the Manager tab in the right panel
+            RightPanelTabs.SelectedItem = TabItemManager;
+        };
+
         var separator3 = new Separator();
 
         var openSessions = new MenuItem { Header = "Open Sessions File" };
@@ -1335,6 +1380,7 @@ public partial class MainWindow : Window
         menu.Items.Add(separator1);
         menu.Items.Add(repositories);
         menu.Items.Add(accounts);
+        menu.Items.Add(manager);
         menu.Items.Add(separator2);
         menu.Items.Add(openLogs);
         menu.Items.Add(openSessions);
@@ -2710,6 +2756,7 @@ public partial class MainWindow : Window
             var app = (App)global::Avalonia.Application.Current!;
             app.EventRouter.OnRawMessage -= OnHookEventReceived;
             _sessionManager.OnClaudeSessionRegistered -= OnClaudeSessionRegistered;
+            _sessionManager.OnSessionCreated -= OnExternalSessionCreated;
         }
         catch { /* App may be shutting down */ }
 

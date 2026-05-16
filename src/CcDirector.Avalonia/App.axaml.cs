@@ -4,6 +4,7 @@ using System.Text.Json;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using CcDirector.ControlApi;
 using CcDirector.Core.Claude;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Hooks;
@@ -34,8 +35,17 @@ public partial class App : Application
     public ClaudeUsageService ClaudeUsageService { get; private set; } = null!;
     public WorkspaceStore WorkspaceStore { get; private set; } = null!;
     public EngineHost? EngineHost { get; private set; }
+    public ControlApiHost? ControlApiHost { get; private set; }
 
     public bool SandboxMode { get; private set; }
+
+    /// <summary>
+    /// When true, suppress the startup workspace picker dialog (the modal that asks
+    /// "Load workspace?" when at least one saved workspace exists). Useful for
+    /// headless / scripted launches such as the Manager dashboard testing flow.
+    /// Triggered by the <c>--skip-workspace-picker</c> command-line argument.
+    /// </summary>
+    public bool SkipWorkspacePicker { get; private set; }
 
     public override void Initialize()
     {
@@ -53,6 +63,7 @@ public partial class App : Application
 
             // Parse command-line arguments (lightweight)
             SandboxMode = desktop.Args?.Contains("--sandbox", StringComparer.OrdinalIgnoreCase) == true;
+            SkipWorkspacePicker = desktop.Args?.Contains("--skip-workspace-picker", StringComparer.OrdinalIgnoreCase) == true;
             LoadConfiguration();
 
             // Run all heavy initialization on background thread, then swap to main window
@@ -161,6 +172,45 @@ public partial class App : Application
 
         UpdateSplashStatus(splash, "Starting engine...");
         StartEngine(log);
+
+        UpdateSplashStatus(splash, "Starting control API...");
+        StartControlApi(log);
+    }
+
+    private void StartControlApi(Action<string> log)
+    {
+        try
+        {
+            var version = typeof(App).Assembly.GetName().Version?.ToString() ?? "0.0.0";
+            Func<Task> requestShutdown = () =>
+            {
+                global::Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                {
+                    if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime lifetime)
+                        lifetime.Shutdown();
+                });
+                return Task.CompletedTask;
+            };
+
+            ControlApiHost = new ControlApiHost(SessionManager, version, requestShutdown, repositoryRegistry: RepositoryRegistry);
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var port = await ControlApiHost.StartAsync();
+                    log($"Control API listening on http://127.0.0.1:{port} (directorId={ControlApiHost.DirectorId})");
+                }
+                catch (Exception ex)
+                {
+                    log($"Control API failed to start: {ex.Message}");
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            log($"Control API setup FAILED: {ex.Message}");
+        }
     }
 
     private static void UpdateSplashStatus(SplashScreen splash, string text)
@@ -210,6 +260,20 @@ public partial class App : Application
                     log($"Engine stop error: {ex.Message}");
                 }
                 EngineHost.Dispose();
+            }
+
+            if (ControlApiHost != null)
+            {
+                try
+                {
+                    var stopTask = Task.Run(() => ControlApiHost.StopAsync());
+                    if (!stopTask.Wait(TimeSpan.FromSeconds(2)))
+                        log("ControlApiHost stop timed out after 2 seconds");
+                }
+                catch (Exception ex)
+                {
+                    log($"ControlApiHost stop error: {ex.Message}");
+                }
             }
 
             ClaudeUsageService?.Dispose();

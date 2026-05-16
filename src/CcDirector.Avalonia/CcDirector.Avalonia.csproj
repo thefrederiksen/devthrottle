@@ -26,6 +26,8 @@
     <ProjectReference Include="..\CcDirector.Engine\CcDirector.Engine.csproj" />
     <ProjectReference Include="..\CcDirector.Terminal.Core\CcDirector.Terminal.Core.csproj" />
     <ProjectReference Include="..\CcDirector.Terminal.Avalonia\CcDirector.Terminal.Avalonia.csproj" />
+    <ProjectReference Include="..\CcDirector.Gateway.Contracts\CcDirector.Gateway.Contracts.csproj" />
+    <ProjectReference Include="..\CcDirector.ControlApi\CcDirector.ControlApi.csproj" />
   </ItemGroup>
   <ItemGroup>
     <AvaloniaResource Include="app.ico" />

@@ -21,6 +21,20 @@ The user runs multiple instances of cc-director simultaneously. Killing processe
 
 This rule has NO exceptions.
 
+### 0b. NEVER LAUNCH cc-director.exe FROM INSIDE A CLAUDE CODE SESSION
+
+**If you (the Claude agent) are running inside a Claude Code CLI session (you almost always are), DO NOT spawn cc-director.exe yourself.**
+
+When cc-director.exe is launched from inside an existing claude.exe ConPty (yours), the child claude.exe processes IT spawns end up in a nested pseudo-console. The grandchild claude detects this as a non-TTY environment and exits within ~3 seconds with:
+
+> `Error: Input must be provided either through stdin or as a prompt argument when using --print`
+
+The sessions appear in the sidebar but immediately go to red "Exited" with code 1. This is **not a CC Director bug** -- it is claude.exe 2.1.143+ behavior on nested ConPty.
+
+If you need to test cc-director.exe end-to-end, ask the user to launch it from Explorer / a Start-menu shortcut / a regular terminal outside of any Claude Code session. Then use the REST API (`http://localhost:7879/`) to drive it from your side -- those incoming calls don't recreate the nested-ConPty problem because the spawn already happened in a clean context.
+
+For non-session-creating tests (HTML rendering, REST endpoints, etc.) launching cc-director from your context is fine. Only session-creation tests need a clean parent.
+
 ### 1. Responsive UI - MANDATORY
 
 **Every user action MUST provide immediate visual feedback (<100ms).**

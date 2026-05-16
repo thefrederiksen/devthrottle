@@ -19,10 +19,26 @@ public sealed class SessionManager : IDisposable
 
     public AgentOptions Options => _options;
 
+    /// <summary>
+    /// Fired (on a background thread) immediately after a new session is created and
+    /// added to the manager's internal dictionary. The Avalonia UI subscribes to this
+    /// to wrap externally-created sessions (e.g. via the web Manager) into its own
+    /// ObservableCollection so they appear in the sidebar.
+    /// </summary>
+    public event Action<Session>? OnSessionCreated;
+
     public SessionManager(AgentOptions options, Action<string>? log = null)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _log = log;
+    }
+
+    /// <summary>Invoke OnSessionCreated. Public so external endpoint mappers (web Control API)
+    /// can announce sessions they created without going through CreateSession overloads.</summary>
+    public void RaiseSessionCreated(Session session)
+    {
+        try { OnSessionCreated?.Invoke(session); }
+        catch (Exception ex) { _log?.Invoke($"OnSessionCreated handler threw: {ex.Message}"); }
     }
 
     /// <summary>Create a new ConPty session that spawns claude.exe in the given repo path.</summary>
@@ -111,17 +127,18 @@ public sealed class SessionManager : IDisposable
 
             _sessions[id] = session;
 
-            // Pre-populate ClaudeSessionId only for agents that support it (Claude).
-            // Pi creates its own session ID internally; Director leaves ClaudeSessionId null.
-            if (agent.SupportsPreassignedSessionId)
+            // Pre-populate ClaudeSessionId when we already know it:
+            //   * resumeSessionId is always known (caller supplied it via --resume)
+            //   * preassignedClaudeSessionId is set only by agents that opt into
+            //     pre-assignment via SupportsPreassignedSessionId (currently none -
+            //     claude 2.1.143+ broke that path, see ClaudeAgent docs).
+            var knownClaudeId = resumeSessionId
+                ?? (agent.SupportsPreassignedSessionId ? preassignedClaudeSessionId : null);
+            if (!string.IsNullOrEmpty(knownClaudeId))
             {
-                var knownClaudeId = resumeSessionId ?? preassignedClaudeSessionId;
-                if (!string.IsNullOrEmpty(knownClaudeId))
-                {
-                    session.ClaudeSessionId = knownClaudeId;
-                    _claudeSessionMap[knownClaudeId] = id;
-                    session.MarkAsPreVerified();
-                }
+                session.ClaudeSessionId = knownClaudeId;
+                _claudeSessionMap[knownClaudeId] = id;
+                session.MarkAsPreVerified();
             }
 
             var resumeInfo = !string.IsNullOrEmpty(resumeSessionId) ? $", Resume={resumeSessionId[..8]}..." : "";

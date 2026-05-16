@@ -1,0 +1,141 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="CcDirector.Avalonia.Controls.ManagerView.ManagerView"
+             Background="#1E1E1E">
+
+    <Grid RowDefinitions="Auto,*,Auto,Auto" Margin="16,12">
+
+        <!-- Header -->
+        <DockPanel Grid.Row="0" Margin="0,0,0,8">
+            <TextBlock Text="MANAGER"
+                       Foreground="#CCCCCC"
+                       FontWeight="SemiBold"
+                       FontSize="12"
+                       VerticalAlignment="Center" />
+            <TextBlock x:Name="StatusText"
+                       Margin="12,0,0,0"
+                       Foreground="#888888"
+                       VerticalAlignment="Center" />
+            <Button x:Name="BtnRefresh"
+                    Content="Refresh"
+                    Click="BtnRefresh_Click"
+                    HorizontalAlignment="Right"
+                    Height="28"
+                    Padding="12,0"
+                    Background="#3C3C3C"
+                    Foreground="#CCCCCC"
+                    BorderThickness="0"
+                    Cursor="Hand" />
+        </DockPanel>
+
+        <!-- Sessions list -->
+        <Border Grid.Row="1"
+                Background="#252526"
+                BorderBrush="#3C3C3C"
+                BorderThickness="1"
+                CornerRadius="2">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <ItemsControl x:Name="SessionsList">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border Padding="10,6"
+                                    Background="#2D2D30"
+                                    BorderBrush="#3C3C3C"
+                                    BorderThickness="0,0,0,1">
+                                <Grid ColumnDefinitions="Auto,2*,1*,Auto,2*,Auto">
+                                    <CheckBox Grid.Column="0"
+                                              IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                              Margin="0,0,8,0"
+                                              VerticalAlignment="Center" />
+                                    <TextBlock Grid.Column="1"
+                                               Text="{Binding RepoLabel}"
+                                               Foreground="#DDDDDD"
+                                               VerticalAlignment="Center"
+                                               TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Grid.Column="2"
+                                               Text="{Binding Agent}"
+                                               Foreground="#888888"
+                                               VerticalAlignment="Center"
+                                               TextTrimming="CharacterEllipsis" />
+                                    <Border Grid.Column="3"
+                                            Background="{Binding StateBrush}"
+                                            CornerRadius="3"
+                                            Padding="6,2"
+                                            VerticalAlignment="Center"
+                                            Margin="8,0">
+                                        <TextBlock Text="{Binding ActivityState}"
+                                                   Foreground="#1E1E1E"
+                                                   FontSize="11"
+                                                   FontWeight="SemiBold" />
+                                    </Border>
+                                    <TextBlock Grid.Column="4"
+                                               Text="{Binding DirectorShort}"
+                                               Foreground="#666666"
+                                               FontSize="11"
+                                               VerticalAlignment="Center"
+                                               TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Grid.Column="5"
+                                               Text="{Binding ElapsedMsLabel}"
+                                               Foreground="#999999"
+                                               FontSize="11"
+                                               VerticalAlignment="Center"
+                                               Margin="8,0,0,0" />
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Border>
+
+        <!-- Fan-out controls -->
+        <StackPanel Grid.Row="2" Margin="0,8,0,8" Spacing="6">
+            <TextBlock Text="Fan-out prompt:" Foreground="#CCCCCC" FontWeight="SemiBold" />
+            <TextBox x:Name="PromptBox"
+                     AcceptsReturn="True"
+                     Height="80"
+                     Background="#252526"
+                     Foreground="#DDDDDD"
+                     BorderBrush="#3C3C3C"
+                     Watermark="Type a prompt to send to all checked sessions..." />
+            <DockPanel>
+                <CheckBox x:Name="WaitForIdleCheck"
+                          Content="Wait for all sessions to finish"
+                          IsChecked="True"
+                          Foreground="#CCCCCC" />
+                <Button x:Name="BtnSend"
+                        Content="Send to selected"
+                        Click="BtnSend_Click"
+                        HorizontalAlignment="Right"
+                        Height="32"
+                        Padding="16,0"
+                        Background="#0E639C"
+                        Foreground="White"
+                        BorderThickness="0"
+                        FontWeight="SemiBold"
+                        Cursor="Hand" />
+            </DockPanel>
+        </StackPanel>
+
+        <!-- Results -->
+        <Border Grid.Row="3"
+                MaxHeight="260"
+                Background="#252526"
+                BorderBrush="#3C3C3C"
+                BorderThickness="1"
+                CornerRadius="2">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <TextBox x:Name="ResultsBox"
+                         IsReadOnly="True"
+                         Background="Transparent"
+                         Foreground="#DDDDDD"
+                         BorderThickness="0"
+                         FontFamily="Cascadia Code,Consolas,monospace"
+                         FontSize="12"
+                         TextWrapping="Wrap"
+                         Text="No results yet. Select sessions, type a prompt, and click Send." />
+            </ScrollViewer>
+        </Border>
+
+    </Grid>
+</UserControl>

@@ -1,0 +1,771 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>CC Director - Gateway</title>
+<style>
+  :root {
+    --bg: #1e1e1e;
+    --panel: #252526;
+    --border: #3c3c3c;
+    --text: #dddddd;
+    --muted: #888888;
+    --accent: #0e639c;
+    --accent-hover: #1177bb;
+    --idle: #4ec9b0;
+    --working: #569cd6;
+    --waiting: #dcdcaa;
+    --perm: #ce9178;
+    --failed: #f44747;
+    --starting: #9cdcfe;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 14px;
+    min-height: 100vh;
+  }
+  header {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+  }
+  header h1 {
+    font-size: 14px;
+    margin: 0;
+    color: var(--muted);
+    letter-spacing: 1px;
+  }
+  header .stats { color: var(--muted); font-size: 12px; }
+  header .spacer { flex: 1; }
+  header .info { font-size: 12px; color: var(--muted); }
+  header .info code { background: var(--panel); padding: 2px 6px; border-radius: 3px; color: var(--text); }
+  header a { color: var(--accent); text-decoration: none; }
+  header a:hover { text-decoration: underline; }
+
+  main { padding: 12px 16px 96px; }
+
+  .director-block { margin-bottom: 18px; }
+  .director-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 4px;
+    margin-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .director-header .name { font-weight: 600; }
+  .director-header .machine {
+    background: var(--panel);
+    color: var(--muted);
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+  }
+  .director-header .open-link {
+    margin-left: auto;
+    color: var(--accent);
+    font-size: 12px;
+    text-decoration: none;
+  }
+  .director-header .open-link:hover { text-decoration: underline; }
+
+  .sessions {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 12px;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .card.state-Idle           { border-left: 4px solid var(--idle); }
+  .card.state-Working        { border-left: 4px solid var(--working); }
+  .card.state-WaitingForInput{ border-left: 4px solid var(--waiting); animation: pulse 1.6s ease-in-out infinite; }
+  .card.state-WaitingForPerm { border-left: 4px solid var(--perm); animation: pulse 1.6s ease-in-out infinite; }
+  .card.state-Starting       { border-left: 4px solid var(--starting); }
+  .card.state-Exited, .card.state-Failed { border-left: 4px solid var(--failed); opacity: 0.7; }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(220,220,170,0.0); }
+    50%      { box-shadow: 0 0 0 4px rgba(220,220,170,0.18); }
+  }
+  .card .row { display: flex; align-items: center; gap: 8px; }
+  .card .repo { font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card .agent { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .badge {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #1e1e1e;
+  }
+  .badge.Idle           { background: var(--idle); }
+  .badge.Working        { background: var(--working); }
+  .badge.WaitingForInput{ background: var(--waiting); }
+  .badge.WaitingForPerm { background: var(--perm); }
+  .badge.Starting       { background: var(--starting); }
+  .badge.Exited, .badge.Failed { background: var(--failed); }
+  .meta { color: var(--muted); font-size: 12px; }
+  .card .actions { display: flex; gap: 8px; }
+  .card .actions a {
+    background: #3c3c3c;
+    color: var(--text);
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    text-decoration: none;
+  }
+  .card .actions a:hover { background: #4a4a4a; }
+  .card input[type=checkbox] { transform: scale(1.2); }
+
+  .fanout {
+    position: sticky;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: rgba(30,30,30,0.96);
+    backdrop-filter: blur(4px);
+    border-top: 1px solid var(--border);
+    padding: 10px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 16px -16px 0;
+  }
+  .fanout textarea {
+    width: 100%;
+    min-height: 60px;
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 8px;
+    font-family: inherit;
+    font-size: 14px;
+    resize: vertical;
+  }
+  .fanout .controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .fanout button {
+    background: var(--accent);
+    color: white;
+    border: 0;
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 14px;
+  }
+  .fanout button:hover:not(:disabled) { background: var(--accent-hover); }
+  .fanout button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .fanout label { color: var(--muted); font-size: 12px; }
+  .fanout .selected-count { color: var(--text); font-weight: 600; }
+
+  .results {
+    margin-top: 12px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 8px 10px;
+    font-family: "Cascadia Code", Consolas, monospace;
+    font-size: 12px;
+    white-space: pre-wrap;
+    max-height: 260px;
+    overflow-y: auto;
+  }
+  .empty { color: var(--muted); text-align: center; padding: 32px; }
+  .offline { color: var(--failed); font-size: 12px; margin-left: 8px; }
+
+  .btn-new {
+    background: var(--accent);
+    color: white;
+    border: 0;
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 12px;
+  }
+  .btn-new:hover { background: var(--accent-hover); }
+
+  .modal {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.6);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 100;
+    padding: 12px;
+  }
+  .modal-panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 20px;
+    width: 100%;
+    max-width: 480px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .modal-close { background: transparent; border: 0; color: var(--muted); font-size: 24px; cursor: pointer; padding: 0 4px; }
+  .modal-panel label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 8px; }
+  .modal-panel input[type=text], .modal-panel select {
+    width: 100%;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 8px 10px;
+    font-family: inherit;
+    font-size: 14px;
+    box-sizing: border-box;
+  }
+  .modal-error {
+    background: #4d1f1f;
+    color: #ffaaaa;
+    border: 1px solid #663030;
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    margin-top: 8px;
+  }
+  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+  .btn-primary {
+    background: var(--accent); color: white; border: 0;
+    padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: 600;
+  }
+  .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-secondary {
+    background: #3c3c3c; color: var(--text); border: 0;
+    padding: 8px 16px; border-radius: 4px; cursor: pointer;
+  }
+  .btn-secondary:hover { background: #4a4a4a; }
+
+  .repo-list {
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg);
+    max-height: 240px;
+    overflow-y: auto;
+    margin-top: 4px;
+  }
+  .repo-item {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    -webkit-tap-highlight-color: rgba(14,99,156,0.4);
+  }
+  .repo-item:last-child { border-bottom: 0; }
+  .repo-item:hover, .repo-item:active, .repo-item.selected {
+    background: rgba(14,99,156,0.22);
+  }
+  .repo-item .name { font-weight: 600; }
+  .repo-item .path { color: var(--muted); font-size: 11px; word-break: break-all; }
+  .repo-item .when { color: var(--muted); font-size: 11px; float: right; }
+  .repo-empty { padding: 16px; color: var(--muted); text-align: center; font-size: 12px; }
+  .repo-custom {
+    padding: 10px 12px;
+    background: rgba(78,201,176,0.10);
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+    font-size: 12px;
+  }
+  .repo-custom .name { color: var(--idle); font-weight: 600; }
+
+  @media (max-width: 520px) {
+    header h1 { font-size: 12px; }
+    .sessions { grid-template-columns: 1fr; }
+    main { padding-bottom: 240px; }
+    .director-header .open-link { font-size: 11px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>CC DIRECTOR - GATEWAY</h1>
+  <span class="stats" id="stats">Loading...</span>
+  <span class="spacer"></span>
+  <span class="info">Gateway <code id="gwVersion">...</code></span>
+  <button id="newSessionBtn" class="btn-new">+ New Session</button>
+  <a href="/logout" __LOGOUT_VISIBILITY__>Logout</a>
+</header>
+
+<!-- New Session modal -->
+<div id="newSessionModal" class="modal" style="display:none">
+  <div class="modal-panel">
+    <div class="modal-header">
+      <strong>New Session</strong>
+      <button class="modal-close" id="newSessionClose">&times;</button>
+    </div>
+
+    <label for="directorSelect">On Director</label>
+    <select id="directorSelect"></select>
+
+    <label for="repoSearch">Repository</label>
+    <input type="text" id="repoSearch" placeholder="Search or paste an absolute path..." autocomplete="off" autocapitalize="off" autocorrect="off" />
+
+    <div id="repoList" class="repo-list">
+      <div class="repo-empty">Pick a Director first.</div>
+    </div>
+
+    <label for="agentSelect">Agent</label>
+    <select id="agentSelect">
+      <option value="ClaudeCode" selected>Claude Code</option>
+      <option value="Pi">Pi</option>
+      <option value="Codex">Codex</option>
+      <option value="Gemini">Gemini</option>
+    </select>
+
+    <div class="modal-error" id="newSessionError" style="display:none"></div>
+
+    <div class="modal-actions">
+      <button id="newSessionCancel" class="btn-secondary">Cancel</button>
+      <button id="newSessionCreate" class="btn-primary">Start</button>
+    </div>
+  </div>
+</div>
+
+<main>
+  <div id="directors"></div>
+  <div id="empty" class="empty" style="display:none">No Directors running. Start CC Director on this or any Tailscale-connected machine.</div>
+
+  <div class="fanout">
+    <div>
+      <strong>Fan-out</strong> across <span id="selectedCount" class="selected-count">0</span> selected session(s):
+    </div>
+    <textarea id="prompt" placeholder="Type a prompt to send to every checked session across every Director..."></textarea>
+    <div class="controls">
+      <label><input type="checkbox" id="waitForIdle" checked> Wait for idle</label>
+      <span class="spacer" style="flex:1"></span>
+      <button id="sendBtn">Send</button>
+    </div>
+    <div id="results" class="results" style="display:none"></div>
+  </div>
+</main>
+
+<script>
+(function () {
+  const directorsEl = document.getElementById('directors');
+  const emptyEl = document.getElementById('empty');
+  const statsEl = document.getElementById('stats');
+  const gwVersionEl = document.getElementById('gwVersion');
+  const selectedCountEl = document.getElementById('selectedCount');
+  const promptEl = document.getElementById('prompt');
+  const waitForIdleEl = document.getElementById('waitForIdle');
+  const sendBtn = document.getElementById('sendBtn');
+  const resultsEl = document.getElementById('results');
+
+  const selected = new Set();   // session ids
+  const directors = new Map();  // directorId -> { dto, blockEl, cards: Map<sid, el> }
+
+  function fmtElapsed(iso) {
+    if (!iso) return '';
+    const t = new Date(iso).getTime();
+    const s = Math.max(0, Math.floor((Date.now() - t) / 1000));
+    if (s < 60) return s + 's';
+    if (s < 3600) return Math.floor(s/60) + 'm';
+    return Math.floor(s/3600) + 'h ' + Math.floor((s%3600)/60) + 'm';
+  }
+
+  function repoName(p) {
+    if (!p) return '';
+    const parts = p.replace(/\\$/, '').replace(/\/$/, '').split(/[\\/]/);
+    return parts[parts.length-1];
+  }
+
+  function directorPortFromEndpoint(endpoint) {
+    try {
+      const u = new URL(endpoint);
+      return u.port || '7879';
+    } catch { return '7879'; }
+  }
+
+  function directorHtmlUrl(d) {
+    // Translate the Director's reported controlEndpoint (which is loopback) to the
+    // hostname the BROWSER is using to reach the Gateway, so the same hostname
+    // (Tailscale IP or localhost) goes to the per-Director page.
+    return 'http://' + window.location.hostname + ':' + directorPortFromEndpoint(d.controlEndpoint) + '/';
+  }
+
+  function getOrCreateDirectorBlock(d) {
+    let entry = directors.get(d.directorId);
+    if (entry) return entry;
+
+    const block = document.createElement('div');
+    block.className = 'director-block';
+    block.dataset.directorId = d.directorId;
+    block.innerHTML = `
+      <div class="director-header">
+        <span class="name"></span>
+        <span class="machine"></span>
+        <a class="open-link" target="_blank" rel="noopener">Open Director &rarr;</a>
+      </div>
+      <div class="sessions"></div>
+    `;
+    directorsEl.appendChild(block);
+    entry = { dto: d, blockEl: block, cards: new Map() };
+    directors.set(d.directorId, entry);
+    updateDirectorHeader(entry);
+    return entry;
+  }
+
+  function updateDirectorHeader(entry) {
+    const d = entry.dto;
+    const h = entry.blockEl.querySelector('.director-header');
+    h.querySelector('.name').textContent = 'Director ' + d.directorId.slice(0,8);
+    h.querySelector('.machine').textContent = d.machineName || '';
+    h.querySelector('.open-link').href = directorHtmlUrl(d);
+  }
+
+  function renderCard(entry, s) {
+    let card = entry.cards.get(s.sessionId);
+    if (!card) {
+      card = document.createElement('div');
+      card.className = 'card';
+      card.dataset.sid = s.sessionId;
+      card.innerHTML = `
+        <div class="row">
+          <input type="checkbox" class="sel" />
+          <span class="repo"></span>
+          <span class="badge"></span>
+        </div>
+        <div class="row meta">
+          <span class="agent"></span>
+          <span class="spacer" style="flex:1"></span>
+          <span class="elapsed"></span>
+        </div>
+        <div class="actions">
+          <a class="open" target="_blank" rel="noopener">Open raw view</a>
+          <a class="interrupt" href="#">Interrupt</a>
+        </div>
+      `;
+      const cb = card.querySelector('.sel');
+      cb.addEventListener('change', () => {
+        if (cb.checked) selected.add(s.sessionId); else selected.delete(s.sessionId);
+        updateSelectedCount();
+      });
+      card.querySelector('.interrupt').addEventListener('click', async (e) => {
+        e.preventDefault();
+        await fetch('/sessions/' + s.sessionId + '/interrupt', { method: 'POST', credentials: 'same-origin' });
+      });
+      entry.blockEl.querySelector('.sessions').appendChild(card);
+      entry.cards.set(s.sessionId, card);
+    }
+    card.className = 'card state-' + (s.activityState || 'Unknown');
+    card.querySelector('.repo').textContent = repoName(s.repoPath) || s.sessionId.slice(0,8);
+    card.querySelector('.repo').title = s.repoPath;
+    const badge = card.querySelector('.badge');
+    badge.textContent = s.activityState;
+    badge.className = 'badge ' + s.activityState;
+    card.querySelector('.agent').textContent = s.agent;
+    card.querySelector('.elapsed').textContent = 'started ' + fmtElapsed(s.createdAt) + ' ago';
+    const open = card.querySelector('.open');
+    open.href = directorHtmlUrl(entry.dto) + 'sessions/' + s.sessionId + '/view';
+    if (selected.has(s.sessionId)) card.querySelector('.sel').checked = true;
+  }
+
+  function updateSelectedCount() {
+    selectedCountEl.textContent = selected.size;
+    sendBtn.disabled = selected.size === 0 || !promptEl.value.trim();
+  }
+  promptEl.addEventListener('input', updateSelectedCount);
+
+  async function refresh() {
+    try {
+      const dRes = await fetch('/directors', { credentials: 'same-origin' });
+      if (!dRes.ok) { statsEl.textContent = 'Refresh failed: HTTP ' + dRes.status; return; }
+      const dirList = await dRes.json();
+
+      const sRes = await fetch('/sessions', { credentials: 'same-origin' });
+      if (!sRes.ok) { statsEl.textContent = 'Refresh failed: HTTP ' + sRes.status; return; }
+      const sessList = await sRes.json();
+
+      // Drop directors that are gone
+      const seenDir = new Set(dirList.map(d => d.directorId));
+      for (const [did, entry] of directors) {
+        if (!seenDir.has(did)) {
+          entry.blockEl.remove();
+          directors.delete(did);
+          for (const sid of Array.from(entry.cards.keys())) selected.delete(sid);
+        }
+      }
+      // Sync director header data
+      dirList.forEach(d => {
+        const e = getOrCreateDirectorBlock(d);
+        e.dto = d;
+        updateDirectorHeader(e);
+      });
+
+      // Render sessions
+      const seenSid = new Set();
+      sessList.forEach(s => {
+        seenSid.add(s.sessionId);
+        const e = directors.get(s.directorId);
+        if (e) renderCard(e, s);
+      });
+      // Remove disappeared session cards
+      directors.forEach(entry => {
+        for (const [sid, card] of entry.cards) {
+          if (!seenSid.has(sid)) { card.remove(); entry.cards.delete(sid); selected.delete(sid); }
+        }
+      });
+
+      emptyEl.style.display = dirList.length === 0 ? '' : 'none';
+
+      const idle = sessList.filter(s => s.activityState === 'Idle').length;
+      const working = sessList.filter(s => s.activityState === 'Working').length;
+      const waiting = sessList.filter(s => s.activityState === 'WaitingForInput' || s.activityState === 'WaitingForPerm').length;
+      statsEl.textContent = dirList.length + ' director' + (dirList.length===1?'':'s') + ', ' +
+        sessList.length + ' session' + (sessList.length===1?'':'s') +
+        ' (' + idle + ' idle, ' + working + ' working, ' + waiting + ' waiting)';
+      updateSelectedCount();
+    } catch (e) {
+      statsEl.textContent = 'Refresh error: ' + e.message;
+    }
+  }
+
+  async function loadHealth() {
+    try {
+      const r = await fetch('/healthz');
+      const h = await r.json();
+      gwVersionEl.textContent = h.version || '?';
+    } catch { gwVersionEl.textContent = '?'; }
+  }
+
+  sendBtn.addEventListener('click', async () => {
+    const sessionIds = Array.from(selected);
+    if (sessionIds.length === 0 || !promptEl.value.trim()) return;
+    sendBtn.disabled = true;
+    resultsEl.style.display = '';
+    resultsEl.textContent = 'Sending to ' + sessionIds.length + ' session(s) across ' +
+      new Set(sessionIds.map(sid => findDirIdFor(sid))).size + ' director(s)...';
+    try {
+      const r = await fetch('/fanout', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionIds,
+          text: promptEl.value,
+          waitForIdle: waitForIdleEl.checked,
+          timeoutMs: 300000,
+        })
+      });
+      if (!r.ok) {
+        resultsEl.textContent = 'Gateway returned ' + r.status + ': ' + await r.text();
+        return;
+      }
+      const fan = await r.json();
+      const elapsed = (new Date(fan.finishedAt) - new Date(fan.startedAt)) / 1000;
+      let txt = 'Fan-out complete in ' + elapsed.toFixed(1) + 's.\n\n';
+      for (const result of fan.results) {
+        const sid = result.sessionId.slice(0,8);
+        const did = (result.directorId || '').slice(0,8);
+        txt += '---- ' + sid + ' @ ' + did + ' [' + result.status + '] (' + result.elapsedMs + 'ms) ----\n';
+        if (result.error) txt += 'ERROR: ' + result.error + '\n';
+        if (result.output) txt += result.output + '\n';
+        txt += '\n';
+      }
+      resultsEl.textContent = txt;
+    } catch (e) {
+      resultsEl.textContent = 'Send failed: ' + e.message;
+    } finally {
+      sendBtn.disabled = false;
+    }
+  });
+
+  function findDirIdFor(sid) {
+    for (const [did, e] of directors) {
+      if (e.cards.has(sid)) return did;
+    }
+    return '?';
+  }
+
+  // ====== New Session modal ======
+  const newSessionBtn = document.getElementById('newSessionBtn');
+  const newSessionModal = document.getElementById('newSessionModal');
+  const newSessionClose = document.getElementById('newSessionClose');
+  const newSessionCancel = document.getElementById('newSessionCancel');
+  const newSessionCreate = document.getElementById('newSessionCreate');
+  const directorSelect = document.getElementById('directorSelect');
+  const repoSearch = document.getElementById('repoSearch');
+  const repoList = document.getElementById('repoList');
+  const agentSelect = document.getElementById('agentSelect');
+  const newSessionError = document.getElementById('newSessionError');
+
+  let allRepos = [];
+  let selectedRepo = null;
+
+  function fmtElapsedShort(iso) {
+    if (!iso) return '';
+    const t = new Date(iso).getTime();
+    if (!t || isNaN(t)) return '';
+    const s = Math.max(0, Math.floor((Date.now() - t) / 1000));
+    if (s < 60) return s + 's ago';
+    if (s < 3600) return Math.floor(s/60) + 'm ago';
+    if (s < 86400) return Math.floor(s/3600) + 'h ago';
+    return Math.floor(s/86400) + 'd ago';
+  }
+  function looksLikeAbsolutePath(s) {
+    if (!s) return false;
+    if (/^[a-zA-Z]:[\\/]/.test(s)) return true;
+    if (s.startsWith('/') || s.startsWith('\\\\')) return true;
+    return false;
+  }
+
+  function renderRepoList(query) {
+    repoList.innerHTML = '';
+    const q = (query || '').trim().toLowerCase();
+    const matched = q
+      ? allRepos.filter(r => r.name.toLowerCase().includes(q) || r.path.toLowerCase().includes(q))
+      : allRepos.slice();
+
+    if (q && looksLikeAbsolutePath(query) && !allRepos.some(r => r.path.toLowerCase() === query.toLowerCase())) {
+      const custom = document.createElement('div');
+      custom.className = 'repo-custom';
+      custom.innerHTML = '<div class="name">Use this path</div><div class="path"></div>';
+      custom.querySelector('.path').textContent = query;
+      custom.addEventListener('click', () => selectRepo({ path: query, name: 'custom', custom: true }));
+      repoList.appendChild(custom);
+    }
+
+    if (matched.length === 0 && !q) {
+      repoList.innerHTML = '<div class="repo-empty">No registered repos on this Director.</div>';
+      return;
+    }
+    if (matched.length === 0) {
+      const note = document.createElement('div');
+      note.className = 'repo-empty';
+      note.textContent = 'No matches.';
+      repoList.appendChild(note);
+      return;
+    }
+
+    matched.forEach(repo => {
+      const item = document.createElement('div');
+      item.className = 'repo-item';
+      if (selectedRepo && selectedRepo.path === repo.path) item.classList.add('selected');
+      item.innerHTML = '<span class="when"></span><div class="name"></div><div class="path"></div>';
+      item.querySelector('.when').textContent = fmtElapsedShort(repo.lastUsed);
+      item.querySelector('.name').textContent = repo.name;
+      item.querySelector('.path').textContent = repo.path;
+      item.addEventListener('click', () => selectRepo(repo));
+      repoList.appendChild(item);
+    });
+  }
+
+  function selectRepo(repo) {
+    selectedRepo = repo;
+    repoSearch.value = repo.path;
+    renderRepoList(repo.path);
+  }
+
+  async function loadDirectorsForModal() {
+    try {
+      const r = await fetch('/directors', { credentials: 'same-origin' });
+      if (!r.ok) return [];
+      const list = await r.json();
+      directorSelect.innerHTML = '';
+      list.forEach(d => {
+        const opt = document.createElement('option');
+        opt.value = d.directorId;
+        opt.textContent = 'Director ' + d.directorId.slice(0,8) + ' on ' + (d.machineName || '');
+        directorSelect.appendChild(opt);
+      });
+      return list;
+    } catch { return []; }
+  }
+
+  async function loadRepos() {
+    const dirId = directorSelect.value;
+    if (!dirId) { allRepos = []; renderRepoList(''); return; }
+    try {
+      const r = await fetch('/directors/' + dirId + '/repos', { credentials: 'same-origin' });
+      if (!r.ok) { allRepos = []; renderRepoList(''); return; }
+      allRepos = await r.json();
+      renderRepoList(repoSearch.value || '');
+    } catch {
+      allRepos = [];
+      renderRepoList('');
+    }
+  }
+
+  async function openNewSession() {
+    newSessionError.style.display = 'none';
+    selectedRepo = null;
+    repoSearch.value = '';
+    newSessionModal.style.display = '';
+    await loadDirectorsForModal();
+    await loadRepos();
+    setTimeout(() => repoSearch.focus(), 50);
+  }
+  function closeNewSession() { newSessionModal.style.display = 'none'; }
+
+  newSessionBtn.addEventListener('click', openNewSession);
+  newSessionClose.addEventListener('click', closeNewSession);
+  newSessionCancel.addEventListener('click', closeNewSession);
+  directorSelect.addEventListener('change', () => { selectedRepo = null; loadRepos(); });
+  repoSearch.addEventListener('input', () => { selectedRepo = null; renderRepoList(repoSearch.value); });
+  repoSearch.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); newSessionCreate.click(); }
+  });
+
+  newSessionCreate.addEventListener('click', async () => {
+    const path = (selectedRepo?.path || repoSearch.value || '').trim();
+    const dirId = directorSelect.value;
+    if (!dirId) {
+      newSessionError.textContent = 'Pick a Director.';
+      newSessionError.style.display = '';
+      return;
+    }
+    if (!path) {
+      newSessionError.textContent = 'Pick a repo or type a path.';
+      newSessionError.style.display = '';
+      return;
+    }
+    newSessionCreate.disabled = true;
+    newSessionError.style.display = 'none';
+    try {
+      const r = await fetch('/directors/' + dirId + '/sessions', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repoPath: path, agent: agentSelect.value })
+      });
+      if (!r.ok) {
+        let msg = 'HTTP ' + r.status;
+        try { const body = await r.json(); if (body && body.error) msg = body.error; else if (body && body.detail) msg = body.detail; } catch {}
+        newSessionError.textContent = msg;
+        newSessionError.style.display = '';
+        return;
+      }
+      closeNewSession();
+      refresh();
+    } catch (e) {
+      newSessionError.textContent = e.message;
+      newSessionError.style.display = '';
+    } finally {
+      newSessionCreate.disabled = false;
+    }
+  });
+
+  loadHealth();
+  refresh();
+  setInterval(refresh, 1500);
+})();
+</script>
+</body>
+</html>
