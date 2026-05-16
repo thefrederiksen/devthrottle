@@ -417,11 +417,16 @@ internal static class GatewayEndpoints
 
             try
             {
-                Process.Start(new ProcessStartInfo
+                // --skip-workspace-picker so the spawned Director never blocks on the
+                // workspace-selection modal at startup (the whole point of a programmatic
+                // spawn is to skip user interaction).
+                var psi = new ProcessStartInfo
                 {
                     FileName = exePath,
                     UseShellExecute = true,
-                });
+                };
+                psi.ArgumentList.Add("--skip-workspace-picker");
+                Process.Start(psi);
             }
             catch (Exception ex)
             {
@@ -457,18 +462,42 @@ internal static class GatewayEndpoints
 
     private static string? ResolveDirectorExe()
     {
-        // 1) Same directory as the running gateway
+        var names = new[] { "cc-director.exe", "cc-director" };
+
+        // 1) Same directory as the running gateway (production: same install dir)
         var gatewayDir = AppContext.BaseDirectory;
-        foreach (var name in new[] { "cc-director.exe", "cc-director" })
+        foreach (var name in names)
         {
             var candidate = Path.Combine(gatewayDir, name);
             if (File.Exists(candidate)) return candidate;
         }
 
-        // 2) Standard install location
+        // 2) Dev-build layout: when the gateway is running from
+        //    src/CcDirector.Gateway/bin/<config>/<tfm>/, the freshly-built director sits at
+        //    src/CcDirector.Avalonia/bin/<config>/<tfm>/cc-director.exe . Walk up four
+        //    levels to find a sibling Avalonia/bin/<config>/<tfm>/.
+        var dir = new DirectoryInfo(gatewayDir);
+        // gatewayDir = .../src/CcDirector.Gateway/bin/<config>/<tfm>/
+        // parent[0]  = .../src/CcDirector.Gateway/bin/<config>/
+        // parent[1]  = .../src/CcDirector.Gateway/bin/
+        // parent[2]  = .../src/CcDirector.Gateway/
+        // parent[3]  = .../src/
+        if (dir.Parent?.Parent?.Parent?.Parent is { } srcRoot)
+        {
+            var tfm = dir.Name;
+            var cfg = dir.Parent.Name;
+            var avaloniaCandidate = Path.Combine(srcRoot.FullName, "CcDirector.Avalonia", "bin", cfg, tfm);
+            foreach (var name in names)
+            {
+                var candidate = Path.Combine(avaloniaCandidate, name);
+                if (File.Exists(candidate)) return candidate;
+            }
+        }
+
+        // 3) Standard install location (only used when nothing better was found)
         var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         var bin = Path.Combine(localAppData, "cc-director", "bin");
-        foreach (var name in new[] { "cc-director.exe", "cc-director" })
+        foreach (var name in names)
         {
             var candidate = Path.Combine(bin, name);
             if (File.Exists(candidate)) return candidate;
