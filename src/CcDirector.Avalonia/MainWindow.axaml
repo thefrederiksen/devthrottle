@@ -3,6 +3,7 @@
         xmlns:terminal="clr-namespace:CcDirector.Terminal.Avalonia;assembly=CcDirector.Terminal.Avalonia"
         xmlns:controls="clr-namespace:CcDirector.Avalonia.Controls"
         xmlns:commMgr="clr-namespace:CcDirector.Avalonia.Controls.CommManager"
+        xmlns:mgr="clr-namespace:CcDirector.Avalonia.Controls.ManagerView"
         x:Class="CcDirector.Avalonia.MainWindow"
         Title="CC Director"
         Width="1400" Height="900"
@@ -162,23 +163,24 @@
                                                        FontSize="13"
                                                        FontWeight="Medium"
                                                        TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                        <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
                                             <!-- Agent badge: shows which CLI this session is running -->
                                             <Border Background="{Binding AgentBadgeBrush}"
                                                     CornerRadius="6"
                                                     Padding="6,1"
                                                     VerticalAlignment="Center"
-                                                    Margin="6,0,0,0"
+                                                    Margin="0,0,6,0"
                                                     ToolTip.Tip="Agent running in this session">
                                                 <TextBlock Text="{Binding AgentLabel}"
                                                            Foreground="White"
                                                            FontSize="9"
                                                            FontWeight="SemiBold" />
                                             </Border>
-                                        </StackPanel>
-                                        <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
                                             <TextBlock Text="{Binding ActivityLabel}"
                                                        Foreground="#888888"
-                                                       FontSize="11" />
+                                                       FontSize="11"
+                                                       VerticalAlignment="Center" />
                                             <Border IsVisible="{Binding HasUncommittedChanges}"
                                                     Background="#6B4C00"
                                                     CornerRadius="6"
@@ -931,6 +933,11 @@
                     <!-- ===== Usage Tab (hidden for now) ===== -->
                     <TabItem Header="Usage" IsVisible="False">
                         <controls:UsageDashboardView x:Name="UsageDashboardView" />
+                    </TabItem>
+
+                    <!-- ===== Manager Tab ===== -->
+                    <TabItem Header="Manager" x:Name="TabItemManager">
+                        <mgr:ManagerView x:Name="ManagerView" />
                     </TabItem>
 
                     <!-- ===== Hooks Tab (hidden for now) ===== -->
