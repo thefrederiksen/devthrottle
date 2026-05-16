@@ -44,89 +44,153 @@
     min-height: 100vh;
   }
   header {
-    padding: 8px 14px;
+    padding: 10px 14px;
     border-bottom: 1px solid var(--border);
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 10px;
     background: var(--panel);
     position: sticky; top: 0; z-index: 10;
-    flex-wrap: wrap;
+    padding-top: max(10px, env(safe-area-inset-top));
   }
-  header a { color: var(--accent); text-decoration: none; font-size: 13px; }
-  header a:hover { text-decoration: underline; }
-  header .title { color: var(--muted); font-size: 12px; }
-  header .title code { background: var(--bg); padding: 2px 6px; border-radius: 3px; color: var(--text); }
-  header .state { font-size: 11px; padding: 2px 8px; border-radius: 10px; color: #1e1e1e; background: var(--muted); font-weight: 600; }
-  header .spacer { flex: 1; }
+  header a.back {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px; min-height: 44px;
+    color: var(--accent);
+    text-decoration: none;
+    font-size: 16px;
+    margin-left: -10px;  /* compensate for tap padding so it visually aligns left */
+  }
+  header a.back:hover { background: rgba(14,99,156,0.15); border-radius: 8px; }
+  header .title {
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 600;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  header .title .sid {
+    color: var(--muted);
+    font-family: "Cascadia Code", Consolas, monospace;
+    font-size: 11px;
+    font-weight: 400;
+    margin-left: 6px;
+  }
+  header .state {
+    font-size: 11px;
+    padding: 4px 9px;
+    border-radius: 12px;
+    color: #1e1e1e;
+    background: var(--muted);
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  header .counts {
+    color: var(--muted);
+    font-size: 11px;
+    flex-shrink: 0;
+  }
 
   .tabs {
     display: flex;
     background: var(--panel);
     border-bottom: 1px solid var(--border);
-    padding: 0 8px;
-    position: sticky; top: 41px; z-index: 9;
+    padding: 0;
+    position: sticky;
+    top: calc(44px + env(safe-area-inset-top));
+    z-index: 9;
   }
   .tab {
-    padding: 8px 16px;
+    flex: 1;
+    padding: 12px 8px;
     color: var(--muted);
     cursor: pointer;
     font-size: 13px;
     border-bottom: 2px solid transparent;
+    text-align: center;
+    min-height: 44px;
     -webkit-tap-highlight-color: rgba(14,99,156,0.4);
+    user-select: none;
   }
   .tab.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
   .tab:hover:not(.active) { color: var(--text); }
+  @media (min-width: 720px) {
+    .tab { flex: 0 0 auto; padding: 12px 20px; min-width: 140px; }
+  }
 
   /* ===== AGENT VIEW ===== */
-  #agentView { padding: 12px 14px 96px; display: flex; flex-direction: column; gap: 8px; }
+  #agentView {
+    padding: 10px 12px;
+    padding-bottom: calc(80px + env(safe-area-inset-bottom));
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
   .empty-agent { color: var(--muted); text-align: center; padding: 40px 16px; font-size: 13px; }
   .empty-agent .hint { font-size: 11px; opacity: 0.8; margin-top: 6px; }
 
   .card {
     background: var(--panel);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: 8px;
     padding: 10px 12px;
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 4px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: rgba(14,99,156,0.15);
   }
-  .card.tool { margin-left: 28px; }
-  .card.user { background: var(--w-user); border-color: var(--w-user); }
+  .card.tool { margin-left: 22px; }
+  .card.user {
+    background: var(--w-user);
+    border-color: var(--w-user);
+    cursor: default;
+  }
+  .card.text, .card.thinking { cursor: default; }
   .card.thinking { opacity: 0.78; }
 
   .card-header {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 8px;
+    min-height: 24px;
   }
   .card-icon {
-    width: 22px; height: 22px;
-    border-radius: 4px;
+    width: 24px; height: 24px;
+    border-radius: 5px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     font-family: "Cascadia Code", Consolas, monospace;
-    font-size: 11px;
+    font-size: 12px;
     color: #fff;
     font-weight: 700;
     flex-shrink: 0;
+  }
+  .card-title-block {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
   }
   .card-title {
     font-weight: 600;
     color: #e0e0e0;
     font-size: 13px;
+    line-height: 1.3;
   }
   .card-subheader {
     color: var(--muted);
     font-size: 11px;
-    margin-left: auto;
-    text-align: right;
+    line-height: 1.3;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    max-width: 60%;
   }
   .card-content {
     color: #cccccc;
@@ -135,16 +199,23 @@
     white-space: pre-wrap;
     word-break: break-word;
     line-height: 1.45;
-    padding: 6px 0 0;
+    padding-top: 4px;
+    margin-top: 4px;
+    border-top: 1px dashed var(--border);
   }
   .card.user .card-content,
   .card.text .card-content,
   .card.thinking .card-content {
     font-family: inherit;
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1.5;
     white-space: pre-wrap;
+    border-top: 0;
+    padding-top: 4px;
+    margin-top: 0;
   }
+  .card.user .card-content { color: #ffffff; }
+  .card.user .card-title { color: #ffffff; }
   .card.bash .card-content { color: var(--w-bash); }
   .card-result {
     color: #aaaaaa;
@@ -163,18 +234,24 @@
   .card.collapsed .card-content,
   .card.collapsed .card-result { display: none; }
   .card .toggle {
-    margin-left: auto;
     color: var(--muted);
-    font-size: 11px;
+    font-size: 14px;
     user-select: none;
-    cursor: pointer;
-    padding: 2px 6px;
+    padding: 4px 8px;
+    min-width: 32px;
+    min-height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: -4px;  /* visual flush with card edge */
+    flex-shrink: 0;
   }
   .card .toggle:hover { color: var(--text); }
   .pending-dot {
     width: 8px; height: 8px; border-radius: 50%;
     background: var(--waiting); animation: pulse 1.4s ease-in-out infinite;
     flex-shrink: 0;
+    margin-top: 8px;
   }
   @keyframes pulse {
     0%, 100% { opacity: 0.35; }
@@ -212,7 +289,8 @@
     bottom: 0; left: 0; right: 0;
     background: var(--panel);
     border-top: 1px solid var(--border);
-    padding: 8px 12px;
+    padding: 10px 12px;
+    padding-bottom: calc(10px + env(safe-area-inset-bottom));
     display: flex;
     gap: 8px;
     z-index: 20;
@@ -222,34 +300,44 @@
     background: var(--bg);
     color: var(--text);
     border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 9px 11px;
+    border-radius: 8px;
+    padding: 12px 14px;
     font-family: inherit;
-    font-size: 13px;
+    font-size: 16px;  /* >=16px so iOS Safari doesn't zoom on focus */
+    min-height: 44px;
   }
   form.send button {
     background: var(--accent);
     color: white; border: 0;
-    padding: 9px 16px;
-    border-radius: 4px;
+    padding: 0 18px;
+    border-radius: 8px;
     font-weight: 600;
     cursor: pointer;
+    font-size: 15px;
+    min-height: 44px;
+    min-width: 64px;
   }
   form.send button:disabled { opacity: 0.5; cursor: not-allowed; }
 
   @media (max-width: 520px) {
+    header { padding: 8px 10px; padding-top: max(8px, env(safe-area-inset-top)); }
+    header .title { font-size: 13px; }
+    header .title .sid { display: none; }   /* full id is too long for narrow header; back+state badge still clear */
+    header .counts { font-size: 10px; }
     .card.tool { margin-left: 14px; }
-    .card-subheader { max-width: 100%; }
+    .card { padding: 8px 10px; border-radius: 6px; }
+    #agentView { padding: 8px 10px; padding-bottom: calc(80px + env(safe-area-inset-bottom)); gap: 5px; }
   }
 </style>
 </head>
 <body>
 <header>
-  <a href="/">&larr; Manager</a>
-  <span class="title">Session <code>__SID__</code></span>
+  <a href="/" class="back" aria-label="Back to Manager">&larr;</a>
+  <div class="title">
+    Session<span class="sid" id="sidShort">__SHORT_SID__</span>
+  </div>
   <span class="state" id="state">?</span>
-  <span class="spacer"></span>
-  <span class="title" id="counts"></span>
+  <span class="counts" id="counts"></span>
 </header>
 
 <div class="tabs">
@@ -326,10 +414,12 @@
     header.className = 'card-header';
     header.innerHTML = `
       <div class="card-icon icon-${w.kind}">${escapeHtml(iconText)}</div>
-      <div class="card-title">${escapeHtml(w.header)}</div>
-      ${w.subheader ? `<div class="card-subheader" title="${escapeHtml(w.subheader)}">${escapeHtml(w.subheader)}</div>` : ''}
+      <div class="card-title-block">
+        <div class="card-title">${escapeHtml(w.header)}</div>
+        ${w.subheader ? `<div class="card-subheader" title="${escapeHtml(w.subheader)}">${escapeHtml(w.subheader)}</div>` : ''}
+      </div>
       ${w.isPending ? '<div class="pending-dot" title="waiting for result"></div>' : ''}
-      ${(w.content || w.result) ? '<span class="toggle">[+/-]</span>' : ''}
+      ${(w.content || w.result) ? '<span class="toggle">' + (classes.includes('collapsed') ? '+' : '−') + '</span>' : ''}
     `;
     card.appendChild(header);
 

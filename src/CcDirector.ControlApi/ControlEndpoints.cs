@@ -96,7 +96,10 @@ internal static class ControlEndpoints
         {
             if (!Guid.TryParse(sid, out _))
                 return Results.BadRequest(new { error = "invalid session id format" });
-            var html = EmbeddedResources.Load("session-view.html").Replace("__SID__", sid);
+            var shortSid = sid.Substring(0, Math.Min(8, sid.Length));
+            var html = EmbeddedResources.Load("session-view.html")
+                .Replace("__SID__", sid)
+                .Replace("__SHORT_SID__", shortSid);
             return Results.Content(html, "text/html; charset=utf-8");
         });
 
