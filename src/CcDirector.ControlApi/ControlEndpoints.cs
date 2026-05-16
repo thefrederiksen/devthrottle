@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Backends;
+using CcDirector.Core.Claude;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Utilities;
@@ -164,6 +165,55 @@ internal static class ControlEndpoints
                 NewCursor = newCursor,
                 Text = text,
             });
+        });
+
+        app.MapGet("/sessions/{sid}/turns", (string sid) =>
+        {
+            if (!Guid.TryParse(sid, out var guid))
+                return Results.BadRequest(new { error = "invalid session id format" });
+
+            var session = sessionManager.GetSession(guid);
+            if (session is null)
+                return Results.NotFound(new { error = "session not found" });
+
+            var resp = new TurnsResponse
+            {
+                SessionId = sid,
+                ClaudeSessionId = session.ClaudeSessionId,
+            };
+
+            if (string.IsNullOrEmpty(session.ClaudeSessionId))
+            {
+                resp.Status = "no_session_id";
+                resp.Error = "Session has not been linked to a Claude session id yet.";
+                return Results.Json(resp);
+            }
+
+            try
+            {
+                var jsonl = ClaudeSessionReader.GetJsonlPath(session.ClaudeSessionId, session.RepoPath);
+                resp.JsonlPath = jsonl;
+
+                if (!File.Exists(jsonl))
+                {
+                    resp.Status = "no_jsonl";
+                    resp.Error = $"JSONL file not found at {jsonl}";
+                    return Results.Json(resp);
+                }
+
+                var messages = StreamMessageParser.ParseFile(jsonl);
+                resp.LineCount = messages.Count;
+                resp.Widgets = WidgetBuilder.BuildFromMessages(messages);
+                resp.Status = "ok";
+                return Results.Json(resp);
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[ControlEndpoints] /turns FAILED: {ex.Message}");
+                resp.Status = "parse_error";
+                resp.Error = ex.Message;
+                return Results.Json(resp);
+            }
         });
 
         app.MapPost("/sessions/{sid}/prompt", async (string sid, PromptRequest req) =>

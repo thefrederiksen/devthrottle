@@ -2,42 +2,244 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>CC Director - Session __SID__</title>
 <style>
-  body { margin: 0; background: #1e1e1e; color: #ddd; font-family: "Cascadia Code", Consolas, monospace; font-size: 13px; }
-  header { padding: 8px 12px; border-bottom: 1px solid #3c3c3c; display: flex; align-items: center; gap: 12px; background: #252526; position: sticky; top: 0; }
-  header a { color: #569cd6; text-decoration: none; font-family: -apple-system, sans-serif; font-size: 13px; }
-  header span.title { font-family: -apple-system, sans-serif; font-size: 13px; color: #888; }
-  header span.state { font-family: -apple-system, sans-serif; font-size: 11px; padding: 2px 6px; border-radius: 10px; color: #1e1e1e; background: #888; }
-  main { padding: 10px 14px; white-space: pre-wrap; word-break: break-word; }
+  :root {
+    --bg: #1e1e1e;
+    --panel: #252526;
+    --border: #3c3c3c;
+    --text: #dddddd;
+    --muted: #888888;
+    --accent: #0e639c;
+    --accent-hover: #1177bb;
+    --idle: #4ec9b0;
+    --working: #569cd6;
+    --waiting: #dcdcaa;
+    --perm: #ce9178;
+    --failed: #f44747;
+    --starting: #9cdcfe;
+    /* Widget colors (match Avalonia CleanView) */
+    --w-bash: #22c55e;
+    --w-read: #3b82f6;
+    --w-write: #d97706;
+    --w-edit: #d97706;
+    --w-grep: #a855f7;
+    --w-glob: #a855f7;
+    --w-todo: #06b6d4;
+    --w-agent: #f43f5e;
+    --w-skill: #0d9488;
+    --w-text: #64748b;
+    --w-thinking: #4b5563;
+    --w-user: #094771;
+    --w-generic: #3c3c3c;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px;
+    min-height: 100vh;
+  }
+  header {
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--panel);
+    position: sticky; top: 0; z-index: 10;
+    flex-wrap: wrap;
+  }
+  header a { color: var(--accent); text-decoration: none; font-size: 13px; }
+  header a:hover { text-decoration: underline; }
+  header .title { color: var(--muted); font-size: 12px; }
+  header .title code { background: var(--bg); padding: 2px 6px; border-radius: 3px; color: var(--text); }
+  header .state { font-size: 11px; padding: 2px 8px; border-radius: 10px; color: #1e1e1e; background: var(--muted); font-weight: 600; }
+  header .spacer { flex: 1; }
+
+  .tabs {
+    display: flex;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    padding: 0 8px;
+    position: sticky; top: 41px; z-index: 9;
+  }
+  .tab {
+    padding: 8px 16px;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 13px;
+    border-bottom: 2px solid transparent;
+    -webkit-tap-highlight-color: rgba(14,99,156,0.4);
+  }
+  .tab.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+  .tab:hover:not(.active) { color: var(--text); }
+
+  /* ===== AGENT VIEW ===== */
+  #agentView { padding: 12px 14px 96px; display: flex; flex-direction: column; gap: 8px; }
+  .empty-agent { color: var(--muted); text-align: center; padding: 40px 16px; font-size: 13px; }
+  .empty-agent .hint { font-size: 11px; opacity: 0.8; margin-top: 6px; }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .card.tool { margin-left: 28px; }
+  .card.user { background: var(--w-user); border-color: var(--w-user); }
+  .card.thinking { opacity: 0.78; }
+
+  .card-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .card-icon {
+    width: 22px; height: 22px;
+    border-radius: 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-family: "Cascadia Code", Consolas, monospace;
+    font-size: 11px;
+    color: #fff;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  .card-title {
+    font-weight: 600;
+    color: #e0e0e0;
+    font-size: 13px;
+  }
+  .card-subheader {
+    color: var(--muted);
+    font-size: 11px;
+    margin-left: auto;
+    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 60%;
+  }
+  .card-content {
+    color: #cccccc;
+    font-family: "Cascadia Code", Consolas, monospace;
+    font-size: 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.45;
+    padding: 6px 0 0;
+  }
+  .card.user .card-content,
+  .card.text .card-content,
+  .card.thinking .card-content {
+    font-family: inherit;
+    font-size: 13px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+  }
+  .card.bash .card-content { color: var(--w-bash); }
+  .card-result {
+    color: #aaaaaa;
+    font-family: "Cascadia Code", Consolas, monospace;
+    font-size: 11px;
+    border-top: 1px dashed var(--border);
+    margin-top: 6px;
+    padding-top: 6px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 200px;
+    overflow-y: auto;
+    line-height: 1.4;
+  }
+  .card-result.error { color: #ef4444; }
+  .card.collapsed .card-content,
+  .card.collapsed .card-result { display: none; }
+  .card .toggle {
+    margin-left: auto;
+    color: var(--muted);
+    font-size: 11px;
+    user-select: none;
+    cursor: pointer;
+    padding: 2px 6px;
+  }
+  .card .toggle:hover { color: var(--text); }
+  .pending-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--waiting); animation: pulse 1.4s ease-in-out infinite;
+    flex-shrink: 0;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 0.35; }
+    50% { opacity: 1.0; }
+  }
+
+  /* Per-kind icon backgrounds */
+  .icon-Bash       { background: var(--w-bash); }
+  .icon-Read       { background: var(--w-read); }
+  .icon-Write      { background: var(--w-write); }
+  .icon-Edit       { background: var(--w-edit); }
+  .icon-Grep       { background: var(--w-grep); }
+  .icon-Glob       { background: var(--w-glob); }
+  .icon-TodoWrite  { background: var(--w-todo); }
+  .icon-Agent      { background: var(--w-agent); }
+  .icon-Skill      { background: var(--w-skill); }
+  .icon-Text       { background: var(--w-text); }
+  .icon-Thinking   { background: var(--w-thinking); }
+  .icon-UserMessage{ background: var(--w-user); }
+  .icon-GenericTool{ background: var(--w-generic); }
+
+  /* ===== RAW VIEW ===== */
+  #rawView {
+    padding: 10px 14px 96px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: "Cascadia Code", Consolas, monospace;
+    font-size: 12px;
+    color: #ddd;
+  }
+
+  /* ===== INPUT BAR ===== */
   form.send {
-    position: sticky;
-    bottom: 0;
-    background: #252526;
-    border-top: 1px solid #3c3c3c;
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    background: var(--panel);
+    border-top: 1px solid var(--border);
     padding: 8px 12px;
     display: flex;
     gap: 8px;
+    z-index: 20;
   }
   form.send input[type=text] {
     flex: 1;
-    background: #1e1e1e;
-    color: #ddd;
-    border: 1px solid #3c3c3c;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
     border-radius: 4px;
-    padding: 8px 10px;
+    padding: 9px 11px;
     font-family: inherit;
     font-size: 13px;
   }
   form.send button {
-    background: #0e639c;
-    color: white;
-    border: 0;
-    padding: 8px 16px;
+    background: var(--accent);
+    color: white; border: 0;
+    padding: 9px 16px;
     border-radius: 4px;
     font-weight: 600;
     cursor: pointer;
+  }
+  form.send button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  @media (max-width: 520px) {
+    .card.tool { margin-left: 14px; }
+    .card-subheader { max-width: 100%; }
   }
 </style>
 </head>
@@ -46,51 +248,194 @@
   <a href="/">&larr; Manager</a>
   <span class="title">Session <code>__SID__</code></span>
   <span class="state" id="state">?</span>
+  <span class="spacer"></span>
+  <span class="title" id="counts"></span>
 </header>
-<main id="output">Loading...</main>
+
+<div class="tabs">
+  <div class="tab active" data-view="agent">Agent</div>
+  <div class="tab" data-view="raw">Raw terminal</div>
+</div>
+
+<div id="agentView"></div>
+<div id="rawView" style="display:none">Loading...</div>
+
 <form class="send" onsubmit="return send(event)">
   <input type="text" id="prompt" placeholder="Send to session... (Enter to submit)" autocomplete="off" />
-  <button type="submit">Send</button>
+  <button type="submit" id="sendBtn">Send</button>
 </form>
+
 <script>
 (function () {
   const SID = "__SID__";
-  const outEl = document.getElementById('output');
+  const agentEl = document.getElementById('agentView');
+  const rawEl = document.getElementById('rawView');
   const stateEl = document.getElementById('state');
-  let cursor = 0;
-  let firstLoad = true;
+  const countsEl = document.getElementById('counts');
+  const tabs = document.querySelectorAll('.tab');
 
-  async function poll() {
-    try {
-      const r = await fetch('/sessions/' + SID + '/buffer?since=' + cursor, { credentials: 'same-origin' });
-      if (!r.ok) { outEl.textContent = 'Lost connection (HTTP ' + r.status + ')'; return; }
-      const body = await r.json();
-      if (firstLoad || body.text) {
-        if (firstLoad) outEl.textContent = body.text || '';
-        else outEl.textContent += body.text || '';
-        firstLoad = false;
-        // Auto-scroll if user is near the bottom
-        const nearBottom = window.scrollY + window.innerHeight > document.body.scrollHeight - 80;
-        if (nearBottom) window.scrollTo(0, document.body.scrollHeight);
-      }
-      cursor = body.newCursor || cursor;
-
-      const s = await fetch('/sessions/' + SID, { credentials: 'same-origin' });
-      if (s.ok) {
-        const dto = await s.json();
-        stateEl.textContent = dto.activityState;
-        stateEl.style.background = stateColor(dto.activityState);
-      }
-    } catch (e) {
-      outEl.textContent += '\n[lost connection: ' + e.message + ']';
-    }
-  }
+  let activeView = 'agent';
+  let rawCursor = 0;
+  let rawFirstLoad = true;
+  let lastWidgetCount = 0;
 
   function stateColor(s) {
     return ({
       Idle: '#4ec9b0', Working: '#569cd6', WaitingForInput: '#dcdcaa',
-      WaitingForPerm: '#ce9178', Starting: '#9cdcfe', Exited: '#f44747', Failed: '#f44747'
+      WaitingForPerm: '#ce9178', Starting: '#9cdcfe',
+      Exited: '#f44747', Failed: '#f44747'
     })[s] || '#888';
+  }
+
+  tabs.forEach(t => t.addEventListener('click', () => {
+    tabs.forEach(x => x.classList.toggle('active', x === t));
+    activeView = t.dataset.view;
+    agentEl.style.display = activeView === 'agent' ? '' : 'none';
+    rawEl.style.display = activeView === 'raw' ? '' : 'none';
+    if (activeView === 'agent') refreshAgent();
+    else refreshRaw();
+  }));
+
+  function escapeHtml(s) {
+    if (s == null) return '';
+    return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  function renderWidget(w) {
+    const isTool = !['Text','Thinking','UserMessage'].includes(w.kind);
+    const classes = ['card'];
+    if (isTool) classes.push('tool');
+    if (w.kind === 'UserMessage') classes.push('user');
+    if (w.kind === 'Text') classes.push('text');
+    if (w.kind === 'Thinking') classes.push('thinking');
+    if (w.kind === 'Bash') classes.push('bash');
+    if (isTool && !w.isPending && !w.result) classes.push('collapsed');
+
+    const iconText = ({
+      Bash: '$', Read: 'R', Write: 'W', Edit: 'E',
+      Grep: '?', Glob: '*', TodoWrite: '#',
+      Agent: 'A', Skill: '/',
+      Text: 'T', Thinking: '...', UserMessage: '>',
+    })[w.kind] || '>';
+
+    const card = document.createElement('div');
+    card.className = classes.join(' ');
+    card.dataset.toolUseId = w.toolUseId || '';
+
+    const header = document.createElement('div');
+    header.className = 'card-header';
+    header.innerHTML = `
+      <div class="card-icon icon-${w.kind}">${escapeHtml(iconText)}</div>
+      <div class="card-title">${escapeHtml(w.header)}</div>
+      ${w.subheader ? `<div class="card-subheader" title="${escapeHtml(w.subheader)}">${escapeHtml(w.subheader)}</div>` : ''}
+      ${w.isPending ? '<div class="pending-dot" title="waiting for result"></div>' : ''}
+      ${(w.content || w.result) ? '<span class="toggle">[+/-]</span>' : ''}
+    `;
+    card.appendChild(header);
+
+    if (w.content) {
+      const c = document.createElement('div');
+      c.className = 'card-content';
+      c.textContent = w.content;
+      card.appendChild(c);
+    }
+    if (w.result) {
+      const r = document.createElement('div');
+      r.className = 'card-result' + (w.isError ? ' error' : '');
+      r.textContent = w.result;
+      card.appendChild(r);
+    }
+
+    // Toggle collapse on header click
+    header.addEventListener('click', e => {
+      if (e.target.closest('.toggle') || !(w.content || w.result)) {
+        card.classList.toggle('collapsed');
+      } else if (e.target.tagName !== 'A') {
+        card.classList.toggle('collapsed');
+      }
+    });
+
+    return card;
+  }
+
+  function renderEmpty(reason) {
+    agentEl.innerHTML = '';
+    const e = document.createElement('div');
+    e.className = 'empty-agent';
+    e.innerHTML = `<div>${escapeHtml(reason)}</div><div class="hint">Switch to "Raw terminal" tab to see exactly what Claude is writing.</div>`;
+    agentEl.appendChild(e);
+  }
+
+  async function refreshAgent() {
+    try {
+      const r = await fetch('/sessions/' + SID + '/turns', { credentials: 'same-origin' });
+      if (!r.ok) {
+        renderEmpty('Failed to load (HTTP ' + r.status + ')');
+        return;
+      }
+      const body = await r.json();
+      if (body.status === 'no_session_id') {
+        renderEmpty('Session not yet linked to a Claude session id. The first hook event will link it.');
+        return;
+      }
+      if (body.status === 'no_jsonl') {
+        renderEmpty('Waiting for the Claude session log to appear...');
+        return;
+      }
+      if (body.status === 'parse_error') {
+        renderEmpty('Parse error: ' + (body.error || 'unknown'));
+        return;
+      }
+      const widgets = body.widgets || [];
+      if (widgets.length === 0) {
+        renderEmpty('No turns yet. Send a prompt below.');
+        lastWidgetCount = 0;
+        return;
+      }
+
+      // Re-render entirely (cheap for a few hundred widgets). Could diff later.
+      const nearBottom = window.scrollY + window.innerHeight > document.body.scrollHeight - 80;
+      agentEl.innerHTML = '';
+      widgets.forEach(w => agentEl.appendChild(renderWidget(w)));
+      countsEl.textContent = widgets.length + ' turn(s)';
+
+      // Auto-scroll to bottom when new widgets appear
+      if (widgets.length > lastWidgetCount && nearBottom) {
+        window.scrollTo(0, document.body.scrollHeight);
+      }
+      lastWidgetCount = widgets.length;
+    } catch (e) {
+      renderEmpty('Error: ' + e.message);
+    }
+  }
+
+  async function refreshRaw() {
+    try {
+      const r = await fetch('/sessions/' + SID + '/buffer?since=' + rawCursor, { credentials: 'same-origin' });
+      if (!r.ok) { rawEl.textContent = 'Lost connection (HTTP ' + r.status + ')'; return; }
+      const body = await r.json();
+      if (rawFirstLoad) {
+        rawEl.textContent = body.text || '';
+        rawFirstLoad = false;
+      } else if (body.text) {
+        rawEl.textContent += body.text;
+      }
+      rawCursor = body.newCursor || rawCursor;
+      const nearBottom = window.scrollY + window.innerHeight > document.body.scrollHeight - 80;
+      if (nearBottom) window.scrollTo(0, document.body.scrollHeight);
+    } catch (e) {
+      rawEl.textContent += '\n[lost connection: ' + e.message + ']';
+    }
+  }
+
+  async function refreshState() {
+    try {
+      const r = await fetch('/sessions/' + SID, { credentials: 'same-origin' });
+      if (!r.ok) return;
+      const dto = await r.json();
+      stateEl.textContent = dto.activityState;
+      stateEl.style.background = stateColor(dto.activityState);
+    } catch {}
   }
 
   window.send = async function (e) {
@@ -114,8 +459,14 @@
     return false;
   };
 
-  poll();
-  setInterval(poll, 800);
+  // Initial + recurring refresh
+  refreshState();
+  refreshAgent();
+  setInterval(() => {
+    refreshState();
+    if (activeView === 'agent') refreshAgent();
+    else refreshRaw();
+  }, 1500);
 })();
 </script>
 </body>
