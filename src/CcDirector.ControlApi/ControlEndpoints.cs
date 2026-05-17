@@ -219,6 +219,230 @@ internal static class ControlEndpoints
             }
         });
 
+        app.MapGet("/sessions/{sid}/summary", (string sid) =>
+        {
+            if (!Guid.TryParse(sid, out var guid))
+                return Results.BadRequest(new { error = "invalid session id format" });
+
+            var session = sessionManager.GetSession(guid);
+            if (session is null)
+                return Results.NotFound(new { error = "session not found" });
+
+            var dto = new SessionSummaryDto
+            {
+                SessionId = sid,
+                DirectorId = directorId,
+                Agent = session.AgentKind.ToString(),
+                RepoPath = session.RepoPath,
+                ActivityState = session.ActivityState.ToString(),
+                CreatedAt = session.CreatedAt.UtcDateTime,
+            };
+
+            if (string.IsNullOrEmpty(session.ClaudeSessionId))
+            {
+                dto.Status = "no_session_id";
+                dto.Error = "Session has not been linked to a Claude session id yet.";
+                return Results.Json(dto);
+            }
+
+            try
+            {
+                var jsonl = ClaudeSessionReader.GetJsonlPath(session.ClaudeSessionId, session.RepoPath);
+                if (!File.Exists(jsonl))
+                {
+                    dto.Status = "no_jsonl";
+                    dto.Error = $"JSONL file not found at {jsonl}";
+                    return Results.Json(dto);
+                }
+
+                var messages = StreamMessageParser.ParseFile(jsonl);
+                var summary = SummaryBuilder.Build(messages);
+                // Fold the structural fields we already filled into the freshly built one.
+                summary.SessionId = sid;
+                summary.DirectorId = directorId;
+                summary.Agent = dto.Agent;
+                summary.RepoPath = dto.RepoPath;
+                summary.ActivityState = dto.ActivityState;
+                summary.CreatedAt = dto.CreatedAt;
+                summary.Status = "ok";
+                return Results.Json(summary);
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[ControlEndpoints] /summary FAILED: {ex.Message}");
+                dto.Status = "parse_error";
+                dto.Error = ex.Message;
+                return Results.Json(dto);
+            }
+        });
+
+        app.MapGet("/sessions/{sid}/handover-context", (string sid, string? extraContext) =>
+        {
+            // Return the plain-text prompt that would be sent to a target session on
+            // POST /handover. Useful for clients (skills, UI) that want to preview or
+            // edit the context before dispatching.
+            if (!Guid.TryParse(sid, out var guid))
+                return Results.BadRequest(new { error = "invalid session id format" });
+
+            var session = sessionManager.GetSession(guid);
+            if (session is null)
+                return Results.NotFound(new { error = "session not found" });
+
+            SessionSummaryDto summary;
+            if (string.IsNullOrEmpty(session.ClaudeSessionId))
+            {
+                summary = new SessionSummaryDto
+                {
+                    SessionId = sid, DirectorId = directorId,
+                    Agent = session.AgentKind.ToString(),
+                    RepoPath = session.RepoPath,
+                    ActivityState = session.ActivityState.ToString(),
+                    CreatedAt = session.CreatedAt.UtcDateTime,
+                };
+            }
+            else
+            {
+                var jsonl = ClaudeSessionReader.GetJsonlPath(session.ClaudeSessionId, session.RepoPath);
+                summary = File.Exists(jsonl)
+                    ? SummaryBuilder.Build(StreamMessageParser.ParseFile(jsonl))
+                    : new SessionSummaryDto();
+                summary.SessionId = sid;
+                summary.DirectorId = directorId;
+                summary.Agent = session.AgentKind.ToString();
+                summary.RepoPath = session.RepoPath;
+                summary.ActivityState = session.ActivityState.ToString();
+                summary.CreatedAt = session.CreatedAt.UtcDateTime;
+            }
+
+            var text = SummaryBuilder.FormatAsHandoverPrompt(summary, extraContext);
+            return Results.Text(text, "text/plain; charset=utf-8");
+        });
+
+        app.MapPost("/handover", async (HandoverRequest req) =>
+        {
+            // Director-local handover. Source AND target must both live on this Director.
+            // Cross-Director handovers go via the Gateway proxy.
+            FileLog.Write($"[ControlEndpoints] POST /handover: from={req?.FromSessionId} toSid={req?.ToSessionId} toRepo={req?.ToRepoPath}");
+
+            if (req is null || string.IsNullOrEmpty(req.FromSessionId))
+                return Results.BadRequest(new { error = "fromSessionId is required" });
+            if (string.IsNullOrEmpty(req.ToSessionId) && string.IsNullOrEmpty(req.ToRepoPath))
+                return Results.BadRequest(new { error = "exactly one of toSessionId or toRepoPath is required" });
+            if (!string.IsNullOrEmpty(req.ToSessionId) && !string.IsNullOrEmpty(req.ToRepoPath))
+                return Results.BadRequest(new { error = "toSessionId and toRepoPath are mutually exclusive" });
+
+            if (!Guid.TryParse(req.FromSessionId, out var fromGuid))
+                return Results.BadRequest(new { error = "invalid fromSessionId format" });
+
+            var source = sessionManager.GetSession(fromGuid);
+            if (source is null)
+                return Results.NotFound(new { error = "source session not found on this director" });
+
+            // 1) Build the context text
+            SessionSummaryDto summary;
+            if (string.IsNullOrEmpty(source.ClaudeSessionId))
+            {
+                summary = new SessionSummaryDto
+                {
+                    SessionId = req.FromSessionId, DirectorId = directorId,
+                    Agent = source.AgentKind.ToString(),
+                    RepoPath = source.RepoPath,
+                    ActivityState = source.ActivityState.ToString(),
+                    CreatedAt = source.CreatedAt.UtcDateTime,
+                };
+            }
+            else
+            {
+                var jsonl = ClaudeSessionReader.GetJsonlPath(source.ClaudeSessionId, source.RepoPath);
+                summary = File.Exists(jsonl)
+                    ? SummaryBuilder.Build(StreamMessageParser.ParseFile(jsonl))
+                    : new SessionSummaryDto();
+                summary.SessionId = req.FromSessionId;
+                summary.DirectorId = directorId;
+                summary.Agent = source.AgentKind.ToString();
+                summary.RepoPath = source.RepoPath;
+                summary.ActivityState = source.ActivityState.ToString();
+                summary.CreatedAt = source.CreatedAt.UtcDateTime;
+            }
+            var contextText = SummaryBuilder.FormatAsHandoverPrompt(summary, req.ExtraContext);
+
+            // 2) Find or create the target session
+            Session target;
+            if (!string.IsNullOrEmpty(req.ToSessionId))
+            {
+                if (!Guid.TryParse(req.ToSessionId, out var toGuid))
+                    return Results.BadRequest(new { error = "invalid toSessionId format" });
+                var existing = sessionManager.GetSession(toGuid);
+                if (existing is null)
+                    return Results.NotFound(new { error = "target session not found on this director" });
+                if (existing.Status is SessionStatus.Exited or SessionStatus.Failed)
+                    return Results.StatusCode(StatusCodes.Status409Conflict);
+                target = existing;
+                await target.SendTextAsync(contextText);
+            }
+            else
+            {
+                var repo = req.ToRepoPath!;
+                if (!Directory.Exists(repo))
+                    return Results.BadRequest(new { error = $"toRepoPath does not exist: {repo}" });
+                if (!Enum.TryParse<AgentKind>(req.ToAgent, ignoreCase: true, out var kind))
+                    return Results.BadRequest(new { error = $"unknown agent: {req.ToAgent}" });
+
+                IAgent agent = kind switch
+                {
+                    AgentKind.ClaudeCode => new ClaudeAgent(sessionManager.Options),
+                    AgentKind.Pi => new PiAgent(sessionManager.Options),
+                    AgentKind.Codex => new CodexAgent(sessionManager.Options),
+                    AgentKind.Gemini => new GeminiAgent(sessionManager.Options),
+                    _ => throw new InvalidOperationException("unreachable"),
+                };
+
+                try
+                {
+                    target = sessionManager.CreateSession(repo, agent, userArgs: null, SessionBackendType.ConPty, resumeSessionId: null);
+                }
+                catch (Exception ex)
+                {
+                    return Results.Problem("failed to create target session: " + ex.Message, statusCode: 500);
+                }
+                sessionManager.RaiseSessionCreated(target);
+
+                // Dispatch the context after the new session reaches Idle. Fire-and-forget;
+                // we return the target DTO immediately so callers can navigate to it.
+                var capturedTarget = target;
+                var capturedText = contextText;
+                _ = Task.Run(async () =>
+                {
+                    var deadline = DateTime.UtcNow.AddMilliseconds(30_000);
+                    while (DateTime.UtcNow < deadline)
+                    {
+                        var st = capturedTarget.ActivityState;
+                        if (st is ActivityState.Idle or ActivityState.WaitingForInput) break;
+                        if (st is ActivityState.Exited) { FileLog.Write($"[ControlEndpoints] /handover target exited before idle, sid={capturedTarget.Id}"); return; }
+                        await Task.Delay(500);
+                    }
+                    try { await capturedTarget.SendTextAsync(capturedText); }
+                    catch (Exception ex) { FileLog.Write($"[ControlEndpoints] /handover dispatch FAILED: {ex.Message}"); }
+                });
+            }
+
+            // 3) Optionally archive to vault
+            string? archivedAt = null;
+            if (req.ArchiveToVault)
+            {
+                try { archivedAt = HandoverArchive.Write(summary, contextText, target.Id.ToString()); }
+                catch (Exception ex) { FileLog.Write($"[ControlEndpoints] /handover archive FAILED: {ex.Message}"); }
+            }
+
+            return Results.Json(new HandoverResponse
+            {
+                Accepted = true,
+                TargetSession = Map(target, directorId),
+                ContextSent = contextText,
+                ArchivedAt = archivedAt,
+            }, statusCode: 201);
+        });
+
         app.MapPost("/sessions/{sid}/prompt", async (string sid, PromptRequest req) =>
         {
             FileLog.Write($"[ControlEndpoints] POST prompt: sid={sid}, len={req?.Text?.Length ?? 0}");
@@ -411,6 +635,35 @@ internal static class ControlEndpoints
 
             // Notify any listeners (Avalonia UI subscribes to update its sidebar)
             sessionManager.RaiseSessionCreated(session);
+
+            // If a PrePrompt was supplied, dispatch it once the session reaches Idle.
+            // Fire-and-forget on a background task so the POST returns 201 immediately.
+            if (!string.IsNullOrWhiteSpace(req.PrePrompt))
+            {
+                var prePrompt = req.PrePrompt;
+                var waitMs = Math.Max(1000, req.PrePromptWaitMs);
+                var capturedSession = session;
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        var deadline = DateTime.UtcNow.AddMilliseconds(waitMs);
+                        while (DateTime.UtcNow < deadline)
+                        {
+                            var st = capturedSession.ActivityState;
+                            if (st is ActivityState.Idle or ActivityState.WaitingForInput) break;
+                            if (st is ActivityState.Exited) { FileLog.Write($"[ControlEndpoints] PrePrompt: session exited before idle, sid={capturedSession.Id}"); return; }
+                            await Task.Delay(500);
+                        }
+                        FileLog.Write($"[ControlEndpoints] PrePrompt: dispatching to sid={capturedSession.Id}, len={prePrompt.Length}");
+                        await capturedSession.SendTextAsync(prePrompt);
+                    }
+                    catch (Exception ex)
+                    {
+                        FileLog.Write($"[ControlEndpoints] PrePrompt FAILED: {ex.Message}");
+                    }
+                });
+            }
 
             return Results.Json(Map(session, directorId), statusCode: 201);
         });

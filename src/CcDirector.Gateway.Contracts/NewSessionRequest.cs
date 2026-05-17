@@ -15,6 +15,18 @@ public sealed class NewSessionRequest
 
     /// <summary>Optional extra arguments to pass to the agent CLI.</summary>
     public string? Args { get; set; }
+
+    /// <summary>
+    /// Optional first prompt to send into the new session as soon as the agent is up
+    /// and Idle. Used by handovers and by phone clients that want to launch a session
+    /// already loaded with context. The Director waits up to PrePromptWaitMs for the
+    /// SessionStart hook before dispatching.
+    /// </summary>
+    public string? PrePrompt { get; set; }
+
+    /// <summary>How long to wait for the new session to reach Idle before sending the
+    /// PrePrompt (milliseconds). Default 30000.</summary>
+    public int PrePromptWaitMs { get; set; } = 30_000;
 }
 
 /// <summary>

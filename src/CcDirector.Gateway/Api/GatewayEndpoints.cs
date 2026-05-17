@@ -267,6 +267,101 @@ internal static class GatewayEndpoints
             return Results.StatusCode(StatusCodes.Status502BadGateway);
         });
 
+        app.MapGet("/sessions/{sid}/summary", async (string sid) =>
+        {
+            var (director, session) = await LocateSessionAsync(registry, client, sid);
+            if (session is null)
+                return Results.NotFound(new { error = "session not found across any director" });
+            var summary = await client.GetSummaryAsync(director!.ControlEndpoint, sid);
+            if (summary is null)
+                return Results.StatusCode(StatusCodes.Status502BadGateway);
+            summary.DirectorId = director.DirectorId;
+            return Results.Json(summary);
+        });
+
+        app.MapPost("/handover", async (HandoverRequest req) =>
+        {
+            // Gateway-side /handover dispatches to whichever Director owns the source
+            // session. Same-Director case: proxy the request to that Director. Cross-Director
+            // case (toDirectorId set + different from source): read the prose context from
+            // source-side, then spawn the target session on the target Director with the
+            // context as PrePrompt.
+
+            if (req is null || string.IsNullOrEmpty(req.FromSessionId))
+                return Results.BadRequest(new { error = "fromSessionId is required" });
+            if (string.IsNullOrEmpty(req.ToSessionId) && string.IsNullOrEmpty(req.ToRepoPath))
+                return Results.BadRequest(new { error = "exactly one of toSessionId or toRepoPath is required" });
+
+            FileLog.Write($"[GatewayEndpoints] POST /handover: from={req.FromSessionId} toSid={req.ToSessionId} toRepo={req.ToRepoPath} toDir={req.ToDirectorId}");
+
+            var (sourceDirector, sourceSession) = await LocateSessionAsync(registry, client, req.FromSessionId);
+            if (sourceSession is null || sourceDirector is null)
+                return Results.NotFound(new { error = "source session not found across any director" });
+
+            DirectorDto? targetDirector = null;
+            if (!string.IsNullOrEmpty(req.ToDirectorId)
+                && !string.Equals(req.ToDirectorId, sourceDirector.DirectorId, StringComparison.OrdinalIgnoreCase))
+            {
+                targetDirector = registry.Get(req.ToDirectorId);
+                if (targetDirector is null)
+                    return Results.NotFound(new { error = "target director not found" });
+            }
+
+            if (targetDirector is null)
+            {
+                // Same-Director: proxy the entire request.
+                var (ok, body, err) = await client.PostHandoverAsync(sourceDirector.ControlEndpoint, req);
+                if (!ok || body is null)
+                    return Results.Problem(err ?? "handover failed", statusCode: StatusCodes.Status502BadGateway);
+                if (body.TargetSession is not null) body.TargetSession.DirectorId = sourceDirector.DirectorId;
+                return Results.Json(body, statusCode: 201);
+            }
+
+            // Cross-Director path. Only the "new session in target Director" form is supported here.
+            if (!string.IsNullOrEmpty(req.ToSessionId))
+                return Results.BadRequest(new { error = "cross-director handover to an existing session is not supported in v1; use toRepoPath instead" });
+            if (string.IsNullOrEmpty(req.ToRepoPath))
+                return Results.BadRequest(new { error = "toRepoPath is required for cross-director handover" });
+
+            string contextText;
+            try
+            {
+                var ctxUrl = $"{sourceDirector.ControlEndpoint}/sessions/{req.FromSessionId}/handover-context";
+                if (!string.IsNullOrEmpty(req.ExtraContext))
+                    ctxUrl += "?extraContext=" + Uri.EscapeDataString(req.ExtraContext);
+                using var ctxHttp = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+                contextText = await ctxHttp.GetStringAsync(ctxUrl);
+            }
+            catch (Exception ex)
+            {
+                return Results.Problem("failed to read handover-context from source director: " + ex.Message, statusCode: 502);
+            }
+
+            var spawnReq = new NewSessionRequest
+            {
+                RepoPath = req.ToRepoPath,
+                Agent = req.ToAgent,
+                PrePrompt = contextText,
+            };
+            using var spawnHttp = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
+            var spawnResp = await spawnHttp.PostAsJsonAsync($"{targetDirector.ControlEndpoint}/sessions", spawnReq);
+            if (!spawnResp.IsSuccessStatusCode)
+            {
+                var body = await spawnResp.Content.ReadAsStringAsync();
+                return Results.Problem($"target director returned {(int)spawnResp.StatusCode}: {body}", statusCode: 502);
+            }
+            var newSession = await spawnResp.Content.ReadFromJsonAsync<SessionDto>();
+            if (newSession is not null) newSession.DirectorId = targetDirector.DirectorId;
+
+            return Results.Json(new HandoverResponse
+            {
+                Accepted = true,
+                TargetSession = newSession,
+                ContextSent = contextText,
+                ArchivedAt = null, // archive is written only on the source side; cross-director skips
+            }, statusCode: 201);
+        });
+
         app.MapPost("/fanout", async (FanoutRequest req) =>
         {
             if (req is null || req.SessionIds is null || req.SessionIds.Count == 0)

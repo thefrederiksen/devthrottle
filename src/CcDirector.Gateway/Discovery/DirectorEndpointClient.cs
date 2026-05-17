@@ -157,6 +157,39 @@ public sealed class DirectorEndpointClient : IDisposable
         }
     }
 
+    public async Task<SessionSummaryDto?> GetSummaryAsync(string endpoint, string sessionId, CancellationToken ct = default)
+    {
+        try
+        {
+            return await _http.GetFromJsonAsync<SessionSummaryDto>($"{endpoint}/sessions/{sessionId}/summary", ct);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[DirectorEndpointClient] GetSummaryAsync FAILED: endpoint={endpoint}, sid={sessionId}, error={ex.Message}");
+            return null;
+        }
+    }
+
+    public async Task<(bool ok, HandoverResponse? body, string? error)> PostHandoverAsync(string endpoint, HandoverRequest req, CancellationToken ct = default)
+    {
+        try
+        {
+            var resp = await _http.PostAsJsonAsync($"{endpoint}/handover", req, ct);
+            if (!resp.IsSuccessStatusCode)
+            {
+                var body = await resp.Content.ReadAsStringAsync(ct);
+                return (false, null, $"director returned {(int)resp.StatusCode}: {body}");
+            }
+            var dto = await resp.Content.ReadFromJsonAsync<HandoverResponse>(cancellationToken: ct);
+            return (true, dto, null);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[DirectorEndpointClient] PostHandoverAsync FAILED: endpoint={endpoint}, error={ex.Message}");
+            return (false, null, ex.Message);
+        }
+    }
+
     public async Task<bool> PostShutdownAsync(string endpoint, CancellationToken ct = default)
     {
         try

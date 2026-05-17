@@ -18,9 +18,16 @@ public static class LargeInputHandler
     private const string TempDirName = ".temp";
 
     /// <summary>
-    /// Check if the given text exceeds the large input threshold.
+    /// Check if the given text should be sent via temp-file reference rather than
+    /// typed directly into the agent TUI. True when the text is large (over
+    /// <see cref="LargeInputThreshold"/> characters) OR contains line breaks --
+    /// multi-line input pasted directly into Claude's input box gets stuck (the
+    /// embedded newlines don't submit reliably; only the temp-file path works).
     /// </summary>
-    public static bool IsLargeInput(string text) => text.Length > LargeInputThreshold;
+    public static bool IsLargeInput(string text) =>
+        text.Length > LargeInputThreshold
+        || text.Contains('\n')
+        || text.Contains('\r');
 
     /// <summary>
     /// Creates a temp file in {workingDir}/.temp/ and returns the full path.

@@ -56,6 +56,27 @@ public class LargeInputHandlerTests : IDisposable
     }
 
     [Fact]
+    public void IsLargeInput_ShortMultiLineLF_ReturnsTrue()
+    {
+        // Multi-line text under the size threshold should still take the temp-file
+        // path because typing embedded newlines directly into Claude's TUI input box
+        // gets stuck (the embedded \n does not submit reliably).
+        Assert.True(LargeInputHandler.IsLargeInput("hello\nworld"));
+    }
+
+    [Fact]
+    public void IsLargeInput_ShortMultiLineCRLF_ReturnsTrue()
+    {
+        Assert.True(LargeInputHandler.IsLargeInput("hello\r\nworld"));
+    }
+
+    [Fact]
+    public void IsLargeInput_SingleLineUnderThreshold_ReturnsFalse()
+    {
+        Assert.False(LargeInputHandler.IsLargeInput("this is a single-line short prompt"));
+    }
+
+    [Fact]
     public void CreateTempFile_CreatesDirectory()
     {
         var tempDir = Path.Combine(_testDir, ".temp");
