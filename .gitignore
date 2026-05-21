@@ -22,6 +22,18 @@ tmp_build_output/CcDirector.Core.pdb
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 scripts/.claude/
+# Claude Code sound cache wherever it lands (e.g. when scripts run from
+# a subdirectory and Claude auto-creates a .claude/sounds/ there).
+**/.claude/sounds/
+
+# .NET test result artifacts (.trx, coverage XML)
+**/TestResults/
+
+# Per-session scratch test screenshots / workflow artifacts. JetBrains Rider
+# also uses .run/ for shared run configs - add a positive override here if
+# someone wants to check those in.
+.run/
+**/.run/
 supabase-credentials.txt
 docs/MACHINE_AUDIT_*.md
 code-review-log.json
