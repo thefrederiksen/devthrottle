@@ -266,15 +266,21 @@
                           Margin="4" />
         </ScrollViewer>
 
-        <!-- Empty state -->
+        <!-- Empty / new-session state. Shown when the session has no widgets
+             yet - typically a brand-new session that hasn't started Claude or
+             whose JSONL file does not exist on disk yet. Replaces the old
+             "Loading session output..." placeholder, which felt broken because
+             new sessions never have anything to load. -->
         <TextBlock x:Name="EmptyText" Grid.Row="0"
-                   Text="Start a Claude Code session to see rich output here."
+                   Text="New session. Type a message below to start."
                    Foreground="#888888" FontSize="13"
                    HorizontalAlignment="Center" VerticalAlignment="Center" />
 
-        <!-- Loading state -->
+        <!-- Loading state (only shown briefly when re-parsing an existing
+             JSONL file). For brand-new sessions we leave EmptyText visible
+             instead so the user sees an invitation, not a spinner. -->
         <TextBlock x:Name="LoadingText" Grid.Row="0"
-                   Text="Loading session output..."
+                   Text="Loading..."
                    Foreground="#888888" FontSize="13" FontStyle="Italic"
                    HorizontalAlignment="Center" VerticalAlignment="Center"
                    IsVisible="False" />
@@ -283,14 +289,13 @@
         <Border x:Name="StatusArea" Grid.Row="1" Padding="12,6">
             <Grid ColumnDefinitions="Auto,*">
 
-                <!-- Message filter dropdown -->
+                <!-- Message filter dropdown (kept in tree so code-behind keeps
+                     compiling; hidden because it added cognitive load with no
+                     payoff for the simplified Session view). -->
                 <ComboBox x:Name="FilterCombo"
                           Grid.Column="0"
                           SelectedIndex="0"
-                          MinWidth="130"
-                          FontSize="10" FontWeight="SemiBold"
-                          VerticalAlignment="Center"
-                          Margin="0,0,12,0">
+                          IsVisible="False">
                     <ComboBoxItem Content="All Messages" Tag="All" />
                     <ComboBoxItem Content="My Messages" Tag="UserOnly" />
                     <ComboBoxItem Content="Conversation" Tag="Conversation" />

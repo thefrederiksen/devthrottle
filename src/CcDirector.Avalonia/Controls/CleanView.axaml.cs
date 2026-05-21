@@ -93,9 +93,12 @@ public partial class CleanView : UserControl
 
             if (_jsonlPath == null)
             {
+                // Brand new session - no Claude output yet. Show the inviting
+                // empty state, not the "Loading..." spinner. The poll timer
+                // will pick the JSONL up the moment Claude starts writing.
                 FileLog.Write("[CleanView] Attach: no JSONL path available yet, will poll");
-                LoadingText.IsVisible = true;
-                EmptyText.IsVisible = false;
+                LoadingText.IsVisible = false;
+                EmptyText.IsVisible = true;
             }
             else
             {
