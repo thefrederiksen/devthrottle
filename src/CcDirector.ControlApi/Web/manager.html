@@ -203,6 +203,123 @@
   }
   .empty { color: var(--muted); text-align: center; padding: 32px; }
 
+  /* ===== Voice mode ===== */
+  .btn-voice {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--accent);
+    padding: 0 14px;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 13px;
+    min-height: 36px;
+    flex-shrink: 0;
+  }
+  .btn-voice:hover, .btn-voice:active { background: rgba(14,99,156,0.18); }
+  .btn-voice.active { background: var(--accent); color: white; }
+  .btn-voice:disabled { opacity: 0.4; cursor: not-allowed; border-color: var(--border); color: var(--muted); }
+
+  .voice-panel {
+    position: fixed;
+    left: 0; right: 0;
+    bottom: 0;
+    background: rgba(30,30,30,0.97);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border-top: 2px solid var(--accent);
+    padding: 14px 16px;
+    padding-bottom: calc(14px + env(safe-area-inset-bottom));
+    z-index: 30;
+    display: none;
+    flex-direction: column;
+    gap: 10px;
+    max-height: 60vh;
+    overflow-y: auto;
+    box-shadow: 0 -8px 24px rgba(0,0,0,0.4);
+  }
+  .voice-panel.open { display: flex; }
+  .voice-panel .vp-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .voice-panel .vp-row .spacer { flex: 1; }
+  .voice-panel h3 { margin: 0; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; }
+  .voice-panel .vp-close {
+    background: transparent;
+    border: 0;
+    color: var(--muted);
+    font-size: 22px;
+    cursor: pointer;
+    width: 36px; height: 36px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 6px;
+  }
+  .voice-panel .vp-close:hover { background: var(--bg); color: var(--text); }
+
+  .voice-mic-btn {
+    background: var(--accent);
+    color: white;
+    border: 0;
+    padding: 10px 18px;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 14px;
+    min-height: 44px;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: manipulation;
+  }
+  .voice-mic-btn:hover { background: var(--accent-hover); }
+  .voice-mic-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .voice-mic-btn.recording {
+    background: var(--failed);
+    animation: pulseMic 1.0s ease-in-out infinite;
+  }
+  @keyframes pulseMic {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(244,71,71,0.0); }
+    50%      { box-shadow: 0 0 0 8px rgba(244,71,71,0.30); }
+  }
+  .voice-status { color: var(--muted); font-size: 12px; min-height: 16px; }
+  .voice-status.error { color: var(--failed); }
+  .voice-status.ok { color: var(--idle); }
+
+  .voice-conversation {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    font-size: 14px;
+  }
+  .voice-bubble { display: flex; gap: 10px; align-items: flex-start; }
+  .voice-bubble .vb-tag {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--muted);
+    min-width: 64px;
+    padding-top: 2px;
+  }
+  .voice-bubble .vb-text { flex: 1; line-height: 1.4; word-wrap: break-word; }
+  .voice-bubble.user .vb-tag { color: var(--accent); }
+  .voice-bubble.manager .vb-tag { color: var(--idle); }
+
+  .voice-suggestions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .voice-suggestions button {
+    background: #3c3c3c;
+    color: var(--text);
+    border: 0;
+    padding: 8px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    min-height: 36px;
+  }
+  .voice-suggestions button:hover { background: #4a4a4a; }
+  .voice-suggestions button.danger { background: #5d2424; }
+  .voice-suggestions button.danger:hover { background: #7a3030; }
+
   .btn-new {
     background: var(--accent);
     color: white;
@@ -340,8 +457,33 @@
   <span class="spacer"></span>
   <span class="info">Director <code id="dirId">...</code> on <code id="machine">...</code></span>
   <button id="newSessionBtn" class="btn-new">+ New Session</button>
+  <button id="voiceToggleBtn" class="btn-voice" disabled title="Voice mode (checking availability...)">Voice</button>
   <a href="/logout" __LOGOUT_VISIBILITY__>Logout</a>
 </header>
+
+<!-- Voice mode panel (hidden until enabled) -->
+<div id="voicePanel" class="voice-panel" aria-live="polite">
+  <div class="vp-row">
+    <h3>Voice Mode</h3>
+    <span class="spacer"></span>
+    <button id="voiceClose" class="vp-close" title="Close voice mode">&times;</button>
+  </div>
+  <div class="vp-row">
+    <button id="voiceMicBtn" class="voice-mic-btn">Hold space or this button to talk</button>
+    <span id="voiceStatus" class="voice-status">Ready.</span>
+  </div>
+  <div id="voiceConversation" class="voice-conversation" style="display:none">
+    <div id="voiceUserBubble" class="voice-bubble user" style="display:none">
+      <div class="vb-tag">You</div>
+      <div class="vb-text" id="voiceUserText"></div>
+    </div>
+    <div id="voiceManagerBubble" class="voice-bubble manager" style="display:none">
+      <div class="vb-tag">Manager</div>
+      <div class="vb-text" id="voiceManagerText"></div>
+    </div>
+    <div id="voiceSuggestions" class="voice-suggestions"></div>
+  </div>
+</div>
 
 <!-- New Session modal -->
 <div id="newSessionModal" class="modal" style="display:none">
@@ -706,7 +848,266 @@
     }
   });
 
+  // ====== Voice mode ======
+  const voiceToggleBtn = document.getElementById('voiceToggleBtn');
+  const voicePanel = document.getElementById('voicePanel');
+  const voiceClose = document.getElementById('voiceClose');
+  const voiceMicBtn = document.getElementById('voiceMicBtn');
+  const voiceStatus = document.getElementById('voiceStatus');
+  const voiceConversation = document.getElementById('voiceConversation');
+  const voiceUserBubble = document.getElementById('voiceUserBubble');
+  const voiceUserText = document.getElementById('voiceUserText');
+  const voiceManagerBubble = document.getElementById('voiceManagerBubble');
+  const voiceManagerText = document.getElementById('voiceManagerText');
+  const voiceSuggestions = document.getElementById('voiceSuggestions');
+
+  let voiceAvailable = false;
+  let voiceMediaRecorder = null;
+  let voiceRecordedChunks = [];
+  let voiceRecordingStartedAt = 0;
+  let voiceRecordingTimer = null;
+  let voiceBusy = false;
+
+  function setVoiceStatus(text, cls) {
+    voiceStatus.textContent = text;
+    voiceStatus.className = 'voice-status' + (cls ? ' ' + cls : '');
+  }
+
+  async function loadVoiceStatus() {
+    try {
+      const r = await fetch('/voice/status', { credentials: 'same-origin' });
+      if (!r.ok) { voiceAvailable = false; return; }
+      const j = await r.json();
+      voiceAvailable = !!j.available;
+    } catch { voiceAvailable = false; }
+
+    if (voiceAvailable) {
+      voiceToggleBtn.disabled = false;
+      voiceToggleBtn.title = 'Toggle voice mode';
+    } else {
+      voiceToggleBtn.disabled = true;
+      voiceToggleBtn.title = 'Voice mode disabled: set Voice.OpenAiKey in appsettings.json or OPENAI_API_KEY env var.';
+    }
+  }
+
+  function openVoicePanel() {
+    voicePanel.classList.add('open');
+    voiceToggleBtn.classList.add('active');
+    setVoiceStatus('Ready. Hold space or the mic button to talk.');
+  }
+
+  function closeVoicePanel() {
+    voicePanel.classList.remove('open');
+    voiceToggleBtn.classList.remove('active');
+    stopRecording(true); // discard
+  }
+
+  voiceToggleBtn.addEventListener('click', () => {
+    if (voicePanel.classList.contains('open')) {
+      closeVoicePanel();
+    } else {
+      openVoicePanel();
+    }
+  });
+  voiceClose.addEventListener('click', closeVoicePanel);
+
+  async function startRecording() {
+    if (voiceBusy) return;
+    if (voiceMediaRecorder && voiceMediaRecorder.state === 'recording') return;
+
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (e) {
+      setVoiceStatus('Microphone permission denied: ' + e.message, 'error');
+      return;
+    }
+
+    voiceRecordedChunks = [];
+    const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : '';
+    try {
+      voiceMediaRecorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+    } catch (e) {
+      setVoiceStatus('MediaRecorder not supported: ' + e.message, 'error');
+      stream.getTracks().forEach(t => t.stop());
+      return;
+    }
+
+    voiceMediaRecorder.ondataavailable = (ev) => {
+      if (ev.data && ev.data.size > 0) voiceRecordedChunks.push(ev.data);
+    };
+    voiceMediaRecorder.onstop = () => {
+      // Release the mic track
+      stream.getTracks().forEach(t => t.stop());
+    };
+
+    voiceMediaRecorder.start();
+    voiceMicBtn.classList.add('recording');
+    voiceMicBtn.textContent = 'Release to send';
+    voiceRecordingStartedAt = Date.now();
+    setVoiceStatus('Recording 0.0s...');
+    voiceRecordingTimer = setInterval(() => {
+      const s = ((Date.now() - voiceRecordingStartedAt) / 1000).toFixed(1);
+      setVoiceStatus('Recording ' + s + 's...');
+    }, 100);
+  }
+
+  async function stopRecording(discard) {
+    if (!voiceMediaRecorder) return;
+    if (voiceRecordingTimer) { clearInterval(voiceRecordingTimer); voiceRecordingTimer = null; }
+    voiceMicBtn.classList.remove('recording');
+    voiceMicBtn.textContent = 'Hold space or this button to talk';
+
+    const rec = voiceMediaRecorder;
+    voiceMediaRecorder = null;
+    if (rec.state !== 'inactive') {
+      // Wait for the final dataavailable
+      await new Promise(resolve => {
+        rec.addEventListener('stop', resolve, { once: true });
+        rec.stop();
+      });
+    }
+
+    if (discard) { voiceRecordedChunks = []; return; }
+    if (voiceRecordedChunks.length === 0) {
+      setVoiceStatus('No audio captured.', 'error');
+      return;
+    }
+
+    const blob = new Blob(voiceRecordedChunks, { type: rec.mimeType || 'audio/webm' });
+    voiceRecordedChunks = [];
+
+    if (blob.size < 1000) {
+      setVoiceStatus('Too short. Hold longer next time.', 'error');
+      return;
+    }
+
+    await uploadVoiceCommand(blob);
+  }
+
+  async function uploadVoiceCommand(blob) {
+    voiceBusy = true;
+    setVoiceStatus('Transcribing...');
+    try {
+      const fd = new FormData();
+      const ext = (blob.type.includes('webm')) ? 'webm' : 'audio';
+      fd.append('file', blob, 'recording.' + ext);
+      const r = await fetch('/voice/command', {
+        method: 'POST',
+        credentials: 'same-origin',
+        body: fd,
+      });
+      const body = await r.json();
+      renderVoiceResponse(body);
+      if (body.status === 'ok' || body.status === 'unknown_command') {
+        setVoiceStatus('Ready.', 'ok');
+      } else {
+        setVoiceStatus(body.error || body.status || 'Failed.', 'error');
+      }
+    } catch (e) {
+      setVoiceStatus('Send failed: ' + e.message, 'error');
+    } finally {
+      voiceBusy = false;
+    }
+  }
+
+  function renderVoiceResponse(resp) {
+    voiceConversation.style.display = '';
+    voiceSuggestions.innerHTML = '';
+
+    if (resp.transcript) {
+      voiceUserText.textContent = resp.transcript;
+      voiceUserBubble.style.display = '';
+    } else {
+      voiceUserBubble.style.display = 'none';
+    }
+
+    if (resp.replyText) {
+      voiceManagerText.textContent = resp.replyText;
+      voiceManagerBubble.style.display = '';
+      // Speak the reply via the browser's built-in TTS (free, local, no extra API spend)
+      try {
+        const u = new SpeechSynthesisUtterance(resp.replyText);
+        u.rate = 1.05;
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(u);
+      } catch {}
+    } else {
+      voiceManagerBubble.style.display = 'none';
+    }
+
+    if (Array.isArray(resp.suggestions)) {
+      for (const sug of resp.suggestions) {
+        const btn = document.createElement('button');
+        btn.textContent = sug.label;
+        if (sug.kind === 'interrupt') btn.classList.add('danger');
+        btn.addEventListener('click', () => runSuggestion(sug));
+        voiceSuggestions.appendChild(btn);
+      }
+    }
+  }
+
+  async function runSuggestion(sug) {
+    if (!sug || !sug.kind) return;
+    try {
+      if (sug.kind === 'open') {
+        if (!sug.sessionId) return;
+        // Open the per-session view in a new tab.
+        window.open('/sessions/' + encodeURIComponent(sug.sessionId) + '/view', '_blank', 'noopener');
+        return;
+      }
+      if (sug.kind === 'send') {
+        if (!sug.sessionId || !sug.promptText) return;
+        const r = await fetch('/sessions/' + sug.sessionId + '/prompt', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: sug.promptText, appendEnter: true, waitForIdle: false, timeoutMs: 60000 }),
+        });
+        setVoiceStatus(r.ok ? 'Sent.' : ('Send failed: ' + r.status), r.ok ? 'ok' : 'error');
+        return;
+      }
+      if (sug.kind === 'interrupt') {
+        if (!sug.sessionId) return;
+        const r = await fetch('/sessions/' + sug.sessionId + '/interrupt', {
+          method: 'POST', credentials: 'same-origin',
+        });
+        setVoiceStatus(r.ok ? 'Interrupt sent.' : ('Interrupt failed: ' + r.status), r.ok ? 'ok' : 'error');
+        return;
+      }
+    } catch (e) {
+      setVoiceStatus('Action failed: ' + e.message, 'error');
+    }
+  }
+
+  // Push-to-talk on the mic button (mouse + touch)
+  voiceMicBtn.addEventListener('mousedown', (e) => { e.preventDefault(); startRecording(); });
+  voiceMicBtn.addEventListener('mouseup',   (e) => { e.preventDefault(); stopRecording(false); });
+  voiceMicBtn.addEventListener('mouseleave', () => { if (voiceMicBtn.classList.contains('recording')) stopRecording(false); });
+  voiceMicBtn.addEventListener('touchstart', (e) => { e.preventDefault(); startRecording(); }, { passive: false });
+  voiceMicBtn.addEventListener('touchend',   (e) => { e.preventDefault(); stopRecording(false); }, { passive: false });
+
+  // Push-to-talk on spacebar (only when voice panel is open and focus isn't in a text field)
+  window.addEventListener('keydown', (e) => {
+    if (e.code !== 'Space') return;
+    if (!voicePanel.classList.contains('open')) return;
+    if (e.repeat) return;
+    const t = e.target;
+    const tag = t && t.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || (t && t.isContentEditable)) return;
+    e.preventDefault();
+    startRecording();
+  });
+  window.addEventListener('keyup', (e) => {
+    if (e.code !== 'Space') return;
+    if (!voicePanel.classList.contains('open')) return;
+    if (!voiceMicBtn.classList.contains('recording')) return;
+    e.preventDefault();
+    stopRecording(false);
+  });
+
   loadHealth();
+  loadVoiceStatus();
   refresh();
   setInterval(refresh, 1500);
 })();

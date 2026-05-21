@@ -33,6 +33,15 @@ public sealed class SessionDto
     /// <summary>Optional friendly name for the session.</summary>
     public string? Name { get; set; }
 
+    /// <summary>
+    /// Aggregate at-a-glance status colour driven by the SessionSupervisor.
+    /// One of: "red" (user needs to act, question / error / permission),
+    /// "yellow" (idle with uncommitted work or supervisor warning),
+    /// "green" (everything fine), "unknown" (no summary yet).
+    /// Populated by the Director from the latest TurnSummary.
+    /// </summary>
+    public string StatusColor { get; set; } = "unknown";
+
     /// <summary>Backend type: ConPty / UnixPty / Pipe / Studio / Embedded.</summary>
     public string BackendType { get; set; } = "";
 }

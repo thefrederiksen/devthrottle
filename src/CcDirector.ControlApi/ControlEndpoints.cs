@@ -567,7 +567,7 @@ internal static class ControlEndpoints
             if (req is null || string.IsNullOrWhiteSpace(req.Text))
                 return Results.BadRequest(new { error = "text is required" });
 
-            var svc = new ChatService(sessionManager, sessionManager.Options, turnSummaryCache);
+            var svc = new ChatService(sessionManager, sessionManager.Options);
             var resp = await svc.HandleAsync(req, ctx.RequestAborted);
 
             // Map the service status to an HTTP code so the UI can branch cleanly.

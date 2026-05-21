@@ -406,6 +406,22 @@ public partial class App : Application
                     Options.GracefulShutdownTimeoutSeconds = gs.GetInt32();
             }
 
+            if (doc.RootElement.TryGetProperty("Voice", out var voiceSection))
+            {
+                if (voiceSection.TryGetProperty("OpenAiKey", out var keyProp))
+                    Options.OpenAiKey = keyProp.GetString();
+                if (voiceSection.TryGetProperty("TtsVoice", out var voiceProp))
+                    Options.TtsVoice = voiceProp.GetString() ?? Options.TtsVoice;
+                if (voiceSection.TryGetProperty("TtsModel", out var modelProp))
+                    Options.TtsModel = modelProp.GetString() ?? Options.TtsModel;
+            }
+
+            if (doc.RootElement.TryGetProperty("Chat", out var chatSection)
+                && chatSection.TryGetProperty("SessionRepoPath", out var repoProp))
+            {
+                Options.ChatSessionRepoPath = repoProp.GetString();
+            }
+
             if (doc.RootElement.TryGetProperty("Repositories", out var reposSection))
             {
                 Repositories = JsonSerializer.Deserialize<List<RepositoryConfig>>(

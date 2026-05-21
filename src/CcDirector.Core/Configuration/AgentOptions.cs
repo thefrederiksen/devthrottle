@@ -28,6 +28,48 @@ public class AgentOptions
     /// </summary>
     public string GeminiPath { get; set; } = DefaultNpmCliPath("gemini");
 
+    /// <summary>
+    /// Absolute path to the repository the Manager chat will relay every chat
+    /// message to. Set via appsettings.json "Chat.SessionRepoPath" - e.g.
+    /// "D:/ReposFred/private" - so the Director's /chat endpoint knows which
+    /// session represents "the agent" for one-session deployments.
+    /// Null means the Manager chat will require an explicit SessionId per request.
+    /// </summary>
+    public string? ChatSessionRepoPath { get; set; }
+
+    /// <summary>
+    /// OpenAI TTS voice for Phase 3 of the voice mode.  Defaults to "alloy".
+    /// Valid values: alloy, echo, fable, onyx, nova, shimmer (OpenAI catalog).
+    /// </summary>
+    public string TtsVoice { get; set; } = "alloy";
+
+    /// <summary>
+    /// OpenAI TTS model for Phase 3 of the voice mode.  Defaults to "tts-1".
+    /// Use "tts-1-hd" for higher quality at 2x cost.
+    /// </summary>
+    public string TtsModel { get; set; } = "tts-1";
+
+    /// <summary>
+    /// OpenAI API key used by the voice mode for Whisper transcription.
+    /// Loaded from appsettings.json "Voice.OpenAiKey" first, then falls back to
+    /// the OPENAI_API_KEY environment variable. Null/empty disables the voice
+    /// mode in the Manager UI (the button is hidden / disabled).
+    /// Never sent to browsers.
+    /// </summary>
+    public string? OpenAiKey { get; set; }
+
+    /// <summary>
+    /// Resolve the effective OpenAI key: explicit config wins, then environment.
+    /// Returns null if neither is set.
+    /// </summary>
+    public string? ResolveOpenAiKey()
+    {
+        if (!string.IsNullOrWhiteSpace(OpenAiKey))
+            return OpenAiKey.Trim();
+        var env = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
+        return string.IsNullOrWhiteSpace(env) ? null : env.Trim();
+    }
+
     private static string DefaultNpmCliPath(string binName)
     {
         // Windows npm global install: %APPDATA%\npm\<bin>.cmd

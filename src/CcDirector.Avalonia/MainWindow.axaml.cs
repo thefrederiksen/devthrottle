@@ -210,6 +210,10 @@ public partial class MainWindow : Window
         // into the Avalonia sidebar so the desktop user can interact with them too.
         _sessionManager.OnSessionCreated += OnExternalSessionCreated;
 
+        // Sessions renamed via the Control API (PATCH /sessions/{sid}) need to refresh
+        // the matching SessionViewModel and persist state.
+        _sessionManager.OnSessionRenamed += OnExternalSessionRenamed;
+
         // Wire source control view file event
         GitChangesView.ViewFileRequested += OnGitViewFileRequested;
 
@@ -360,6 +364,34 @@ public partial class MainWindow : Window
             catch (Exception ex)
             {
                 FileLog.Write($"[MainWindow] OnExternalSessionCreated FAILED: {ex.Message}");
+            }
+        });
+    }
+
+    /// <summary>
+    /// Called by SessionManager.OnSessionRenamed when a session's CustomName was
+    /// updated from outside MainWindow (notably PATCH /sessions/{sid} on the Control API).
+    /// Updates the matching SessionViewModel on the UI thread and triggers a persist.
+    /// </summary>
+    private void OnExternalSessionRenamed(Session session, string? newName)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            try
+            {
+                var vm = _sessions.FirstOrDefault(s => s.Session.Id == session.Id);
+                if (vm is null)
+                {
+                    FileLog.Write($"[MainWindow] OnExternalSessionRenamed: no VM for session {session.Id}");
+                    return;
+                }
+                FileLog.Write($"[MainWindow] OnExternalSessionRenamed: session={session.Id}, name=\"{newName}\"");
+                vm.Rename(newName);
+                PersistSessionState();
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[MainWindow] OnExternalSessionRenamed FAILED: {ex.Message}");
             }
         });
     }
@@ -948,6 +980,38 @@ public partial class MainWindow : Window
     {
         FileLog.Write("[MainWindow] BtnRefreshTerminal_Click");
         RefreshTerminal();
+    }
+
+    private void BtnOpenInBrowser_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (_activeSession is null)
+            {
+                FileLog.Write("[MainWindow] BtnOpenInBrowser_Click: no active session");
+                return;
+            }
+            var app = global::Avalonia.Application.Current as App;
+            var port = app?.ControlApiHost?.Port;
+            if (port is null or 0)
+            {
+                FileLog.Write("[MainWindow] BtnOpenInBrowser_Click: ControlApi port not available");
+                ShowNotification("Web view not available: Control API has not started yet.");
+                return;
+            }
+            var url = $"http://127.0.0.1:{port}/sessions/{_activeSession.Session.Id}/view";
+            FileLog.Write($"[MainWindow] BtnOpenInBrowser_Click: opening {url}");
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = url,
+                UseShellExecute = true,
+            });
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] BtnOpenInBrowser_Click FAILED: {ex.Message}");
+            ShowNotification($"Could not open browser: {ex.Message}");
+        }
     }
 
     private void TabBarRefreshButton_Click(object? sender, RoutedEventArgs e)

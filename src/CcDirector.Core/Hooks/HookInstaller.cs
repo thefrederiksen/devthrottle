@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -50,7 +51,9 @@ public static class HookInstaller
             root["hooks"] = hooks;
         }
 
-        var command = $"powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"{relayScriptPath}\"";
+        var command = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+            ? $"powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"{relayScriptPath}\""
+            : $"python3 \"{relayScriptPath}\"";
 
         // Clean up stale Director hooks for event names we no longer use
         var validEvents = new HashSet<string>(HookEvents);
@@ -69,7 +72,7 @@ public static class HookInstaller
                 foreach (var hook in entryHooks)
                 {
                     var cmd = hook?["command"]?.GetValue<string>();
-                    if (cmd != null && cmd.Contains("hook-relay.ps1", StringComparison.OrdinalIgnoreCase))
+                    if (cmd != null && IsDirectorRelayCommand(cmd))
                     {
                         eventArray.RemoveAt(i);
                         log?.Invoke($"Removed stale Director hook for '{prop.Key}'.");
@@ -198,6 +201,12 @@ public static class HookInstaller
         var json = root.ToJsonString(options);
         await File.WriteAllTextAsync(settingsPath, json);
         log?.Invoke($"Saved settings after uninstall to {settingsPath}");
+    }
+
+    private static bool IsDirectorRelayCommand(string command)
+    {
+        return command.Contains("hook-relay.ps1", StringComparison.OrdinalIgnoreCase)
+            || command.Contains("hook-relay.py", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Get the path to Claude's settings.json.</summary>

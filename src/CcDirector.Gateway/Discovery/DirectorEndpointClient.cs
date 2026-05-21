@@ -68,6 +68,30 @@ public sealed class DirectorEndpointClient : IDisposable
         }
     }
 
+    public async Task<(bool ok, SessionDto? body, string? error)> PatchSessionAsync(string endpoint, string sessionId, SessionUpdateRequest req, CancellationToken ct = default)
+    {
+        try
+        {
+            var http = new HttpRequestMessage(HttpMethod.Patch, $"{endpoint}/sessions/{sessionId}")
+            {
+                Content = JsonContent.Create(req),
+            };
+            var resp = await _http.SendAsync(http, ct);
+            if (!resp.IsSuccessStatusCode)
+            {
+                var body = await resp.Content.ReadAsStringAsync(ct);
+                return (false, null, $"director returned {(int)resp.StatusCode}: {body}");
+            }
+            var dto = await resp.Content.ReadFromJsonAsync<SessionDto>(cancellationToken: ct);
+            return (true, dto, null);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[DirectorEndpointClient] PatchSessionAsync FAILED: endpoint={endpoint}, sid={sessionId}, error={ex.Message}");
+            return (false, null, ex.Message);
+        }
+    }
+
     public async Task<BufferResponse?> GetBufferAsync(string endpoint, string sessionId, int? lines = null, bool raw = false, long? since = null, CancellationToken ct = default)
     {
         try
@@ -186,6 +210,48 @@ public sealed class DirectorEndpointClient : IDisposable
         catch (Exception ex)
         {
             FileLog.Write($"[DirectorEndpointClient] PostHandoverAsync FAILED: endpoint={endpoint}, error={ex.Message}");
+            return (false, null, ex.Message);
+        }
+    }
+
+    public async Task<RecapResponse?> GetRecapAsync(string endpoint, string sessionId, CancellationToken ct = default)
+    {
+        try
+        {
+            return await _http.GetFromJsonAsync<RecapResponse>($"{endpoint}/sessions/{sessionId}/recap", ct);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[DirectorEndpointClient] GetRecapAsync FAILED: endpoint={endpoint}, sid={sessionId}, error={ex.Message}");
+            return null;
+        }
+    }
+
+    public async Task<(bool ok, RecapResponse? body, string? error)> PostRecapAsync(string endpoint, string sessionId, string? model = null, CancellationToken ct = default)
+    {
+        // The recap POST runs a side-claude (--print) which may take 10-60s on a long
+        // session. Use a per-call HttpClient with a generous timeout instead of the
+        // shared short-timeout client used for the chatty aggregate endpoints.
+        using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(3) };
+        if (!string.IsNullOrEmpty(_token))
+            http.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _token);
+        try
+        {
+            var url = $"{endpoint}/sessions/{sessionId}/recap";
+            if (!string.IsNullOrEmpty(model)) url += "?model=" + Uri.EscapeDataString(model);
+            var resp = await http.PostAsync(url, content: null, ct);
+            if (!resp.IsSuccessStatusCode && (int)resp.StatusCode != 201)
+            {
+                var body = await resp.Content.ReadAsStringAsync(ct);
+                return (false, null, $"director returned {(int)resp.StatusCode}: {body}");
+            }
+            var dto = await resp.Content.ReadFromJsonAsync<RecapResponse>(cancellationToken: ct);
+            return (true, dto, null);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[DirectorEndpointClient] PostRecapAsync FAILED: endpoint={endpoint}, sid={sessionId}, error={ex.Message}");
             return (false, null, ex.Message);
         }
     }

@@ -139,6 +139,25 @@ internal static class GatewayEndpoints
             return Results.Json(session);
         });
 
+        app.MapPatch("/sessions/{sid}", async (string sid, SessionUpdateRequest req) =>
+        {
+            if (req is null)
+                return Results.BadRequest(new { error = "request body is required" });
+
+            var (director, session) = await LocateSessionAsync(registry, client, sid);
+            if (session is null || director is null)
+                return Results.NotFound(new { error = "session not found across any director" });
+
+            FileLog.Write($"[GatewayEndpoints] PATCH /sessions/{sid}: name=\"{req.Name}\", director={director.DirectorId}");
+
+            var (ok, body, err) = await client.PatchSessionAsync(director.ControlEndpoint, sid, req);
+            if (!ok || body is null)
+                return Results.Problem(err ?? "patch failed", statusCode: StatusCodes.Status502BadGateway);
+
+            body.DirectorId = director.DirectorId;
+            return Results.Json(body);
+        });
+
         app.MapGet("/sessions/{sid}/buffer", async (string sid, int? lines, bool? raw, long? since) =>
         {
             var (director, session) = await LocateSessionAsync(registry, client, sid);
@@ -277,6 +296,33 @@ internal static class GatewayEndpoints
                 return Results.StatusCode(StatusCodes.Status502BadGateway);
             summary.DirectorId = director.DirectorId;
             return Results.Json(summary);
+        });
+
+        // Recap proxy. Both endpoints transparently forward to whichever Director owns the
+        // session. The Director side does the heavy lifting (claude --print + cache); this
+        // is just routing.
+        app.MapGet("/sessions/{sid}/recap", async (string sid) =>
+        {
+            var (director, session) = await LocateSessionAsync(registry, client, sid);
+            if (session is null || director is null)
+                return Results.NotFound(new { error = "session not found across any director" });
+            var recap = await client.GetRecapAsync(director.ControlEndpoint, sid);
+            if (recap is null)
+                return Results.StatusCode(StatusCodes.Status502BadGateway);
+            return Results.Json(recap);
+        });
+
+        app.MapPost("/sessions/{sid}/recap", async (string sid, HttpContext ctx) =>
+        {
+            var (director, session) = await LocateSessionAsync(registry, client, sid);
+            if (session is null || director is null)
+                return Results.NotFound(new { error = "session not found across any director" });
+            var model = ctx.Request.Query["model"].ToString();
+            FileLog.Write($"[GatewayEndpoints] POST /recap: sid={sid}, director={director.DirectorId}, model={model ?? "(default)"}");
+            var (ok, body, err) = await client.PostRecapAsync(director.ControlEndpoint, sid, model, ctx.RequestAborted);
+            if (!ok || body is null)
+                return Results.Problem(err ?? "recap failed", statusCode: StatusCodes.Status502BadGateway);
+            return Results.Json(body, statusCode: 201);
         });
 
         app.MapPost("/handover", async (HandoverRequest req) =>

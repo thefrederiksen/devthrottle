@@ -1,0 +1,127 @@
+# CC Director - Gateway / Director Topology  (OVERVIEW)
+#
+# One-glance topology.  No internals - read this first, then read the detail diagram.
+# Render with:
+#   "D:\Tools\d2\d2.exe" --theme=0 --layout=elk gateway-director-overview.d2 gateway-director-overview.png
+#
+# Layout decisions:
+#   - Main flow (Clients -> Gateway -> Director -> Sessions -> Side) stacks
+#     top-to-bottom in a single column.
+#   - The Discovery surface is anchored to the RIGHT of the Gateway/Director
+#     section so its two-way arrows do not cross the main vertical flow.
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+    pad: 80
+  }
+}
+
+direction: down
+
+# ===== Style classes ============================================================
+
+classes: {
+  user: {
+    style: {
+      fill: "#4472C4"
+      stroke: "#2E5599"
+      stroke-width: 4
+      font-color: white
+      font-size: 22
+      bold: true
+      border-radius: 12
+      shadow: true
+    }
+  }
+  gateway: {
+    style: {
+      fill: "#1A5276"
+      stroke: "#0E3850"
+      stroke-width: 4
+      font-color: white
+      font-size: 22
+      bold: true
+      border-radius: 12
+      shadow: true
+    }
+  }
+  shared: {
+    style: {
+      fill: "#B7950B"
+      stroke: "#7D5A00"
+      stroke-width: 4
+      font-color: white
+      font-size: 20
+      bold: true
+      border-radius: 12
+      shadow: true
+    }
+  }
+  director: {
+    style: {
+      fill: "#1D7044"
+      stroke: "#0E4527"
+      stroke-width: 4
+      font-color: white
+      font-size: 22
+      bold: true
+      border-radius: 12
+      shadow: true
+    }
+  }
+  sessions: {
+    style: {
+      fill: "#7030A0"
+      stroke: "#4E2270"
+      stroke-width: 4
+      font-color: white
+      font-size: 22
+      bold: true
+      border-radius: 12
+      shadow: true
+    }
+  }
+  side: {
+    style: {
+      fill: "#922B21"
+      stroke: "#641E16"
+      stroke-width: 4
+      font-color: white
+      font-size: 20
+      bold: true
+      border-radius: 12
+      shadow: true
+    }
+  }
+}
+
+# ============================================================================
+# Main vertical flow.
+# ============================================================================
+
+Clients: "External clients\n\nBrowsers, scripts, skills.\n(The Avalonia desktop UI lives\nin-process inside each Director.)" { class: user }
+
+Gateway: "GATEWAY    cc-director-gateway.exe    port 7878\n\nFan-out / fan-in REST + the Manager Web UI.\nProxies calls to whichever Director owns the session.\nStateless across requests." { class: gateway }
+
+Director: "DIRECTOR    cc-director.exe    port 7879..7898\n\nOwns the sessions.  Avalonia desktop UI + Control API\nshare one in-memory SessionManager.\nPersists state.  Heartbeats its own registration." { class: director }
+
+Sessions: "Sessions    (per Director)\n\nOne Session = one ConPty wrapping one CLI agent\nclaude.exe / pi / codex / gemini\nrunning in the repo with Claude Code hooks installed." { class: sessions }
+
+Side: "Side processes    (short-lived)\n\nclaude --print --bare --model haiku\nSpawned by RecapGenerator.\nNever touches the live session." { class: side }
+
+# ----- Off-axis: discovery surface (filesystem) -----------------------------
+
+Discovery: "Discovery surface    (filesystem, per machine)\n\n%LOCALAPPDATA%\\cc-director\\config\\director\\\n\ninstances\\{guid}.json    (Director writes, Gateway watches)\nports\\{guid}.port    (stable port per Director)" { class: shared }
+
+# ===== Edges ================================================================
+
+# Main vertical flow
+Clients  -> Gateway:  "HTTP  :7878" { style.stroke: "#1A5276"; style.stroke-width: 5; style.font-size: 22; style.bold: true }
+Gateway  -> Director: "HTTP proxy  :7879..7898" { style.stroke: "#1A5276"; style.stroke-width: 5; style.font-size: 22; style.bold: true }
+Director -> Sessions: "owns + supervises" { style.stroke: "#7030A0"; style.stroke-width: 5; style.font-size: 22; style.bold: true }
+Director -> Side:     "spawn for recap" { style.stroke: "#922B21"; style.stroke-width: 4; style.font-size: 20; style.bold: true }
+
+# Sideband: discovery surface (both touch it on the filesystem)
+Director -> Discovery: "write + 15 s heartbeat" { style.stroke: "#B7950B"; style.stroke-width: 5; style.font-size: 22; style.bold: true }
+Gateway  -> Discovery: "watch + sweep" { style.stroke: "#B7950B"; style.stroke-width: 5; style.font-size: 22; style.bold: true }

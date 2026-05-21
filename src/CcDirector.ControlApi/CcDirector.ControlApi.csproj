@@ -24,6 +24,7 @@
     <EmbeddedResource Include="Web\manager.html" />
     <EmbeddedResource Include="Web\login.html" />
     <EmbeddedResource Include="Web\session-view.html" />
+    <EmbeddedResource Include="Web\chat.html" />
   </ItemGroup>
 
 </Project>

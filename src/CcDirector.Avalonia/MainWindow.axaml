@@ -324,6 +324,19 @@
                                    FontSize="13"
                                    VerticalAlignment="Center"
                                    Margin="0,0,8,0" />
+                        <!-- Open this session's web view in the default browser.
+                             Builds http://127.0.0.1:{ControlApi port}/sessions/{sid}/view
+                             at click time and shells out via Process.Start. -->
+                        <Button x:Name="BtnOpenInBrowser"
+                                Content="Open in browser"
+                                Click="BtnOpenInBrowser_Click"
+                                Background="Transparent"
+                                Foreground="White"
+                                BorderThickness="0"
+                                Cursor="Hand"
+                                Padding="6,4"
+                                FontSize="11"
+                                ToolTip.Tip="Open this session's web view in your default browser" />
                         <!-- Refresh terminal button -->
                         <Button x:Name="BtnRefreshTerminal"
                                 Content="Refresh"

@@ -859,6 +859,26 @@
     pulse();
     cueTimer = setInterval(pulse, intervalMs);
   }
+
+  // Continuous soft hum (no pulsing).  Used during /tts audio generation so
+  // the ear hears unbroken sound until the voice actually plays.  Stops with
+  // the same stopCue() as the pulsed variant.
+  function startContinuousHum(freq) {
+    stopCue();
+    const ctx = ensureAudioCtx();
+    if (!ctx) return;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    const now = ctx.currentTime;
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.025, now + 0.15);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start();
+    cueOsc = osc;
+    cueGain = gain;
+  }
   function stopCue() {
     if (cueTimer) { clearInterval(cueTimer); cueTimer = null; }
     if (cueOsc) {
@@ -943,12 +963,21 @@
       currentTtsAudio = null;
     }
     try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch {}
+    // Also kill the TTS-loading cue if it is still playing (user hit Stop
+    // speaking before the audio came back).
+    stopCue();
   }
 
   async function speak(text) {
     if (!voiceSpeakToggle.checked) return;
     if (!text) return;
     stopAllSpeech();
+    // Audio-generation gap cue: between sending the text to /tts and the
+    // moment the returned MP3 starts playing, the ear has nothing to track.
+    // CONTINUOUS hum (not the pulsed cue) so there is no perceived silence
+    // between pulses during the /tts wait.  Stops the instant audio playback
+    // begins (or we fall back to SpeechSynthesis).
+    startContinuousHum(CUE.thinking.freq);
     // Phase 3 (Supervisor goal): prefer OpenAI TTS over browser SpeechSynthesis
     // because the SpeechSynthesis voices are too robotic for hands-free use.
     // Fall back to SpeechSynthesis on any failure (no key, network error,
@@ -968,12 +997,21 @@
           currentTtsAudio = audio;
           audio.onended = () => { try { URL.revokeObjectURL(url); } catch {} if (currentTtsAudio === audio) currentTtsAudio = null; };
           audio.onerror = () => { try { URL.revokeObjectURL(url); } catch {} if (currentTtsAudio === audio) currentTtsAudio = null; };
+          // Stop the loading cue at the moment actual audio playback begins.
+          // audio.play()'s promise resolves when play has been REQUESTED, but
+          // there's a small decode/wake-up gap before sound emerges.  The
+          // 'playing' event fires when sound is genuinely coming out, which is
+          // the right cue-off moment.
+          audio.onplaying = () => stopCue();
           await audio.play();
           return;
         }
       }
-      // Fall through to browser fallback if /tts didn't deliver audio.
-    } catch { /* fall through to browser fallback */ }
+      // /tts returned but produced no audio: fall through to the browser fallback.
+      stopCue();
+    } catch {
+      stopCue();
+    }
 
     // Fallback: browser SpeechSynthesis.
     if (window.speechSynthesis) {
@@ -1129,58 +1167,20 @@
     return body;
   }
 
-  // Render the agent's reply bubble, decide what to send to TTS, show what
-  // was spoken when it differs from the bubble, then speak it.  Shared by
-  // voicePipeline (mic) and sendTypedToChat (Send button on Voice tab).
-  //
-  // Picker rule:
-  //   short reply (<= SHORT_REPLY_CHARS)  -> speak the bubble verbatim
-  //   longer                              -> speak chat.summary (Supervisor
-  //                                          spoken_text), falling back to
-  //                                          /turn-summaries, then to
-  //                                          translateForEar(display).
-  // Whenever the spoken text differs from the bubble we append a small grey
-  // "TTS: ..." bubble so the user can SEE exactly what was sent to the model.
-  const SHORT_REPLY_CHARS = 500;
+  // Render the agent's reply bubble and read the SAME text aloud.  There is
+  // exactly one piece of text per turn (the agent's last spoken paragraph
+  // from the JSONL transcript): the bubble shows it, the speaker reads it.
+  // No separate "speaker version", no Haiku side-call, no length branching.
+  // If the bubble and the speaker ever disagreed before, this is why they
+  // physically cannot now: they are the same string.
   async function renderReplyAndSpeak(chat) {
     const display = (chat.displayText || chat.reply || '').trim();
     if (display) {
       appendVoiceBubble('agent', display);
+      speak(display);
     } else {
       appendVoiceBubble('system', 'Agent finished but produced no visible output.');
     }
-
-    let toSpeak = '';
-    if (display && display.length <= SHORT_REPLY_CHARS) {
-      toSpeak = display;
-    } else {
-      toSpeak = (chat.summary || '').trim();
-      if (!toSpeak) {
-        startCue(CUE.thinking.freq, CUE.thinking.interval);
-        try {
-          const sumResp = await fetch('/sessions/' + SID + '/turn-summaries', { method: 'POST', credentials: 'same-origin' });
-          if (sumResp.ok || sumResp.status === 201) {
-            const sum = await sumResp.json();
-            if (sum && sum.spokenText && sum.spokenText.trim()) {
-              toSpeak = sum.spokenText.trim();
-              if (sum.needsUser && sum.needsUser !== 'no' && !/^i need/i.test(toSpeak)) {
-                toSpeak = 'I need you to respond. ' + toSpeak;
-              }
-            }
-          }
-        } catch { /* fall through to regex fallback */ }
-        stopCue();
-      }
-      if (!toSpeak) {
-        toSpeak = translateForEar(display);
-        if (looksLikeQuestion(display)) toSpeak = 'Agent has a question: ' + toSpeak;
-      }
-    }
-
-    if (toSpeak && toSpeak !== display) {
-      appendVoiceBubble('system', 'TTS: ' + toSpeak);
-    }
-    if (toSpeak) speak(toSpeak);
   }
 
   // Send a TYPED message through the same chat-and-speak pipeline used by

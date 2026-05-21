@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Configuration;
+using CcDirector.Core.Utilities;
 
 namespace CcDirector.Core.Sessions;
 
@@ -276,6 +277,31 @@ public sealed class SessionManager : IDisposable
 
     /// <summary>Fires when a Claude session is registered to a Director session.</summary>
     public event Action<Session, string>? OnClaudeSessionRegistered;
+
+    /// <summary>Fires when a session's CustomName is changed via <see cref="RenameSession"/>.
+    /// Subscribers (e.g. the Avalonia main window) should update their view models
+    /// and persist state. Args: (session, newName).</summary>
+    public event Action<Session, string?>? OnSessionRenamed;
+
+    /// <summary>
+    /// Set the user-defined display name for an existing session. Fires
+    /// <see cref="OnSessionRenamed"/> so the host (Avalonia main window) can refresh
+    /// the sidebar and persist state. Returns false if the session is not found.
+    /// </summary>
+    public bool RenameSession(Guid sessionId, string? newName)
+    {
+        FileLog.Write($"[SessionManager] RenameSession: id={sessionId}, name=\"{newName}\"");
+        if (!_sessions.TryGetValue(sessionId, out var session))
+        {
+            FileLog.Write($"[SessionManager] RenameSession: session not found");
+            return false;
+        }
+        var normalized = string.IsNullOrWhiteSpace(newName) ? null : newName.Trim();
+        session.CustomName = normalized;
+        try { OnSessionRenamed?.Invoke(session, normalized); }
+        catch (Exception ex) { _log?.Invoke($"OnSessionRenamed handler threw: {ex.Message}"); }
+        return true;
+    }
 
     /// <summary>Register a Claude session_id -> Director session mapping.</summary>
     public void RegisterClaudeSession(string claudeSessionId, Guid directorSessionId)

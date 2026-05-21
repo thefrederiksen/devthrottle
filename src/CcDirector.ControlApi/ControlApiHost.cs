@@ -1,6 +1,7 @@
 using System.Net;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Sessions;
+using CcDirector.Core.Supervisor;
 using CcDirector.Core.Utilities;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -41,6 +42,7 @@ public sealed class ControlApiHost : IAsyncDisposable
 
     private WebApplication? _app;
     private InstanceRegistration? _registration;
+    private TurnSummaryCache? _turnSummaryCache;
     private bool _stopped;
 
     /// <summary>
@@ -113,7 +115,15 @@ public sealed class ControlApiHost : IAsyncDisposable
             _app.Use((ctx, next) => DirectorAuth.Run(ctx, token, next));
         }
         _app.UseRouting();
-        ControlEndpoints.Map(_app, _sessionManager, DirectorId, _version, _requestShutdownAsync, _authEnabled, _repositoryRegistry);
+
+        // Start the Supervisor's per-turn summary cache before mapping endpoints so
+        // /sessions/{sid}/turn-summaries returns whatever is already cached.  Hooks
+        // OnSessionCreated + per-session OnTurnCompleted.  See Phase 2 of
+        // docs/goals/GOAL_CC_DIRECTOR_SUPERVISOR.md.
+        _turnSummaryCache = new TurnSummaryCache(_sessionManager, _sessionManager.Options);
+        _turnSummaryCache.Start();
+
+        ControlEndpoints.Map(_app, _sessionManager, DirectorId, _version, _requestShutdownAsync, _authEnabled, _repositoryRegistry, _turnSummaryCache);
 
         await _app.StartAsync();
 

@@ -1,0 +1,393 @@
+# CC Director - Gateway / Director Topology  (TARGET / PLANNED detail - Phase 1)
+#
+# Phase 1 detail.  The Gateway is intentionally tiny:  discovery + a directory
+# page + auth + healthz.  The Director keeps its full Manager UI and is the
+# only place session operations live.
+#
+# Boxes with [NEW] are new in Phase 1.  Boxes with [CHANGED] exist today but
+# change responsibility.  Boxes with [REMOVED] disappear from the Gateway.
+# A bottom row enumerates the Phase 2+ deferred features so we do not forget.
+#
+# Render with:
+#   "D:\Tools\d2\d2.exe" --theme=0 --layout=elk gateway-director-target-detail.d2 gateway-director-target-detail.png
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+    pad: 80
+  }
+}
+
+direction: down
+
+# ===== Style classes ============================================================
+
+classes: {
+  user: {
+    style: {
+      fill: "#4472C4"
+      stroke: "#2E5599"
+      stroke-width: 3
+      font-color: white
+      font-size: 18
+      bold: true
+      border-radius: 10
+      shadow: true
+    }
+  }
+  gateway_sub: {
+    style: {
+      fill: "#5499C7"
+      stroke: "#2E5984"
+      stroke-width: 2
+      font-color: white
+      font-size: 15
+      border-radius: 8
+    }
+  }
+  gateway_emph: {
+    style: {
+      fill: "#1A5276"
+      stroke: "#0E3850"
+      stroke-width: 3
+      font-color: white
+      font-size: 16
+      bold: true
+      border-radius: 8
+      shadow: true
+    }
+  }
+  gateway_new: {
+    style: {
+      fill: "#5499C7"
+      stroke: "#F1C40F"
+      stroke-width: 4
+      font-color: white
+      font-size: 15
+      bold: true
+      border-radius: 8
+      shadow: true
+    }
+  }
+  gateway_removed: {
+    style: {
+      fill: "#F5B7B1"
+      stroke: "#922B21"
+      stroke-width: 2
+      stroke-dash: 6
+      font-color: "#641E16"
+      font-size: 14
+      border-radius: 8
+      opacity: 0.85
+    }
+  }
+  director_sub: {
+    style: {
+      fill: "#52BE80"
+      stroke: "#1E8449"
+      stroke-width: 2
+      font-color: white
+      font-size: 15
+      border-radius: 8
+    }
+  }
+  director_emph: {
+    style: {
+      fill: "#1D7044"
+      stroke: "#0E4527"
+      stroke-width: 3
+      font-color: white
+      font-size: 16
+      bold: true
+      border-radius: 8
+      shadow: true
+    }
+  }
+  director_new: {
+    style: {
+      fill: "#52BE80"
+      stroke: "#F1C40F"
+      stroke-width: 4
+      font-color: white
+      font-size: 15
+      bold: true
+      border-radius: 8
+      shadow: true
+    }
+  }
+  shared: {
+    style: {
+      fill: "#B7950B"
+      stroke: "#7D5A00"
+      stroke-width: 3
+      font-color: white
+      font-size: 15
+      bold: true
+      border-radius: 8
+      shadow: true
+    }
+  }
+  shared_dim: {
+    style: {
+      fill: "#D4AC0D"
+      stroke: "#7D5A00"
+      stroke-width: 2
+      font-color: white
+      font-size: 14
+      border-radius: 8
+      opacity: 0.85
+    }
+  }
+  net: {
+    style: {
+      fill: "#566573"
+      stroke: "#2C3E50"
+      stroke-width: 3
+      font-color: white
+      font-size: 18
+      bold: true
+      border-radius: 10
+      shadow: true
+    }
+  }
+  agent: {
+    style: {
+      fill: "#7030A0"
+      stroke: "#4E2270"
+      stroke-width: 3
+      font-color: white
+      font-size: 16
+      bold: true
+      border-radius: 8
+      shadow: true
+    }
+  }
+  side: {
+    style: {
+      fill: "#922B21"
+      stroke: "#641E16"
+      stroke-width: 2
+      font-color: white
+      font-size: 15
+      border-radius: 8
+    }
+  }
+  deferred: {
+    style: {
+      fill: "#FBEEE6"
+      stroke: "#7E5109"
+      stroke-width: 2
+      stroke-dash: 6
+      font-color: "#5D4037"
+      font-size: 14
+      border-radius: 8
+    }
+  }
+}
+
+# ============================================================================
+# Vertical layout via wrapper.
+# ============================================================================
+
+Layout: "" {
+  style.fill: transparent
+  style.stroke-width: 0
+
+  grid-columns: 1
+  grid-gap: 140
+
+  # ----- Row 1: External clients --------------------------------------------
+
+  Clients: "EXTERNAL CLIENTS    (one Gateway URL to discover the fleet, then DIRECT-TO-DIRECTOR for session work)" {
+    style.fill: "#EBF1F7"
+    style.stroke: "#999"
+    style.stroke-width: 2
+    style.border-radius: 10
+    style.font-size: 22
+    style.bold: true
+
+    grid-columns: 2
+    grid-gap: 40
+
+    Browser: "Web browser\n\n- 1. Open Gateway URL  ->  directory page\n- 2. Click a Director  ->  new tab opens\n  the Director's tailnet URL\n- 3. Use Director's manager.html\n  for everything session-related" { class: user }
+    Curl: "curl  /  scripts  /  skills\n\n- Hit a Director directly\n  by its tailnet URL\n- Or call the Gateway for the\n  directory listing\n- Bearer auth" { class: user }
+  }
+
+  # ----- Row 2: Thin Gateway ------------------------------------------------
+
+  Gateway: "THIN GATEWAY    cc-director-gateway.exe    port 7878    (one per fleet, Phase 1)" {
+    style.fill: "#D6EAF8"
+    style.stroke: "#1A5276"
+    style.stroke-width: 3
+    style.border-radius: 10
+    style.font-size: 20
+    style.bold: true
+
+    grid-columns: 2
+    grid-gap: 36
+
+    DirectoryUI: "[NEW] Directory page\n\n- GET  /  serves a tiny HTML\n  page listing registered Directors\n- Each row: machineName, user,\n  version, last-seen, OPEN button\n- Open  ->  deeplink to the\n  Director's tailnet URL\n  (new tab; Gateway out of band)\n- Polls /directors every few seconds\n- That is the whole UI surface" { class: gateway_new }
+
+    REST: "[CHANGED] REST surface  (much smaller)\n\nKEPT:\n- GET   /healthz\n- GET   /directors\n- GET / POST  /login,  /logout\n\nNEW:\n- POST   /directors/register\n- POST   /directors/{id}/heartbeat\n- DELETE /directors/{id}/registration\n\nNothing else." { class: gateway_emph }
+
+    Registry: "[CHANGED] DirectorRegistry\n\n- Populated by HTTP register\n  (no longer file-watch)\n- 60 s TTL based on heartbeats\n- Stores the Director's tailnet\n  endpoint for the directory deeplink\n- File-watch path kept ONLY for\n  same-machine fallback when no\n  gatewayUrl is configured" { class: gateway_new }
+
+    Auth: "AuthMiddleware\n\n- Required for the directory page\n  + the register / heartbeat endpoints\n- Bearer + cookie, unchanged from\n  CURRENT semantics\n- Tailnet remains the trust boundary" { class: gateway_sub }
+
+    RemovedRoutes: "[REMOVED in Phase 1]    No proxy routes\n\n- GET   /sessions                  REMOVED\n- GET   /sessions/{sid}            REMOVED\n- PATCH /sessions/{sid}            REMOVED\n- GET   /sessions/{sid}/buffer     REMOVED\n- POST  /sessions/{sid}/prompt     REMOVED\n- POST  /sessions/{sid}/interrupt  REMOVED\n- GET   /sessions/{sid}/summary    REMOVED\n- GET / POST  /sessions/{sid}/recap REMOVED\n- POST  /handover                  REMOVED\n- POST  /fanout                    REMOVED\n- GET   /events  (session.*)       REMOVED\n- GET   /directors/{id}/repos      REMOVED\n- POST  /directors/{id}/sessions   REMOVED\n- POST  /directors  (spawn local)  KEPT for now (review)\n\nDirector still has all of these.\nUse Director URL directly." { class: gateway_removed }
+  }
+
+  # ----- Row 3: Tailnet -----------------------------------------------------
+
+  Tailnet: "TAILNET    (or LAN / VPN)    -    cross-machine reachability" {
+    style.fill: "#E5E7E9"
+    style.stroke: "#566573"
+    style.stroke-width: 3
+    style.border-radius: 10
+    style.font-size: 20
+    style.bold: true
+
+    grid-columns: 1
+    grid-gap: 12
+
+    TailnetNote: "In Phase 1 the only Gateway<->Director traffic is registration / heartbeat (Director->Gateway)\nand the user's browser deeplinking from the Gateway directory page to the Director (browser->Director).\nAuth today: shared Gateway token, supplied to each Director via cc-director.json." { class: net }
+  }
+
+  # ----- Row 4: Directors ---------------------------------------------------
+
+  Director: "DIRECTOR    cc-director.exe    port 7879..7898    (canonical Manager UI; full session surface)" {
+    style.fill: "#D5F5E3"
+    style.stroke: "#1D7044"
+    style.stroke-width: 3
+    style.border-radius: 10
+    style.font-size: 20
+    style.bold: true
+
+    grid-columns: 2
+    grid-gap: 36
+
+    ManagerUI: "Manager Web UI  (CANONICAL)\n\n- Single-file manager.html  served at  /\n- Cards list  ->  session detail view\n- Detail view: editable name,\n  recap, send-prompt, rename,\n  interrupt, open raw view\n- New Session modal\n- Scoped to THIS Director's sessions\n- This IS the Manager UI for the fleet" { class: director_emph }
+
+    ControlAPI: "Control API  (CANONICAL)\n\n- ControlApiHost + ControlEndpoints\n- Every session route lives here:\n   /sessions  /sessions/{sid}\n   buffer / prompt / interrupt /\n   summary / recap / handover\n- Also serves session-view.html\n- Browser deeplinks land here" { class: director_emph }
+
+    GatewayClient: "[NEW] GatewayClient\n\n- Reads gatewayUrl + gatewayToken\n  from cc-director.json\n- On startup:\n   POST /directors/register\n   { directorId, tailnetEndpoint,\n     machineName, version }\n- Heartbeat every 15 s\n   POST /directors/{id}/heartbeat\n- On stop:  DELETE registration\n- Reconnect with backoff if Gateway\n  is unreachable" { class: director_new }
+
+    DirectorId: "[NEW] Persistent directorId\n\n- director-id.txt under\n  %LOCALAPPDATA%\\cc-director\\config\\director\\\n- Written once on first start\n- Reused forever so the Gateway\n  registry recognizes the same\n  Director coming back across\n  restarts" { class: director_new }
+
+    Desktop: "Avalonia desktop UI  (unchanged)\n\n- MainWindow + sidebar list\n- TerminalControl per session\n- Source-control / workspaces\n- Subscribes to SessionManager\n  events to mirror state" { class: director_emph }
+
+    SessionMgr: "SessionManager  (unchanged)\n\n- Map<Guid, Session>\n- Map<ClaudeSessionId, Guid>\n- CreateSession / KillSessionAsync\n- RenameSession\n- Events:\n   OnSessionCreated\n   OnSessionRenamed\n   OnClaudeSessionRegistered" { class: director_emph }
+
+    Persistence: "Persistence on disk  (unchanged)\n\n- SessionStateStore\n- SessionHistoryStore\n- RepositoryRegistry\n- InstanceRegistration\n  (still writes the local file\n   for offline fallback)" { class: director_sub }
+
+    Hooks: "Hooks plumbing  (unchanged)\n\n- HookInstaller (PowerShell on\n  Windows, python3 elsewhere)\n- HookRelayScript\n- DirectorFileEventWatcher\n- Drives Session.ActivityState" { class: director_sub }
+
+    Recap: "Recap  (unchanged)\n\n- RecapGenerator spawns\n  claude --print --bare --model haiku\n- RecapCache (in-process)\n- Lives ONLY on the Director" { class: director_sub }
+  }
+
+  # ----- Row 5: Discovery fallback (filesystem) -----------------------------
+
+  Discovery: "DISCOVERY SURFACE    (filesystem, per machine)    -    LOCAL FALLBACK ONLY in TARGET" {
+    style.fill: "#FCF3CF"
+    style.stroke: "#B7950B"
+    style.stroke-width: 3
+    style.border-radius: 10
+    style.font-size: 20
+    style.bold: true
+
+    grid-columns: 2
+    grid-gap: 36
+
+    Instances: "instances/{guid}.json\n\n- Written + heartbeated by\n  the Director  (unchanged)\n- Used by a same-machine\n  Gateway as a fallback when\n  no gatewayUrl is configured\n- The central HTTP-register\n  path is preferred when both\n  exist; de-dupe by directorId" { class: shared_dim }
+
+    Ports: "ports/{guid}.port\n\n- Unchanged from CURRENT\n- PortAllocator pins each\n  Director to a stable port\n  in 7879..7898" { class: shared_dim }
+  }
+
+  # ----- Row 6: Sessions ----------------------------------------------------
+
+  Sessions: "SESSIONS    (per Director, unchanged from CURRENT)" {
+    style.fill: "#E8DAEF"
+    style.stroke: "#7030A0"
+    style.stroke-width: 3
+    style.border-radius: 10
+    style.font-size: 20
+    style.bold: true
+
+    grid-columns: 3
+    grid-gap: 36
+
+    Session: "Session\n\n- Guid Id\n- RepoPath + WorkingDirectory\n- CustomName + CustomColor\n- ActivityState  (hook-driven)\n- ISessionBackend\n- TurnAccumulator\n- ChatHistory + PromptQueue" { class: agent }
+
+    Agent: "Wrapped agent CLI\n\n- claude.exe  /  pi  /  codex  /  gemini\n- Spawned in the session's repo\n- Claude Code hooks pre-installed" { class: agent }
+
+    Jsonl: "Claude Code JSONL transcript\n\n- ~/.claude/projects/<repo-slug>/\n   {sessionId}.jsonl\n- Read by: SummaryBuilder,\n  ClaudeSessionReader,\n  StreamMessageParser,\n  WidgetBuilder" { class: shared }
+  }
+
+  # ----- Row 7: Side processes ----------------------------------------------
+
+  Side: "SIDE PROCESSES    (per Director, unchanged from CURRENT)" {
+    style.fill: "#FADBD8"
+    style.stroke: "#922B21"
+    style.stroke-width: 2
+    style.border-radius: 10
+    style.font-size: 20
+    style.bold: true
+
+    grid-columns: 1
+    grid-gap: 12
+
+    SideClaude: "claude --print --bare --model haiku --tools \"\"\n\nSpawned by RecapGenerator with the session digest as the prompt.\nNever touches the live session.  Returns markdown on stdout, then exits." { class: side }
+  }
+
+  # ----- Row 8: Deferred to later phases ------------------------------------
+
+  DeferredRow: "DEFERRED to later phases    (NOT in Phase 1; sketched here so we do not lose them)" {
+    style.fill: "#FAEBD7"
+    style.stroke: "#7E5109"
+    style.stroke-width: 2
+    style.stroke-dash: 6
+    style.border-radius: 10
+    style.font-size: 20
+    style.bold: true
+
+    grid-columns: 3
+    grid-gap: 24
+
+    DefAggregated: "[Phase 2+]\nAggregated session list\n+ cross-Director /events SSE\n+ live  session.*  events to browsers" { class: deferred }
+    DefFanout: "[Phase 2+]\nFan-out to multiple sessions\nacross multiple Directors\n+ cross-Director handover\norchestration" { class: deferred }
+    DefChat: "[Phase 2+]\nChat-with-the-receptionist\ninterface (\"talk to all my\nagents from one URL\")\n+ remote Director spawn" { class: deferred }
+  }
+}
+
+# ===== Edges =====================================================================
+
+# --- Clients ---
+Layout.Clients.Browser -> Layout.Gateway.DirectoryUI: "1. directory" { style.stroke: "#1A5276"; style.stroke-width: 4; style.font-size: 16; style.bold: true }
+Layout.Clients.Browser -> Layout.Director.ManagerUI: "2. deeplink\n   to Director" { style.stroke: "#1D7044"; style.stroke-width: 4; style.font-size: 16; style.bold: true; style.stroke-dash: 6 }
+Layout.Clients.Curl    -> Layout.Director.ControlAPI: "REST direct" { style.stroke: "#1D7044"; style.stroke-width: 3; style.font-size: 15 }
+
+# --- Director -> Gateway (register / heartbeat through the tailnet) ---
+Layout.Director.GatewayClient -> Layout.Tailnet.TailnetNote: "register + heartbeat" { style.stroke: "#1D7044"; style.stroke-width: 5; style.font-size: 16; style.bold: true }
+Layout.Tailnet.TailnetNote    -> Layout.Gateway.REST:        "inbound" { style.stroke: "#1D7044"; style.stroke-width: 5; style.font-size: 16; style.bold: true }
+Layout.Gateway.REST           -> Layout.Gateway.Registry:    "register / heartbeat /\nunregister" { style.stroke: "#1A5276"; style.stroke-width: 3; style.font-size: 15 }
+Layout.Gateway.Registry       -> Layout.Gateway.DirectoryUI: "list" { style.stroke: "#1A5276"; style.stroke-width: 3; style.font-size: 15 }
+
+# --- Inside Director (unchanged from CURRENT) ---
+Layout.Director.ManagerUI     -> Layout.Director.ControlAPI:   "client-side fetch\n(same origin)" { style.stroke: "#1D7044"; style.stroke-width: 3; style.font-size: 15 }
+Layout.Director.ControlAPI    -> Layout.Director.SessionMgr:   "create / kill / send / rename" { style.stroke: "#1D7044"; style.stroke-width: 3; style.font-size: 15 }
+Layout.Director.Desktop       -> Layout.Director.SessionMgr:   "same calls" { style.stroke: "#1D7044"; style.stroke-width: 3; style.font-size: 15 }
+Layout.Director.Hooks         -> Layout.Director.SessionMgr:   "hook events" { style.stroke: "#1D7044"; style.stroke-width: 4; style.font-size: 16; style.bold: true }
+Layout.Director.SessionMgr    -> Layout.Director.Persistence:  "save / restore" { style.stroke: "#1D7044"; style.stroke-width: 2; style.stroke-dash: 4; style.font-size: 14 }
+Layout.Director.GatewayClient -> Layout.Director.DirectorId:   "load on start" { style.stroke: "#1D7044"; style.stroke-width: 2; style.stroke-dash: 4; style.font-size: 14 }
+Layout.Director.Persistence   -> Layout.Discovery.Instances:   "fallback write\n+ heartbeat" { style.stroke: "#B7950B"; style.stroke-width: 2; style.stroke-dash: 4; style.font-size: 14 }
+Layout.Director.ControlAPI    -> Layout.Discovery.Ports:       "pin port" { style.stroke: "#B7950B"; style.stroke-width: 2; style.stroke-dash: 4; style.font-size: 14 }
+
+# Sessions
+Layout.Director.SessionMgr -> Layout.Sessions.Session: "owns" { style.stroke: "#7030A0"; style.stroke-width: 4; style.font-size: 16; style.bold: true }
+Layout.Sessions.Session    -> Layout.Sessions.Agent:   "spawns + stdio" { style.stroke: "#7030A0"; style.stroke-width: 3; style.font-size: 15 }
+Layout.Sessions.Agent      -> Layout.Sessions.Jsonl:   "appends each turn" { style.stroke: "#7030A0"; style.stroke-width: 2; style.stroke-dash: 4; style.font-size: 14 }
+
+# Recap side flow
+Layout.Director.Recap  -> Layout.Sessions.Jsonl:  "read transcript" { style.stroke: "#922B21"; style.stroke-width: 3; style.stroke-dash: 4; style.font-size: 15 }
+Layout.Director.Recap  -> Layout.Side.SideClaude: "spawn" { style.stroke: "#922B21"; style.stroke-width: 4; style.font-size: 16; style.bold: true }
+Layout.Side.SideClaude -> Layout.Director.Recap:  "stdout: markdown" { style.stroke: "#922B21"; style.stroke-width: 3; style.stroke-dash: 4; style.font-size: 15 }

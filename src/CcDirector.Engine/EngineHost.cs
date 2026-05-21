@@ -12,6 +12,7 @@ public sealed class EngineHost : IDisposable
     private EngineDatabase? _db;
     private Scheduler? _scheduler;
     private CommunicationDispatcher? _dispatcher;
+    private Task? _dispatcherInitTask;
     private DateTime _startedAt;
 
     public bool IsRunning { get; private set; }
@@ -38,26 +39,15 @@ public sealed class EngineHost : IDisposable
 
         _scheduler.Start();
 
-        // Start communication dispatcher if configured
+        // Start communication dispatcher if configured. Email tool discovery spawns each
+        // cc-* tool (cc-gmail, cc-outlook) with "accounts list --json" -- each probe is a
+        // Python interpreter startup plus auth checks (~1-3s per tool) and they run
+        // sequentially. Run discovery on the background so it doesn't block app startup;
+        // the dispatcher comes online once discovery finishes.
         if (!string.IsNullOrEmpty(_options.CommunicationsDbPath))
         {
-            FileLog.Write($"[EngineHost] Starting communication dispatcher: db={_options.CommunicationsDbPath}");
-
-            var routingTable = Task.Run(() => EmailToolDiscovery.DiscoverAsync(
-                _options.BinDirectory, _options.EmailToolNames))
-                .GetAwaiter().GetResult();
-            FileLog.Write($"[EngineHost] Discovered {routingTable.Count} email routes");
-
-            _dispatcher = new CommunicationDispatcher(
-                _options.CommunicationsDbPath,
-                routingTable,
-                _options.DispatcherPollIntervalSeconds);
-            _dispatcher.OnEvent += e =>
-            {
-                try { OnEvent?.Invoke(e); }
-                catch (Exception ex) { FileLog.Write($"[EngineHost] Event handler error: {ex.Message}"); }
-            };
-            _dispatcher.Start();
+            FileLog.Write($"[EngineHost] Scheduling background communication dispatcher init: db={_options.CommunicationsDbPath}");
+            _dispatcherInitTask = Task.Run(InitializeDispatcherAsync);
         }
         else
         {
@@ -76,14 +66,66 @@ public sealed class EngineHost : IDisposable
         FileLog.Write("[EngineHost] Stopping engine");
         RaiseEvent(new EngineEvent(EngineEventType.EngineStopping, Message: "Engine stopping"));
 
+        // Setting IsRunning=false first so the deferred dispatcher init bails out without
+        // starting a brand-new dispatcher we'd then immediately need to stop.
+        IsRunning = false;
+
+        if (_dispatcherInitTask is { } initTask)
+        {
+            try
+            {
+                await initTask.WaitAsync(TimeSpan.FromSeconds(2));
+            }
+            catch (TimeoutException)
+            {
+                FileLog.Write("[EngineHost] Deferred dispatcher init did not complete within 2s during shutdown");
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[EngineHost] Deferred dispatcher init error during shutdown: {ex.Message}");
+            }
+        }
+
         _dispatcher?.Stop();
 
         if (_scheduler != null)
             await _scheduler.StopAsync(_options.ShutdownTimeoutSeconds);
 
-        IsRunning = false;
         RaiseEvent(new EngineEvent(EngineEventType.EngineStopped, Message: "Engine stopped"));
         FileLog.Write("[EngineHost] Engine stopped");
+    }
+
+    private async Task InitializeDispatcherAsync()
+    {
+        try
+        {
+            var routingTable = await EmailToolDiscovery.DiscoverAsync(
+                _options.BinDirectory, _options.EmailToolNames);
+            FileLog.Write($"[EngineHost] Discovered {routingTable.Count} email routes");
+
+            if (!IsRunning)
+            {
+                FileLog.Write("[EngineHost] InitializeDispatcherAsync: engine no longer running, skipping dispatcher start");
+                return;
+            }
+
+            var dispatcher = new CommunicationDispatcher(
+                _options.CommunicationsDbPath,
+                routingTable,
+                _options.DispatcherPollIntervalSeconds);
+            dispatcher.OnEvent += e =>
+            {
+                try { OnEvent?.Invoke(e); }
+                catch (Exception ex) { FileLog.Write($"[EngineHost] Event handler error: {ex.Message}"); }
+            };
+            dispatcher.Start();
+            _dispatcher = dispatcher;
+            FileLog.Write("[EngineHost] Communication dispatcher started (deferred)");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[EngineHost] InitializeDispatcherAsync FAILED: {ex.Message}");
+        }
     }
 
     public EngineStatus GetStatus()

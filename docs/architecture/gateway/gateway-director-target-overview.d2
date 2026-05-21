@@ -1,0 +1,141 @@
+# CC Director - Gateway / Director Topology  (TARGET / PLANNED - Phase 1)
+#
+# Phase 1 scope:  Gateway is a thin receptionist.  Director is canonical.
+# Browser sees the Gateway's directory page, then DEEPLINKS to a specific
+# Director and does all session work there.  The Gateway never proxies.
+#
+# Render with:
+#   "D:\Tools\d2\d2.exe" --theme=0 --layout=elk gateway-director-target-overview.d2 gateway-director-target-overview.png
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+    pad: 80
+  }
+}
+
+direction: down
+
+# ===== Style classes ============================================================
+
+classes: {
+  user: {
+    style: {
+      fill: "#4472C4"
+      stroke: "#2E5599"
+      stroke-width: 4
+      font-color: white
+      font-size: 22
+      bold: true
+      border-radius: 12
+      shadow: true
+    }
+  }
+  gateway: {
+    style: {
+      fill: "#1A5276"
+      stroke: "#0E3850"
+      stroke-width: 4
+      font-color: white
+      font-size: 22
+      bold: true
+      border-radius: 12
+      shadow: true
+    }
+  }
+  director: {
+    style: {
+      fill: "#1D7044"
+      stroke: "#0E4527"
+      stroke-width: 4
+      font-color: white
+      font-size: 22
+      bold: true
+      border-radius: 12
+      shadow: true
+    }
+  }
+  sessions: {
+    style: {
+      fill: "#7030A0"
+      stroke: "#4E2270"
+      stroke-width: 4
+      font-color: white
+      font-size: 22
+      bold: true
+      border-radius: 12
+      shadow: true
+    }
+  }
+  side: {
+    style: {
+      fill: "#922B21"
+      stroke: "#641E16"
+      stroke-width: 4
+      font-color: white
+      font-size: 20
+      bold: true
+      border-radius: 12
+      shadow: true
+    }
+  }
+  shared: {
+    style: {
+      fill: "#B7950B"
+      stroke: "#7D5A00"
+      stroke-width: 3
+      font-color: white
+      font-size: 18
+      border-radius: 12
+      shadow: true
+      opacity: 0.85
+    }
+  }
+  deferred: {
+    style: {
+      fill: "#FBEEE6"
+      stroke: "#7E5109"
+      stroke-width: 2
+      font-color: "#5D4037"
+      font-size: 16
+      border-radius: 10
+      stroke-dash: 6
+    }
+  }
+}
+
+# ============================================================================
+# Main vertical chain  (Clients -> Gateway -> Director -> Sessions)  with
+# off-axis branches.  Same shape as the CURRENT overview so the two diff well.
+# ============================================================================
+
+Clients: "External clients\n\nBrowsers, scripts, skills.\nOne URL (the Gateway) to discover the fleet,\nthen DIRECT-TO-DIRECTOR for session work." { class: user }
+
+Gateway: "THIN GATEWAY    cc-director-gateway.exe    port 7878\nOne per fleet  (home machine, VPS, tailnet node)\n\nDirectory page + Director discovery.  No session proxy.  No aggregation.\nAccepts  POST /directors/register  +  POST /directors/{id}/heartbeat.\nServes  GET /  as a list of registered Directors with deeplinks.\nAuth + healthz.  That is the whole surface in Phase 1." { class: gateway }
+
+Director: "DIRECTOR    cc-director.exe    port 7879..7898    (many, anywhere on the tailnet)\n\nCanonical.  Full Manager UI.  Every session route.\nServes its own manager.html - this IS the Manager UI for the fleet.\nRegisters up to the Gateway on startup, heartbeats every 15 s,\nDELETEs registration on graceful shutdown." { class: director }
+
+Sessions: "Sessions    (per Director)\n\nOne Session = one ConPty wrapping one CLI agent\nclaude.exe / pi / codex / gemini\nrunning in the repo with Claude Code hooks installed." { class: sessions }
+
+Side: "Side processes    (short-lived)\n\nclaude --print --bare --model haiku\nSpawned by RecapGenerator.\nNever touches the live session." { class: side }
+
+DiscoveryFallback: "Discovery surface  (filesystem)\n\nKEPT for same-machine deployments\nthat do NOT configure a gatewayUrl.\nWritten by Director, watched by\na same-machine Gateway." { class: shared }
+
+Deferred: "DEFERRED to later phases\n(not built in Phase 1)\n\nAggregated /sessions across Directors.\nLive SSE for session.* events.   Fan-out.\nCross-Director handover orchestration.\nChat-with-the-receptionist interface.\nRemote Director spawn.\nPer-Director registration tokens.\nPer-user identity." { class: deferred }
+
+# ===== Edges ================================================================
+
+# Main vertical chain
+Clients  -> Gateway:  "1. HTTPS to Gateway\n   for the directory page" { style.stroke: "#1A5276"; style.stroke-width: 5; style.font-size: 20; style.bold: true }
+Gateway  -> Director: "2. Browser deeplinks straight\n   to the Director after\n   clicking its row in the directory\n   (Gateway never sees session traffic)" { style.stroke: "#1A5276"; style.stroke-width: 5; style.font-size: 20; style.bold: true; style.stroke-dash: 6 }
+Director -> Sessions: "owns + supervises" { style.stroke: "#7030A0"; style.stroke-width: 5; style.font-size: 22; style.bold: true }
+Director -> Side:     "spawn for recap" { style.stroke: "#922B21"; style.stroke-width: 4; style.font-size: 20; style.bold: true }
+
+# Director registers up to the Gateway (the only HTTP the Gateway needs)
+Director -> Gateway: "Director->Gateway:\nregister  +  15 s heartbeat\n+ DELETE on graceful stop" { style.stroke: "#1D7044"; style.stroke-width: 5; style.font-size: 20; style.bold: true }
+
+# Side-branches off the Director
+Director -> DiscoveryFallback: "fallback only\n(no gatewayUrl)" { style.stroke: "#B7950B"; style.stroke-width: 3; style.stroke-dash: 4; style.font-size: 18 }
+
+# Deferred box hangs off the Gateway as an annotation
+Gateway -> Deferred: "phase 2+" { style.stroke: "#7E5109"; style.stroke-width: 2; style.stroke-dash: 4; style.font-size: 16 }
