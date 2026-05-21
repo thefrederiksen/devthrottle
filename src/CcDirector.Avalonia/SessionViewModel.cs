@@ -20,6 +20,16 @@ public class SessionViewModel : INotifyPropertyChanged
         { ActivityState.Exited, new SolidColorBrush(Color.FromRgb(0x66, 0x66, 0x66)) },
     };
 
+    // Phase 4d: the sidebar color strip now reads the SessionStatusSupervisor's color
+    // (Session.StatusColor) directly, so Desktop and Gateway always show the same color.
+    // Brush palette matches Web/directory.html exactly: #22c55e green, #3b82f6 blue,
+    // #eab308 yellow, #ef4444 red, #6a6a6a unknown/gray.
+    private static readonly ISolidColorBrush GreenStatusBrush   = new SolidColorBrush(Color.FromRgb(0x22, 0xC5, 0x5E));
+    private static readonly ISolidColorBrush BlueStatusBrush    = new SolidColorBrush(Color.FromRgb(0x3B, 0x82, 0xF6));
+    private static readonly ISolidColorBrush YellowStatusBrush  = new SolidColorBrush(Color.FromRgb(0xEA, 0xB3, 0x08));
+    private static readonly ISolidColorBrush RedStatusBrush     = new SolidColorBrush(Color.FromRgb(0xEF, 0x44, 0x44));
+    private static readonly ISolidColorBrush UnknownStatusBrush = new SolidColorBrush(Color.FromRgb(0x6A, 0x6A, 0x6A));
+
     private static readonly Dictionary<ActivityState, string> ActivityLabels = new()
     {
         { ActivityState.Starting, "Starting" },
@@ -38,6 +48,7 @@ public class SessionViewModel : INotifyPropertyChanged
         session.OnActivityStateChanged += OnActivityStateChanged;
         session.OnVerificationStatusChanged += OnVerificationStatusChanged;
         session.OnTerminalVerificationStatusChanged += OnTerminalVerificationStatusChanged;
+        session.OnStatusColorChanged += OnStatusColorChanged;
 
         if (session.PromptQueue != null)
         {
@@ -45,6 +56,32 @@ public class SessionViewModel : INotifyPropertyChanged
             session.PromptQueue.OnQueueChanged += OnQueueChanged;
         }
     }
+
+    private void OnStatusColorChanged(string oldColor, string newColor, string reason)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            OnPropertyChanged(nameof(StatusColorBrush));
+            OnPropertyChanged(nameof(StatusReason));
+        });
+    }
+
+    /// <summary>
+    /// Phase 4d: the sidebar color strip's brush. Reads <see cref="Session.StatusColor"/>
+    /// written by the SessionStatusSupervisor. Desktop and Gateway use the same field
+    /// so the same session shows the same color in both windows.
+    /// </summary>
+    public ISolidColorBrush StatusColorBrush => (Session.StatusColor?.ToLowerInvariant()) switch
+    {
+        "green"  => GreenStatusBrush,
+        "blue"   => BlueStatusBrush,
+        "yellow" => YellowStatusBrush,
+        "red"    => RedStatusBrush,
+        _        => UnknownStatusBrush,
+    };
+
+    /// <summary>Tooltip-ready reason supplied by the supervisor for the current color.</summary>
+    public string StatusReason => Session.LastStatusReason ?? "";
 
     public string DisplayName => Session.CustomName
         ?? Path.GetFileName(Session.RepoPath.TrimEnd('\\', '/'));

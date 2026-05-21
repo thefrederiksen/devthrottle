@@ -143,9 +143,14 @@
                         <DataTemplate>
                             <Grid ColumnDefinitions="4,*"
                                   Margin="0,1">
-                                <!-- Activity color strip - always visible -->
+                                <!-- Supervisor status color strip (Phase 4d).
+                                     Reads Session.StatusColor written by the
+                                     SessionStatusSupervisor. Same source as the
+                                     Gateway dot, so Desktop and Gateway always
+                                     agree on the color. -->
                                 <Rectangle Grid.Column="0"
-                                           Fill="{Binding ActivityBrush}"
+                                           Fill="{Binding StatusColorBrush}"
+                                           ToolTip.Tip="{Binding StatusReason}"
                                            RadiusX="2" RadiusY="2" />
                                 <Grid Grid.Column="1" ColumnDefinitions="*,Auto" Margin="8,6">
                                     <!-- Session content -->
@@ -495,6 +500,13 @@
                                     Padding="12,4"
                                     FontSize="12"
                                     Click="AgentTabButton_Click" />
+                            <Button x:Name="SupervisorTabButton"
+                                    Content="Supervisor"
+                                    Background="Transparent"
+                                    Foreground="#888888"
+                                    Padding="12,4"
+                                    FontSize="12"
+                                    Click="SupervisorTabButton_Click" />
                             <!-- Separator between fixed tabs and document tabs -->
                             <Border x:Name="DocTabSeparator"
                                     Width="1" Height="16"
@@ -532,6 +544,11 @@
                     <!-- Agent panel (Clean view) -->
                     <Panel x:Name="AgentPanel" IsVisible="False">
                         <controls:CleanView x:Name="CleanView" />
+                    </Panel>
+
+                    <!-- Supervisor panel (Phase 5: ask the supervisor about this session) -->
+                    <Panel x:Name="SupervisorPanel" IsVisible="False">
+                        <controls:SupervisorView x:Name="SupervisorView" />
                     </Panel>
 
                     <!-- Terminal panel -->

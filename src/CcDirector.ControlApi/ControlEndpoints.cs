@@ -144,6 +144,99 @@ internal static class ControlEndpoints
             return Results.Json(Map(session, directorId, turnSummaryCache));
         });
 
+        // Phase 5: ask the supervisor a question about this session. One fresh
+        // claude --print --model haiku call with no session persistence. The context
+        // we pipe in comes from the session's recent events, turn summaries, buffer
+        // tail, and metadata.
+        app.MapPost("/sessions/{sid}/supervisor/ask", async (string sid, SupervisorAskRequest req, CancellationToken ct) =>
+        {
+            if (!Guid.TryParse(sid, out var guid))
+                return Results.BadRequest(new { error = "invalid session id format" });
+            if (req is null || string.IsNullOrWhiteSpace(req.Question))
+                return Results.BadRequest(new SupervisorAskResult { Status = "bad_request", Error = "question is required" });
+
+            var session = sessionManager.GetSession(guid);
+            if (session is null)
+                return Results.NotFound(new { error = "session not found" });
+
+            // Build the context blob from in-memory caches.
+            var events = session.RecentSupervisorEvents
+                .Select(e => new Core.Supervisor.SupervisorAskEvent(e.At, e.OldColor, e.NewColor, e.Reason))
+                .ToList();
+            var summaries = turnSummaryCache?.GetForSession(session.Id).ToList() ?? new List<TurnSummary>();
+            var bufferTail = "";
+            try
+            {
+                var bytes = session.Buffer?.DumpAll();
+                if (bytes is not null && bytes.Length > 0)
+                {
+                    const int TailBytes = 8192;
+                    var start = Math.Max(0, bytes.Length - TailBytes);
+                    var tail = System.Text.Encoding.UTF8.GetString(bytes, start, bytes.Length - start);
+                    bufferTail = AnsiCleaner.Clean(tail);
+                    if (bufferTail.Length > 4000) bufferTail = bufferTail[^4000..];
+                }
+            }
+            catch (Exception ex) { FileLog.Write($"[ControlEndpoints] /supervisor/ask buffer tail FAILED: {ex.Message}"); }
+
+            var gitDirty = false;
+            try
+            {
+                var snap = await Core.Supervisor.SupervisorService.GitSnapshotAsync(session.RepoPath, ct);
+                gitDirty = snap.Dirty;
+            }
+            catch { /* best-effort; not having git is fine */ }
+
+            var ctx = new Core.Supervisor.SupervisorAskContext
+            {
+                SessionId = session.Id.ToString(),
+                RepoPath = session.RepoPath,
+                AgentKind = session.AgentKind.ToString(),
+                ActivityState = session.ActivityState.ToString(),
+                CurrentColor = session.StatusColor,
+                CurrentReason = session.LastStatusReason,
+                GitDirty = gitDirty,
+                RecentSupervisorEvents = events,
+                RecentTurnSummaries = summaries,
+                BufferTailText = bufferTail,
+            };
+
+            var result = await Core.Supervisor.SupervisorService.AskAboutSessionAsync(
+                req.Question, ctx, sessionManager.Options.ClaudePath, ct);
+            return Results.Json(result);
+        });
+
+        // Phase 4b: observability into the supervisor. Returns current color + reason,
+        // a timestamped log of recent decisions, and the latest TurnSummary if any.
+        app.MapGet("/sessions/{sid}/supervisor", (string sid) =>
+        {
+            if (!Guid.TryParse(sid, out var guid))
+                return Results.BadRequest(new { error = "invalid session id format" });
+
+            var session = sessionManager.GetSession(guid);
+            if (session is null)
+                return Results.NotFound(new { error = "session not found" });
+
+            var events = session.RecentSupervisorEvents;
+            var latestSummary = turnSummaryCache?.GetForSession(session.Id).LastOrDefault();
+
+            return Results.Json(new SupervisorViewDto
+            {
+                SessionId = session.Id.ToString(),
+                CurrentColor = session.StatusColor,
+                CurrentReason = session.LastStatusReason,
+                Since = events.Count > 0 ? events[0].At : (DateTime?)null,
+                Events = events.Select(e => new SupervisorEventDto
+                {
+                    At = e.At,
+                    OldColor = e.OldColor,
+                    NewColor = e.NewColor,
+                    Reason = e.Reason,
+                }).ToList(),
+                LatestTurnSummary = latestSummary,
+            });
+        });
+
         app.MapPatch("/sessions/{sid}", (string sid, SessionUpdateRequest req) =>
         {
             if (!Guid.TryParse(sid, out var guid))

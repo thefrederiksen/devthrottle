@@ -40,11 +40,45 @@ public sealed class SessionStatusSupervisorTests
     }
 
     [Fact]
-    public void WaitingForInput_maps_to_red()
+    public void WaitingForInput_maps_to_green_by_default()
     {
+        // Phase 4a: WaitingForInput is no longer red by default. Red is promoted only
+        // when the supervisor has positive evidence (buffer scan or turn summary).
         var (color, reason) = SessionStatusSupervisor.ColorFromActivityState(ActivityState.WaitingForInput, isNew: false);
-        Assert.Equal(StatusColor.Red, color);
-        Assert.Equal("waiting for input", reason);
+        Assert.Equal(StatusColor.Green, color);
+        Assert.Equal("ready, awaiting next prompt", reason);
+    }
+
+    [Fact]
+    public void PromotePendingQuestion_sets_red_with_detail()
+    {
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        var supervisor = new SessionStatusSupervisor(manager);
+        try
+        {
+            var session = manager.CreateSession(Path.GetTempPath());
+            supervisor.PromotePendingQuestion(session, "delete users.db?");
+            Assert.Equal(StatusColor.Red, session.StatusColor);
+            Assert.Equal("delete users.db?", session.LastStatusReason);
+        }
+        finally { supervisor.Dispose(); manager.Dispose(); }
+    }
+
+    [Fact]
+    public void PromotePendingQuestion_truncates_long_detail()
+    {
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        var supervisor = new SessionStatusSupervisor(manager);
+        try
+        {
+            var session = manager.CreateSession(Path.GetTempPath());
+            var huge = new string('q', 500);
+            supervisor.PromotePendingQuestion(session, huge);
+            Assert.Equal(StatusColor.Red, session.StatusColor);
+            Assert.True(session.LastStatusReason.Length <= 180, $"reason length {session.LastStatusReason.Length} exceeds cap");
+            Assert.EndsWith("...", session.LastStatusReason);
+        }
+        finally { supervisor.Dispose(); manager.Dispose(); }
     }
 
     [Fact]
@@ -115,6 +149,48 @@ public sealed class SessionStatusSupervisorTests
     }
 
     [Fact]
+    public void SupervisorEventLog_records_each_color_change_newest_first()
+    {
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        try
+        {
+            var session = manager.CreateSession(Path.GetTempPath());
+            session.SetStatusColor(StatusColor.Blue, "working");
+            session.SetStatusColor(StatusColor.Red, "waiting for input");
+            session.SetStatusColor(StatusColor.Green, "clean turn");
+
+            var events = session.RecentSupervisorEvents;
+            // 3 events plus there may be one from CreateSession's default-already-green
+            // path being a no-op. The most-recent-first order is what we care about.
+            Assert.NotEmpty(events);
+            Assert.Equal("green", events[0].NewColor);
+            Assert.Equal("red", events[1].NewColor);
+            Assert.Equal("blue", events[2].NewColor);
+        }
+        finally { manager.Dispose(); }
+    }
+
+    [Fact]
+    public void SupervisorEventLog_caps_at_50_entries()
+    {
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        try
+        {
+            var session = manager.CreateSession(Path.GetTempPath());
+            for (int i = 0; i < 80; i++)
+            {
+                // Alternate colors so each call actually changes state.
+                var c = (i % 2 == 0) ? StatusColor.Blue : StatusColor.Green;
+                session.SetStatusColor(c, $"tick {i}");
+            }
+            Assert.Equal(50, session.RecentSupervisorEvents.Count);
+            // Newest first - last call was i=79, color=Green, reason="tick 79"
+            Assert.Equal("tick 79", session.RecentSupervisorEvents[0].Reason);
+        }
+        finally { manager.Dispose(); }
+    }
+
+    [Fact]
     public void SetStatusColor_no_change_does_not_fire_event()
     {
         var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
@@ -153,6 +229,30 @@ public sealed class SessionStatusSupervisorTests
             });
             Assert.Equal(StatusColor.Red, session.StatusColor);
             Assert.Equal("should I delete the file?", session.LastStatusReason);
+        }
+        finally { manager.Dispose(); supervisor.Dispose(); }
+    }
+
+    [Fact]
+    public void ApplyTurnSummary_prefers_needs_user_short_over_detail()
+    {
+        // Phase 4e: when the supervisor produces a crisp NeedsUserShort, that becomes
+        // the LastStatusReason. NeedsUserDetail (which can be a paragraph) is ignored
+        // for the reason field; the merged Session View renders detail separately.
+        var supervisor = new SessionStatusSupervisor(new SessionManager(new AgentOptions { ClaudePath = TestShell.Path }));
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        try
+        {
+            var session = manager.CreateSession(Path.GetTempPath());
+            supervisor.ApplyTurnSummary(session, new TurnSummary
+            {
+                NeedsUser = "question",
+                NeedsUserShort = "Delete users.db?",
+                NeedsUserDetail = "I noticed users.db is no longer referenced from any code. Removing it would save 4 MB on disk but is irreversible without a backup. Should I proceed with the delete?",
+                Headline = "deletion check",
+            });
+            Assert.Equal(StatusColor.Red, session.StatusColor);
+            Assert.Equal("Delete users.db?", session.LastStatusReason);
         }
         finally { manager.Dispose(); supervisor.Dispose(); }
     }

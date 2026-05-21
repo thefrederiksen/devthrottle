@@ -123,6 +123,141 @@
     user-select: none;
   }
   .tab.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+
+  /* Phase 4c: Session View */
+  #sessionView { padding: 14px; max-width: 1000px; margin: 0 auto; }
+  .supervisor-banner {
+    display: flex; align-items: center; gap: 14px;
+    padding: 14px 16px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 14px;
+  }
+  .supervisor-banner .dot {
+    flex-shrink: 0;
+    width: 28px; height: 28px; border-radius: 50%;
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.06);
+  }
+  .supervisor-banner .dot.green   { background: #22c55e; }
+  .supervisor-banner .dot.blue    { background: #3b82f6; }
+  .supervisor-banner .dot.yellow  { background: #eab308; }
+  .supervisor-banner .dot.red     { background: #ef4444; }
+  .supervisor-banner .dot.unknown { background: #6a6a6a; }
+  .supervisor-banner .info { flex: 1; min-width: 0; }
+  .supervisor-banner .reason {
+    font-size: 16px; font-weight: 600; color: var(--text);
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+  }
+  .supervisor-banner .since {
+    margin-top: 2px;
+    color: var(--muted); font-size: 12px;
+  }
+
+  .distilled-question {
+    padding: 14px 16px;
+    background: rgba(239,68,68,0.08);
+    border: 1px solid rgba(239,68,68,0.4);
+    border-radius: 10px;
+    margin-bottom: 14px;
+  }
+  .distilled-label, .last-turn-label, .log-label {
+    color: var(--muted); font-size: 11px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.6px;
+    margin-bottom: 6px;
+  }
+  .distilled-text {
+    color: var(--text); font-size: 17px; font-weight: 600; line-height: 1.4;
+  }
+  .distilled-detail { margin-top: 10px; }
+  .distilled-detail summary { color: var(--muted); font-size: 12px; cursor: pointer; }
+  .distilled-detail summary:hover { color: var(--text); }
+  .distilled-full {
+    margin-top: 8px;
+    padding: 10px 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 13px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .last-turn {
+    padding: 14px 16px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 14px;
+  }
+  .last-turn-headline {
+    color: var(--text); font-size: 14px; font-weight: 600; margin-bottom: 8px;
+  }
+  .last-turn-decisions {
+    margin: 0; padding-left: 22px; color: var(--muted); font-size: 13px;
+  }
+  .last-turn-decisions li { margin: 3px 0; }
+
+  .supervisor-log {
+    padding: 14px 16px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+  .log-entries {
+    list-style: none; margin: 0; padding: 0;
+    font-family: "Cascadia Code", Consolas, monospace;
+    font-size: 12px;
+    max-height: 240px; overflow-y: auto;
+  }
+  .log-entries li { padding: 4px 0; border-bottom: 1px solid var(--border); display: flex; gap: 10px; }
+  .log-entries li:last-child { border-bottom: none; }
+  .log-entries .ts { color: var(--muted); flex-shrink: 0; }
+  .log-entries .arrow { color: var(--muted); flex-shrink: 0; }
+  .log-entries .reason-cell { color: var(--text); flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .log-entries .color { font-weight: 700; }
+  .log-entries .color.green   { color: #22c55e; }
+  .log-entries .color.blue    { color: #3b82f6; }
+  .log-entries .color.yellow  { color: #eab308; }
+  .log-entries .color.red     { color: #ef4444; }
+  .log-entries .color.unknown { color: #6a6a6a; }
+
+  /* Phase 5: Ask the supervisor */
+  .ask-block {
+    margin-top: 14px;
+    padding: 14px 16px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+  .ask-history { display: flex; flex-direction: column; gap: 12px; margin-bottom: 12px; }
+  .ask-q, .ask-a {
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-size: 14px; line-height: 1.4;
+    overflow-wrap: anywhere;
+  }
+  .ask-q { background: #2d2d2e; color: var(--text); }
+  .ask-q::before { content: "Q  "; color: #0e639c; font-weight: 700; font-size: 11px; }
+  .ask-a { background: #1f2937; color: var(--text); margin-left: 20px; }
+  .ask-a::before { content: "SUPERVISOR  "; color: var(--muted); font-weight: 700; font-size: 10px; }
+  .ask-a .meta { display: block; margin-top: 6px; color: #6a6a6a; font-size: 10px; }
+  .ask-form { display: flex; gap: 8px; }
+  .ask-form input {
+    flex: 1; padding: 10px 12px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px;
+    font-size: 14px; font-family: inherit;
+  }
+  .ask-form button {
+    padding: 10px 18px; background: var(--accent); color: white;
+    border: 0; border-radius: 6px; font-weight: 600; cursor: pointer;
+  }
+  .ask-form button:hover:not(:disabled) { background: var(--accent-hover); }
+  .ask-form button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .ask-context { color: var(--muted); font-size: 11px; margin-top: 8px; font-family: "Cascadia Code", Consolas, monospace; }
   .tab:hover:not(.active) { color: var(--text); }
   @media (min-width: 720px) {
     .tab { flex: 0 0 auto; padding: 12px 20px; min-width: 140px; }
@@ -521,13 +656,61 @@
   </header>
 
   <div class="tabs">
-    <div class="tab active" data-view="agent">Agent</div>
+    <div class="tab active" data-view="session">Session</div>
+    <div class="tab" data-view="agent">Agent</div>
     <div class="tab" data-view="voice">Voice</div>
     <div class="tab" data-view="raw">Raw terminal</div>
   </div>
 </div>
 
-<div id="agentView"></div>
+<!-- Phase 4c: Session View - the merged supervisor-aware view that replaces the
+     default Agent tab. Shows supervisor banner + distilled question + latest turn
+     summary + event log. Voice controls live inside it. Raw stays available. -->
+<div id="sessionView">
+  <div class="supervisor-banner" id="supBanner">
+    <div class="dot" id="supDot"></div>
+    <div class="info">
+      <div class="reason" id="supReason">loading...</div>
+      <div class="since" id="supSince"></div>
+    </div>
+  </div>
+
+  <div class="distilled-question" id="distilledQuestion" style="display:none">
+    <div class="distilled-label">SUPERVISOR SAYS</div>
+    <div class="distilled-text" id="distilledText"></div>
+    <details class="distilled-detail">
+      <summary>full agent text</summary>
+      <div class="distilled-full" id="distilledFull"></div>
+    </details>
+  </div>
+
+  <div class="last-turn" id="lastTurn" style="display:none">
+    <div class="last-turn-label">LAST TURN</div>
+    <div class="last-turn-headline" id="turnHeadline"></div>
+    <ul class="last-turn-decisions" id="turnDecisions"></ul>
+  </div>
+
+  <div class="supervisor-log" id="supLog">
+    <div class="log-label">SUPERVISOR LOG</div>
+    <ol class="log-entries" id="logEntries"></ol>
+  </div>
+
+  <!-- Phase 5: Ask the supervisor about this session. One fresh Haiku call per ask,
+       no conversation memory. History in this list is for the user's eyes only. -->
+  <div class="ask-block">
+    <div class="log-label">ASK THE SUPERVISOR</div>
+    <div id="askHistory" class="ask-history"></div>
+    <form class="ask-form" onsubmit="return submitAsk(event)">
+      <input type="text" id="askInput"
+             placeholder="What is this session doing? (Enter to ask)"
+             autocomplete="off" />
+      <button type="submit" id="askBtn">Ask</button>
+    </form>
+    <div id="askContext" class="ask-context"></div>
+  </div>
+</div>
+
+<div id="agentView" style="display:none"></div>
 <div id="voiceView">
   <div class="voice-cta">
     <button id="voiceMainBtn" class="big-button">Tap to talk</button>
@@ -565,8 +748,9 @@
   const countsEl = document.getElementById('counts');
   const tabs = document.querySelectorAll('.tab');
 
-  let activeView = 'agent';
+  let activeView = 'session';
   let lastWidgetCount = 0;
+  const sessionEl = document.getElementById('sessionView');
 
   function stateColor(s) {
     return ({
@@ -579,13 +763,139 @@
   tabs.forEach(t => t.addEventListener('click', () => {
     tabs.forEach(x => x.classList.toggle('active', x === t));
     activeView = t.dataset.view;
+    sessionEl.style.display = activeView === 'session' ? '' : 'none';
     agentEl.style.display = activeView === 'agent' ? '' : 'none';
     rawEl.style.display = activeView === 'raw' ? '' : 'none';
     voiceEl.style.display = activeView === 'voice' ? 'flex' : 'none';
-    if (activeView === 'agent') refreshAgent();
+    if (activeView === 'session') refreshSession();
+    else if (activeView === 'agent') refreshAgent();
     else if (activeView === 'raw') refreshRaw();
     // voice tab is self-contained; nothing to refresh from server on tab switch
   }));
+
+  // ---------- Phase 4c: Session View ----------
+  function relativeTime(iso) {
+    if (!iso) return '';
+    const t = new Date(iso).getTime();
+    if (Number.isNaN(t)) return '';
+    const s = Math.max(0, Math.floor((Date.now() - t) / 1000));
+    if (s < 5) return 'just now';
+    if (s < 60) return s + 's ago';
+    const m = Math.floor(s / 60);
+    if (m < 60) return m + 'm ago';
+    const h = Math.floor(m / 60);
+    if (h < 24) return h + 'h ago';
+    return Math.floor(h / 24) + 'd ago';
+  }
+  function colorClass(c) {
+    c = (c || '').toLowerCase();
+    return (c === 'green' || c === 'blue' || c === 'yellow' || c === 'red') ? c : 'unknown';
+  }
+
+  async function refreshSession() {
+    try {
+      const resp = await fetch('/sessions/' + SID + '/supervisor', { credentials: 'same-origin' });
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const view = await resp.json();
+      renderSession(view);
+    } catch (e) {
+      document.getElementById('supReason').textContent = 'Failed to load supervisor view: ' + (e && e.message ? e.message : e);
+    }
+  }
+
+  function renderSession(view) {
+    // Banner.
+    const dot = document.getElementById('supDot');
+    dot.className = 'dot ' + colorClass(view.currentColor);
+    document.getElementById('supReason').textContent = view.currentReason || '(no reason set)';
+    document.getElementById('supSince').textContent = view.since ? ('since ' + relativeTime(view.since)) : '';
+
+    // Distilled question only when red AND we have a turn summary with needs_user_short.
+    const dq = document.getElementById('distilledQuestion');
+    const ts = view.latestTurnSummary;
+    if (view.currentColor && view.currentColor.toLowerCase() === 'red' && ts && ts.needsUserShort) {
+      document.getElementById('distilledText').textContent = ts.needsUserShort;
+      document.getElementById('distilledFull').textContent = ts.needsUserDetail || '';
+      dq.style.display = '';
+    } else {
+      dq.style.display = 'none';
+    }
+
+    // Last turn (always shown if we have one).
+    const lt = document.getElementById('lastTurn');
+    if (ts && (ts.headline || (ts.decisions && ts.decisions.length))) {
+      document.getElementById('turnHeadline').textContent = ts.headline || '';
+      const ul = document.getElementById('turnDecisions');
+      ul.innerHTML = '';
+      (ts.decisions || []).forEach(d => {
+        const li = document.createElement('li');
+        li.textContent = d;
+        ul.appendChild(li);
+      });
+      lt.style.display = '';
+    } else {
+      lt.style.display = 'none';
+    }
+
+    // Supervisor log.
+    const log = document.getElementById('logEntries');
+    log.innerHTML = '';
+    (view.events || []).forEach(ev => {
+      const li = document.createElement('li');
+      const ts2 = relativeTime(ev.at);
+      const oldClass = colorClass(ev.oldColor);
+      const newClass = colorClass(ev.newColor);
+      li.innerHTML =
+        '<span class="ts">' + escapeHtml(ts2) + '</span>' +
+        '<span class="arrow"><span class="color ' + oldClass + '">' + escapeHtml(ev.oldColor || '-') + '</span> &rarr; <span class="color ' + newClass + '">' + escapeHtml(ev.newColor || '-') + '</span></span>' +
+        '<span class="reason-cell">' + escapeHtml(ev.reason || '') + '</span>';
+      log.appendChild(li);
+    });
+  }
+
+  // ---------- Phase 5: Ask the supervisor ----------
+  window.submitAsk = async function(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    const input = document.getElementById('askInput');
+    const btn = document.getElementById('askBtn');
+    const history = document.getElementById('askHistory');
+    const ctxEl = document.getElementById('askContext');
+    const question = (input.value || '').trim();
+    if (!question) return false;
+
+    // Append the question + a "thinking..." placeholder.
+    const qDiv = document.createElement('div'); qDiv.className = 'ask-q'; qDiv.textContent = question;
+    const aDiv = document.createElement('div'); aDiv.className = 'ask-a'; aDiv.textContent = 'thinking...';
+    history.appendChild(qDiv);
+    history.appendChild(aDiv);
+    input.value = '';
+    btn.disabled = true;
+
+    try {
+      const resp = await fetch('/sessions/' + SID + '/supervisor/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ question }),
+      });
+      if (!resp.ok) {
+        aDiv.textContent = 'HTTP ' + resp.status;
+      } else {
+        const result = await resp.json();
+        aDiv.textContent = result.answer || '(no answer)';
+        const meta = document.createElement('span'); meta.className = 'meta';
+        meta.textContent = (result.model || '?') + ' - ' + (result.latencyMs || 0) + ' ms - ' + (result.contextDigest || '');
+        aDiv.appendChild(meta);
+        ctxEl.textContent = 'context: ' + (result.contextDigest || '');
+      }
+    } catch (err) {
+      aDiv.textContent = 'ask failed: ' + (err && err.message ? err.message : err);
+    } finally {
+      btn.disabled = false;
+      history.scrollTop = history.scrollHeight;
+    }
+    return false;
+  };
 
   function escapeHtml(s) {
     if (s == null) return '';
@@ -763,10 +1073,11 @@
 
   // Initial + recurring refresh
   refreshState();
-  refreshAgent();
+  refreshSession();  // Phase 4c: Session is the default tab
   setInterval(() => {
     refreshState();
-    if (activeView === 'agent') refreshAgent();
+    if (activeView === 'session') refreshSession();
+    else if (activeView === 'agent') refreshAgent();
     else if (activeView === 'raw') refreshRaw();
     // voice tab does not poll
   }, 1500);

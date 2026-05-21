@@ -1548,6 +1548,11 @@ public partial class MainWindow : Window
         SwitchLeftTab("SourceControl");
     }
 
+    private void SupervisorTabButton_Click(object? sender, RoutedEventArgs e)
+    {
+        SwitchLeftTab("Supervisor");
+    }
+
     private bool _commsInitialized;
 
     private async void BtnComms_Click(object? sender, RoutedEventArgs e)
@@ -1632,6 +1637,8 @@ public partial class MainWindow : Window
         TerminalTabButton.Foreground = tab == "Terminal" ? whiteBrush : InactiveTextBrush;
         SourceControlTabButton.Background = tab == "SourceControl" ? accentBrush : TransparentBrush;
         SourceControlTabButton.Foreground = tab == "SourceControl" ? whiteBrush : InactiveTextBrush;
+        SupervisorTabButton.Background = tab == "Supervisor" ? accentBrush : TransparentBrush;
+        SupervisorTabButton.Foreground = tab == "Supervisor" ? whiteBrush : InactiveTextBrush;
         // Update document tab button styles
         foreach (var docTab in _documentTabs)
         {
@@ -1644,7 +1651,18 @@ public partial class MainWindow : Window
         AgentPanel.IsVisible = tab == "Agent";
         TerminalPanel.IsVisible = tab == "Terminal";
         SourceControlPanel.IsVisible = tab == "SourceControl";
+        SupervisorPanel.IsVisible = tab == "Supervisor";
         DocumentPanel.IsVisible = isDocTab;
+
+        // When switching INTO the Supervisor tab, bind it to the current session
+        // and the local Director's base URL so it can POST to /supervisor/ask.
+        if (tab == "Supervisor")
+        {
+            var app = global::Avalonia.Application.Current as App;
+            var port = app?.ControlApiHost?.Port ?? 0;
+            var baseUrl = port > 0 ? $"http://127.0.0.1:{port}" : null;
+            SupervisorView.Bind(_activeSession?.Session, baseUrl);
+        }
 
         // Show refresh button only when Terminal tab is active and a session exists
         TabBarRefreshButton.IsVisible = tab == "Terminal" && _activeSession != null;

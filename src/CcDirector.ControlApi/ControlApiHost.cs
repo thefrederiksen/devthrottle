@@ -45,6 +45,7 @@ public sealed class ControlApiHost : IAsyncDisposable
     private GatewayClient? _gatewayClient;
     private TurnSummaryCache? _turnSummaryCache;
     private SessionStatusSupervisor? _statusSupervisor;
+    private Core.Storage.SessionLogManager? _sessionLogManager;
     private bool _stopped;
 
     /// <summary>
@@ -131,6 +132,11 @@ public sealed class ControlApiHost : IAsyncDisposable
         });
         _app.UseRouting();
 
+        // Phase 5: persistent JSONL log per session. Must start FIRST so brand-new
+        // sessions have a writer attached before any events fire.
+        _sessionLogManager = new Core.Storage.SessionLogManager(_sessionManager);
+        _sessionLogManager.Start();
+
         // Phase 3: the SessionStatusSupervisor is the sole writer of each Session's
         // StatusColor. Must start BEFORE TurnSummaryCache so brand-new sessions are
         // already "green/session created" by the time anything else observes them.
@@ -141,7 +147,7 @@ public sealed class ControlApiHost : IAsyncDisposable
         // /sessions/{sid}/turn-summaries returns whatever is already cached.  Hooks
         // OnSessionCreated + per-session OnTurnCompleted.  See Phase 2 of
         // docs/goals/GOAL_CC_DIRECTOR_SUPERVISOR.md.
-        _turnSummaryCache = new TurnSummaryCache(_sessionManager, _sessionManager.Options, _statusSupervisor);
+        _turnSummaryCache = new TurnSummaryCache(_sessionManager, _sessionManager.Options, _statusSupervisor, _sessionLogManager);
         _turnSummaryCache.Start();
 
         ControlEndpoints.Map(_app, _sessionManager, DirectorId, _version, _requestShutdownAsync, _authEnabled, _repositoryRegistry, _turnSummaryCache);
@@ -198,6 +204,8 @@ public sealed class ControlApiHost : IAsyncDisposable
         _turnSummaryCache = null;
         _statusSupervisor?.Dispose();
         _statusSupervisor = null;
+        _sessionLogManager?.Dispose();
+        _sessionLogManager = null;
 
         _registration?.Unregister();
 

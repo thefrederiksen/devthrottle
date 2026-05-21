@@ -252,6 +252,35 @@ internal static class GatewayEndpoints
             return Results.Json(session);
         });
 
+        // Phase 4b: forward supervisor observability through the Gateway so the merged
+        // Session View on the gateway side can render WHY a dot is the color it is.
+        app.MapGet("/sessions/{sid}/supervisor", async (string sid) =>
+        {
+            var (director, session) = await LocateSessionAsync(registry, client, sid);
+            if (session is null || director is null)
+                return Results.NotFound(new { error = "session not found across any director" });
+            var ep = (director.ControlEndpoint ?? "").TrimEnd('/');
+            var view = await client.GetSupervisorAsync(ep, sid);
+            if (view is null)
+                return Results.StatusCode(StatusCodes.Status502BadGateway);
+            return Results.Json(view);
+        });
+
+        // Phase 5: forward "ask the supervisor" calls. Each is one fresh Haiku side-call.
+        app.MapPost("/sessions/{sid}/supervisor/ask", async (string sid, SupervisorAskRequest req, CancellationToken ct) =>
+        {
+            if (req is null || string.IsNullOrWhiteSpace(req.Question))
+                return Results.BadRequest(new SupervisorAskResult { Status = "bad_request", Error = "question is required" });
+            var (director, session) = await LocateSessionAsync(registry, client, sid);
+            if (session is null || director is null)
+                return Results.NotFound(new { error = "session not found across any director" });
+            var ep = (director.ControlEndpoint ?? "").TrimEnd('/');
+            var result = await client.AskSupervisorAsync(ep, sid, req, ct);
+            if (result is null)
+                return Results.StatusCode(StatusCodes.Status502BadGateway);
+            return Results.Json(result);
+        });
+
         app.MapPatch("/sessions/{sid}", async (string sid, SessionUpdateRequest req) =>
         {
             if (req is null)

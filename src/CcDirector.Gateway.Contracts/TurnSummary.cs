@@ -41,6 +41,15 @@ public sealed class TurnSummary
     public string NeedsUserDetail { get; set; } = "";
 
     /// <summary>
+    /// Phase 4e: one CRISP sentence (under 200 chars) the supervisor uses as the
+    /// Session View's prominent prompt and the Director's <see cref="Sessions.Session.LastStatusReason"/>
+    /// when a session turns red. Distinct from <see cref="NeedsUserDetail"/>: the
+    /// detail can be a paragraph; this must fit a single visual row. Empty when
+    /// <see cref="NeedsUser"/> is "no" or the Supervisor failed to produce one.
+    /// </summary>
+    public string NeedsUserShort { get; set; } = "";
+
+    /// <summary>
     /// The TTS-ready text for hands-free voice playback.  One to three short
     /// sentences, max ~280 chars, no code, no symbols, no file paths.
     /// Reads the FINDING / OUTCOME, not the process.

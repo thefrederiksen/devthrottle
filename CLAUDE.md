@@ -21,19 +21,51 @@ The user runs multiple instances of cc-director simultaneously. Killing processe
 
 This rule has NO exceptions.
 
-### 0b. NEVER LAUNCH cc-director.exe FROM INSIDE A CLAUDE CODE SESSION
+### 0b. LAUNCH cc-director.exe VIA WINDOWS TASK SCHEDULER, NEVER DIRECTLY
 
-**If you (the Claude agent) are running inside a Claude Code CLI session (you almost always are), DO NOT spawn cc-director.exe yourself.**
+**If you (the Claude agent) are running inside a Claude Code CLI session (you almost always are), DO NOT spawn `cc-director.exe` from your own process tree.** Use the `cc-director-launch` Windows scheduled task instead.
 
-When cc-director.exe is launched from inside an existing claude.exe ConPty (yours), the child claude.exe processes IT spawns end up in a nested pseudo-console. The grandchild claude detects this as a non-TTY environment and exits within ~3 seconds with:
+#### Why
+
+When cc-director.exe is launched from inside your claude.exe ConPty, the child claude.exe processes IT spawns inherit a nested pseudo-console. Grandchild claudes detect this as a non-TTY environment and exit within ~3 seconds with:
 
 > `Error: Input must be provided either through stdin or as a prompt argument when using --print`
 
-The sessions appear in the sidebar but immediately go to red "Exited" with code 1. This is **not a CC Director bug** -- it is claude.exe 2.1.143+ behavior on nested ConPty.
+This is claude.exe 2.1.143+ behavior on nested ConPty, not a CC Director bug.
 
-If you need to test cc-director.exe end-to-end, ask the user to launch it from Explorer / a Start-menu shortcut / a regular terminal outside of any Claude Code session. Then use the REST API (`http://localhost:7879/`) to drive it from your side -- those incoming calls don't recreate the nested-ConPty problem because the spawn already happened in a clean context.
+#### The fix: Task Scheduler
 
-For non-session-creating tests (HTML rendering, REST endpoints, etc.) launching cc-director from your context is fine. Only session-creation tests need a clean parent.
+Processes launched by Task Scheduler run under `svchost.exe` (the Schedule service), completely outside your ConPty. Grandchild claudes spawned by such a Director have clean stdio and survive.
+
+**One-time setup** (idempotent, safe to re-run):
+
+```powershell
+# Point the task at your current test build. The WorkingDirectory must be set, or
+# Avalonia's first-time resource resolution may fail with exit -1.
+$exe = "D:\ReposFred\cc-director\local_builds\cc-director-avalonia5.exe"
+$wd  = "D:\ReposFred\cc-director\local_builds"
+$action = New-ScheduledTaskAction -Execute $exe -WorkingDirectory $wd
+$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddYears(5)  # far future, on-demand only
+Register-ScheduledTask -TaskName "cc-director-launch" -Action $action -Trigger $trigger -Force
+```
+
+**To launch on demand:**
+
+```powershell
+Start-ScheduledTask -TaskName "cc-director-launch"
+```
+
+The Director boots with parent = `svchost.exe`, port-allocates a fresh Control API port (check the log at `%LOCALAPPDATA%\cc-director\logs\director\director-YYYY-MM-DD-<PID>.log` for the line `[ControlApiHost] Kestrel listening on http://0.0.0.0:<port>`), and you can drive it via REST normally.
+
+#### Slot convention to avoid colliding with the user's running Directors
+
+The user keeps long-lived Director processes (`cc-director-avalonia1.exe`, `cc-director-avalonia2.exe`, etc.) and you MUST NOT kill them. Reserve **slot 4 or higher** for your own test Directors. Build to that slot with `scripts\local-build-avalonia.ps1 -Slot 4` and point `cc-director-launch` at that path.
+
+#### Cleaning up your own test Director
+
+Only kill processes whose path matches the slot YOU launched (e.g. `cc-director-avalonia4.exe`). Confirm via `Get-Process | Select-Object Id, ProcessName, Path` before sending `Stop-Process`. Never use a blanket `Stop-Process -Name cc-director-avalonia*` — that would kill the user's working sessions.
+
+For non-session-creating tests (HTML rendering, REST endpoint smoke, build-only verification) launching from your context is still fine. Only session-creation tests need the Task Scheduler path.
 
 ### 1. Responsive UI - MANDATORY
 

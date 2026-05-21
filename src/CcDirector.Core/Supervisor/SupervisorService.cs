@@ -212,8 +212,16 @@ public static class SupervisorService
         sb.AppendLine("  \"decisions\": [\"<key decisions or findings, max 3 bullets>\"],");
         sb.AppendLine("  \"needs_user\": \"<one of: 'no' | 'question' | 'error' | 'permission' | 'idle'>\",");
         sb.AppendLine("  \"needs_user_detail\": \"<short sentence if needs_user != 'no', empty otherwise>\",");
+        sb.AppendLine("  \"needs_user_short\": \"<see rules below>\",");
         sb.AppendLine("  \"spoken_text\": \"<see rules below>\"");
         sb.AppendLine("}");
+        sb.AppendLine();
+        sb.AppendLine("Rules for needs_user_short:");
+        sb.AppendLine("- ONE crisp sentence the user can act on at a glance. Max 180 characters.");
+        sb.AppendLine("- Distinct from needs_user_detail (which can be longer).");
+        sb.AppendLine("- Phrase it as the question or decision the user must answer.");
+        sb.AppendLine("- Empty string when needs_user == 'no'.");
+        sb.AppendLine("- When the agent asked multiple things, distill to the SINGLE most blocking decision; the user reads the full text only if they need to.");
         sb.AppendLine();
         sb.AppendLine("Rules for spoken_text:");
         sb.AppendLine("- One to three short sentences.  Maximum about 280 characters.");
@@ -264,6 +272,12 @@ public static class SupervisorService
             if (root.TryGetProperty("headline", out var h)) summary.Headline = (h.GetString() ?? "").Trim();
             if (root.TryGetProperty("needs_user", out var n)) summary.NeedsUser = (n.GetString() ?? "no").Trim().ToLowerInvariant();
             if (root.TryGetProperty("needs_user_detail", out var nd)) summary.NeedsUserDetail = (nd.GetString() ?? "").Trim();
+            if (root.TryGetProperty("needs_user_short", out var ns))
+            {
+                summary.NeedsUserShort = (ns.GetString() ?? "").Trim();
+                if (summary.NeedsUserShort.Length > 180)
+                    summary.NeedsUserShort = summary.NeedsUserShort[..177] + "...";
+            }
             if (root.TryGetProperty("spoken_text", out var sp)) summary.SpokenText = (sp.GetString() ?? "").Trim();
 
             if (root.TryGetProperty("files_touched", out var f) && f.ValueKind == JsonValueKind.Array)
@@ -668,6 +682,130 @@ public static class SupervisorService
             }
         }
         return (t.UserPrompt ?? "").Contains("/review-code", StringComparison.OrdinalIgnoreCase);
+    }
+
+    // ====================================================================
+    // Phase 5: Supervisor Ask - interactive single-turn query about a session
+    // ====================================================================
+
+    /// <summary>
+    /// Ask the supervisor a question about a specific session. One fresh
+    /// <c>claude --print --model haiku</c> call with no session persistence.
+    /// The session's recent state (supervisor decisions, turn summaries, buffer
+    /// tail, metadata) is piped in as context. No conversation memory between
+    /// calls - each ask is independent.
+    ///
+    /// Caller supplies the session state via the parameters rather than passing
+    /// the Session object so this stays a pure function (testable, no UI thread).
+    /// </summary>
+    public static async Task<SupervisorAskResult> AskAboutSessionAsync(
+        string question,
+        SupervisorAskContext context,
+        string claudeExePath,
+        CancellationToken ct = default)
+    {
+        var sw = Stopwatch.StartNew();
+
+        if (string.IsNullOrWhiteSpace(question))
+            return new SupervisorAskResult { Status = "bad_request", Error = "empty question" };
+
+        if (string.IsNullOrWhiteSpace(claudeExePath))
+        {
+            sw.Stop();
+            return new SupervisorAskResult
+            {
+                Status = "no_claude",
+                Error = "no claude CLI configured",
+                Answer = "Supervisor is not configured (no claude CLI path). Set agents.claudePath in config.json.",
+                ContextDigest = context.ToDigest(),
+                LatencyMs = sw.ElapsedMilliseconds,
+            };
+        }
+
+        var prompt = BuildAskPrompt(question, context);
+
+        try
+        {
+            var stdout = await RunSideClaudeAsync(prompt, claudeExePath, ct);
+            sw.Stop();
+            var answer = (stdout ?? "").Trim();
+            // Cap response so a misbehaving model can't return a megabyte into the UI.
+            if (answer.Length > 4000) answer = answer[..3997] + "...";
+            return new SupervisorAskResult
+            {
+                Answer = answer,
+                Model = DefaultModel,
+                LatencyMs = sw.ElapsedMilliseconds,
+                ContextDigest = context.ToDigest(),
+                Status = "ok",
+            };
+        }
+        catch (Exception ex)
+        {
+            sw.Stop();
+            FileLog.Write($"[SupervisorService] AskAboutSessionAsync FAILED: {ex.Message}");
+            return new SupervisorAskResult
+            {
+                Status = "supervisor_failed",
+                Error = ex.Message,
+                Answer = "Supervisor call failed: " + ex.Message,
+                ContextDigest = context.ToDigest(),
+                LatencyMs = sw.ElapsedMilliseconds,
+            };
+        }
+    }
+
+    internal static string BuildAskPrompt(string question, SupervisorAskContext context)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("You are the supervisor for a CC Director session. The user has a question about THIS session.");
+        sb.AppendLine();
+        sb.AppendLine("Answer ONLY from the context below. If the context does not contain the answer, say:");
+        sb.AppendLine("\"I don't have that in context.\"  Do NOT speculate. Do NOT invent file names, decisions, or activity.");
+        sb.AppendLine("Respond in 1-3 short sentences, plain text, no code blocks, no markdown headings.");
+        sb.AppendLine();
+        sb.AppendLine("=== SESSION METADATA ===");
+        sb.AppendLine($"- Repo: {context.RepoPath}");
+        sb.AppendLine($"- Agent: {context.AgentKind}");
+        sb.AppendLine($"- Activity state: {context.ActivityState}");
+        sb.AppendLine($"- Supervisor color: {context.CurrentColor} ({context.CurrentReason})");
+        sb.AppendLine($"- Git dirty: {context.GitDirty}");
+
+        if (context.RecentSupervisorEvents.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("=== SUPERVISOR DECISIONS (newest first) ===");
+            foreach (var e in context.RecentSupervisorEvents.Take(20))
+                sb.AppendLine($"- {e.At:HH:mm:ss}  {e.OldColor} -> {e.NewColor}  \"{e.Reason}\"");
+        }
+
+        if (context.RecentTurnSummaries.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("=== RECENT TURN SUMMARIES (oldest first) ===");
+            foreach (var t in context.RecentTurnSummaries.TakeLast(5))
+            {
+                sb.AppendLine($"- {t.TurnStartedAt:HH:mm:ss}  headline: {t.Headline}");
+                if (!string.IsNullOrEmpty(t.NeedsUser) && t.NeedsUser != "no")
+                    sb.AppendLine($"    needs_user: {t.NeedsUser} - {t.NeedsUserShort}");
+                if (t.Decisions != null && t.Decisions.Count > 0)
+                    sb.AppendLine($"    decisions: {string.Join(" | ", t.Decisions)}");
+                if (t.FilesTouched != null && t.FilesTouched.Count > 0)
+                    sb.AppendLine($"    files: {string.Join(", ", t.FilesTouched)}");
+            }
+        }
+
+        if (!string.IsNullOrEmpty(context.BufferTailText))
+        {
+            sb.AppendLine();
+            sb.AppendLine("=== TERMINAL BUFFER (tail, ANSI stripped) ===");
+            sb.AppendLine(Truncate(context.BufferTailText, 4000));
+        }
+
+        sb.AppendLine();
+        sb.AppendLine("=== USER QUESTION ===");
+        sb.Append(Truncate(question, 1500));
+        return sb.ToString();
     }
 
     // ====================================================================

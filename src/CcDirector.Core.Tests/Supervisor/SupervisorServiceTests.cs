@@ -163,6 +163,34 @@ public sealed class SupervisorServiceTests
     }
 
     [Fact]
+    public void ParseTurnSummaryJsonInto_extracts_needs_user_short()
+    {
+        var summary = new TurnSummary();
+        var turn = MakeTurn("which approach?", "AskUserQuestion");
+        const string raw = "{\"headline\":\"asks\",\"files_touched\":[],\"commands_run\":[],\"decisions\":[],\"needs_user\":\"question\",\"needs_user_detail\":\"Pick A or B. A is faster but writes to disk. B is slower but pure functional. Choose.\",\"needs_user_short\":\"A or B?\",\"spoken_text\":\"A or B\"}";
+
+        SupervisorService.ParseTurnSummaryJsonInto(raw, summary, turn);
+
+        Assert.Equal("question", summary.NeedsUser);
+        Assert.Equal("A or B?", summary.NeedsUserShort);
+        Assert.NotEqual(summary.NeedsUserShort, summary.NeedsUserDetail); // distinct field
+    }
+
+    [Fact]
+    public void ParseTurnSummaryJsonInto_truncates_long_needs_user_short()
+    {
+        var summary = new TurnSummary();
+        var turn = MakeTurn("?", "Edit");
+        var huge = new string('q', 500);
+        var raw = $"{{\"headline\":\"h\",\"needs_user\":\"question\",\"needs_user_short\":\"{huge}\",\"spoken_text\":\"\"}}";
+
+        SupervisorService.ParseTurnSummaryJsonInto(raw, summary, turn);
+
+        Assert.True(summary.NeedsUserShort.Length <= 180);
+        Assert.EndsWith("...", summary.NeedsUserShort);
+    }
+
+    [Fact]
     public void ParseTurnSummaryJsonInto_missing_spoken_text_falls_back_to_headline()
     {
         var summary = new TurnSummary();

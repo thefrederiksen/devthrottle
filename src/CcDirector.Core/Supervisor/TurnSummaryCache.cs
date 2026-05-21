@@ -22,6 +22,7 @@ public sealed class TurnSummaryCache : IDisposable
     private readonly SessionManager _sessionManager;
     private readonly AgentOptions _options;
     private readonly SessionStatusSupervisor? _statusSupervisor;
+    private readonly Core.Storage.SessionLogManager? _logManager;
     private readonly ConcurrentDictionary<Guid, List<TurnSummary>> _cache = new();
     private readonly ConcurrentDictionary<Guid, Action<Session, TurnData>> _handlers = new();
     private bool _started;
@@ -30,11 +31,12 @@ public sealed class TurnSummaryCache : IDisposable
     /// <summary>Max summaries kept per session.  Older ones are evicted.</summary>
     public int MaxSummariesPerSession { get; set; } = 100;
 
-    public TurnSummaryCache(SessionManager sessionManager, AgentOptions options, SessionStatusSupervisor? statusSupervisor = null)
+    public TurnSummaryCache(SessionManager sessionManager, AgentOptions options, SessionStatusSupervisor? statusSupervisor = null, Core.Storage.SessionLogManager? logManager = null)
     {
         _sessionManager = sessionManager;
         _options = options;
         _statusSupervisor = statusSupervisor;
+        _logManager = logManager;
     }
 
     public void Start()
@@ -101,6 +103,9 @@ public sealed class TurnSummaryCache : IDisposable
                     AddToCache(s.Id, summary);
                     // Hand the fresh summary to the status supervisor (slow path).
                     _statusSupervisor?.ApplyTurnSummary(s, summary);
+                    // Phase 5: persist the summary to disk so the supervisor's history
+                    // survives Director restart and is replayable for "ask" queries.
+                    _logManager?.WriteTurnSummary(s.Id, summary);
                     FileLog.Write($"[TurnSummaryCache] cached summary for {s.Id}: \"{(summary.Headline.Length > 80 ? summary.Headline[..80] + "..." : summary.Headline)}\"");
                 }
                 catch (Exception ex)

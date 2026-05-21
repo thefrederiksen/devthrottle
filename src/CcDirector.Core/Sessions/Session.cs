@@ -229,6 +229,35 @@ public sealed class Session : IDisposable
     public event Action<string, string, string>? OnStatusColorChanged;
 
     /// <summary>
+    /// One decision the SessionStatusSupervisor wrote onto this session: what color it
+    /// chose, what reason, when, and which path produced it ("activity" | "turn-summary"
+    /// | "promote" | "init" | "buffer-marker").
+    /// </summary>
+    public sealed record SupervisorEvent(
+        DateTime At,
+        string OldColor,
+        string NewColor,
+        string Reason);
+
+    private const int SupervisorEventLogCapacity = 50;
+    private readonly LinkedList<SupervisorEvent> _supervisorEvents = new();
+    private readonly object _supervisorEventsLock = new();
+
+    /// <summary>
+    /// Most recent supervisor decisions for this session, newest first. Ring-buffered
+    /// at <c>SupervisorEventLogCapacity</c>. Surfaced via <c>GET /sessions/{sid}/supervisor</c>
+    /// so the UI can show WHY a dot is the color it is.
+    /// </summary>
+    public IReadOnlyList<SupervisorEvent> RecentSupervisorEvents
+    {
+        get
+        {
+            lock (_supervisorEventsLock)
+                return _supervisorEvents.ToList();
+        }
+    }
+
+    /// <summary>
     /// Sole writer of <see cref="StatusColor"/>. Called by the
     /// SessionStatusSupervisor. No other code path may set the color — that's
     /// how we keep the UI a faithful mirror of the supervisor's verdict.
@@ -237,9 +266,19 @@ public sealed class Session : IDisposable
     {
         if (string.IsNullOrEmpty(color)) return;
         var old = StatusColor;
-        if (old == color && LastStatusReason == reason) return;
+        var newReason = reason ?? "";
+        if (old == color && LastStatusReason == newReason) return;
         StatusColor = color;
-        LastStatusReason = reason ?? "";
+        LastStatusReason = newReason;
+
+        var evt = new SupervisorEvent(DateTime.UtcNow, old, color, newReason);
+        lock (_supervisorEventsLock)
+        {
+            _supervisorEvents.AddFirst(evt);
+            while (_supervisorEvents.Count > SupervisorEventLogCapacity)
+                _supervisorEvents.RemoveLast();
+        }
+
         OnStatusColorChanged?.Invoke(old, color, LastStatusReason);
     }
 
