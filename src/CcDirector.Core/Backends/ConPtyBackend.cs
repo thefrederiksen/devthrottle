@@ -74,22 +74,28 @@ public sealed class ConPtyBackend : ISessionBackend
     {
         if (_disposed || _processHost == null) return;
 
+        // Strip a single trailing submit newline before evaluating "is this multi-line / large?".
+        // Callers (MainWindow, REST API, Quick Actions) sometimes append "\n" as a submit
+        // signal -- we don't want that to trip the multi-line heuristic and punt short
+        // prompts through a temp file. The backend sends CR explicitly below.
+        var textForCheck = text.TrimEnd('\r', '\n');
+
         string textToSend;
-        if (LargeInputHandler.IsLargeInput(text) && !string.IsNullOrEmpty(_workingDir))
+        if (LargeInputHandler.IsLargeInput(textForCheck) && !string.IsNullOrEmpty(_workingDir))
         {
             // Write to temp file and send @relative/path forward-slash form.
             // Claude's @-reference parser treats backslashes as escapes, so a Windows
             // path with backslashes (D:\Repo\.temp\file.txt) was rejected silently and
             // the prompt never submitted. Make the path relative to the working dir
             // when possible and force forward slashes.
-            var tempPath = LargeInputHandler.CreateTempFile(text, _workingDir);
+            var tempPath = LargeInputHandler.CreateTempFile(textForCheck, _workingDir);
             var relRef = MakeAtReference(tempPath, _workingDir);
             textToSend = $"@{relRef}";
-            FileLog.Write($"[ConPtyBackend] Large input ({text.Length} chars), using temp file reference: {textToSend}");
+            FileLog.Write($"[ConPtyBackend] Large input ({textForCheck.Length} chars), using temp file reference: {textToSend}");
         }
         else
         {
-            textToSend = text;
+            textToSend = textForCheck;
         }
 
         var textBytes = Encoding.UTF8.GetBytes(textToSend);

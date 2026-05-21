@@ -1973,7 +1973,10 @@ public partial class MainWindow : Window
         // Check if this is an interactive TUI command
         var isInteractiveCommand = text.StartsWith("/") && InteractiveTuiCommands.Contains(text.TrimStart('/'));
 
-        await _activeSession.Session.SendTextAsync(text + "\n");
+        // Backends send Enter (CR/LF) explicitly after the text -- don't append a submit
+        // newline here. Appending one used to trip LargeInputHandler's multi-line check
+        // and route short single-line prompts through a temp file.
+        await _activeSession.Session.SendTextAsync(text);
 
         if (!isInteractiveCommand)
         {
