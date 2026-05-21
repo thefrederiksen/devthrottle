@@ -63,7 +63,7 @@ public sealed class Session : IDisposable
     // fixed grid (browser-side resize must not perturb ConPty width). We feed
     // it from the buffer's OnBytesWritten event, gated by _htmlParserLock so
     // request threads can take snapshots concurrently.
-    private const int HtmlGridCols = 120;
+    private const int HtmlGridCols = 220;
     private const int HtmlGridRows = 40;
     private const int HtmlMaxScrollback = 5000;
     private readonly object _htmlParserLock = new();
