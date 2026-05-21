@@ -43,6 +43,16 @@
     font-size: 14px;
     min-height: 100vh;
   }
+  /* Header + tabs share a single sticky wrapper so they always move as a
+     unit.  Previously each was independently sticky with a hand-coded top
+     offset, which clipped the tabs when the header's actual rendered height
+     didn't match the offset. */
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--panel);
+  }
   header {
     padding: 10px 14px;
     border-bottom: 1px solid var(--border);
@@ -50,7 +60,6 @@
     align-items: center;
     gap: 10px;
     background: var(--panel);
-    position: sticky; top: 0; z-index: 10;
     padding-top: max(10px, env(safe-area-inset-top));
   }
   header a.back {
@@ -100,9 +109,6 @@
     background: var(--panel);
     border-bottom: 1px solid var(--border);
     padding: 0;
-    position: sticky;
-    top: calc(44px + env(safe-area-inset-top));
-    z-index: 9;
   }
   .tab {
     flex: 1;
@@ -510,19 +516,21 @@
 </style>
 </head>
 <body>
-<header>
-  <a href="/" class="back" aria-label="Back to Manager">&larr;</a>
-  <div class="title">
-    Session<span class="sid" id="sidShort">__SHORT_SID__</span>
-  </div>
-  <span class="state" id="state">?</span>
-  <span class="counts" id="counts"></span>
-</header>
+<div class="topbar">
+  <header>
+    <a href="/" class="back" aria-label="Back to Manager">&larr;</a>
+    <div class="title">
+      Session<span class="sid" id="sidShort">__SHORT_SID__</span>
+    </div>
+    <span class="state" id="state">?</span>
+    <span class="counts" id="counts"></span>
+  </header>
 
-<div class="tabs">
-  <div class="tab active" data-view="agent">Agent</div>
-  <div class="tab" data-view="voice">Voice</div>
-  <div class="tab" data-view="raw">Raw terminal</div>
+  <div class="tabs">
+    <div class="tab active" data-view="agent">Agent</div>
+    <div class="tab" data-view="voice">Voice</div>
+    <div class="tab" data-view="raw">Raw terminal</div>
+  </div>
 </div>
 
 <div id="agentView"></div>
@@ -1167,6 +1175,12 @@
     return body;
   }
 
+  // OpenAI's tts-1 hard-caps the input at 4096 chars; matches the same const
+  // on the server (TtsService.MaxTextChars).  When the bubble is longer than
+  // this, the audio will stop mid-sentence.  We notify the user with a small
+  // system bubble so they know to finish reading in the bubble instead.
+  const TTS_HARD_LIMIT = 4096;
+
   // Render the agent's reply bubble and read the SAME text aloud.  There is
   // exactly one piece of text per turn (the agent's last spoken paragraph
   // from the JSONL transcript): the bubble shows it, the speaker reads it.
@@ -1177,6 +1191,11 @@
     const display = (chat.displayText || chat.reply || '').trim();
     if (display) {
       appendVoiceBubble('agent', display);
+      if (display.length > TTS_HARD_LIMIT) {
+        appendVoiceBubble('system',
+          'Voice will cut off at ' + TTS_HARD_LIMIT + ' chars (OpenAI tts-1 limit). ' +
+          'Reply is ' + display.length + ' chars; read the rest above.');
+      }
       speak(display);
     } else {
       appendVoiceBubble('system', 'Agent finished but produced no visible output.');
