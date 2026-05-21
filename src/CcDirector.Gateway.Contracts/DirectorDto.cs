@@ -33,4 +33,18 @@ public sealed class DirectorDto
 
     /// <summary>UTC timestamp the Gateway last successfully reached this Director. Server-side only.</summary>
     public DateTime? LastSeen { get; set; }
+
+    /// <summary>
+    /// Cross-machine endpoint that browser users should be deeplinked to. Set by HTTP
+    /// registration (the Director knows its own routable URL). Null for FSW-discovered
+    /// Directors (use <see cref="ControlEndpoint"/> in that case).
+    /// </summary>
+    public string? TailnetEndpoint { get; set; }
+
+    /// <summary>
+    /// How this Director got into the registry. "file" = FSW-discovered same-machine.
+    /// "http" = registered via POST /directors/register from anywhere on the network.
+    /// Defaults to "file" for backward compat with existing JSON registration files.
+    /// </summary>
+    public string Source { get; set; } = "file";
 }

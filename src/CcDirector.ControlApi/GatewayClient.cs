@@ -1,0 +1,229 @@
+using System.Net;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using CcDirector.Core.Configuration;
+using CcDirector.Core.Utilities;
+using CcDirector.Gateway.Contracts;
+
+namespace CcDirector.ControlApi;
+
+/// <summary>
+/// Phase-1 Director-to-Gateway client. If a <see cref="GatewayConfig"/> is enabled
+/// (gateway.url present in config.json), this client:
+///
+///   1. POSTs /directors/register on start.
+///   2. POSTs /directors/{id}/heartbeat every <see cref="HeartbeatInterval"/>.
+///   3. DELETEs /directors/{id}/registration on stop.
+///   4. Reacts to 410 Gone on heartbeat by re-registering automatically.
+///   5. Retries failed register and heartbeat calls with exponential backoff.
+///
+/// When the config is disabled (no gateway.url) the client is inert - every method
+/// is a no-op so the Director boots normally in local-only mode.
+/// </summary>
+public sealed class GatewayClient : IDisposable
+{
+    /// <summary>How often the heartbeat fires.</summary>
+    public static TimeSpan HeartbeatInterval { get; } = TimeSpan.FromSeconds(15);
+
+    /// <summary>Max delay between failed register/heartbeat retries.</summary>
+    public static TimeSpan MaxBackoff { get; } = TimeSpan.FromSeconds(60);
+
+    private readonly GatewayConfig _config;
+    private readonly string _directorId;
+    private readonly int _port;
+    private readonly string _version;
+    private readonly HttpClient _http;
+
+    private Timer? _heartbeat;
+    private CancellationTokenSource? _cts;
+    private bool _registered;
+    private bool _disposed;
+
+    public bool IsEnabled => _config.IsEnabled;
+    public bool IsRegistered => _registered;
+
+    public GatewayClient(GatewayConfig config, string directorId, int port, string version)
+    {
+        _config = config ?? throw new ArgumentNullException(nameof(config));
+        _directorId = directorId ?? throw new ArgumentNullException(nameof(directorId));
+        _port = port;
+        _version = version ?? "0.0.0";
+
+        _http = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(10),
+        };
+        if (_config.IsEnabled)
+        {
+            _http.BaseAddress = new Uri(_config.Url.TrimEnd('/') + "/");
+            if (!string.IsNullOrEmpty(_config.Token))
+                _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _config.Token);
+        }
+    }
+
+    /// <summary>
+    /// Start the registration lifecycle. Fire-and-forget: the first register attempt
+    /// runs in the background so a slow or unreachable Gateway never blocks Director
+    /// startup. The heartbeat timer is set up regardless.
+    /// </summary>
+    public void Start()
+    {
+        if (!_config.IsEnabled)
+        {
+            FileLog.Write("[GatewayClient] Start: disabled (no gateway.url), running in local-only mode");
+            return;
+        }
+        if (_disposed) throw new ObjectDisposedException(nameof(GatewayClient));
+
+        _cts = new CancellationTokenSource();
+        FileLog.Write($"[GatewayClient] Start: gateway={_config.Url}, directorId={_directorId}, port={_port}");
+
+        // Kick off the first registration in the background. RegisterLoop retries on failure.
+        _ = Task.Run(() => RegisterLoop(_cts.Token));
+
+        _heartbeat = new Timer(_ => HeartbeatTick(), null, HeartbeatInterval, HeartbeatInterval);
+    }
+
+    /// <summary>
+    /// Gracefully unregister. Best-effort: a failing DELETE is logged but does not
+    /// throw - the Gateway will sweep the stale entry within 60 s anyway.
+    /// </summary>
+    public async Task StopAsync()
+    {
+        if (_disposed) return;
+        if (!_config.IsEnabled) return;
+
+        FileLog.Write($"[GatewayClient] StopAsync: directorId={_directorId}");
+        try { _cts?.Cancel(); } catch { }
+        _heartbeat?.Dispose();
+        _heartbeat = null;
+
+        if (_registered)
+        {
+            try
+            {
+                var resp = await _http.DeleteAsync($"directors/{_directorId}/registration");
+                FileLog.Write($"[GatewayClient] DELETE registration -> {(int)resp.StatusCode}");
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[GatewayClient] DELETE registration FAILED (best-effort): {ex.Message}");
+            }
+        }
+        _registered = false;
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        try { _cts?.Cancel(); } catch { }
+        _heartbeat?.Dispose();
+        _cts?.Dispose();
+        _http.Dispose();
+    }
+
+    // ===== Internals =====
+
+    private async Task RegisterLoop(CancellationToken ct)
+    {
+        var delay = TimeSpan.FromSeconds(2);
+        while (!ct.IsCancellationRequested && !_registered)
+        {
+            try
+            {
+                if (await TryRegisterAsync(ct))
+                {
+                    _registered = true;
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[GatewayClient] Register attempt failed: {ex.Message}");
+            }
+
+            try { await Task.Delay(delay, ct); }
+            catch (OperationCanceledException) { return; }
+
+            // Exponential backoff, capped at MaxBackoff.
+            var nextMs = Math.Min(delay.TotalMilliseconds * 2, MaxBackoff.TotalMilliseconds);
+            delay = TimeSpan.FromMilliseconds(nextMs);
+        }
+    }
+
+    private async Task<bool> TryRegisterAsync(CancellationToken ct)
+    {
+        var req = BuildRegistrationRequest();
+        FileLog.Write($"[GatewayClient] POST /directors/register: endpoint={req.TailnetEndpoint}");
+        var resp = await _http.PostAsJsonAsync("directors/register", req, ct);
+        if (resp.IsSuccessStatusCode)
+        {
+            FileLog.Write($"[GatewayClient] Registered: status={(int)resp.StatusCode}");
+            return true;
+        }
+
+        FileLog.Write($"[GatewayClient] Register returned {(int)resp.StatusCode} {resp.ReasonPhrase}");
+        return false;
+    }
+
+    private void HeartbeatTick()
+    {
+        if (_disposed || _cts is null || _cts.IsCancellationRequested) return;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                if (!_registered)
+                {
+                    // Still trying to do the initial registration. Let RegisterLoop handle it.
+                    return;
+                }
+
+                var resp = await _http.PostAsync($"directors/{_directorId}/heartbeat", content: null, _cts.Token);
+                if (resp.StatusCode == HttpStatusCode.Gone)
+                {
+                    // Gateway forgot about us (it restarted or swept us as stale).
+                    // Drop registered=false so the next call to RegisterLoop re-registers.
+                    FileLog.Write("[GatewayClient] Heartbeat returned 410 Gone, re-registering");
+                    _registered = false;
+                    _ = Task.Run(() => RegisterLoop(_cts.Token));
+                    return;
+                }
+                if (!resp.IsSuccessStatusCode)
+                    FileLog.Write($"[GatewayClient] Heartbeat returned {(int)resp.StatusCode} {resp.ReasonPhrase}");
+            }
+            catch (OperationCanceledException) { /* shutdown */ }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[GatewayClient] Heartbeat FAILED: {ex.Message}");
+            }
+        });
+    }
+
+    private DirectorRegistrationRequest BuildRegistrationRequest()
+    {
+        return new DirectorRegistrationRequest
+        {
+            DirectorId = _directorId,
+            TailnetEndpoint = ResolveTailnetEndpoint(),
+            Pid = Environment.ProcessId,
+            MachineName = Environment.MachineName,
+            User = Environment.UserName,
+            Version = _version,
+            StartedAt = System.Diagnostics.Process.GetCurrentProcess().StartTime.ToUniversalTime(),
+        };
+    }
+
+    private string ResolveTailnetEndpoint()
+    {
+        // Priority: explicit config override > MachineName-based default.
+        // We deliberately don't try to "auto-detect" a Tailscale interface address -
+        // there are too many ways that can be wrong (multiple interfaces, no Tailscale
+        // installed, machine isn't on the tailnet, etc.). If the default isn't reachable
+        // from where the Gateway runs, the operator sets gateway.tailnetEndpoint explicitly.
+        if (!string.IsNullOrWhiteSpace(_config.TailnetEndpoint))
+            return _config.TailnetEndpoint!;
+        return $"http://{Environment.MachineName}:{_port}";
+    }
+}

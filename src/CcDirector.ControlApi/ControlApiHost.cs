@@ -36,12 +36,13 @@ public sealed class ControlApiHost : IAsyncDisposable
     private readonly bool _useEphemeralPort;
     private readonly bool _authEnabled;
 
-    public string DirectorId { get; } = Guid.NewGuid().ToString();
+    public string DirectorId { get; }
     public int Port { get; private set; }
     public bool AuthEnabled => _authEnabled;
 
     private WebApplication? _app;
     private InstanceRegistration? _registration;
+    private GatewayClient? _gatewayClient;
     private TurnSummaryCache? _turnSummaryCache;
     private bool _stopped;
 
@@ -56,7 +57,7 @@ public sealed class ControlApiHost : IAsyncDisposable
     /// If true, bearer-token or cookie auth is required for all routes except /healthz/login/logout.
     /// If false (default), the Director is completely open. The Tailscale tailnet is the trust boundary.
     /// </param>
-    public ControlApiHost(SessionManager sessionManager, string version, Func<Task> requestShutdownAsync, bool useEphemeralPort = false, bool authEnabled = false, RepositoryRegistry? repositoryRegistry = null)
+    public ControlApiHost(SessionManager sessionManager, string version, Func<Task> requestShutdownAsync, bool useEphemeralPort = false, bool authEnabled = false, RepositoryRegistry? repositoryRegistry = null, string? directorId = null)
     {
         _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));
         _version = version ?? "0.0.0";
@@ -64,6 +65,13 @@ public sealed class ControlApiHost : IAsyncDisposable
         _useEphemeralPort = useEphemeralPort;
         _authEnabled = authEnabled;
         _repositoryRegistry = repositoryRegistry;
+
+        // Production: persisted id (same across restarts so the Gateway recognizes us).
+        // Tests: inject a fresh id per fixture so parallel runs don't collide on the
+        // single instances/{id}.json file.
+        DirectorId = directorId ?? (useEphemeralPort
+            ? Guid.NewGuid().ToString()
+            : DirectorIdStore.LoadOrCreate());
     }
 
     /// <summary>Start Kestrel and write the instance registration file. Returns the chosen port.</summary>
@@ -137,6 +145,12 @@ public sealed class ControlApiHost : IAsyncDisposable
         _registration = new InstanceRegistration(DirectorId, Port, _version);
         _registration.Register();
 
+        // Phase 1: if gateway.url is configured, register with the Gateway over HTTP and
+        // start the heartbeat. Disabled (no-op) when local-only.
+        var gatewayConfig = Core.Configuration.GatewayConfig.Load();
+        _gatewayClient = new GatewayClient(gatewayConfig, DirectorId, Port, _version);
+        _gatewayClient.Start();
+
         return Port;
     }
 
@@ -157,6 +171,14 @@ public sealed class ControlApiHost : IAsyncDisposable
         if (_stopped) return;
         _stopped = true;
         FileLog.Write($"[ControlApiHost] StopAsync");
+
+        if (_gatewayClient is not null)
+        {
+            try { await _gatewayClient.StopAsync(); }
+            catch (Exception ex) { FileLog.Write($"[ControlApiHost] GatewayClient.StopAsync error: {ex.Message}"); }
+            _gatewayClient.Dispose();
+            _gatewayClient = null;
+        }
 
         _registration?.Unregister();
 

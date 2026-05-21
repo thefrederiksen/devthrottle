@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>CC Director - Directory</title>
+<style>
+  :root {
+    --bg: #1e1e1e;
+    --panel: #252526;
+    --border: #3c3c3c;
+    --text: #dddddd;
+    --muted: #888888;
+    --accent: #0e639c;
+    --accent-hover: #1177bb;
+    --ok: #4ec9b0;
+    --stale: #dcdcaa;
+    --gone: #f44747;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 14px;
+    min-height: 100vh;
+  }
+  header {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--panel);
+    position: sticky; top: 0; z-index: 10;
+  }
+  header h1 {
+    font-size: 14px;
+    margin: 0;
+    letter-spacing: 0.5px;
+    font-weight: 700;
+  }
+  header .stats { color: var(--muted); font-size: 12px; }
+  header .spacer { flex: 1; }
+  header a {
+    color: var(--accent);
+    text-decoration: none;
+    font-size: 13px;
+    padding: 6px 10px;
+    border-radius: 6px;
+  }
+  header a:hover { background: rgba(14,99,156,0.15); }
+
+  main { padding: 16px 14px 40px; max-width: 1100px; margin: 0 auto; }
+
+  .empty {
+    margin-top: 40px;
+    padding: 24px;
+    text-align: center;
+    color: var(--muted);
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+  }
+  .empty code {
+    background: var(--bg);
+    padding: 2px 6px;
+    border-radius: 3px;
+    color: var(--text);
+    font-family: "Cascadia Code", Consolas, monospace;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--panel);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  th, td {
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+  thead th {
+    background: rgba(14,99,156,0.10);
+    color: var(--muted);
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: rgba(255,255,255,0.02); }
+
+  .machine { font-weight: 600; }
+  .muted { color: var(--muted); font-size: 12px; }
+
+  .dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  .dot.ok { background: var(--ok); }
+  .dot.stale { background: var(--stale); }
+  .dot.gone { background: var(--gone); }
+
+  .source-pill {
+    display: inline-block;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 10px;
+    background: var(--bg);
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .open-btn {
+    display: inline-block;
+    color: var(--text);
+    background: var(--accent);
+    padding: 6px 12px;
+    border-radius: 6px;
+    text-decoration: none;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .open-btn:hover { background: var(--accent-hover); }
+
+  .error {
+    margin: 12px 0;
+    padding: 10px 12px;
+    background: rgba(244,71,71,0.10);
+    border: 1px solid rgba(244,71,71,0.4);
+    border-radius: 6px;
+    color: var(--gone);
+    font-size: 13px;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>CC DIRECTOR</h1>
+  <span class="stats" id="stats">loading...</span>
+  <span class="spacer"></span>
+  <a href="/healthz">healthz</a>
+  <a href="/logout" __LOGOUT_VISIBILITY__>logout</a>
+</header>
+
+<main>
+  <div id="error" class="error" style="display:none"></div>
+  <div id="content"></div>
+</main>
+
+<script>
+const REFRESH_MS = 3000;
+
+function relativeTime(iso) {
+  if (!iso) return "never";
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return "?";
+  const seconds = Math.max(0, Math.floor((Date.now() - t) / 1000));
+  if (seconds < 5) return "just now";
+  if (seconds < 60) return seconds + "s ago";
+  const mins = Math.floor(seconds / 60);
+  if (mins < 60) return mins + "m ago";
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return hours + "h ago";
+  return Math.floor(hours / 24) + "d ago";
+}
+
+function endpointFor(d) {
+  // HTTP-registered Directors have a tailnetEndpoint; FSW Directors only have the
+  // local-loopback controlEndpoint. Prefer the tailnet endpoint.
+  return d.tailnetEndpoint || d.controlEndpoint || "";
+}
+
+function freshness(d) {
+  if (!d.lastSeen) return "ok";
+  const ageSec = (Date.now() - new Date(d.lastSeen).getTime()) / 1000;
+  if (ageSec < 30) return "ok";
+  if (ageSec < 60) return "stale";
+  return "gone";
+}
+
+function escapeHtml(s) {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+function render(directors) {
+  const stats = document.getElementById("stats");
+  const content = document.getElementById("content");
+
+  stats.textContent = directors.length + " director" + (directors.length === 1 ? "" : "s") + " online";
+
+  if (directors.length === 0) {
+    content.innerHTML =
+      '<div class="empty">' +
+        '<p>No Directors registered yet.</p>' +
+        '<p class="muted">A Director will appear here when its <code>cc-director.exe</code> starts and either:</p>' +
+        '<p class="muted">- runs on this machine (auto-discovered), OR</p>' +
+        '<p class="muted">- has <code>gateway.url</code> configured to point at this Gateway.</p>' +
+      '</div>';
+    return;
+  }
+
+  directors.sort((a, b) => {
+    const ma = (a.machineName || "").toLowerCase();
+    const mb = (b.machineName || "").toLowerCase();
+    return ma.localeCompare(mb);
+  });
+
+  let rows = directors.map(d => {
+    const endpoint = endpointFor(d);
+    const fresh = freshness(d);
+    const safeEndpoint = escapeHtml(endpoint);
+    return `
+      <tr>
+        <td>
+          <span class="dot ${fresh}" title="${fresh}"></span>
+          <span class="machine">${escapeHtml(d.machineName || "(unknown)")}</span>
+        </td>
+        <td>${escapeHtml(d.user || "")}</td>
+        <td>${escapeHtml(d.version || "")}</td>
+        <td><span class="source-pill">${escapeHtml(d.source || "file")}</span></td>
+        <td>
+          <a href="${safeEndpoint}" target="_blank" rel="noopener" class="muted" title="${safeEndpoint}">
+            ${safeEndpoint || "(no endpoint)"}
+          </a>
+        </td>
+        <td class="muted">${escapeHtml(relativeTime(d.lastSeen))}</td>
+        <td>
+          ${endpoint
+            ? `<a class="open-btn" href="${safeEndpoint}" target="_blank" rel="noopener">Open</a>`
+            : '<span class="muted">no endpoint</span>'}
+        </td>
+      </tr>
+    `;
+  }).join("");
+
+  content.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>Machine</th>
+          <th>User</th>
+          <th>Version</th>
+          <th>Source</th>
+          <th>Endpoint</th>
+          <th>Last seen</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+async function refresh() {
+  const err = document.getElementById("error");
+  try {
+    const resp = await fetch("/directors", { credentials: "same-origin" });
+    if (resp.status === 401) {
+      window.location.href = "/login?next=" + encodeURIComponent(window.location.pathname);
+      return;
+    }
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    const directors = await resp.json();
+    err.style.display = "none";
+    render(Array.isArray(directors) ? directors : []);
+  } catch (e) {
+    err.style.display = "block";
+    err.textContent = "Failed to fetch directors: " + (e && e.message ? e.message : e);
+  }
+}
+
+refresh();
+setInterval(refresh, REFRESH_MS);
+</script>
+</body>
+</html>

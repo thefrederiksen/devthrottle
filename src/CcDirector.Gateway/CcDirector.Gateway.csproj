@@ -26,6 +26,7 @@
   <ItemGroup>
     <EmbeddedResource Include="Web\manager.html" />
     <EmbeddedResource Include="Web\login.html" />
+    <EmbeddedResource Include="Web\directory.html" />
   </ItemGroup>
 
 </Project>

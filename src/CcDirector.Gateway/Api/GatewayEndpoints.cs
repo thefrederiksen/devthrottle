@@ -18,6 +18,9 @@ internal static class GatewayEndpoints
         var logoutVisibility = authEnabled ? "" : "style=\"display:none\"";
 
         // ===== HTML pages =====
+        // Phase 1: the canonical "/" is the directory page. The legacy aggregator
+        // manager UI is still reachable at "/legacy-manager" for the embedded
+        // Avalonia ManagerView until it migrates to per-Director direct calls.
         app.MapGet("/", (HttpContext ctx) =>
         {
             var accept = ctx.Request.Headers["Accept"].ToString();
@@ -30,6 +33,13 @@ internal static class GatewayEndpoints
                     directors = registry.ListDirectors().Count,
                 });
             }
+            var html = EmbeddedResources.Load("directory.html")
+                .Replace("__LOGOUT_VISIBILITY__", logoutVisibility);
+            return Results.Content(html, "text/html; charset=utf-8");
+        });
+
+        app.MapGet("/legacy-manager", (HttpContext ctx) =>
+        {
             var html = EmbeddedResources.Load("manager.html")
                 .Replace("__LOGOUT_VISIBILITY__", logoutVisibility);
             return Results.Content(html, "text/html; charset=utf-8");
@@ -103,6 +113,46 @@ internal static class GatewayEndpoints
         app.MapGet("/directors", () =>
         {
             return Results.Json(registry.ListDirectors());
+        });
+
+        // ===== HTTP discovery (Phase 1) =====
+        // The Director POSTs /directors/register on startup and heartbeats every 15 s.
+        // On graceful shutdown it DELETEs its registration. Same-machine Directors that
+        // don't have gateway.url configured continue to be discovered via the filesystem
+        // watch path - both paths coexist permanently.
+
+        app.MapPost("/directors/register", (DirectorRegistrationRequest req) =>
+        {
+            if (req is null || string.IsNullOrEmpty(req.DirectorId))
+                return Results.BadRequest(new { error = "directorId is required" });
+            if (string.IsNullOrEmpty(req.TailnetEndpoint))
+                return Results.BadRequest(new { error = "tailnetEndpoint is required" });
+
+            FileLog.Write($"[GatewayEndpoints] POST /directors/register: id={req.DirectorId}, endpoint={req.TailnetEndpoint}, machine={req.MachineName}");
+            var dto = registry.Upsert(req);
+            return Results.Json(dto, statusCode: StatusCodes.Status201Created);
+        });
+
+        app.MapPost("/directors/{id}/heartbeat", (string id) =>
+        {
+            var ok = registry.Heartbeat(id);
+            if (!ok)
+            {
+                FileLog.Write($"[GatewayEndpoints] POST /directors/{id}/heartbeat: unknown id (caller should re-register)");
+                // 410 Gone tells the Director "you're not in the registry anymore" so its
+                // client can re-POST /directors/register instead of just retrying heartbeats.
+                return Results.StatusCode(StatusCodes.Status410Gone);
+            }
+            return Results.Json(new { ok = true });
+        });
+
+        app.MapDelete("/directors/{id}/registration", (string id) =>
+        {
+            FileLog.Write($"[GatewayEndpoints] DELETE /directors/{id}/registration");
+            var removed = registry.Remove(id);
+            return removed
+                ? Results.Json(new { ok = true })
+                : Results.NotFound(new { error = "director not found" });
         });
 
         app.MapGet("/sessions", async (string? director, string? agent, string? state) =>
