@@ -10,7 +10,8 @@ public enum FileViewerCategory
     Image,
     Text,
     Code,
-    Pdf
+    Pdf,
+    Html
 }
 
 /// <summary>
@@ -34,7 +35,7 @@ public static class FileExtensions
     {
         ".cs", ".py", ".js", ".ts", ".tsx", ".jsx",
         ".json", ".xml", ".xaml", ".csproj", ".fsproj", ".vbproj", ".props", ".targets", ".sln",
-        ".css", ".svg", ".html", ".htm",
+        ".css", ".svg",
         ".sql",
         ".ps1", ".bat", ".sh",
         ".yaml", ".yml", ".toml",
@@ -100,13 +101,21 @@ public static class FileExtensions
         return PdfExtensions.Contains(ext);
     }
 
+    public static bool IsHtml(string path)
+    {
+        var ext = Path.GetExtension(path);
+        return string.Equals(ext, ".html", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(ext, ".htm", StringComparison.OrdinalIgnoreCase);
+    }
+
     public static bool IsViewable(string path)
     {
-        return IsMarkdown(path) || IsImage(path) || IsCodeFile(path) || IsTextFile(path) || IsPdf(path);
+        return IsMarkdown(path) || IsImage(path) || IsCodeFile(path) || IsTextFile(path) || IsPdf(path) || IsHtml(path);
     }
 
     public static FileViewerCategory GetViewerCategory(string path)
     {
+        if (IsHtml(path)) return FileViewerCategory.Html;
         if (IsMarkdown(path)) return FileViewerCategory.Markdown;
         if (IsImage(path)) return FileViewerCategory.Image;
         if (IsCodeFile(path)) return FileViewerCategory.Code;

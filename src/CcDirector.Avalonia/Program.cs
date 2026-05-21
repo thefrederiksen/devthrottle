@@ -1,4 +1,5 @@
 using Avalonia;
+using Avalonia.WebView.Desktop;
 
 namespace CcDirector.Avalonia;
 
@@ -11,5 +12,6 @@ internal static class Program
     public static AppBuilder BuildAvaloniaApp()
         => AppBuilder.Configure<App>()
             .UsePlatformDetect()
+            .UseDesktopWebView()
             .LogToTrace();
 }

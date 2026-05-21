@@ -26,20 +26,27 @@ public partial class PdfViewerControl : UserControl, IFileViewer
         _filePath = filePath;
         FilePathText.Text = filePath;
         ToolTip.SetTip(FilePathText, filePath);
+        LoadingText.IsVisible = true;
 
+        var uri = new Uri(Path.GetFullPath(filePath));
+        WebViewHost.Url = uri;
+
+        LoadingText.IsVisible = false;
+        FileLog.Write($"[PdfViewer] Navigated to: {uri.AbsoluteUri}");
         return Task.CompletedTask;
     }
 
     public void ShowLoadError(string message)
     {
-        FilePathText.Text = $"Failed to load: {message}";
+        LoadingText.Text = $"Failed to load: {message}";
+        LoadingText.IsVisible = true;
     }
 
     public Task SaveAsync() => Task.CompletedTask;
 
     public string GetDisplayName()
     {
-        return _filePath != null ? Path.GetFileName(_filePath) : "Untitled";
+        return _filePath != null ? Path.GetFileName(_filePath) : "Untitled.pdf";
     }
 
     private void OpenExternalButton_Click(object? sender, RoutedEventArgs e)

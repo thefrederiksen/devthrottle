@@ -43,13 +43,8 @@
             </Grid>
         </Border>
 
-        <!-- Preview mode: rendered markdown as styled text -->
-        <ScrollViewer x:Name="PreviewScroller" Grid.Row="1"
-                      HorizontalScrollBarVisibility="Disabled"
-                      VerticalScrollBarVisibility="Auto"
-                      Background="#1E1E1E">
-            <ContentControl x:Name="PreviewContent" />
-        </ScrollViewer>
+        <!-- Preview mode: rendered HTML in a WebView -->
+        <WebView x:Name="PreviewWebView" Grid.Row="1" />
 
         <!-- Editor mode: raw text -->
         <TextBox x:Name="EditorBox" Grid.Row="1"

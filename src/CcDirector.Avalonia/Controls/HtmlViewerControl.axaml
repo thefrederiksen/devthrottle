@@ -1,6 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             x:Class="CcDirector.Avalonia.Controls.PdfViewerControl"
+             x:Class="CcDirector.Avalonia.Controls.HtmlViewerControl"
              Background="#1E1E1E">
 
     <Grid RowDefinitions="Auto,*">
@@ -16,7 +16,12 @@
                            TextTrimming="CharacterEllipsis" />
 
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
-                    <Button x:Name="OpenExternalButton" Content="Open in PDF Reader"
+                    <Button x:Name="ReloadButton" Content="Reload"
+                            FontSize="11" Padding="8,2"
+                            Background="#3C3C3C" Foreground="#CCCCCC"
+                            BorderThickness="0" Cursor="Hand"
+                            Click="ReloadButton_Click" />
+                    <Button x:Name="OpenExternalButton" Content="Open in Browser"
                             FontSize="11" Padding="8,2"
                             Background="#3C3C3C" Foreground="#CCCCCC"
                             BorderThickness="0" Cursor="Hand"

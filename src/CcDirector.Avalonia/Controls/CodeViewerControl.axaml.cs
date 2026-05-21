@@ -17,7 +17,6 @@ public partial class CodeViewerControl : UserControl, IFileViewer
     private bool _isDirty;
     private bool _suppressTextChanged;
     private bool _wordWrap;
-    private bool _isHtmlFile;
 
     public string? FilePath => _filePath;
     public bool IsDirty => _isDirty;
@@ -44,8 +43,6 @@ public partial class CodeViewerControl : UserControl, IFileViewer
         { ".props", "XML" },
         { ".targets", "XML" },
         { ".svg", "XML" },
-        { ".html", "XML" },
-        { ".htm", "XML" },
         { ".css", "CSS" },
         { ".sql", "TSQL" },
         { ".ps1", "PowerShell" },
@@ -72,8 +69,6 @@ public partial class CodeViewerControl : UserControl, IFileViewer
 
         _filePath = filePath;
         _isDirty = false;
-        _isHtmlFile = IsHtmlFile(filePath);
-        PreviewButton.IsVisible = _isHtmlFile;
         FilePathText.Text = filePath;
         ToolTip.SetTip(FilePathText, filePath);
         LoadingText.IsVisible = true;
@@ -256,30 +251,4 @@ public partial class CodeViewerControl : UserControl, IFileViewer
         }
     }
 
-    private async void PreviewButton_Click(object? sender, RoutedEventArgs e)
-    {
-        if (string.IsNullOrEmpty(FilePath)) return;
-        try
-        {
-            if (_isDirty)
-            {
-                FileLog.Write($"[CodeViewer] Auto-saving before preview: {FilePath}");
-                await SaveAsync();
-            }
-
-            Process.Start(new ProcessStartInfo(FilePath) { UseShellExecute = true });
-            FileLog.Write($"[CodeViewer] Preview in browser: {FilePath}");
-        }
-        catch (Exception ex)
-        {
-            FileLog.Write($"[CodeViewer] PreviewButton_Click FAILED: {ex.Message}");
-        }
-    }
-
-    private static bool IsHtmlFile(string path)
-    {
-        var ext = Path.GetExtension(path);
-        return string.Equals(ext, ".html", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(ext, ".htm", StringComparison.OrdinalIgnoreCase);
-    }
 }

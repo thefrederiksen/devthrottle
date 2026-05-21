@@ -3145,6 +3145,9 @@ public partial class MainWindow : Window
             case FileViewerCategory.Pdf:
                 var pdf = new FileViewerControls.PdfViewerControl();
                 return (pdf, pdf);
+            case FileViewerCategory.Html:
+                var html = new FileViewerControls.HtmlViewerControl();
+                return (html, html);
             case FileViewerCategory.Text:
             default:
                 var text = new FileViewerControls.TextViewerControl();

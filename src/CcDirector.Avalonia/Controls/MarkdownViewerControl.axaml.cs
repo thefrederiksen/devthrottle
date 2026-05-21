@@ -37,7 +37,7 @@ public partial class MarkdownViewerControl : UserControl, IFileViewer
         FilePathText.Text = filePath;
         ToolTip.SetTip(FilePathText, filePath);
         LoadingText.IsVisible = true;
-        PreviewScroller.IsVisible = false;
+        PreviewWebView.IsVisible = false;
         EditorBox.IsVisible = false;
 
         var content = await Task.Run(() => File.ReadAllText(filePath));
@@ -81,12 +81,11 @@ public partial class MarkdownViewerControl : UserControl, IFileViewer
     {
         _isPreviewMode = true;
 
-        // Capture editor content if switching from editor
         if (EditorBox.IsVisible)
             _rawContent = EditorBox.Text ?? "";
 
-        PreviewContent.Content = MarkdownAvaloniaRenderer.Render(_rawContent);
-        PreviewScroller.IsVisible = true;
+        PreviewWebView.HtmlContent = MarkdownHtmlRenderer.Render(_rawContent);
+        PreviewWebView.IsVisible = true;
         EditorBox.IsVisible = false;
         UpdateModeButton();
         UpdateSaveButton();
@@ -99,7 +98,7 @@ public partial class MarkdownViewerControl : UserControl, IFileViewer
         EditorBox.Text = _rawContent;
         _suppressTextChanged = false;
         EditorBox.IsVisible = true;
-        PreviewScroller.IsVisible = false;
+        PreviewWebView.IsVisible = false;
         UpdateModeButton();
         UpdateSaveButton();
         EditorBox.Focus();

@@ -54,7 +54,7 @@ public class FileExtensionsTests
     [InlineData("Directory.Build.props", true)]
     [InlineData("build.targets", true)]
     [InlineData("BlastApp.sln", true)]
-    [InlineData("page.html", true)]
+    [InlineData("page.html", false)]
     [InlineData("style.css", true)]
     [InlineData("drawing.svg", true)]
     [InlineData("query.sql", true)]
@@ -154,6 +154,18 @@ public class FileExtensionsTests
     }
 
     [Theory]
+    [InlineData("page.html", true)]
+    [InlineData("INDEX.HTM", true)]
+    [InlineData("notes.md", false)]
+    [InlineData("Program.cs", false)]
+    [InlineData("report.pdf", false)]
+    [InlineData("", false)]
+    public void IsHtml_ReturnsExpected(string path, bool expected)
+    {
+        Assert.Equal(expected, FileExtensions.IsHtml(path));
+    }
+
+    [Theory]
     [InlineData("readme.md", true)]
     [InlineData("photo.png", true)]
     [InlineData("file.txt", true)]
@@ -187,7 +199,8 @@ public class FileExtensionsTests
     [InlineData("BlastApp.sln", FileViewerCategory.Code)]
     [InlineData("app.csproj", FileViewerCategory.Code)]
     [InlineData("script.py", FileViewerCategory.Code)]
-    [InlineData("page.html", FileViewerCategory.Code)]
+    [InlineData("page.html", FileViewerCategory.Html)]
+    [InlineData("index.htm", FileViewerCategory.Html)]
     [InlineData("game.lua", FileViewerCategory.Code)]
     [InlineData("infra.tf", FileViewerCategory.Code)]
     [InlineData("schema.graphql", FileViewerCategory.Code)]

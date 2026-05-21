@@ -1022,12 +1022,26 @@ public class TerminalControl : FrameworkElement
 
         if (type == LinkDetector.LinkType.Path)
         {
-            // Add "View File" first for viewable file types
+            bool addedViewerItem = false;
+
             if (FileExtensions.IsViewable(link))
             {
                 var viewItem = new MenuItem { Header = "View File" };
                 viewItem.Click += (_, _) => OpenFileViewer();
                 _linkContextMenu.Items.Add(viewItem);
+                addedViewerItem = true;
+            }
+
+            if (FileExtensions.IsHtml(link))
+            {
+                var browserItem = new MenuItem { Header = "Open in Browser" };
+                browserItem.Click += (_, _) => OpenPathInBrowser();
+                _linkContextMenu.Items.Add(browserItem);
+                addedViewerItem = true;
+            }
+
+            if (addedViewerItem)
+            {
                 _linkContextMenu.Items.Add(new Separator());
             }
 
@@ -1112,6 +1126,31 @@ public class TerminalControl : FrameworkElement
         catch (Exception ex)
         {
             FileLog.Write($"[TerminalControl] OpenInBrowser FAILED: {ex.Message}");
+            MessageBox.Show($"Failed to open in browser:\n{ex.Message}",
+                "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    /// <summary>
+    /// Open a local file path in the default browser (used for .html/.htm).
+    /// </summary>
+    private void OpenPathInBrowser()
+    {
+        if (string.IsNullOrEmpty(_detectedLink)) return;
+
+        try
+        {
+            string path = ResolvePath(_detectedLink).Replace('/', '\\').TrimEnd('\\');
+            var startInfo = new ProcessStartInfo(path)
+            {
+                UseShellExecute = true
+            };
+            Process.Start(startInfo);
+            FileLog.Write($"[TerminalControl] Opened path in browser: {path}");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[TerminalControl] OpenPathInBrowser FAILED: {ex.Message}");
             MessageBox.Show($"Failed to open in browser:\n{ex.Message}",
                 "Error", MessageBoxButton.OK, MessageBoxImage.Error);
         }

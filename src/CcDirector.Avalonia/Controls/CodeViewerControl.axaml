@@ -27,14 +27,6 @@
                             IsVisible="False"
                             Click="SaveButton_Click" />
 
-                    <!-- Preview in browser (HTML files only) -->
-                    <Button x:Name="PreviewButton" Content="Preview"
-                            FontSize="11" Padding="8,2"
-                            Background="#3C3C3C" Foreground="#CCCCCC"
-                            BorderThickness="0" Cursor="Hand"
-                            IsVisible="False"
-                            Click="PreviewButton_Click" />
-
                     <!-- Word wrap toggle -->
                     <Button x:Name="WrapToggleButton" Content="Wrap"
                             FontSize="11" Padding="8,2"
