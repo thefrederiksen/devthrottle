@@ -40,6 +40,13 @@ public sealed class ControlApiHost : IAsyncDisposable
     public int Port { get; private set; }
     public bool AuthEnabled => _authEnabled;
 
+    /// <summary>
+    /// Per-session persistent JSONL log. Exposed so the Avalonia UI can persist
+    /// rendered agent-view widgets to <c>agent-view.jsonl</c> alongside the raw
+    /// stream and turn summaries we already write. Null until <see cref="StartAsync"/>.
+    /// </summary>
+    public Core.Storage.SessionLogManager? SessionLogManager => _sessionLogManager;
+
     private WebApplication? _app;
     private InstanceRegistration? _registration;
     private GatewayClient? _gatewayClient;

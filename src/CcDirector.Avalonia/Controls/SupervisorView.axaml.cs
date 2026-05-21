@@ -55,18 +55,28 @@ public partial class SupervisorView : UserControl
         _session = session;
         _directorBaseUrl = directorBaseUrl?.TrimEnd('/');
         _history.Clear();
+        UpdateEmptyHint();
 
         if (session is not null)
         {
             session.OnStatusColorChanged += OnStatusColorChanged;
             RefreshBanner();
+            QuestionBox.IsEnabled = true;
+            AskButton.IsEnabled = true;
         }
         else
         {
             SupReason.Text = "no session selected";
-            SupSubtitle.Text = "";
+            SupSubtitle.Text = "open a session in the sidebar to use the supervisor";
             SupDot.Fill = StatusBrushes["unknown"];
+            QuestionBox.IsEnabled = false;
+            AskButton.IsEnabled = false;
         }
+    }
+
+    private void UpdateEmptyHint()
+    {
+        EmptyHint.IsVisible = _history.Count == 0;
     }
 
     private void UnbindCurrent()
@@ -113,8 +123,15 @@ public partial class SupervisorView : UserControl
 
         QuestionBox.Text = "";
         AskButton.IsEnabled = false;
-        var pending = new AskEntry { Question = question, Answer = "thinking...", Footer = "" };
+        var pending = new AskEntry
+        {
+            Question = question,
+            Answer = "thinking...",
+            Footer = "",
+            AskedAt = DateTime.UtcNow,
+        };
         _history.Add(pending);
+        UpdateEmptyHint();
         ScrollToBottom();
 
         try
@@ -169,7 +186,14 @@ public partial class SupervisorView : UserControl
 
     private void ScrollToBottom()
     {
-        Dispatcher.UIThread.Post(() => HistoryScroller.ScrollToEnd());
+        // Post twice: first to let the ItemsControl realise the new item; second to
+        // perform the actual scroll after layout has measured. Single-Post races the
+        // measure pass on the first add and ends up scrolling to where the list WAS,
+        // not where it IS.
+        Dispatcher.UIThread.Post(() =>
+        {
+            Dispatcher.UIThread.Post(() => HistoryScroller.ScrollToEnd());
+        });
     }
 
     public sealed class AskEntry
@@ -177,5 +201,22 @@ public partial class SupervisorView : UserControl
         public string Question { get; set; } = "";
         public string Answer { get; set; } = "";
         public string Footer { get; set; } = "";
+        public DateTime AskedAt { get; set; } = DateTime.UtcNow;
+
+        /// <summary>Bound to the per-entry "5s ago" / "2m ago" timestamp label.</summary>
+        public string TimestampDisplay
+        {
+            get
+            {
+                var seconds = (DateTime.UtcNow - AskedAt).TotalSeconds;
+                if (seconds < 5) return "just now";
+                if (seconds < 60) return $"{(int)seconds}s ago";
+                var minutes = seconds / 60;
+                if (minutes < 60) return $"{(int)minutes}m ago";
+                var hours = minutes / 60;
+                if (hours < 24) return $"{(int)hours}h ago";
+                return AskedAt.ToLocalTime().ToString("HH:mm");
+            }
+        }
     }
 }

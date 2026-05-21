@@ -27,6 +27,12 @@ public partial class CleanView : UserControl
     private string? _pendingInjection;
     private string _filterMode = "All"; // "All", "UserOnly", "Conversation"
 
+    // Phase 5.1: high-water mark of how many widgets we've already written to
+    // <session-logs>/<sid>/agent-view.jsonl. Only grows; if a rewind shrinks
+    // _allWidgets we keep the old high water and skip duplicates on the next
+    // expansion. Reset on Detach.
+    private int _persistedWidgetCount;
+
     /// <summary>Fired when user requests a rewind. Args: (session, snapshotEntryNumber).</summary>
     public event Action<Session, int>? RewindRequested;
 
@@ -128,6 +134,7 @@ public partial class CleanView : UserControl
         FilterCombo.SelectedIndex = 0;
         _allWidgets.Clear();
         _filteredWidgets.Clear();
+        _persistedWidgetCount = 0;
         ProgressArea.IsVisible = false;
         LoadingText.IsVisible = false;
         EmptyText.IsVisible = true;
@@ -364,6 +371,44 @@ public partial class CleanView : UserControl
             if (PassesFilter(w))
                 _filteredWidgets.Add(w);
         }
+
+        PersistNewWidgetsToDisk(widgets);
+    }
+
+    /// <summary>
+    /// Phase 5.1: append any widgets we haven't already persisted to the session's
+    /// <c>agent-view.jsonl</c>. <see cref="_persistedWidgetCount"/> only grows -
+    /// rewinds (shorter list) are no-ops, so we never re-write history.
+    /// </summary>
+    private void PersistNewWidgetsToDisk(List<CleanWidgetViewModel> widgets)
+    {
+        if (_session is null) return;
+        if (widgets.Count <= _persistedWidgetCount) return;
+        var manager = (global::Avalonia.Application.Current as App)?.ControlApiHost?.SessionLogManager;
+        if (manager is null) return;
+
+        for (int i = _persistedWidgetCount; i < widgets.Count; i++)
+        {
+            var w = widgets[i];
+            try
+            {
+                manager.WriteAgentViewWidget(_session.Id, new
+                {
+                    ts = DateTime.UtcNow,
+                    index = i,
+                    kind = w.Kind.ToString(),
+                    header = w.Header,
+                    content = w.Content,
+                    result = w.Result,
+                    isPending = w.IsPending,
+                });
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[CleanView] persist widget #{i} failed: {ex.Message}");
+            }
+        }
+        _persistedWidgetCount = widgets.Count;
     }
 
     private void ApplyFilter()
