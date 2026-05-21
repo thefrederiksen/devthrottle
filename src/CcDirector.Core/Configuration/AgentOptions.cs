@@ -67,6 +67,16 @@ public class AgentOptions
     public string? DictationDictionaryPath { get; set; }
 
     /// <summary>
+    /// OpenAI chat model used by the dictation library's CleanupOrchestrator.
+    /// Defaults to <c>gpt-4.1-nano</c> — the smallest/fastest gpt-4.1 tier,
+    /// purpose-built for high-throughput follow-instructions tasks like
+    /// transcript cleanup. Override to <c>gpt-4o-mini</c> for slightly higher
+    /// quality at noticeably higher latency, or to <c>gpt-4o</c> for the
+    /// best quality at substantially higher latency and cost.
+    /// </summary>
+    public string DictationCleanupModel { get; set; } = "gpt-4.1-nano";
+
+    /// <summary>
     /// Resolve the effective dictation dictionary path. Always returns a
     /// concrete path; callers should treat a missing file as "empty dictionary".
     /// </summary>

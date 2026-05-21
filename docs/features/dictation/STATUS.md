@@ -1,6 +1,34 @@
 # Dictation Library: STATUS
 
-Last updated: 2026-05-21 (Phase 3 complete)
+Last updated: 2026-05-21 (cleanup switched from claude CLI to OpenAI gpt-4o-mini; ~10x faster end-to-end). Phase 2 and Phase 5 are the only remaining work and both require live hardware.
+
+## Cleanup model switch (2026-05-21)
+
+Real-world dictation showed Haiku cleanup taking 10-20 seconds per
+transcript. Investigation: 90% of that latency was process-spawn
+overhead from shelling out to `claude --print --model haiku` (Node
+startup + Claude Code init + the actual model call + teardown). The
+*actual model latency* was only 1-3 seconds.
+
+**Fix:** `CleanupOrchestrator` now calls
+`https://api.openai.com/v1/chat/completions` directly using the same
+`HttpClient` we already use for transcription. Default model
+`gpt-4o-mini` (cheap, fast, plenty smart for the task). Configurable
+via `AgentOptions.DictationCleanupModel` so you can swap to
+`gpt-4.1-nano` or any newer nano-class model when available without a
+code change. The same vocabulary + known-mistranscription prompt is
+delivered as the system message; the raw transcript is the user
+message.
+
+**Trade-off:** uses OpenAI tokens (pay per call) instead of your
+Claude Code flat-fee subscription. At <$0.001 per cleanup for 200-char
+transcripts, this is pennies a month even for heavy use.
+
+Expected end-to-end latencies on a typical sentence:
+- Stop -> raw transcript ready: ~2 seconds (OpenAI batch or Realtime)
+- Raw -> cleaned: ~1 second (gpt-4o-mini)
+- Total stop -> cleaned: **~3 seconds**, vs ~12-22 seconds with the
+  old Haiku CLI path.
 
 ## Phase 0: PASS
 
@@ -140,6 +168,114 @@ The browser-facing surface is in place:
   page exists for end-to-end validation. Wiring dictation into the
   existing session view as a button or tab is a UX follow-up.
 
+## Phase 4: COMPLETE
+
+The offline-resilience pieces are in place:
+
+- **AudioBuffer disk spill.** When the in-memory cap is exceeded, oldest
+  chunks are written to disk under the configured spill directory as
+  numbered files (atomic write via temp + rename) instead of being
+  dropped. `DrainAll` reads disk-spilled chunks back in original order
+  before the in-memory chunks. `Clear`/`Dispose` cleans up. New `Spilled`
+  flag tracks whether disk spill ever fired (separate from `Overflowed`
+  which now only fires when spill is disabled).
+- **ConnectionState observable on DictationSession.** New
+  `Models/ConnectionState.cs` (Idle, Connected, Buffering, Reconnecting,
+  Failed). Session exposes `State` and `OnStateChanged`. Each state
+  transition is logged.
+- **Buffer-on-failure path.** `PushAudioAsync` wraps the provider call.
+  On a transient error (`HttpRequestException`, `WebSocketException`,
+  `SocketException`, `IOException`, `TimeoutException`,
+  `TaskCanceledException`), the chunk is routed to the AudioBuffer and
+  the session moves to `Buffering`. Subsequent pushes stay in the
+  buffer. Programming-error exceptions are deliberately NOT caught so
+  bugs stay visible.
+- **`TryReconnectAsync`.** Drains the buffer through the provider. On
+  partial failure, remaining chunks are re-buffered for the next attempt
+  and the session stays in `Buffering`. On success the session returns
+  to `Connected`.
+- **`StopAsync` from `Buffering`** automatically calls
+  `TryReconnectAsync` once before stopping the provider. If reconnect
+  fails, the buffered audio is left behind and the
+  `TranscriptResult.CleanupFailureReason` records how many chunks were
+  abandoned.
+
+### Test coverage
+
+- 17 AudioBuffer tests (+ 7 new for disk spill: spill-on-overflow,
+  many-chunk ordering, drain deletes spill files, Clear cleans disk,
+  Dispose cleans disk, idempotent Dispose, post-Dispose ops throw).
+- 13 DictationSession tests (+ 6 new for Phase 4): state lifecycle,
+  buffer-on-transient-failure, full reconnect drain, partial drain
+  failure rebuffering, Stop-from-Buffering with successful reconnect,
+  Stop-from-Buffering with failed reconnect recording the reason.
+- Phase 3 endpoint integration tests still pass (API contract intact).
+
+## Post-Phase-4: streaming provider + endpoint polish (also COMPLETE)
+
+After Phase 4 landed, the follow-ups that the original status doc
+listed as "still ahead" have all shipped:
+
+- **OpenAiRealtimeProvider** lives at
+  `src/CcDirector.Core/Dictation/Providers/OpenAiRealtimeProvider.cs`.
+  Talks to the OpenAI Realtime GA API
+  (`wss://api.openai.com/v1/realtime?intent=transcription`). Streams
+  PCM16 at 24 kHz, surfaces partial transcripts as the model emits
+  deltas, commits and waits for the completed event on stop. The Beta
+  API is dead (OpenAI rejects `OpenAI-Beta: realtime=v1` with
+  `beta_api_shape_disabled`); the GA shape uses `session.update` with
+  `session.type=transcription` and the audio config nested under
+  `session.audio.input.format`. Server VAD is explicitly disabled
+  because walkie-talkie use commits manually.
+
+- **Connection-state frames** on the `/dictate` wire protocol.
+  Whenever `DictationSession.OnStateChanged` fires, the endpoint sends
+  `{"type":"state","value":"connected|buffering|reconnecting|failed|idle"}`.
+  The HTML page renders a "connection" pill that flips color on each
+  transition.
+
+- **Disk-spill wiring in the endpoint.** Each `/dictate` connection
+  now gets its own buffer under
+  `%LOCALAPPDATA%/cc-director/dictation/buffer/<guid>/`. The session
+  owns the buffer's lifetime; spill files clean up on dispose.
+
+- **Provider selection by mode.** The client's start frame carries
+  `{"mode":"batch"|"streaming"}`. Batch routes through
+  `OpenAiTranscriptionProvider` (works with any audio container the
+  transcription endpoint accepts; default for `MediaRecorder` /
+  webm-opus browsers). Streaming routes through
+  `OpenAiRealtimeProvider` (requires PCM16 mono at 24 kHz).
+
+- **Browser PCM16 capture via AudioWorklet.** `dictate.html` got a
+  mode picker. When set to "streaming" the page opens an AudioContext
+  at 24 kHz, loads
+  `/dictate-worklet.js` (a new embedded resource), and pipes the mic
+  through a `pcm16-writer` worklet that posts Int16 buffers to the
+  main thread for WebSocket transmission. No webm decode is needed on
+  the server because the browser delivers the right format.
+
+### Test coverage
+
+- **68 Dictation unit tests** in `src/CcDirector.Core.Tests/Dictation/`:
+  - 13 DictionaryLoader
+  - 11 CleanupOrchestrator
+  - 17 AudioBuffer (incl. disk spill)
+  - 13 DictationSession (incl. state/buffer/reconnect)
+  - 12 OpenAiRealtimeProtocol (build + parse)
+  - 2 OpenAiRealtimeProvider integration (smoke + real Phase 0 audio)
+- **5 /dictate endpoint integration tests** in
+  `src/CcDirector.Gateway.Tests/DictationEndpointTests.cs`:
+  - dictate.html served
+  - dictate-worklet.js served
+  - non-WS GET returns 400
+  - full pipeline batch mode against real OpenAI + Haiku
+  - full pipeline streaming mode against real OpenAI Realtime API
+    (drives PCM through the endpoint, confirms partials arrive, asserts
+    cleaned transcript contains expected company terms)
+
+All 73 tests pass. End-to-end paths exercised against real APIs (gated
+on `OPENAI_API_KEY` so CI without credentials still passes).
+
 ## What you (Soren) need to do for Phase 2
 
 Phase 2 is the desktop microphone integration. It requires live testing
@@ -158,15 +294,13 @@ Concrete next steps when you are ready:
    (`cc-dictate.exe`, separate process) or as a feature inside the
    existing Manager UI. The library does not care.
 
-## What's still ahead (no work yet)
+## What's still ahead (only hardware-bound work)
 
-- **Phase 4.** Add disk spill to `AudioBuffer` under
-  `%LOCALAPPDATA%/cc-director/dictation/buffer/`. Add a connection-state
-  observable. Write the disconnect-mid-stream integration test the goal
-  doc calls for.
-- **Phase 5.** Mac shell port. Library code is platform-agnostic; only
-  the audio capture and output layers change.
-- **Streaming partials follow-up.** Implement
-  `OpenAiRealtimeProvider` against the OpenAI Realtime WebSocket API.
-  Behind the same `IDictationProvider` interface; `DictationSession`
-  and the `/dictate` wire protocol are already shaped for it.
+- **Phase 2: Desktop microphone + hotkey + SendInput.** Requires live
+  hardware testing (global hotkey, real mic, type into focused window).
+  This is yours.
+- **Phase 5: Mac shell.** Same shape as Phase 2 but on macOS.
+  AVAudioEngine + Accessibility APIs. Library is platform-agnostic;
+  only the shell layer changes.
+
+Everything that does not require a microphone or live hotkey is done.

@@ -82,12 +82,10 @@ internal static class Program
             }
         }
 
-        var claudeExe = ResolveClaudeExe();
-
         Console.WriteLine($"[harness] audio       : {audioPath}");
         Console.WriteLine($"[harness] dictionary  : {dictionaryPath}");
         Console.WriteLine($"[harness] profile     : {profile}");
-        Console.WriteLine($"[harness] claude exe  : {claudeExe ?? "(none, cleanup will fall back to raw)"}");
+        Console.WriteLine($"[harness] cleanup     : OpenAI gpt-4o-mini");
         Console.WriteLine();
 
         using var dictionary = new DictionaryLoader(dictionaryPath, watch: false);
@@ -101,8 +99,11 @@ internal static class Program
         await using var provider = new OpenAiTranscriptionProvider(
             audioContentType: contentType,
             audioFileName: Path.GetFileName(audioPath));
-        var cleanup = new CleanupOrchestrator(
-            claudeExe ?? Path.Combine(Path.GetTempPath(), "no-such-claude.exe"));
+        // Cleanup now uses OpenAI (gpt-4o-mini by default) over HTTP instead
+        // of spawning the claude CLI. Faster (~1s vs 10-20s) and uses the
+        // same OPENAI_API_KEY we already need for transcription.
+        using var cleanup = new CleanupOrchestrator(
+            model: "gpt-4o-mini");
 
         await using var session = new DictationSession(dictionary, provider, cleanup);
         session.OnPartial += t => Console.WriteLine($"[partial] {t}");
@@ -146,18 +147,6 @@ internal static class Program
         }
         // Fallback: cwd
         return Environment.CurrentDirectory;
-    }
-
-    private static string? ResolveClaudeExe()
-    {
-        var candidates = new[]
-        {
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "bin", "claude.exe"),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "bin", "claude"),
-        };
-        foreach (var c in candidates)
-            if (File.Exists(c)) return c;
-        return null;
     }
 
     private static string ContentTypeFor(string path)

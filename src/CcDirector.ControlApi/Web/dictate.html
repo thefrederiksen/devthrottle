@@ -33,14 +33,11 @@
     display: flex;
     align-items: center;
     gap: 12px;
+    flex-wrap: wrap;
   }
-  header h1 {
-    margin: 0;
-    font-size: 16px;
-    font-weight: 600;
-  }
-  header .pill {
-    margin-left: auto;
+  header h1 { margin: 0; font-size: 16px; font-weight: 600; }
+  header .pills { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  .pill {
     font-size: 12px;
     padding: 3px 8px;
     border-radius: 999px;
@@ -49,9 +46,105 @@
     text-transform: uppercase;
     letter-spacing: 0.06em;
   }
-  header .pill.online { background: #134e3a; color: var(--good); }
-  header .pill.recording { background: #4a1a1a; color: var(--bad); }
-  header .pill.transcribing { background: #4a3f1a; color: var(--warm); }
+  .pill.idle        { background: #333;    color: var(--muted); }
+  .pill.connected   { background: #134e3a; color: var(--good); }
+  .pill.recording   { background: #4a1a1a; color: var(--bad); animation: rec-pulse 1.2s ease-in-out infinite; }
+  .pill.transcribing{ background: #4a3f1a; color: var(--warm); animation: rec-pulse 1.2s ease-in-out infinite; }
+  .pill.buffering   { background: #4a3a1a; color: var(--warm); animation: rec-pulse 1.2s ease-in-out infinite; }
+  .pill.reconnecting{ background: #4a3a1a; color: var(--warm); animation: rec-pulse 1.2s ease-in-out infinite; }
+  .pill.failed      { background: #4a1a1a; color: var(--bad); }
+
+  @keyframes rec-pulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.45; }
+  }
+
+  .timer {
+    font-family: "SFMono-Regular", Consolas, Menlo, monospace;
+    font-size: 13px;
+    color: var(--muted);
+    min-width: 56px;
+    text-align: right;
+  }
+  .timer.live { color: var(--bad); }
+
+  .stage {
+    margin: 14px 0 22px;
+    padding: 18px 20px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    gap: 22px;
+    transition: border-color 200ms;
+  }
+  .stage.idle         { border-color: var(--border); opacity: 0.55; }
+  .stage.recording    { border-color: var(--bad);    box-shadow: 0 0 0 1px var(--bad) inset; }
+  .stage.transcribing { border-color: var(--warm);   box-shadow: 0 0 0 1px var(--warm) inset; }
+  .stage.buffering    { border-color: var(--warm);   box-shadow: 0 0 0 1px var(--warm) inset; }
+
+  .stage .label {
+    font-family: "SFMono-Regular", Consolas, Menlo, monospace;
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    min-width: 200px;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .stage.recording    .label { color: var(--bad); }
+  .stage.transcribing .label { color: var(--warm); }
+  .stage.buffering    .label { color: var(--warm); }
+
+  .stage .big-timer {
+    font-family: "SFMono-Regular", Consolas, Menlo, monospace;
+    font-size: 32px;
+    font-weight: 600;
+    color: var(--muted);
+    min-width: 110px;
+    text-align: right;
+    margin-left: auto;
+  }
+  .stage.recording .big-timer { color: var(--bad); }
+
+  .equalizer {
+    display: flex;
+    align-items: flex-end;
+    gap: 5px;
+    height: 56px;
+    flex: 1;
+    justify-content: center;
+  }
+  .equalizer .bar {
+    width: 8px;
+    background: #555;
+    border-radius: 3px;
+    height: 6px;
+    transition: height 60ms linear, background 120ms;
+  }
+  .stage.recording    .equalizer .bar { background: var(--bad); }
+  .stage.transcribing .equalizer .bar {
+    background: var(--warm);
+    animation: bar-idle 1.0s ease-in-out infinite;
+  }
+  .stage.buffering    .equalizer .bar {
+    background: var(--warm);
+    animation: bar-idle 1.2s ease-in-out infinite;
+  }
+  .stage.transcribing .equalizer .bar:nth-child(1) { animation-delay: 0.00s; }
+  .stage.transcribing .equalizer .bar:nth-child(2) { animation-delay: 0.08s; }
+  .stage.transcribing .equalizer .bar:nth-child(3) { animation-delay: 0.16s; }
+  .stage.transcribing .equalizer .bar:nth-child(4) { animation-delay: 0.24s; }
+  .stage.transcribing .equalizer .bar:nth-child(5) { animation-delay: 0.32s; }
+  .stage.transcribing .equalizer .bar:nth-child(6) { animation-delay: 0.40s; }
+  .stage.transcribing .equalizer .bar:nth-child(7) { animation-delay: 0.48s; }
+  .stage.transcribing .equalizer .bar:nth-child(8) { animation-delay: 0.40s; }
+  .stage.transcribing .equalizer .bar:nth-child(9) { animation-delay: 0.32s; }
+  @keyframes bar-idle {
+    0%, 100% { height: 8px; }
+    50%      { height: 38px; }
+  }
 
   main {
     max-width: 900px;
@@ -61,8 +154,9 @@
 
   .controls {
     display: flex;
-    gap: 10px;
+    gap: 14px;
     align-items: center;
+    flex-wrap: wrap;
     margin-bottom: 18px;
   }
   button.primary {
@@ -82,11 +176,15 @@
     color: var(--muted);
     cursor: not-allowed;
   }
-  button.primary.recording {
-    background: var(--bad);
-  }
+  button.primary.recording { background: var(--bad); }
 
-  select, input[type="text"] {
+  label.control-group {
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  select {
     background: var(--bg);
     color: var(--text);
     border: 1px solid var(--border);
@@ -134,12 +232,16 @@
     font-family: "SFMono-Regular", Consolas, Menlo, monospace;
     font-size: 12px;
     color: var(--muted);
-    max-height: 200px;
+    max-height: 240px;
     overflow-y: auto;
   }
-  .log .line { padding: 2px 0; }
-  .log .line.err { color: var(--bad); }
-  .log .line.evt { color: var(--good); }
+  .log .line { padding: 2px 0; display: flex; gap: 10px; }
+  .log .ts { color: #666; min-width: 70px; flex-shrink: 0; }
+  .log .msg { flex: 1; }
+  .log .line.err .msg { color: var(--bad); }
+  .log .line.evt .msg { color: var(--good); }
+  .log .line.tx .msg  { color: #8aa; }
+  .log .line.rx .msg  { color: #aa8; }
 
   .footer-note {
     margin-top: 24px;
@@ -164,13 +266,36 @@
 
 <header>
   <h1>Dictation</h1>
-  <span id="status" class="pill">idle</span>
+  <div class="pills">
+    <span id="timer" class="timer">0:00.0</span>
+    <span id="recordPill" class="pill idle">idle</span>
+    <span id="statePill" class="pill idle" title="connection state">connection: idle</span>
+  </div>
 </header>
 
 <main>
+  <div id="stage" class="stage idle">
+    <div id="stageLabel" class="label">idle</div>
+    <div class="equalizer">
+      <div class="bar"></div>
+      <div class="bar"></div>
+      <div class="bar"></div>
+      <div class="bar"></div>
+      <div class="bar"></div>
+      <div class="bar"></div>
+      <div class="bar"></div>
+      <div class="bar"></div>
+      <div class="bar"></div>
+    </div>
+    <div id="bigTimer" class="big-timer">0:00.0</div>
+  </div>
+
   <div class="controls">
-    <button id="recordBtn" class="primary">Start recording</button>
-    <label style="color:var(--muted)">Profile:
+    <button id="recordBtn" class="primary">
+      <span id="recBtnLabel">Start recording</span>
+    </button>
+
+    <label class="control-group">Profile:
       <select id="profile">
         <option value="default" selected>default</option>
         <option value="code">code (no cleanup)</option>
@@ -193,167 +318,318 @@
   <div id="log" class="log"></div>
 
   <p class="footer-note">
-    Browser captures audio with <code>MediaRecorder</code>, streams it to
-    <code>/dictate</code> over a WebSocket, and the Director runs it through
-    the dictation library (OpenAI transcription + dictionary + Claude Haiku
-    cleanup). Dictionary lives at
-    <code>%LOCALAPPDATA%/cc-director/dictation/dictionary.yaml</code>.
+    Browser captures audio via Web Audio + <code>AudioWorklet</code> as
+    PCM16 at 24 kHz and streams it over a WebSocket to <code>/dictate</code>.
+    Server transcribes via the OpenAI Realtime API and cleans up via a
+    nano-tier chat model using your dictionary at
+    <code>%LOCALAPPDATA%/cc-director/dictation/dictionary.yaml</code>. If
+    the upstream connection drops, audio is buffered (in memory then on
+    disk) and drained when the connection returns. Timing in the log is
+    seconds since "Start recording" was clicked.
   </p>
 </main>
 
 <script>
 (function () {
   const recordBtn = document.getElementById('recordBtn');
+  const recBtnLabel = document.getElementById('recBtnLabel');
   const profileSel = document.getElementById('profile');
   const rawEl = document.getElementById('raw');
   const cleanedEl = document.getElementById('cleaned');
-  const statusEl = document.getElementById('status');
+  const recordPill = document.getElementById('recordPill');
+  const statePill = document.getElementById('statePill');
+  const timerEl = document.getElementById('timer');
+  const bigTimerEl = document.getElementById('bigTimer');
+  const stageEl = document.getElementById('stage');
+  const stageLabelEl = document.getElementById('stageLabel');
+  const eqBars = stageEl.querySelectorAll('.equalizer .bar');
   const logEl = document.getElementById('log');
 
-  let state = 'idle';   // idle | recording | transcribing
+  // Live audio level visualization
+  let levelAudioContext = null;
+  let levelAnalyser = null;
+  let levelData = null;
+  let levelRafHandle = null;
+
+  let recordState = 'idle';     // idle | recording | transcribing
   let mediaStream = null;
-  let recorder = null;
   let ws = null;
-  let mimeType = 'audio/webm';
+  let t0 = 0;
+  let timerHandle = null;
+
+  // PCM16 streaming capture
+  let audioContext = null;
+  let sourceNode = null;
+  let workletNode = null;
+  let streamingBytesSent = 0;
+  let streamingChunksSent = 0;
+
+  function nowMs() {
+    if (recordState === 'idle' || t0 === 0) return 0;
+    return performance.now() - t0;
+  }
+  function formatMs(ms) { return (ms / 1000).toFixed(1) + 's'; }
 
   function log(msg, cls) {
+    const ts = recordState === 'idle' && t0 === 0
+      ? '0.0s'
+      : formatMs(performance.now() - t0);
     const div = document.createElement('div');
     div.className = 'line ' + (cls || '');
-    div.textContent = msg;
+    const tsSpan = document.createElement('span');
+    tsSpan.className = 'ts';
+    tsSpan.textContent = '+' + ts;
+    const msgSpan = document.createElement('span');
+    msgSpan.className = 'msg';
+    msgSpan.textContent = msg;
+    div.appendChild(tsSpan);
+    div.appendChild(msgSpan);
     logEl.appendChild(div);
     logEl.scrollTop = logEl.scrollHeight;
   }
 
-  function setStatus(s) {
-    state = s;
-    statusEl.textContent = s;
-    statusEl.className = 'pill ' + (s === 'idle' ? '' : s);
+  function setRecordState(s) {
+    recordState = s;
+    recordPill.textContent = s;
+    recordPill.className = 'pill ' + (s === 'idle' ? 'idle' : s);
     recordBtn.disabled = s === 'transcribing';
     recordBtn.classList.toggle('recording', s === 'recording');
-    recordBtn.textContent = s === 'recording' ? 'Stop' : (s === 'transcribing' ? 'Transcribing...' : 'Start recording');
-  }
+    recBtnLabel.textContent = s === 'recording'
+      ? 'Stop'
+      : (s === 'transcribing' ? 'Transcribing...' : 'Start recording');
+    profileSel.disabled = s !== 'idle';
 
-  function pickMimeType() {
-    const candidates = [
-      'audio/webm;codecs=opus',
-      'audio/webm',
-      'audio/ogg;codecs=opus',
-      'audio/ogg',
-      'audio/mp4',
-    ];
-    for (const c of candidates) {
-      if (window.MediaRecorder && MediaRecorder.isTypeSupported(c)) return c;
+    stageEl.classList.remove('idle', 'recording', 'transcribing', 'buffering');
+    if (s === 'recording') {
+      stageEl.classList.add('recording');
+      stageLabelEl.textContent = 'recording';
+    } else if (s === 'transcribing') {
+      stageEl.classList.add('transcribing');
+      stageLabelEl.textContent = 'transcribing';
+    } else {
+      stageEl.classList.add('idle');
+      stageLabelEl.textContent = 'idle';
+      bigTimerEl.textContent = '0:00.0';
+      flatlineEqualizer();
     }
-    return 'audio/webm';
+
+    if (s === 'recording') startTimer();
+    else if (s === 'idle') stopTimer();
   }
 
-  function fileNameFor(mt) {
-    if (mt.startsWith('audio/webm')) return 'audio.webm';
-    if (mt.startsWith('audio/ogg'))  return 'audio.ogg';
-    if (mt.startsWith('audio/mp4'))  return 'audio.m4a';
-    return 'audio.bin';
+  function setConnectionState(value) {
+    statePill.textContent = 'connection: ' + value;
+    statePill.className = 'pill ' + value;
+  }
+
+  function flatlineEqualizer() {
+    eqBars.forEach(bar => { bar.style.height = '6px'; });
+  }
+
+  function setupLevelMeter(stream) {
+    try {
+      levelAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const source = levelAudioContext.createMediaStreamSource(stream);
+      levelAnalyser = levelAudioContext.createAnalyser();
+      levelAnalyser.fftSize = 64;
+      levelAnalyser.smoothingTimeConstant = 0.5;
+      source.connect(levelAnalyser);
+      levelData = new Uint8Array(levelAnalyser.frequencyBinCount);
+      renderLevelLoop();
+    } catch (e) {
+      log('level-meter setup failed: ' + e.message, 'err');
+    }
+  }
+
+  function renderLevelLoop() {
+    if (!levelAnalyser) return;
+    levelAnalyser.getByteFrequencyData(levelData);
+    const bandCount = levelData.length;
+    const barCount = eqBars.length;
+    const maxHeight = 50;
+    const minHeight = 6;
+    for (let i = 0; i < barCount; i++) {
+      const half = Math.floor(barCount / 2);
+      const distFromCenter = Math.abs(i - half);
+      const t = distFromCenter / Math.max(1, half);
+      const bandIdx = Math.min(bandCount - 1, Math.floor(2 + t * (bandCount - 4)));
+      const v = levelData[bandIdx] / 255;
+      const h = minHeight + v * (maxHeight - minHeight);
+      eqBars[i].style.height = h.toFixed(0) + 'px';
+    }
+    levelRafHandle = requestAnimationFrame(renderLevelLoop);
+  }
+
+  function teardownLevelMeter() {
+    if (levelRafHandle) { cancelAnimationFrame(levelRafHandle); levelRafHandle = null; }
+    levelAnalyser = null;
+    levelData = null;
+    try { if (levelAudioContext) levelAudioContext.close(); } catch (_) {}
+    levelAudioContext = null;
+    flatlineEqualizer();
+  }
+
+  function startTimer() {
+    if (timerHandle) clearInterval(timerHandle);
+    timerEl.classList.add('live');
+    timerEl.textContent = '0:00.0';
+    bigTimerEl.textContent = '0:00.0';
+    timerHandle = setInterval(() => {
+      const ms = nowMs();
+      const s = Math.floor(ms / 1000);
+      const mins = Math.floor(s / 60);
+      const secs = s % 60;
+      const tenths = Math.floor((ms % 1000) / 100);
+      const formatted = `${mins}:${secs.toString().padStart(2, '0')}.${tenths}`;
+      timerEl.textContent = formatted;
+      bigTimerEl.textContent = formatted;
+    }, 100);
+  }
+  function stopTimer() {
+    if (timerHandle) { clearInterval(timerHandle); timerHandle = null; }
+    timerEl.classList.remove('live');
   }
 
   async function startRecording() {
-    if (state !== 'idle') return;
+    if (recordState !== 'idle') return;
     rawEl.textContent = '';
     cleanedEl.textContent = '';
+    streamingBytesSent = 0;
+    streamingChunksSent = 0;
+    t0 = performance.now();
+    log('start clicked');
+
+    if (!window.AudioWorkletNode) {
+      log('AudioWorklet not supported by this browser', 'err');
+      return;
+    }
 
     try {
-      mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStream = await navigator.mediaDevices.getUserMedia({
+        audio: { sampleRate: 24000, channelCount: 1, echoCancellation: true, noiseSuppression: true },
+      });
     } catch (e) {
       log('microphone denied: ' + e.message, 'err');
       return;
     }
+    log('mic acquired (PCM16 @ 24 kHz)', 'evt');
 
-    mimeType = pickMimeType();
-    log('mic acquired, mime=' + mimeType, 'evt');
+    setupLevelMeter(mediaStream);
 
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const url = proto + '//' + location.host + '/dictate';
     ws = new WebSocket(url);
     ws.binaryType = 'arraybuffer';
 
-    ws.onopen = () => log('websocket open: ' + url, 'evt');
-    ws.onclose = (e) => log('websocket closed: code=' + e.code + ' reason=' + (e.reason || '(none)'));
-    ws.onerror = () => log('websocket error', 'err');
+    ws.onopen = () => log('ws open: ' + url, 'evt');
+    ws.onclose = (e) => log('ws closed: code=' + e.code + ' reason=' + (e.reason || '(none)'));
+    ws.onerror = () => log('ws error', 'err');
 
     ws.onmessage = (ev) => {
       let msg;
       try { msg = JSON.parse(ev.data); }
       catch { log('non-JSON frame: ' + ev.data, 'err'); return; }
+
       switch (msg.type) {
         case 'ready':
-          ws.send(JSON.stringify({
-            type: 'start',
-            profile: profileSel.value,
-            contentType: mimeType,
-            fileName: fileNameFor(mimeType),
-          }));
+          log('rx ready, sending start', 'rx');
+          ws.send(JSON.stringify({ type: 'start', profile: profileSel.value }));
           break;
         case 'started':
-          log('server ready, starting MediaRecorder');
-          startMediaRecorder();
-          setStatus('recording');
+          log('rx started, starting capture', 'rx');
+          startStreamingCapture();
+          setRecordState('recording');
+          break;
+        case 'state':
+          setConnectionState(msg.value);
+          log('rx state=' + msg.value, 'rx');
           break;
         case 'partial':
           rawEl.textContent = msg.text || '';
+          log('rx partial (' + (msg.text || '').length + ' chars)', 'rx');
           break;
         case 'transcribing':
-          setStatus('transcribing');
-          log('server transcribing...');
+          setRecordState('transcribing');
+          log('rx transcribing...', 'rx');
           break;
         case 'final':
           rawEl.textContent = msg.raw || '';
           cleanedEl.textContent = msg.cleaned || '';
-          log('final: cleanup_applied=' + msg.cleanupApplied + (msg.reason ? ' reason=' + msg.reason : ''));
-          setStatus('idle');
+          log('rx final: raw=' + (msg.raw || '').length + ' chars, cleaned=' + (msg.cleaned || '').length + ' chars, cleanup_applied=' + msg.cleanupApplied + (msg.reason ? ' reason=' + msg.reason : ''), 'evt');
+          setRecordState('idle');
           break;
         case 'error':
-          log('server error: ' + msg.message, 'err');
-          setStatus('idle');
+          log('rx error: ' + msg.message, 'err');
+          setRecordState('idle');
           break;
         default:
-          log('unknown frame: ' + ev.data);
+          log('rx unknown: ' + ev.data, 'rx');
       }
     };
   }
 
-  function startMediaRecorder() {
-    // Single big chunk at stop. Streaming-chunk variant is a follow-up.
-    recorder = new MediaRecorder(mediaStream, { mimeType: mimeType });
-    recorder.ondataavailable = (e) => {
-      if (e.data && e.data.size > 0 && ws && ws.readyState === WebSocket.OPEN) {
-        e.data.arrayBuffer().then((buf) => {
-          ws.send(buf);
-        });
+  async function startStreamingCapture() {
+    try {
+      audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+      if (Math.abs(audioContext.sampleRate - 24000) > 0.1) {
+        log('warning: AudioContext sampleRate is ' + audioContext.sampleRate + ', expected 24000', 'err');
       }
-    };
-    recorder.onstop = () => {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'stop' }));
-      }
-      if (mediaStream) {
-        mediaStream.getTracks().forEach((t) => t.stop());
-        mediaStream = null;
-      }
-    };
-    recorder.start();   // no timeslice: one big chunk on stop
-  }
-
-  function stopRecording() {
-    if (state !== 'recording') return;
-    if (recorder && recorder.state === 'recording') {
-      recorder.stop();
+      await audioContext.audioWorklet.addModule('/dictate-worklet.js');
+      sourceNode = audioContext.createMediaStreamSource(mediaStream);
+      workletNode = new AudioWorkletNode(audioContext, 'pcm16-writer');
+      workletNode.port.onmessage = (e) => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(e.data);
+          streamingBytesSent += e.data.byteLength;
+          streamingChunksSent++;
+          if (streamingChunksSent % 100 === 1) {
+            log('tx streaming: ' + streamingChunksSent + ' chunks, ' + streamingBytesSent + ' bytes', 'tx');
+          }
+        }
+      };
+      sourceNode.connect(workletNode);
+      log('AudioWorklet ready, streaming PCM16', 'evt');
+    } catch (e) {
+      log('streaming setup failed: ' + e.message, 'err');
+      stopRecording();
     }
   }
 
+  function stopStreamingCapture() {
+    try { if (sourceNode) sourceNode.disconnect(); } catch (_) {}
+    try { if (workletNode) workletNode.disconnect(); } catch (_) {}
+    try { if (audioContext) audioContext.close(); } catch (_) {}
+    sourceNode = null;
+    workletNode = null;
+    audioContext = null;
+  }
+
+  function cleanupMediaStream() {
+    teardownLevelMeter();
+    if (mediaStream) {
+      mediaStream.getTracks().forEach(t => t.stop());
+      mediaStream = null;
+    }
+  }
+
+  function stopRecording() {
+    if (recordState !== 'recording') return;
+    log('stop clicked', 'evt');
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'stop' }));
+      log('tx stop (total ' + streamingBytesSent + ' bytes in ' + streamingChunksSent + ' chunks)', 'tx');
+    }
+    stopStreamingCapture();
+    cleanupMediaStream();
+  }
+
   recordBtn.addEventListener('click', () => {
-    if (state === 'idle') startRecording();
-    else if (state === 'recording') stopRecording();
+    if (recordState === 'idle') startRecording();
+    else if (recordState === 'recording') stopRecording();
   });
 
-  setStatus('idle');
+  setRecordState('idle');
+  setConnectionState('idle');
 })();
 </script>
 

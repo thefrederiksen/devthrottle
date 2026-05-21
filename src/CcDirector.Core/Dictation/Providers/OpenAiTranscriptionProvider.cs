@@ -131,7 +131,13 @@ public sealed class OpenAiTranscriptionProvider : IDictationProvider
             using var content = new MultipartFormDataContent();
 
             var audioContent = new ByteArrayContent(audioBytes);
-            audioContent.Headers.ContentType = new MediaTypeHeaderValue(_audioContentType);
+            // MediaTypeHeaderValue's constructor only accepts the bare
+            // "type/subtype" form; with parameters (e.g. "audio/webm;codecs=opus"
+            // from MediaRecorder.mimeType) it throws FormatException. OpenAI
+            // detects the codec from the file bytes regardless, so strip any
+            // parameter suffix before assigning.
+            var bareContentType = _audioContentType.Split(';')[0].Trim();
+            audioContent.Headers.ContentType = new MediaTypeHeaderValue(bareContentType);
             content.Add(audioContent, "file", _audioFileName);
 
             content.Add(new StringContent(_model), "model");
