@@ -543,15 +543,12 @@
                         <controls:CleanView x:Name="CleanView" />
                     </Panel>
 
-                    <!-- Session panel (Phase 5.2 merged view).
-                         Composes the agent widget feed (CleanView) above the
-                         supervisor banner + ask. Becomes the default tab on
-                         session open, replacing the old Terminal default. -->
+                    <!-- Session panel. Just the agent widget feed. The supervisor
+                         runs invisibly; its only UI presence is the highlight
+                         styling applied to the most recent message card when a
+                         question is pending. -->
                     <Panel x:Name="SessionPanel" IsVisible="False">
-                        <Grid RowDefinitions="*,Auto">
-                            <controls:CleanView Grid.Row="0" x:Name="SessionCleanView" />
-                            <controls:SupervisorView Grid.Row="1" x:Name="SupervisorView" />
-                        </Grid>
+                        <controls:CleanView x:Name="SessionCleanView" />
                     </Panel>
 
                     <!-- Terminal panel -->

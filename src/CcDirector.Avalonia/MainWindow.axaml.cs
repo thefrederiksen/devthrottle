@@ -469,8 +469,7 @@ public partial class MainWindow : Window
             TabBarCaptureButton.IsVisible = false;
             GitChangesView.Detach();
             CleanView.Detach();
-            SessionCleanView.Detach();         // Phase 5.2: also clear the embedded clean view
-            SupervisorView.Bind(null, null);   // Phase 5.1: also clear the supervisor panel.
+            SessionCleanView.Detach();
             return;
         }
 
@@ -498,14 +497,6 @@ public partial class MainWindow : Window
         // Phase 5.2: also attach the Session-tab's embedded CleanView. Both poll the
         // same JSONL; minor cost, robust over re-parenting.
         SessionCleanView.Attach(vm.Session);
-
-        // Phase 5.1: rebind the Supervisor view so it always reflects the active
-        // session. The supervisor view lives inside the Session tab now, but the
-        // rebind happens on every session change regardless of which tab is active.
-        var app = global::Avalonia.Application.Current as App;
-        var port = app?.ControlApiHost?.Port ?? 0;
-        var baseUrl = port > 0 ? $"http://127.0.0.1:{port}" : null;
-        SupervisorView.Bind(vm.Session, baseUrl);
 
         // Show prompt bar and refresh button
         PromptBarBorder.IsVisible = true;
@@ -1725,18 +1716,6 @@ public partial class MainWindow : Window
         TerminalPanel.IsVisible = tab == "Terminal";
         SourceControlPanel.IsVisible = tab == "SourceControl";
         DocumentPanel.IsVisible = isDocTab;
-
-        // When switching INTO the Session tab, bind the supervisor view to the
-        // current session and the local Director's base URL so it can POST to
-        // /supervisor/ask. The agent widget feed (SessionCleanView) is attached
-        // by SelectSession - no per-tab bind needed.
-        if (tab == "Session")
-        {
-            var app = global::Avalonia.Application.Current as App;
-            var port = app?.ControlApiHost?.Port ?? 0;
-            var baseUrl = port > 0 ? $"http://127.0.0.1:{port}" : null;
-            SupervisorView.Bind(_activeSession?.Session, baseUrl);
-        }
 
         // Show refresh button only when Terminal tab is active and a session exists
         TabBarRefreshButton.IsVisible = tab == "Terminal" && _activeSession != null;

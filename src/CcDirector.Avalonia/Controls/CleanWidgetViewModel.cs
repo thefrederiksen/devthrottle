@@ -22,7 +22,8 @@ public enum WidgetKind
     Agent,
     Skill,
     UserMessage,
-    GenericTool
+    GenericTool,
+    PendingQuestion
 }
 
 /// <summary>
@@ -64,7 +65,8 @@ public sealed class CleanWidgetViewModel
 
     /// <summary>Whether this widget represents a tool call (should be indented and collapsed).</summary>
     public bool IsToolWidget => Kind is not WidgetKind.Text
-        and not WidgetKind.Thinking and not WidgetKind.UserMessage;
+        and not WidgetKind.Thinking and not WidgetKind.UserMessage
+        and not WidgetKind.PendingQuestion;
 
     /// <summary>Card margin: tool widgets are indented 40px from the left.</summary>
     public Thickness CardMargin => IsToolWidget
@@ -85,6 +87,7 @@ public sealed class CleanWidgetViewModel
         WidgetKind.Text => "T",
         WidgetKind.Thinking => "...",
         WidgetKind.UserMessage => ">",
+        WidgetKind.PendingQuestion => "?",
         _ => ">"
     };
 
@@ -102,12 +105,14 @@ public sealed class CleanWidgetViewModel
         WidgetKind.Text => new SolidColorBrush(Color.FromRgb(0x64, 0x74, 0x8B)),       // slate
         WidgetKind.Thinking => new SolidColorBrush(Color.FromRgb(0x4B, 0x55, 0x63)),   // dark slate
         WidgetKind.UserMessage => new SolidColorBrush(Color.FromRgb(0x09, 0x47, 0x71)),// dark blue
+        WidgetKind.PendingQuestion => new SolidColorBrush(Color.FromRgb(0xEA, 0x58, 0x0C)), // orange
         _ => new SolidColorBrush(Color.FromRgb(0x3C, 0x3C, 0x3C))
     };
 
     public ISolidColorBrush CardBackground => Kind switch
     {
         WidgetKind.UserMessage => new SolidColorBrush(Color.FromRgb(0x09, 0x47, 0x71)),
+        WidgetKind.PendingQuestion => new SolidColorBrush(Color.FromRgb(0x7C, 0x2D, 0x12)), // deep orange
         _ => new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x26))
     };
 

@@ -27,6 +27,12 @@ public partial class CleanView : UserControl
     private string? _pendingInjection;
     private string _filterMode = "All"; // "All", "UserOnly", "Conversation"
 
+    // The orange question card pinned at the end of the feed whenever the
+    // supervisor says the session is in "red" status with a distilled question.
+    // We hold one instance and add/remove it from the collections directly so
+    // the existing scroll-to-bottom behavior just works.
+    private CleanWidgetViewModel? _pendingQuestionWidget;
+
     // Phase 5.1: high-water mark of how many widgets we've already written to
     // <session-logs>/<sid>/agent-view.jsonl. Only grows; if a rewind shrinks
     // _allWidgets we keep the old high water and skip duplicates on the next
@@ -55,6 +61,11 @@ public partial class CleanView : UserControl
 
         // Subscribe to activity state changes
         session.OnActivityStateChanged += OnActivityStateChanged;
+
+        // Subscribe to supervisor status changes so we can show/hide the
+        // pending-question card inline at the end of the feed.
+        session.OnStatusColorChanged += OnStatusColorChanged;
+        SyncPendingQuestionWidget();
 
         if (session.Backend is StudioBackend studio)
         {
@@ -117,6 +128,7 @@ public partial class CleanView : UserControl
             FileLog.Write($"[CleanView] Detach: session={_session.Id}");
             _session.OnActivityStateChanged -= OnActivityStateChanged;
             _session.OnClaudeMetadataChanged -= OnClaudeMetadataChanged;
+            _session.OnStatusColorChanged -= OnStatusColorChanged;
 
             // Unsubscribe from StudioBackend events
             if (_session.Backend is StudioBackend studio)
@@ -134,6 +146,7 @@ public partial class CleanView : UserControl
         FilterCombo.SelectedIndex = 0;
         _allWidgets.Clear();
         _filteredWidgets.Clear();
+        _pendingQuestionWidget = null;
         _persistedWidgetCount = 0;
         ProgressArea.IsVisible = false;
         LoadingText.IsVisible = false;
@@ -174,6 +187,67 @@ public partial class CleanView : UserControl
                 }
             }
         });
+    }
+
+    private void OnStatusColorChanged(string oldColor, string newColor, string reason)
+    {
+        Dispatcher.UIThread.Post(SyncPendingQuestionWidget);
+    }
+
+    // Ensure the orange question card is present at the tail of the feed when
+    // the supervisor flags a pending question (color=red + non-empty reason),
+    // and gone otherwise. Idempotent; safe to call repeatedly.
+    private void SyncPendingQuestionWidget()
+    {
+        if (_session == null) return;
+
+        bool shouldShow = string.Equals(_session.StatusColor, "red", StringComparison.OrdinalIgnoreCase)
+                          && !string.IsNullOrWhiteSpace(_session.LastStatusReason);
+
+        if (shouldShow)
+        {
+            var text = _session.LastStatusReason ?? "";
+
+            if (_pendingQuestionWidget == null)
+            {
+                _pendingQuestionWidget = new CleanWidgetViewModel
+                {
+                    Kind = WidgetKind.PendingQuestion,
+                    Header = "Claude is waiting on your answer",
+                    Content = text,
+                };
+                _allWidgets.Add(_pendingQuestionWidget);
+                if (PassesFilter(_pendingQuestionWidget))
+                    _filteredWidgets.Add(_pendingQuestionWidget);
+                ScrollToBottom();
+            }
+            else if (!string.Equals(_pendingQuestionWidget.Content, text, StringComparison.Ordinal))
+            {
+                // Question text changed (supervisor reran the summary). Swap the
+                // widget for a new one with the updated text; the binding is
+                // init-only so we cannot mutate in place.
+                var idxAll = _allWidgets.IndexOf(_pendingQuestionWidget);
+                var idxFiltered = _filteredWidgets.IndexOf(_pendingQuestionWidget);
+                var replacement = new CleanWidgetViewModel
+                {
+                    Kind = WidgetKind.PendingQuestion,
+                    Header = "Claude is waiting on your answer",
+                    Content = text,
+                };
+                if (idxAll >= 0) _allWidgets[idxAll] = replacement;
+                if (idxFiltered >= 0) _filteredWidgets[idxFiltered] = replacement;
+                _pendingQuestionWidget = replacement;
+            }
+        }
+        else
+        {
+            if (_pendingQuestionWidget != null)
+            {
+                _allWidgets.Remove(_pendingQuestionWidget);
+                _filteredWidgets.Remove(_pendingQuestionWidget);
+                _pendingQuestionWidget = null;
+            }
+        }
     }
 
     private void OnActivityStateChanged(ActivityState oldState, ActivityState newState)
@@ -352,6 +426,10 @@ public partial class CleanView : UserControl
 
     private bool PassesFilter(CleanWidgetViewModel vm)
     {
+        // Pending-question card always shows through, regardless of filter mode.
+        // It's the most important thing on the screen when present.
+        if (vm.Kind == WidgetKind.PendingQuestion)
+            return true;
         if (_filterMode == "All")
             return true;
         if (_filterMode == "UserOnly")
@@ -373,6 +451,11 @@ public partial class CleanView : UserControl
         }
 
         PersistNewWidgetsToDisk(widgets);
+
+        // ReplaceAllWidgets just cleared the pending-question widget; reinsert
+        // it at the tail if the supervisor still says there is one.
+        _pendingQuestionWidget = null;
+        SyncPendingQuestionWidget();
     }
 
     /// <summary>
