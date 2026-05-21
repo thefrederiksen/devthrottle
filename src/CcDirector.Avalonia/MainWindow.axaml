@@ -493,20 +493,20 @@
                                     Padding="12,4"
                                     FontSize="12"
                                     Click="SourceControlTabButton_Click" />
+                            <Button x:Name="SessionTabButton"
+                                    Content="Session"
+                                    Background="Transparent"
+                                    Foreground="#888888"
+                                    Padding="12,4"
+                                    FontSize="12"
+                                    Click="SessionTabButton_Click" />
                             <Button x:Name="AgentTabButton"
-                                    Content="Agent"
+                                    Content="Agent (legacy)"
                                     Background="Transparent"
                                     Foreground="#888888"
                                     Padding="12,4"
                                     FontSize="12"
                                     Click="AgentTabButton_Click" />
-                            <Button x:Name="SupervisorTabButton"
-                                    Content="Supervisor"
-                                    Background="Transparent"
-                                    Foreground="#888888"
-                                    Padding="12,4"
-                                    FontSize="12"
-                                    Click="SupervisorTabButton_Click" />
                             <!-- Separator between fixed tabs and document tabs -->
                             <Border x:Name="DocTabSeparator"
                                     Width="1" Height="16"
@@ -546,9 +546,15 @@
                         <controls:CleanView x:Name="CleanView" />
                     </Panel>
 
-                    <!-- Supervisor panel (Phase 5: ask the supervisor about this session) -->
-                    <Panel x:Name="SupervisorPanel" IsVisible="False">
-                        <controls:SupervisorView x:Name="SupervisorView" />
+                    <!-- Session panel (Phase 5.2 merged view).
+                         Composes the agent widget feed (CleanView) above the
+                         supervisor banner + ask. Becomes the default tab on
+                         session open, replacing the old Terminal default. -->
+                    <Panel x:Name="SessionPanel" IsVisible="False">
+                        <Grid RowDefinitions="*,Auto">
+                            <controls:CleanView Grid.Row="0" x:Name="SessionCleanView" />
+                            <controls:SupervisorView Grid.Row="1" x:Name="SupervisorView" />
+                        </Grid>
                     </Panel>
 
                     <!-- Terminal panel -->
@@ -619,7 +625,7 @@
                         Padding="8,6"
                         IsVisible="False">
                     <Panel>
-                        <Grid ColumnDefinitions="*,Auto">
+                        <Grid ColumnDefinitions="*,Auto,Auto">
                             <TextBox x:Name="PromptInput"
                                      Grid.Column="0"
                                      Watermark="Type a message..."
@@ -666,6 +672,19 @@
                                         Click="BtnHandover_Click"
                                         ToolTip.Tip="Create a handover document for this session" />
                             </StackPanel>
+                            <Button x:Name="BtnSpeak"
+                                    Grid.Column="2"
+                                    Content="Speak"
+                                    Width="90"
+                                    VerticalAlignment="Stretch"
+                                    Margin="8,0,0,0"
+                                    Background="#16A34A"
+                                    Foreground="White"
+                                    HorizontalContentAlignment="Center"
+                                    FontSize="15"
+                                    FontWeight="SemiBold"
+                                    Click="BtnSpeak_Click"
+                                    ToolTip.Tip="Dictate using the cc-director dictation library (opens browser)" />
                         </Grid>
 
                         <!-- Slash command autocomplete popup -->

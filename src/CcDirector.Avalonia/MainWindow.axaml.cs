@@ -454,6 +454,7 @@ public partial class MainWindow : Window
             TerminalHost.Detach();
             GitChangesView.Detach();
             CleanView.Detach();
+            SessionCleanView.Detach();
         }
 
         _activeSession = vm;
@@ -468,7 +469,8 @@ public partial class MainWindow : Window
             TabBarCaptureButton.IsVisible = false;
             GitChangesView.Detach();
             CleanView.Detach();
-            SupervisorView.Bind(null, null);  // Phase 5.1: also clear the supervisor panel.
+            SessionCleanView.Detach();         // Phase 5.2: also clear the embedded clean view
+            SupervisorView.Bind(null, null);   // Phase 5.1: also clear the supervisor panel.
             return;
         }
 
@@ -490,13 +492,16 @@ public partial class MainWindow : Window
         GitChangesView.Attach(vm.Session.RepoPath);
         UpdateSourceControlTabVisibility(vm.Session.RepoPath);
 
-        // Attach clean view (Agent tab)
+        // Attach clean view (legacy Agent tab)
         CleanView.Attach(vm.Session);
 
+        // Phase 5.2: also attach the Session-tab's embedded CleanView. Both poll the
+        // same JSONL; minor cost, robust over re-parenting.
+        SessionCleanView.Attach(vm.Session);
+
         // Phase 5.1: rebind the Supervisor view so it always reflects the active
-        // session. Previously this only fired when the user clicked the Supervisor
-        // tab button, so switching sessions while on that tab left the old session
-        // bound (or "no session selected" if the click order was tab-then-session).
+        // session. The supervisor view lives inside the Session tab now, but the
+        // rebind happens on every session change regardless of which tab is active.
         var app = global::Avalonia.Application.Current as App;
         var port = app?.ControlApiHost?.Port ?? 0;
         var baseUrl = port > 0 ? $"http://127.0.0.1:{port}" : null;
@@ -511,9 +516,13 @@ public partial class MainWindow : Window
         PromptInput.Text = vm.Session.PendingPromptText ?? "";
         PromptInput.CaretIndex = PromptInput.Text.Length;
 
-        // Restore last selected tab
+        // Restore last selected tab. Phase 5.2: default new sessions to the merged
+        // Session tab (replaces Terminal as the default working view per spec).
+        // Restored values from older builds may say "Supervisor" - normalize.
         var tabName = vm.Session.SelectedTabName;
-        if (!string.IsNullOrEmpty(tabName) && tabName != _activeLeftTab)
+        if (string.Equals(tabName, "Supervisor", StringComparison.Ordinal)) tabName = "Session";
+        if (string.IsNullOrEmpty(tabName)) tabName = "Session";
+        if (tabName != _activeLeftTab)
             SwitchLeftTab(tabName);
 
         // Switch document tabs to new session
@@ -992,38 +1001,66 @@ public partial class MainWindow : Window
         RefreshTerminal();
     }
 
-    private void BtnSpeak_Click(object? sender, RoutedEventArgs e)
+    private async void BtnSpeak_Click(object? sender, RoutedEventArgs e)
     {
-        // Open the dictation page in the system default browser. The page is
-        // served by this Director's own embedded HTTP server and uses the
-        // dictation library (gpt-4o-realtime transcription + dictionary +
-        // gpt-4.1-nano cleanup). v1 of the button: user dictates in the
-        // browser, then copies the cleaned text and pastes into PromptInput.
-        // Future versions will embed the dictation UI in-app and auto-insert.
+        // In-process dictation. Opens SpeakDialog which captures audio via
+        // NAudio, runs it through the dictation library (OpenAiRealtimeProvider
+        // + CleanupOrchestrator) all in this same process, then returns the
+        // cleaned transcript which we insert into PromptInput. No browser, no
+        // localhost roundtrip.
         try
         {
             var app = global::Avalonia.Application.Current as App;
-            var port = app?.ControlApiHost?.Port;
-            if (port is null or 0)
+            var options = app?.SessionManager?.Options;
+            if (options is null)
             {
-                FileLog.Write("[MainWindow] BtnSpeak_Click: ControlApi port not available");
-                ShowNotification("Dictation not available: Control API has not started yet.");
+                FileLog.Write("[MainWindow] BtnSpeak_Click: no AgentOptions available");
+                ShowNotification("Dictation not available: AgentOptions not loaded.");
                 return;
             }
-            var url = $"http://127.0.0.1:{port}/dictate.html";
-            FileLog.Write($"[MainWindow] BtnSpeak_Click: opening {url}");
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            if (string.IsNullOrWhiteSpace(options.ResolveOpenAiKey()))
             {
-                FileName = url,
-                UseShellExecute = true,
-            });
-            ShowNotification("Dictation opened in browser. Copy the cleaned transcript back into the message box when done.");
+                FileLog.Write("[MainWindow] BtnSpeak_Click: no OpenAI key configured");
+                ShowNotification("Dictation needs an OPENAI_API_KEY env var or Voice.OpenAiKey in appsettings.json.");
+                return;
+            }
+            FileLog.Write("[MainWindow] BtnSpeak_Click: opening SpeakDialog");
+            var dlg = new global::CcDirector.Avalonia.Voice.SpeakDialog(options);
+            await dlg.ShowDialog(this);
+            var transcript = dlg.ResultText;
+            if (string.IsNullOrWhiteSpace(transcript))
+            {
+                FileLog.Write("[MainWindow] BtnSpeak_Click: dialog returned no text (cancelled or errored)");
+                return;
+            }
+            InsertIntoPromptInput(transcript!);
+            FileLog.Write($"[MainWindow] BtnSpeak_Click: inserted {transcript!.Length} chars");
         }
         catch (Exception ex)
         {
             FileLog.Write($"[MainWindow] BtnSpeak_Click FAILED: {ex.Message}");
-            ShowNotification($"Could not open dictation: {ex.Message}");
+            ShowNotification($"Dictation failed: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Insert transcript text at the current caret in PromptInput. Adds
+    /// whitespace separators when needed so the new words do not smush
+    /// against existing characters.
+    /// </summary>
+    private void InsertIntoPromptInput(string text)
+    {
+        var existing = PromptInput.Text ?? "";
+        var caret = PromptInput.CaretIndex;
+        if (caret < 0 || caret > existing.Length) caret = existing.Length;
+        var prefix = existing[..caret];
+        var suffix = existing[caret..];
+        var needsSpaceBefore = prefix.Length > 0 && !char.IsWhiteSpace(prefix[^1]);
+        var needsSpaceAfter = suffix.Length > 0 && !char.IsWhiteSpace(suffix[0]);
+        var insert = (needsSpaceBefore ? " " : "") + text + (needsSpaceAfter ? " " : "");
+        PromptInput.Text = prefix + insert + suffix;
+        PromptInput.CaretIndex = prefix.Length + insert.Length;
+        PromptInput.Focus();
     }
 
     private void BtnOpenInBrowser_Click(object? sender, RoutedEventArgs e)
@@ -1592,9 +1629,9 @@ public partial class MainWindow : Window
         SwitchLeftTab("SourceControl");
     }
 
-    private void SupervisorTabButton_Click(object? sender, RoutedEventArgs e)
+    private void SessionTabButton_Click(object? sender, RoutedEventArgs e)
     {
-        SwitchLeftTab("Supervisor");
+        SwitchLeftTab("Session");
     }
 
     private bool _commsInitialized;
@@ -1675,14 +1712,14 @@ public partial class MainWindow : Window
         bool isDocTab = tab.StartsWith("Doc:", StringComparison.Ordinal);
 
         // Update fixed tab button styles
+        SessionTabButton.Background = tab == "Session" ? accentBrush : TransparentBrush;
+        SessionTabButton.Foreground = tab == "Session" ? whiteBrush : InactiveTextBrush;
         AgentTabButton.Background = tab == "Agent" ? accentBrush : TransparentBrush;
         AgentTabButton.Foreground = tab == "Agent" ? whiteBrush : InactiveTextBrush;
         TerminalTabButton.Background = tab == "Terminal" ? accentBrush : TransparentBrush;
         TerminalTabButton.Foreground = tab == "Terminal" ? whiteBrush : InactiveTextBrush;
         SourceControlTabButton.Background = tab == "SourceControl" ? accentBrush : TransparentBrush;
         SourceControlTabButton.Foreground = tab == "SourceControl" ? whiteBrush : InactiveTextBrush;
-        SupervisorTabButton.Background = tab == "Supervisor" ? accentBrush : TransparentBrush;
-        SupervisorTabButton.Foreground = tab == "Supervisor" ? whiteBrush : InactiveTextBrush;
         // Update document tab button styles
         foreach (var docTab in _documentTabs)
         {
@@ -1692,15 +1729,17 @@ public partial class MainWindow : Window
         }
 
         // Show/hide panels
+        SessionPanel.IsVisible = tab == "Session";
         AgentPanel.IsVisible = tab == "Agent";
         TerminalPanel.IsVisible = tab == "Terminal";
         SourceControlPanel.IsVisible = tab == "SourceControl";
-        SupervisorPanel.IsVisible = tab == "Supervisor";
         DocumentPanel.IsVisible = isDocTab;
 
-        // When switching INTO the Supervisor tab, bind it to the current session
-        // and the local Director's base URL so it can POST to /supervisor/ask.
-        if (tab == "Supervisor")
+        // When switching INTO the Session tab, bind the supervisor view to the
+        // current session and the local Director's base URL so it can POST to
+        // /supervisor/ask. The agent widget feed (SessionCleanView) is attached
+        // by SelectSession - no per-tab bind needed.
+        if (tab == "Session")
         {
             var app = global::Avalonia.Application.Current as App;
             var port = app?.ControlApiHost?.Port ?? 0;
