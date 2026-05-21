@@ -1,0 +1,84 @@
+[
+  {
+    "clip": 1,
+    "expected_sentence": "I sent the cc-director patch to mindzie before the CenCon review.",
+    "expected_terms": [
+      "mindzie",
+      "CenCon",
+      "cc-director"
+    ],
+    "variants": {
+      "no_prompt": {
+        "transcript": "I sent the CC Director patch to Minzy before the SenCon review.",
+        "missing_terms": [
+          "mindzie",
+          "CenCon",
+          "cc-director"
+        ]
+      },
+      "with_prompt": {
+        "transcript": "I sent the cc-director patch to mindzie before the CenCon review.",
+        "missing_terms": []
+      },
+      "with_prompt_plus_cleanup": {
+        "transcript": "I sent the cc-director patch to mindzie before the CenCon review.",
+        "missing_terms": []
+      }
+    }
+  },
+  {
+    "clip": 2,
+    "expected_sentence": "Soren Frederiksen needs the Avalonia changes for ConPTY tested by Friday.",
+    "expected_terms": [
+      "ConPTY",
+      "Avalonia",
+      "Soren Frederiksen"
+    ],
+    "variants": {
+      "no_prompt": {
+        "transcript": "Soren Fredriksen needs the Avalonia changes for ContUI tested by Friday.",
+        "missing_terms": [
+          "ConPTY",
+          "Soren Frederiksen"
+        ]
+      },
+      "with_prompt": {
+        "transcript": "Soren Frederiksen needs the Avalonia changes for ConUI tested by Friday.",
+        "missing_terms": [
+          "ConPTY"
+        ]
+      },
+      "with_prompt_plus_cleanup": {
+        "transcript": "Soren Frederiksen needs the Avalonia changes for ConPTY tested by Friday.",
+        "missing_terms": []
+      }
+    }
+  },
+  {
+    "clip": 3,
+    "expected_sentence": "Tell mindzie that the CenCon report is ready and ping the cc-director gateway team.",
+    "expected_terms": [
+      "mindzie",
+      "CenCon",
+      "cc-director"
+    ],
+    "variants": {
+      "no_prompt": {
+        "transcript": "Tell Minzi that the Sencon report is ready and ping the CC director gateway team.",
+        "missing_terms": [
+          "mindzie",
+          "CenCon",
+          "cc-director"
+        ]
+      },
+      "with_prompt": {
+        "transcript": "Tell mindzie that the CenCon report is ready and ping the cc-director gateway team.",
+        "missing_terms": []
+      },
+      "with_prompt_plus_cleanup": {
+        "transcript": "Tell mindzie that the CenCon report is ready and ping the cc-director gateway team.",
+        "missing_terms": []
+      }
+    }
+  }
+]

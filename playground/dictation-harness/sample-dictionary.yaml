@@ -1,0 +1,39 @@
+vocabulary:
+  - mindzie
+  - CenCon
+  - ConPTY
+  - cc-director
+  - Avalonia
+  - Soren Frederiksen
+
+common_mistranscriptions:
+  mindzie:
+    - Minzy
+    - Mindsy
+    - Mindzy
+    - Mindzie
+  CenCon:
+    - SenCon
+    - SENCON
+    - Sencon
+  ConPTY:
+    - Contui
+    - ContUI
+    - ContiUI
+    - Conty
+  cc-director:
+    - CC Director
+    - See Director
+    - CC director
+  Soren Frederiksen:
+    - Soren Fredriksen
+    - Soeren Frederiksen
+
+profiles:
+  default:
+    cleanup_enabled: true
+  code:
+    cleanup_enabled: false
+  email:
+    cleanup_enabled: true
+    style_prompt: "tighten to professional prose"
