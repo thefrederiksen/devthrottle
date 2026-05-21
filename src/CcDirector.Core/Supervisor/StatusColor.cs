@@ -3,20 +3,34 @@ using CcDirector.Gateway.Contracts;
 namespace CcDirector.Core.Supervisor;
 
 /// <summary>
-/// Phase 4 of the SessionSupervisor goal.  Maps the latest TurnSummary's
-/// <c>needs_user</c> field (plus a few other signals) to a single red /
-/// yellow / green / unknown colour for the cards UI on the Manager dashboard.
+/// String constants for the five session status colors the SessionStatusSupervisor
+/// writes onto each <see cref="CcDirector.Core.Sessions.Session"/>. The UI renders
+/// these verbatim and never derives them from other fields.
+///
+/// Meaning:
+///   green   = "greenfield" - brand new, or just finished a task cleanly, sitting idle.
+///   blue    = agent is working / a turn is in progress.
+///   yellow  = soft warning (idle with uncommitted work, soft rule violation).
+///   red     = hard, needs the user (waiting for input/permission, error, blocked).
+///   unknown = data-quality state - the data source itself is unreachable or unparseable.
+///             Rendered as gray. NOT a session state per se.
+///
+/// Phase 3 of the SessionSupervisor goal makes color a first-class, supervisor-owned
+/// field on the Session itself. The static helper below is kept as an internal
+/// utility for the supervisor's slow path (turn-summary interpretation).
 /// </summary>
 public static class StatusColor
 {
     public const string Red = "red";
     public const string Yellow = "yellow";
     public const string Green = "green";
+    public const string Blue = "blue";
     public const string Unknown = "unknown";
 
     /// <summary>
-    /// Compute a status colour from the latest TurnSummary plus optional extra
-    /// signals (git dirty, supervisor warnings, etc - set up for Phases 5/6).
+    /// Map a completed turn's <see cref="TurnSummary"/> to a color decision. Used by
+    /// the supervisor's slow path AFTER a turn finishes. The caller (the supervisor)
+    /// is responsible for stamping the chosen color back onto the Session.
     /// </summary>
     public static string From(TurnSummary? latestSummary, bool gitDirty = false, bool hasWarnings = false)
     {

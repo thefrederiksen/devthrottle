@@ -120,9 +120,10 @@ The Tailnet remains the trust boundary. If you can reach the Gateway over Tailsc
 
 These were in the original (overambitious) TARGET design. We are deferring them. They are listed here so they don't get forgotten and so we don't accidentally implement them in Phase 1.
 
+> **Phase 2 (shipped 2026-05-21, issue #124):** "Aggregated session list on the Gateway" is no longer deferred. The Gateway now fans out reads to every registered Director, returns a flat session list (and an envelope `{ sessions, machineErrors }` opt-in for the UI), and renders a session-centric Cards/List view at `/`. Writes still go direct-to-Director. See [GATEWAY_SESSION_VIEW_PLAN.md](GATEWAY_SESSION_VIEW_PLAN.md).
+
 | Capability | Why deferred |
 |---|---|
-| Aggregated session list on the Gateway (`/sessions` across all Directors) | Requires the Gateway to track sessions, not just Directors. Big surface; we don't yet know if we want it as a list or as a chat. |
 | Fan-out (`POST /fanout`) across Directors | Real cross-Director feature, but rarely needed in practice today. Add when concretely useful. |
 | Cross-Director handover orchestration | Same. Belongs to whoever writes the "talk to all my agents" UI. |
 | Live session events from Director to Gateway to browser | Today's 1.5 s polling is fine for now. Live events are needed only once we have an aggregated view that benefits from them. |

@@ -44,6 +44,7 @@ public sealed class ControlApiHost : IAsyncDisposable
     private InstanceRegistration? _registration;
     private GatewayClient? _gatewayClient;
     private TurnSummaryCache? _turnSummaryCache;
+    private SessionStatusSupervisor? _statusSupervisor;
     private bool _stopped;
 
     /// <summary>
@@ -124,11 +125,17 @@ public sealed class ControlApiHost : IAsyncDisposable
         }
         _app.UseRouting();
 
+        // Phase 3: the SessionStatusSupervisor is the sole writer of each Session's
+        // StatusColor. Must start BEFORE TurnSummaryCache so brand-new sessions are
+        // already "green/session created" by the time anything else observes them.
+        _statusSupervisor = new SessionStatusSupervisor(_sessionManager);
+        _statusSupervisor.Start();
+
         // Start the Supervisor's per-turn summary cache before mapping endpoints so
         // /sessions/{sid}/turn-summaries returns whatever is already cached.  Hooks
         // OnSessionCreated + per-session OnTurnCompleted.  See Phase 2 of
         // docs/goals/GOAL_CC_DIRECTOR_SUPERVISOR.md.
-        _turnSummaryCache = new TurnSummaryCache(_sessionManager, _sessionManager.Options);
+        _turnSummaryCache = new TurnSummaryCache(_sessionManager, _sessionManager.Options, _statusSupervisor);
         _turnSummaryCache.Start();
 
         ControlEndpoints.Map(_app, _sessionManager, DirectorId, _version, _requestShutdownAsync, _authEnabled, _repositoryRegistry, _turnSummaryCache);
@@ -179,6 +186,11 @@ public sealed class ControlApiHost : IAsyncDisposable
             _gatewayClient.Dispose();
             _gatewayClient = null;
         }
+
+        _turnSummaryCache?.Dispose();
+        _turnSummaryCache = null;
+        _statusSupervisor?.Dispose();
+        _statusSupervisor = null;
 
         _registration?.Unregister();
 

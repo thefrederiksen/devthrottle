@@ -191,7 +191,9 @@ public sealed class GatewayDirectoryRegistrationTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
         var body = await resp.Content.ReadAsStringAsync();
         Assert.Contains("CC Director", body);
-        Assert.Contains("/directors", body); // the directory page polls /directors
+        // Phase 2: the directory page is session-centric. It polls /sessions (with the
+        // envelope shape) to render cards/list and surface machineErrors.
+        Assert.Contains("/sessions", body);
     }
 
     [Fact]

@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CC Director Gateway - API</title>
+<style>
+  :root {
+    --bg: #1e1e1e;
+    --panel: #252526;
+    --panel-2: #2d2d2e;
+    --border: #3c3c3c;
+    --text: #dddddd;
+    --muted: #888888;
+    --muted-2: #6a6a6a;
+    --accent: #0e639c;
+    --accent-hover: #1177bb;
+    --green: #4ec9b0;
+    --yellow: #dcdcaa;
+    --red: #f44747;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+  }
+  header {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--panel);
+    position: sticky; top: 0; z-index: 10;
+  }
+  header h1 { font-size: 14px; margin: 0; letter-spacing: 0.5px; font-weight: 700; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  header .spacer { flex: 1; }
+  header a { color: var(--accent); text-decoration: none; font-size: 13px; padding: 6px 10px; border-radius: 6px; }
+  header a:hover { background: rgba(14,99,156,0.15); }
+
+  main { padding: 24px 14px 80px; max-width: 920px; margin: 0 auto; }
+  h2 {
+    margin: 32px 0 12px 0;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+    font-size: 18px;
+  }
+  h2:first-child { margin-top: 0; }
+  h3 {
+    margin: 24px 0 8px 0;
+    font-size: 14px;
+    color: var(--text);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  p { color: var(--muted); }
+  p.note { background: rgba(78,201,176,0.06); border-left: 3px solid var(--green); padding: 10px 12px; border-radius: 4px; color: var(--text); }
+  code {
+    background: var(--panel);
+    padding: 2px 6px;
+    border-radius: 3px;
+    color: var(--text);
+    font-family: "Cascadia Code", Consolas, monospace;
+    font-size: 12px;
+  }
+  pre {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 14px;
+    overflow-x: auto;
+    color: var(--text);
+    font-family: "Cascadia Code", Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .endpoint {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin: 16px 0;
+    overflow: hidden;
+  }
+  .endpoint .head {
+    background: var(--panel-2);
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .endpoint .method {
+    background: var(--accent);
+    color: white;
+    font-family: "Cascadia Code", Consolas, monospace;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 3px;
+    letter-spacing: 0.5px;
+  }
+  .endpoint .path {
+    font-family: "Cascadia Code", Consolas, monospace;
+    font-size: 13px;
+    color: var(--text);
+  }
+  .endpoint .body { padding: 12px 14px; }
+  .endpoint .body p { margin-top: 0; color: var(--muted); }
+  table.params { width: 100%; border-collapse: collapse; margin-top: 10px; }
+  table.params th, table.params td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); font-size: 12px; vertical-align: top; }
+  table.params th { color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; font-size: 11px; }
+  table.params td code { font-size: 12px; }
+  table.params tr:last-child td { border-bottom: none; }
+  .key { color: var(--green); }
+</style>
+</head>
+<body>
+<header>
+  <h1>CC DIRECTOR</h1>
+  <span class="sub">Gateway API reference</span>
+  <span class="spacer"></span>
+  <a href="/">directory</a>
+  <a href="/healthz">healthz</a>
+</header>
+
+<main>
+
+<h2>Overview</h2>
+<p>
+  The Gateway is the network-wide hub for the CC Director fleet. It aggregates read-only
+  state from every registered Director so a single browser tab or programmatic consumer
+  can see what is running across the network of agent sessions.
+</p>
+<p class="note">
+  <strong>Writes go direct to the Director.</strong>
+  To send a prompt, rename a session, interrupt, or delete, call the owning Director directly
+  using the <code>tailnetEndpoint</code> and <code>sessionId</code> fields returned by
+  <code>GET /sessions</code>. The Gateway does not proxy writes.
+</p>
+
+<h2>Authentication</h2>
+<p>
+  All endpoints below (except <code>/healthz</code>) require either a session cookie set via
+  <code>POST /login</code> or an <code>Authorization: Bearer &lt;token&gt;</code> header.
+  The token lives in <code>gateway-token.txt</code> next to the Gateway executable.
+</p>
+
+<h2>Endpoints</h2>
+
+<div class="endpoint">
+  <div class="head"><span class="method">GET</span><span class="path">/sessions</span></div>
+  <div class="body">
+    <p>Returns every session across every registered Director. Each session carries the
+       owning machine's name and a precomputed <code>viewUrl</code> deep-link so consumers
+       can talk to it directly.</p>
+    <h3>Query parameters</h3>
+    <table class="params">
+      <thead><tr><th>Name</th><th>Type</th><th>Default</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td><code>envelope</code></td><td>bool</td><td><code>false</code></td><td>When <code>true</code>, wrap the result in <code>{ sessions, machineErrors }</code> so unreachable Directors are visible. Otherwise return a flat array (backward compatible).</td></tr>
+        <tr><td><code>includeExited</code></td><td>bool</td><td><code>false</code></td><td>Include sessions in the Exited activity state. Hidden by default to match the directory UI.</td></tr>
+        <tr><td><code>statusColor</code></td><td>string</td><td>-</td><td>Filter by aggregate status: <code>red</code> | <code>yellow</code> | <code>green</code> | <code>unknown</code>.</td></tr>
+        <tr><td><code>agent</code></td><td>string</td><td>-</td><td>Filter by agent kind: <code>ClaudeCode</code> | <code>Pi</code> | <code>Codex</code> | <code>Gemini</code>.</td></tr>
+        <tr><td><code>state</code></td><td>string</td><td>-</td><td>Filter by exact <code>activityState</code>.</td></tr>
+        <tr><td><code>machine</code></td><td>string</td><td>-</td><td>Filter by Director machine name (exact, case-insensitive).</td></tr>
+        <tr><td><code>director</code></td><td>string</td><td>-</td><td>Filter by Director GUID (exact, case-insensitive).</td></tr>
+        <tr><td><code>q</code></td><td>string</td><td>-</td><td>Substring match against <code>name</code> or <code>repoPath</code>.</td></tr>
+      </tbody>
+    </table>
+    <h3>Example</h3>
+<pre>curl -s -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:7878/sessions?envelope=true&amp;statusColor=red"</pre>
+<pre>{
+  "<span class="key">sessions</span>": [
+    {
+      "<span class="key">sessionId</span>": "9e0a-...",
+      "<span class="key">directorId</span>": "d1a3-...",
+      "<span class="key">agent</span>": "ClaudeCode",
+      "<span class="key">repoPath</span>": "D:/ReposFred/cc-director",
+      "<span class="key">status</span>": "Running",
+      "<span class="key">activityState</span>": "WaitingForInput",
+      "<span class="key">statusColor</span>": "red",
+      "<span class="key">name</span>": "fix raw tab grid",
+      "<span class="key">createdAt</span>": "2026-05-21T13:02:14Z",
+      "<span class="key">lastActivityAt</span>": "2026-05-21T13:08:51Z",
+      "<span class="key">totalBufferBytes</span>": 184327,
+      "<span class="key">backendType</span>": "ConPty",
+      "<span class="key">machineName</span>": "SOREN_NORTH",
+      "<span class="key">user</span>": "soren",
+      "<span class="key">tailnetEndpoint</span>": "http://127.0.0.1:7879",
+      "<span class="key">viewUrl</span>": "http://127.0.0.1:7879/sessions/9e0a-.../view"
+    }
+  ],
+  "<span class="key">machineErrors</span>": [
+    { "<span class="key">directorId</span>": "ab12-...", "<span class="key">machineName</span>": "SOREN_LAPTOP", "<span class="key">error</span>": "timeout" }
+  ]
+}</pre>
+  </div>
+</div>
+
+<div class="endpoint">
+  <div class="head"><span class="method">GET</span><span class="path">/sessions/{sid}</span></div>
+  <div class="body">
+    <p>Locate one session by GUID across the fleet. Returns the same <code>SessionDto</code>
+       shape with <code>machineName</code> / <code>tailnetEndpoint</code> / <code>viewUrl</code>
+       stamped.</p>
+<pre>curl -s -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:7878/sessions/9e0a-..."</pre>
+  </div>
+</div>
+
+<div class="endpoint">
+  <div class="head"><span class="method">GET</span><span class="path">/directors</span></div>
+  <div class="body">
+    <p>List every Director the Gateway currently knows about (HTTP-registered or file-discovered).</p>
+<pre>curl -s -H "Authorization: Bearer $TOKEN" "http://localhost:7878/directors"</pre>
+  </div>
+</div>
+
+<div class="endpoint">
+  <div class="head"><span class="method">GET</span><span class="path">/healthz</span></div>
+  <div class="body">
+    <p>Liveness probe. Unauthenticated. Returns Director / session counts and the Gateway version.</p>
+<pre>curl -s "http://localhost:7878/healthz"</pre>
+  </div>
+</div>
+
+<h2>Writing to a session (direct-to-Director)</h2>
+<p>
+  To send a prompt to a session you found via <code>GET /sessions</code>, talk to the owning
+  Director directly. The session payload tells you the URL and the session id, so the client
+  needs only the Director's own bearer token (not the Gateway's).
+</p>
+<pre>curl -s -X POST \
+  -H "Authorization: Bearer $DIRECTOR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"text":"How is the rebuild going?"}' \
+  "$tailnetEndpoint/sessions/$sessionId/prompt"</pre>
+<p class="note">
+  Director-side endpoints are documented inline in <code>src/CcDirector.ControlApi/ControlEndpoints.cs</code>.
+  The Gateway intentionally does not duplicate that surface.
+</p>
+
+</main>
+</body>
+</html>

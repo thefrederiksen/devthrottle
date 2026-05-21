@@ -209,6 +209,40 @@ public sealed class Session : IDisposable
     /// <summary>Fires when a turn completes (Stop event received after UserPromptSubmit).</summary>
     public event Action<Session, TurnData>? OnTurnCompleted;
 
+    /// <summary>
+    /// Aggregate at-a-glance color for this session. Owned by the
+    /// SessionStatusSupervisor on the Director; the rest of the system reads it
+    /// but never writes it. Defaults to "green" at construction ("greenfield").
+    /// Values: "green" | "blue" | "yellow" | "red" | "unknown".
+    /// </summary>
+    public string StatusColor { get; private set; } = "green";
+
+    /// <summary>
+    /// Short human-readable reason for the current StatusColor, e.g.
+    /// "session created", "working", "waiting for input", "clean turn". Shown
+    /// as the dot tooltip in the Gateway directory view. Set together with
+    /// <see cref="StatusColor"/> via <see cref="SetStatusColor"/>.
+    /// </summary>
+    public string LastStatusReason { get; private set; } = "session created";
+
+    /// <summary>Fires when StatusColor changes. Args: (oldColor, newColor, reason).</summary>
+    public event Action<string, string, string>? OnStatusColorChanged;
+
+    /// <summary>
+    /// Sole writer of <see cref="StatusColor"/>. Called by the
+    /// SessionStatusSupervisor. No other code path may set the color — that's
+    /// how we keep the UI a faithful mirror of the supervisor's verdict.
+    /// </summary>
+    public void SetStatusColor(string color, string reason)
+    {
+        if (string.IsNullOrEmpty(color)) return;
+        var old = StatusColor;
+        if (old == color && LastStatusReason == reason) return;
+        StatusColor = color;
+        LastStatusReason = reason ?? "";
+        OnStatusColorChanged?.Invoke(old, color, LastStatusReason);
+    }
+
     /// <summary>Access to the underlying backend for mode-specific operations.</summary>
     public ISessionBackend Backend => _backend;
 

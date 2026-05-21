@@ -119,9 +119,14 @@ internal static class ControlEndpoints
         });
 
         // ===== REST: Sessions =====
-        app.MapGet("/sessions", () =>
+        // Phase 3: Exited sessions are hidden by default. They aren't a "color" on
+        // the directory map - if a session is gone, its card/row disappears. History
+        // tooling can opt in via ?includeExited=true.
+        app.MapGet("/sessions", (bool? includeExited) =>
         {
+            var includeExitedActual = includeExited ?? false;
             var sessions = sessionManager.ListSessions()
+                .Where(s => includeExitedActual || s.ActivityState != ActivityState.Exited)
                 .Select(s => Map(s, directorId, turnSummaryCache))
                 .ToList();
             return Results.Json(sessions);
@@ -1108,7 +1113,12 @@ internal static class ControlEndpoints
 
     private static SessionDto Map(Session s, string directorId, TurnSummaryCache? cache = null)
     {
-        var latest = cache?.GetForSession(s.Id).LastOrDefault();
+        // Phase 3: StatusColor and LastStatusReason are owned by the SessionStatusSupervisor
+        // and live on the Session itself. Map() reads them directly - no derivation, no
+        // recomputation from TurnSummaryCache, no fallback. The `cache` argument is kept for
+        // other endpoints that surface raw summaries; it is not consulted for color.
+        var lastWrite = s.Buffer?.LastWriteAtUtc ?? DateTime.MinValue;
+        var lastActivity = lastWrite == DateTime.MinValue ? s.CreatedAt.UtcDateTime : lastWrite;
         return new()
         {
             SessionId = s.Id.ToString(),
@@ -1121,7 +1131,9 @@ internal static class ControlEndpoints
             TotalBufferBytes = s.Buffer?.TotalBytesWritten ?? 0,
             BackendType = s.BackendType.ToString(),
             Name = s.CustomName,
-            StatusColor = StatusColor.From(latest),
+            StatusColor = s.StatusColor,
+            LastStatusReason = s.LastStatusReason,
+            LastActivityAt = lastActivity,
         };
     }
 

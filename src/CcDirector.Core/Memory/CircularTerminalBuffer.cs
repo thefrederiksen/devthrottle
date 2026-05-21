@@ -14,6 +14,7 @@ public sealed class CircularTerminalBuffer : IDisposable
 
     private int _writeHead;       // Next write position in the circular buffer
     private long _totalWritten;   // Monotonic counter - never wraps
+    private DateTime _lastWriteAtUtc = DateTime.MinValue;
     private bool _disposed;
 
     // Lock contention tracking
@@ -37,6 +38,21 @@ public sealed class CircularTerminalBuffer : IDisposable
         {
             _lock.EnterReadLock();
             try { return _totalWritten; }
+            finally { _lock.ExitReadLock(); }
+        }
+    }
+
+    /// <summary>
+    /// UTC timestamp of the most recent successful Write. <see cref="DateTime.MinValue"/>
+    /// before the first write. Used as the session-freshness signal surfaced to the
+    /// Gateway directory view as <c>LastActivityAt</c>.
+    /// </summary>
+    public DateTime LastWriteAtUtc
+    {
+        get
+        {
+            _lock.EnterReadLock();
+            try { return _lastWriteAtUtc; }
             finally { _lock.ExitReadLock(); }
         }
     }
@@ -97,6 +113,7 @@ public sealed class CircularTerminalBuffer : IDisposable
                 _writeHead = (_writeHead + data.Length) % _capacity;
                 _totalWritten += data.Length;
             }
+            _lastWriteAtUtc = DateTime.UtcNow;
         }
         finally
         {

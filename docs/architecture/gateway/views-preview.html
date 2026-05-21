@@ -1,0 +1,454 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CC Director Gateway - Views Preview</title>
+<!--
+  Standalone preview of the session-centric directory views.
+  Mirrors src/CcDirector.Gateway/Web/directory.html, but stacked so reviewers
+  can see Cards and List side-by-side with the same mock data, no auth or
+  polling required. Open directly in any browser.
+-->
+<style>
+  :root {
+    --bg: #1e1e1e;
+    --panel: #252526;
+    --panel-2: #2d2d2e;
+    --border: #3c3c3c;
+    --text: #dddddd;
+    --muted: #888888;
+    --muted-2: #6a6a6a;
+    --accent: #0e639c;
+    --accent-hover: #1177bb;
+    --red: #f44747;
+    --yellow: #dcdcaa;
+    --green: #4ec9b0;
+    --blue: #569cd6;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 14px;
+  }
+  header {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  }
+  header h1 { font-size: 14px; margin: 0; letter-spacing: 0.5px; font-weight: 700; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  header .stats { color: var(--muted); font-size: 12px; }
+  header .stats .red { color: var(--red); }
+  header .stats .yellow { color: var(--yellow); }
+
+  .filters {
+    padding: 10px 14px;
+    background: var(--panel-2);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  }
+  .pill-group { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+  .pill {
+    background: var(--panel);
+    color: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 4px 12px;
+    font-size: 12px;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .pill.active { background: var(--accent); border-color: var(--accent); color: white; }
+  .pill .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+  .pill .dot.red { background: var(--red); }
+  .pill .dot.yellow { background: var(--yellow); }
+  .pill .dot.green { background: var(--green); }
+  .pill .dot.blue { background: var(--blue); }
+  .pill .dot.unknown { background: var(--muted-2); }
+  .pill .count { color: var(--muted-2); font-size: 11px; }
+  .pill.active .count { color: rgba(255,255,255,0.7); }
+
+  .legend {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 16px;
+    padding: 8px 14px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    color: var(--muted-2);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .legend .item { display: inline-flex; align-items: center; gap: 6px; }
+  .legend .item .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+  .legend .item .dot.green { background: var(--green); }
+  .legend .item .dot.blue { background: var(--blue); }
+  .legend .item .dot.yellow { background: var(--yellow); }
+  .legend .item .dot.red { background: var(--red); }
+  .legend .item .dot.unknown { background: var(--muted-2); }
+  .filters label { color: var(--muted); font-size: 12px; display: inline-flex; align-items: center; gap: 6px; }
+  .filters select, .filters input[type=text] {
+    background: var(--panel); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 4px 10px; font-size: 12px; font-family: inherit; min-width: 160px;
+  }
+  .filters input[type=checkbox] { accent-color: var(--accent); }
+
+  main { padding: 16px 14px 60px; max-width: 1400px; margin: 0 auto; }
+
+  section.view-section { margin-top: 32px; }
+  section.view-section > h2 {
+    font-size: 16px;
+    color: var(--text);
+    margin: 0 0 14px 0;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--accent);
+    display: inline-block;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  .machine-group { margin-bottom: 24px; }
+  .machine-header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 4px 8px 4px;
+    margin-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 12px;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .machine-header .name { color: var(--text); font-weight: 700; font-size: 13px; }
+  .machine-header .user { color: var(--muted-2); }
+  .machine-header .count { color: var(--muted-2); }
+  .machine-header .unreachable { color: var(--red); text-transform: none; letter-spacing: 0; font-weight: 600; }
+
+  /* Card view */
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+  .card .head { display: flex; align-items: center; gap: 8px; }
+  .card .dot { flex-shrink: 0; width: 10px; height: 10px; border-radius: 50%; }
+  .card .dot.red { background: var(--red); }
+  .card .dot.yellow { background: var(--yellow); }
+  .card .dot.green { background: var(--green); }
+  .card .dot.blue { background: var(--blue); }
+  .card .dot.unknown { background: var(--muted-2); }
+  .card .title { font-weight: 600; font-size: 14px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card .title.unnamed { color: var(--muted); font-style: italic; font-weight: 500; }
+  .card .agent-pill { flex-shrink: 0; background: var(--panel-2); color: var(--muted); border: 1px solid var(--border); border-radius: 10px; padding: 2px 8px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+  .card .repo { color: var(--muted); font-size: 12px; font-family: "Cascadia Code", Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card .state-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 12px; }
+  .card .state { color: var(--text); }
+  .card .idle { color: var(--muted-2); }
+  .card .open-btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    background: var(--accent); color: white; text-decoration: none;
+    padding: 8px 12px; border-radius: 6px; font-size: 13px; font-weight: 600;
+  }
+
+  /* List view */
+  table.list { width: 100%; border-collapse: collapse; background: var(--panel); border-radius: 8px; overflow: hidden; }
+  table.list th, table.list td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  table.list thead th { background: rgba(14,99,156,0.10); color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+  table.list tbody tr:last-child td { border-bottom: none; }
+  table.list .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; vertical-align: middle; }
+  table.list .dot.red { background: var(--red); }
+  table.list .dot.yellow { background: var(--yellow); }
+  table.list .dot.green { background: var(--green); }
+  table.list .dot.blue { background: var(--blue); }
+  table.list .dot.unknown { background: var(--muted-2); }
+  table.list .agent-pill { background: var(--panel-2); color: var(--muted); border: 1px solid var(--border); border-radius: 10px; padding: 1px 8px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+  table.list .repo { color: var(--muted); font-family: "Cascadia Code", Consolas, monospace; font-size: 11px; }
+  table.list .name { font-weight: 600; }
+  table.list .name.unnamed { font-style: italic; color: var(--muted); font-weight: 500; }
+  table.list .idle { color: var(--muted-2); font-size: 12px; }
+  table.list .open-btn { display: inline-block; background: var(--accent); color: white; text-decoration: none; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; }
+</style>
+</head>
+<body>
+<header>
+  <h1>CC DIRECTOR</h1>
+  <span class="sub">Views preview (mock data, both views stacked)</span>
+  <span style="flex:1"></span>
+  <span class="stats" id="stats"></span>
+</header>
+
+<div class="legend" aria-label="Color legend">
+  <span class="item"><span class="dot green"></span>Green: ready</span>
+  <span class="item"><span class="dot blue"></span>Blue: agent working</span>
+  <span class="item"><span class="dot yellow"></span>Yellow: warning</span>
+  <span class="item"><span class="dot red"></span>Red: needs you</span>
+  <span class="item"><span class="dot unknown"></span>Gray: unknown / unreachable</span>
+</div>
+
+<div class="filters">
+  <div class="pill-group">
+    <span class="pill active">All <span class="count" id="count-all"></span></span>
+    <span class="pill"><span class="dot red"></span>Red <span class="count" id="count-red"></span></span>
+    <span class="pill"><span class="dot yellow"></span>Yellow <span class="count" id="count-yellow"></span></span>
+    <span class="pill"><span class="dot blue"></span>Blue <span class="count" id="count-blue"></span></span>
+    <span class="pill"><span class="dot green"></span>Green <span class="count" id="count-green"></span></span>
+  </div>
+  <label>Agent <select><option>All</option><option>ClaudeCode</option><option>Pi</option><option>Codex</option><option>Gemini</option></select></label>
+  <label>Search <input type="text" placeholder="name or repo"></label>
+</div>
+
+<main>
+  <section class="view-section">
+    <h2>Card view</h2>
+    <div id="cards-host"></div>
+  </section>
+
+  <section class="view-section">
+    <h2>List view</h2>
+    <div id="list-host"></div>
+  </section>
+</main>
+
+<script>
+// ---------- Mock fleet data (frozen times so the preview is deterministic) ----------
+const NOW = new Date("2026-05-21T13:24:00Z").getTime();
+function isoAgo(seconds) { return new Date(NOW - seconds * 1000).toISOString(); }
+
+// Phase 3 colors:
+//   green  = greenfield (brand new or finished cleanly)
+//   blue   = agent currently working
+//   yellow = soft warning
+//   red    = needs you (waiting for input/permission/error)
+//   unknown (gray) = data source unreachable or unparseable - NOT a session state
+const SAMPLE = {
+  sessions: [
+    // SOREN_NORTH - mix of all live colors
+    {
+      sessionId: "9e0a-aaaa", machineName: "SOREN_NORTH", user: "soren", agent: "ClaudeCode",
+      name: "fix raw tab grid", repoPath: "D:/ReposFred/cc-director",
+      activityState: "WaitingForInput", statusColor: "red", lastStatusReason: "waiting for input",
+      lastActivityAt: isoAgo(120),
+      viewUrl: "http://soren-north.tailnet:7879/sessions/9e0a-aaaa/view",
+    },
+    {
+      sessionId: "9e0a-bbbb", machineName: "SOREN_NORTH", user: "soren", agent: "Pi",
+      name: "rename hotkey", repoPath: "D:/ReposFred/private/assistant",
+      activityState: "Idle", statusColor: "green", lastStatusReason: "idle, ready for next task",
+      lastActivityAt: isoAgo(1080),
+      viewUrl: "http://soren-north.tailnet:7879/sessions/9e0a-bbbb/view",
+    },
+    {
+      sessionId: "9e0a-cccc", machineName: "SOREN_NORTH", user: "soren", agent: "Codex",
+      name: null, repoPath: "C:/ReposMindzie/mindzieETLPackages",
+      activityState: "Working", statusColor: "blue", lastStatusReason: "working",
+      lastActivityAt: isoAgo(4),
+      viewUrl: "http://soren-north.tailnet:7879/sessions/9e0a-cccc/view",
+    },
+    {
+      sessionId: "9e0a-dddd", machineName: "SOREN_NORTH", user: "soren", agent: "ClaudeCode",
+      name: "migrate auth middleware", repoPath: "D:/ReposFred/cencon-method",
+      activityState: "WaitingForPerm", statusColor: "red", lastStatusReason: "waiting for permission",
+      lastActivityAt: isoAgo(45),
+      viewUrl: "http://soren-north.tailnet:7879/sessions/9e0a-dddd/view",
+    },
+
+    // SOREN_LAPTOP - greenfield + soft warning
+    {
+      sessionId: "ab12-aaaa", machineName: "SOREN_LAPTOP", user: "soren", agent: "Gemini",
+      name: null, repoPath: "",
+      activityState: "Starting", statusColor: "green", lastStatusReason: "session created",
+      lastActivityAt: isoAgo(20),
+      viewUrl: "http://soren-laptop.tailnet:7879/sessions/ab12-aaaa/view",
+    },
+    {
+      sessionId: "ab12-bbbb", machineName: "SOREN_LAPTOP", user: "soren", agent: "ClaudeCode",
+      name: "doc updates", repoPath: "D:/ReposFred/cc-director",
+      activityState: "Idle", statusColor: "yellow", lastStatusReason: "idle, uncommitted changes",
+      lastActivityAt: isoAgo(480),
+      viewUrl: "http://soren-laptop.tailnet:7879/sessions/ab12-bbbb/view",
+    },
+
+    // WORK_LAP_04 - working + ready-to-go
+    {
+      sessionId: "cd33-aaaa", machineName: "WORK_LAP_04", user: "soren", agent: "ClaudeCode",
+      name: "TTS chunking follow-up", repoPath: "D:/ReposFred/cc-director",
+      activityState: "Working", statusColor: "blue", lastStatusReason: "working",
+      lastActivityAt: isoAgo(8),
+      viewUrl: "http://work-lap-04.tailnet:7879/sessions/cd33-aaaa/view",
+    },
+    {
+      sessionId: "cd33-bbbb", machineName: "WORK_LAP_04", user: "soren", agent: "ClaudeCode",
+      name: "vault audit", repoPath: "D:/ReposFred/cc-director",
+      activityState: "Idle", statusColor: "green", lastStatusReason: "clean turn: report saved",
+      lastActivityAt: isoAgo(2700),
+      viewUrl: "http://work-lap-04.tailnet:7879/sessions/cd33-bbbb/view",
+    },
+  ],
+  // Connectivity loss: this machine is unreachable. The Gateway returns the
+  // machineError so the UI can render a placeholder under its header instead of
+  // silently dropping the machine.
+  machineErrors: [
+    { directorId: "deadbeef-1111", machineName: "SOREN_MEDIA_BOX", error: "timeout" },
+  ],
+};
+
+// ---------- Render helpers (kept structurally identical to directory.html) ----------
+
+function escapeHtml(s) {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+function relativeTime(iso) {
+  const t = new Date(iso).getTime();
+  const seconds = Math.max(0, Math.floor((NOW - t) / 1000));
+  if (seconds < 5) return "just now";
+  if (seconds < 60) return seconds + "s";
+  const mins = Math.floor(seconds / 60);
+  if (mins < 60) return mins + "m";
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return hours + "h";
+  return Math.floor(hours / 24) + "d";
+}
+function repoBasename(p) {
+  if (!p) return "(no repo)";
+  const norm = p.replace(/\\/g, "/").replace(/\/+$/, "");
+  const i = norm.lastIndexOf("/");
+  return i >= 0 ? norm.slice(i + 1) : norm;
+}
+function humanizeState(s) {
+  switch (s) {
+    case "WaitingForInput": return "Waiting for input";
+    case "WaitingForPerm": return "Waiting for permission";
+    case "Idle": return "Idle";
+    case "Working": return "Working";
+    case "Starting": return "Starting";
+    case "Exited": return "Exited";
+    default: return s || "-";
+  }
+}
+function statusColorOf(s) {
+  const c = (s.statusColor || "").toLowerCase();
+  if (c === "red" || c === "yellow" || c === "green" || c === "blue") return c;
+  return "unknown";
+}
+function compareSessions(a, b) {
+  const order = { red: 0, yellow: 1, blue: 2, green: 3, unknown: 4 };
+  const da = order[statusColorOf(a)] ?? 9;
+  const db = order[statusColorOf(b)] ?? 9;
+  if (da !== db) return da - db;
+  return (a.name || a.repoPath || "").localeCompare(b.name || b.repoPath || "");
+}
+
+function groupByMachine(sessions, errors) {
+  const groups = new Map();
+  for (const s of sessions) {
+    if (!groups.has(s.machineName)) groups.set(s.machineName, { name: s.machineName, user: s.user || "", sessions: [] });
+    groups.get(s.machineName).sessions.push(s);
+  }
+  for (const me of errors) {
+    if (!groups.has(me.machineName)) groups.set(me.machineName, { name: me.machineName, user: "", sessions: [], error: me.error });
+    else groups.get(me.machineName).error = me.error;
+  }
+  for (const g of groups.values()) g.sessions.sort(compareSessions);
+  return Array.from(groups.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function renderCards(groups) {
+  let html = "";
+  for (const g of groups) {
+    if (g.sessions.length === 0 && !g.error) continue;
+    html += `<section class="machine-group">`;
+    html += `<div class="machine-header">`;
+    html += `<span class="name">${escapeHtml(g.name)}</span>`;
+    if (g.user) html += `<span class="user">&middot; ${escapeHtml(g.user)}</span>`;
+    html += `<span class="count">&middot; ${g.sessions.length} session${g.sessions.length === 1 ? "" : "s"}</span>`;
+    if (g.error) html += `<span class="unreachable">&middot; unreachable: ${escapeHtml(g.error)}</span>`;
+    html += `</div>`;
+
+    if (g.sessions.length > 0) {
+      html += `<div class="cards">`;
+      for (const s of g.sessions) {
+        const color = statusColorOf(s);
+        const reason = s.lastStatusReason || "";
+        const dotTitle = reason ? `${color}: ${reason}` : color;
+        const titleHtml = s.name
+          ? `<span class="title">${escapeHtml(s.name)}</span>`
+          : `<span class="title unnamed">(unnamed)</span>`;
+        html += `<article class="card">`;
+        html += `<div class="head"><span class="dot ${color}" title="${escapeHtml(dotTitle)}"></span>${titleHtml}<span class="agent-pill">${escapeHtml(s.agent)}</span></div>`;
+        html += `<div class="repo" title="${escapeHtml(s.repoPath || "")}">${escapeHtml(repoBasename(s.repoPath))}</div>`;
+        html += `<div class="state-row"><span class="state">${escapeHtml(humanizeState(s.activityState))}</span><span class="idle">${escapeHtml(relativeTime(s.lastActivityAt))}</span></div>`;
+        html += `<a class="open-btn" href="${escapeHtml(s.viewUrl)}" target="_blank" rel="noopener">Open session &rarr;</a>`;
+        html += `</article>`;
+      }
+      html += `</div>`;
+    }
+    html += `</section>`;
+  }
+  return html;
+}
+
+function renderList(groups) {
+  let html = "";
+  for (const g of groups) {
+    if (g.sessions.length === 0 && !g.error) continue;
+    html += `<section class="machine-group">`;
+    html += `<div class="machine-header">`;
+    html += `<span class="name">${escapeHtml(g.name)}</span>`;
+    if (g.user) html += `<span class="user">&middot; ${escapeHtml(g.user)}</span>`;
+    html += `<span class="count">&middot; ${g.sessions.length} session${g.sessions.length === 1 ? "" : "s"}</span>`;
+    if (g.error) html += `<span class="unreachable">&middot; unreachable: ${escapeHtml(g.error)}</span>`;
+    html += `</div>`;
+    if (g.sessions.length > 0) {
+      html += `<table class="list"><thead><tr>
+        <th style="width:24px"></th><th>Agent</th><th>Name</th><th>Repo</th><th>State</th><th>Idle</th><th></th>
+      </tr></thead><tbody>`;
+      for (const s of g.sessions) {
+        const color = statusColorOf(s);
+        const reason = s.lastStatusReason || "";
+        const dotTitle = reason ? `${color}: ${reason}` : color;
+        const nameHtml = s.name
+          ? `<span class="name">${escapeHtml(s.name)}</span>`
+          : `<span class="name unnamed">(unnamed)</span>`;
+        html += `<tr>`;
+        html += `<td><span class="dot ${color}" title="${escapeHtml(dotTitle)}"></span></td>`;
+        html += `<td><span class="agent-pill">${escapeHtml(s.agent)}</span></td>`;
+        html += `<td>${nameHtml}</td>`;
+        html += `<td class="repo">${escapeHtml(repoBasename(s.repoPath))}</td>`;
+        html += `<td><span class="state">${escapeHtml(humanizeState(s.activityState))}</span></td>`;
+        html += `<td class="idle">${escapeHtml(relativeTime(s.lastActivityAt))}</td>`;
+        html += `<td><a class="open-btn" href="${escapeHtml(s.viewUrl)}" target="_blank" rel="noopener">Open</a></td>`;
+        html += `</tr>`;
+      }
+      html += `</tbody></table>`;
+    }
+    html += `</section>`;
+  }
+  return html;
+}
+
+// ---------- Hydrate ----------
+
+// Phase 3: exited sessions are filtered out at the Director level - if a session
+// is gone, it disappears from the map. No "Show exited" toggle.
+const visible = SAMPLE.sessions;
+const groups = groupByMachine(visible, SAMPLE.machineErrors);
+
+const reds = visible.filter(s => statusColorOf(s) === "red").length;
+const yellows = visible.filter(s => statusColorOf(s) === "yellow").length;
+const blues = visible.filter(s => statusColorOf(s) === "blue").length;
+const greens = visible.filter(s => statusColorOf(s) === "green").length;
+
+document.getElementById("stats").innerHTML =
+  `${visible.length} session${visible.length === 1 ? "" : "s"} &middot; ` +
+  `<span class="red">${reds} red</span> &middot; <span class="yellow">${yellows} yellow</span>`;
+document.getElementById("count-all").textContent = visible.length;
+document.getElementById("count-red").textContent = reds;
+document.getElementById("count-yellow").textContent = yellows;
+document.getElementById("count-blue").textContent = blues;
+document.getElementById("count-green").textContent = greens;
+
+document.getElementById("cards-host").innerHTML = renderCards(groups);
+document.getElementById("list-host").innerHTML = renderList(groups);
+</script>
+</body>
+</html>

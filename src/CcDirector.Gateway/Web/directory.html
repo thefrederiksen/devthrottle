@@ -8,14 +8,18 @@
   :root {
     --bg: #1e1e1e;
     --panel: #252526;
+    --panel-2: #2d2d2e;
     --border: #3c3c3c;
     --text: #dddddd;
     --muted: #888888;
+    --muted-2: #6a6a6a;
     --accent: #0e639c;
     --accent-hover: #1177bb;
-    --ok: #4ec9b0;
-    --stale: #dcdcaa;
-    --gone: #f44747;
+    --red: #f44747;
+    --yellow: #dcdcaa;
+    --green: #4ec9b0;
+    --blue: #569cd6;
+    --orange: #ce9178;
   }
   * { box-sizing: border-box; }
   html, body {
@@ -26,14 +30,17 @@
     font-size: 14px;
     min-height: 100vh;
   }
+  a { color: inherit; }
+
   header {
     padding: 10px 14px;
     border-bottom: 1px solid var(--border);
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 14px;
     background: var(--panel);
     position: sticky; top: 0; z-index: 10;
+    flex-wrap: wrap;
   }
   header h1 {
     font-size: 14px;
@@ -42,21 +49,111 @@
     font-weight: 700;
   }
   header .stats { color: var(--muted); font-size: 12px; }
+  header .stats .red { color: var(--red); }
+  header .stats .yellow { color: var(--yellow); }
   header .spacer { flex: 1; }
-  header a {
+  header .view-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  header .view-toggle button {
+    background: var(--panel);
+    color: var(--muted);
+    border: 0;
+    padding: 6px 14px;
+    font-size: 12px;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+  }
+  header .view-toggle button.active { background: var(--accent); color: white; }
+  header a.link {
     color: var(--accent);
     text-decoration: none;
     font-size: 13px;
     padding: 6px 10px;
     border-radius: 6px;
   }
-  header a:hover { background: rgba(14,99,156,0.15); }
+  header a.link:hover { background: rgba(14,99,156,0.15); }
 
-  main { padding: 16px 14px 40px; max-width: 1100px; margin: 0 auto; }
+  .filters {
+    padding: 10px 14px;
+    background: var(--panel-2);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .pill-group { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+  .pill {
+    background: var(--panel);
+    color: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 4px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    user-select: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .pill:hover { color: var(--text); border-color: var(--muted-2); }
+  .pill.active { background: var(--accent); border-color: var(--accent); color: white; }
+  .pill .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+  .pill .dot.red { background: var(--red); }
+  .pill .dot.yellow { background: var(--yellow); }
+  .pill .dot.green { background: var(--green); }
+  .pill .dot.blue { background: var(--blue); }
+  .pill .dot.unknown { background: var(--muted-2); }
+
+  .legend {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 16px;
+    padding: 8px 14px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    color: var(--muted-2);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .legend .item { display: inline-flex; align-items: center; gap: 6px; }
+  .legend .item .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+  .legend .item .dot.green { background: var(--green); }
+  .legend .item .dot.blue { background: var(--blue); }
+  .legend .item .dot.yellow { background: var(--yellow); }
+  .legend .item .dot.red { background: var(--red); }
+  .legend .item .dot.unknown { background: var(--muted-2); }
+  .pill .count { color: var(--muted-2); font-size: 11px; }
+  .pill.active .count { color: rgba(255,255,255,0.7); }
+
+  .filters label { color: var(--muted); font-size: 12px; display: inline-flex; align-items: center; gap: 6px; }
+  .filters select, .filters input[type=text] {
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 12px;
+    font-family: inherit;
+    min-width: 160px;
+  }
+  .filters input[type=checkbox] { accent-color: var(--accent); cursor: pointer; }
+
+  main { padding: 16px 14px 40px; max-width: 1400px; margin: 0 auto; }
+
+  .error {
+    margin: 0 0 14px 0;
+    padding: 10px 12px;
+    background: rgba(244,71,71,0.10);
+    border: 1px solid rgba(244,71,71,0.4);
+    border-radius: 6px;
+    color: var(--red);
+    font-size: 13px;
+  }
 
   .empty {
     margin-top: 40px;
-    padding: 24px;
+    padding: 28px;
     text-align: center;
     color: var(--muted);
     border: 1px dashed var(--border);
@@ -70,75 +167,183 @@
     font-family: "Cascadia Code", Consolas, monospace;
   }
 
-  table {
+  .machine-group { margin-bottom: 24px; }
+  .machine-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 4px 8px 4px;
+    margin-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .machine-header .name { color: var(--text); font-weight: 700; font-size: 13px; }
+  .machine-header .user { color: var(--muted-2); }
+  .machine-header .count { color: var(--muted-2); }
+  .machine-header .unreachable {
+    color: var(--red);
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 600;
+  }
+
+  /* Card view */
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 12px;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    transition: border-color 120ms;
+  }
+  .card:hover { border-color: var(--muted-2); }
+  .card .head { display: flex; align-items: center; gap: 8px; }
+  .card .dot {
+    flex-shrink: 0;
+    width: 10px; height: 10px;
+    border-radius: 50%;
+  }
+  .card .dot.red { background: var(--red); }
+  .card .dot.yellow { background: var(--yellow); }
+  .card .dot.green { background: var(--green); }
+  .card .dot.blue { background: var(--blue); }
+  .card .dot.unknown { background: var(--muted-2); }
+  .card .dot { cursor: help; }
+  .card .title {
+    font-weight: 600;
+    font-size: 14px;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .card .title.unnamed { color: var(--muted); font-style: italic; font-weight: 500; }
+  .card .agent-pill {
+    flex-shrink: 0;
+    background: var(--panel-2);
+    color: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 2px 8px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+  }
+  .card .repo {
+    color: var(--muted);
+    font-size: 12px;
+    font-family: "Cascadia Code", Consolas, monospace;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .card .state-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .card .state { color: var(--text); }
+  .card .idle { color: var(--muted-2); }
+  .card .open-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    margin-top: 2px;
+    background: var(--accent);
+    color: white;
+    text-decoration: none;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    transition: background 120ms;
+  }
+  .card .open-btn:hover { background: var(--accent-hover); }
+
+  /* List view */
+  table.list {
     width: 100%;
     border-collapse: collapse;
     background: var(--panel);
     border-radius: 8px;
     overflow: hidden;
   }
-  th, td {
+  table.list th, table.list td {
     text-align: left;
-    padding: 10px 12px;
+    padding: 8px 12px;
     border-bottom: 1px solid var(--border);
     vertical-align: middle;
   }
-  thead th {
+  table.list thead th {
     background: rgba(14,99,156,0.10);
     color: var(--muted);
     font-weight: 600;
-    font-size: 12px;
+    font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
   }
-  tbody tr:last-child td { border-bottom: none; }
-  tbody tr:hover { background: rgba(255,255,255,0.02); }
-
-  .machine { font-weight: 600; }
-  .muted { color: var(--muted); font-size: 12px; }
-
-  .dot {
+  table.list tbody tr:last-child td { border-bottom: none; }
+  table.list tbody tr:hover { background: rgba(255,255,255,0.02); }
+  table.list .dot {
     display: inline-block;
     width: 8px; height: 8px;
     border-radius: 50%;
-    margin-right: 6px;
     vertical-align: middle;
   }
-  .dot.ok { background: var(--ok); }
-  .dot.stale { background: var(--stale); }
-  .dot.gone { background: var(--gone); }
-
-  .source-pill {
-    display: inline-block;
-    font-size: 10px;
-    padding: 2px 6px;
-    border-radius: 10px;
-    background: var(--bg);
+  table.list .dot.red { background: var(--red); }
+  table.list .dot.yellow { background: var(--yellow); }
+  table.list .dot.green { background: var(--green); }
+  table.list .dot.blue { background: var(--blue); }
+  table.list .dot.unknown { background: var(--muted-2); }
+  table.list .dot { cursor: help; }
+  table.list .agent-pill {
+    background: var(--panel-2);
     color: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1px 8px;
+    font-size: 10px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
+    font-weight: 600;
   }
-
-  .open-btn {
+  table.list .repo { color: var(--muted); font-family: "Cascadia Code", Consolas, monospace; font-size: 11px; }
+  table.list .name { font-weight: 600; }
+  table.list .name.unnamed { font-style: italic; color: var(--muted); font-weight: 500; }
+  table.list .idle { color: var(--muted-2); font-size: 12px; }
+  table.list .open-btn {
     display: inline-block;
-    color: var(--text);
     background: var(--accent);
-    padding: 6px 12px;
-    border-radius: 6px;
+    color: white;
     text-decoration: none;
+    padding: 4px 12px;
+    border-radius: 6px;
     font-size: 12px;
     font-weight: 600;
   }
-  .open-btn:hover { background: var(--accent-hover); }
+  table.list .open-btn:hover { background: var(--accent-hover); }
 
-  .error {
-    margin: 12px 0;
-    padding: 10px 12px;
-    background: rgba(244,71,71,0.10);
-    border: 1px solid rgba(244,71,71,0.4);
-    border-radius: 6px;
-    color: var(--gone);
-    font-size: 13px;
+  @media (max-width: 720px) {
+    .cards { grid-template-columns: 1fr; }
+    .filters { gap: 10px; }
+    .filters select, .filters input[type=text] { min-width: 0; flex: 1; }
+    table.list .repo, table.list th.repo { display: none; }
   }
 </style>
 </head>
@@ -147,9 +352,34 @@
   <h1>CC DIRECTOR</h1>
   <span class="stats" id="stats">loading...</span>
   <span class="spacer"></span>
-  <a href="/healthz">healthz</a>
-  <a href="/logout" __LOGOUT_VISIBILITY__>logout</a>
+  <div class="view-toggle" role="tablist" aria-label="View toggle">
+    <button id="btn-cards" type="button" class="active" data-view="cards" role="tab" aria-selected="true">Cards</button>
+    <button id="btn-list" type="button" data-view="list" role="tab" aria-selected="false">List</button>
+  </div>
+  <a class="link" href="/api">/api</a>
+  <a class="link" href="/healthz">healthz</a>
+  <a class="link" href="/logout" __LOGOUT_VISIBILITY__>logout</a>
 </header>
+
+<div class="legend" aria-label="Color legend">
+  <span class="item"><span class="dot green"></span>Green: ready</span>
+  <span class="item"><span class="dot blue"></span>Blue: agent working</span>
+  <span class="item"><span class="dot yellow"></span>Yellow: warning</span>
+  <span class="item"><span class="dot red"></span>Red: needs you</span>
+  <span class="item"><span class="dot unknown"></span>Gray: unknown / unreachable</span>
+</div>
+
+<div class="filters" id="filters">
+  <div class="pill-group" id="pills"></div>
+  <label>
+    Agent
+    <select id="agent-filter"><option value="">All</option></select>
+  </label>
+  <label>
+    Search
+    <input type="text" id="search" placeholder="name or repo">
+  </label>
+</div>
 
 <main>
   <div id="error" class="error" style="display:none"></div>
@@ -157,35 +387,21 @@
 </main>
 
 <script>
-const REFRESH_MS = 3000;
+const REFRESH_MS = 2000;
 
-function relativeTime(iso) {
-  if (!iso) return "never";
-  const t = new Date(iso).getTime();
-  if (Number.isNaN(t)) return "?";
-  const seconds = Math.max(0, Math.floor((Date.now() - t) / 1000));
-  if (seconds < 5) return "just now";
-  if (seconds < 60) return seconds + "s ago";
-  const mins = Math.floor(seconds / 60);
-  if (mins < 60) return mins + "m ago";
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return hours + "h ago";
-  return Math.floor(hours / 24) + "d ago";
-}
+const state = {
+  view: localStorage.getItem("gw_view") || "cards",
+  statusFilter: "all",     // "all" | "red" | "yellow" | "blue" | "green"
+  agentFilter: "",
+  search: "",
+  sessions: [],
+  machineErrors: [],
+  agents: new Set(),
+};
 
-function endpointFor(d) {
-  // HTTP-registered Directors have a tailnetEndpoint; FSW Directors only have the
-  // local-loopback controlEndpoint. Prefer the tailnet endpoint.
-  return d.tailnetEndpoint || d.controlEndpoint || "";
-}
+let inflight = null;
 
-function freshness(d) {
-  if (!d.lastSeen) return "ok";
-  const ageSec = (Date.now() - new Date(d.lastSeen).getTime()) / 1000;
-  if (ageSec < 30) return "ok";
-  if (ageSec < 60) return "stale";
-  return "gone";
-}
+// ---------- helpers ----------
 
 function escapeHtml(s) {
   return String(s ?? "")
@@ -193,93 +409,334 @@ function escapeHtml(s) {
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
-function render(directors) {
+function relativeTime(iso) {
+  if (!iso) return "-";
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return "-";
+  const seconds = Math.max(0, Math.floor((Date.now() - t) / 1000));
+  if (seconds < 5) return "just now";
+  if (seconds < 60) return seconds + "s";
+  const mins = Math.floor(seconds / 60);
+  if (mins < 60) return mins + "m";
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return hours + "h";
+  return Math.floor(hours / 24) + "d";
+}
+
+function repoBasename(p) {
+  if (!p) return "(no repo)";
+  const norm = p.replace(/\\/g, "/").replace(/\/+$/, "");
+  const i = norm.lastIndexOf("/");
+  return i >= 0 ? norm.slice(i + 1) : norm;
+}
+
+function humanizeState(s) {
+  switch (s) {
+    case "WaitingForInput": return "Waiting for input";
+    case "WaitingForPerm": return "Waiting for permission";
+    case "Idle": return "Idle";
+    case "Working": return "Working";
+    case "Starting": return "Starting";
+    case "Exited": return "Exited";
+    default: return s || "-";
+  }
+}
+
+// The status color is OWNED by the Director's SessionStatusSupervisor. We render
+// exactly what it returns. No derivation, no fallback. If the value isn't one of
+// the five known colors, we render "unknown" (gray) - that's the truthful answer.
+function statusColorOf(s) {
+  const c = (s.statusColor || "").toLowerCase();
+  if (c === "red" || c === "yellow" || c === "green" || c === "blue") return c;
+  return "unknown";
+}
+
+function statusReasonOf(s) {
+  return s.lastStatusReason || "";
+}
+
+function sessionSortKey(s) {
+  const color = statusColorOf(s);
+  const order = { red: 0, yellow: 1, blue: 2, green: 3, unknown: 4 };
+  return [order[color] ?? 9, (s.name || s.repoPath || "").toLowerCase()];
+}
+
+function compareSessions(a, b) {
+  const ka = sessionSortKey(a), kb = sessionSortKey(b);
+  if (ka[0] !== kb[0]) return ka[0] - kb[0];
+  return ka[1].localeCompare(kb[1]);
+}
+
+// ---------- filtering ----------
+
+function applyFilters(sessions) {
+  return sessions.filter(s => {
+    if (state.statusFilter !== "all" && statusColorOf(s) !== state.statusFilter) return false;
+    if (state.agentFilter && s.agent !== state.agentFilter) return false;
+    if (state.search) {
+      const needle = state.search.toLowerCase();
+      const name = (s.name || "").toLowerCase();
+      const repo = (s.repoPath || "").toLowerCase();
+      if (!name.includes(needle) && !repo.includes(needle)) return false;
+    }
+    return true;
+  });
+}
+
+function groupByMachine(sessions) {
+  const groups = new Map();
+  for (const s of sessions) {
+    const key = s.machineName || "(unknown)";
+    if (!groups.has(key)) groups.set(key, { name: key, user: s.user || "", sessions: [] });
+    groups.get(key).sessions.push(s);
+  }
+  // Inject error-only machines too so unreachable Directors still show a header.
+  for (const me of state.machineErrors) {
+    if (!groups.has(me.machineName)) {
+      groups.set(me.machineName, { name: me.machineName, user: "", sessions: [], error: me.error });
+    } else {
+      groups.get(me.machineName).error = me.error;
+    }
+  }
+  // Sort within each group, and sort groups alphabetically.
+  for (const g of groups.values()) g.sessions.sort(compareSessions);
+  return Array.from(groups.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// ---------- rendering ----------
+
+function renderHeader() {
+  const sessions = state.sessions;
+  const visible = applyFilters(sessions);
+  const reds = sessions.filter(s => statusColorOf(s) === "red").length;
+  const yellows = sessions.filter(s => statusColorOf(s) === "yellow").length;
   const stats = document.getElementById("stats");
+  const total = sessions.length;
+  const parts = [`${total} session${total === 1 ? "" : "s"}`];
+  if (reds) parts.push(`<span class="red">${reds} red</span>`);
+  if (yellows) parts.push(`<span class="yellow">${yellows} yellow</span>`);
+  if (visible.length !== total) parts.push(`<span>${visible.length} shown</span>`);
+  stats.innerHTML = parts.join(" &middot; ");
+
+  // Update pill counts.
+  const counts = { all: 0, red: 0, yellow: 0, blue: 0, green: 0 };
+  for (const s of sessions) {
+    counts.all++;
+    const c = statusColorOf(s);
+    if (c in counts) counts[c]++;
+  }
+  renderPills(counts);
+
+  // Update agent filter dropdown options.
+  const sel = document.getElementById("agent-filter");
+  const current = sel.value;
+  const agents = Array.from(new Set(sessions.map(s => s.agent).filter(Boolean))).sort();
+  if (agents.join(",") !== Array.from(state.agents).sort().join(",")) {
+    sel.innerHTML = '<option value="">All</option>' + agents.map(a => `<option value="${escapeHtml(a)}">${escapeHtml(a)}</option>`).join("");
+    sel.value = current;
+    state.agents = new Set(agents);
+  }
+}
+
+function renderPills(counts) {
+  const pills = document.getElementById("pills");
+  const items = [
+    { key: "all", label: "All", count: counts.all, dot: null },
+    { key: "red", label: "Red", count: counts.red, dot: "red" },
+    { key: "yellow", label: "Yellow", count: counts.yellow, dot: "yellow" },
+    { key: "blue", label: "Blue", count: counts.blue, dot: "blue" },
+    { key: "green", label: "Green", count: counts.green, dot: "green" },
+  ];
+  pills.innerHTML = items.map(it => {
+    const active = state.statusFilter === it.key ? " active" : "";
+    const dot = it.dot ? `<span class="dot ${it.dot}"></span>` : "";
+    return `<span class="pill${active}" data-key="${it.key}">${dot}${it.label} <span class="count">${it.count}</span></span>`;
+  }).join("");
+  pills.querySelectorAll(".pill").forEach(el => {
+    el.addEventListener("click", () => {
+      state.statusFilter = el.getAttribute("data-key");
+      render();
+    });
+  });
+}
+
+function renderCardsView(groups) {
+  let html = "";
+  for (const g of groups) {
+    if (g.sessions.length === 0 && !g.error) continue;
+    html += `<section class="machine-group">`;
+    html += `<div class="machine-header">`;
+    html += `<span class="name">${escapeHtml(g.name)}</span>`;
+    if (g.user) html += `<span class="user">&middot; ${escapeHtml(g.user)}</span>`;
+    html += `<span class="count">&middot; ${g.sessions.length} session${g.sessions.length === 1 ? "" : "s"}</span>`;
+    if (g.error) html += `<span class="unreachable">&middot; unreachable: ${escapeHtml(g.error)}</span>`;
+    html += `</div>`;
+
+    if (g.sessions.length > 0) {
+      html += `<div class="cards">`;
+      for (const s of g.sessions) {
+        const color = statusColorOf(s);
+        const reason = statusReasonOf(s);
+        const dotTitle = reason ? `${color}: ${reason}` : color;
+        const name = s.name || "";
+        const titleHtml = name
+          ? `<span class="title">${escapeHtml(name)}</span>`
+          : `<span class="title unnamed">(unnamed)</span>`;
+        html += `<article class="card">`;
+        html += `<div class="head">`;
+        html += `<span class="dot ${color}" title="${escapeHtml(dotTitle)}"></span>`;
+        html += titleHtml;
+        html += `<span class="agent-pill">${escapeHtml(s.agent || "?")}</span>`;
+        html += `</div>`;
+        html += `<div class="repo" title="${escapeHtml(s.repoPath || "")}">${escapeHtml(repoBasename(s.repoPath))}</div>`;
+        html += `<div class="state-row">`;
+        html += `<span class="state">${escapeHtml(humanizeState(s.activityState))}</span>`;
+        html += `<span class="idle" title="last activity ${escapeHtml(s.lastActivityAt || "")}">${escapeHtml(relativeTime(s.lastActivityAt))}</span>`;
+        html += `</div>`;
+        if (s.viewUrl) {
+          html += `<a class="open-btn" href="${escapeHtml(s.viewUrl)}" target="_blank" rel="noopener">Open session &rarr;</a>`;
+        }
+        html += `</article>`;
+      }
+      html += `</div>`;
+    }
+    html += `</section>`;
+  }
+  return html;
+}
+
+function renderListView(groups) {
+  let html = "";
+  for (const g of groups) {
+    if (g.sessions.length === 0 && !g.error) continue;
+    html += `<section class="machine-group">`;
+    html += `<div class="machine-header">`;
+    html += `<span class="name">${escapeHtml(g.name)}</span>`;
+    if (g.user) html += `<span class="user">&middot; ${escapeHtml(g.user)}</span>`;
+    html += `<span class="count">&middot; ${g.sessions.length} session${g.sessions.length === 1 ? "" : "s"}</span>`;
+    if (g.error) html += `<span class="unreachable">&middot; unreachable: ${escapeHtml(g.error)}</span>`;
+    html += `</div>`;
+
+    if (g.sessions.length > 0) {
+      html += `<table class="list">`;
+      html += `<thead><tr>
+        <th style="width:24px"></th>
+        <th>Agent</th>
+        <th>Name</th>
+        <th class="repo">Repo</th>
+        <th>State</th>
+        <th>Idle</th>
+        <th></th>
+      </tr></thead><tbody>`;
+      for (const s of g.sessions) {
+        const color = statusColorOf(s);
+        const reason = statusReasonOf(s);
+        const dotTitle = reason ? `${color}: ${reason}` : color;
+        const name = s.name || "";
+        const nameHtml = name
+          ? `<span class="name">${escapeHtml(name)}</span>`
+          : `<span class="name unnamed">(unnamed)</span>`;
+        html += `<tr>`;
+        html += `<td><span class="dot ${color}" title="${escapeHtml(dotTitle)}"></span></td>`;
+        html += `<td><span class="agent-pill">${escapeHtml(s.agent || "?")}</span></td>`;
+        html += `<td>${nameHtml}</td>`;
+        html += `<td class="repo" title="${escapeHtml(s.repoPath || "")}">${escapeHtml(repoBasename(s.repoPath))}</td>`;
+        html += `<td><span class="state">${escapeHtml(humanizeState(s.activityState))}</span></td>`;
+        html += `<td class="idle">${escapeHtml(relativeTime(s.lastActivityAt))}</td>`;
+        html += `<td>`;
+        if (s.viewUrl) {
+          html += `<a class="open-btn" href="${escapeHtml(s.viewUrl)}" target="_blank" rel="noopener">Open</a>`;
+        }
+        html += `</td>`;
+        html += `</tr>`;
+      }
+      html += `</tbody></table>`;
+    }
+    html += `</section>`;
+  }
+  return html;
+}
+
+function render() {
+  renderHeader();
+  const visible = applyFilters(state.sessions);
+  const groups = groupByMachine(visible);
   const content = document.getElementById("content");
 
-  stats.textContent = directors.length + " director" + (directors.length === 1 ? "" : "s") + " online";
-
-  if (directors.length === 0) {
+  if (state.sessions.length === 0 && state.machineErrors.length === 0) {
     content.innerHTML =
       '<div class="empty">' +
-        '<p>No Directors registered yet.</p>' +
-        '<p class="muted">A Director will appear here when its <code>cc-director.exe</code> starts and either:</p>' +
-        '<p class="muted">- runs on this machine (auto-discovered), OR</p>' +
-        '<p class="muted">- has <code>gateway.url</code> configured to point at this Gateway.</p>' +
+        '<p>No sessions registered anywhere on the fleet.</p>' +
+        '<p style="color:var(--muted-2);font-size:12px">A session will appear here when a Director starts one. Make sure the Director has <code>gateway.url</code> configured if it is running on another machine.</p>' +
       '</div>';
     return;
   }
+  if (visible.length === 0 && state.machineErrors.length === 0) {
+    content.innerHTML = '<div class="empty">No sessions match the current filters.</div>';
+    return;
+  }
 
-  directors.sort((a, b) => {
-    const ma = (a.machineName || "").toLowerCase();
-    const mb = (b.machineName || "").toLowerCase();
-    return ma.localeCompare(mb);
-  });
-
-  let rows = directors.map(d => {
-    const endpoint = endpointFor(d);
-    const fresh = freshness(d);
-    const safeEndpoint = escapeHtml(endpoint);
-    return `
-      <tr>
-        <td>
-          <span class="dot ${fresh}" title="${fresh}"></span>
-          <span class="machine">${escapeHtml(d.machineName || "(unknown)")}</span>
-        </td>
-        <td>${escapeHtml(d.user || "")}</td>
-        <td>${escapeHtml(d.version || "")}</td>
-        <td><span class="source-pill">${escapeHtml(d.source || "file")}</span></td>
-        <td>
-          <a href="${safeEndpoint}" target="_blank" rel="noopener" class="muted" title="${safeEndpoint}">
-            ${safeEndpoint || "(no endpoint)"}
-          </a>
-        </td>
-        <td class="muted">${escapeHtml(relativeTime(d.lastSeen))}</td>
-        <td>
-          ${endpoint
-            ? `<a class="open-btn" href="${safeEndpoint}" target="_blank" rel="noopener">Open</a>`
-            : '<span class="muted">no endpoint</span>'}
-        </td>
-      </tr>
-    `;
-  }).join("");
-
-  content.innerHTML = `
-    <table>
-      <thead>
-        <tr>
-          <th>Machine</th>
-          <th>User</th>
-          <th>Version</th>
-          <th>Source</th>
-          <th>Endpoint</th>
-          <th>Last seen</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>${rows}</tbody>
-    </table>
-  `;
+  content.innerHTML = state.view === "cards" ? renderCardsView(groups) : renderListView(groups);
 }
 
+// ---------- data ----------
+
 async function refresh() {
+  if (inflight) { inflight.abort(); inflight = null; }
+  const controller = new AbortController();
+  inflight = controller;
+
   const err = document.getElementById("error");
   try {
-    const resp = await fetch("/directors", { credentials: "same-origin" });
+    // Envelope shape gives us machineErrors. Exited sessions are hidden by default
+    // at the Director level - if a session is gone, it disappears from the map.
+    const url = "/sessions?envelope=true";
+    const resp = await fetch(url, { credentials: "same-origin", signal: controller.signal });
     if (resp.status === 401) {
       window.location.href = "/login?next=" + encodeURIComponent(window.location.pathname);
       return;
     }
     if (!resp.ok) throw new Error("HTTP " + resp.status);
-    const directors = await resp.json();
+    const body = await resp.json();
+    state.sessions = Array.isArray(body.sessions) ? body.sessions : [];
+    state.machineErrors = Array.isArray(body.machineErrors) ? body.machineErrors : [];
     err.style.display = "none";
-    render(Array.isArray(directors) ? directors : []);
+    render();
   } catch (e) {
+    if (e.name === "AbortError") return;
     err.style.display = "block";
-    err.textContent = "Failed to fetch directors: " + (e && e.message ? e.message : e);
+    err.textContent = "Failed to fetch sessions: " + (e && e.message ? e.message : e);
+  } finally {
+    if (inflight === controller) inflight = null;
   }
 }
 
+// ---------- wiring ----------
+
+function setView(v) {
+  state.view = v;
+  localStorage.setItem("gw_view", v);
+  document.getElementById("btn-cards").classList.toggle("active", v === "cards");
+  document.getElementById("btn-cards").setAttribute("aria-selected", v === "cards" ? "true" : "false");
+  document.getElementById("btn-list").classList.toggle("active", v === "list");
+  document.getElementById("btn-list").setAttribute("aria-selected", v === "list" ? "true" : "false");
+  render();
+}
+
+document.getElementById("btn-cards").addEventListener("click", () => setView("cards"));
+document.getElementById("btn-list").addEventListener("click", () => setView("list"));
+
+document.getElementById("agent-filter").addEventListener("change", (e) => {
+  state.agentFilter = e.target.value;
+  render();
+});
+document.getElementById("search").addEventListener("input", (e) => {
+  state.search = e.target.value;
+  render();
+});
+
+// Initial view setup.
+setView(state.view);
 refresh();
 setInterval(refresh, REFRESH_MS);
 </script>

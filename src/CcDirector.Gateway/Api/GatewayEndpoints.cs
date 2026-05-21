@@ -45,6 +45,12 @@ internal static class GatewayEndpoints
             return Results.Content(html, "text/html; charset=utf-8");
         });
 
+        app.MapGet("/api", () =>
+        {
+            var html = EmbeddedResources.Load("api.html");
+            return Results.Content(html, "text/html; charset=utf-8");
+        });
+
         app.MapGet("/login", (HttpContext ctx) =>
         {
             var next = ctx.Request.Query["next"].ToString();
@@ -155,27 +161,79 @@ internal static class GatewayEndpoints
                 : Results.NotFound(new { error = "director not found" });
         });
 
-        app.MapGet("/sessions", async (string? director, string? agent, string? state) =>
+        // Fleet-wide read aggregator. Fans out in parallel to every registered Director,
+        // stamps each returned SessionDto with the owning Director's machine name, user,
+        // tailnet endpoint, and a full deep-link ViewUrl. Failed Directors do not poison
+        // the response: by default they're silently skipped (backward-compat flat list);
+        // with ?envelope=true they're surfaced in machineErrors so the UI can render an
+        // inline "unreachable" placeholder.
+        app.MapGet("/sessions", async (string? director, string? agent, string? state,
+                                       string? statusColor, string? machine,
+                                       bool? includeExited, string? q, bool? envelope) =>
         {
-            var all = new List<SessionDto>();
-            var directors = registry.ListDirectors();
-            foreach (var d in directors)
-            {
-                if (!string.IsNullOrEmpty(director) && !string.Equals(d.DirectorId, director, StringComparison.OrdinalIgnoreCase))
-                    continue;
+            var directors = registry.ListDirectors()
+                .Where(d => string.IsNullOrEmpty(director) || string.Equals(d.DirectorId, director, StringComparison.OrdinalIgnoreCase))
+                .Where(d => string.IsNullOrEmpty(machine) || string.Equals(d.MachineName, machine, StringComparison.OrdinalIgnoreCase))
+                .ToList();
 
-                var sessions = await client.ListSessionsAsync(d.ControlEndpoint);
+            var includeExitedActual = includeExited ?? false;
+            var fanoutTasks = directors.Select(async d =>
+            {
+                var ep = (d.ControlEndpoint ?? "").TrimEnd('/');
+                var (sessions, error) = await client.ListSessionsWithStatusAsync(ep, includeExitedActual);
+                return (Director: d, Sessions: sessions, Error: error);
+            }).ToList();
+
+            var results = await Task.WhenAll(fanoutTasks);
+
+            var all = new List<SessionDto>();
+            var machineErrors = new List<MachineErrorDto>();
+
+            foreach (var (d, sessions, error) in results)
+            {
+                if (error is not null)
+                {
+                    machineErrors.Add(new MachineErrorDto
+                    {
+                        DirectorId = d.DirectorId,
+                        MachineName = d.MachineName,
+                        Error = error,
+                    });
+                    continue;
+                }
                 if (sessions is null) continue;
 
+                var baseUrl = (d.TailnetEndpoint ?? d.ControlEndpoint).TrimEnd('/');
                 foreach (var s in sessions)
                 {
                     if (!string.IsNullOrEmpty(agent) && !string.Equals(s.Agent, agent, StringComparison.OrdinalIgnoreCase))
                         continue;
                     if (!string.IsNullOrEmpty(state) && !string.Equals(s.ActivityState, state, StringComparison.OrdinalIgnoreCase))
                         continue;
+                    if (!string.IsNullOrEmpty(statusColor) && !string.Equals(s.StatusColor, statusColor, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    if (!includeExitedActual && string.Equals(s.ActivityState, "Exited", StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    if (!string.IsNullOrEmpty(q))
+                    {
+                        var needle = q;
+                        var nameHit = !string.IsNullOrEmpty(s.Name) && s.Name.Contains(needle, StringComparison.OrdinalIgnoreCase);
+                        var repoHit = !string.IsNullOrEmpty(s.RepoPath) && s.RepoPath.Contains(needle, StringComparison.OrdinalIgnoreCase);
+                        if (!nameHit && !repoHit) continue;
+                    }
+
                     s.DirectorId = d.DirectorId;
+                    s.MachineName = d.MachineName;
+                    s.User = d.User;
+                    s.TailnetEndpoint = baseUrl;
+                    s.ViewUrl = $"{baseUrl}/sessions/{s.SessionId}/view";
                     all.Add(s);
                 }
+            }
+
+            if (envelope == true)
+            {
+                return Results.Json(new { sessions = all, machineErrors });
             }
             return Results.Json(all);
         });
@@ -183,9 +241,14 @@ internal static class GatewayEndpoints
         app.MapGet("/sessions/{sid}", async (string sid) =>
         {
             var (director, session) = await LocateSessionAsync(registry, client, sid);
-            if (session is null)
+            if (session is null || director is null)
                 return Results.NotFound(new { error = "session not found across any director" });
-            session.DirectorId = director!.DirectorId;
+            var baseUrl = (director.TailnetEndpoint ?? director.ControlEndpoint).TrimEnd('/');
+            session.DirectorId = director.DirectorId;
+            session.MachineName = director.MachineName;
+            session.User = director.User;
+            session.TailnetEndpoint = baseUrl;
+            session.ViewUrl = $"{baseUrl}/sessions/{session.SessionId}/view";
             return Results.Json(session);
         });
 
@@ -645,7 +708,8 @@ internal static class GatewayEndpoints
     {
         foreach (var d in registry.ListDirectors())
         {
-            var s = await client.GetSessionAsync(d.ControlEndpoint, sid);
+            var ep = (d.ControlEndpoint ?? "").TrimEnd('/');
+            var s = await client.GetSessionAsync(ep, sid);
             if (s is not null) return (d, s);
         }
         return (null, null);

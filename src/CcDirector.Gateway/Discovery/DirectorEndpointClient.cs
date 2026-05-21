@@ -53,6 +53,35 @@ public sealed class DirectorEndpointClient : IDisposable
         }
     }
 
+    /// <summary>
+    /// Same as <see cref="ListSessionsAsync"/> but distinguishes "no sessions"
+    /// (empty list, error=null) from "couldn't reach Director" (sessions=null,
+    /// error=&lt;reason&gt;). Used by the Gateway aggregator to surface unreachable
+    /// Directors to the UI as <c>machineErrors</c> entries instead of silently
+    /// hiding them. Forwards <paramref name="includeExited"/> to the Director,
+    /// which hides exited sessions by default (Phase 3).
+    /// </summary>
+    public async Task<(List<SessionDto>? sessions, string? error)> ListSessionsWithStatusAsync(string endpoint, bool includeExited = false, CancellationToken ct = default)
+    {
+        try
+        {
+            var url = includeExited
+                ? $"{endpoint}/sessions?includeExited=true"
+                : $"{endpoint}/sessions";
+            var sessions = await _http.GetFromJsonAsync<List<SessionDto>>(url, ct);
+            return (sessions ?? new List<SessionDto>(), null);
+        }
+        catch (TaskCanceledException)
+        {
+            return (null, "timeout");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[DirectorEndpointClient] ListSessionsWithStatusAsync FAILED: endpoint={endpoint}, error={ex.Message}");
+            return (null, ex.Message);
+        }
+    }
+
     public async Task<SessionDto?> GetSessionAsync(string endpoint, string sessionId, CancellationToken ct = default)
     {
         try
