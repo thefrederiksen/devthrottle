@@ -682,6 +682,8 @@ public partial class MainWindow : Window
                 UpdateSessionHeader();
                 CleanView.Detach();
                 CleanView.Attach(vm.Session);
+                SessionCleanView.Detach();
+                SessionCleanView.Attach(vm.Session);
             }
 
             ShowNotification($"Session relinked to {dialog.SelectedSessionId[..8]}...");
