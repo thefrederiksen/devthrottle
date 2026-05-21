@@ -1,6 +1,6 @@
 # Dictation Library: STATUS
 
-Last updated: 2026-05-21
+Last updated: 2026-05-21 (Phase 3 complete)
 
 ## Phase 0: PASS
 
@@ -91,6 +91,55 @@ for `ProviderClient`. Phase 1 ships a batch provider against
 `OnPartial` fires once just before `StopAsync` returns in the batch
 provider so consumers wired to partials still get one update.
 
+## Phase 3: COMPLETE
+
+The browser-facing surface is in place:
+
+- **`/dictate` WebSocket endpoint** lives in
+  `src/CcDirector.ControlApi/DictationEndpoint.cs`. Wire protocol is
+  documented in the file header. It accepts JSON control frames
+  (`start`, `stop`, `abort`) and opaque binary audio frames, and emits
+  `ready`, `started`, `partial`, `transcribing`, `final`, and `error`
+  frames. Localhost-only. Honors existing `ControlApiHost` auth.
+- **`/dictate.html` page** lives in
+  `src/CcDirector.ControlApi/Web/dictate.html` and is embedded the same
+  way as `session-view.html`. Captures with `MediaRecorder`, streams to
+  the WebSocket, displays raw vs cleaned transcript and a live log.
+- **`AgentOptions.DictationDictionaryPath`** added with a sensible
+  default of `%LOCALAPPDATA%/cc-director/dictation/dictionary.yaml`.
+  Missing file means "no vocabulary bias, no cleanup glossary" without
+  breaking the pipeline.
+- **Three integration tests** in
+  `src/CcDirector.Gateway.Tests/DictationEndpointTests.cs`. Two pure
+  protocol checks plus one full end-to-end roundtrip: client opens a
+  WebSocket, sends Phase 0 `clip2.mp3` in 4 KB chunks, asserts the
+  cleaned transcript contains `ConPTY`, `Soren Frederiksen`, and
+  `Avalonia`. End-to-end test self-skips when `OPENAI_API_KEY` is not
+  set so CI without credentials still passes.
+
+### How to try it
+
+1. Make sure `cc-director.exe` is running (it owns port 7879).
+2. Optional: drop a dictionary at
+   `%LOCALAPPDATA%/cc-director/dictation/dictionary.yaml`. A reasonable
+   starter exists at `playground/dictation-harness/sample-dictionary.yaml`
+   you can copy.
+3. Open `http://localhost:7879/dictate.html` in a browser.
+4. Click "Start recording", grant microphone permission, speak.
+5. Click "Stop". The page shows the raw and cleaned transcripts.
+
+### What is NOT yet done (deliberate)
+
+- **True streaming partials.** Phase 3 ships the batch provider behind
+  the WebSocket: audio is buffered server-side and transcribed in one
+  shot when the client sends `stop`. The Realtime API variant
+  (`OpenAiRealtimeProvider`) for word-by-word partials is a drop-in
+  upgrade behind the same `IDictationProvider` interface and can be
+  added later without changing the wire protocol.
+- **Integration with `session-view.html`.** The dedicated `/dictate.html`
+  page exists for end-to-end validation. Wiring dictation into the
+  existing session view as a button or tab is a UX follow-up.
+
 ## What you (Soren) need to do for Phase 2
 
 Phase 2 is the desktop microphone integration. It requires live testing
@@ -111,14 +160,13 @@ Concrete next steps when you are ready:
 
 ## What's still ahead (no work yet)
 
-- **Phase 3.** Add `/dictate` WebSocket endpoint in
-  `CcDirector.ControlApi` alongside the existing endpoints. Implement
-  `OpenAiRealtimeProvider` for true streaming partials. Drop a minimal
-  HTML/JS client into `session-view.html` that captures with
-  `MediaRecorder` and streams up.
 - **Phase 4.** Add disk spill to `AudioBuffer` under
   `%LOCALAPPDATA%/cc-director/dictation/buffer/`. Add a connection-state
   observable. Write the disconnect-mid-stream integration test the goal
   doc calls for.
 - **Phase 5.** Mac shell port. Library code is platform-agnostic; only
   the audio capture and output layers change.
+- **Streaming partials follow-up.** Implement
+  `OpenAiRealtimeProvider` against the OpenAI Realtime WebSocket API.
+  Behind the same `IDictationProvider` interface; `DictationSession`
+  and the `/dictate` wire protocol are already shaped for it.

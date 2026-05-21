@@ -123,6 +123,12 @@ public sealed class ControlApiHost : IAsyncDisposable
             var token = DirectorAuth.LoadOrCreateToken();
             _app.Use((ctx, next) => DirectorAuth.Run(ctx, token, next));
         }
+
+        // Enable WebSocket support for /dictate and any future streaming endpoints.
+        _app.UseWebSockets(new Microsoft.AspNetCore.Builder.WebSocketOptions
+        {
+            KeepAliveInterval = TimeSpan.FromSeconds(30),
+        });
         _app.UseRouting();
 
         // Phase 3: the SessionStatusSupervisor is the sole writer of each Session's
@@ -139,6 +145,7 @@ public sealed class ControlApiHost : IAsyncDisposable
         _turnSummaryCache.Start();
 
         ControlEndpoints.Map(_app, _sessionManager, DirectorId, _version, _requestShutdownAsync, _authEnabled, _repositoryRegistry, _turnSummaryCache);
+        DictationEndpoint.Map(_app, _sessionManager.Options);
 
         await _app.StartAsync();
 

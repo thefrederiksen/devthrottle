@@ -59,6 +59,26 @@ public class AgentOptions
     public string? OpenAiKey { get; set; }
 
     /// <summary>
+    /// Path to the user-editable dictation dictionary YAML. If null, resolves
+    /// to <c>%LOCALAPPDATA%/cc-director/dictation/dictionary.yaml</c>. Missing
+    /// file means no vocabulary bias and no cleanup glossary; the rest of the
+    /// dictation pipeline still works.
+    /// </summary>
+    public string? DictationDictionaryPath { get; set; }
+
+    /// <summary>
+    /// Resolve the effective dictation dictionary path. Always returns a
+    /// concrete path; callers should treat a missing file as "empty dictionary".
+    /// </summary>
+    public string ResolveDictationDictionaryPath()
+    {
+        if (!string.IsNullOrWhiteSpace(DictationDictionaryPath))
+            return DictationDictionaryPath;
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        return Path.Combine(localAppData, "cc-director", "dictation", "dictionary.yaml");
+    }
+
+    /// <summary>
     /// Resolve the effective OpenAI key: explicit config wins, then environment.
     /// Returns null if neither is set.
     /// </summary>
