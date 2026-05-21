@@ -1175,27 +1175,16 @@
     return body;
   }
 
-  // OpenAI's tts-1 hard-caps the input at 4096 chars; matches the same const
-  // on the server (TtsService.MaxTextChars).  When the bubble is longer than
-  // this, the audio will stop mid-sentence.  We notify the user with a small
-  // system bubble so they know to finish reading in the bubble instead.
-  const TTS_HARD_LIMIT = 4096;
-
   // Render the agent's reply bubble and read the SAME text aloud.  There is
   // exactly one piece of text per turn (the agent's last spoken paragraph
   // from the JSONL transcript): the bubble shows it, the speaker reads it.
   // No separate "speaker version", no Haiku side-call, no length branching.
-  // If the bubble and the speaker ever disagreed before, this is why they
-  // physically cannot now: they are the same string.
+  // The server splits long replies at sentence boundaries and concatenates
+  // the resulting MP3s, so there is no per-call length cap to flag here.
   async function renderReplyAndSpeak(chat) {
     const display = (chat.displayText || chat.reply || '').trim();
     if (display) {
       appendVoiceBubble('agent', display);
-      if (display.length > TTS_HARD_LIMIT) {
-        appendVoiceBubble('system',
-          'Voice will cut off at ' + TTS_HARD_LIMIT + ' chars (OpenAI tts-1 limit). ' +
-          'Reply is ' + display.length + ' chars; read the rest above.');
-      }
       speak(display);
     } else {
       appendVoiceBubble('system', 'Agent finished but produced no visible output.');
