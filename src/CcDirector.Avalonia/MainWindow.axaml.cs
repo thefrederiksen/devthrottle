@@ -468,6 +468,7 @@ public partial class MainWindow : Window
             TabBarCaptureButton.IsVisible = false;
             GitChangesView.Detach();
             CleanView.Detach();
+            SupervisorView.Bind(null, null);  // Phase 5.1: also clear the supervisor panel.
             return;
         }
 
@@ -491,6 +492,15 @@ public partial class MainWindow : Window
 
         // Attach clean view (Agent tab)
         CleanView.Attach(vm.Session);
+
+        // Phase 5.1: rebind the Supervisor view so it always reflects the active
+        // session. Previously this only fired when the user clicked the Supervisor
+        // tab button, so switching sessions while on that tab left the old session
+        // bound (or "no session selected" if the click order was tab-then-session).
+        var app = global::Avalonia.Application.Current as App;
+        var port = app?.ControlApiHost?.Port ?? 0;
+        var baseUrl = port > 0 ? $"http://127.0.0.1:{port}" : null;
+        SupervisorView.Bind(vm.Session, baseUrl);
 
         // Show prompt bar and refresh button
         PromptBarBorder.IsVisible = true;
@@ -980,6 +990,40 @@ public partial class MainWindow : Window
     {
         FileLog.Write("[MainWindow] BtnRefreshTerminal_Click");
         RefreshTerminal();
+    }
+
+    private void BtnSpeak_Click(object? sender, RoutedEventArgs e)
+    {
+        // Open the dictation page in the system default browser. The page is
+        // served by this Director's own embedded HTTP server and uses the
+        // dictation library (gpt-4o-realtime transcription + dictionary +
+        // gpt-4.1-nano cleanup). v1 of the button: user dictates in the
+        // browser, then copies the cleaned text and pastes into PromptInput.
+        // Future versions will embed the dictation UI in-app and auto-insert.
+        try
+        {
+            var app = global::Avalonia.Application.Current as App;
+            var port = app?.ControlApiHost?.Port;
+            if (port is null or 0)
+            {
+                FileLog.Write("[MainWindow] BtnSpeak_Click: ControlApi port not available");
+                ShowNotification("Dictation not available: Control API has not started yet.");
+                return;
+            }
+            var url = $"http://127.0.0.1:{port}/dictate.html";
+            FileLog.Write($"[MainWindow] BtnSpeak_Click: opening {url}");
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = url,
+                UseShellExecute = true,
+            });
+            ShowNotification("Dictation opened in browser. Copy the cleaned transcript back into the message box when done.");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] BtnSpeak_Click FAILED: {ex.Message}");
+            ShowNotification($"Could not open dictation: {ex.Message}");
+        }
     }
 
     private void BtnOpenInBrowser_Click(object? sender, RoutedEventArgs e)
