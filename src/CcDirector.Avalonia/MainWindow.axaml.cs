@@ -646,19 +646,19 @@ public partial class MainWindow : Window
     private async void ShowRenameDialog(SessionViewModel vm)
     {
         FileLog.Write($"[MainWindow] ShowRenameDialog: session={vm.Session.Id}, name={vm.DisplayName}");
-        var dialog = new RenameSessionDialog(vm.DisplayName, vm.Session.CustomColor);
+        var dialog = new RenameSessionDialog(vm.DisplayName);
         var result = await dialog.ShowDialog<bool?>(this);
 
         if (result == true)
         {
-            vm.Rename(dialog.SessionName, dialog.SelectedColor);
+            vm.Rename(dialog.SessionName, null);
             PersistSessionState();
             UpdateSessionHistory(vm);
 
             if (_activeSession == vm)
                 UpdateSessionHeader();
 
-            FileLog.Write($"[MainWindow] ShowRenameDialog: confirmed, name={dialog.SessionName}, color={dialog.SelectedColor ?? "null"}");
+            FileLog.Write($"[MainWindow] ShowRenameDialog: confirmed, name={dialog.SessionName}");
         }
         else
         {
@@ -861,17 +861,6 @@ public partial class MainWindow : Window
         var session = _activeSession.Session;
         HeaderSessionName.Text = _activeSession.DisplayName;
         HeaderActivityLabel.Text = _activeSession.ActivityLabel;
-
-        // Apply custom header color if set
-        if (!string.IsNullOrWhiteSpace(session.CustomColor))
-        {
-            var color = Color.Parse(session.CustomColor);
-            SessionHeaderBanner.Background = new SolidColorBrush(color);
-        }
-        else
-        {
-            SessionHeaderBanner.Background = new SolidColorBrush(Color.Parse("#007ACC"));
-        }
 
         // Message count
         var msgCount = session.ClaudeMetadata?.MessageCount ?? 0;

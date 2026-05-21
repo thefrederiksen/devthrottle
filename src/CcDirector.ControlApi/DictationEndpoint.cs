@@ -66,6 +66,12 @@ internal static class DictationEndpoint
             return Results.Content(js, "application/javascript; charset=utf-8");
         });
 
+        app.MapGet("/dictate-client.js", () =>
+        {
+            var js = EmbeddedResources.Load("dictate-client.js");
+            return Results.Content(js, "application/javascript; charset=utf-8");
+        });
+
         app.MapGet("/dictate", async (HttpContext ctx) =>
         {
             FileLog.Write($"[DictationEndpoint] GET /dictate from {ctx.Connection.RemoteIpAddress}");

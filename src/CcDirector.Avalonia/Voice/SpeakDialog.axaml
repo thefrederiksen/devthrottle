@@ -1,0 +1,90 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="CcDirector.Avalonia.Voice.SpeakDialog"
+        Title="Dictate"
+        Width="540" Height="320"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False"
+        ShowInTaskbar="False"
+        Background="#1E1E1E">
+
+    <Grid RowDefinitions="Auto,*,Auto" Margin="16">
+
+        <!-- Status row -->
+        <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,12">
+            <TextBlock x:Name="StatusLabel" Grid.Column="0"
+                       Text="RECORDING"
+                       FontFamily="Cascadia Mono,Consolas,monospace"
+                       FontSize="20" FontWeight="Bold"
+                       Foreground="#F44747"
+                       VerticalAlignment="Center" />
+            <TextBlock x:Name="TimerLabel" Grid.Column="2"
+                       Text="0:00.0"
+                       FontFamily="Cascadia Mono,Consolas,monospace"
+                       FontSize="22" FontWeight="SemiBold"
+                       Foreground="#F44747"
+                       VerticalAlignment="Center" />
+        </Grid>
+
+        <!-- Center stage: equalizer + transcript area -->
+        <Grid Grid.Row="1" RowDefinitions="Auto,*">
+            <!-- 9-bar equalizer -->
+            <StackPanel Grid.Row="0" Orientation="Horizontal"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Spacing="6"
+                        Height="64"
+                        Margin="0,0,0,12">
+                <Border x:Name="Bar0" Width="10" Height="6" Background="#F44747" CornerRadius="3" VerticalAlignment="Bottom" />
+                <Border x:Name="Bar1" Width="10" Height="6" Background="#F44747" CornerRadius="3" VerticalAlignment="Bottom" />
+                <Border x:Name="Bar2" Width="10" Height="6" Background="#F44747" CornerRadius="3" VerticalAlignment="Bottom" />
+                <Border x:Name="Bar3" Width="10" Height="6" Background="#F44747" CornerRadius="3" VerticalAlignment="Bottom" />
+                <Border x:Name="Bar4" Width="10" Height="6" Background="#F44747" CornerRadius="3" VerticalAlignment="Bottom" />
+                <Border x:Name="Bar5" Width="10" Height="6" Background="#F44747" CornerRadius="3" VerticalAlignment="Bottom" />
+                <Border x:Name="Bar6" Width="10" Height="6" Background="#F44747" CornerRadius="3" VerticalAlignment="Bottom" />
+                <Border x:Name="Bar7" Width="10" Height="6" Background="#F44747" CornerRadius="3" VerticalAlignment="Bottom" />
+                <Border x:Name="Bar8" Width="10" Height="6" Background="#F44747" CornerRadius="3" VerticalAlignment="Bottom" />
+            </StackPanel>
+
+            <!-- Transcript area (used both for live partials during recording AND
+                 final cleaned text after stop). -->
+            <Border Grid.Row="1"
+                    Background="#252526"
+                    BorderBrush="#3C3C3C" BorderThickness="1"
+                    CornerRadius="6"
+                    Padding="12,8">
+                <ScrollViewer>
+                    <TextBlock x:Name="TranscriptText"
+                               Text="(your words will appear here)"
+                               Foreground="#888888"
+                               FontFamily="Cascadia Mono,Consolas,monospace"
+                               FontSize="13"
+                               TextWrapping="Wrap" />
+                </ScrollViewer>
+            </Border>
+        </Grid>
+
+        <!-- Action bar -->
+        <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto" Margin="0,12,0,0">
+            <TextBlock x:Name="HintLabel" Grid.Column="0"
+                       Text="Click Stop when you are done speaking."
+                       Foreground="#888888"
+                       FontSize="12"
+                       VerticalAlignment="Center" />
+            <Button x:Name="CancelButton" Grid.Column="1"
+                    Content="Cancel"
+                    Width="90" Height="32"
+                    Margin="0,0,8,0"
+                    Background="#2D2D30"
+                    Foreground="#CCCCCC"
+                    Click="CancelButton_Click" />
+            <Button x:Name="PrimaryButton" Grid.Column="2"
+                    Content="Stop"
+                    Width="120" Height="32"
+                    Background="#F44747"
+                    Foreground="White"
+                    FontWeight="SemiBold"
+                    Click="PrimaryButton_Click" />
+        </Grid>
+    </Grid>
+</Window>

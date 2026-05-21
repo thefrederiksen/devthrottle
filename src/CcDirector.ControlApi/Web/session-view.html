@@ -763,8 +763,14 @@
 
 <form class="send" onsubmit="return send(event)">
   <input type="text" id="prompt" placeholder="Send to session... (Enter to submit)" autocomplete="off" />
+  <button type="button" id="speakBtn"
+          style="background:#16A34A;color:white;border:0;padding:0 16px;border-radius:8px;font-weight:600;cursor:pointer;font-size:15px;min-height:44px;min-width:80px;">
+    Speak
+  </button>
   <button type="submit" id="sendBtn">Send</button>
 </form>
+
+<script src="/dictate-client.js"></script>
 
 <script>
 (function () {
@@ -1089,6 +1095,36 @@
       stateEl.style.background = stateColor(dto.activityState);
     } catch {}
   }
+
+  // Speak button: in-page dictation overlay. Cleaned transcript is
+  // auto-inserted at the caret in the prompt input; user reviews/edits then
+  // clicks Send manually. They can click Speak again to append more before
+  // sending.
+  function insertAtCaret(inputEl, text) {
+    if (!text) return;
+    const v = inputEl.value || '';
+    const start = inputEl.selectionStart ?? v.length;
+    const end = inputEl.selectionEnd ?? v.length;
+    const before = v.slice(0, start);
+    const after = v.slice(end);
+    const needSpaceBefore = before.length > 0 && !/\s$/.test(before);
+    const needSpaceAfter = after.length > 0 && !/^\s/.test(after);
+    const ins = (needSpaceBefore ? ' ' : '') + text + (needSpaceAfter ? ' ' : '');
+    inputEl.value = before + ins + after;
+    const pos = before.length + ins.length;
+    inputEl.setSelectionRange(pos, pos);
+    inputEl.focus();
+  }
+  document.getElementById('speakBtn')?.addEventListener('click', () => {
+    if (!window.ccDictate) return;
+    window.ccDictate.start({
+      onResult: (cleanedText) => {
+        const inp = document.getElementById('prompt');
+        if (!inp) return;
+        insertAtCaret(inp, cleanedText);
+      },
+    });
+  });
 
   window.send = async function (e) {
     e.preventDefault();

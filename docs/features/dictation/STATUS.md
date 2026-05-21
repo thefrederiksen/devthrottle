@@ -1,6 +1,6 @@
 # Dictation Library: STATUS
 
-Last updated: 2026-05-21 (cleanup switched from claude CLI to OpenAI gpt-4o-mini; ~10x faster end-to-end). Phase 2 and Phase 5 are the only remaining work and both require live hardware.
+Last updated: 2026-05-21 (Speak button shipped in both desktop and browser; in-process NAudio capture on desktop; auto-insert on both surfaces). Only remaining work is global-hotkey/SendInput-into-foreign-windows (the original Phase 2) and Mac (Phase 5); both hardware-bound.
 
 ## Cleanup model switch (2026-05-21)
 
@@ -294,13 +294,62 @@ Concrete next steps when you are ready:
    (`cc-dictate.exe`, separate process) or as a feature inside the
    existing Manager UI. The library does not care.
 
+## Desktop integration (2026-05-21, COMPLETE)
+
+The Speak button is wired into the cc-director Avalonia window and
+runs entirely in-process. No browser, no localhost roundtrip.
+
+- **Green Speak button** in `MainWindow.axaml` next to Send / Queue /
+  Handover.
+- **`MicAudioCapture`** (NAudio `WaveInEvent` at 24 kHz mono PCM16,
+  RMS energy event for the equalizer level meter) lives in
+  `src/CcDirector.Avalonia/Voice/`.
+- **`SpeakService`** wires `MicAudioCapture` chunks through
+  `DictationSession` with the in-process `OpenAiRealtimeProvider` +
+  `CleanupOrchestrator` + offline `AudioBuffer`. All in the same
+  Avalonia process; the `/dictate` WebSocket is not used by the
+  desktop surface.
+- **`SpeakDialog`** is a small modal with the equalizer (driven by
+  real mic level), a big timer, and a single button (Stop →
+  Wait → auto-close). No "Use it" confirmation. After cleanup the
+  dialog closes itself and `MainWindow` inserts the cleaned text at
+  the caret in PromptInput, adding whitespace separators where
+  needed.
+- NAudio is a Windows-only dependency. Mac will need a per-platform
+  `IMicCapture` (deferred to Phase 5).
+
+## Browser session-view integration (2026-05-21, COMPLETE)
+
+`session-view.html` now has the same Speak button next to Send.
+Clicking it opens an in-page overlay (same look as the desktop
+dialog: equalizer + timer + Stop). Cleaned text auto-inserts at the
+caret in the session's `#prompt` input on completion. No "Use it"
+confirmation. Esc cancels.
+
+- Reusable JS module **`/dictate-client.js`** (new embedded resource)
+  exposes `window.ccDictate.start({ onResult, onCancel, profile })`.
+  Handles the overlay UI, AudioWorklet PCM16 capture, WebSocket
+  protocol, level meter, and stage transitions. Any page in the
+  Director can drop it in.
+- `session-view.html` includes the script and binds the Speak button
+  click to `window.ccDictate.start({ onResult: insertAtCaret })`.
+- Same `/dictate` WebSocket backend as before. Same dictation
+  library. Zero new server-side logic.
+
 ## What's still ahead (only hardware-bound work)
 
-- **Phase 2: Desktop microphone + hotkey + SendInput.** Requires live
-  hardware testing (global hotkey, real mic, type into focused window).
-  This is yours.
-- **Phase 5: Mac shell.** Same shape as Phase 2 but on macOS.
-  AVAudioEngine + Accessibility APIs. Library is platform-agnostic;
-  only the shell layer changes.
+- **Original Phase 2: global hotkey + SendInput.** "Press the
+  hotkey anywhere in Windows, talk, words appear in whatever window
+  has focus." This goes beyond cc-director — it would replace
+  Windows Dictation across the OS. Requires Win32 keyboard hook
+  setup + SendInput plumbing + live keyboard testing.
+- **Phase 5: Mac.** AVAudioEngine for capture, Accessibility APIs
+  for typing into the focused window. Library code is
+  platform-agnostic; only the shell layer changes.
+- **Optional polish:** Speak button parity in `chat.html` and
+  `manager.html` if you decide those pages need it. The
+  `dictate-client.js` module is ready to drop in there too.
 
-Everything that does not require a microphone or live hotkey is done.
+Everything that does not require live hardware is done. The
+dictation library is usable from inside cc-director on both
+surfaces.

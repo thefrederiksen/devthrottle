@@ -27,6 +27,7 @@
     <EmbeddedResource Include="Web\chat.html" />
     <EmbeddedResource Include="Web\dictate.html" />
     <EmbeddedResource Include="Web\dictate-worklet.js" />
+    <EmbeddedResource Include="Web\dictate-client.js" />
   </ItemGroup>
 
 </Project>
