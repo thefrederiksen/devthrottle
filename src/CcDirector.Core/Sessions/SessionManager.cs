@@ -21,10 +21,11 @@ public sealed class SessionManager : IDisposable
     public AgentOptions Options => _options;
 
     /// <summary>
-    /// Fired (on a background thread) immediately after a new session is created and
-    /// added to the manager's internal dictionary. The Avalonia UI subscribes to this
-    /// to wrap externally-created sessions (e.g. via the web Manager) into its own
-    /// ObservableCollection so they appear in the sidebar.
+    /// Fired immediately after a session is added to the manager's internal dictionary,
+    /// for EVERY session - whether created via the Avalonia UI, the web Control API,
+    /// or restored from persistence at startup. Handlers must be idempotent: the
+    /// Avalonia UI already skips sessions it has already wrapped, and any other
+    /// subscriber should do the same.
     /// </summary>
     public event Action<Session>? OnSessionCreated;
 
@@ -127,6 +128,7 @@ public sealed class SessionManager : IDisposable
             session.MarkRunning();
 
             _sessions[id] = session;
+            RaiseSessionCreated(session);
 
             // Pre-populate ClaudeSessionId when we already know it:
             //   * resumeSessionId is always known (caller supplied it via --resume)
@@ -174,6 +176,7 @@ public sealed class SessionManager : IDisposable
         session.MarkRunning();
 
         _sessions[id] = session;
+        RaiseSessionCreated(session);
         _log?.Invoke($"Pipe mode session {id} created for repo {repoPath}.");
 
         return session;
@@ -194,6 +197,7 @@ public sealed class SessionManager : IDisposable
         session.MarkRunning();
 
         _sessions[id] = session;
+        RaiseSessionCreated(session);
         _log?.Invoke($"Embedded session {id} created for repo {repoPath}.");
 
         return session;
@@ -474,6 +478,7 @@ public sealed class SessionManager : IDisposable
         }
 
         _sessions[session.Id] = session;
+        RaiseSessionCreated(session);
 
         if (ps.ClaudeSessionId != null)
         {

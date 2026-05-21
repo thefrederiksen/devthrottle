@@ -15,10 +15,10 @@
     --muted-2: #6a6a6a;
     --accent: #0e639c;
     --accent-hover: #1177bb;
-    --red: #f44747;
-    --yellow: #dcdcaa;
-    --green: #4ec9b0;
-    --blue: #569cd6;
+    --red: #ef4444;     /* vivid red - "needs you" */
+    --yellow: #eab308;  /* vivid amber - "warning" */
+    --green: #22c55e;   /* vivid green - "ready" */
+    --blue: #3b82f6;    /* vivid blue - "working" (distinct hue from green) */
     --orange: #ce9178;
   }
   * { box-sizing: border-box; }
@@ -73,71 +73,6 @@
     border-radius: 6px;
   }
   header a.link:hover { background: rgba(14,99,156,0.15); }
-
-  .filters {
-    padding: 10px 14px;
-    background: var(--panel-2);
-    border-bottom: 1px solid var(--border);
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    flex-wrap: wrap;
-  }
-  .pill-group { display: inline-flex; gap: 6px; flex-wrap: wrap; }
-  .pill {
-    background: var(--panel);
-    color: var(--muted);
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    padding: 4px 12px;
-    font-size: 12px;
-    cursor: pointer;
-    user-select: none;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .pill:hover { color: var(--text); border-color: var(--muted-2); }
-  .pill.active { background: var(--accent); border-color: var(--accent); color: white; }
-  .pill .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
-  .pill .dot.red { background: var(--red); }
-  .pill .dot.yellow { background: var(--yellow); }
-  .pill .dot.green { background: var(--green); }
-  .pill .dot.blue { background: var(--blue); }
-  .pill .dot.unknown { background: var(--muted-2); }
-
-  .legend {
-    display: flex; flex-wrap: wrap; align-items: center; gap: 16px;
-    padding: 8px 14px;
-    background: var(--bg);
-    border-bottom: 1px solid var(--border);
-    color: var(--muted-2);
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-  .legend .item { display: inline-flex; align-items: center; gap: 6px; }
-  .legend .item .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
-  .legend .item .dot.green { background: var(--green); }
-  .legend .item .dot.blue { background: var(--blue); }
-  .legend .item .dot.yellow { background: var(--yellow); }
-  .legend .item .dot.red { background: var(--red); }
-  .legend .item .dot.unknown { background: var(--muted-2); }
-  .pill .count { color: var(--muted-2); font-size: 11px; }
-  .pill.active .count { color: rgba(255,255,255,0.7); }
-
-  .filters label { color: var(--muted); font-size: 12px; display: inline-flex; align-items: center; gap: 6px; }
-  .filters select, .filters input[type=text] {
-    background: var(--panel);
-    color: var(--text);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 4px 10px;
-    font-size: 12px;
-    font-family: inherit;
-    min-width: 160px;
-  }
-  .filters input[type=checkbox] { accent-color: var(--accent); cursor: pointer; }
 
   main { padding: 16px 14px 40px; max-width: 1400px; margin: 0 auto; }
 
@@ -207,11 +142,12 @@
     transition: border-color 120ms;
   }
   .card:hover { border-color: var(--muted-2); }
-  .card .head { display: flex; align-items: center; gap: 8px; }
+  .card .head { display: flex; align-items: center; gap: 10px; }
   .card .dot {
     flex-shrink: 0;
-    width: 10px; height: 10px;
+    width: 18px; height: 18px;
     border-radius: 50%;
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.06);
   }
   .card .dot.red { background: var(--red); }
   .card .dot.yellow { background: var(--yellow); }
@@ -302,9 +238,10 @@
   table.list tbody tr:hover { background: rgba(255,255,255,0.02); }
   table.list .dot {
     display: inline-block;
-    width: 8px; height: 8px;
+    width: 14px; height: 14px;
     border-radius: 50%;
     vertical-align: middle;
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.06);
   }
   table.list .dot.red { background: var(--red); }
   table.list .dot.yellow { background: var(--yellow); }
@@ -341,8 +278,6 @@
 
   @media (max-width: 720px) {
     .cards { grid-template-columns: 1fr; }
-    .filters { gap: 10px; }
-    .filters select, .filters input[type=text] { min-width: 0; flex: 1; }
     table.list .repo, table.list th.repo { display: none; }
   }
 </style>
@@ -361,26 +296,6 @@
   <a class="link" href="/logout" __LOGOUT_VISIBILITY__>logout</a>
 </header>
 
-<div class="legend" aria-label="Color legend">
-  <span class="item"><span class="dot green"></span>Green: ready</span>
-  <span class="item"><span class="dot blue"></span>Blue: agent working</span>
-  <span class="item"><span class="dot yellow"></span>Yellow: warning</span>
-  <span class="item"><span class="dot red"></span>Red: needs you</span>
-  <span class="item"><span class="dot unknown"></span>Gray: unknown / unreachable</span>
-</div>
-
-<div class="filters" id="filters">
-  <div class="pill-group" id="pills"></div>
-  <label>
-    Agent
-    <select id="agent-filter"><option value="">All</option></select>
-  </label>
-  <label>
-    Search
-    <input type="text" id="search" placeholder="name or repo">
-  </label>
-</div>
-
 <main>
   <div id="error" class="error" style="display:none"></div>
   <div id="content"></div>
@@ -391,12 +306,8 @@ const REFRESH_MS = 2000;
 
 const state = {
   view: localStorage.getItem("gw_view") || "cards",
-  statusFilter: "all",     // "all" | "red" | "yellow" | "blue" | "green"
-  agentFilter: "",
-  search: "",
   sessions: [],
   machineErrors: [],
-  agents: new Set(),
 };
 
 let inflight = null;
@@ -455,6 +366,22 @@ function statusReasonOf(s) {
   return s.lastStatusReason || "";
 }
 
+// Dot tooltip - replaces the page-level legend. Combines the color's general
+// meaning with the supervisor's specific reason for THIS session.
+const COLOR_MEANING = {
+  green:   "Green - ready",
+  blue:    "Blue - agent working",
+  yellow:  "Yellow - warning",
+  red:     "Red - needs you",
+  unknown: "Gray - unknown / unreachable",
+};
+function dotTooltipOf(s) {
+  const color = statusColorOf(s);
+  const reason = statusReasonOf(s);
+  const meaning = COLOR_MEANING[color] || color;
+  return reason ? `${meaning}\n(${reason})` : meaning;
+}
+
 function sessionSortKey(s) {
   const color = statusColorOf(s);
   const order = { red: 0, yellow: 1, blue: 2, green: 3, unknown: 4 };
@@ -465,22 +392,6 @@ function compareSessions(a, b) {
   const ka = sessionSortKey(a), kb = sessionSortKey(b);
   if (ka[0] !== kb[0]) return ka[0] - kb[0];
   return ka[1].localeCompare(kb[1]);
-}
-
-// ---------- filtering ----------
-
-function applyFilters(sessions) {
-  return sessions.filter(s => {
-    if (state.statusFilter !== "all" && statusColorOf(s) !== state.statusFilter) return false;
-    if (state.agentFilter && s.agent !== state.agentFilter) return false;
-    if (state.search) {
-      const needle = state.search.toLowerCase();
-      const name = (s.name || "").toLowerCase();
-      const repo = (s.repoPath || "").toLowerCase();
-      if (!name.includes(needle) && !repo.includes(needle)) return false;
-    }
-    return true;
-  });
 }
 
 function groupByMachine(sessions) {
@@ -507,57 +418,13 @@ function groupByMachine(sessions) {
 
 function renderHeader() {
   const sessions = state.sessions;
-  const visible = applyFilters(sessions);
   const reds = sessions.filter(s => statusColorOf(s) === "red").length;
   const yellows = sessions.filter(s => statusColorOf(s) === "yellow").length;
-  const stats = document.getElementById("stats");
   const total = sessions.length;
   const parts = [`${total} session${total === 1 ? "" : "s"}`];
   if (reds) parts.push(`<span class="red">${reds} red</span>`);
   if (yellows) parts.push(`<span class="yellow">${yellows} yellow</span>`);
-  if (visible.length !== total) parts.push(`<span>${visible.length} shown</span>`);
-  stats.innerHTML = parts.join(" &middot; ");
-
-  // Update pill counts.
-  const counts = { all: 0, red: 0, yellow: 0, blue: 0, green: 0 };
-  for (const s of sessions) {
-    counts.all++;
-    const c = statusColorOf(s);
-    if (c in counts) counts[c]++;
-  }
-  renderPills(counts);
-
-  // Update agent filter dropdown options.
-  const sel = document.getElementById("agent-filter");
-  const current = sel.value;
-  const agents = Array.from(new Set(sessions.map(s => s.agent).filter(Boolean))).sort();
-  if (agents.join(",") !== Array.from(state.agents).sort().join(",")) {
-    sel.innerHTML = '<option value="">All</option>' + agents.map(a => `<option value="${escapeHtml(a)}">${escapeHtml(a)}</option>`).join("");
-    sel.value = current;
-    state.agents = new Set(agents);
-  }
-}
-
-function renderPills(counts) {
-  const pills = document.getElementById("pills");
-  const items = [
-    { key: "all", label: "All", count: counts.all, dot: null },
-    { key: "red", label: "Red", count: counts.red, dot: "red" },
-    { key: "yellow", label: "Yellow", count: counts.yellow, dot: "yellow" },
-    { key: "blue", label: "Blue", count: counts.blue, dot: "blue" },
-    { key: "green", label: "Green", count: counts.green, dot: "green" },
-  ];
-  pills.innerHTML = items.map(it => {
-    const active = state.statusFilter === it.key ? " active" : "";
-    const dot = it.dot ? `<span class="dot ${it.dot}"></span>` : "";
-    return `<span class="pill${active}" data-key="${it.key}">${dot}${it.label} <span class="count">${it.count}</span></span>`;
-  }).join("");
-  pills.querySelectorAll(".pill").forEach(el => {
-    el.addEventListener("click", () => {
-      state.statusFilter = el.getAttribute("data-key");
-      render();
-    });
-  });
+  document.getElementById("stats").innerHTML = parts.join(" &middot; ");
 }
 
 function renderCardsView(groups) {
@@ -576,8 +443,7 @@ function renderCardsView(groups) {
       html += `<div class="cards">`;
       for (const s of g.sessions) {
         const color = statusColorOf(s);
-        const reason = statusReasonOf(s);
-        const dotTitle = reason ? `${color}: ${reason}` : color;
+        const dotTitle = dotTooltipOf(s);
         const name = s.name || "";
         const titleHtml = name
           ? `<span class="title">${escapeHtml(name)}</span>`
@@ -620,7 +486,7 @@ function renderListView(groups) {
     if (g.sessions.length > 0) {
       html += `<table class="list">`;
       html += `<thead><tr>
-        <th style="width:24px"></th>
+        <th style="width:32px"></th>
         <th>Agent</th>
         <th>Name</th>
         <th class="repo">Repo</th>
@@ -630,8 +496,7 @@ function renderListView(groups) {
       </tr></thead><tbody>`;
       for (const s of g.sessions) {
         const color = statusColorOf(s);
-        const reason = statusReasonOf(s);
-        const dotTitle = reason ? `${color}: ${reason}` : color;
+        const dotTitle = dotTooltipOf(s);
         const name = s.name || "";
         const nameHtml = name
           ? `<span class="name">${escapeHtml(name)}</span>`
@@ -659,8 +524,7 @@ function renderListView(groups) {
 
 function render() {
   renderHeader();
-  const visible = applyFilters(state.sessions);
-  const groups = groupByMachine(visible);
+  const groups = groupByMachine(state.sessions);
   const content = document.getElementById("content");
 
   if (state.sessions.length === 0 && state.machineErrors.length === 0) {
@@ -671,11 +535,6 @@ function render() {
       '</div>';
     return;
   }
-  if (visible.length === 0 && state.machineErrors.length === 0) {
-    content.innerHTML = '<div class="empty">No sessions match the current filters.</div>';
-    return;
-  }
-
   content.innerHTML = state.view === "cards" ? renderCardsView(groups) : renderListView(groups);
 }
 
@@ -725,15 +584,6 @@ function setView(v) {
 
 document.getElementById("btn-cards").addEventListener("click", () => setView("cards"));
 document.getElementById("btn-list").addEventListener("click", () => setView("list"));
-
-document.getElementById("agent-filter").addEventListener("change", (e) => {
-  state.agentFilter = e.target.value;
-  render();
-});
-document.getElementById("search").addEventListener("input", (e) => {
-  state.search = e.target.value;
-  render();
-});
 
 // Initial view setup.
 setView(state.view);

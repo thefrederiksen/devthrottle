@@ -21,10 +21,10 @@
     --muted-2: #6a6a6a;
     --accent: #0e639c;
     --accent-hover: #1177bb;
-    --red: #f44747;
-    --yellow: #dcdcaa;
-    --green: #4ec9b0;
-    --blue: #569cd6;
+    --red: #ef4444;
+    --yellow: #eab308;
+    --green: #22c55e;
+    --blue: #3b82f6;
   }
   * { box-sizing: border-box; }
   html, body {
@@ -128,8 +128,8 @@
   /* Card view */
   .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
   .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 8px; }
-  .card .head { display: flex; align-items: center; gap: 8px; }
-  .card .dot { flex-shrink: 0; width: 10px; height: 10px; border-radius: 50%; }
+  .card .head { display: flex; align-items: center; gap: 10px; }
+  .card .dot { flex-shrink: 0; width: 18px; height: 18px; border-radius: 50%; box-shadow: 0 0 0 1px rgba(255,255,255,0.06); }
   .card .dot.red { background: var(--red); }
   .card .dot.yellow { background: var(--yellow); }
   .card .dot.green { background: var(--green); }
@@ -153,7 +153,7 @@
   table.list th, table.list td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
   table.list thead th { background: rgba(14,99,156,0.10); color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
   table.list tbody tr:last-child td { border-bottom: none; }
-  table.list .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; vertical-align: middle; }
+  table.list .dot { display: inline-block; width: 14px; height: 14px; border-radius: 50%; vertical-align: middle; box-shadow: 0 0 0 1px rgba(255,255,255,0.06); }
   table.list .dot.red { background: var(--red); }
   table.list .dot.yellow { background: var(--yellow); }
   table.list .dot.green { background: var(--green); }

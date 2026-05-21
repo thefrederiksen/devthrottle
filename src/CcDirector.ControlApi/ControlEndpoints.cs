@@ -810,7 +810,8 @@ internal static class ControlEndpoints
                 {
                     return Results.Problem("failed to create target session: " + ex.Message, statusCode: 500);
                 }
-                sessionManager.RaiseSessionCreated(target);
+                // SessionManager.CreateSession now fires OnSessionCreated itself, so no
+                // explicit RaiseSessionCreated call is needed here.
 
                 // Dispatch the context after the new session reaches Idle. Fire-and-forget;
                 // we return the target DTO immediately so callers can navigate to it.
@@ -1038,8 +1039,8 @@ internal static class ControlEndpoints
                 return Results.Problem(ex.Message, statusCode: 500);
             }
 
-            // Notify any listeners (Avalonia UI subscribes to update its sidebar)
-            sessionManager.RaiseSessionCreated(session);
+            // SessionManager.CreateSession now fires OnSessionCreated itself, so no
+            // explicit RaiseSessionCreated call is needed here.
 
             // If a PrePrompt was supplied, dispatch it once the session reaches Idle.
             // Fire-and-forget on a background task so the POST returns 201 immediately.
