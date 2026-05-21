@@ -10,7 +10,7 @@ project:
   framework: ".NET 10"
   platform: "Windows 10/11 (WPF), Mac/Linux (experimental backend)"
 
-last_updated: "2026-05-15"
+last_updated: "2026-05-20"
 
 # C4 Level 1: System Context
 context:
@@ -196,7 +196,7 @@ containers:
         description: Session lifecycle management. Accepts an IAgent strategy to pick the underlying CLI (Claude Code, Pi, Codex, or Gemini).
         file: Sessions/SessionManager.cs
       - name: Session
-        description: Central session abstraction with activity state machine. Carries an AgentKind that identifies which CLI is bound to the session.
+        description: Central session abstraction with activity state machine. Carries an AgentKind that identifies which CLI is bound to the session. Owns a dedicated AnsiParser (120x40 grid, 5000-line scrollback) that is fed from CircularTerminalBuffer.OnBytesWritten and exposed via GetHtmlSnapshot() for the HTML "Raw terminal" tab; the Avalonia terminal keeps its own parser bound to the live window size.
         file: Sessions/Session.cs
       - name: IAgent
         description: Strategy interface describing an agent CLI - executable path, argument conventions for new/resume, and capability flags (preassigned session IDs, Studio mode).
@@ -259,7 +259,7 @@ containers:
         description: Orchestrates voice interaction flow
         file: Voice/Controllers/VoiceModeController.cs
       - name: CircularTerminalBuffer
-        description: Thread-safe ring buffer for terminal output
+        description: Thread-safe ring buffer for terminal output. Exposes an OnBytesWritten event (fired outside the write lock, in producer-thread chronological order) so per-session consumers like the HTML view's AnsiParser can receive every byte without holding the buffer lock.
         file: Memory/CircularTerminalBuffer.cs
       - name: AlphaMode
         description: Global alpha mode toggle for gating experimental features

@@ -1,11 +1,14 @@
 using System.Diagnostics;
 using System.Text;
+using CcDirector.ControlApi.Chat;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Claude;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Sessions;
+using CcDirector.Core.Supervisor;
 using CcDirector.Core.Utilities;
+using CcDirector.Core.Voice;
 using CcDirector.Gateway.Contracts;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -19,7 +22,7 @@ namespace CcDirector.ControlApi;
 /// </summary>
 internal static class ControlEndpoints
 {
-    public static void Map(IEndpointRouteBuilder app, SessionManager sessionManager, string directorId, string version, Func<Task> requestShutdownAsync, bool authEnabled = false, RepositoryRegistry? repositoryRegistry = null)
+    public static void Map(IEndpointRouteBuilder app, SessionManager sessionManager, string directorId, string version, Func<Task> requestShutdownAsync, bool authEnabled = false, RepositoryRegistry? repositoryRegistry = null, TurnSummaryCache? turnSummaryCache = null)
     {
         var logoutVisibility = authEnabled ? "" : "style=\"display:none\"";
         // ===== Healthz =====
@@ -35,12 +38,24 @@ internal static class ControlEndpoints
         }));
 
         // ===== HTML pages =====
+        // The Manager chat (chat.html) is the default UI at "/".  The older
+        // cards-grid Manager moved to "/cards" and remains available for the
+        // few flows that need it (multi-session overview, fan-out, etc.).
+        // See docs/features/director/GOAL_VOICE_MANAGER.md.
         app.MapGet("/", (HttpContext ctx) =>
         {
             // If browser asks for JSON, give them session list (handy for curl users)
             if (!DirectorAuth.PrefersHtml(ctx))
-                return Results.Json(sessionManager.ListSessions().Select(s => Map(s, directorId)).ToList());
+                return Results.Json(sessionManager.ListSessions().Select(s => Map(s, directorId, turnSummaryCache)).ToList());
 
+            var html = EmbeddedResources.Load("chat.html")
+                .Replace("__LOGOUT_VISIBILITY__", logoutVisibility);
+            return Results.Content(html, "text/html; charset=utf-8");
+        });
+
+        // Legacy cards-grid Manager (still useful for the multi-session overview).
+        app.MapGet("/cards", (HttpContext ctx) =>
+        {
             var html = EmbeddedResources.Load("manager.html")
                 .Replace("__LOGOUT_VISIBILITY__", logoutVisibility);
             return Results.Content(html, "text/html; charset=utf-8");
@@ -107,7 +122,7 @@ internal static class ControlEndpoints
         app.MapGet("/sessions", () =>
         {
             var sessions = sessionManager.ListSessions()
-                .Select(s => Map(s, directorId))
+                .Select(s => Map(s, directorId, turnSummaryCache))
                 .ToList();
             return Results.Json(sessions);
         });
@@ -121,7 +136,23 @@ internal static class ControlEndpoints
             if (session is null)
                 return Results.NotFound(new { error = "session not found" });
 
-            return Results.Json(Map(session, directorId));
+            return Results.Json(Map(session, directorId, turnSummaryCache));
+        });
+
+        app.MapPatch("/sessions/{sid}", (string sid, SessionUpdateRequest req) =>
+        {
+            if (!Guid.TryParse(sid, out var guid))
+                return Results.BadRequest(new { error = "invalid session id format" });
+
+            FileLog.Write($"[ControlEndpoints] PATCH /sessions/{sid}: name=\"{req?.Name}\"");
+
+            if (!sessionManager.RenameSession(guid, req?.Name))
+                return Results.NotFound(new { error = "session not found" });
+
+            var session = sessionManager.GetSession(guid);
+            return session is null
+                ? Results.NotFound(new { error = "session not found" })
+                : Results.Json(Map(session, directorId, turnSummaryCache));
         });
 
         app.MapGet("/sessions/{sid}/buffer", (string sid, int? lines, bool? raw, long? since) =>
@@ -167,6 +198,29 @@ internal static class ControlEndpoints
                 TotalBytes = buffer.TotalBytesWritten,
                 NewCursor = newCursor,
                 Text = text,
+            });
+        });
+
+        // ===== HTML snapshot of the terminal grid =====
+        // The Avalonia terminal renders cleanly because it pipes the raw PTY
+        // bytes through a real xterm-compatible VT emulator. The HTML "Raw
+        // terminal" tab needs the same treatment, otherwise CR-overwrites and
+        // status-bar redraws stack as junk lines. We expose the per-session
+        // parser snapshot here as styled HTML; the client just swaps innerHTML.
+        app.MapGet("/sessions/{sid}/buffer/html", (string sid) =>
+        {
+            if (!Guid.TryParse(sid, out var guid))
+                return Results.BadRequest(new { error = "invalid session id format" });
+
+            var session = sessionManager.GetSession(guid);
+            if (session is null)
+                return Results.NotFound(new { error = "session not found" });
+
+            return Results.Json(new
+            {
+                sessionId = sid,
+                totalBytes = session.Buffer?.TotalBytesWritten ?? 0,
+                html = session.GetHtmlSnapshot(),
             });
         });
 
@@ -318,6 +372,352 @@ internal static class ControlEndpoints
             return Results.Text(text, "text/plain; charset=utf-8");
         });
 
+        // ===== REST: Recap (cheap claude --print side-call, cached) =====
+        // Two endpoints: GET returns whatever is in the cache (or status=not_cached),
+        // POST regenerates and writes to cache. We never start a generation on GET
+        // because GET should always be cheap and never trigger an API spend.
+        app.MapGet("/sessions/{sid}/recap", (string sid) =>
+        {
+            if (!Guid.TryParse(sid, out var guid))
+                return Results.BadRequest(new { error = "invalid session id format" });
+
+            var session = sessionManager.GetSession(guid);
+            if (session is null)
+                return Results.NotFound(new { error = "session not found" });
+
+            var cached = RecapCache.TryGet(guid);
+            var currentTurns = ComputeTurnCount(session);
+
+            if (cached is null)
+            {
+                return Results.Json(new RecapResponse
+                {
+                    SessionId = sid,
+                    CurrentTurnCount = currentTurns,
+                    Status = "not_cached",
+                    Error = "No recap has been generated yet. POST to /sessions/{sid}/recap to create one.",
+                });
+            }
+
+            return Results.Json(new RecapResponse
+            {
+                SessionId = sid,
+                Recap = cached.Recap,
+                GeneratedAt = cached.GeneratedAt,
+                AtTurnCount = cached.AtTurnCount,
+                CurrentTurnCount = currentTurns,
+                IsStale = currentTurns > cached.AtTurnCount,
+                Model = cached.Model,
+                ElapsedMs = cached.ElapsedMs,
+                Status = "ok",
+            });
+        });
+
+        app.MapPost("/sessions/{sid}/recap", async (string sid, HttpContext ctx) =>
+        {
+            FileLog.Write($"[ControlEndpoints] POST /sessions/{sid}/recap");
+
+            if (!Guid.TryParse(sid, out var guid))
+                return Results.BadRequest(new { error = "invalid session id format" });
+
+            var session = sessionManager.GetSession(guid);
+            if (session is null)
+                return Results.NotFound(new { error = "session not found" });
+
+            var model = ctx.Request.Query["model"].ToString();
+            if (string.IsNullOrWhiteSpace(model))
+                model = RecapGenerator.DefaultModel;
+
+            if (string.IsNullOrEmpty(session.ClaudeSessionId))
+            {
+                return Results.Json(new RecapResponse
+                {
+                    SessionId = sid,
+                    Model = model,
+                    Status = "no_session_id",
+                    Error = "Session has not been linked to a Claude session id yet.",
+                });
+            }
+
+            var jsonl = ClaudeSessionReader.GetJsonlPath(session.ClaudeSessionId, session.RepoPath);
+            if (!File.Exists(jsonl))
+            {
+                return Results.Json(new RecapResponse
+                {
+                    SessionId = sid,
+                    Model = model,
+                    Status = "no_jsonl",
+                    Error = $"JSONL file not found at {jsonl}",
+                });
+            }
+
+            SessionSummaryDto summary;
+            string digest;
+            int currentTurns;
+            try
+            {
+                var messages = StreamMessageParser.ParseFile(jsonl);
+                summary = SummaryBuilder.Build(messages);
+                summary.SessionId = sid;
+                summary.DirectorId = directorId;
+                summary.Agent = session.AgentKind.ToString();
+                summary.RepoPath = session.RepoPath;
+                summary.ActivityState = session.ActivityState.ToString();
+                summary.CreatedAt = session.CreatedAt.UtcDateTime;
+                digest = SummaryBuilder.FormatAsHandoverPrompt(summary);
+                currentTurns = summary.TurnCount;
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[ControlEndpoints] /recap digest build FAILED: {ex.Message}");
+                return Results.Json(new RecapResponse
+                {
+                    SessionId = sid,
+                    Model = model,
+                    Status = "generation_failed",
+                    Error = "Failed to build session digest: " + ex.Message,
+                });
+            }
+
+            try
+            {
+                var sw = Stopwatch.StartNew();
+                var recapText = await RecapGenerator.GenerateAsync(
+                    digest, sessionManager.Options.ClaudePath, model, ctx.RequestAborted);
+                sw.Stop();
+
+                var entry = new RecapCache.Entry
+                {
+                    Recap = recapText,
+                    GeneratedAt = DateTime.UtcNow,
+                    AtTurnCount = currentTurns,
+                    Model = model,
+                    ElapsedMs = sw.ElapsedMilliseconds,
+                };
+                RecapCache.Set(guid, entry);
+
+                return Results.Json(new RecapResponse
+                {
+                    SessionId = sid,
+                    Recap = entry.Recap,
+                    GeneratedAt = entry.GeneratedAt,
+                    AtTurnCount = entry.AtTurnCount,
+                    CurrentTurnCount = currentTurns,
+                    IsStale = false,
+                    Model = entry.Model,
+                    ElapsedMs = entry.ElapsedMs,
+                    Status = "ok",
+                }, statusCode: 201);
+            }
+            catch (OperationCanceledException)
+            {
+                return Results.StatusCode(499); // Client Closed Request
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[ControlEndpoints] /recap generation FAILED: {ex.Message}");
+                return Results.Json(new RecapResponse
+                {
+                    SessionId = sid,
+                    Model = model,
+                    Status = "generation_failed",
+                    Error = ex.Message,
+                });
+            }
+        });
+
+        // ===== REST: Voice (Whisper-backed Manager UI voice mode) ==================
+        // Accepts a multipart/form-data upload with one audio file field. Returns the
+        // transcript + an executed reply. The OpenAI key lives in AgentOptions and is
+        // never sent to the browser.
+        app.MapPost("/voice/command", async (HttpContext ctx) =>
+        {
+            FileLog.Write($"[ControlEndpoints] POST /voice/command");
+
+            if (!ctx.Request.HasFormContentType)
+                return Results.BadRequest(new { error = "expected multipart/form-data with an audio file" });
+
+            var form = await ctx.Request.ReadFormAsync(ctx.RequestAborted);
+            var file = form.Files.GetFile("file") ?? form.Files.GetFile("audio") ?? form.Files.FirstOrDefault();
+            if (file is null || file.Length == 0)
+                return Results.BadRequest(new { error = "no audio file uploaded; use form field 'file'" });
+
+            var svc = new VoiceService(sessionManager, sessionManager.Options);
+            await using var stream = file.OpenReadStream();
+            var resp = await svc.HandleAsync(stream, file.FileName, ctx.RequestAborted);
+            return Results.Json(resp);
+        });
+
+        // GET /voice/status - reports whether voice mode is enabled (key configured).
+        // The browser uses this on page load to hide / disable the Voice button when
+        // no key is present, instead of letting the user try and get an error mid-record.
+        app.MapGet("/voice/status", () =>
+        {
+            var svc = new VoiceService(sessionManager, sessionManager.Options);
+            return Results.Json(new { available = svc.IsAvailable });
+        });
+
+        // ===== REST: Manager chat (Phase 1) =================================================
+        // Relays one user message to the session configured by Chat.SessionRepoPath in
+        // appsettings.json. Waits for the agent's turn to complete, returns the reply.
+        // See docs/features/director/GOAL_VOICE_MANAGER.md Phase 1.
+        app.MapPost("/chat", async (ChatRequest req, HttpContext ctx) =>
+        {
+            FileLog.Write($"[ControlEndpoints] POST /chat: textLen={req?.Text?.Length ?? 0}");
+            if (req is null || string.IsNullOrWhiteSpace(req.Text))
+                return Results.BadRequest(new { error = "text is required" });
+
+            var svc = new ChatService(sessionManager, sessionManager.Options, turnSummaryCache);
+            var resp = await svc.HandleAsync(req, ctx.RequestAborted);
+
+            // Map the service status to an HTTP code so the UI can branch cleanly.
+            return resp.Status switch
+            {
+                "ok" or "timeout" => Results.Json(resp),
+                "no_session_configured" => Results.Json(resp, statusCode: StatusCodes.Status503ServiceUnavailable),
+                "session_not_found" => Results.Json(resp, statusCode: StatusCodes.Status404NotFound),
+                "session_busy" => Results.Json(resp, statusCode: StatusCodes.Status409Conflict),
+                _ => Results.Json(resp, statusCode: StatusCodes.Status500InternalServerError),
+            };
+        });
+
+        // ===== REST: Supervisor rules / git / recovery (Phases 5-7) =========================
+        // Each of these is a thin HTTP wrapper over the matching SupervisorService method.
+        app.MapPost("/sessions/{sid}/rule-violations", async (string sid, HttpContext ctx) =>
+        {
+            if (!Guid.TryParse(sid, out var guid))
+                return Results.BadRequest(new { error = "invalid session id format" });
+            var session = sessionManager.GetSession(guid);
+            if (session is null) return Results.NotFound(new { error = "session not found" });
+
+            var latest = turnSummaryCache?.GetForSession(guid).LastOrDefault();
+            if (latest is null)
+                return Results.Json(new RuleViolationsResponse { SessionId = sid, Status = "no_summary" });
+
+            var resp = await SupervisorService.CheckRulesAsync(latest, session.RepoPath, sessionManager.Options.ClaudePath, ctx.RequestAborted);
+            resp.SessionId = sid;
+            return Results.Json(resp);
+        });
+
+        app.MapGet("/sessions/{sid}/git", async (string sid, HttpContext ctx) =>
+        {
+            if (!Guid.TryParse(sid, out var guid))
+                return Results.BadRequest(new { error = "invalid session id format" });
+            var session = sessionManager.GetSession(guid);
+            if (session is null) return Results.NotFound(new { error = "session not found" });
+            var snap = await SupervisorService.GitSnapshotAsync(session.RepoPath, ctx.RequestAborted);
+            return Results.Json(snap);
+        });
+
+        app.MapPost("/sessions/{sid}/recovery-prompt", async (string sid, HttpContext ctx) =>
+        {
+            if (!Guid.TryParse(sid, out var guid))
+                return Results.BadRequest(new { error = "invalid session id format" });
+            var session = sessionManager.GetSession(guid);
+            if (session is null) return Results.NotFound(new { error = "session not found" });
+            var latest = turnSummaryCache?.GetForSession(guid).LastOrDefault();
+            var rp = await SupervisorService.BuildRecoveryPromptAsync(sid, session.RepoPath, latest, ctx.RequestAborted);
+            return Results.Json(rp);
+        });
+
+        // ===== REST: OpenAI TTS (Phase 3) ===================================================
+        // Voice mode posts spoken_text here, gets audio/mpeg back.  Falls back to
+        // browser SpeechSynthesis on the client side if this fails.
+        app.MapPost("/tts", async (TtsRequest req, HttpContext ctx) =>
+        {
+            if (req is null || string.IsNullOrWhiteSpace(req.Text))
+                return Results.BadRequest(new TtsErrorResponse { Status = "empty_text", Error = "text is required" });
+
+            var svc = new TtsService(sessionManager.Options);
+            var result = await svc.GenerateAsync(req.Text, req.Voice, req.Model, ctx.RequestAborted);
+            if (!result.Success || result.AudioBytes is null)
+            {
+                var status = result.Status switch
+                {
+                    "no_key" => StatusCodes.Status503ServiceUnavailable,
+                    "empty_text" => StatusCodes.Status400BadRequest,
+                    "openai_failed" => StatusCodes.Status502BadGateway,
+                    _ => StatusCodes.Status500InternalServerError,
+                };
+                return Results.Json(
+                    new TtsErrorResponse { Status = result.Status, Error = result.ErrorMessage ?? "" },
+                    statusCode: status);
+            }
+            return Results.File(result.AudioBytes, contentType: result.ContentType ?? "audio/mpeg");
+        });
+
+        app.MapGet("/tts/status", () =>
+        {
+            var svc = new TtsService(sessionManager.Options);
+            return Results.Json(new
+            {
+                available = svc.IsAvailable,
+                voice = sessionManager.Options.TtsVoice,
+                model = sessionManager.Options.TtsModel,
+            });
+        });
+
+        // ===== REST: Supervisor turn summaries (Phase 2) ====================================
+        // Per-completed-turn structured summary produced by the SessionSupervisor.
+        // Feeds the Agent View AND the voice mode's TTS (via summary.spokenText).
+        // See docs/goals/GOAL_CC_DIRECTOR_SUPERVISOR.md section 4.
+        app.MapGet("/sessions/{sid}/turn-summaries", (string sid) =>
+        {
+            if (!Guid.TryParse(sid, out var guid))
+                return Results.BadRequest(new { error = "invalid session id format" });
+
+            if (sessionManager.GetSession(guid) is null)
+                return Results.NotFound(new { error = "session not found" });
+
+            var list = turnSummaryCache?.GetForSession(guid).ToList() ?? new List<TurnSummary>();
+            return Results.Json(new TurnSummariesResponse { SessionId = sid, Summaries = list });
+        });
+
+        // POST /sessions/{sid}/turn-summaries - generate a summary for the LATEST turn
+        // on demand.  Used by the voice mode after a chat reply lands, so it can speak
+        // the spoken_text version instead of the raw reply.  Synchronous: returns the
+        // generated summary directly so the caller doesn't have to poll.
+        app.MapPost("/sessions/{sid}/turn-summaries", async (string sid, HttpContext ctx) =>
+        {
+            if (!Guid.TryParse(sid, out var guid))
+                return Results.BadRequest(new { error = "invalid session id format" });
+
+            if (turnSummaryCache is null)
+                return Results.Problem("Supervisor turn-summary cache not wired", statusCode: 500);
+
+            var summary = await turnSummaryCache.GenerateForLatestTurnAsync(guid, ctx.RequestAborted);
+            if (summary is null)
+                return Results.NotFound(new { error = "session not found or has no JSONL yet" });
+            return Results.Json(summary, statusCode: 201);
+        });
+
+        // GET /chat/status - reports whether the Manager has a configured session it
+        // can talk to.  The chat UI calls this on page load so it can show a useful
+        // placeholder (or guide the user to set Chat.SessionRepoPath) before any
+        // message is sent.
+        app.MapGet("/chat/status", () =>
+        {
+            var svc = new ChatService(sessionManager, sessionManager.Options);
+            var info = svc.GetConfiguredSession();
+            if (info is null)
+            {
+                return Results.Json(new
+                {
+                    available = false,
+                    chatSessionRepoPath = sessionManager.Options.ChatSessionRepoPath,
+                });
+            }
+            return Results.Json(new
+            {
+                available = true,
+                chatSessionRepoPath = sessionManager.Options.ChatSessionRepoPath,
+                sessionId = info.SessionId,
+                sessionName = info.SessionName,
+                repoPath = info.RepoPath,
+                activityState = info.ActivityState,
+            });
+        });
+
         app.MapPost("/handover", async (HandoverRequest req) =>
         {
             // Director-local handover. Source AND target must both live on this Director.
@@ -437,7 +837,7 @@ internal static class ControlEndpoints
             return Results.Json(new HandoverResponse
             {
                 Accepted = true,
-                TargetSession = Map(target, directorId),
+                TargetSession = Map(target, directorId, turnSummaryCache),
                 ContextSent = contextText,
                 ArchivedAt = archivedAt,
             }, statusCode: 201);
@@ -665,7 +1065,7 @@ internal static class ControlEndpoints
                 });
             }
 
-            return Results.Json(Map(session, directorId), statusCode: 201);
+            return Results.Json(Map(session, directorId, turnSummaryCache), statusCode: 201);
         });
 
         // ===== REST: Kill a session =====
@@ -706,19 +1106,46 @@ internal static class ControlEndpoints
         });
     }
 
-    private static SessionDto Map(Session s, string directorId) => new()
+    private static SessionDto Map(Session s, string directorId, TurnSummaryCache? cache = null)
     {
-        SessionId = s.Id.ToString(),
-        DirectorId = directorId,
-        Agent = s.AgentKind.ToString(),
-        RepoPath = s.RepoPath,
-        Status = s.Status.ToString(),
-        ActivityState = s.ActivityState.ToString(),
-        CreatedAt = s.CreatedAt.UtcDateTime,
-        TotalBufferBytes = s.Buffer?.TotalBytesWritten ?? 0,
-        BackendType = s.BackendType.ToString(),
-        Name = null,
-    };
+        var latest = cache?.GetForSession(s.Id).LastOrDefault();
+        return new()
+        {
+            SessionId = s.Id.ToString(),
+            DirectorId = directorId,
+            Agent = s.AgentKind.ToString(),
+            RepoPath = s.RepoPath,
+            Status = s.Status.ToString(),
+            ActivityState = s.ActivityState.ToString(),
+            CreatedAt = s.CreatedAt.UtcDateTime,
+            TotalBufferBytes = s.Buffer?.TotalBytesWritten ?? 0,
+            BackendType = s.BackendType.ToString(),
+            Name = s.CustomName,
+            StatusColor = StatusColor.From(latest),
+        };
+    }
+
+    /// <summary>
+    /// Compute the current turn count from the session's linked JSONL file.
+    /// Returns 0 if the session isn't linked or the file isn't there yet.
+    /// Used by the recap endpoints to compute the IsStale flag.
+    /// </summary>
+    private static int ComputeTurnCount(Session session)
+    {
+        if (string.IsNullOrEmpty(session.ClaudeSessionId)) return 0;
+        try
+        {
+            var jsonl = ClaudeSessionReader.GetJsonlPath(session.ClaudeSessionId, session.RepoPath);
+            if (!File.Exists(jsonl)) return 0;
+            var messages = StreamMessageParser.ParseFile(jsonl);
+            return WidgetBuilder.BuildFromMessages(messages).Count;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[ControlEndpoints] ComputeTurnCount FAILED: {ex.Message}");
+            return 0;
+        }
+    }
 
     /// <summary>Only allow same-origin path redirects (defense against open-redirect).</summary>
     private static bool IsSafeRedirect(string next)

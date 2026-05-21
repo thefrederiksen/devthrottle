@@ -41,6 +41,16 @@ public sealed class CircularTerminalBuffer : IDisposable
         }
     }
 
+    /// <summary>
+    /// Fires after a successful Write, on the producer thread, with a freshly
+    /// allocated copy of the data that was just written. Used by per-session
+    /// consumers (e.g. a VT emulator for the HTML view) that need every byte
+    /// in order without holding the buffer lock. The PTY drain loop is the
+    /// only producer in production, so callbacks see writes in chronological
+    /// order. Handlers must not throw; an exception is caught and logged.
+    /// </summary>
+    public event Action<byte[]>? OnBytesWritten;
+
     /// <summary>Append bytes to the buffer. Wraps around when full.</summary>
     public void Write(ReadOnlySpan<byte> data)
     {
@@ -71,25 +81,37 @@ public sealed class CircularTerminalBuffer : IDisposable
                 data.Slice(data.Length - _capacity).CopyTo(_buffer);
                 _writeHead = 0;
                 _totalWritten += data.Length;
-                return;
             }
-
-            int firstPart = Math.Min(data.Length, _capacity - _writeHead);
-            data.Slice(0, firstPart).CopyTo(_buffer.AsSpan(_writeHead, firstPart));
-
-            if (firstPart < data.Length)
+            else
             {
-                // Wrap around
-                int secondPart = data.Length - firstPart;
-                data.Slice(firstPart, secondPart).CopyTo(_buffer.AsSpan(0, secondPart));
-            }
+                int firstPart = Math.Min(data.Length, _capacity - _writeHead);
+                data.Slice(0, firstPart).CopyTo(_buffer.AsSpan(_writeHead, firstPart));
 
-            _writeHead = (_writeHead + data.Length) % _capacity;
-            _totalWritten += data.Length;
+                if (firstPart < data.Length)
+                {
+                    // Wrap around
+                    int secondPart = data.Length - firstPart;
+                    data.Slice(firstPart, secondPart).CopyTo(_buffer.AsSpan(0, secondPart));
+                }
+
+                _writeHead = (_writeHead + data.Length) % _capacity;
+                _totalWritten += data.Length;
+            }
         }
         finally
         {
             _lock.ExitWriteLock();
+        }
+
+        var handler = OnBytesWritten;
+        if (handler is not null)
+        {
+            var copy = data.ToArray();
+            try { handler(copy); }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[CircularTerminalBuffer] OnBytesWritten handler threw: {ex.Message}");
+            }
         }
     }
 

@@ -273,14 +273,35 @@
   .icon-UserMessage{ background: var(--w-user); }
   .icon-GenericTool{ background: var(--w-generic); }
 
-  /* ===== RAW VIEW ===== */
+  /* ===== RAW VIEW =====
+   * Server emits a styled-HTML grid snapshot via /sessions/{sid}/buffer/html
+   * (produced by AnsiToHtmlConverter on a per-session AnsiParser). Lines are
+   * already wrapped at the parser's column boundary -- do NOT add word-break
+   * here or the grid alignment will break.
+   */
   #rawView {
     padding: 10px 14px 96px;
-    white-space: pre-wrap;
-    word-break: break-word;
     font-family: "Cascadia Code", Consolas, monospace;
     font-size: 12px;
-    color: #ddd;
+    line-height: 1.35;
+    color: #D4D4D8;
+    background: #1e1e1e;
+    overflow-x: auto;
+  }
+  #rawView .block, #rawView .status-bar {
+    margin: 0 0 8px 0;
+  }
+  #rawView .status-bar {
+    background: #2a2a2c;
+    padding: 2px 4px;
+    border-left: 2px solid #569cd6;
+  }
+  #rawView .line {
+    white-space: pre;
+    min-height: 1.35em;
+  }
+  #rawView .rv { /* reverse-video runs (status bar fragments) */
+    filter: invert(1);
   }
 
   /* ===== INPUT BAR ===== */
@@ -328,6 +349,164 @@
     .card { padding: 8px 10px; border-radius: 6px; }
     #agentView { padding: 8px 10px; padding-bottom: calc(80px + env(safe-area-inset-bottom)); gap: 5px; }
   }
+
+  /* ===== VOICE VIEW ===== */
+  #voiceView {
+    padding: 14px;
+    padding-bottom: calc(96px + env(safe-area-inset-bottom));
+    display: none;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .voice-cta {
+    display: flex; flex-direction: column; align-items: center; gap: 14px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 24px 16px;
+  }
+  .voice-cta .big-button {
+    width: 100%;
+    max-width: 480px;
+    min-height: 96px;
+    border: 0;
+    border-radius: 14px;
+    background: var(--accent);
+    color: white;
+    font-size: 22px;
+    font-weight: 700;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: manipulation;
+    box-shadow: 0 4px 16px rgba(14,99,156,0.35);
+  }
+  .voice-cta .big-button:hover:not(:disabled) { background: var(--accent-hover); }
+  .voice-cta .big-button:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
+  .voice-cta .big-button.stop {
+    background: #c0392b;
+    box-shadow: 0 4px 16px rgba(192,57,43,0.35);
+  }
+  .voice-cta .big-button.stop:hover:not(:disabled) { background: #d04839; }
+  .voice-cta .voice-hint { color: var(--muted); font-size: 13px; text-align: center; }
+  .voice-cta .voice-state {
+    font-size: 13px;
+    color: var(--text);
+    min-height: 18px;
+    text-align: center;
+  }
+  .voice-cta .voice-state.error { color: var(--failed); }
+  .voice-cta .voice-state.ok { color: var(--idle); }
+
+  .voice-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: center; }
+  .voice-controls label {
+    color: var(--text);
+    font-size: 14px;
+    display: inline-flex; align-items: center; gap: 8px;
+    user-select: none;
+    cursor: pointer;
+    min-height: 44px;
+    padding: 0 6px;
+  }
+  .voice-controls input[type=checkbox] { width: 22px; height: 22px; accent-color: var(--accent); }
+  .voice-controls .btn-stop-speak {
+    background: #3c3c3c; color: var(--text);
+    border: 0; padding: 0 14px; border-radius: 8px;
+    cursor: pointer; min-height: 44px; font-size: 13px;
+  }
+  .voice-controls .btn-stop-speak:hover { background: #4a4a4a; }
+
+  .voice-log {
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .voice-bubble {
+    padding: 12px 14px;
+    border-radius: 14px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    font-size: 16px;
+    max-width: min(95%, 720px);
+  }
+  .voice-bubble.user {
+    background: var(--accent);
+    color: #fff;
+    align-self: flex-end;
+    border-bottom-right-radius: 4px;
+  }
+  .voice-bubble.agent {
+    background: #2a2a2c;
+    color: var(--text);
+    align-self: flex-start;
+    border-bottom-left-radius: 4px;
+  }
+  .voice-bubble.system {
+    background: transparent;
+    color: var(--muted);
+    align-self: center;
+    font-style: italic;
+    font-size: 13px;
+  }
+  .voice-bubble .ts {
+    display: block;
+    font-size: 10px;
+    opacity: 0.65;
+    margin-top: 4px;
+  }
+
+  /* Full-screen recording overlay */
+  .recording-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15,15,15,0.97);
+    z-index: 100;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 24px;
+    padding: 24px;
+    padding-top: max(24px, env(safe-area-inset-top));
+    padding-bottom: max(24px, env(safe-area-inset-bottom));
+    color: var(--text);
+    text-align: center;
+  }
+  .recording-overlay.show { display: flex; }
+  .recording-overlay .pulse-ring {
+    width: 220px; height: 220px;
+    border-radius: 50%;
+    background: #c0392b;
+    display: flex; align-items: center; justify-content: center;
+    color: white;
+    font-size: 28px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    box-shadow: 0 0 0 0 rgba(192,57,43,0.7);
+    animation: recPulse 1.4s ease-out infinite;
+  }
+  @keyframes recPulse {
+    0%   { box-shadow: 0 0 0 0   rgba(192,57,43,0.55); }
+    70%  { box-shadow: 0 0 0 50px rgba(192,57,43,0); }
+    100% { box-shadow: 0 0 0 0   rgba(192,57,43,0); }
+  }
+  .recording-overlay .rec-elapsed {
+    font-size: 36px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  .recording-overlay .stop-btn {
+    background: #c0392b;
+    color: white; border: 0;
+    padding: 22px 36px;
+    border-radius: 14px;
+    font-size: 20px;
+    font-weight: 700;
+    cursor: pointer;
+    min-width: 220px;
+    min-height: 72px;
+    box-shadow: 0 6px 18px rgba(192,57,43,0.4);
+  }
+  .recording-overlay .rec-hint { color: var(--muted); font-size: 13px; max-width: 320px; }
 </style>
 </head>
 <body>
@@ -342,11 +521,32 @@
 
 <div class="tabs">
   <div class="tab active" data-view="agent">Agent</div>
+  <div class="tab" data-view="voice">Voice</div>
   <div class="tab" data-view="raw">Raw terminal</div>
 </div>
 
 <div id="agentView"></div>
+<div id="voiceView">
+  <div class="voice-cta">
+    <button id="voiceMainBtn" class="big-button">Tap to talk</button>
+    <div id="voiceState" class="voice-state">Ready. Tap the big button, speak, tap again to send.</div>
+    <div class="voice-hint">Walkie-talkie: one tap starts recording, another tap sends. Designed for driving.</div>
+    <div class="voice-controls">
+      <label><input type="checkbox" id="voiceSpeakToggle" checked /> Speak replies aloud</label>
+      <button id="voiceStopSpeakBtn" class="btn-stop-speak" type="button">Stop speaking</button>
+    </div>
+  </div>
+  <div id="voiceLog" class="voice-log"></div>
+</div>
 <div id="rawView" style="display:none">Loading...</div>
+
+<!-- Full-screen recording overlay (hidden until recording starts) -->
+<div id="recordingOverlay" class="recording-overlay" aria-hidden="true">
+  <div class="pulse-ring">REC</div>
+  <div class="rec-elapsed" id="recElapsed">0.0s</div>
+  <button id="recStopBtn" class="stop-btn" type="button">Tap to send</button>
+  <div class="rec-hint">Speak naturally. When done, tap "Tap to send".</div>
+</div>
 
 <form class="send" onsubmit="return send(event)">
   <input type="text" id="prompt" placeholder="Send to session... (Enter to submit)" autocomplete="off" />
@@ -358,13 +558,12 @@
   const SID = "__SID__";
   const agentEl = document.getElementById('agentView');
   const rawEl = document.getElementById('rawView');
+  const voiceEl = document.getElementById('voiceView');
   const stateEl = document.getElementById('state');
   const countsEl = document.getElementById('counts');
   const tabs = document.querySelectorAll('.tab');
 
   let activeView = 'agent';
-  let rawCursor = 0;
-  let rawFirstLoad = true;
   let lastWidgetCount = 0;
 
   function stateColor(s) {
@@ -380,8 +579,10 @@
     activeView = t.dataset.view;
     agentEl.style.display = activeView === 'agent' ? '' : 'none';
     rawEl.style.display = activeView === 'raw' ? '' : 'none';
+    voiceEl.style.display = activeView === 'voice' ? 'flex' : 'none';
     if (activeView === 'agent') refreshAgent();
-    else refreshRaw();
+    else if (activeView === 'raw') refreshRaw();
+    // voice tab is self-contained; nothing to refresh from server on tab switch
   }));
 
   function escapeHtml(s) {
@@ -501,20 +702,21 @@
 
   async function refreshRaw() {
     try {
-      const r = await fetch('/sessions/' + SID + '/buffer?since=' + rawCursor, { credentials: 'same-origin' });
+      // Full snapshot every poll. The server runs the PTY byte stream through
+      // a real xterm-compatible VT emulator (CcDirector.Terminal.Core.AnsiParser),
+      // then serializes the resulting cell grid + scrollback to styled HTML.
+      // Swapping innerHTML each tick is the only way to honor CR-overwrites
+      // and status-bar redraws -- you can't apply those to an append-only
+      // text buffer. The HTML comes from AnsiToHtmlConverter which escapes
+      // <, >, &, " before emitting; safe for innerHTML.
+      const r = await fetch('/sessions/' + SID + '/buffer/html', { credentials: 'same-origin' });
       if (!r.ok) { rawEl.textContent = 'Lost connection (HTTP ' + r.status + ')'; return; }
       const body = await r.json();
-      if (rawFirstLoad) {
-        rawEl.textContent = body.text || '';
-        rawFirstLoad = false;
-      } else if (body.text) {
-        rawEl.textContent += body.text;
-      }
-      rawCursor = body.newCursor || rawCursor;
       const nearBottom = window.scrollY + window.innerHeight > document.body.scrollHeight - 80;
+      rawEl.innerHTML = body.html || '';
       if (nearBottom) window.scrollTo(0, document.body.scrollHeight);
     } catch (e) {
-      rawEl.textContent += '\n[lost connection: ' + e.message + ']';
+      rawEl.textContent = '[lost connection: ' + e.message + ']';
     }
   }
 
@@ -536,12 +738,20 @@
     inp.value = '';
     inp.disabled = true;
     try {
-      await fetch('/sessions/' + SID + '/prompt', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, appendEnter: true, waitForIdle: false }),
-      });
+      // On the Voice tab, route the typed message through the chat-and-speak
+      // pipeline so the user sees bubbles and hears the reply, just like the
+      // mic flow.  On the Agent / Raw tabs, fall through to the raw-prompt
+      // write so the keystrokes land directly in the terminal.
+      if (activeView === 'voice') {
+        await sendTypedToChat(text);
+      } else {
+        await fetch('/sessions/' + SID + '/prompt', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, appendEnter: true, waitForIdle: false }),
+        });
+      }
     } finally {
       inp.disabled = false;
       inp.focus();
@@ -555,8 +765,550 @@
   setInterval(() => {
     refreshState();
     if (activeView === 'agent') refreshAgent();
-    else refreshRaw();
+    else if (activeView === 'raw') refreshRaw();
+    // voice tab does not poll
   }, 1500);
+
+  // =====================================================================
+  // VOICE MODE
+  // ---------------------------------------------------------------------
+  // Walkie-talkie: one tap to start recording (full-screen overlay), one
+  // tap to stop + send.  Audio -> /voice/command (Whisper) -> transcript ->
+  // POST /chat { sessionId, text } -> reply -> voice-friendly translation
+  // -> SpeechSynthesis.  Audio cues are WebAudio-synthesised so we don't
+  // ship audio files.  /voice/command POST auto-retries with backoff.
+  // =====================================================================
+
+  const voiceMainBtn       = document.getElementById('voiceMainBtn');
+  const voiceState         = document.getElementById('voiceState');
+  const voiceLog           = document.getElementById('voiceLog');
+  const voiceSpeakToggle   = document.getElementById('voiceSpeakToggle');
+  const voiceStopSpeakBtn  = document.getElementById('voiceStopSpeakBtn');
+  const recordingOverlay   = document.getElementById('recordingOverlay');
+  const recElapsedEl       = document.getElementById('recElapsed');
+  const recStopBtn         = document.getElementById('recStopBtn');
+
+  let mediaRecorder = null;
+  let recordedChunks = [];
+  let recordStartedAt = 0;
+  let recordTimer = null;
+  let voiceBusy = false;
+  let cueTimer = null;
+  let cueOsc = null;
+  let cueGain = null;
+  let audioCtx = null;
+
+  function setVoiceState(text, cls) {
+    voiceState.textContent = text;
+    voiceState.className = 'voice-state' + (cls ? ' ' + cls : '');
+  }
+
+  function appendVoiceBubble(role, text) {
+    if (!text) return;
+    const div = document.createElement('div');
+    div.className = 'voice-bubble ' + role;
+    div.textContent = text;
+    const ts = document.createElement('span');
+    ts.className = 'ts';
+    ts.textContent = new Date().toLocaleTimeString();
+    div.appendChild(ts);
+    voiceLog.appendChild(div);
+    requestAnimationFrame(() => { window.scrollTo(0, document.body.scrollHeight); });
+  }
+
+  // ----- WebAudio cues (no audio files needed) -------------------------
+  function ensureAudioCtx() {
+    if (!audioCtx) {
+      const Ctor = window.AudioContext || window.webkitAudioContext;
+      if (!Ctor) return null;
+      audioCtx = new Ctor();
+    }
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume().catch(() => {});
+    }
+    return audioCtx;
+  }
+
+  /**
+   * Start a soft looping cue at the given frequency.  Subtle: low gain, sine
+   * wave, gentle envelope.  Stops the previous cue first.
+   */
+  function startCue(freq, intervalMs) {
+    stopCue();
+    const ctx = ensureAudioCtx();
+    if (!ctx) return;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    gain.gain.value = 0.0;
+    osc.connect(gain).connect(ctx.destination);
+    osc.start();
+    cueOsc = osc;
+    cueGain = gain;
+
+    function pulse() {
+      if (!cueGain) return;
+      const now = ctx.currentTime;
+      // Soft ramp up then back down.
+      cueGain.gain.cancelScheduledValues(now);
+      cueGain.gain.setValueAtTime(0.0001, now);
+      cueGain.gain.exponentialRampToValueAtTime(0.04, now + 0.1);
+      cueGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.45);
+    }
+    pulse();
+    cueTimer = setInterval(pulse, intervalMs);
+  }
+  function stopCue() {
+    if (cueTimer) { clearInterval(cueTimer); cueTimer = null; }
+    if (cueOsc) {
+      try { cueOsc.stop(); } catch {}
+      try { cueOsc.disconnect(); } catch {}
+      cueOsc = null;
+    }
+    cueGain = null;
+  }
+
+  function playChime() {
+    const ctx = ensureAudioCtx();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    [880, 1320].forEach((freq, i) => {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.value = freq;
+      g.gain.value = 0;
+      o.connect(g).connect(ctx.destination);
+      const start = now + i * 0.12;
+      g.gain.setValueAtTime(0.0001, start);
+      g.gain.exponentialRampToValueAtTime(0.08, start + 0.04);
+      g.gain.exponentialRampToValueAtTime(0.0001, start + 0.5);
+      o.start(start);
+      o.stop(start + 0.55);
+    });
+  }
+
+  const CUE = {
+    upload:   { freq: 392, interval: 700  },  // G4 - calm waiting
+    retry:    { freq: 247, interval: 480  },  // B3 - lower + faster, "still trying"
+    thinking: { freq: 523, interval: 900  },  // C5 - higher + slower, "doing the thing"
+  };
+
+  // ----- Voice-friendly translation (strip code/markdown, summarise) ----
+  function translateForEar(raw) {
+    if (!raw) return '';
+    let t = raw;
+    // Strip fenced code blocks entirely.
+    t = t.replace(/```[\s\S]*?```/g, ' [code block omitted] ');
+    // Strip inline code (backticks).
+    t = t.replace(/`([^`]+)`/g, '$1');
+    // Strip bold/italic markdown markers but keep text.
+    t = t.replace(/\*\*(.+?)\*\*/g, '$1');
+    t = t.replace(/\*(.+?)\*/g, '$1');
+    t = t.replace(/__([^_]+)__/g, '$1');
+    t = t.replace(/_([^_]+)_/g, '$1');
+    // Strip markdown links [text](url) -> text
+    t = t.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+    // Strip bare URLs
+    t = t.replace(/https?:\/\/\S+/g, '');
+    // Strip Windows file paths.
+    t = t.replace(/[A-Z]:\\[^\s]+/g, '');
+    // Collapse whitespace.
+    t = t.replace(/\s+\n/g, '\n').replace(/\n{2,}/g, '\n').replace(/[ \t]{2,}/g, ' ').trim();
+    // Cap length so we don't read 4 paragraphs.  Prefer to stop at a sentence boundary.
+    const MAX = 600;
+    if (t.length > MAX) {
+      const head = t.slice(0, MAX);
+      const lastStop = Math.max(head.lastIndexOf('. '), head.lastIndexOf('! '), head.lastIndexOf('? '));
+      t = (lastStop > 200 ? head.slice(0, lastStop + 1) : head) + ' That is the short version; check the screen for the rest.';
+    }
+    return t;
+  }
+
+  function looksLikeQuestion(text) {
+    if (!text) return false;
+    const trimmed = text.trim().replace(/[)\]\s]+$/, '');
+    if (trimmed.endsWith('?')) return true;
+    const t = text.toLowerCase();
+    return /\b(should i|do you want|would you like|which (one|of)|shall i|may i|can i|do you prefer)\b/.test(t);
+  }
+
+  let currentTtsAudio = null;
+
+  function stopAllSpeech() {
+    if (currentTtsAudio) {
+      try { currentTtsAudio.pause(); } catch {}
+      try { currentTtsAudio.src = ''; } catch {}
+      currentTtsAudio = null;
+    }
+    try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch {}
+  }
+
+  async function speak(text) {
+    if (!voiceSpeakToggle.checked) return;
+    if (!text) return;
+    stopAllSpeech();
+    // Phase 3 (Supervisor goal): prefer OpenAI TTS over browser SpeechSynthesis
+    // because the SpeechSynthesis voices are too robotic for hands-free use.
+    // Fall back to SpeechSynthesis on any failure (no key, network error,
+    // OpenAI 5xx, etc.).
+    try {
+      const resp = await fetch('/tts', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      if (resp.ok) {
+        const blob = await resp.blob();
+        if (blob && blob.size > 0) {
+          const url = URL.createObjectURL(blob);
+          const audio = new Audio(url);
+          currentTtsAudio = audio;
+          audio.onended = () => { try { URL.revokeObjectURL(url); } catch {} if (currentTtsAudio === audio) currentTtsAudio = null; };
+          audio.onerror = () => { try { URL.revokeObjectURL(url); } catch {} if (currentTtsAudio === audio) currentTtsAudio = null; };
+          await audio.play();
+          return;
+        }
+      }
+      // Fall through to browser fallback if /tts didn't deliver audio.
+    } catch { /* fall through to browser fallback */ }
+
+    // Fallback: browser SpeechSynthesis.
+    if (window.speechSynthesis) {
+      const u = new SpeechSynthesisUtterance(text);
+      u.rate = 1.05;
+      window.speechSynthesis.speak(u);
+    }
+  }
+
+  voiceStopSpeakBtn.addEventListener('click', stopAllSpeech);
+
+  // ----- Recording lifecycle -------------------------------------------
+  async function startRecording() {
+    if (voiceBusy) return;
+    if (mediaRecorder && mediaRecorder.state === 'recording') return;
+
+    // Diagnose common failures BEFORE calling getUserMedia, so we can give
+    // useful messages instead of "Cannot read properties of undefined".
+    // The mediaDevices API only exists on SECURE origins: https://, localhost,
+    // or 127.0.0.1.  Plain http://<lan-or-tailnet-ip>/ strips it entirely.
+    if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
+      const host = location.hostname;
+      const isLoopback = host === 'localhost' || host === '127.0.0.1' || host === '::1';
+      let msg;
+      if (!window.isSecureContext && !isLoopback) {
+        msg = 'Microphone needs HTTPS. You are on ' + location.protocol + '//' + location.host
+            + ' which is not a secure origin, so the browser strips the microphone API. '
+            + 'Easiest fix on a Tailnet: run "tailscale serve --bg --https=443 http://localhost:'
+            + location.port + '" on the Director machine, then open the https://<machine>.tailnet.ts.net/ URL on the phone.';
+      } else {
+        msg = 'navigator.mediaDevices is not available in this browser.';
+      }
+      setVoiceState(msg, 'error');
+      appendVoiceBubble('system', msg);
+      return;
+    }
+
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (e) {
+      let msg;
+      if (e && e.name === 'NotAllowedError') {
+        msg = 'Microphone permission denied. Allow microphone access for this site in the browser settings, then reload the page.';
+      } else if (e && e.name === 'NotFoundError') {
+        msg = 'No microphone found on this device.';
+      } else if (e && e.name === 'NotReadableError') {
+        msg = 'Microphone is in use by another app or device.';
+      } else {
+        msg = 'Microphone error: ' + ((e && (e.message || e.name)) || 'unknown');
+      }
+      setVoiceState(msg, 'error');
+      appendVoiceBubble('system', msg);
+      return;
+    }
+
+    recordedChunks = [];
+    const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : '';
+    try {
+      mediaRecorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+    } catch (e) {
+      setVoiceState('MediaRecorder not supported: ' + e.message, 'error');
+      stream.getTracks().forEach(t => t.stop());
+      return;
+    }
+
+    mediaRecorder.ondataavailable = (ev) => { if (ev.data && ev.data.size > 0) recordedChunks.push(ev.data); };
+    mediaRecorder.onstop = () => { stream.getTracks().forEach(t => t.stop()); };
+
+    mediaRecorder.start();
+    voiceMainBtn.classList.add('stop');
+    voiceMainBtn.textContent = 'Tap to send';
+    recordingOverlay.classList.add('show');
+    recordingOverlay.setAttribute('aria-hidden', 'false');
+    recordStartedAt = Date.now();
+    recElapsedEl.textContent = '0.0s';
+    setVoiceState('Recording...');
+    recordTimer = setInterval(() => {
+      const s = ((Date.now() - recordStartedAt) / 1000).toFixed(1);
+      recElapsedEl.textContent = s + 's';
+    }, 100);
+  }
+
+  async function stopAndSend() {
+    if (!mediaRecorder) return;
+    if (recordTimer) { clearInterval(recordTimer); recordTimer = null; }
+    voiceMainBtn.classList.remove('stop');
+    voiceMainBtn.textContent = 'Tap to talk';
+    recordingOverlay.classList.remove('show');
+    recordingOverlay.setAttribute('aria-hidden', 'true');
+
+    const rec = mediaRecorder;
+    mediaRecorder = null;
+    if (rec.state !== 'inactive') {
+      await new Promise(resolve => {
+        rec.addEventListener('stop', resolve, { once: true });
+        rec.stop();
+      });
+    }
+
+    if (recordedChunks.length === 0) {
+      setVoiceState('No audio captured.', 'error');
+      return;
+    }
+
+    const blob = new Blob(recordedChunks, { type: rec.mimeType || 'audio/webm' });
+    recordedChunks = [];
+
+    if (blob.size < 1000) {
+      setVoiceState('Too short. Hold longer next time.', 'error');
+      return;
+    }
+
+    await voicePipeline(blob);
+  }
+
+  async function uploadWithRetry(blob, maxAttempts) {
+    let attempt = 0;
+    let delay = 1000;
+    while (true) {
+      attempt++;
+      try {
+        if (attempt === 1) {
+          startCue(CUE.upload.freq, CUE.upload.interval);
+          setVoiceState('Uploading...');
+        }
+        const fd = new FormData();
+        const ext = (blob.type.includes('webm')) ? 'webm' : 'audio';
+        fd.append('file', blob, 'recording.' + ext);
+        const r = await fetch('/voice/command', { method: 'POST', credentials: 'same-origin', body: fd });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return await r.json();
+      } catch (e) {
+        if (attempt >= maxAttempts) throw e;
+        // Switch the sound to "still trying" on the first failure.
+        startCue(CUE.retry.freq, CUE.retry.interval);
+        setVoiceState('Bad connection - retrying (attempt ' + (attempt + 1) + ')...');
+        await new Promise(r => setTimeout(r, delay));
+        delay = Math.min(delay * 2, 30000);
+      }
+    }
+  }
+
+  async function postChat(text) {
+    const r = await fetch('/chat', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, sessionId: SID, timeoutMs: 180000 }),
+    });
+    const body = await r.json().catch(() => null);
+    if (!body) throw new Error('Empty response from /chat (HTTP ' + r.status + ')');
+    return body;
+  }
+
+  // Render the agent's reply bubble, decide what to send to TTS, show what
+  // was spoken when it differs from the bubble, then speak it.  Shared by
+  // voicePipeline (mic) and sendTypedToChat (Send button on Voice tab).
+  //
+  // Picker rule:
+  //   short reply (<= SHORT_REPLY_CHARS)  -> speak the bubble verbatim
+  //   longer                              -> speak chat.summary (Supervisor
+  //                                          spoken_text), falling back to
+  //                                          /turn-summaries, then to
+  //                                          translateForEar(display).
+  // Whenever the spoken text differs from the bubble we append a small grey
+  // "TTS: ..." bubble so the user can SEE exactly what was sent to the model.
+  const SHORT_REPLY_CHARS = 500;
+  async function renderReplyAndSpeak(chat) {
+    const display = (chat.displayText || chat.reply || '').trim();
+    if (display) {
+      appendVoiceBubble('agent', display);
+    } else {
+      appendVoiceBubble('system', 'Agent finished but produced no visible output.');
+    }
+
+    let toSpeak = '';
+    if (display && display.length <= SHORT_REPLY_CHARS) {
+      toSpeak = display;
+    } else {
+      toSpeak = (chat.summary || '').trim();
+      if (!toSpeak) {
+        startCue(CUE.thinking.freq, CUE.thinking.interval);
+        try {
+          const sumResp = await fetch('/sessions/' + SID + '/turn-summaries', { method: 'POST', credentials: 'same-origin' });
+          if (sumResp.ok || sumResp.status === 201) {
+            const sum = await sumResp.json();
+            if (sum && sum.spokenText && sum.spokenText.trim()) {
+              toSpeak = sum.spokenText.trim();
+              if (sum.needsUser && sum.needsUser !== 'no' && !/^i need/i.test(toSpeak)) {
+                toSpeak = 'I need you to respond. ' + toSpeak;
+              }
+            }
+          }
+        } catch { /* fall through to regex fallback */ }
+        stopCue();
+      }
+      if (!toSpeak) {
+        toSpeak = translateForEar(display);
+        if (looksLikeQuestion(display)) toSpeak = 'Agent has a question: ' + toSpeak;
+      }
+    }
+
+    if (toSpeak && toSpeak !== display) {
+      appendVoiceBubble('system', 'TTS: ' + toSpeak);
+    }
+    if (toSpeak) speak(toSpeak);
+  }
+
+  // Send a TYPED message through the same chat-and-speak pipeline used by
+  // the voice mic.  Used by the Send button when the Voice tab is active.
+  async function sendTypedToChat(text) {
+    if (!text || !text.trim()) return;
+    appendVoiceBubble('user', text);
+    setVoiceState('Agent thinking...');
+    startCue(CUE.thinking.freq, CUE.thinking.interval);
+    let chat;
+    try {
+      chat = await postChat(text);
+    } catch (e) {
+      stopCue();
+      setVoiceState('Chat call failed: ' + e.message, 'error');
+      appendVoiceBubble('system', 'Chat call failed: ' + e.message);
+      return;
+    }
+    stopCue();
+    playChime();
+    await renderReplyAndSpeak(chat);
+    if (chat.status === 'timeout') {
+      appendVoiceBubble('system', 'Timed out waiting for the agent. The reply above may be partial.');
+    } else if (chat.status === 'session_not_found') {
+      appendVoiceBubble('system', 'Session not found.');
+    }
+    setVoiceState('Ready. Tap the big button to talk again.', 'ok');
+  }
+
+  async function voicePipeline(blob) {
+    voiceBusy = true;
+    voiceMainBtn.disabled = true;
+    try {
+      // 1) Upload + transcribe via /voice/command (with retry).
+      const voiceResp = await uploadWithRetry(blob, 6);  // ~63 s total worst-case
+      stopCue();
+      if (voiceResp.status === 'no_key') {
+        setVoiceState('Voice mode disabled: ' + (voiceResp.error || 'no OpenAI key'), 'error');
+        appendVoiceBubble('system', 'Voice mode disabled. ' + (voiceResp.error || ''));
+        return;
+      }
+      const transcript = (voiceResp.transcript || '').trim();
+      const cleaned    = (voiceResp.cleanedTranscript || '').trim();
+      const cleanupReason = (voiceResp.cleanupReason || '').trim();
+      if (!transcript) {
+        setVoiceState('Nothing was transcribed. Try again.', 'error');
+        return;
+      }
+
+      // Phase 1 (Supervisor): show raw transcript as a small grey "raw" bubble
+      // AND the cleaned version as the primary "user" bubble (the one that
+      // actually goes to the agent).  When they are identical we collapse to
+      // a single bubble.
+      const sendText = cleaned || transcript;
+      if (cleaned && cleaned !== transcript) {
+        appendVoiceBubble('system', 'raw: "' + transcript + '"' + (cleanupReason ? ' (' + cleanupReason + ')' : ''));
+      }
+      appendVoiceBubble('user', sendText);
+
+      // 2) Send to the agent via /chat.
+      startCue(CUE.thinking.freq, CUE.thinking.interval);
+      setVoiceState('Agent thinking...');
+      let chat;
+      try {
+        chat = await postChat(sendText);
+      } catch (e) {
+        stopCue();
+        setVoiceState('Chat call failed: ' + e.message, 'error');
+        appendVoiceBubble('system', 'Chat call failed: ' + e.message);
+        return;
+      }
+      stopCue();
+      playChime();
+
+      await renderReplyAndSpeak(chat);
+
+      if (chat.status === 'timeout') {
+        appendVoiceBubble('system', 'Timed out waiting for the agent. The reply above may be partial.');
+      } else if (chat.status === 'session_not_found') {
+        appendVoiceBubble('system', 'Session not found.');
+      }
+
+      setVoiceState('Ready. Tap the big button to talk again.', 'ok');
+    } catch (e) {
+      stopCue();
+      setVoiceState('Voice pipeline failed: ' + e.message, 'error');
+      appendVoiceBubble('system', 'Voice pipeline failed: ' + e.message);
+    } finally {
+      stopCue();
+      voiceBusy = false;
+      voiceMainBtn.disabled = false;
+    }
+  }
+
+  // ----- Wire the buttons ----------------------------------------------
+  // Single button toggles record on/off.  The full-screen overlay's STOP
+  // button does the same as a second tap on the main button.
+  voiceMainBtn.addEventListener('click', () => {
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+      stopAndSend();
+    } else {
+      startRecording();
+    }
+  });
+  recStopBtn.addEventListener('click', stopAndSend);
+
+  // Tapping the overlay background (but NOT the stop button itself) also stops.
+  recordingOverlay.addEventListener('click', (e) => {
+    if (e.target === recordingOverlay) stopAndSend();
+  });
+
+  // Proactively surface the insecure-origin problem on page load so the user
+  // does not have to tap the big button only to see a cryptic error.  The
+  // browser exposes navigator.mediaDevices only on secure origins (https,
+  // localhost, 127.0.0.1).  Plain http://<lan-or-tailnet-ip>/ kills it.
+  (function preflightVoice() {
+    const host = location.hostname;
+    const isLoopback = host === 'localhost' || host === '127.0.0.1' || host === '::1';
+    const hasMicApi = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    if (!hasMicApi && !window.isSecureContext && !isLoopback) {
+      voiceMainBtn.disabled = true;
+      const port = location.port || (location.protocol === 'https:' ? '443' : '80');
+      const msg = 'Voice mode disabled: this page is plain HTTP. The browser only exposes the microphone on a secure origin. '
+                + 'Run on the Director machine:  tailscale serve --bg --https=443 http://localhost:' + port
+                + '   then open the https://<machine>.<tailnet>.ts.net/ URL on the phone.';
+      setVoiceState(msg, 'error');
+    }
+  })();
 })();
 </script>
 </body>

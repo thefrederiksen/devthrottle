@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\CcDirector.Gateway.Contracts\CcDirector.Gateway.Contracts.csproj" />
+    <ProjectReference Include="..\CcDirector.Terminal.Core\CcDirector.Terminal.Core.csproj" />
   </ItemGroup>
 
 </Project>

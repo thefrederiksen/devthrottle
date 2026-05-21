@@ -4,6 +4,8 @@ using CcDirector.Core.Claude;
 using CcDirector.Core.Memory;
 using CcDirector.Core.Pipes;
 using CcDirector.Core.Utilities;
+using CcDirector.Terminal.Core;
+using CcDirector.Terminal.Core.Rendering;
 
 namespace CcDirector.Core.Sessions;
 
@@ -55,6 +57,21 @@ public sealed class Session : IDisposable
     private readonly TurnAccumulator _turnAccumulator = new();
     private bool _disposed;
 
+    // ===== HTML-view terminal emulator =====
+    // The Avalonia terminal owns its own AnsiParser bound to the live window
+    // size. The HTML "Raw terminal" tab needs an independent emulator with a
+    // fixed grid (browser-side resize must not perturb ConPty width). We feed
+    // it from the buffer's OnBytesWritten event, gated by _htmlParserLock so
+    // request threads can take snapshots concurrently.
+    private const int HtmlGridCols = 120;
+    private const int HtmlGridRows = 40;
+    private const int HtmlMaxScrollback = 5000;
+    private readonly object _htmlParserLock = new();
+    private TerminalCell[,]? _htmlCells;
+    private List<TerminalCell[]>? _htmlScrollback;
+    private AnsiParser? _htmlParser;
+    private Action<byte[]>? _htmlParserFeed;
+
     public SessionBackendType BackendType { get; }
 
     /// <summary>Which agent CLI this session is running (Claude Code, Pi, etc).
@@ -101,6 +118,16 @@ public sealed class Session : IDisposable
 
     /// <summary>User-defined display name for this session. Null means use default (repo folder name).</summary>
     public string? CustomName { get; set; }
+
+    /// <summary>
+    /// The structured question, plan, or permission ask the agent is currently
+    /// waiting on, or null when nothing is pending. Set by
+    /// <see cref="HandlePipeEvent"/> on the corresponding hook events and
+    /// cleared automatically when the activity state moves out of
+    /// <see cref="ActivityState.WaitingForInput"/> / <see cref="ActivityState.WaitingForPerm"/>.
+    /// Volatile state; not persisted across Director restarts.
+    /// </summary>
+    public PendingInteraction? PendingInteraction { get; private set; }
 
     /// <summary>User-chosen header color (hex string like "#2563EB"). Null means default dark header.</summary>
     public string? CustomColor { get; set; }
@@ -209,6 +236,7 @@ public sealed class Session : IDisposable
         // Subscribe to backend events
         _backend.ProcessExited += OnBackendProcessExited;
         _backend.StatusChanged += OnBackendStatusChanged;
+        InitializeHtmlParser();
     }
 
     /// <summary>
@@ -243,9 +271,49 @@ public sealed class Session : IDisposable
 
         _backend.ProcessExited += OnBackendProcessExited;
         _backend.StatusChanged += OnBackendStatusChanged;
+        InitializeHtmlParser();
 
         // Initialize history for restored sessions that already have a ClaudeSessionId
         InitializeHistory();
+    }
+
+    private void InitializeHtmlParser()
+    {
+        var buffer = _backend.Buffer;
+        if (buffer is null)
+        {
+            FileLog.Write($"[Session] InitializeHtmlParser: sessionId={Id}, backend has no buffer (Embedded?), skipping");
+            return;
+        }
+
+        _htmlCells = new TerminalCell[HtmlGridCols, HtmlGridRows];
+        _htmlScrollback = new List<TerminalCell[]>();
+        _htmlParser = new AnsiParser(_htmlCells, HtmlGridCols, HtmlGridRows, _htmlScrollback, HtmlMaxScrollback);
+        _htmlParserFeed = data =>
+        {
+            lock (_htmlParserLock)
+            {
+                _htmlParser?.Parse(data);
+            }
+        };
+        buffer.OnBytesWritten += _htmlParserFeed;
+        FileLog.Write($"[Session] InitializeHtmlParser: sessionId={Id}, grid={HtmlGridCols}x{HtmlGridRows}, maxScrollback={HtmlMaxScrollback}");
+    }
+
+    /// <summary>
+    /// Render the current terminal grid + scrollback as styled HTML, suitable
+    /// for the "Raw terminal" tab in the HTML session view. Returns an empty
+    /// string when the session has no backend buffer (Embedded mode).
+    /// </summary>
+    public string GetHtmlSnapshot()
+    {
+        if (_htmlParser is null || _htmlCells is null || _htmlScrollback is null)
+            return string.Empty;
+
+        lock (_htmlParserLock)
+        {
+            return AnsiToHtmlConverter.ConvertToHtml(_htmlScrollback, _htmlCells, HtmlGridCols, HtmlGridRows);
+        }
     }
 
     /// <summary>Send raw bytes to the backend.</summary>
@@ -661,6 +729,8 @@ public sealed class Session : IDisposable
 
         _backend.ProcessExited -= OnBackendProcessExited;
         _backend.StatusChanged -= OnBackendStatusChanged;
+        if (_htmlParserFeed is not null && _backend.Buffer is not null)
+            _backend.Buffer.OnBytesWritten -= _htmlParserFeed;
         _backend.Dispose();
     }
 }
