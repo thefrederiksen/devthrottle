@@ -21,53 +21,33 @@ public static class AnsiToHtmlConverter
     private static readonly string DefaultFg = "#D4D4D8";
 
     /// <summary>
-    /// Convert scrollback lines + current visible grid into full HTML content.
-    /// Groups output into card-style blocks separated by empty lines.
+    /// Convert the current visible grid into continuous HTML. Scrollback is
+    /// intentionally NOT rendered: Claude Code's TUI does heavy in-place
+    /// overwrites (input frame redraws, status-bar redraws, token streaming)
+    /// inside the visible grid before rows scroll out, so scrollback ends up
+    /// holding the final overwritten state of those rows -- which looks like
+    /// garbled text. This is the same artifact a user would see scrolling back
+    /// in any terminal running this TUI. The Raw tab is for "what's on screen
+    /// right now"; full conversation history lives on the Agent tab.
     /// </summary>
     public static string ConvertToHtml(List<TerminalCell[]> scrollback, TerminalCell[,] cells, int cols, int rows)
     {
         var allLines = new List<string>();
 
-        // 1. Convert scrollback lines
-        foreach (var row in scrollback)
-        {
-            allLines.Add(RenderCellRow(row, row.Length));
-        }
-
-        // 2. Convert current grid rows
         for (int r = 0; r < rows; r++)
-        {
             allLines.Add(RenderGridRow(cells, cols, r));
-        }
 
-        // 3. Trim trailing empty lines
         while (allLines.Count > 0 && string.IsNullOrEmpty(allLines[^1]))
             allLines.RemoveAt(allLines.Count - 1);
 
-        // 4. Group lines into blocks (separated by 1+ empty lines)
         var html = new StringBuilder();
-        var blockLines = new List<string>();
-
         foreach (string line in allLines)
         {
             if (string.IsNullOrEmpty(line))
-            {
-                if (blockLines.Count > 0)
-                {
-                    html.Append(RenderBlock(blockLines));
-                    blockLines.Clear();
-                }
-            }
+                html.Append("<div class=\"line\"> </div>");
             else
-            {
-                blockLines.Add(line);
-            }
+                html.Append("<div class=\"line\">").Append(line).Append("</div>");
         }
-
-        // Flush remaining block
-        if (blockLines.Count > 0)
-            html.Append(RenderBlock(blockLines));
-
         return html.ToString();
     }
 
@@ -79,27 +59,6 @@ public static class AnsiToHtmlConverter
         return templateHtml
             .Replace("/*CARD_STYLES*/", cssContent)
             .Replace("<!--CONTENT-->", bodyHtml);
-    }
-
-    private static string RenderBlock(List<string> lines)
-    {
-        if (lines.Count == 0)
-            return "";
-
-        // Detect if first line is reverse-video (status bar)
-        bool isStatusBar = lines[0].Contains("class=\"rv\"");
-
-        string cssClass = isStatusBar ? "status-bar" : "block";
-        var sb = new StringBuilder();
-        sb.Append($"<div class=\"{cssClass}\">");
-
-        for (int i = 0; i < lines.Count; i++)
-        {
-            sb.Append($"<div class=\"line\">{lines[i]}</div>");
-        }
-
-        sb.Append("</div>\n");
-        return sb.ToString();
     }
 
     private static string RenderGridRow(TerminalCell[,] cells, int cols, int row)
