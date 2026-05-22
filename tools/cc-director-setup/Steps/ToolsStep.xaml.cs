@@ -184,33 +184,34 @@ public partial class ToolsStep : UserControl
 
     private void UpdatePresetHighlights()
     {
-        var accentBrush = (SolidColorBrush)FindResource("AccentBrush");
-        var defaultBg = (SolidColorBrush)FindResource("ButtonBackground");
-
-        var standardGroups = new HashSet<string>(ToolGroupRegistry.GetPresetGroupNames("Standard"));
         var allGroupNames = new HashSet<string>(ToolGroupRegistry.GetPresetGroupNames("All"));
-
-        var isStandard = _enabledGroups.SetEquals(standardGroups);
-        var isAll = _enabledGroups.SetEquals(allGroupNames);
-
-        StandardPreset.Background = isStandard && !isAll ? accentBrush : defaultBg;
-        DeveloperPreset.Background = isAll ? accentBrush : defaultBg;
-        AllPreset.Background = isAll ? accentBrush : defaultBg;
+        var allEnabled = _enabledGroups.SetEquals(allGroupNames);
+        AllPreset.Content = allEnabled ? "Deselect All" : "Select All";
     }
 
-    private void ApplyPreset(string preset)
+    private void AllPreset_Click(object sender, RoutedEventArgs e)
     {
-        SetupLog.Write($"[ToolsStep] ApplyPreset: {preset}");
+        var allGroupNames = new HashSet<string>(ToolGroupRegistry.GetPresetGroupNames("All"));
+        var allEnabled = _enabledGroups.SetEquals(allGroupNames);
 
         _enabledGroups.Clear();
-        foreach (var name in ToolGroupRegistry.GetPresetGroupNames(preset))
-            _enabledGroups.Add(name);
+
+        if (allEnabled)
+        {
+            // Was fully enabled -- deselect everything except required groups.
+            foreach (var g in ToolGroupRegistry.AllGroups.Where(g => g.IsRequired))
+                _enabledGroups.Add(g.Name);
+            SetupLog.Write("[ToolsStep] AllPreset_Click: deselected all (required groups retained)");
+        }
+        else
+        {
+            // Was partial -- select everything.
+            foreach (var name in allGroupNames)
+                _enabledGroups.Add(name);
+            SetupLog.Write("[ToolsStep] AllPreset_Click: selected all groups");
+        }
 
         _onGroupsChanged(_enabledGroups.ToList());
         UpdateAllVisuals();
     }
-
-    private void StandardPreset_Click(object sender, RoutedEventArgs e) => ApplyPreset("Standard");
-    private void DeveloperPreset_Click(object sender, RoutedEventArgs e) => ApplyPreset("Developer");
-    private void AllPreset_Click(object sender, RoutedEventArgs e) => ApplyPreset("All");
 }

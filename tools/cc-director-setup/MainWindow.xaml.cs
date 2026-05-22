@@ -10,7 +10,7 @@ namespace CcDirectorSetup;
 public partial class MainWindow : Window
 {
     private int _currentStep = 1;
-    private InstallProfile _selectedProfile = InstallProfile.Standard;
+    private InstallProfile _selectedProfile = InstallProfile.Developer;
     private List<string> _selectedGroups;
     private List<PrerequisiteInfo> _prerequisites = [];
     private int _installedCount;
@@ -39,7 +39,7 @@ public partial class MainWindow : Window
 
         _isUpdate = InstallDetector.IsInstalled();
         _installedVersion = _isUpdate ? InstallDetector.GetInstalledVersion() : null;
-        _selectedGroups = ToolGroupRegistry.GetDefaultGroupNames();
+        _selectedGroups = ToolGroupRegistry.GetPresetGroupNames("Developer");
 
         SetupLog.Write($"[MainWindow] Started: isUpdate={_isUpdate}, installedVersion={_installedVersion}");
 
@@ -61,10 +61,9 @@ public partial class MainWindow : Window
             var saved = await Task.Run(() => ProfileStore.Load());
             if (saved != null)
             {
-                _selectedProfile = saved.Profile;
+                _selectedProfile = InstallProfile.Developer;
                 _selectedGroups = saved.Groups;
-                _welcomeStep?.UpdateProfile(_selectedProfile);
-                SetupLog.Write($"[MainWindow] Restored: profile={_selectedProfile}, groups={_selectedGroups.Count}");
+                SetupLog.Write($"[MainWindow] Restored: profile=Developer (forced), groups={_selectedGroups.Count}");
             }
         }
         catch (Exception ex)

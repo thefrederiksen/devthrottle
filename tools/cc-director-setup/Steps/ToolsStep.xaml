@@ -18,18 +18,10 @@
                        Margin="0,12,0,0"
                        LineHeight="20" />
 
-            <!-- Preset buttons -->
+            <!-- Bulk toggle -->
             <StackPanel Orientation="Horizontal" Margin="0,16,0,10">
-                <Button x:Name="StandardPreset" Content="Standard"
-                        Width="90" Height="28" FontSize="12"
-                        Click="StandardPreset_Click" />
-                <Button x:Name="DeveloperPreset" Content="Developer"
-                        Width="90" Height="28" FontSize="12"
-                        Margin="8,0,0,0"
-                        Click="DeveloperPreset_Click" />
-                <Button x:Name="AllPreset" Content="All"
-                        Width="60" Height="28" FontSize="12"
-                        Margin="8,0,0,0"
+                <Button x:Name="AllPreset" Content="Select All"
+                        Width="120" Height="28" FontSize="12"
                         Click="AllPreset_Click" />
             </StackPanel>
         </StackPanel>

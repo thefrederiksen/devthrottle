@@ -2,93 +2,47 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <StackPanel>
+        <Image Source="pack://application:,,,/app.ico"
+               Width="96"
+               Height="96"
+               HorizontalAlignment="Center"
+               Margin="0,8,0,16"
+               RenderOptions.BitmapScalingMode="HighQuality" />
+
         <TextBlock x:Name="TitleText"
                    Text="Welcome to CC Director"
                    Foreground="White"
-                   FontSize="22"
-                   FontWeight="SemiBold" />
+                   FontSize="24"
+                   FontWeight="SemiBold"
+                   HorizontalAlignment="Center" />
+
+        <TextBlock Text="A Windows-first toolkit for Claude Code developers"
+                   Foreground="{StaticResource AccentBrush}"
+                   FontSize="14"
+                   FontWeight="SemiBold"
+                   HorizontalAlignment="Center"
+                   Margin="0,6,0,0" />
 
         <TextBlock x:Name="DescriptionText"
-                   Text="CC Director is a suite of AI-powered CLI tools that extend Claude Code with document generation, browser automation, communication, media processing, and more."
+                   Text="CC Director runs and manages multiple Claude Code sessions side by side, with a full suite of CLI tools for documents, browser automation, email, media, and more. Built for Windows developers who live in the terminal and want Claude Code to fit into a real day of shipping software."
                    Foreground="{StaticResource TextForeground}"
                    FontSize="13"
                    TextWrapping="Wrap"
-                   Margin="0,12,0,0"
+                   TextAlignment="Center"
+                   Margin="40,20,40,0"
                    LineHeight="20" />
 
         <TextBlock x:Name="VersionInfoText"
                    Foreground="{StaticResource DimText}"
                    FontSize="12"
-                   Margin="0,8,0,0"
+                   HorizontalAlignment="Center"
+                   Margin="0,16,0,0"
                    Visibility="Collapsed" />
 
-        <TextBlock x:Name="ProfilePromptText"
-                   Text="Choose your experience:"
-                   Foreground="{StaticResource TextForeground}"
-                   FontSize="13"
-                   Margin="0,28,0,12" />
-
-        <!-- Standard card -->
-        <Border x:Name="StandardCard"
-                Background="#2A2D2E"
-                BorderBrush="{StaticResource AccentBrush}"
-                BorderThickness="2"
-                CornerRadius="6"
-                Padding="16"
-                Cursor="Hand"
-                MouseLeftButtonDown="StandardCard_Click">
-            <StackPanel>
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock x:Name="StandardRadio" Text="(*)"
-                               Foreground="{StaticResource AccentBrush}"
-                               FontSize="14" FontWeight="Bold"
-                               VerticalAlignment="Center"
-                               Margin="0,0,10,0" />
-                    <TextBlock Text="Standard"
-                               Foreground="White"
-                               FontSize="15"
-                               FontWeight="SemiBold"
-                               VerticalAlignment="Center" />
-                </StackPanel>
-                <TextBlock Text="Simplified experience with a clean, guided interface. Ideal for everyday use -- document generation, email, media, and data tools."
-                           Foreground="{StaticResource DimText}"
-                           FontSize="12"
-                           TextWrapping="Wrap"
-                           Margin="28,6,0,0"
-                           LineHeight="18" />
-            </StackPanel>
-        </Border>
-
-        <!-- Developer card -->
-        <Border x:Name="DeveloperCard"
-                Background="#2A2D2E"
-                BorderBrush="{StaticResource StepInactive}"
-                BorderThickness="2"
-                CornerRadius="6"
-                Padding="16"
-                Margin="0,8,0,0"
-                Cursor="Hand"
-                MouseLeftButtonDown="DeveloperCard_Click">
-            <StackPanel>
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock x:Name="DeveloperRadio" Text="( )"
-                               Foreground="{StaticResource DimText}"
-                               FontSize="14" FontWeight="Bold"
-                               VerticalAlignment="Center"
-                               Margin="0,0,10,0" />
-                    <TextBlock Text="Developer"
-                               Foreground="White"
-                               FontSize="15"
-                               FontWeight="SemiBold"
-                               VerticalAlignment="Center" />
-                </StackPanel>
-                <TextBlock Text="Terminal-first experience closer to raw Claude Code. GitHub integration, advanced configuration, and developer-oriented workflows."
-                           Foreground="{StaticResource DimText}"
-                           FontSize="12"
-                           TextWrapping="Wrap"
-                           Margin="28,6,0,0"
-                           LineHeight="18" />
-            </StackPanel>
-        </Border>
+        <TextBlock Text="Click Next to continue."
+                   Foreground="{StaticResource DimText}"
+                   FontSize="12"
+                   HorizontalAlignment="Center"
+                   Margin="0,28,0,0" />
     </StackPanel>
 </UserControl>
