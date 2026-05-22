@@ -296,6 +296,43 @@ public sealed class SessionStatusSupervisorTests
     }
 
     [Fact]
+    public void ApplyTurnSummary_does_not_repaint_red_when_session_is_already_Working()
+    {
+        // Phase 4g regression: a Haiku turn summary takes ~10s to compute. In that
+        // window the user often submits the next prompt, putting the session into
+        // Working/blue. When the (now-stale) summary lands carrying needs_user=
+        // "question", it must NOT overwrite blue with red - the question described
+        // by the summary has already been answered by definition (we're Working).
+        // Observed live as the banner flickering back to red mid-turn.
+        var supervisor = new SessionStatusSupervisor(new SessionManager(new AgentOptions { ClaudePath = TestShell.Path }));
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        try
+        {
+            var session = manager.CreateSession(Path.GetTempPath());
+
+            // Drive the session into Working by simulating a UserPromptSubmit hook.
+            session.HandlePipeEvent(new Pipes.PipeMessage { HookEventName = "UserPromptSubmit", Prompt = "next prompt" });
+            Assert.Equal(ActivityState.Working, session.ActivityState);
+
+            // Simulate the fast path having written blue when the state changed.
+            session.SetStatusColor(StatusColor.Blue, "working");
+
+            // Stale summary lands carrying a question. With the Working guard in
+            // place, ApplyTurnSummary must early-return without touching color.
+            supervisor.ApplyTurnSummary(session, new TurnSummary
+            {
+                NeedsUser = "question",
+                NeedsUserShort = "Want me to proceed with deletion?",
+                Headline = "stale prior turn",
+            });
+
+            Assert.Equal(StatusColor.Blue, session.StatusColor);
+            Assert.Equal("working", session.LastStatusReason);
+        }
+        finally { manager.Dispose(); supervisor.Dispose(); }
+    }
+
+    [Fact]
     public void ApplyTurnSummary_does_not_downgrade_an_active_red_activity_state()
     {
         // Race scenario: turn summary arrives reporting "no" / clean, but the

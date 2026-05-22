@@ -239,7 +239,15 @@ public sealed class SessionStatusSupervisor : IDisposable
         // Phase 4a: WaitingForPerm is always red and authoritative - the agent will not
         // proceed until the user grants permission. Don't let a stale turn summary
         // downgrade it.
-        if (session.ActivityState == ActivityState.WaitingForPerm)
+        //
+        // Phase 4g: same protection for Working. A turn summary describes the turn
+        // that JUST ENDED. If the user has already submitted the next prompt
+        // (session is now Working), the summary's needs_user=question is stale by
+        // definition - the question has been answered. Don't let an in-flight blue
+        // get repainted red by Haiku finishing 10s later. Reproduced as: user
+        // submits answer at T, supervisor goes blue, Haiku summary for prior turn
+        // lands at T+10s carrying needs_user=question, banner flickers back to red.
+        if (session.ActivityState is ActivityState.WaitingForPerm or ActivityState.Working)
             return;
 
         var n = (summary.NeedsUser ?? "").Trim().ToLowerInvariant();
