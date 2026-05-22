@@ -1,60 +1,85 @@
+using System.Security.Cryptography;
+using System.Text;
 using CcDirector.Core.Storage;
 using CcDirector.Core.Utilities;
 
 namespace CcDirector.ControlApi;
 
 /// <summary>
-/// Loads or creates the Director's stable identity GUID.
+/// Loads or creates this Director's stable identity GUID.
 ///
-/// The identity lives in a single file:
-///     %LOCALAPPDATA%\cc-director\config\director\director-id.txt
+/// Identity is keyed by the running executable's path. Each install location gets
+/// its own persistent GUID file:
+///     %LOCALAPPDATA%\cc-director\config\director\director-id-{slot}.txt
+/// where {slot} is the first 8 bytes of SHA256(lowercased exe path) in hex.
 ///
-/// Why persistent: when the same Director comes back after a restart the Gateway
-/// must recognize the same row, not see it as a brand-new Director. A per-process
-/// GUID would force the Gateway to forget and re-add the entry on every restart.
+/// Why per-exe-path: developers and operators routinely run multiple Director builds
+/// concurrently (e.g. cc-director-avalonia1.exe, cc-director-avalonia4.exe). A single
+/// global id file made every running instance overwrite the same instances/{id}.json,
+/// so the Gateway only ever saw one Director - last writer wins. Per-exe-path slots
+/// give each distinct install its own stable identity.
+///
+/// Why persistent: when the same Director (same exe) comes back after a restart the
+/// Gateway must recognize the same row, not see it as a brand-new Director.
 /// </summary>
 public static class DirectorIdStore
 {
-    /// <summary>Folder that holds the id file. Same parent as the instances directory.</summary>
+    /// <summary>Folder that holds all id slot files. Same parent as the instances directory.</summary>
     public static string DirectoryPath { get; } =
         Path.Combine(CcStorage.Config(), "director");
 
-    /// <summary>Full path of the id file.</summary>
-    public static string FilePath { get; } =
-        Path.Combine(DirectoryPath, "director-id.txt");
+    /// <summary>Full path of the id file for the current process's exe.</summary>
+    public static string FilePath => FilePathFor(DefaultSlotKey());
 
     /// <summary>
-    /// Read the persisted id. If the file is missing, malformed, or empty, mint a
-    /// fresh GUID, write it once, and return that. Subsequent calls return the same id.
+    /// Path of the id file for a given slot key (typically an executable path).
+    /// Exposed so tests and operators can predict the file location.
     /// </summary>
-    public static string LoadOrCreate()
+    public static string FilePathFor(string slotKey)
+        => Path.Combine(DirectoryPath, $"director-id-{Slot(slotKey)}.txt");
+
+    /// <summary>
+    /// Read the persisted id for this process's exe. If the slot file is missing,
+    /// malformed, or empty, mint a fresh GUID, write it once, and return that.
+    /// Subsequent calls for the same slot return the same id.
+    /// </summary>
+    public static string LoadOrCreate() => LoadOrCreate(DefaultSlotKey());
+
+    /// <summary>
+    /// Read the persisted id for the given slot key. Public so tests can drive the
+    /// slot deterministically rather than depending on the test host's exe path.
+    /// </summary>
+    public static string LoadOrCreate(string slotKey)
     {
-        try
-        {
-            Directory.CreateDirectory(DirectoryPath);
+        var path = FilePathFor(slotKey);
+        Directory.CreateDirectory(DirectoryPath);
 
-            if (File.Exists(FilePath))
+        if (File.Exists(path))
+        {
+            var raw = File.ReadAllText(path).Trim();
+            if (Guid.TryParse(raw, out var existing))
             {
-                var raw = File.ReadAllText(FilePath).Trim();
-                if (Guid.TryParse(raw, out var existing))
-                {
-                    FileLog.Write($"[DirectorIdStore] LoadOrCreate: reusing id={existing}");
-                    return existing.ToString();
-                }
-                FileLog.Write($"[DirectorIdStore] LoadOrCreate: existing file malformed, regenerating. raw=\"{raw}\"");
+                FileLog.Write($"[DirectorIdStore] LoadOrCreate: reusing id={existing} slot={slotKey} path={path}");
+                return existing.ToString();
             }
+            FileLog.Write($"[DirectorIdStore] LoadOrCreate: file at {path} malformed, regenerating. raw=\"{raw}\"");
+        }
 
-            var fresh = Guid.NewGuid().ToString();
-            File.WriteAllText(FilePath, fresh);
-            FileLog.Write($"[DirectorIdStore] LoadOrCreate: minted id={fresh}, path={FilePath}");
-            return fresh;
-        }
-        catch (Exception ex)
-        {
-            FileLog.Write($"[DirectorIdStore] LoadOrCreate FAILED, falling back to in-memory id: {ex.Message}");
-            // Last-resort: in-memory id. Means the Director will look new to the Gateway
-            // until the disk problem is resolved, but it can still run.
-            return Guid.NewGuid().ToString();
-        }
+        var fresh = Guid.NewGuid().ToString();
+        File.WriteAllText(path, fresh);
+        FileLog.Write($"[DirectorIdStore] LoadOrCreate: minted id={fresh}, slot={slotKey}, path={path}");
+        return fresh;
+    }
+
+    private static string DefaultSlotKey()
+        => Environment.ProcessPath ?? AppContext.BaseDirectory;
+
+    private static string Slot(string slotKey)
+    {
+        // Windows paths are case-insensitive and may mix '/' and '\'. Normalize so
+        // "D:\Foo\bar.exe" and "d:/foo/bar.EXE" map to the same slot.
+        var normalized = slotKey.Replace('/', '\\').ToLowerInvariant();
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(normalized));
+        return Convert.ToHexString(hash, 0, 8).ToLowerInvariant();
     }
 }

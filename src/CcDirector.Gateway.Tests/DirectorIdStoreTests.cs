@@ -77,4 +77,31 @@ public sealed class DirectorIdStoreTests : IDisposable
         Assert.True(Guid.TryParse(id, out _));
         Assert.Equal(id, File.ReadAllText(DirectorIdStore.FilePath).Trim());
     }
+
+    [Fact]
+    public void LoadOrCreate_returns_different_ids_for_different_slots()
+    {
+        // Regression: pre-fix all Directors on a machine shared one global id file
+        // and overwrote each other's instances/{id}.json, so the Gateway only ever
+        // saw the most-recently-started Director. Per-exe-path slots are what
+        // restores fan-out across concurrent Directors.
+        var a = DirectorIdStore.LoadOrCreate(@"D:\builds\cc-director-avalonia1.exe");
+        var b = DirectorIdStore.LoadOrCreate(@"D:\builds\cc-director-avalonia4.exe");
+        Assert.NotEqual(a, b);
+
+        // And same slot must still return the same id on repeat calls.
+        var aAgain = DirectorIdStore.LoadOrCreate(@"D:\builds\cc-director-avalonia1.exe");
+        Assert.Equal(a, aAgain);
+    }
+
+    [Fact]
+    public void Slot_is_case_and_separator_insensitive_on_windows()
+    {
+        // "D:\Foo\bar.exe" and "d:/foo/BAR.EXE" should resolve to the same slot
+        // so a Director that flips between forward/backslash or uppercased PATH
+        // entries does not look like a brand-new Director to the Gateway.
+        var a = DirectorIdStore.LoadOrCreate(@"D:\Foo\bar.exe");
+        var b = DirectorIdStore.LoadOrCreate(@"d:/foo/BAR.EXE");
+        Assert.Equal(a, b);
+    }
 }
