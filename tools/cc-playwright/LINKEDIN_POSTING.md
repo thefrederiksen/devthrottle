@@ -104,6 +104,61 @@ contenteditable div in the light DOM with
 to type, then click the submit button at
 `button.comments-comment-box__submit-button--cr`.
 
+**Replies have TWO editors on the page.** When you click "Reply to X's
+comment", LinkedIn opens a second `div[aria-label="Text editor for creating
+content"]` scoped to that thread, in addition to the top-level "Add a
+comment" editor at the bottom. A bare selector grabs the first one (the
+top-level box). Scope by the parent comment article:
+`article#<commentId> div[contenteditable=true][aria-label*="Text"]`.
+
+**Reply composer auto-inserts an @-mention of the commenter as a pill
+prefix.** Do NOT begin your reply text with "FirstName LastName, ..." or
+the rendered reply will read "Jane Doe Jane Doe, ...". Strip any
+name salutation from the draft and let the auto-mention carry the
+addressing. Start with the substance:
+
+- bad: `"Jane Doe, fair pushback. You are right..."` -> renders as `"Jane Doe Jane Doe, fair pushback..."`
+- good: `"Fair pushback. You are right..."` -> renders as `"Jane Doe Fair pushback. You are right..."`
+
+If you need to clear an existing reply composer to retype, do NOT use
+`execCommand('selectAll') + delete` -- that nukes the mention pill too.
+Instead: re-click the Reply button on the comment (LinkedIn dismisses the
+old composer and opens a fresh one with the mention intact), then move
+the cursor to the end with `range.selectNodeContents(ed); range.collapse(false)`
+before typing.
+
+### 7. DM composer lives in the LIGHT DOM too -- but with different selectors
+
+The popup DM composer that opens after clicking "Message" on a profile
+uses **different** class names than the post comment composer:
+
+| Thing | Selector |
+|---|---|
+| Body | `div.msg-form__contenteditable` (role=textbox, aria-label `Write a message…` with Unicode ellipsis) |
+| Subject (optional) | `input[placeholder="Subject (optional)"]` |
+| Send button | `button.msg-form__send-btn` |
+
+Two profile "Message" buttons exist on every profile page -- one in the
+sticky header, one on the profile card. **Both report visible:true.
+Playwright `click` times out on both because of overlay interception.**
+JS-click via `evaluate` works:
+
+```js
+const btns = document.querySelectorAll('button[aria-label="Message <FirstName>"]');
+btns[btns.length-1].click();   // profile-card button, not sticky-header
+```
+
+**Enter SENDS** in the DM composer. Multi-paragraph messages must be
+typed as one `type --text` call per paragraph, with two `Shift+Enter`
+presses between paragraphs (the composer renders `<p><br></p>` for blank
+lines). Same risk profile as Upwork chat -- a literal `\n` in `--text`
+will fire Enter and prematurely send a partial message.
+
+**Never auto-Send DMs.** The connection README's DM flow stops at the
+"composer filled and screenshotted" state and hands off to Soren for the
+Send click. The full DM cheat sheet lives in the README at
+`%LOCALAPPDATA%\cc-director\connections\linkedin\README.md`.
+
 ## Gotchas worth remembering
 
 | Gotcha | What to do |

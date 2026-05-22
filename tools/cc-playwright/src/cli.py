@@ -262,6 +262,67 @@ def _select_pinned_page(ctx, state: dict):
     return ctx.pages[-1]
 
 
+def _prune_to_single_tab(port: int, target_url: str | None) -> dict:
+    """Close every tab except one matching target_url. Used after start to
+    cancel Brave's session-restore (which would otherwise drag old tabs in
+    every launch and confuse multi-tab automation).
+
+    If target_url is given: keep one tab whose host matches; if no tab
+    matches, navigate the most recently focused tab to target_url.
+    If target_url is None: keep the most recently focused tab.
+
+    Returns {"closed": N, "kept_url": "..."}.
+    """
+    from playwright.sync_api import sync_playwright
+
+    pw = sync_playwright().start()
+    closed = 0
+    kept_url = None
+    try:
+        browser = pw.chromium.connect_over_cdp(f"http://localhost:{port}")
+        if not browser.contexts:
+            return {"closed": 0, "kept_url": None}
+        ctx = browser.contexts[0]
+        if not ctx.pages:
+            return {"closed": 0, "kept_url": None}
+
+        target_host = None
+        if target_url:
+            try:
+                target_host = urlparse(target_url).netloc.lower() or None
+            except Exception:
+                target_host = None
+
+        keep = None
+        if target_host:
+            matches = [
+                p for p in ctx.pages
+                if urlparse(p.url).netloc.lower() == target_host
+            ]
+            if matches:
+                keep = matches[-1]
+        if keep is None:
+            keep = ctx.pages[-1]
+            if target_url and keep.url != target_url:
+                try:
+                    keep.goto(target_url, wait_until="domcontentloaded", timeout=20_000)
+                except Exception:
+                    pass
+
+        for p in list(ctx.pages):
+            if p is keep:
+                continue
+            try:
+                p.close()
+                closed += 1
+            except Exception:
+                pass
+        kept_url = keep.url
+    finally:
+        pw.stop()
+    return {"closed": closed, "kept_url": kept_url}
+
+
 def _ok(data: Any) -> None:
     print(json.dumps(data, indent=2, default=str))
 
@@ -356,7 +417,21 @@ def cmd_start(args: argparse.Namespace) -> None:
         "pinned_url": args.url,
     }
     _save_state(connection, new_state)
-    _ok({"status": "started", **new_state})
+
+    # Cancel Brave's session-restore: close every tab except the one matching
+    # --url (or, if no --url, just keep the most recently focused tab). Without
+    # this, every restart accumulates stale tabs from previous sessions and
+    # confuses tab-pinning. Best-effort -- failures here don't fail the start.
+    prune_info = {"closed": 0, "kept_url": None}
+    try:
+        # Small grace period so Brave finishes opening session-restore tabs
+        # before we prune them.
+        time.sleep(1.5)
+        prune_info = _prune_to_single_tab(port, args.url)
+    except Exception as e:
+        prune_info = {"closed": 0, "kept_url": None, "prune_error": str(e)}
+
+    _ok({"status": "started", **new_state, "tabs_pruned": prune_info})
 
 
 def cmd_stop(args: argparse.Namespace) -> None:
@@ -612,6 +687,19 @@ def cmd_wait(args: argparse.Namespace) -> None:
         pw.stop()
 
 
+def cmd_close_tabs(args: argparse.Namespace) -> None:
+    """Close every tab in this connection except one. Useful when Brave's
+    session-restore brings back stale tabs you want gone."""
+    state = _load_state(args.connection)
+    pid = state.get("pid")
+    port = state.get("port")
+    if not pid or not _is_running(pid):
+        _err(f"cc-playwright '{args.connection}' is not running")
+    target = args.url or state.get("pinned_url")
+    info = _prune_to_single_tab(port, target)
+    _ok({"connection": args.connection, **info})
+
+
 def cmd_tabs(args: argparse.Namespace) -> None:
     pw, browser, ctx, page = _connect(args.connection)
     try:
@@ -748,6 +836,13 @@ def main() -> None:
 
     s = sub.add_parser("tabs", help="List tabs")
     s.set_defaults(func=cmd_tabs)
+
+    s = sub.add_parser("close-tabs", help=(
+        "Close every tab except one. If --url given, keep the tab matching "
+        "that URL (navigating if needed); otherwise keep the most recent."
+    ))
+    s.add_argument("--url", help="Target URL to keep; defaults to pinned_url")
+    s.set_defaults(func=cmd_close_tabs)
 
     s = sub.add_parser("new-tab", help="Open a new tab")
     s.add_argument("--url")
