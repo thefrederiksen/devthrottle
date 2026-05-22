@@ -65,22 +65,39 @@
         </Grid>
 
         <!-- Action bar -->
-        <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto" Margin="0,12,0,0">
+        <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto,Auto,Auto" Margin="0,12,0,0">
+            <!-- HintLabel kept (but empty) so error/state paths can populate it. -->
             <TextBlock x:Name="HintLabel" Grid.Column="0"
-                       Text="Click Stop when you are done speaking."
+                       Text=""
                        Foreground="#888888"
                        FontSize="12"
                        VerticalAlignment="Center" />
             <Button x:Name="CancelButton" Grid.Column="1"
                     Content="Cancel"
-                    Width="90" Height="32"
+                    Width="80" Height="32"
                     Margin="0,0,8,0"
                     Background="#2D2D30"
                     Foreground="#CCCCCC"
                     Click="CancelButton_Click" />
-            <Button x:Name="PrimaryButton" Grid.Column="2"
+            <Button x:Name="PauseButton" Grid.Column="2"
+                    Content="Pause"
+                    Width="90" Height="32"
+                    Margin="0,0,8,0"
+                    Background="#007ACC"
+                    Foreground="White"
+                    FontWeight="SemiBold"
+                    Click="PauseButton_Click" />
+            <Button x:Name="StopButton" Grid.Column="3"
                     Content="Stop"
-                    Width="120" Height="32"
+                    Width="90" Height="32"
+                    Margin="0,0,8,0"
+                    Background="#3C3C3C"
+                    Foreground="#CCCCCC"
+                    FontWeight="SemiBold"
+                    Click="StopButton_Click" />
+            <Button x:Name="PrimaryButton" Grid.Column="4"
+                    Content="Send"
+                    Width="110" Height="32"
                     Background="#F44747"
                     Foreground="White"
                     FontWeight="SemiBold"

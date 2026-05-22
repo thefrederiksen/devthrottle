@@ -1103,6 +1103,14 @@ public partial class MainWindow : Window
                 return;
             }
             FileLog.Write("[MainWindow] BtnSpeak_Click: opening SpeakDialog");
+            // Snapshot the caret BEFORE opening the dialog. Focus moves to the
+            // dialog, and on some controls CaretIndex can be reset to 0 after
+            // focus loss, which would cause inserted text to land at position 0
+            // (effectively prepending instead of inserting at the user's caret).
+            var existingTextBefore = PromptInput.Text ?? "";
+            var caretBefore = PromptInput.CaretIndex;
+            if (caretBefore < 0 || caretBefore > existingTextBefore.Length)
+                caretBefore = existingTextBefore.Length;
             var dlg = new global::CcDirector.Avalonia.Voice.SpeakDialog(options);
             await dlg.ShowDialog(this);
             var transcript = dlg.ResultText;
@@ -1111,8 +1119,12 @@ public partial class MainWindow : Window
                 FileLog.Write("[MainWindow] BtnSpeak_Click: dialog returned no text (cancelled or errored)");
                 return;
             }
-            InsertIntoPromptInput(transcript!);
-            FileLog.Write($"[MainWindow] BtnSpeak_Click: inserted {transcript!.Length} chars");
+            InsertIntoPromptInputAt(transcript!, caretBefore);
+            FileLog.Write($"[MainWindow] BtnSpeak_Click: inserted {transcript!.Length} chars at caret={caretBefore}, shouldSubmit={dlg.ShouldSubmit}");
+            if (dlg.ShouldSubmit)
+            {
+                SendPrompt();
+            }
         }
         catch (Exception ex)
         {
@@ -1122,14 +1134,15 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Insert transcript text at the current caret in PromptInput. Adds
+    /// Insert transcript text at the given caret index in PromptInput. Adds
     /// whitespace separators when needed so the new words do not smush
-    /// against existing characters.
+    /// against existing characters. Caller is expected to snapshot the caret
+    /// BEFORE any focus change (e.g. before opening a modal dialog), because
+    /// CaretIndex on a TextBox that has just lost focus can be 0.
     /// </summary>
-    private void InsertIntoPromptInput(string text)
+    private void InsertIntoPromptInputAt(string text, int caret)
     {
         var existing = PromptInput.Text ?? "";
-        var caret = PromptInput.CaretIndex;
         if (caret < 0 || caret > existing.Length) caret = existing.Length;
         var prefix = existing[..caret];
         var suffix = existing[caret..];
