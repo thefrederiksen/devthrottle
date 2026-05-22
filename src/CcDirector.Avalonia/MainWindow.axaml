@@ -701,7 +701,7 @@
                                         FontSize="13"
                                         FontWeight="SemiBold"
                                         Click="BtnSpeak_Click"
-                                        ToolTip.Tip="Dictate using the cc-director dictation library (opens browser)" />
+                                        ToolTip.Tip="Dictate (Ctrl+H from anywhere on the Terminal tab)" />
                                 <Button x:Name="BtnSend"
                                         Grid.Row="0" Grid.Column="1"
                                         Content="Send"

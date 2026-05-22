@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -78,6 +79,37 @@ public partial class SpeakDialog : Window
 
         Opened += async (_, _) => await OnDialogOpenedAsync();
         Closed += (_, _) => _ = OnDialogClosedAsync();
+
+        // Window-level Enter = Send (insert transcript + auto-submit). Lets the
+        // user complete the whole dictation flow with the keyboard only:
+        // Ctrl+H from the main window opens this dialog, talk, Enter sends.
+        // Escape = Cancel for the same reason.
+        KeyDown += SpeakDialog_KeyDown;
+    }
+
+    private void SpeakDialog_KeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.KeyModifiers != KeyModifiers.None) return;
+
+        if (e.Key == Key.Enter)
+        {
+            // Only fire when Send is actually actionable. During Transcribing
+            // PrimaryButton is disabled; during the error path it is hidden.
+            if (PrimaryButton.IsVisible && PrimaryButton.IsEnabled)
+            {
+                FileLog.Write("[SpeakDialog] Enter -> PrimaryButton (Send)");
+                e.Handled = true;
+                PrimaryButton_Click(this, new RoutedEventArgs());
+            }
+            return;
+        }
+
+        if (e.Key == Key.Escape)
+        {
+            FileLog.Write("[SpeakDialog] Escape -> CancelButton");
+            e.Handled = true;
+            CancelButton_Click(this, new RoutedEventArgs());
+        }
     }
 
     private async Task OnDialogOpenedAsync()
@@ -96,7 +128,6 @@ public partial class SpeakDialog : Window
             TranscriptText.Foreground = new SolidColorBrush(Color.FromRgb(0xF4, 0x47, 0x47));
             StatusLabel.Text = "ERROR";
             StatusLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xF4, 0x47, 0x47));
-            HintLabel.Text = "Click Cancel to close.";
             PrimaryButton.IsVisible = false;
             StopButton.IsVisible = false;
             PauseButton.IsVisible = false;
@@ -298,7 +329,6 @@ public partial class SpeakDialog : Window
             TranscriptText.Foreground = new SolidColorBrush(Color.FromRgb(0xF4, 0x47, 0x47));
             StatusLabel.Text = "ERROR";
             StatusLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xF4, 0x47, 0x47));
-            HintLabel.Text = "Click Cancel to close.";
             PrimaryButton.IsVisible = false;
             StopButton.IsVisible = false;
             PauseButton.IsVisible = false;
@@ -317,7 +347,7 @@ public partial class SpeakDialog : Window
         // Freeze the timer first so the displayed elapsed time stops at the
         // moment the user clicked Pause, not at the moment cleanup finishes.
         _elapsedBeforeSegment += DateTime.UtcNow - _t0;
-        SwitchToTranscribing(hint: "Transcribing what you said so far...");
+        SwitchToTranscribing();
         PauseButton.IsEnabled = false;
         try
         {
@@ -342,7 +372,6 @@ public partial class SpeakDialog : Window
             TranscriptText.Foreground = new SolidColorBrush(Color.FromRgb(0xF4, 0x47, 0x47));
             StatusLabel.Text = "ERROR";
             StatusLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xF4, 0x47, 0x47));
-            HintLabel.Text = "Click Cancel to close, or Send to keep what you already have.";
             PauseButton.IsVisible = false;
         }
     }
@@ -366,18 +395,16 @@ public partial class SpeakDialog : Window
             TranscriptText.Foreground = new SolidColorBrush(Color.FromRgb(0xF4, 0x47, 0x47));
             StatusLabel.Text = "ERROR";
             StatusLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xF4, 0x47, 0x47));
-            HintLabel.Text = "Click Cancel to close, or Send to keep what you already have.";
             PauseButton.IsVisible = false;
         }
     }
 
-    private void SwitchToTranscribing(string hint = "Running cleanup pass through gpt-4.1-nano...")
+    private void SwitchToTranscribing()
     {
         _stage = Stage.Transcribing;
         StatusLabel.Text = "TRANSCRIBING";
         StatusLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xDC, 0xDC, 0xAA));
         TimerLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xDC, 0xDC, 0xAA));
-        HintLabel.Text = hint;
         PrimaryButton.IsEnabled = false;
         StopButton.IsEnabled = false;
         for (int i = 0; i < _barTargets.Length; i++) _barTargets[i] = 18.0;
@@ -390,7 +417,6 @@ public partial class SpeakDialog : Window
         StatusLabel.Text = "PAUSED";
         StatusLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xDC, 0xDC, 0xAA));
         TimerLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xDC, 0xDC, 0xAA));
-        HintLabel.Text = "";
         PauseButton.Content = "Resume";
         PauseButton.IsEnabled = true;
         StopButton.IsEnabled = true;
@@ -407,11 +433,30 @@ public partial class SpeakDialog : Window
         StatusLabel.Text = "RECORDING";
         StatusLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xF4, 0x47, 0x47));
         TimerLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xF4, 0x47, 0x47));
-        HintLabel.Text = "";
-        PauseButton.Content = "Pause";
+        PauseButton.Content = BuildPauseIcon();
         PauseButton.IsEnabled = true;
         StopButton.IsEnabled = true;
         PrimaryButton.IsEnabled = true;
         foreach (var bar in _bars) bar.Background = new SolidColorBrush(Color.FromRgb(0xF4, 0x47, 0x47));
+    }
+
+    /// <summary>
+    /// Two-bar pause glyph as Avalonia shapes. Avoids the Unicode pause symbol
+    /// per the project-wide no-Unicode rule. Used when SwitchToRecording
+    /// reclaims the PauseButton content after a Resume.
+    /// </summary>
+    private static Control BuildPauseIcon()
+    {
+        var fill = new SolidColorBrush(Color.FromRgb(0xCC, 0xCC, 0xCC));
+        var sp = new StackPanel
+        {
+            Orientation = global::Avalonia.Layout.Orientation.Horizontal,
+            HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Center,
+            VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center,
+            Spacing = 5,
+        };
+        sp.Children.Add(new global::Avalonia.Controls.Shapes.Rectangle { Width = 4, Height = 14, Fill = fill });
+        sp.Children.Add(new global::Avalonia.Controls.Shapes.Rectangle { Width = 4, Height = 14, Fill = fill });
+        return sp;
     }
 }

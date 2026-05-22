@@ -168,6 +168,13 @@ public partial class MainWindow : Window
         // Register KeyDown as tunnel so it fires before AcceptsReturn consumes Ctrl+Enter
         PromptInput.AddHandler(KeyDownEvent, PromptInput_KeyDown, global::Avalonia.Interactivity.RoutingStrategies.Tunnel);
 
+        // Window-level Ctrl+H = open Speak dialog. Tunnel routing so the embedded
+        // terminal panel does not eat the keystroke (xterm treats Ctrl+H as
+        // Backspace). Gated on the prompt bar being visible -- same condition
+        // that gates the Speak button itself, i.e. Terminal tab with an active
+        // session.
+        AddHandler(KeyDownEvent, MainWindow_KeyDown, global::Avalonia.Interactivity.RoutingStrategies.Tunnel);
+
         AddHandler(DragDrop.DropEvent, PromptInput_Drop);
         AddHandler(DragDrop.DragOverEvent, PromptInput_DragOver);
 
@@ -1077,6 +1084,24 @@ public partial class MainWindow : Window
     {
         FileLog.Write("[MainWindow] BtnRefreshTerminal_Click");
         RefreshTerminal();
+    }
+
+    private void MainWindow_KeyDown(object? sender, KeyEventArgs e)
+    {
+        // Ctrl+H from anywhere on the window opens the Speak dialog -- but only
+        // when the prompt bar is visible (Terminal tab + active session). Other
+        // tabs/states don't have a Speak target.
+        if (e.Key == Key.H && e.KeyModifiers == KeyModifiers.Control)
+        {
+            if (!PromptBarBorder.IsVisible)
+            {
+                FileLog.Write("[MainWindow] Ctrl+H ignored: prompt bar not visible");
+                return;
+            }
+            FileLog.Write("[MainWindow] Ctrl+H -> BtnSpeak_Click");
+            e.Handled = true;
+            BtnSpeak_Click(this, new RoutedEventArgs());
+        }
     }
 
     private async void BtnSpeak_Click(object? sender, RoutedEventArgs e)
