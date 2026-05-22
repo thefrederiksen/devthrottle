@@ -10,6 +10,7 @@ using CcDirector.Core.Claude;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Hooks;
 using CcDirector.Core.Pipes;
+using CcDirector.Core.Scheduler;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Storage;
 using CcDirector.Core.Utilities;
@@ -37,6 +38,7 @@ public partial class App : Application
     public WorkspaceStore WorkspaceStore { get; private set; } = null!;
     public EngineHost? EngineHost { get; private set; }
     public ControlApiHost? ControlApiHost { get; private set; }
+    public SchedulerService? Scheduler { get; private set; }
 
     public bool SandboxMode { get; private set; }
 
@@ -196,6 +198,56 @@ public partial class App : Application
 
         UpdateSplashStatus(splash, "Starting control API...");
         StartControlApi(log);
+
+        UpdateSplashStatus(splash, "Starting scheduler...");
+        StartScheduler(log);
+    }
+
+    private void StartScheduler(Action<string> log)
+    {
+        try
+        {
+            var tickInterval = TimeSpan.FromMinutes(5);
+            var configPath = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+            if (File.Exists(configPath))
+            {
+                try
+                {
+                    var json = File.ReadAllText(configPath);
+                    using var doc = JsonDocument.Parse(json);
+                    if (doc.RootElement.TryGetProperty("Scheduler", out var section)
+                        && section.TryGetProperty("TickIntervalMinutes", out var t)
+                        && t.TryGetInt32(out var mins)
+                        && mins > 0)
+                    {
+                        tickInterval = TimeSpan.FromMinutes(mins);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    log($"Scheduler: failed to read TickIntervalMinutes from appsettings.json: {ex.Message}");
+                }
+            }
+
+            var statePath = Path.Combine(CcStorage.ToolConfig("director"), "scheduler-state.json");
+            var leaderIdentityPath = Path.Combine(CcStorage.ToolConfig("director"), "scheduler-leader.json");
+            var runnersConfigPath = RunnersConfig.DefaultPath();
+            Scheduler = new SchedulerService(
+                tickInterval: tickInterval,
+                statePath: statePath,
+                leaderIdentityPath: leaderIdentityPath,
+                runnersConfigPath: runnersConfigPath);
+
+            var runners = RunnersConfig.LoadOrSeed(log: log);
+            foreach (var runner in runners) Scheduler.RegisterRunner(runner);
+
+            Scheduler.Start();
+            log($"Scheduler started (tickInterval={tickInterval}, runners={Scheduler.Queue.Runners.Count}, configPath={RunnersConfig.DefaultPath()}, statePath={statePath})");
+        }
+        catch (Exception ex)
+        {
+            log($"Scheduler failed to start: {ex.Message}");
+        }
     }
 
     private void StartControlApi(Action<string> log)
@@ -295,6 +347,12 @@ public partial class App : Application
                 {
                     log($"ControlApiHost stop error: {ex.Message}");
                 }
+            }
+
+            if (Scheduler != null)
+            {
+                try { Scheduler.Stop(); Scheduler.Dispose(); }
+                catch (Exception ex) { log($"Scheduler stop error: {ex.Message}"); }
             }
 
             ClaudeUsageService?.Dispose();

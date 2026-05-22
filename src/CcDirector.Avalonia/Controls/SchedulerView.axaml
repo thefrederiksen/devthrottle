@@ -1,0 +1,203 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="CcDirector.Avalonia.Controls.SchedulerView"
+             Background="#1E1E1E">
+
+    <DockPanel>
+
+        <!-- Header -->
+        <DockPanel DockPanel.Dock="Top" Margin="24,20,24,8">
+            <TextBlock Text="SCHEDULER"
+                       Foreground="#CCCCCC"
+                       FontWeight="SemiBold" FontSize="16"
+                       VerticalAlignment="Center" />
+            <Button x:Name="BtnRefresh"
+                    Content="Refresh"
+                    Click="BtnRefresh_Click"
+                    HorizontalAlignment="Right"
+                    Padding="12,4"
+                    Background="#3C3C3C"
+                    Foreground="#CCCCCC"
+                    BorderThickness="0" Cursor="Hand"
+                    FontSize="12" />
+        </DockPanel>
+
+        <!-- Leader status banner -->
+        <Border DockPanel.Dock="Top"
+                Margin="24,0,24,8"
+                Padding="12,8"
+                Background="#252526"
+                BorderBrush="#3C3C3C" BorderThickness="1"
+                CornerRadius="3">
+            <StackPanel>
+                <DockPanel>
+                    <Border x:Name="LeaderDot"
+                            Width="10" Height="10" CornerRadius="5"
+                            Background="#666666"
+                            VerticalAlignment="Center"
+                            Margin="0,0,8,0" />
+                    <TextBlock x:Name="LeaderStatusText"
+                               Text="Status: unknown"
+                               Foreground="#CCCCCC"
+                               FontSize="13" FontWeight="SemiBold"
+                               VerticalAlignment="Center" />
+                </DockPanel>
+                <TextBlock x:Name="SchedulerMetaText"
+                           Text=""
+                           Foreground="#888888"
+                           FontSize="11"
+                           Margin="18,3,0,0" />
+                <TextBlock x:Name="ConfigPathText"
+                           Text=""
+                           Foreground="#666666"
+                           FontSize="10"
+                           Margin="18,2,0,0" />
+            </StackPanel>
+        </Border>
+
+        <!-- Sub-header for the runner list -->
+        <TextBlock DockPanel.Dock="Top"
+                   Text="REGISTERED RUNNERS"
+                   Foreground="#AAAAAA"
+                   FontWeight="SemiBold" FontSize="11"
+                   Margin="24,8,24,4" />
+
+        <!-- Loading / empty states -->
+        <TextBlock x:Name="LoadingText" Text="Loading..."
+                   Foreground="#888888" FontStyle="Italic" FontSize="12"
+                   HorizontalAlignment="Center" VerticalAlignment="Top"
+                   Margin="0,16,0,0"
+                   DockPanel.Dock="Top"
+                   IsVisible="False" />
+
+        <TextBlock x:Name="EmptyText"
+                   Text="No runners registered. Edit runners.json under config\director\ and restart Director."
+                   Foreground="#555555" FontSize="12"
+                   HorizontalAlignment="Center" VerticalAlignment="Top"
+                   TextWrapping="Wrap"
+                   MaxWidth="500"
+                   TextAlignment="Center"
+                   Margin="0,16,0,0"
+                   DockPanel.Dock="Top"
+                   IsVisible="False" />
+
+        <!-- Runner cards -->
+        <ScrollViewer VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled"
+                      Margin="16,0,16,16">
+            <ItemsControl x:Name="RunnerList">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border Padding="12,10" BorderBrush="#333333" BorderThickness="0,0,0,1"
+                                Background="Transparent">
+                            <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto">
+
+                                <!-- Row 1: state dot + name + state text + pending badge + Run now -->
+                                <DockPanel Grid.Row="0">
+                                    <Button DockPanel.Dock="Right"
+                                            Content="{Binding RunNowLabel}"
+                                            Click="BtnRunNow_Click"
+                                            Tag="{Binding Name}"
+                                            IsEnabled="{Binding RunNowEnabled}"
+                                            MinWidth="80" Height="26"
+                                            FontSize="11"
+                                            BorderThickness="0" Cursor="Hand"
+                                            VerticalAlignment="Center"
+                                            Margin="8,0,0,0"
+                                            Background="{Binding RunNowBackground}"
+                                            Foreground="{Binding RunNowForeground}" />
+
+                                    <Border DockPanel.Dock="Right"
+                                            Background="#404040"
+                                            CornerRadius="9"
+                                            Padding="7,2"
+                                            VerticalAlignment="Center"
+                                            Margin="8,0,0,0"
+                                            ToolTip.Tip="Pending items in queue">
+                                        <TextBlock Text="{Binding PendingDisplay}"
+                                                   Foreground="{Binding PendingForeground}"
+                                                   FontSize="11"
+                                                   FontWeight="SemiBold" />
+                                    </Border>
+
+                                    <TextBlock DockPanel.Dock="Right"
+                                               Text="{Binding StateDisplay}"
+                                               Foreground="{Binding StateForeground}"
+                                               FontSize="11"
+                                               VerticalAlignment="Center"
+                                               Margin="8,0,0,0" />
+
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <Border Width="8" Height="8" CornerRadius="4"
+                                                Background="{Binding StateBrush}"
+                                                VerticalAlignment="Center"
+                                                Margin="0,0,8,0" />
+                                        <TextBlock Text="{Binding Name}"
+                                                   Foreground="#CCCCCC" FontSize="14"
+                                                   FontWeight="SemiBold" />
+                                    </StackPanel>
+                                </DockPanel>
+
+                                <!-- Row 2: schedule + jitter + cooldown -->
+                                <TextBlock Grid.Row="1"
+                                           Text="{Binding ScheduleDescription}"
+                                           Foreground="#AAAAAA" FontSize="12"
+                                           Margin="16,3,0,0" />
+
+                                <!-- Row 3: command + last fired -->
+                                <TextBlock Grid.Row="2"
+                                           Text="{Binding MetaDisplay}"
+                                           Foreground="#666666" FontSize="10"
+                                           TextWrapping="NoWrap"
+                                           Margin="16,2,0,0" />
+
+                                <!-- Row 4: last result line + show/hide output button -->
+                                <DockPanel Grid.Row="3"
+                                           Margin="16,4,0,0"
+                                           IsVisible="{Binding HasLastResult}">
+                                    <Button DockPanel.Dock="Right"
+                                            Content="{Binding OutputToggleLabel}"
+                                            Click="BtnToggleOutput_Click"
+                                            Tag="{Binding Name}"
+                                            MinWidth="100" Height="22"
+                                            FontSize="10"
+                                            BorderThickness="0" Cursor="Hand"
+                                            VerticalAlignment="Center"
+                                            Background="#3C3C3C"
+                                            Foreground="#CCCCCC" />
+                                    <TextBlock Text="{Binding LastResultLine}"
+                                               Foreground="{Binding LastResultForeground}"
+                                               FontSize="11"
+                                               VerticalAlignment="Center" />
+                                </DockPanel>
+
+                                <!-- Row 5: expanded output box -->
+                                <Border Grid.Row="4"
+                                        Margin="16,4,0,0"
+                                        Padding="0"
+                                        Background="#0E0E0E"
+                                        BorderBrush="#3C3C3C" BorderThickness="1"
+                                        IsVisible="{Binding IsOutputExpanded}">
+                                    <ScrollViewer MaxHeight="220"
+                                                  VerticalScrollBarVisibility="Auto"
+                                                  HorizontalScrollBarVisibility="Auto">
+                                        <TextBox Text="{Binding LastOutputBlock}"
+                                                 IsReadOnly="True"
+                                                 AcceptsReturn="True"
+                                                 Background="Transparent"
+                                                 BorderThickness="0"
+                                                 FontFamily="Consolas,Cascadia Mono,monospace"
+                                                 FontSize="11"
+                                                 Foreground="#CCCCCC"
+                                                 Padding="8,6" />
+                                    </ScrollViewer>
+                                </Border>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+
+    </DockPanel>
+</UserControl>

@@ -53,6 +53,36 @@
                         Click="BtnNewSession_Click"
                         ToolTip.Tip="Create a new session" />
 
+                <!-- Scheduler button above connections -->
+                <Grid DockPanel.Dock="Bottom" Margin="8,2,8,2">
+                    <Button x:Name="BtnScheduler"
+                            Content="Scheduler"
+                            Click="BtnScheduler_Click"
+                            Background="#5A2D7D"
+                            Foreground="White"
+                            BorderThickness="0"
+                            Cursor="Hand"
+                            Height="30"
+                            FontSize="13"
+                            HorizontalContentAlignment="Center"
+                            ToolTip.Tip="Scheduler -- view registered runners and run them on demand" />
+                    <!-- LEADER pill overlaid when this Director holds the scheduler mutex -->
+                    <Border x:Name="SchedulerLeaderPill"
+                            Background="#22C55E"
+                            CornerRadius="8"
+                            Padding="6,1"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Center"
+                            Margin="0,0,8,0"
+                            IsHitTestVisible="False"
+                            IsVisible="False">
+                        <TextBlock Text="LEADER"
+                                   Foreground="White"
+                                   FontSize="9"
+                                   FontWeight="Bold" />
+                    </Border>
+                </Grid>
+
                 <!-- Connections button above comms -->
                 <Grid DockPanel.Dock="Bottom" Margin="8,2,8,2">
                     <Button x:Name="BtnConnections"
@@ -1166,6 +1196,39 @@
 
                 <!-- ConnectionsView fills the rest -->
                 <controls:ConnectionsView x:Name="ConnectionsView" />
+            </DockPanel>
+        </Border>
+
+        <!-- ==================== SCHEDULER OVERLAY (covers main + right panel) ==================== -->
+        <Border x:Name="SchedulerOverlay"
+                Grid.Row="0" Grid.RowSpan="2" Grid.Column="2"
+                Background="{DynamicResource PanelBackground}"
+                ZIndex="10"
+                IsVisible="False">
+            <DockPanel>
+                <Border DockPanel.Dock="Top"
+                        Background="{DynamicResource SidebarBackground}"
+                        BorderBrush="#3C3C3C" BorderThickness="0,0,0,1"
+                        Padding="12,8">
+                    <DockPanel>
+                        <Button x:Name="BtnSchedulerClose"
+                                DockPanel.Dock="Right"
+                                Content="[x] Close"
+                                Click="BtnSchedulerClose_Click"
+                                Background="Transparent"
+                                Foreground="#888888"
+                                BorderThickness="0"
+                                Cursor="Hand"
+                                Padding="8,4"
+                                FontSize="12" />
+                        <TextBlock Text="Scheduler"
+                                   Foreground="{DynamicResource TextForeground}"
+                                   FontSize="16" FontWeight="Bold"
+                                   VerticalAlignment="Center" />
+                    </DockPanel>
+                </Border>
+
+                <controls:SchedulerView x:Name="SchedulerView" />
             </DockPanel>
         </Border>
 

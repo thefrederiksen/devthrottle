@@ -252,6 +252,32 @@ public partial class MainWindow : Window
         };
         _sessionGitTimer.Tick += async (_, _) => await RefreshSessionGitStatusAsync();
         _sessionGitTimer.Start();
+
+        // Scheduler-leader indicator: show "LEADER" pill on the sidebar and
+        // append " -- Leader" to the window title while this Director holds
+        // the scheduler mutex. Polled at 5s; the underlying flag is updated
+        // by the election thread so the read is just a volatile bool check.
+        _schedulerLeaderTimer = new global::Avalonia.Threading.DispatcherTimer
+        {
+            Interval = TimeSpan.FromSeconds(5),
+        };
+        _schedulerLeaderTimer.Tick += (_, _) => RefreshSchedulerLeaderIndicator();
+        _schedulerLeaderTimer.Start();
+        RefreshSchedulerLeaderIndicator();
+    }
+
+    private global::Avalonia.Threading.DispatcherTimer? _schedulerLeaderTimer;
+    private bool _lastLeaderState;
+
+    private void RefreshSchedulerLeaderIndicator()
+    {
+        var scheduler = (global::Avalonia.Application.Current as App)?.Scheduler;
+        var isLeader = scheduler?.IsLeader == true;
+        if (isLeader == _lastLeaderState && SchedulerLeaderPill.IsVisible == isLeader) return;
+
+        _lastLeaderState = isLeader;
+        SchedulerLeaderPill.IsVisible = isLeader;
+        Title = isLeader ? "CC Director -- Leader" : "CC Director";
     }
 
     private void SetBuildInfo()
@@ -1756,12 +1782,18 @@ public partial class MainWindow : Window
     {
         FileLog.Write("[MainWindow] BtnComms_Click: opening Comms overlay");
 
-        // Close connections overlay if open
+        // Close other overlays first
         if (ConnectionsOverlay.IsVisible)
         {
             ConnectionsOverlay.IsVisible = false;
             if (_connectionsInitialized)
                 ConnectionsView.StopPolling();
+        }
+        if (SchedulerOverlay.IsVisible)
+        {
+            SchedulerOverlay.IsVisible = false;
+            if (_schedulerInitialized)
+                SchedulerView.StopPolling();
         }
 
         CommsOverlay.IsVisible = true;
@@ -1791,17 +1823,24 @@ public partial class MainWindow : Window
     }
 
     private bool _connectionsInitialized;
+    private bool _schedulerInitialized;
 
     private void BtnConnections_Click(object? sender, RoutedEventArgs e)
     {
         FileLog.Write("[MainWindow] BtnConnections_Click: opening Connections overlay");
 
-        // Close comms overlay if open
+        // Close other overlays first
         if (CommsOverlay.IsVisible)
         {
             CommsOverlay.IsVisible = false;
             if (_commsInitialized)
                 CommManagerView.StopPolling();
+        }
+        if (SchedulerOverlay.IsVisible)
+        {
+            SchedulerOverlay.IsVisible = false;
+            if (_schedulerInitialized)
+                SchedulerView.StopPolling();
         }
 
         ConnectionsOverlay.IsVisible = true;
@@ -1815,6 +1854,36 @@ public partial class MainWindow : Window
         ConnectionsOverlay.IsVisible = false;
         if (_connectionsInitialized)
             ConnectionsView.StopPolling();
+    }
+
+    private void BtnScheduler_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write("[MainWindow] BtnScheduler_Click: opening Scheduler overlay");
+
+        if (CommsOverlay.IsVisible)
+        {
+            CommsOverlay.IsVisible = false;
+            if (_commsInitialized)
+                CommManagerView.StopPolling();
+        }
+        if (ConnectionsOverlay.IsVisible)
+        {
+            ConnectionsOverlay.IsVisible = false;
+            if (_connectionsInitialized)
+                ConnectionsView.StopPolling();
+        }
+
+        SchedulerOverlay.IsVisible = true;
+        _schedulerInitialized = true;
+        SchedulerView.StartPolling();
+    }
+
+    private void BtnSchedulerClose_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write("[MainWindow] BtnSchedulerClose_Click: closing Scheduler overlay");
+        SchedulerOverlay.IsVisible = false;
+        if (_schedulerInitialized)
+            SchedulerView.StopPolling();
     }
 
     private void SwitchLeftTab(string tab)
