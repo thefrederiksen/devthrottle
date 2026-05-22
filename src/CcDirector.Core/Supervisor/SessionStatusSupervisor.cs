@@ -171,8 +171,18 @@ public sealed class SessionStatusSupervisor : IDisposable
     /// </summary>
     private static readonly string[] QuestionMarkers = new[]
     {
+        // Imperative-style "may I" phrasings the agent uses when asking the user.
         "do you want to",
+        "would you like",
+        "want me to",
         "should i ",
+        "should we ",
+        "shall i ",
+        "shall we ",
+        "may i ",
+        "ok to ",
+        "okay to ",
+        // Yes/No / confirm prompts (both Claude Code's own and shell tools').
         "[y/n]",
         "(y/n)",
         "(y/N)",
@@ -248,7 +258,10 @@ public sealed class SessionStatusSupervisor : IDisposable
         // submits answer at T, supervisor goes blue, Haiku summary for prior turn
         // lands at T+10s carrying needs_user=question, banner flickers back to red.
         if (session.ActivityState is ActivityState.WaitingForPerm or ActivityState.Working)
+        {
+            FileLog.Write($"[SessionStatusSupervisor] ApplyTurnSummary {session.Id} skipped: stale, activity={session.ActivityState}");
             return;
+        }
 
         var n = (summary.NeedsUser ?? "").Trim().ToLowerInvariant();
         if (n is "question" or "error" or "permission")
@@ -261,16 +274,19 @@ public sealed class SessionStatusSupervisor : IDisposable
                 !string.IsNullOrWhiteSpace(summary.NeedsUserDetail) ? summary.NeedsUserDetail!.Trim() :
                 n;
             session.SetStatusColor(StatusColor.Red, reason);
+            FileLog.Write($"[SessionStatusSupervisor] ApplyTurnSummary {session.Id} => red (needs_user={n}, reasonLen={reason.Length})");
             return;
         }
         if (hasWarnings)
         {
             session.SetStatusColor(StatusColor.Yellow, "supervisor warning");
+            FileLog.Write($"[SessionStatusSupervisor] ApplyTurnSummary {session.Id} => yellow (warnings)");
             return;
         }
         if (n == "idle" && gitDirty)
         {
             session.SetStatusColor(StatusColor.Yellow, "idle, uncommitted changes");
+            FileLog.Write($"[SessionStatusSupervisor] ApplyTurnSummary {session.Id} => yellow (idle+dirty)");
             return;
         }
 
@@ -278,6 +294,7 @@ public sealed class SessionStatusSupervisor : IDisposable
         var headline = string.IsNullOrWhiteSpace(summary.Headline) ? "clean turn" : summary.Headline!;
         if (headline.Length > 80) headline = headline[..77] + "...";
         session.SetStatusColor(StatusColor.Green, headline);
+        FileLog.Write($"[SessionStatusSupervisor] ApplyTurnSummary {session.Id} => green (needs_user={n}, headline=\"{headline}\")");
     }
 
     public void Dispose()

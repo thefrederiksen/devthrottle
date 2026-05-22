@@ -128,21 +128,38 @@ public sealed class TurnSummaryCache : IDisposable
         }
     }
 
-    private static string? TryReadLastAssistantText(Session session)
+    /// <summary>
+    /// Read the FULL last assistant text widget out of the session's JSONL, with no
+    /// front-truncation. The caller is responsible for fitting the result into its
+    /// own prompt budget; question detection needs the END of the response (where
+    /// trailing "?" lives), so we never lop the tail off here. Returns null when
+    /// the JSONL is missing or has no assistant text yet (brand-new session, or
+    /// link not yet recorded).
+    /// </summary>
+    /// <remarks>
+    /// Bypasses <see cref="SummaryBuilder.Build"/> on purpose: that path runs the
+    /// content through <c>Truncate(s, 2000)</c> which keeps the FIRST 2000 chars,
+    /// reliably cutting off any trailing question on a long response.
+    /// </remarks>
+    internal static string? TryReadLastAssistantText(Session session)
     {
-        // Best-effort: pull from the JSONL via SummaryBuilder.  When the session
-        // is brand new and the JSONL has not been linked yet, return null.
         try
         {
             if (string.IsNullOrEmpty(session.ClaudeSessionId)) return null;
             var jsonl = ClaudeSessionReader.GetJsonlPath(session.ClaudeSessionId, session.RepoPath);
             if (!File.Exists(jsonl)) return null;
             var messages = StreamMessageParser.ParseFile(jsonl);
-            var summary = SummaryBuilder.Build(messages);
-            return summary.LastAssistantText;
+            var widgets = WidgetBuilder.BuildFromMessages(messages);
+            for (int i = widgets.Count - 1; i >= 0; i--)
+            {
+                if (widgets[i].Kind == "Text" && !string.IsNullOrEmpty(widgets[i].Content))
+                    return widgets[i].Content;
+            }
+            return null;
         }
-        catch
+        catch (Exception ex)
         {
+            FileLog.Write($"[TurnSummaryCache] TryReadLastAssistantText FAILED for {session.Id}: {ex.Message}");
             return null;
         }
     }

@@ -64,6 +64,56 @@ public sealed class SessionStatusSupervisorTests
         finally { supervisor.Dispose(); manager.Dispose(); }
     }
 
+    [Theory]
+    [InlineData("Do you want to continue?")]
+    [InlineData("DO YOU WANT TO continue?")]                  // case-insensitive
+    [InlineData("Would you like me to proceed?")]              // new marker
+    [InlineData("Want me to turn this into a spec?")]          // new marker - the screenshot case
+    [InlineData("Should I create the file?")]
+    [InlineData("Should we ship this?")]                       // new marker
+    [InlineData("Shall I run the migration now?")]             // new marker
+    [InlineData("OK to delete this?")]                         // new marker
+    [InlineData("Okay to proceed?")]                           // new marker
+    [InlineData("Continue? [y/n]")]
+    [InlineData("Proceed (y/N)?")]
+    [InlineData("Please confirm before I push.")]
+    public void PromotePendingQuestionIfBufferShowsOne_detects_known_markers(string bufferTail)
+    {
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        var supervisor = new SessionStatusSupervisor(manager);
+        try
+        {
+            var session = manager.CreateSession(Path.GetTempPath());
+            if (session.Buffer is null) return; // Embedded backend has no buffer; skip
+            session.Buffer.Write(System.Text.Encoding.UTF8.GetBytes(bufferTail));
+
+            supervisor.PromotePendingQuestionIfBufferShowsOne(session);
+
+            Assert.Equal(StatusColor.Red, session.StatusColor);
+            Assert.Equal("pending question", session.LastStatusReason);
+        }
+        finally { supervisor.Dispose(); manager.Dispose(); }
+    }
+
+    [Fact]
+    public void PromotePendingQuestionIfBufferShowsOne_no_marker_does_not_change_color()
+    {
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        var supervisor = new SessionStatusSupervisor(manager);
+        try
+        {
+            var session = manager.CreateSession(Path.GetTempPath());
+            if (session.Buffer is null) return;
+            session.Buffer.Write(System.Text.Encoding.UTF8.GetBytes(
+                "Compiled successfully. 0 errors, 0 warnings."));
+
+            var colorBefore = session.StatusColor;
+            supervisor.PromotePendingQuestionIfBufferShowsOne(session);
+            Assert.Equal(colorBefore, session.StatusColor);
+        }
+        finally { supervisor.Dispose(); manager.Dispose(); }
+    }
+
     [Fact]
     public void PromotePendingQuestion_truncates_long_detail()
     {

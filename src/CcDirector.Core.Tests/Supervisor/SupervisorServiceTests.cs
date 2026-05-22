@@ -129,6 +129,40 @@ public sealed class SupervisorServiceTests
     private static TurnData MakeTurn(string prompt, params string[] tools) =>
         new(prompt, new List<string>(tools), new List<string>(), new List<string>(), DateTimeOffset.UtcNow);
 
+    // --------------------------------------------------------------------
+    // TruncateKeepEnd: assistant text must keep the END, not the front, so
+    // the trailing question on a long response survives the prompt budget.
+    // --------------------------------------------------------------------
+
+    [Fact]
+    public void TruncateKeepEnd_short_input_returned_verbatim()
+    {
+        Assert.Equal("hello", SupervisorService.TruncateKeepEnd("hello", 100));
+    }
+
+    [Fact]
+    public void TruncateKeepEnd_empty_returns_empty()
+    {
+        Assert.Equal("", SupervisorService.TruncateKeepEnd("", 100));
+    }
+
+    [Fact]
+    public void TruncateKeepEnd_long_input_keeps_trailing_chars()
+    {
+        // This is the regression case for the bug investigated 2026-05-21: a
+        // long response ending with a question must not have its question chopped
+        // off before being handed to Haiku.
+        var head = new string('A', 5000);
+        var trailingQuestion = "Want me to turn this into the architecture & design spec the ticket asks for (with the open questions answered as concrete proposals)?";
+        var input = head + " " + trailingQuestion;
+
+        var result = SupervisorService.TruncateKeepEnd(input, 200);
+
+        Assert.True(result.Length <= 300, $"result too long: {result.Length}");
+        Assert.EndsWith(trailingQuestion, result);
+        Assert.StartsWith("... [earlier text omitted] ...", result);
+    }
+
     [Fact]
     public void ParseTurnSummaryJsonInto_full_object_populates_all_fields()
     {

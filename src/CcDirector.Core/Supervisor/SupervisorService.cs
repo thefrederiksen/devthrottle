@@ -216,6 +216,13 @@ public static class SupervisorService
         sb.AppendLine("  \"spoken_text\": \"<see rules below>\"");
         sb.AppendLine("}");
         sb.AppendLine();
+        sb.AppendLine("Rules for needs_user:");
+        sb.AppendLine("- 'question': pick this when the agent's reply ends with an explicit question that the user must answer before the agent continues. The presence of a question mark at the end of the last assistant text is a STRONG signal, even when most of the turn was technical work (analysis, code, diagrams). A polite \"Want me to ...?\", \"Should I ...?\", \"Would you like ...?\", \"OK to ...?\" at the end of an otherwise informational reply STILL counts as 'question'.");
+        sb.AppendLine("- 'error': agent reports an error it cannot resolve on its own.");
+        sb.AppendLine("- 'permission': agent paused for an OS-level permission prompt (Yes/No, [y/n]).");
+        sb.AppendLine("- 'idle': agent finished cleanly and has nothing pending.");
+        sb.AppendLine("- 'no': agent is mid-flow or returned a non-question informational reply with no trailing question.");
+        sb.AppendLine();
         sb.AppendLine("Rules for needs_user_short:");
         sb.AppendLine("- Restate the agent's question VERBATIM. Copy the words the agent used.");
         sb.AppendLine("- DO NOT paraphrase, summarise, shorten, soften, or rewrite. The user trusts the agent's phrasing over yours.");
@@ -237,8 +244,21 @@ public static class SupervisorService
         sb.AppendLine($"- Tools used: {string.Join(", ", turn.ToolsUsed)}");
         sb.AppendLine($"- Files touched: {string.Join(" | ", turn.FilesTouched.Take(10))}");
         sb.AppendLine($"- Commands run: {string.Join(" | ", turn.BashCommands.Take(10))}");
-        sb.AppendLine($"- Last assistant text (up to 8000 chars - the question, if any, is in here; quote it verbatim): {Truncate(lastAssistantText, 8000)}");
+        sb.AppendLine($"- Last assistant text (up to 8000 chars from the END - the question, if any, lives at the end; quote it verbatim): {TruncateKeepEnd(lastAssistantText, 8000)}");
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// Keep the LAST <paramref name="max"/> characters of the input, with a short
+    /// marker prefix when truncated. Used for fields where the trailing content
+    /// matters (e.g. an agent reply whose question is at the end) — the
+    /// front-truncating <see cref="Truncate"/> would cut that off.
+    /// </summary>
+    internal static string TruncateKeepEnd(string s, int max)
+    {
+        if (string.IsNullOrEmpty(s)) return "";
+        if (s.Length <= max) return s;
+        return "... [earlier text omitted] ..." + s[^max..];
     }
 
     internal static void ParseTurnSummaryJsonInto(string raw, TurnSummary summary, TurnData turn)
