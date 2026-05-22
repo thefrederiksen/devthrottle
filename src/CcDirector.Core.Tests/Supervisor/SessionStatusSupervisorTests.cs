@@ -72,10 +72,10 @@ public sealed class SessionStatusSupervisorTests
         try
         {
             var session = manager.CreateSession(Path.GetTempPath());
-            var huge = new string('q', 500);
+            var huge = new string('q', 800);
             supervisor.PromotePendingQuestion(session, huge);
             Assert.Equal(StatusColor.Red, session.StatusColor);
-            Assert.True(session.LastStatusReason.Length <= 180, $"reason length {session.LastStatusReason.Length} exceeds cap");
+            Assert.True(session.LastStatusReason.Length <= 500, $"reason length {session.LastStatusReason.Length} exceeds cap");
             Assert.EndsWith("...", session.LastStatusReason);
         }
         finally { supervisor.Dispose(); manager.Dispose(); }

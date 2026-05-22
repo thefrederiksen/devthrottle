@@ -561,22 +561,67 @@
                                    HorizontalAlignment="Center"
                                    VerticalAlignment="Center" />
 
-                        <!-- Terminal + scrollbar -->
-                        <Grid x:Name="TerminalGrid" IsVisible="False">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <terminal:TerminalControl x:Name="TerminalHost"
-                                                      Grid.Column="0" />
-                            <ScrollBar x:Name="TerminalScrollBar" Grid.Column="1"
-                                       Orientation="Vertical"
-                                       Width="14"
-                                       Background="#1E1E1E"
-                                       Foreground="#5A5A5A"
-                                       AllowAutoHide="False"
-                                       Opacity="1" />
-                        </Grid>
+                        <!-- Terminal + scrollbar, plus a bottom-docked pending-question
+                             banner that mirrors the Session tab's red callout. The banner
+                             is non-interactive (no text input, no focus capture) so the
+                             terminal above it stays exactly Claude Code as the user typed
+                             it - the sacred-terminal rule. -->
+                        <DockPanel x:Name="TerminalDock" IsVisible="False">
+                            <!-- Pending-question banner: same visual as the Session tab's
+                                 PendingQuestion widget; hidden unless the active session
+                                 is red with a non-empty reason. -->
+                            <Border x:Name="TerminalPendingQuestionBanner"
+                                    DockPanel.Dock="Bottom"
+                                    Background="#7C2D12"
+                                    BorderBrush="#F97316"
+                                    BorderThickness="2"
+                                    CornerRadius="8"
+                                    Margin="8,8,8,8"
+                                    Padding="16,14"
+                                    IsVisible="False">
+                                <StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                        <Border Background="#EA580C"
+                                                CornerRadius="6" Width="32" Height="32"
+                                                Margin="0,0,12,0">
+                                            <TextBlock Text="?" Foreground="White"
+                                                       FontFamily="Segoe UI,sans-serif"
+                                                       FontSize="18" FontWeight="Bold"
+                                                       HorizontalAlignment="Center"
+                                                       VerticalAlignment="Center" />
+                                        </Border>
+                                        <TextBlock Text="CLAUDE IS WAITING ON YOUR ANSWER"
+                                                   Foreground="White"
+                                                   FontSize="14" FontWeight="Bold"
+                                                   VerticalAlignment="Center" />
+                                    </StackPanel>
+                                    <TextBlock x:Name="TerminalPendingQuestionText"
+                                               Text=""
+                                               Foreground="#FFF7ED"
+                                               FontFamily="Segoe UI,sans-serif"
+                                               FontSize="15" FontWeight="Normal"
+                                               LineHeight="22"
+                                               TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Terminal + scrollbar fill remaining space -->
+                            <Grid x:Name="TerminalGrid">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <terminal:TerminalControl x:Name="TerminalHost"
+                                                          Grid.Column="0" />
+                                <ScrollBar x:Name="TerminalScrollBar" Grid.Column="1"
+                                           Orientation="Vertical"
+                                           Width="14"
+                                           Background="#1E1E1E"
+                                           Foreground="#5A5A5A"
+                                           AllowAutoHide="False"
+                                           Opacity="1" />
+                            </Grid>
+                        </DockPanel>
                     </Panel>
 
                     <!-- Source Control panel -->

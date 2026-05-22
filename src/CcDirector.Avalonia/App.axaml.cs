@@ -109,6 +109,8 @@ public partial class App : Application
 
         FileLog.Start();
 
+        DetectAbnormalTermination();
+
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>
         {
             FileLog.Write($"[App] UNHANDLED DOMAIN EXCEPTION (isTerminating={args.IsTerminating}): {args.ExceptionObject}");
@@ -118,6 +120,18 @@ public partial class App : Application
         {
             FileLog.Write($"[App] UNOBSERVED TASK EXCEPTION: {args.Exception}");
             args.SetObserved();
+        };
+
+        // Avalonia UI-thread exceptions are NOT caught by AppDomain.UnhandledException
+        // when they originate in dispatcher-posted callbacks or binding/render paths.
+        // Without this, an exception in a Dispatcher.UIThread.Post lambda (e.g. the
+        // CleanView pending-question sync or supervisor status callback) can vanish
+        // the process with no log line. Marking Handled=true keeps the app alive so
+        // the user sees the consequence in the UI instead of a silent disappearance.
+        global::Avalonia.Threading.Dispatcher.UIThread.UnhandledException += (_, args) =>
+        {
+            FileLog.Write($"[App] UNHANDLED UI-THREAD EXCEPTION: {args.Exception}");
+            args.Handled = true;
         };
 
         try
@@ -298,6 +312,89 @@ public partial class App : Application
             // Force-exit the process so the CLR doesn't linger waiting for
             // finalizers, GC, or stale timer callbacks to wind down.
             Environment.Exit(0);
+        }
+    }
+
+    // Crash-sentinel probe. InstanceRegistration writes a per-Director JSON file
+    // at startup and deletes it on clean shutdown. A surviving file means the
+    // previous Director with that PID died abnormally (force-kill, native crash,
+    // power loss). We log + clean those up at startup so abnormal terminations
+    // become visible in the log instead of silent disappearances. The matching
+    // log file is found by PID so forensics can pick up where they left off.
+    private void DetectAbnormalTermination()
+    {
+        try
+        {
+            var instancesDir = InstanceRegistration.InstancesDirectory;
+            if (!Directory.Exists(instancesDir)) return;
+
+            var ourPid = Environment.ProcessId;
+            int stale = 0;
+            foreach (var path in Directory.EnumerateFiles(instancesDir, "*.json"))
+            {
+                try
+                {
+                    var json = File.ReadAllText(path);
+                    using var doc = JsonDocument.Parse(json);
+                    if (!doc.RootElement.TryGetProperty("pid", out var pidProp))
+                        continue;
+                    var pid = pidProp.GetInt32();
+                    if (pid == ourPid) continue;
+
+                    bool alive;
+                    try
+                    {
+                        var proc = System.Diagnostics.Process.GetProcessById(pid);
+                        alive = !proc.HasExited;
+                    }
+                    catch (ArgumentException) { alive = false; }
+                    catch (InvalidOperationException) { alive = false; }
+
+                    if (alive) continue;
+
+                    var directorId = doc.RootElement.TryGetProperty("directorId", out var idProp)
+                        ? idProp.GetString() ?? "?" : "?";
+                    var startedAt = doc.RootElement.TryGetProperty("startedAt", out var s)
+                        ? s.GetString() ?? "?" : "?";
+                    var logPath = FindLogForPid(pid);
+                    FileLog.Write(
+                        $"[App] STALE INSTANCE (abnormal termination): directorId={directorId}, " +
+                        $"pid={pid}, startedAt={startedAt}, log={logPath ?? "<not found>"}, file={path}");
+                    try { File.Delete(path); } catch (Exception ex) {
+                        FileLog.Write($"[App] DetectAbnormalTermination: failed to delete stale {path}: {ex.Message}");
+                    }
+                    stale++;
+                }
+                catch (Exception ex)
+                {
+                    FileLog.Write($"[App] DetectAbnormalTermination: failed to inspect {path}: {ex.Message}");
+                }
+            }
+            FileLog.Write($"[App] DetectAbnormalTermination: scanned {instancesDir}, stale={stale}");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[App] DetectAbnormalTermination FAILED: {ex.Message}");
+        }
+    }
+
+    private static string? FindLogForPid(int pid)
+    {
+        try
+        {
+            var logDir = CcStorage.ToolLogs("director");
+            if (!Directory.Exists(logDir)) return null;
+            // Logs are named director-YYYY-MM-DD-{pid}.log. There can be more than
+            // one if the PID was rolled over a day boundary; pick the newest.
+            var match = Directory.EnumerateFiles(logDir, $"director-*-{pid}.log")
+                .OrderByDescending(f => File.GetLastWriteTimeUtc(f))
+                .FirstOrDefault();
+            return match;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[App] FindLogForPid({pid}) FAILED: {ex.Message}");
+            return null;
         }
     }
 

@@ -181,12 +181,12 @@ public sealed class SupervisorServiceTests
     {
         var summary = new TurnSummary();
         var turn = MakeTurn("?", "Edit");
-        var huge = new string('q', 500);
+        var huge = new string('q', 800);
         var raw = $"{{\"headline\":\"h\",\"needs_user\":\"question\",\"needs_user_short\":\"{huge}\",\"spoken_text\":\"\"}}";
 
         SupervisorService.ParseTurnSummaryJsonInto(raw, summary, turn);
 
-        Assert.True(summary.NeedsUserShort.Length <= 180);
+        Assert.True(summary.NeedsUserShort.Length <= 500);
         Assert.EndsWith("...", summary.NeedsUserShort);
     }
 

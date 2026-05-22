@@ -193,7 +193,7 @@ public sealed class SessionStatusSupervisor : IDisposable
     {
         if (session is null) return;
         var reason = string.IsNullOrWhiteSpace(detail) ? "pending question" : detail.Trim();
-        if (reason.Length > 180) reason = reason[..177] + "...";
+        if (reason.Length > 500) reason = reason[..497] + "...";
         session.SetStatusColor(StatusColor.Red, reason);
     }
 

@@ -217,11 +217,12 @@ public static class SupervisorService
         sb.AppendLine("}");
         sb.AppendLine();
         sb.AppendLine("Rules for needs_user_short:");
-        sb.AppendLine("- ONE crisp sentence the user can act on at a glance. Max 180 characters.");
-        sb.AppendLine("- Distinct from needs_user_detail (which can be longer).");
-        sb.AppendLine("- Phrase it as the question or decision the user must answer.");
+        sb.AppendLine("- Restate the agent's question VERBATIM. Copy the words the agent used.");
+        sb.AppendLine("- DO NOT paraphrase, summarise, shorten, soften, or rewrite. The user trusts the agent's phrasing over yours.");
+        sb.AppendLine("- If the agent's question spans multiple sentences, keep them all. Up to 500 characters.");
+        sb.AppendLine("- Only trim trailing pleasantries (\"Let me know!\", \"Sound good?\"). Keep the substance.");
+        sb.AppendLine("- If the agent asked multiple separate questions, include them all, separated by a space. Do NOT pick one.");
         sb.AppendLine("- Empty string when needs_user == 'no'.");
-        sb.AppendLine("- When the agent asked multiple things, distill to the SINGLE most blocking decision; the user reads the full text only if they need to.");
         sb.AppendLine();
         sb.AppendLine("Rules for spoken_text:");
         sb.AppendLine("- One to three short sentences.  Maximum about 280 characters.");
@@ -236,7 +237,7 @@ public static class SupervisorService
         sb.AppendLine($"- Tools used: {string.Join(", ", turn.ToolsUsed)}");
         sb.AppendLine($"- Files touched: {string.Join(" | ", turn.FilesTouched.Take(10))}");
         sb.AppendLine($"- Commands run: {string.Join(" | ", turn.BashCommands.Take(10))}");
-        sb.AppendLine($"- Last assistant text (truncated to 2000 chars): {Truncate(lastAssistantText, 2000)}");
+        sb.AppendLine($"- Last assistant text (up to 8000 chars - the question, if any, is in here; quote it verbatim): {Truncate(lastAssistantText, 8000)}");
         return sb.ToString();
     }
 
@@ -275,8 +276,8 @@ public static class SupervisorService
             if (root.TryGetProperty("needs_user_short", out var ns))
             {
                 summary.NeedsUserShort = (ns.GetString() ?? "").Trim();
-                if (summary.NeedsUserShort.Length > 180)
-                    summary.NeedsUserShort = summary.NeedsUserShort[..177] + "...";
+                if (summary.NeedsUserShort.Length > 500)
+                    summary.NeedsUserShort = summary.NeedsUserShort[..497] + "...";
             }
             if (root.TryGetProperty("spoken_text", out var sp)) summary.SpokenText = (sp.GetString() ?? "").Trim();
 

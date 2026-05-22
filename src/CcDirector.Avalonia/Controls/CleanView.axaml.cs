@@ -194,12 +194,24 @@ public partial class CleanView : UserControl
 
     private void OnStatusColorChanged(string oldColor, string newColor, string reason)
     {
-        Dispatcher.UIThread.Post(SyncPendingQuestionWidget);
+        // Event handler: try-catch per CLAUDE.md rule 4. Fires on the supervisor's
+        // background thread; SyncPendingQuestionWidget marshals to the UI thread.
+        try
+        {
+            Dispatcher.UIThread.Post(SyncPendingQuestionWidget);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[CleanView] OnStatusColorChanged FAILED: old={oldColor}, new={newColor}: {ex.Message}");
+        }
     }
 
     // Ensure the orange question card is present at the tail of the feed when
     // the supervisor flags a pending question (color=red + non-empty reason),
-    // and gone otherwise. Idempotent; safe to call repeatedly.
+    // and gone otherwise. Idempotent; safe to call repeatedly. Mutates
+    // ObservableCollections so MUST run on the UI thread; callers marshal via
+    // Dispatcher.UIThread.Post. Exceptions propagate to the UI-thread
+    // unhandled-exception handler in App.axaml.cs.
     private void SyncPendingQuestionWidget()
     {
         if (_session == null) return;
@@ -213,6 +225,7 @@ public partial class CleanView : UserControl
 
             if (_pendingQuestionWidget == null)
             {
+                FileLog.Write($"[CleanView] SyncPendingQuestionWidget: add, session={_session.Id}, reasonLen={text.Length}");
                 _pendingQuestionWidget = new CleanWidgetViewModel
                 {
                     Kind = WidgetKind.PendingQuestion,
@@ -229,6 +242,7 @@ public partial class CleanView : UserControl
                 // Question text changed (supervisor reran the summary). Swap the
                 // widget for a new one with the updated text; the binding is
                 // init-only so we cannot mutate in place.
+                FileLog.Write($"[CleanView] SyncPendingQuestionWidget: replace, session={_session.Id}, newReasonLen={text.Length}");
                 var idxAll = _allWidgets.IndexOf(_pendingQuestionWidget);
                 var idxFiltered = _filteredWidgets.IndexOf(_pendingQuestionWidget);
                 var replacement = new CleanWidgetViewModel
@@ -246,6 +260,7 @@ public partial class CleanView : UserControl
         {
             if (_pendingQuestionWidget != null)
             {
+                FileLog.Write($"[CleanView] SyncPendingQuestionWidget: remove, session={_session.Id}, color={_session.StatusColor}");
                 _allWidgets.Remove(_pendingQuestionWidget);
                 _filteredWidgets.Remove(_pendingQuestionWidget);
                 _pendingQuestionWidget = null;

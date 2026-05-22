@@ -42,7 +42,7 @@ public sealed class SessionLogWriterTests : IDisposable
 
     private Session CreateTrackedSession()
     {
-        var s = CreateTrackedSession();
+        var s = _manager.CreateSession(Path.GetTempPath());
         _createdSessionDirs.Add(s.Id);
         return s;
     }

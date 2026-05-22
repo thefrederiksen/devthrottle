@@ -451,6 +451,7 @@ public partial class MainWindow : Window
 
             _activeSession.Session.OnClaudeMetadataChanged -= OnActiveSessionMetadataChanged;
             _activeSession.Session.OnActivityStateChanged -= OnActiveSessionActivityChanged;
+            _activeSession.Session.OnStatusColorChanged -= OnActiveSessionStatusColorChanged;
             TerminalHost.Detach();
             GitChangesView.Detach();
             CleanView.Detach();
@@ -463,7 +464,8 @@ public partial class MainWindow : Window
         {
             SessionHeaderBanner.IsVisible = false;
             PlaceholderText.IsVisible = true;
-            TerminalGrid.IsVisible = false;
+            TerminalDock.IsVisible = false;
+            TerminalPendingQuestionBanner.IsVisible = false;
             PromptBarBorder.IsVisible = false;
             TabBarRefreshButton.IsVisible = false;
             TabBarCaptureButton.IsVisible = false;
@@ -476,6 +478,9 @@ public partial class MainWindow : Window
         // Subscribe to metadata and activity changes for header updates
         vm.Session.OnClaudeMetadataChanged += OnActiveSessionMetadataChanged;
         vm.Session.OnActivityStateChanged += OnActiveSessionActivityChanged;
+        // Phase 4f: also subscribe to supervisor status changes so the terminal-tab
+        // pending-question banner stays in sync with the Session tab's red callout.
+        vm.Session.OnStatusColorChanged += OnActiveSessionStatusColorChanged;
 
         // Update header
         SessionHeaderBanner.IsVisible = true;
@@ -483,7 +488,8 @@ public partial class MainWindow : Window
 
         // Attach terminal
         PlaceholderText.IsVisible = false;
-        TerminalGrid.IsVisible = true;
+        TerminalDock.IsVisible = true;
+        UpdateTerminalPendingQuestionBanner();
         TerminalHost.Attach(vm.Session);
         UpdateScrollBar();
 
@@ -545,6 +551,51 @@ public partial class MainWindow : Window
         Dispatcher.UIThread.Post(UpdateSessionHeader);
     }
 
+    private void OnActiveSessionStatusColorChanged(string oldColor, string newColor, string reason)
+    {
+        // Event handler: try-catch per CLAUDE.md rule 4. Fires on the supervisor's
+        // background thread; we marshal to the UI thread before touching controls.
+        try
+        {
+            Dispatcher.UIThread.Post(UpdateTerminalPendingQuestionBanner);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] OnActiveSessionStatusColorChanged FAILED: old={oldColor}, new={newColor}: {ex.Message}");
+        }
+    }
+
+    // Keep the terminal-tab pending-question banner in sync with the supervisor's
+    // verdict on the active session. Visible iff StatusColor==red and
+    // LastStatusReason is non-empty. Same visual + same source-of-truth as the
+    // Session tab's PendingQuestion widget. Exceptions propagate to the UI-thread
+    // unhandled-exception handler in App.axaml.cs which logs them centrally.
+    private void UpdateTerminalPendingQuestionBanner()
+    {
+        if (_activeSession == null)
+        {
+            TerminalPendingQuestionBanner.IsVisible = false;
+            return;
+        }
+
+        var s = _activeSession.Session;
+        bool shouldShow = string.Equals(s.StatusColor, "red", StringComparison.OrdinalIgnoreCase)
+                          && !string.IsNullOrWhiteSpace(s.LastStatusReason);
+
+        if (shouldShow)
+        {
+            FileLog.Write($"[MainWindow] UpdateTerminalPendingQuestionBanner: show, session={s.Id}, reasonLen={s.LastStatusReason?.Length ?? 0}");
+            TerminalPendingQuestionText.Text = s.LastStatusReason ?? "";
+            TerminalPendingQuestionBanner.IsVisible = true;
+        }
+        else
+        {
+            if (TerminalPendingQuestionBanner.IsVisible)
+                FileLog.Write($"[MainWindow] UpdateTerminalPendingQuestionBanner: hide, session={s.Id}, color={s.StatusColor}");
+            TerminalPendingQuestionBanner.IsVisible = false;
+        }
+    }
+
     private async Task CloseAllSessionsAsync()
     {
         FileLog.Write("[MainWindow] CloseAllSessionsAsync");
@@ -552,6 +603,7 @@ public partial class MainWindow : Window
         {
             _activeSession.Session.OnClaudeMetadataChanged -= OnActiveSessionMetadataChanged;
             _activeSession.Session.OnActivityStateChanged -= OnActiveSessionActivityChanged;
+            _activeSession.Session.OnStatusColorChanged -= OnActiveSessionStatusColorChanged;
         }
         TerminalHost.Detach();
         GitChangesView.Detach();
@@ -576,7 +628,8 @@ public partial class MainWindow : Window
 
         SessionHeaderBanner.IsVisible = false;
         PlaceholderText.IsVisible = true;
-        TerminalGrid.IsVisible = false;
+        TerminalDock.IsVisible = false;
+        TerminalPendingQuestionBanner.IsVisible = false;
         PromptBarBorder.IsVisible = false;
 
         FileLog.Write($"[MainWindow] CloseAllSessionsAsync: removed {snapshots.Count} session(s)");
@@ -748,6 +801,7 @@ public partial class MainWindow : Window
         {
             vm.Session.OnClaudeMetadataChanged -= OnActiveSessionMetadataChanged;
             vm.Session.OnActivityStateChanged -= OnActiveSessionActivityChanged;
+            vm.Session.OnStatusColorChanged -= OnActiveSessionStatusColorChanged;
             TerminalHost.Detach();
             GitChangesView.Detach();
             CleanView.Detach();
@@ -755,7 +809,8 @@ public partial class MainWindow : Window
 
             SessionHeaderBanner.IsVisible = false;
             PlaceholderText.IsVisible = true;
-            TerminalGrid.IsVisible = false;
+            TerminalDock.IsVisible = false;
+            TerminalPendingQuestionBanner.IsVisible = false;
             PromptBarBorder.IsVisible = false;
         }
 

@@ -213,6 +213,44 @@
             </Border>
         </DataTemplate>
 
+        <!-- ===== PENDING QUESTION WIDGET - Big red callout, no expander ===== -->
+        <!-- Purpose: when Claude is waiting on the user, the supervisor's verbatim
+             restatement of the question is the most important thing on screen.
+             Always expanded, plain (proportional) text, large readable type. No
+             inner code-style border. Borrows the orange icon + deep-orange card
+             colors from CleanWidgetViewModel.IconBackground / CardBackground. -->
+        <DataTemplate x:Key="PendingQuestionTemplate" DataType="controls:CleanWidgetViewModel">
+            <Border Background="{Binding CardBackground}"
+                    BorderBrush="#F97316"
+                    BorderThickness="2" CornerRadius="8"
+                    Margin="8,12,8,4" Padding="16,14">
+                <StackPanel>
+                    <!-- Header -->
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                        <Border Background="{Binding IconBackground}"
+                                CornerRadius="6" Width="32" Height="32"
+                                Margin="0,0,12,0">
+                            <TextBlock Text="{Binding IconText}" Foreground="White"
+                                       FontFamily="Segoe UI,sans-serif"
+                                       FontSize="18" FontWeight="Bold"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <TextBlock Text="CLAUDE IS WAITING ON YOUR ANSWER"
+                                   Foreground="White" FontSize="14" FontWeight="Bold"
+                                   VerticalAlignment="Center" />
+                    </StackPanel>
+                    <!-- Question text: proportional, white, large, wraps -->
+                    <TextBlock Text="{Binding Content}"
+                               Foreground="#FFF7ED"
+                               FontFamily="Segoe UI,sans-serif"
+                               FontSize="15" FontWeight="Normal"
+                               LineHeight="22"
+                               TextWrapping="Wrap"
+                               IsVisible="{Binding HasContent}" />
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+
         <!-- ===== USER MESSAGE WIDGET ===== -->
         <DataTemplate x:Key="UserWidgetTemplate" DataType="controls:CleanWidgetViewModel">
             <Grid Margin="60,4,8,4" HorizontalAlignment="Right">
@@ -251,7 +289,8 @@
                                          ThinkingTemplate="{StaticResource ThinkingWidgetTemplate}"
                                          BashTemplate="{StaticResource BashWidgetTemplate}"
                                          ToolTemplate="{StaticResource ToolWidgetTemplate}"
-                                         UserTemplate="{StaticResource UserWidgetTemplate}" />
+                                         UserTemplate="{StaticResource UserWidgetTemplate}"
+                                         PendingQuestionTemplate="{StaticResource PendingQuestionTemplate}" />
 
     </UserControl.Resources>
 

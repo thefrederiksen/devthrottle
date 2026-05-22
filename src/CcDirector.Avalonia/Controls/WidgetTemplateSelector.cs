@@ -14,6 +14,7 @@ public class WidgetTemplateSelector : IDataTemplate
     public IDataTemplate? BashTemplate { get; set; }
     public IDataTemplate? ToolTemplate { get; set; }
     public IDataTemplate? UserTemplate { get; set; }
+    public IDataTemplate? PendingQuestionTemplate { get; set; }
 
     public Control? Build(object? param)
     {
@@ -26,6 +27,7 @@ public class WidgetTemplateSelector : IDataTemplate
             WidgetKind.Thinking => ThinkingTemplate,
             WidgetKind.Bash => BashTemplate,
             WidgetKind.UserMessage => UserTemplate,
+            WidgetKind.PendingQuestion => PendingQuestionTemplate,
             _ => ToolTemplate,
         };
 
