@@ -422,6 +422,26 @@ public sealed class Session : IDisposable
         }
     }
 
+    /// <summary>
+    /// Render scrollback and visible grid as two separate HTML strings, so the
+    /// web client can render them into distinct DOM regions (scrollback above,
+    /// sticky live grid at the viewport bottom). See
+    /// <see cref="AnsiToHtmlConverter.ConvertToHtmlSplit"/> for the rationale.
+    /// Returns ("", "", 0) when the session has no backend buffer.
+    /// </summary>
+    public (string ScrollbackHtml, string GridHtml, int ScrollbackCount) GetHtmlSnapshotSplit()
+    {
+        if (_htmlParser is null || _htmlCells is null || _htmlScrollback is null)
+            return ("", "", 0);
+
+        lock (_htmlParserLock)
+        {
+            var (sb, grid) = AnsiToHtmlConverter.ConvertToHtmlSplit(
+                _htmlScrollback, _htmlCells, HtmlGridCols, HtmlGridRows);
+            return (sb, grid, _htmlScrollback.Count);
+        }
+    }
+
     /// <summary>Send raw bytes to the backend.</summary>
     public void SendInput(byte[] data)
     {

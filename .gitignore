@@ -91,6 +91,9 @@ tools/cc-fox-browser/package-lock.json
 # Terminal test screenshots (may contain PII)
 playground/terminal-test/*.png
 
+# Raw view harness generated output (HTML fixtures + screenshots; regenerable)
+playground/raw-view-harness/out/
+
 # Playwright CLI session artifacts
 .playwright-cli/
 

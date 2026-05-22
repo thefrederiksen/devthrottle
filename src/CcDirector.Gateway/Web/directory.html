@@ -460,7 +460,7 @@ function renderCardsView(groups) {
         html += `<span class="idle" title="last activity ${escapeHtml(s.lastActivityAt || "")}">${escapeHtml(relativeTime(s.lastActivityAt))}</span>`;
         html += `</div>`;
         if (s.viewUrl) {
-          html += `<a class="open-btn" href="${escapeHtml(s.viewUrl)}" target="_blank" rel="noopener">Open session &rarr;</a>`;
+          html += `<a class="open-btn" href="${escapeHtml(s.viewUrl)}">Open session &rarr;</a>`;
         }
         html += `</article>`;
       }
@@ -510,7 +510,7 @@ function renderListView(groups) {
         html += `<td class="idle">${escapeHtml(relativeTime(s.lastActivityAt))}</td>`;
         html += `<td>`;
         if (s.viewUrl) {
-          html += `<a class="open-btn" href="${escapeHtml(s.viewUrl)}" target="_blank" rel="noopener">Open</a>`;
+          html += `<a class="open-btn" href="${escapeHtml(s.viewUrl)}">Open</a>`;
         }
         html += `</td>`;
         html += `</tr>`;

@@ -435,19 +435,39 @@
   .icon-GenericTool{ background: var(--w-generic); }
 
   /* ===== RAW VIEW =====
-   * Server emits a styled-HTML grid snapshot via /sessions/{sid}/buffer/html
-   * (produced by AnsiToHtmlConverter on a per-session AnsiParser). Lines are
-   * already wrapped at the parser's column boundary -- do NOT add word-break
-   * here or the grid alignment will break.
+   * Server emits two HTML strings: scrollbackHtml (rows that have scrolled
+   * off the top of the live region) and gridHtml (the current visible 40
+   * rows). The client renders them into TWO DOM regions inside rawView,
+   * which is its own fixed-height scroll container (NOT page-level scroll):
+   *   #rawScrollback -- history, scrolls past when the user scrolls up
+   *   #rawLiveGrid   -- min-height: 100% + flex-end, so the 40 live rows
+   *                     always anchor to the bottom of liveGrid and the
+   *                     blank space above pushes scrollback fully off the
+   *                     top of the visible area when scrolled to bottom.
+   *
+   * This mirrors how the desktop terminal control treats scrollback as a
+   * separate region you scroll up into rather than something stitched
+   * inline above the live area. The validation harness for this layout
+   * lives at playground/raw-view-harness/.
    */
   #rawView {
-    padding: 10px 14px 96px;
+    /* Fixed-height container with its OWN internal scroll. Otherwise the
+       in-place status-bar redraws Claude Code uses accumulate ghost copies
+       at the end of scrollback and render right above the live grid.
+       Zero vertical padding so liveGrid's `min-height: 100%` matches the
+       full clientHeight (vertical padding lives inside the children). */
+    position: fixed;
+    top: var(--rawTop, 120px);
+    bottom: calc(var(--rawBottom, 64px) + env(safe-area-inset-bottom));
+    left: 0; right: 0;
+    padding: 0 14px;
     font-family: "Cascadia Code", Consolas, monospace;
     font-size: 12.5px;
     line-height: 1.2;
     color: #D4D4D8;
     background: #1e1e1e;
     overflow-x: auto;
+    overflow-y: auto;
   }
   #rawView .line {
     white-space: pre;
@@ -458,8 +478,24 @@
   #rawView .rv { /* reverse-video runs (status bar fragments) */
     filter: invert(1);
   }
+  #rawScrollback { padding-top: 10px; }
+  #rawLiveGrid {
+    min-height: 100%;
+    padding-bottom: 10px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+  }
 
-  /* ===== INPUT BAR ===== */
+  /* ===== INPUT BAR =====
+     Layout swaps with viewport width:
+       Wide (>= 600px): textarea | Speak | Send  (one row, buttons bottom-aligned
+                        so they stay reachable when the textarea grows tall).
+       Narrow (< 600px): textarea full-width on top, buttons row below.
+                        On a phone there isn't room for three side-by-side
+                        elements, so we stack -- otherwise Send gets pushed
+                        off the right edge.
+  */
   form.send {
     position: fixed;
     bottom: 0; left: 0; right: 0;
@@ -468,19 +504,29 @@
     padding: 10px 12px;
     padding-bottom: calc(10px + env(safe-area-inset-bottom));
     display: flex;
+    flex-direction: row;
+    align-items: flex-end;
     gap: 8px;
     z-index: 20;
   }
-  form.send input[type=text] {
+  form.send textarea#prompt {
     flex: 1;
     background: var(--bg);
     color: var(--text);
     border: 1px solid var(--border);
     border-radius: 8px;
-    padding: 12px 14px;
+    padding: 10px 14px;
     font-family: inherit;
-    font-size: 16px;  /* >=16px so iOS Safari doesn't zoom on focus */
+    font-size: 16px;        /* >=16px so iOS Safari doesn't zoom on focus */
+    line-height: 1.4;
     min-height: 44px;
+    max-height: 7.5em;      /* roughly 5 lines */
+    resize: none;           /* height controlled by JS autosize */
+    overflow-y: auto;
+    box-sizing: border-box;
+  }
+  form.send .button-row {
+    display: contents;       /* default: buttons flow as siblings of textarea */
   }
   form.send button {
     background: var(--accent);
@@ -494,6 +540,22 @@
     min-width: 64px;
   }
   form.send button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  @media (max-width: 600px) {
+    form.send {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    form.send .button-row {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+    form.send .button-row button {
+      flex: 1;            /* both buttons share the row equally */
+      min-width: 0;
+    }
+  }
 
   @media (max-width: 520px) {
     header { padding: 8px 10px; padding-top: max(8px, env(safe-area-inset-top)); }
@@ -751,7 +813,10 @@
   </div>
   <div id="voiceLog" class="voice-log"></div>
 </div>
-<div id="rawView" style="display:none">Loading...</div>
+<div id="rawView" style="display:none">
+  <div id="rawScrollback"></div>
+  <div id="rawLiveGrid">Loading...</div>
+</div>
 
 <!-- Full-screen recording overlay (hidden until recording starts) -->
 <div id="recordingOverlay" class="recording-overlay" aria-hidden="true">
@@ -762,12 +827,14 @@
 </div>
 
 <form class="send" onsubmit="return send(event)">
-  <input type="text" id="prompt" placeholder="Send to session... (Enter to submit)" autocomplete="off" />
-  <button type="button" id="speakBtn"
-          style="background:#16A34A;color:white;border:0;padding:0 16px;border-radius:8px;font-weight:600;cursor:pointer;font-size:15px;min-height:44px;min-width:80px;">
-    Speak
-  </button>
-  <button type="submit" id="sendBtn">Send</button>
+  <textarea id="prompt" rows="1" placeholder="Send to session... (Enter to submit, Shift+Enter for newline)" autocomplete="off"></textarea>
+  <div class="button-row">
+    <button type="button" id="speakBtn"
+            style="background:#16A34A;color:white;">
+      Speak
+    </button>
+    <button type="submit" id="sendBtn">Send</button>
+  </div>
 </form>
 
 <script src="/dictate-client.js"></script>
@@ -777,6 +844,8 @@
   const SID = "__SID__";
   const agentEl = document.getElementById('agentView');
   const rawEl = document.getElementById('rawView');
+  const rawScrollbackEl = document.getElementById('rawScrollback');
+  const rawLiveGridEl = document.getElementById('rawLiveGrid');
   const voiceEl = document.getElementById('voiceView');
   const stateEl = document.getElementById('state');
   const countsEl = document.getElementById('counts');
@@ -803,7 +872,7 @@
     voiceEl.style.display = activeView === 'voice' ? 'flex' : 'none';
     if (activeView === 'session') refreshSession();
     else if (activeView === 'agent') refreshAgent();
-    else if (activeView === 'raw') refreshRaw();
+    else if (activeView === 'raw') { rawFirstLoad = true; refreshRaw(); }
     // voice tab is self-contained; nothing to refresh from server on tab switch
   }));
 
@@ -1066,23 +1135,108 @@
     }
   }
 
+  // Track scrollback growth so we only rebuild #rawScrollback when new rows
+  // arrive. The live grid changes constantly (cursor blink, spinner ticks);
+  // we replace it every poll. rawView is its own scroll container, so the
+  // page never scrolls when on the Raw tab -- we drive rawView.scrollTop
+  // directly.
+  let lastScrollbackCount = -1;
+  let rawFirstLoad = true;
+
+  // Position rawView under the actual header+tabs, whatever their measured
+  // height happens to be (the WaitingForInput banner can push them taller).
+  // Also size rawView's bottom to the actual input bar height, which grows
+  // when the prompt textarea has multiple lines.
+  function syncRawViewTop() {
+    const topbar = document.querySelector('.topbar');
+    const h = topbar ? topbar.getBoundingClientRect().bottom : 120;
+    document.documentElement.style.setProperty('--rawTop', h + 'px');
+  }
+  function syncRawViewBottom() {
+    const formEl = document.querySelector('form.send');
+    const h = formEl ? formEl.getBoundingClientRect().height : 64;
+    document.documentElement.style.setProperty('--rawBottom', h + 'px');
+  }
+  window.addEventListener('resize', () => { syncRawViewTop(); syncRawViewBottom(); });
+  syncRawViewTop();
+  syncRawViewBottom();
+
+  // Auto-grow the prompt textarea up to ~5 lines, then start scrolling
+  // inside it. Phone users compose dictated multi-paragraph prompts here
+  // and need to actually see what they're about to send.
+  const promptEl = document.getElementById('prompt');
+  const MAX_PROMPT_HEIGHT_PX = 160; // ~5 lines at 16px / 1.4 line-height
+  function autosizePrompt() {
+    if (!promptEl) return;
+    promptEl.style.height = 'auto';
+    const h = Math.min(promptEl.scrollHeight, MAX_PROMPT_HEIGHT_PX);
+    promptEl.style.height = h + 'px';
+    // Live grid bottom must follow the input bar's new height so the live
+    // terminal doesn't disappear under a multi-line composer.
+    syncRawViewBottom();
+  }
+  if (promptEl) {
+    promptEl.addEventListener('input', autosizePrompt);
+    // Enter submits (matches the previous <input type="text"> behavior),
+    // Shift+Enter inserts a newline. IME composition is respected so users
+    // typing in Japanese/Korean/Chinese aren't interrupted mid-character.
+    promptEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+        e.preventDefault();
+        if (typeof window.send === 'function') window.send(e);
+      }
+    });
+  }
+
   async function refreshRaw() {
     try {
-      // Full snapshot every poll. The server runs the PTY byte stream through
-      // a real xterm-compatible VT emulator (CcDirector.Terminal.Core.AnsiParser),
-      // then serializes the resulting cell grid + scrollback to styled HTML.
-      // Swapping innerHTML each tick is the only way to honor CR-overwrites
-      // and status-bar redraws -- you can't apply those to an append-only
-      // text buffer. The HTML comes from AnsiToHtmlConverter which escapes
-      // <, >, &, " before emitting; safe for innerHTML.
+      syncRawViewTop();
+      // Two-region snapshot: scrollbackHtml (history) + gridHtml (live 40
+      // rows). The server runs the PTY byte stream through a real xterm-
+      // compatible VT emulator (CcDirector.Terminal.Core.AnsiParser) and
+      // emits the two sections separately. Both come pre-escaped from
+      // AnsiToHtmlConverter, safe for innerHTML.
       const r = await fetch('/sessions/' + SID + '/buffer/html', { credentials: 'same-origin' });
-      if (!r.ok) { rawEl.textContent = 'Lost connection (HTTP ' + r.status + ')'; return; }
+      if (!r.ok) {
+        rawLiveGridEl.textContent = 'Lost connection (HTTP ' + r.status + ')';
+        return;
+      }
       const body = await r.json();
-      const nearBottom = window.scrollY + window.innerHeight > document.body.scrollHeight - 80;
-      rawEl.innerHTML = body.html || '';
-      if (nearBottom) window.scrollTo(0, document.body.scrollHeight);
+
+      // Was the user reading scrollback (scrolled up), or sitting at the
+      // live grid? We honor this when deciding whether to auto-scroll after
+      // the update.
+      const nearBottom = (rawEl.scrollHeight - rawEl.scrollTop - rawEl.clientHeight) < 8;
+
+      // Always replace the live grid -- source of truth for what's on screen
+      // right now and changes every poll.
+      rawLiveGridEl.innerHTML = body.gridHtml || '';
+
+      // Only rebuild scrollback when its row count actually changed.
+      const scrollbackCount = body.scrollbackCount || 0;
+      if (scrollbackCount !== lastScrollbackCount) {
+        const prevScrollTop = rawEl.scrollTop;
+        const prevScrollHeight = rawEl.scrollHeight;
+        rawScrollbackEl.innerHTML = body.scrollbackHtml || '';
+        lastScrollbackCount = scrollbackCount;
+        if (!rawFirstLoad && !nearBottom) {
+          // User was reading scrollback -- shift scrollTop by the height that
+          // got prepended/changed so their visual reading position stays put.
+          const heightDelta = rawEl.scrollHeight - prevScrollHeight;
+          rawEl.scrollTop = prevScrollTop + heightDelta;
+        }
+      }
+
+      if (rawFirstLoad || nearBottom) {
+        // Initial load OR user is already at the bottom: snap to the bottom
+        // so the live grid fills the viewport, exactly like opening a real
+        // terminal. The flex-end justify inside liveGrid makes its content
+        // anchor at the bottom; scrollback is fully offscreen above.
+        rawEl.scrollTop = rawEl.scrollHeight;
+        rawFirstLoad = false;
+      }
     } catch (e) {
-      rawEl.textContent = '[lost connection: ' + e.message + ']';
+      rawLiveGridEl.textContent = '[lost connection: ' + e.message + ']';
     }
   }
 
@@ -1114,6 +1268,9 @@
     const pos = before.length + ins.length;
     inputEl.setSelectionRange(pos, pos);
     inputEl.focus();
+    // After dictation drops a multi-line transcript in, grow the textarea
+    // so the user can actually see what they're about to send.
+    if (typeof autosizePrompt === 'function') autosizePrompt();
   }
   document.getElementById('speakBtn')?.addEventListener('click', () => {
     if (!window.ccDictate) return;
@@ -1132,6 +1289,7 @@
     const text = inp.value;
     if (!text.trim()) return false;
     inp.value = '';
+    if (typeof autosizePrompt === 'function') autosizePrompt(); // shrink back to one line
     inp.disabled = true;
     try {
       // On the Voice tab, route the typed message through the chat-and-speak

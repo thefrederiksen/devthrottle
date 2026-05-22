@@ -610,7 +610,7 @@
   }
 
   function directorHtmlUrl(d) {
-    return 'http://' + window.location.hostname + ':' + directorPortFromEndpoint(d.controlEndpoint) + '/';
+    return window.location.protocol + '//' + window.location.hostname + ':' + directorPortFromEndpoint(d.controlEndpoint) + '/';
   }
 
   function getOrCreateDirectorBlock(d) {

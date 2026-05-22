@@ -6,6 +6,7 @@ using CcDirector.Gateway.Util;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -62,7 +63,28 @@ public sealed class GatewayHost : IAsyncDisposable
         builder.Logging.SetMinimumLevel(LogLevel.Warning);
         builder.Services.AddRoutingCore();
 
+        // Honor X-Forwarded-Proto/Host/For from a Tailscale Serve front-end so
+        // ctx.Request.Scheme reflects the public scheme the user actually used.
+        // Without this, every request appears as plain "http" to the Gateway
+        // (Tailscale terminates TLS at :443 and forwards plaintext to loopback),
+        // and ViewUrl ends up with the wrong scheme on the phone.
+        //
+        // Trust only loopback as a forwarding proxy: anything else must not be
+        // allowed to claim "I'm HTTPS" by spoofing the header.
+        builder.Services.Configure<ForwardedHeadersOptions>(o =>
+        {
+            o.ForwardedHeaders = ForwardedHeaders.XForwardedFor
+                               | ForwardedHeaders.XForwardedProto
+                               | ForwardedHeaders.XForwardedHost;
+            o.KnownProxies.Clear();
+            o.KnownProxies.Add(IPAddress.Loopback);
+            o.KnownProxies.Add(IPAddress.IPv6Loopback);
+            o.KnownIPNetworks.Clear();
+        });
+
         _app = builder.Build();
+
+        _app.UseForwardedHeaders();
 
         _app.Use(async (ctx, next) =>
         {

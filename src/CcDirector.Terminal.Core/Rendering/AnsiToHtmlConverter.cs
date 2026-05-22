@@ -23,24 +23,54 @@ public static class AnsiToHtmlConverter
     /// <summary>
     /// Convert the scrollback plus the current visible grid into continuous
     /// HTML. Scrollback rows are emitted first, in order, followed by the
-    /// visible grid -- so the browser's natural scrollbar lets the user scroll
-    /// up through history that has scrolled out of the live region.
+    /// visible grid. Kept for backward compatibility; new callers should
+    /// prefer <see cref="ConvertToHtmlSplit"/> which keeps the two sections
+    /// separate so the client can render them as distinct DOM regions
+    /// (scrollback above, sticky live grid at the bottom of the viewport).
     /// </summary>
     public static string ConvertToHtml(List<TerminalCell[]> scrollback, TerminalCell[,] cells, int cols, int rows)
     {
-        var allLines = new List<string>();
+        var (scrollbackHtml, gridHtml) = ConvertToHtmlSplit(scrollback, cells, cols, rows);
+        return scrollbackHtml + gridHtml;
+    }
 
+    /// <summary>
+    /// Convert the scrollback and the visible grid into TWO separate HTML
+    /// strings. The web client renders them into two DOM regions (scrollback
+    /// above, live grid sticky at the viewport bottom), matching how the
+    /// desktop terminal control treats scrollback as a region you scroll up
+    /// into rather than something stitched inline above the live area. This
+    /// is what eliminates the "ghost status bar rendered twice" effect that
+    /// users see on mobile: with separate regions, the live grid is always
+    /// cleanly bottom-anchored and any historical copies of status text only
+    /// appear above when the user actively scrolls up.
+    /// </summary>
+    public static (string ScrollbackHtml, string GridHtml) ConvertToHtmlSplit(
+        List<TerminalCell[]> scrollback, TerminalCell[,] cells, int cols, int rows)
+    {
+        var scrollbackLines = new List<string>(scrollback.Count);
         foreach (var row in scrollback)
-            allLines.Add(RenderCellRow(row, cols));
+            scrollbackLines.Add(RenderCellRow(row, cols));
+        TrimTrailingEmpties(scrollbackLines);
 
+        var gridLines = new List<string>(rows);
         for (int r = 0; r < rows; r++)
-            allLines.Add(RenderGridRow(cells, cols, r));
+            gridLines.Add(RenderGridRow(cells, cols, r));
+        TrimTrailingEmpties(gridLines);
 
-        while (allLines.Count > 0 && string.IsNullOrEmpty(allLines[^1]))
-            allLines.RemoveAt(allLines.Count - 1);
+        return (LinesToHtml(scrollbackLines), LinesToHtml(gridLines));
+    }
 
+    private static void TrimTrailingEmpties(List<string> lines)
+    {
+        while (lines.Count > 0 && string.IsNullOrEmpty(lines[^1]))
+            lines.RemoveAt(lines.Count - 1);
+    }
+
+    private static string LinesToHtml(List<string> lines)
+    {
         var html = new StringBuilder();
-        foreach (string line in allLines)
+        foreach (string line in lines)
         {
             if (string.IsNullOrEmpty(line))
                 html.Append("<div class=\"line\"> </div>");

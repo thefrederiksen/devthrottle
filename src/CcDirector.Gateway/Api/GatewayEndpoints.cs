@@ -167,7 +167,7 @@ internal static class GatewayEndpoints
         // the response: by default they're silently skipped (backward-compat flat list);
         // with ?envelope=true they're surfaced in machineErrors so the UI can render an
         // inline "unreachable" placeholder.
-        app.MapGet("/sessions", async (string? director, string? agent, string? state,
+        app.MapGet("/sessions", async (HttpContext ctx, string? director, string? agent, string? state,
                                        string? statusColor, string? machine,
                                        bool? includeExited, string? q, bool? envelope) =>
         {
@@ -203,7 +203,7 @@ internal static class GatewayEndpoints
                 }
                 if (sessions is null) continue;
 
-                var baseUrl = (d.TailnetEndpoint ?? d.ControlEndpoint).TrimEnd('/');
+                var baseUrl = DeriveDirectorBaseUrl(ctx, d);
                 foreach (var s in sessions)
                 {
                     if (!string.IsNullOrEmpty(agent) && !string.Equals(s.Agent, agent, StringComparison.OrdinalIgnoreCase))
@@ -238,12 +238,12 @@ internal static class GatewayEndpoints
             return Results.Json(all);
         });
 
-        app.MapGet("/sessions/{sid}", async (string sid) =>
+        app.MapGet("/sessions/{sid}", async (HttpContext ctx, string sid) =>
         {
             var (director, session) = await LocateSessionAsync(registry, client, sid);
             if (session is null || director is null)
                 return Results.NotFound(new { error = "session not found across any director" });
-            var baseUrl = (director.TailnetEndpoint ?? director.ControlEndpoint).TrimEnd('/');
+            var baseUrl = DeriveDirectorBaseUrl(ctx, director);
             session.DirectorId = director.DirectorId;
             session.MachineName = director.MachineName;
             session.User = director.User;
@@ -742,6 +742,40 @@ internal static class GatewayEndpoints
             if (s is not null) return (d, s);
         }
         return (null, null);
+    }
+
+    // Build the externally-reachable base URL for a Director's web UI.
+    //
+    // Priority:
+    //   1. If the Director explicitly registered a TailnetEndpoint, trust that.
+    //   2. Else if the caller reached the Gateway over a non-loopback host
+    //      (e.g. https://<host>.<tailnet>.ts.net/), mirror that host
+    //      and the request scheme onto the Director's own Control API port.
+    //      Tailscale Serve maps each Director port to the same number under
+    //      HTTPS, so https://<tailnet>:<port>/ resolves correctly.
+    //   3. Else fall back to the raw ControlEndpoint (loopback case).
+    //
+    // Without (2), ViewUrl returns http://127.0.0.1:<port>/... which is
+    // unreachable from a phone or any non-loopback client.
+    private static string DeriveDirectorBaseUrl(HttpContext ctx, DirectorDto d)
+    {
+        if (!string.IsNullOrEmpty(d.TailnetEndpoint))
+            return d.TailnetEndpoint.TrimEnd('/');
+
+        var requestHost = ctx.Request.Host.Host;
+        var isLoopback = string.IsNullOrEmpty(requestHost)
+                         || requestHost == "localhost"
+                         || requestHost == "127.0.0.1"
+                         || requestHost == "::1";
+
+        if (!isLoopback
+            && Uri.TryCreate(d.ControlEndpoint, UriKind.Absolute, out var controlUri)
+            && controlUri.Port > 0)
+        {
+            return $"{ctx.Request.Scheme}://{requestHost}:{controlUri.Port}";
+        }
+
+        return (d.ControlEndpoint ?? "").TrimEnd('/');
     }
 
     private static string? ResolveDirectorExe()

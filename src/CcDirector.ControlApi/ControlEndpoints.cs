@@ -314,11 +314,18 @@ internal static class ControlEndpoints
             if (session is null)
                 return Results.NotFound(new { error = "session not found" });
 
+            var (scrollbackHtml, gridHtml, scrollbackCount) = session.GetHtmlSnapshotSplit();
             return Results.Json(new
             {
                 sessionId = sid,
                 totalBytes = session.Buffer?.TotalBytesWritten ?? 0,
-                html = session.GetHtmlSnapshot(),
+                scrollbackHtml,
+                gridHtml,
+                scrollbackCount,
+                // Backward-compat: existing callers (and integration tests) read
+                // .html as the concatenated stream. Keep this so a partial
+                // client update doesn't break.
+                html = scrollbackHtml + gridHtml,
             });
         });
 
