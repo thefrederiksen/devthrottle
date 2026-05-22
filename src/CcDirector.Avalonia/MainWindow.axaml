@@ -664,7 +664,7 @@
                         Padding="8,6"
                         IsVisible="False">
                     <Panel>
-                        <Grid ColumnDefinitions="*,Auto,Auto">
+                        <Grid ColumnDefinitions="*,Auto">
                             <TextBox x:Name="PromptInput"
                                      Grid.Column="0"
                                      Watermark="Type a message..."
@@ -679,22 +679,42 @@
                                      FontFamily="Cascadia Mono,Consolas,monospace"
                                      FontSize="13"
                                      DragDrop.AllowDrop="True" />
-                            <StackPanel Grid.Column="1"
-                                        Orientation="Vertical"
-                                        VerticalAlignment="Bottom"
-                                        Margin="8,0,0,0"
-                                        Spacing="4">
+
+                            <!-- 2x2 button grid: top row = primary (Speak, Send),
+                                 bottom row = secondary (Queue, Handover). Fixed
+                                 width/height on every button so the bar can't
+                                 grow vertically when PromptInput expands. -->
+                            <Grid Grid.Column="1"
+                                  ColumnDefinitions="Auto,Auto"
+                                  RowDefinitions="Auto,Auto"
+                                  VerticalAlignment="Bottom"
+                                  Margin="8,0,0,0"
+                                  ColumnSpacing="4"
+                                  RowSpacing="4">
+                                <Button x:Name="BtnSpeak"
+                                        Grid.Row="0" Grid.Column="0"
+                                        Content="Speak"
+                                        Width="80" Height="30"
+                                        Background="#16A34A"
+                                        Foreground="White"
+                                        HorizontalContentAlignment="Center"
+                                        FontSize="13"
+                                        FontWeight="SemiBold"
+                                        Click="BtnSpeak_Click"
+                                        ToolTip.Tip="Dictate using the cc-director dictation library (opens browser)" />
                                 <Button x:Name="BtnSend"
+                                        Grid.Row="0" Grid.Column="1"
                                         Content="Send"
-                                        Width="70" Height="30"
+                                        Width="80" Height="30"
                                         Background="{DynamicResource AccentBrush}"
                                         Foreground="White"
                                         HorizontalContentAlignment="Center"
                                         FontSize="13"
                                         Click="BtnSend_Click" />
                                 <Button x:Name="BtnQueuePrompt"
+                                        Grid.Row="1" Grid.Column="0"
                                         Content="Queue"
-                                        Width="70" Height="30"
+                                        Width="80" Height="30"
                                         Background="{DynamicResource ButtonBackground}"
                                         Foreground="{DynamicResource TextForeground}"
                                         HorizontalContentAlignment="Center"
@@ -702,28 +722,16 @@
                                         Click="BtnQueuePrompt_Click"
                                         ToolTip.Tip="Add to prompt queue (Ctrl+Shift+Enter)" />
                                 <Button x:Name="BtnHandover"
+                                        Grid.Row="1" Grid.Column="1"
                                         Content="Handover"
-                                        Width="70" Height="30"
+                                        Width="80" Height="30"
                                         Background="#2D2D30"
                                         Foreground="#AAAAAA"
                                         HorizontalContentAlignment="Center"
                                         FontSize="13"
                                         Click="BtnHandover_Click"
                                         ToolTip.Tip="Create a handover document for this session" />
-                            </StackPanel>
-                            <Button x:Name="BtnSpeak"
-                                    Grid.Column="2"
-                                    Content="Speak"
-                                    Width="90"
-                                    VerticalAlignment="Stretch"
-                                    Margin="8,0,0,0"
-                                    Background="#16A34A"
-                                    Foreground="White"
-                                    HorizontalContentAlignment="Center"
-                                    FontSize="15"
-                                    FontWeight="SemiBold"
-                                    Click="BtnSpeak_Click"
-                                    ToolTip.Tip="Dictate using the cc-director dictation library (opens browser)" />
+                            </Grid>
                         </Grid>
 
                         <!-- Slash command autocomplete popup -->
