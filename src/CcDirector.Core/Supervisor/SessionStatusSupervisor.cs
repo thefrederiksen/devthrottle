@@ -54,6 +54,7 @@ public sealed class SessionStatusSupervisor : IDisposable
     private readonly SessionManager _sessionManager;
     private readonly ConcurrentDictionary<Guid, Action<ActivityState, ActivityState>> _activityHandlers = new();
     private readonly ConcurrentDictionary<Guid, PromptInjectionWatcher> _injectionWatchers = new();
+    private readonly ConcurrentDictionary<Guid, OutputActivityWatcher> _outputWatchers = new();
     private bool _started;
     private bool _disposed;
 
@@ -64,6 +65,22 @@ public sealed class SessionStatusSupervisor : IDisposable
     /// immediately after Claude Code finishes drawing.
     /// </summary>
     internal static readonly TimeSpan PromptInjectionDebounce = TimeSpan.FromMilliseconds(500);
+
+    /// <summary>
+    /// Debounce window for the output-activity watcher. Shorter than the
+    /// prompt-injection debounce so the dot turns blue *before* the input-line
+    /// mirror runs. A single TUI redraw burst is well under this window; a real
+    /// streaming turn produces many writes per second so the watcher promotes
+    /// to blue almost immediately and stays there.
+    /// </summary>
+    internal static readonly TimeSpan OutputActivityDebounce = TimeSpan.FromMilliseconds(250);
+
+    /// <summary>
+    /// Minimum byte count within a debounce window before the output-activity
+    /// watcher promotes to blue. Tunes out single-byte spinner ticks; a normal
+    /// streamed token produces 10s-100s of bytes per write.
+    /// </summary>
+    internal const int OutputActivityMinBurstBytes = 32;
 
     public SessionStatusSupervisor(SessionManager sessionManager)
     {
@@ -137,6 +154,16 @@ public sealed class SessionStatusSupervisor : IDisposable
                 watcher.Start();
             else
                 watcher.Dispose();
+
+            // Phase 2 safety net: if Claude Code is streaming output, the session is
+            // by definition working. This catches any path where the hook events
+            // didn't deliver Working (relay backlog, /clear-orphan window before
+            // relink lands, race, restored session). Never overrides red.
+            var outputWatcher = new OutputActivityWatcher(session, buffer);
+            if (_outputWatchers.TryAdd(session.Id, outputWatcher))
+                outputWatcher.Start();
+            else
+                outputWatcher.Dispose();
         }
     }
 
@@ -311,6 +338,9 @@ public sealed class SessionStatusSupervisor : IDisposable
         foreach (var kv in _injectionWatchers)
             kv.Value.Dispose();
         _injectionWatchers.Clear();
+        foreach (var kv in _outputWatchers)
+            kv.Value.Dispose();
+        _outputWatchers.Clear();
     }
 }
 
@@ -419,6 +449,95 @@ internal sealed class PromptInjectionWatcher : IDisposable
 
     private static string Truncate(string s, int max)
         => string.IsNullOrEmpty(s) || s.Length <= max ? s : s[..max] + "...";
+
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        _buffer.OnBytesWritten -= _onBytes;
+        _timer.Dispose();
+    }
+}
+
+/// <summary>
+/// Phase 2 safety-net watcher: if the session's terminal buffer is actively
+/// receiving bytes from Claude Code, the session is by definition working.
+/// Promotes <see cref="Session.StatusColor"/> to blue ("streaming output") even
+/// when the hook-event fast path missed the transition (relay backlog, the
+/// /clear-orphan window before the EventRouter relink lands, race conditions,
+/// restored sessions wired up before their buffer has data).
+///
+/// Conservative by design:
+///  - Debounced (250ms) so a single redraw doesn't fire.
+///  - Requires <see cref="SessionStatusSupervisor.OutputActivityMinBurstBytes"/>
+///    bytes accumulated within the window so spinner ticks don't promote.
+///  - Never overrides <see cref="ActivityState.WaitingForPerm"/> -- that state
+///    is authoritative: Claude is blocked on the user regardless of what bytes
+///    happen to be rendering.
+///  - Never re-fires once the color is already blue (no-op on subsequent bursts).
+/// </summary>
+internal sealed class OutputActivityWatcher : IDisposable
+{
+    private readonly Session _session;
+    private readonly CircularTerminalBuffer _buffer;
+    private readonly Action<byte[]> _onBytes;
+    private readonly System.Threading.Timer _timer;
+    private int _pendingBytes;
+    private int _disposed;
+
+    public OutputActivityWatcher(Session session, CircularTerminalBuffer buffer)
+    {
+        _session = session;
+        _buffer = buffer;
+        _onBytes = bytes => Bump(bytes?.Length ?? 0);
+        _timer = new System.Threading.Timer(OnTimerTick, null, Timeout.Infinite, Timeout.Infinite);
+    }
+
+    public void Start()
+    {
+        _buffer.OnBytesWritten += _onBytes;
+        FileLog.Write($"[OutputActivityWatcher] start session={_session.Id}");
+    }
+
+    private void Bump(int byteCount)
+    {
+        if (Volatile.Read(ref _disposed) != 0) return;
+        Interlocked.Add(ref _pendingBytes, byteCount);
+        try { _timer.Change(SessionStatusSupervisor.OutputActivityDebounce, Timeout.InfiniteTimeSpan); }
+        catch (ObjectDisposedException) { /* race with Dispose; ignore */ }
+    }
+
+    private void OnTimerTick(object? state)
+    {
+        if (Volatile.Read(ref _disposed) != 0) return;
+        try
+        {
+            var burstBytes = Interlocked.Exchange(ref _pendingBytes, 0);
+            if (burstBytes < SessionStatusSupervisor.OutputActivityMinBurstBytes)
+                return; // too small -- spinner / cursor blink, not a real stream
+
+            // Already blue: nothing to do. The activity-state path or a prior
+            // tick has correctly identified that the session is working.
+            if (string.Equals(_session.StatusColor, StatusColor.Blue, StringComparison.Ordinal))
+                return;
+
+            // Permission prompts are authoritative red. Claude isn't moving until
+            // the user answers, even if some bytes are still rendering.
+            if (_session.ActivityState == ActivityState.WaitingForPerm)
+                return;
+
+            // Exited sessions should stay exited. The process is gone; any bytes
+            // still draining shouldn't resurrect the dot.
+            if (_session.ActivityState == ActivityState.Exited)
+                return;
+
+            FileLog.Write($"[OutputActivityWatcher] session={_session.Id} burst={burstBytes}B -> blue (streaming output)");
+            _session.SetStatusColor(StatusColor.Blue, "streaming output");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[OutputActivityWatcher] tick failed session={_session.Id}: {ex.Message}");
+        }
+    }
 
     public void Dispose()
     {

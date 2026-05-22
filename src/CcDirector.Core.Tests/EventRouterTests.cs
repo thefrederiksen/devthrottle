@@ -115,6 +115,94 @@ public class EventRouterTests : IDisposable
         Assert.Contains(_logs, l => l.Contains("no session_id"));
     }
 
+    [Fact]
+    public void Route_SessionStart_SourceClear_RelinksOrphanByCwd()
+    {
+        // Simulate the /clear flow:
+        //   1. Director session exists, linked to OLD Claude id, and just received SessionEnd
+        //   2. SessionStart arrives with NEW id, source="clear", same cwd
+        //   3. Router should relink the orphan and route the event
+        var tempPath = Path.GetTempPath();
+        var session = _manager.CreateSession(tempPath);
+        var oldClaudeId = "old-claude-id-12345678";
+        _manager.RegisterClaudeSession(oldClaudeId, session.Id);
+
+        // Old session has been "ended" by /clear (per Phase 1A this would actually
+        // hold state, but for test we just simulate the post-rotation condition).
+        session.HandlePipeEvent(new PipeMessage { HookEventName = "SessionStart" }); // → Idle
+
+        var newClaudeId = "new-claude-id-abcdef01";
+        _router.Route(new PipeMessage
+        {
+            HookEventName = "SessionStart",
+            SessionId = newClaudeId,
+            Source = "clear",
+            Cwd = tempPath
+        });
+
+        Assert.Equal(newClaudeId, session.ClaudeSessionId);
+        Assert.NotNull(_manager.GetSessionByClaudeId(newClaudeId));
+        Assert.Equal(session.Id, _manager.GetSessionByClaudeId(newClaudeId)!.Id);
+        Assert.Contains(_logs, l => l.Contains("Relinked") && l.Contains("/clear"));
+    }
+
+    [Fact]
+    public void Route_SessionStart_SourceCompact_RelinksOrphanByCwd()
+    {
+        var tempPath = Path.GetTempPath();
+        var session = _manager.CreateSession(tempPath);
+        _manager.RegisterClaudeSession("old-id", session.Id);
+
+        _router.Route(new PipeMessage
+        {
+            HookEventName = "SessionStart",
+            SessionId = "new-id-after-compact",
+            Source = "compact",
+            Cwd = tempPath
+        });
+
+        Assert.Equal("new-id-after-compact", session.ClaudeSessionId);
+    }
+
+    [Fact]
+    public void Route_SessionStart_SourceStartup_DoesNotRelink()
+    {
+        // A genuinely new session must not adopt an existing Director session's slot.
+        var tempPath = Path.GetTempPath();
+        var session = _manager.CreateSession(tempPath);
+        _manager.RegisterClaudeSession("existing-id", session.Id);
+
+        _router.Route(new PipeMessage
+        {
+            HookEventName = "SessionStart",
+            SessionId = "brand-new-startup-id",
+            Source = "startup",
+            Cwd = tempPath
+        });
+
+        // Director session still points at its original id, not the new one.
+        Assert.Equal("existing-id", session.ClaudeSessionId);
+        Assert.Null(_manager.GetSessionByClaudeId("brand-new-startup-id"));
+    }
+
+    [Fact]
+    public void Route_SessionStart_SourceClear_NoMatchingCwd_DoesNotRelink()
+    {
+        var session = _manager.CreateSession(Path.GetTempPath());
+        _manager.RegisterClaudeSession("old-id", session.Id);
+
+        _router.Route(new PipeMessage
+        {
+            HookEventName = "SessionStart",
+            SessionId = "new-id",
+            Source = "clear",
+            Cwd = @"C:\unrelated\path"
+        });
+
+        Assert.Equal("old-id", session.ClaudeSessionId);
+        Assert.Contains(_logs, l => l.Contains("No linked session"));
+    }
+
     public void Dispose()
     {
         _manager.Dispose();

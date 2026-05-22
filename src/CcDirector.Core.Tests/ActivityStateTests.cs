@@ -93,6 +93,40 @@ public class ActivityStateTests : IDisposable
     }
 
     [Fact]
+    public void HandlePipeEvent_SessionEnd_ReasonLogout_SetsExited()
+    {
+        // Real terminations (logout / prompt_input_exit / other) still go to Exited.
+        var session = CreateTestSession();
+        session.HandlePipeEvent(new PipeMessage { HookEventName = "SessionEnd", Reason = "logout" });
+        Assert.Equal(ActivityState.Exited, session.ActivityState);
+    }
+
+    [Fact]
+    public void HandlePipeEvent_SessionEnd_ReasonClear_DoesNotChangeState()
+    {
+        // /clear rotates Claude's session id (SessionEnd-then-SessionStart). It is NOT
+        // a termination -- hold the current state so the dot doesn't flash gray.
+        var session = CreateTestSession();
+        session.HandlePipeEvent(new PipeMessage { HookEventName = "SessionStart" }); // → Idle
+        session.HandlePipeEvent(new PipeMessage { HookEventName = "Stop" }); // → WaitingForInput
+        var before = session.ActivityState;
+        session.HandlePipeEvent(new PipeMessage { HookEventName = "SessionEnd", Reason = "clear" });
+        Assert.Equal(before, session.ActivityState);
+    }
+
+    [Fact]
+    public void HandlePipeEvent_SessionEnd_ReasonCompact_DoesNotChangeState()
+    {
+        // /compact is the same shape as /clear -- session id rotation, not termination.
+        var session = CreateTestSession();
+        session.HandlePipeEvent(new PipeMessage { HookEventName = "SessionStart" }); // → Idle
+        session.HandlePipeEvent(new PipeMessage { HookEventName = "UserPromptSubmit" }); // → Working
+        var before = session.ActivityState;
+        session.HandlePipeEvent(new PipeMessage { HookEventName = "SessionEnd", Reason = "compact" });
+        Assert.Equal(before, session.ActivityState);
+    }
+
+    [Fact]
     public void HandlePipeEvent_FiresOnActivityStateChanged()
     {
         var session = CreateTestSession();
@@ -130,6 +164,49 @@ public class ActivityStateTests : IDisposable
         var session = CreateTestSession();
         session.HandlePipeEvent(new PipeMessage { HookEventName = "SessionStart" }); // → Idle
         await session.SendTextAsync("hello");
+        Assert.Equal(ActivityState.Working, session.ActivityState);
+    }
+
+    [Fact]
+    public void SendInput_PlainCharacter_DoesNotChangeState()
+    {
+        // Phase 3: typing a single character at the idle prompt is NOT a submission.
+        // The session is still waiting for the user to press Enter. Flipping to
+        // Working on every keystroke flickered the dot blue while typing.
+        var session = CreateTestSession();
+        session.HandlePipeEvent(new PipeMessage { HookEventName = "SessionStart" }); // → Idle
+        session.HandlePipeEvent(new PipeMessage { HookEventName = "Stop" });         // → WaitingForInput
+        var before = session.ActivityState;
+
+        session.SendInput(new byte[] { (byte)'a' });
+
+        Assert.Equal(before, session.ActivityState);
+    }
+
+    [Fact]
+    public void SendInput_CarriageReturn_TransitionsToWorking()
+    {
+        // Phase 3: CR (or LF) inside the byte payload IS a submission and must
+        // promote the session to Working.
+        var session = CreateTestSession();
+        session.HandlePipeEvent(new PipeMessage { HookEventName = "SessionStart" }); // → Idle
+        session.HandlePipeEvent(new PipeMessage { HookEventName = "Stop" });         // → WaitingForInput
+
+        session.SendInput(new byte[] { 0x0D });
+
+        Assert.Equal(ActivityState.Working, session.ActivityState);
+    }
+
+    [Fact]
+    public void SendInput_TextWithEnter_TransitionsToWorking()
+    {
+        // Multi-byte payload that contains a CR somewhere -- still a submission.
+        var session = CreateTestSession();
+        session.HandlePipeEvent(new PipeMessage { HookEventName = "SessionStart" }); // → Idle
+        session.HandlePipeEvent(new PipeMessage { HookEventName = "Stop" });         // → WaitingForInput
+
+        session.SendInput(new byte[] { (byte)'h', (byte)'i', 0x0D });
+
         Assert.Equal(ActivityState.Working, session.ActivityState);
     }
 

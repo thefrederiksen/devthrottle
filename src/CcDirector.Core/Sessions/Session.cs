@@ -428,7 +428,19 @@ public sealed class Session : IDisposable
         if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return;
         FileLog.Write($"[Session] SendInput: session={Id}, bytes={data.Length}, firstByte=0x{(data.Length > 0 ? data[0].ToString("X2") : "00")}");
         _backend.Write(data);
-        SetActivityState(ActivityState.Working);
+        // Only promote to Working when the write contains an actual submission
+        // (CR or LF). A bare keystroke is the user composing at the prompt --
+        // Claude Code hasn't received a turn yet. Treating every byte as Working
+        // flickered the sidebar dot blue on every character typed.
+        if (ContainsSubmit(data))
+            SetActivityState(ActivityState.Working);
+    }
+
+    private static bool ContainsSubmit(byte[] data)
+    {
+        for (int i = 0; i < data.Length; i++)
+            if (data[i] == 0x0D || data[i] == 0x0A) return true;
+        return false;
     }
 
     /// <summary>Send text + Enter to the backend.</summary>
@@ -491,6 +503,11 @@ public sealed class Session : IDisposable
             "SubagentStop" => ActivityState.Working,
             "TaskCompleted" => ActivityState.Working,
             "SessionStart" => ActivityState.Idle,
+            // /clear and /compact rotate Claude's session id (SessionEnd-then-SessionStart
+            // for a fresh conversation). They are NOT terminations -- hold the current
+            // state and let EventRouter relink to the new id. Other reasons
+            // (logout, prompt_input_exit, other) are real terminations.
+            "SessionEnd" when msg.Reason is "clear" or "compact" => (ActivityState?)null,
             "SessionEnd" => ActivityState.Exited,
             "TeammateIdle" => (ActivityState?)null,
             "PreCompact" => (ActivityState?)null,

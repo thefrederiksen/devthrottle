@@ -379,6 +379,51 @@ public sealed class SessionManager : IDisposable
     }
 
     /// <summary>
+    /// Find the Director session most likely to be the one whose Claude session id
+    /// was just rotated by /clear or /compact. Used by EventRouter to relink the
+    /// session to the NEW Claude session id when SessionStart(source=clear|compact)
+    /// arrives with no existing mapping.
+    ///
+    /// Heuristic:
+    ///   - RepoPath matches <paramref name="cwd"/> (case-insensitive, trim trailing slashes)
+    ///   - Session is alive (Status is Running/Starting -- not Exited/Failed)
+    ///   - Has a non-null ClaudeSessionId (so we know it WAS linked at some point)
+    ///   - Prefer ActivityState == Exited (it just received SessionEnd)
+    ///   - Tie-break: most recently created (proxy for "most recently touched")
+    /// Returns null if no candidate matches.
+    /// </summary>
+    public Session? FindOrphanForReclaim(string cwd)
+    {
+        if (string.IsNullOrEmpty(cwd)) return null;
+        var normalizedCwd = cwd.TrimEnd('\\', '/');
+
+        Session? best = null;
+        foreach (var s in _sessions.Values)
+        {
+            if (s.Status is SessionStatus.Exited or SessionStatus.Failed) continue;
+            if (s.ClaudeSessionId is null) continue;
+            var repo = s.RepoPath?.TrimEnd('\\', '/');
+            if (!string.Equals(repo, normalizedCwd, StringComparison.OrdinalIgnoreCase)) continue;
+
+            if (best is null)
+            {
+                best = s;
+                continue;
+            }
+
+            // Prefer the one whose ActivityState is Exited (it just got SessionEnd).
+            var bestIsExited = best.ActivityState == ActivityState.Exited;
+            var sIsExited = s.ActivityState == ActivityState.Exited;
+            if (sIsExited && !bestIsExited) { best = s; continue; }
+            if (!sIsExited && bestIsExited) continue;
+
+            // Tie-break on most recently created.
+            if (s.CreatedAt > best.CreatedAt) best = s;
+        }
+        return best;
+    }
+
+    /// <summary>
     /// Save state of sessions that can be resumed.
     /// Includes: running sessions, and ANY session with ClaudeSessionId (can resume with --resume).
     /// </summary>

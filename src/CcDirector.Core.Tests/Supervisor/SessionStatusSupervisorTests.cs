@@ -1,10 +1,41 @@
+using CcDirector.Core.Backends;
 using CcDirector.Core.Configuration;
+using CcDirector.Core.Memory;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Supervisor;
 using CcDirector.Gateway.Contracts;
 using Xunit;
 
 namespace CcDirector.Core.Tests.Supervisor;
+
+/// <summary>
+/// In-process stub backend that provides a real CircularTerminalBuffer but never
+/// spawns a process and never auto-exits. Used by the OutputActivityWatcher
+/// tests so the session stays alive long enough for assertions to run -- the
+/// real ConPty backend (cmd.exe) terminates almost immediately, which puts the
+/// session into ActivityState.Exited and short-circuits the watcher.
+/// </summary>
+internal sealed class BufferOnlyBackend : ISessionBackend
+{
+    public int ProcessId => 0;
+    public string Status => "Buffer-only";
+    public bool IsRunning => true;
+    public bool HasExited => false;
+    public CircularTerminalBuffer? Buffer { get; } = new CircularTerminalBuffer(65536);
+
+#pragma warning disable CS0067
+    public event Action<string>? StatusChanged;
+    public event Action<int>? ProcessExited;
+#pragma warning restore CS0067
+
+    public void Start(string executable, string args, string workingDir, short cols, short rows, Dictionary<string, string>? environmentVars = null) { }
+    public void Write(byte[] data) => Buffer?.Write(data);
+    public Task SendTextAsync(string text) => Task.CompletedTask;
+    public Task SendEnterAsync() => Task.CompletedTask;
+    public void Resize(short cols, short rows) { }
+    public Task GracefulShutdownAsync(int timeoutMs = 5000) => Task.CompletedTask;
+    public void Dispose() { }
+}
 
 /// <summary>
 /// Phase 3 tests for <see cref="SessionStatusSupervisor"/>. The supervisor is the
@@ -437,6 +468,52 @@ public sealed class SessionStatusSupervisorTests
     }
 
     [Fact]
+    public void Supervisor_pill_stays_green_across_clear_rotation()
+    {
+        // End-to-end Phase 1: SessionEnd(reason=clear) must NOT flip the pill gray.
+        // The session holds whatever color it had (typically green = ready), and the
+        // EventRouter test covers that the subsequent SessionStart(source=clear) relinks
+        // the orphan so events resume routing.
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        var supervisor = new SessionStatusSupervisor(manager);
+        try
+        {
+            supervisor.Start();
+            var session = manager.CreateSession(Path.GetTempPath());
+
+            // Drive into Idle → green (typical pre-/clear state after a finished turn).
+            session.HandlePipeEvent(new Pipes.PipeMessage { HookEventName = "SessionStart" });
+            session.HandlePipeEvent(new Pipes.PipeMessage { HookEventName = "Stop" });
+            // After Stop: WaitingForInput → supervisor paints green ("ready, awaiting next prompt").
+            Assert.Equal(StatusColor.Green, session.StatusColor);
+
+            // /clear: SessionEnd with reason="clear" must NOT transition to Exited.
+            session.HandlePipeEvent(new Pipes.PipeMessage { HookEventName = "SessionEnd", Reason = "clear" });
+            Assert.Equal(StatusColor.Green, session.StatusColor);
+            Assert.NotEqual(ActivityState.Exited, session.ActivityState);
+        }
+        finally { supervisor.Dispose(); manager.Dispose(); }
+    }
+
+    [Fact]
+    public void Supervisor_pill_goes_gray_on_real_session_end()
+    {
+        // The other side: reason=logout (or unset) IS a real termination -- pill goes
+        // unknown ("exited") which renders as gray. Documents the intended boundary.
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        var supervisor = new SessionStatusSupervisor(manager);
+        try
+        {
+            supervisor.Start();
+            var session = manager.CreateSession(Path.GetTempPath());
+            session.HandlePipeEvent(new Pipes.PipeMessage { HookEventName = "SessionEnd", Reason = "logout" });
+            Assert.Equal(StatusColor.Unknown, session.StatusColor);
+            Assert.Equal(ActivityState.Exited, session.ActivityState);
+        }
+        finally { supervisor.Dispose(); manager.Dispose(); }
+    }
+
+    [Fact]
     public void Supervisor_OnSessionCreated_writes_green_session_created()
     {
         var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
@@ -504,6 +581,157 @@ public sealed class SessionStatusSupervisorTests
             Assert.Equal("supervisor", capturedSource);
             Assert.Equal("commit the cc-playwright changes too", captured);
             Assert.Equal("commit the cc-playwright changes too", session.PendingPromptText);
+        }
+        finally { supervisor.Dispose(); manager.Dispose(); }
+    }
+
+    // ---------- Output-activity watcher (Phase 2: fallback signal) ----------
+
+    /// <summary>
+    /// Create a session backed by an in-process <see cref="BufferOnlyBackend"/>.
+    /// Required for OutputActivityWatcher tests: the real ConPty backend
+    /// (cmd.exe) exits almost immediately, which transitions ActivityState to
+    /// Exited and short-circuits the watcher. The buffer-only backend stays
+    /// "alive" for the duration of the test.
+    /// </summary>
+    private static (Session session, BufferOnlyBackend backend) CreateBufferSession(SessionManager manager)
+    {
+        var backend = new BufferOnlyBackend();
+        var session = manager.CreateEmbeddedSession(Path.GetTempPath(), null, backend);
+        return (session, backend);
+    }
+
+    [Fact]
+    public async Task OutputActivityWatcher_promotes_to_blue_on_byte_burst()
+    {
+        // Phase 2: when bytes stream into the session buffer and the supervisor's
+        // color isn't already blue, promote to blue ("streaming output"). This
+        // catches any case where the hook event path failed to deliver Working.
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        var supervisor = new SessionStatusSupervisor(manager);
+        try
+        {
+            supervisor.Start();
+            var (session, _) = CreateBufferSession(manager);
+            Assert.NotNull(session.Buffer);
+
+            // Defaults to green ("session created") from the supervisor's init path.
+            Assert.Equal(StatusColor.Green, session.StatusColor);
+
+            // Write more than the minimum-burst threshold so the watcher promotes.
+            var payload = new byte[SessionStatusSupervisor.OutputActivityMinBurstBytes * 2];
+            new Random(42).NextBytes(payload);
+            session.Buffer!.Write(payload);
+
+            // Wait > debounce (250ms) for the tick.
+            await Task.Delay(TimeSpan.FromMilliseconds(750));
+
+            Assert.Equal(StatusColor.Blue, session.StatusColor);
+            Assert.Equal("streaming output", session.LastStatusReason);
+        }
+        finally { supervisor.Dispose(); manager.Dispose(); }
+    }
+
+    [Fact]
+    public async Task OutputActivityWatcher_ignores_tiny_burst()
+    {
+        // Single-byte spinner ticks must not promote to blue or every TUI redraw
+        // would thrash the dot.
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        var supervisor = new SessionStatusSupervisor(manager);
+        try
+        {
+            supervisor.Start();
+            var (session, _) = CreateBufferSession(manager);
+            Assert.NotNull(session.Buffer);
+
+            var colorBefore = session.StatusColor;
+            session.Buffer!.Write(new byte[] { (byte)'.' }); // 1 byte -- well under threshold
+
+            await Task.Delay(TimeSpan.FromMilliseconds(500));
+
+            Assert.Equal(colorBefore, session.StatusColor);
+        }
+        finally { supervisor.Dispose(); manager.Dispose(); }
+    }
+
+    [Fact]
+    public async Task OutputActivityWatcher_does_not_override_waiting_for_perm()
+    {
+        // Permission prompts are authoritative red. Output bytes while a permission
+        // prompt is up (e.g. the prompt itself rendering) must not flip blue.
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        var supervisor = new SessionStatusSupervisor(manager);
+        try
+        {
+            supervisor.Start();
+            var (session, _) = CreateBufferSession(manager);
+            Assert.NotNull(session.Buffer);
+
+            // Drive into WaitingForPerm via the hook path. Supervisor paints red.
+            session.HandlePipeEvent(new Pipes.PipeMessage { HookEventName = "PermissionRequest" });
+            Assert.Equal(ActivityState.WaitingForPerm, session.ActivityState);
+            Assert.Equal(StatusColor.Red, session.StatusColor);
+
+            var payload = new byte[SessionStatusSupervisor.OutputActivityMinBurstBytes * 4];
+            session.Buffer!.Write(payload);
+            await Task.Delay(TimeSpan.FromMilliseconds(500));
+
+            Assert.Equal(StatusColor.Red, session.StatusColor);
+        }
+        finally { supervisor.Dispose(); manager.Dispose(); }
+    }
+
+    [Fact]
+    public async Task OutputActivityWatcher_no_op_when_already_blue()
+    {
+        // If the color is already blue, the watcher must not emit a duplicate
+        // SetStatusColor event (it would spam the supervisor event log).
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        var supervisor = new SessionStatusSupervisor(manager);
+        try
+        {
+            supervisor.Start();
+            var (session, _) = CreateBufferSession(manager);
+            Assert.NotNull(session.Buffer);
+
+            // Drive into Working through the activity path so color is blue, reason "working".
+            session.HandlePipeEvent(new Pipes.PipeMessage { HookEventName = "UserPromptSubmit" });
+            Assert.Equal(StatusColor.Blue, session.StatusColor);
+            Assert.Equal("working", session.LastStatusReason);
+
+            var payload = new byte[SessionStatusSupervisor.OutputActivityMinBurstBytes * 4];
+            session.Buffer!.Write(payload);
+            await Task.Delay(TimeSpan.FromMilliseconds(500));
+
+            // Still blue, reason still "working" -- the watcher didn't rewrite it to "streaming output".
+            Assert.Equal(StatusColor.Blue, session.StatusColor);
+            Assert.Equal("working", session.LastStatusReason);
+        }
+        finally { supervisor.Dispose(); manager.Dispose(); }
+    }
+
+    [Fact]
+    public async Task OutputActivityWatcher_does_not_resurrect_exited_session()
+    {
+        // Late bytes draining into a dead session's buffer must not paint blue.
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        var supervisor = new SessionStatusSupervisor(manager);
+        try
+        {
+            supervisor.Start();
+            var (session, _) = CreateBufferSession(manager);
+            Assert.NotNull(session.Buffer);
+
+            session.HandlePipeEvent(new Pipes.PipeMessage { HookEventName = "SessionEnd", Reason = "logout" });
+            Assert.Equal(ActivityState.Exited, session.ActivityState);
+            Assert.Equal(StatusColor.Unknown, session.StatusColor);
+
+            var payload = new byte[SessionStatusSupervisor.OutputActivityMinBurstBytes * 4];
+            session.Buffer!.Write(payload);
+            await Task.Delay(TimeSpan.FromMilliseconds(500));
+
+            Assert.Equal(StatusColor.Unknown, session.StatusColor);
         }
         finally { supervisor.Dispose(); manager.Dispose(); }
     }

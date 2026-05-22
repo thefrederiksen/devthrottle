@@ -55,6 +55,29 @@ public sealed class EventRouter : IDisposable
         }
 
         var session = _sessionManager.GetSessionByClaudeId(msg.SessionId);
+
+        // Claude Code rotates its session id on /clear and /compact: SessionEnd for
+        // the OLD id, then SessionStart(source=clear|compact) for the NEW id. The
+        // NEW id isn't in our map, so without intervention every event for the new
+        // conversation gets dropped. Relink the existing Director session here.
+        //
+        // We intentionally do NOT branch on source="resume" (the Claude id is
+        // pre-assigned at launch and is already in the map) or source="startup"
+        // (a genuinely new session that should not adopt anyone else's identity).
+        if (session == null
+            && msg.HookEventName == "SessionStart"
+            && (msg.Source == "clear" || msg.Source == "compact")
+            && !string.IsNullOrEmpty(msg.Cwd))
+        {
+            var orphan = _sessionManager.FindOrphanForReclaim(msg.Cwd);
+            if (orphan != null)
+            {
+                _sessionManager.RelinkClaudeSession(orphan.Id, msg.SessionId);
+                session = orphan;
+                _log?.Invoke($"Relinked {orphan.Id} after /{msg.Source} -> Claude session {msg.SessionId[..Math.Min(8, msg.SessionId.Length)]}...");
+            }
+        }
+
         if (session == null)
         {
             _log?.Invoke($"No linked session for Claude session {msg.SessionId[..Math.Min(8, msg.SessionId.Length)]}... (event={msg.HookEventName}), skipping.");
