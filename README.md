@@ -16,33 +16,39 @@ I built CC Director because I was running 5+ Claude Code sessions at once and no
 
 ## Download
 
-Pre-built binaries for both Windows and macOS are built automatically on every release. Grab the latest:
+### Install on Windows
 
-### Windows
+[![Download CC Director Setup for Windows](https://img.shields.io/badge/Download-CC%20Director%20Setup%20for%20Windows-2EA44F?style=for-the-badge)](https://github.com/thefrederiksen/cc-director/releases/latest/download/cc-director-setup-win-x64.exe)
 
-| Download | Description |
-|----------|-------------|
-| **[cc-director-setup-win-x64.exe](https://github.com/thefrederiksen/cc-director/releases/latest/download/cc-director-setup-win-x64.exe)** | Installer wizard (recommended -- downloads and installs everything) |
-| **[cc-director-win-x64.exe](https://github.com/thefrederiksen/cc-director/releases/latest/download/cc-director-win-x64.exe)** | Main application (self-contained, no .NET runtime needed) |
+Runs on Windows 10 and 11. Double-click the downloaded `.exe` to launch the setup wizard, which installs the main app, 15+ CLI tools, and Claude Code skills. Self-contained, no .NET runtime install needed.
 
-### macOS (Apple Silicon)
+### Install on macOS (Apple Silicon)
 
-| Download | Description |
-|----------|-------------|
-| **[cc-director-setup-mac-arm64](https://github.com/thefrederiksen/cc-director/releases/latest/download/cc-director-setup-mac-arm64)** | Installer wizard (recommended) |
-| **[cc-director-mac-arm64](https://github.com/thefrederiksen/cc-director/releases/latest/download/cc-director-mac-arm64)** | Main application (self-contained, no .NET runtime needed) |
+[![Download CC Director Setup for macOS](https://img.shields.io/badge/Download-CC%20Director%20Setup%20for%20macOS-2EA44F?style=for-the-badge)](https://github.com/thefrederiksen/cc-director/releases/latest/download/cc-director-setup-mac-arm64)
 
-After downloading on macOS, make the binary executable and clear the quarantine flag:
+After downloading, make the binary executable and clear the quarantine flag:
 
 ```bash
-chmod +x cc-director-mac-arm64
-xattr -d com.apple.quarantine cc-director-mac-arm64
-./cc-director-mac-arm64
+chmod +x cc-director-setup-mac-arm64
+xattr -d com.apple.quarantine cc-director-setup-mac-arm64
+./cc-director-setup-mac-arm64
 ```
 
 > The macOS build is experimental -- the backend is cross-platform but the Avalonia UI is still maturing. See [Help Wanted: Mac Testers](#help-wanted-mac-testers).
 
-Or browse [all releases](https://github.com/thefrederiksen/cc-director/releases) to pick a specific version or grab individual CLI tools (`cc-pdf`, `cc-html`, `cc-word`, etc.).
+<details>
+<summary><b>Advanced: direct downloads</b></summary>
+
+Skip the setup wizard and download the main application directly. You'll need to install the CLI tools and skills separately.
+
+| Platform | Download | Notes |
+|----------|----------|-------|
+| Windows x64 | [cc-director-win-x64.exe](https://github.com/thefrederiksen/cc-director/releases/latest/download/cc-director-win-x64.exe) | Self-contained, no .NET runtime needed |
+| macOS arm64 | [cc-director-mac-arm64](https://github.com/thefrederiksen/cc-director/releases/latest/download/cc-director-mac-arm64) | Self-contained, no .NET runtime needed |
+
+Browse [all releases](https://github.com/thefrederiksen/cc-director/releases) to pick a specific version or grab individual CLI tools (`cc-pdf`, `cc-html`, `cc-word`, etc.).
+
+</details>
 
 ## Setup
 
