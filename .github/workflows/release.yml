@@ -41,35 +41,7 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------
-  # Job 2: Build CC Director Avalonia app (macOS)
-  # ---------------------------------------------------------------
-  build-director-mac:
-    name: Build CC Director (macOS)
-    runs-on: macos-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup .NET 10
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: "10.0.x"
-
-      - name: Publish for macOS ARM64
-        run: >
-          dotnet publish src/CcDirector.Avalonia/CcDirector.Avalonia.csproj
-          -c Release -r osx-arm64 --self-contained true
-          -p:PublishSingleFile=true
-
-      - name: Upload cc-director-mac artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: cc-director-mac
-          path: src/CcDirector.Avalonia/bin/Release/net10.0/osx-arm64/publish/cc-director
-          if-no-files-found: error
-
-  # ---------------------------------------------------------------
-  # Job 3: Build Python tools (Windows)
+  # Job 2: Build Python tools (Windows)
   # ---------------------------------------------------------------
   build-python-tools-win:
     name: Build Python Tools (Windows)
@@ -150,72 +122,7 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------
-  # Job 4: Build Python tools (macOS)
-  # ---------------------------------------------------------------
-  build-python-tools-mac:
-    name: Build Python Tools (macOS)
-    runs-on: macos-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Build Python tools
-        run: |
-          tools=("cc-pdf" "cc-html" "cc-word")
-          mkdir -p artifacts
-          failed=()
-
-          for tool in "${tools[@]}"; do
-            echo ""
-            echo "============================================"
-            echo "Building $tool..."
-            echo "============================================"
-
-            cd "tools/$tool"
-
-            # Install dependencies
-            pip install -e ".[dev]" 2>&1
-            pip install -e "../cc_shared" 2>&1
-
-            # Build with PyInstaller using the .spec file if available
-            if [ -f "$tool.spec" ]; then
-              pyinstaller "$tool.spec" --clean --noconfirm
-            else
-              pyinstaller --onefile --name "$tool" main.py
-            fi
-
-            if [ -f "dist/$tool" ]; then
-              cp "dist/$tool" "../../artifacts/$tool"
-              echo "[OK] $tool"
-            else
-              echo "[FAIL] $tool not found after build"
-              failed+=("$tool")
-            fi
-
-            cd ../..
-          done
-
-          echo ""
-          echo "Python tools built: $(( ${#tools[@]} - ${#failed[@]} )) / ${#tools[@]}"
-          if [ ${#failed[@]} -gt 0 ]; then
-            echo "Failed tools: ${failed[*]}"
-            exit 1
-          fi
-
-      - name: Upload Python tools artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: python-tools-mac
-          path: artifacts/
-          if-no-files-found: error
-
-  # ---------------------------------------------------------------
-  # Job 5: Build Setup Wizard (Windows)
+  # Job 3: Build Setup Wizard (Windows)
   # ---------------------------------------------------------------
   build-setup-wizard-win:
     name: Build Setup Wizard (Windows)
@@ -245,34 +152,6 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------
-  # Job 6: Build Setup Wizard (macOS)
-  # ---------------------------------------------------------------
-  build-setup-wizard-mac:
-    name: Build Setup Wizard (macOS)
-    runs-on: macos-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup .NET 10
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: "10.0.x"
-
-      - name: Publish for macOS ARM64
-        run: >
-          dotnet publish tools/cc-director-setup-avalonia/CcDirectorSetup.csproj
-          -c Release -r osx-arm64 --self-contained true
-          -p:PublishSingleFile=true
-
-      - name: Upload setup wizard artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: setup-wizard-mac
-          path: tools/cc-director-setup-avalonia/bin/Release/net10.0/osx-arm64/publish/cc-director-setup
-          if-no-files-found: error
-
-  # ---------------------------------------------------------------
   # Final Job: Create GitHub Release
   # ---------------------------------------------------------------
   create-release:
@@ -280,11 +159,8 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - build-director-win
-      - build-director-mac
       - build-python-tools-win
-      - build-python-tools-mac
       - build-setup-wizard-win
-      - build-setup-wizard-mac
 
     steps:
       - uses: actions/checkout@v4
@@ -305,26 +181,14 @@ jobs:
           # Windows main app
           cp release-artifacts/cc-director-win/cc-director.exe "$RELEASE_DIR/cc-director-win-x64.exe"
 
-          # macOS main app
-          cp release-artifacts/cc-director-mac/cc-director "$RELEASE_DIR/cc-director-mac-arm64"
-
           # Windows Python tools
           for exe in release-artifacts/python-tools-win/*.exe; do
             name=$(basename "$exe" .exe)
             cp "$exe" "$RELEASE_DIR/${name}-win-x64.exe"
           done
 
-          # macOS Python tools
-          for bin in release-artifacts/python-tools-mac/*; do
-            name=$(basename "$bin")
-            cp "$bin" "$RELEASE_DIR/${name}-mac-arm64"
-          done
-
           # Windows setup wizard
           cp release-artifacts/setup-wizard-win/cc-director-setup.exe "$RELEASE_DIR/cc-director-setup-win-x64.exe"
-
-          # macOS setup wizard
-          cp release-artifacts/setup-wizard-mac/cc-director-setup "$RELEASE_DIR/cc-director-setup-mac-arm64"
 
           echo ""
           echo "Release files:"

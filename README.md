@@ -4,11 +4,7 @@ A desktop application for managing multiple [Claude Code](https://docs.anthropic
 
 I built CC Director because I was running 5+ Claude Code sessions at once and nothing fit. Terminal programs were missing features I needed -- file browsing, GitHub integration, easy screenshot handling. VS Code had too many things I didn't want getting in the way. So I built my own Claude Code session manager. I use it every day as my primary development environment. It ships with 35+ purpose-built CLI tools and 14 Claude Code skills that handle everything from document generation to browser automation to email management.
 
-> **Status:** I'm currently cleaning up the codebase and preparing a release that will be ready for enterprise use this week. The application is fully functional and I use it daily, but expect rough edges if you build from source today.
-
-> **Live Training:** I'm running a 2-day hands-on course in Toronto covering CC Director and the full Claude Code toolchain. Details and registration at [sorenfrederiksen.com/training](https://sorenfrederiksen.com/training).
-
-> **Mac/Linux Support (Experimental):** Cross-platform backend support has been added but is largely untested -- I don't have a Mac to test on. If you'd like to see CC Director running on Mac, I'd love your help. See [Help Wanted: Mac Testers](#help-wanted-mac-testers) below.
+> **Platform Support:** **Windows 10/11 only for now.** The backend is cross-platform and an Avalonia UI is in the tree, but Mac builds aren't currently shipping while I sort out platform-specific test failures. Mac/Linux support is on the roadmap -- see [Help Wanted: Mac Testers](#help-wanted-mac-testers).
 
 ![CC Director](images/cc-director-main.png)
 
@@ -22,29 +18,18 @@ I built CC Director because I was running 5+ Claude Code sessions at once and no
 
 Runs on Windows 10 and 11. Double-click the downloaded `.exe` to launch the setup wizard, which installs the main app, 15+ CLI tools, and Claude Code skills. Self-contained, no .NET runtime install needed.
 
-### Install on macOS (Apple Silicon)
+### macOS
 
-[![Download CC Director Setup for macOS](https://img.shields.io/badge/Download-CC%20Director%20Setup%20for%20macOS-2EA44F?style=for-the-badge)](https://github.com/thefrederiksen/cc-director/releases/latest/download/cc-director-setup-mac-arm64)
-
-After downloading, make the binary executable and clear the quarantine flag:
-
-```bash
-chmod +x cc-director-setup-mac-arm64
-xattr -d com.apple.quarantine cc-director-setup-mac-arm64
-./cc-director-setup-mac-arm64
-```
-
-> The macOS build is experimental -- the backend is cross-platform but the Avalonia UI is still maturing. See [Help Wanted: Mac Testers](#help-wanted-mac-testers).
+Mac builds aren't currently shipping. Mac/Linux support is on the roadmap once platform-specific test failures are resolved -- see [Help Wanted: Mac Testers](#help-wanted-mac-testers).
 
 <details>
-<summary><b>Advanced: direct downloads</b></summary>
+<summary><b>Advanced: direct download (Windows)</b></summary>
 
 Skip the setup wizard and download the main application directly. You'll need to install the CLI tools and skills separately.
 
 | Platform | Download | Notes |
 |----------|----------|-------|
 | Windows x64 | [cc-director-win-x64.exe](https://github.com/thefrederiksen/cc-director/releases/latest/download/cc-director-win-x64.exe) | Self-contained, no .NET runtime needed |
-| macOS arm64 | [cc-director-mac-arm64](https://github.com/thefrederiksen/cc-director/releases/latest/download/cc-director-mac-arm64) | Self-contained, no .NET runtime needed |
 
 Browse [all releases](https://github.com/thefrederiksen/cc-director/releases) to pick a specific version or grab individual CLI tools (`cc-pdf`, `cc-html`, `cc-word`, etc.).
 
@@ -86,7 +71,7 @@ Launch CC Director and start creating sessions.
 - Right-click context menu: Rename, Open in Explorer, Open in VS Code, Close
 
 ### Embedded Console
-- Claude Code runs in a native Windows console window overlaid directly onto the WPF application
+- Claude Code runs in a native Windows console window overlaid directly onto the Avalonia application
 - Full interactive terminal — no emulation, no limitations
 - Send prompts from a dedicated input bar at the bottom (Ctrl+Enter to submit)
 
@@ -118,7 +103,7 @@ Launch CC Director and start creating sessions.
 - Optional pipe message log panel (toggle from sidebar) for debugging and observability
 
 ### Logging & Diagnostics
-- File logging to `%LOCALAPPDATA%\CcDirector\logs\`
+- File logging to `%LOCALAPPDATA%\cc-director\logs\director\`
 - "Open Logs" button in the sidebar for quick access
 
 ## Bundled CLI Tools
@@ -141,12 +126,7 @@ All tools work standalone from the command line and are also designed to be call
 
 ## Architecture
 
-```
-CcDirector.sln
-├── CcDirector.Core        # Session management, hooks, pipes, git, config (no UI dependencies)
-├── CcDirector.Wpf         # WPF desktop application
-└── CcDirector.Core.Tests  # xUnit test suite
-```
+The main app is an Avalonia desktop application (`src/CcDirector.Avalonia`) backed by a cross-platform core (`src/CcDirector.Core`), a Gateway HTTP API, and an embedded terminal stack. The full solution lives in `cc-director.sln`.
 
 **How it works:**
 
@@ -175,51 +155,45 @@ Claude Code ──hook──▶ PowerShell relay               Python relay scri
 
 ## Requirements
 
-### Windows
+**Windows only for now.** Mac/Linux support is on the roadmap -- see [Help Wanted: Mac Testers](#help-wanted-mac-testers).
+
 - Windows 10/11
-- .NET 10 SDK (or Desktop Runtime for pre-built exe)
+- .NET 10 SDK (only needed if building from source; the pre-built `.exe` is self-contained)
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed and available on PATH
 - **Windows Console Host** as default terminal (not Windows Terminal — a warning dialog will guide you if needed)
-
-### Mac/Linux (Experimental)
-- macOS 12+ or Linux with glibc
-- .NET 10 SDK
-- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed and available on PATH
-- Python 3 (for hook relay script)
 
 ## Building
 
 ```bash
-dotnet build src/CcDirector.Wpf/CcDirector.Wpf.csproj
+dotnet build src/CcDirector.Avalonia/CcDirector.Avalonia.csproj
 ```
 
 ## Running
 
 ```bash
-dotnet run --project src/CcDirector.Wpf/CcDirector.Wpf.csproj
+dotnet run --project src/CcDirector.Avalonia/CcDirector.Avalonia.csproj
 ```
 
-Or open `CcDirector.sln` in Visual Studio and run the `CcDirector.Wpf` project.
+Or open `cc-director.sln` in Visual Studio and run the `CcDirector.Avalonia` project.
 
 ## Running Tests
 
 ```bash
-dotnet test src/CcDirector.Core.Tests/CcDirector.Core.Tests.csproj
+dotnet test cc-director.sln
 ```
 
 ## Configuration
 
-Edit `src/CcDirector.Wpf/appsettings.json` to configure:
+The Avalonia app loads `appsettings.json` from the same directory as the executable. The setup wizard writes a working default; the most useful settings are:
 
-- **ClaudePath** — path to the `claude` executable (default: `"claude"`)
-- **DefaultClaudeArgs** — CLI arguments passed to each session (default: `"--dangerously-skip-permissions"`)
-- **Repositories** — seed list of repository paths to register on first launch
+- **Agent.ClaudePath** — path to the `claude` executable (default: `"claude"`)
+- **Agent.DefaultClaudeArgs** — CLI arguments passed to each session (default: `"--dangerously-skip-permissions"`)
 
-Session state and repository registry are persisted in `~/Documents/CcDirector/`.
+Session state, logs, vault data, and tool config live under `%LOCALAPPDATA%\cc-director\` (override with the `CC_DIRECTOR_ROOT` environment variable).
 
 ## Help Wanted: Mac Testers
 
-I've added experimental cross-platform support for macOS and Linux, but **it's largely untested because I don't have a Mac available**. If you're interested in running CC Director on Mac, I'd really appreciate your help getting it working. Even basic "does it build and run" feedback would be valuable.
+Cross-platform code for macOS and Linux exists in the tree, but **Mac builds aren't currently shipping** -- a handful of platform-specific tests fail and I don't have a Mac to debug them. Mac support is on the roadmap and will return once those tests are fixed. If you'd like to help bring Mac support back online, I'd really appreciate it. Even basic "does it build and run" feedback would be valuable.
 
 ### What's Been Implemented
 
@@ -228,9 +202,9 @@ I've added experimental cross-platform support for macOS and Linux, but **it's l
 | Terminal backend | ConPTY | Unix PTY (openpty) |
 | IPC for hooks | Named pipes | Unix domain sockets |
 | Hook relay | PowerShell | Python |
-| UI | WPF | Avalonia (planned) |
+| UI | Avalonia | Avalonia (same codebase) |
 
-The core backend (`CcDirector.Core`) is now cross-platform. The UI layer (`CcDirector.Wpf`) is Windows-only, but we plan to add an Avalonia UI for Mac/Linux.
+The core backend (`CcDirector.Core`) and the UI (`CcDirector.Avalonia`) are both cross-platform in the tree. What's blocking Mac releases is a handful of platform-specific test failures and verification on real hardware.
 
 ### How to Help Test
 
@@ -257,9 +231,9 @@ The core backend (`CcDirector.Core`) is now cross-platform. The UI layer (`CcDir
 
 ### Known Limitations (Mac/Linux)
 
-- **No GUI yet** — only the backend is cross-platform; UI requires Avalonia port
+- **Builds aren't currently shipping** — Mac binaries are not produced by the release pipeline until the platform-specific tests pass
 - **Embedded console mode** (`SessionBackendType.Embedded`) is Windows-only
-- **Untested on Apple Silicon** — should work but needs verification
+- **Untested on Apple Silicon** — the Avalonia UI builds for `osx-arm64` but needs verification on real hardware
 
 See [docs/plan-mac-support.md](docs/plan-mac-support.md) for the full implementation plan.
 
