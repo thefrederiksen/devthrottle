@@ -1001,7 +1001,10 @@
                                                            Text="{Binding Preview}"
                                                            Foreground="#CCCCCC" FontSize="11"
                                                            TextWrapping="Wrap" MaxHeight="80"
-                                                           TextTrimming="CharacterEllipsis" />
+                                                           TextTrimming="CharacterEllipsis"
+                                                           ToolTip.Tip="{Binding FullText}"
+                                                           ToolTip.ShowDelay="300"
+                                                           ToolTip.Placement="Left" />
                                                 <StackPanel Grid.Column="2"
                                                             Orientation="Vertical"
                                                             Spacing="1"
