@@ -21,18 +21,17 @@ public static class AnsiToHtmlConverter
     private static readonly string DefaultFg = "#D4D4D8";
 
     /// <summary>
-    /// Convert the current visible grid into continuous HTML. Scrollback is
-    /// intentionally NOT rendered: Claude Code's TUI does heavy in-place
-    /// overwrites (input frame redraws, status-bar redraws, token streaming)
-    /// inside the visible grid before rows scroll out, so scrollback ends up
-    /// holding the final overwritten state of those rows -- which looks like
-    /// garbled text. This is the same artifact a user would see scrolling back
-    /// in any terminal running this TUI. The Raw tab is for "what's on screen
-    /// right now"; full conversation history lives on the Agent tab.
+    /// Convert the scrollback plus the current visible grid into continuous
+    /// HTML. Scrollback rows are emitted first, in order, followed by the
+    /// visible grid -- so the browser's natural scrollbar lets the user scroll
+    /// up through history that has scrolled out of the live region.
     /// </summary>
     public static string ConvertToHtml(List<TerminalCell[]> scrollback, TerminalCell[,] cells, int cols, int rows)
     {
         var allLines = new List<string>();
+
+        foreach (var row in scrollback)
+            allLines.Add(RenderCellRow(row, cols));
 
         for (int r = 0; r < rows; r++)
             allLines.Add(RenderGridRow(cells, cols, r));
