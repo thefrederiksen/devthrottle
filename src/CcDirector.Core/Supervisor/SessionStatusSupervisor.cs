@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using CcDirector.Core.Memory;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Utilities;
 
@@ -52,8 +53,17 @@ public sealed class SessionStatusSupervisor : IDisposable
 {
     private readonly SessionManager _sessionManager;
     private readonly ConcurrentDictionary<Guid, Action<ActivityState, ActivityState>> _activityHandlers = new();
+    private readonly ConcurrentDictionary<Guid, PromptInjectionWatcher> _injectionWatchers = new();
     private bool _started;
     private bool _disposed;
+
+    /// <summary>
+    /// Debounce window between the last buffer write and running the prompt-input
+    /// extraction. Long enough that Claude Code's Ink TUI has settled into a
+    /// final frame; short enough that the user sees the suggestion almost
+    /// immediately after Claude Code finishes drawing.
+    /// </summary>
+    internal static readonly TimeSpan PromptInjectionDebounce = TimeSpan.FromMilliseconds(500);
 
     public SessionStatusSupervisor(SessionManager sessionManager)
     {
@@ -98,7 +108,15 @@ public sealed class SessionStatusSupervisor : IDisposable
                 // when the buffer shows an actual question marker. Cheap; gated on the
                 // state transition so we don't scan every buffer tick.
                 if (newState == ActivityState.WaitingForInput)
+                {
                     PromotePendingQuestionIfBufferShowsOne(session);
+                    // One-shot scan for an injected suggestion right at the transition,
+                    // in addition to the debounced byte-stream watcher below — covers
+                    // the case where Claude Code has already rendered the next-prompt
+                    // suggestion by the time the activity-state hook fires.
+                    if (_injectionWatchers.TryGetValue(session.Id, out var w))
+                        w.RequestImmediateScan();
+                }
             }
             catch (Exception ex)
             {
@@ -107,6 +125,19 @@ public sealed class SessionStatusSupervisor : IDisposable
         };
         _activityHandlers[session.Id] = handler;
         session.OnActivityStateChanged += handler;
+
+        // Subscribe to the byte stream so we re-scan Claude Code's input-prompt
+        // line whenever the TUI redraws and then goes quiet. The watcher debounces
+        // bursts; we only run extraction once writes settle.
+        var buffer = session.Buffer;
+        if (buffer is not null)
+        {
+            var watcher = new PromptInjectionWatcher(session, buffer);
+            if (_injectionWatchers.TryAdd(session.Id, watcher))
+                watcher.Start();
+            else
+                watcher.Dispose();
+        }
     }
 
     /// <summary>
@@ -252,5 +283,122 @@ public sealed class SessionStatusSupervisor : IDisposable
             if (_activityHandlers.TryRemove(s.Id, out var h))
                 s.OnActivityStateChanged -= h;
         }
+        foreach (var kv in _injectionWatchers)
+            kv.Value.Dispose();
+        _injectionWatchers.Clear();
+    }
+}
+
+/// <summary>
+/// Watches a session's terminal buffer for text Claude Code has injected into
+/// its own input-prompt line, and forwards detected text to
+/// <see cref="Session.SetPendingPromptText"/> with source "supervisor" so the
+/// cc-director "Type a message..." textbox can mirror it.
+///
+/// Operation:
+/// 1. Subscribe to <see cref="CircularTerminalBuffer.OnBytesWritten"/>.
+/// 2. On each write, restart a 500ms debounce timer.
+/// 3. When the timer fires (no new bytes for 500ms), run
+///    <see cref="PromptInputLineExtractor.ExtractClaudeCodeInputLine"/>.
+/// 4. If the extracted text is non-empty and differs from what we last pushed,
+///    call <c>session.SetPendingPromptText(text, "supervisor")</c>.
+/// 5. The UI side decides whether to actually populate the visible textbox
+///    (e.g. don't clobber what the user has already typed). This class is
+///    intentionally ignorant of UI state.
+///
+/// State machine for <c>_lastPushedText</c>:
+///  - null = nothing pushed yet for this session
+///  - ""   = we observed an empty input box; resets the "already pushed" memory
+///  - "X"  = we pushed "X"; don't push it again unless the extracted text changes
+///
+/// This means: if the user clears the cc-director textbox while Claude Code's
+/// injection is still in the terminal, we will NOT re-inject — by the next
+/// scan, <c>_lastPushedText</c> still equals "X" and we short-circuit. Only when
+/// Claude Code itself changes its injection (or empties its prompt) does the
+/// state reset.
+/// </summary>
+internal sealed class PromptInjectionWatcher : IDisposable
+{
+    private readonly Session _session;
+    private readonly CircularTerminalBuffer _buffer;
+    private readonly Action<byte[]> _onBytes;
+    private readonly System.Threading.Timer _timer;
+    private string? _lastPushedText;
+    private int _disposed;
+
+    public PromptInjectionWatcher(Session session, CircularTerminalBuffer buffer)
+    {
+        _session = session;
+        _buffer = buffer;
+        _onBytes = _ => Bump();
+        _timer = new System.Threading.Timer(OnTimerTick, null, Timeout.Infinite, Timeout.Infinite);
+    }
+
+    public void Start()
+    {
+        _buffer.OnBytesWritten += _onBytes;
+        FileLog.Write($"[PromptInjectionWatcher] start session={_session.Id}");
+    }
+
+    /// <summary>
+    /// Force a scan at the next debounce window, without waiting for new bytes.
+    /// Used on activity-state transitions where the relevant content may already
+    /// be in the buffer.
+    /// </summary>
+    public void RequestImmediateScan() => Bump();
+
+    private void Bump()
+    {
+        if (Volatile.Read(ref _disposed) != 0) return;
+        try { _timer.Change(SessionStatusSupervisor.PromptInjectionDebounce, Timeout.InfiniteTimeSpan); }
+        catch (ObjectDisposedException) { /* race with Dispose; ignore */ }
+    }
+
+    private void OnTimerTick(object? state)
+    {
+        if (Volatile.Read(ref _disposed) != 0) return;
+        try
+        {
+            var bytes = _buffer.DumpAll();
+            var extracted = PromptInputLineExtractor.ExtractClaudeCodeInputLine(bytes);
+
+            if (extracted is null)
+            {
+                // No Claude Code TUI frame detectable. Don't disturb whatever's in
+                // the textbox; just reset our "already pushed" memory so the next
+                // detected injection (after a frame change) is treated as new.
+                _lastPushedText = null;
+                return;
+            }
+
+            if (extracted.Length == 0)
+            {
+                // Claude Code's input box is empty. Reset memory so we'll push
+                // again if it later fills with the same suggestion.
+                _lastPushedText = null;
+                return;
+            }
+
+            if (string.Equals(extracted, _lastPushedText, StringComparison.Ordinal))
+                return; // already pushed this exact text — don't re-fire
+
+            FileLog.Write($"[PromptInjectionWatcher] session={_session.Id} push len={extracted.Length} text=\"{Truncate(extracted, 80)}\"");
+            _session.SetPendingPromptText(extracted, "supervisor");
+            _lastPushedText = extracted;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[PromptInjectionWatcher] tick failed session={_session.Id}: {ex.Message}");
+        }
+    }
+
+    private static string Truncate(string s, int max)
+        => string.IsNullOrEmpty(s) || s.Length <= max ? s : s[..max] + "...";
+
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        _buffer.OnBytesWritten -= _onBytes;
+        _timer.Dispose();
     }
 }

@@ -369,4 +369,93 @@ public sealed class SessionStatusSupervisorTests
         }
         finally { manager.Dispose(); }
     }
+
+    // ---------- Prompt-injection watcher (end-to-end via real buffer) ----------
+
+    /// <summary>
+    /// End-to-end smoke: when the supervisor is wired and bytes representing a
+    /// Claude Code TUI frame land in a session's buffer, the watcher must
+    /// extract the injected text and fire OnPendingPromptTextChanged with
+    /// source="supervisor".
+    /// </summary>
+    [Fact]
+    public async Task PromptInjectionWatcher_pushes_extracted_text_via_supervisor_source()
+    {
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        var supervisor = new SessionStatusSupervisor(manager);
+        try
+        {
+            supervisor.Start();
+            var session = manager.CreateSession(Path.GetTempPath());
+
+            // Watcher only wires when the session has a real buffer. TestShell
+            // spawns cmd.exe via ConPty, which gives us one.
+            if (session.Buffer is null) return; // no buffer (e.g. Embedded backend); skip
+
+            string? captured = null;
+            string? capturedSource = null;
+            session.OnPendingPromptTextChanged += (text, source) =>
+            {
+                if (source == "supervisor")
+                {
+                    captured = text;
+                    capturedSource = source;
+                }
+            };
+
+            // Synthesize a Claude Code Ink frame at the end of the buffer.
+            var frame =
+                "\n\n" +
+                "> commit the cc-playwright changes too\n" +
+                "  >> bypass permissions on (shift+tab to cycle)\n";
+            session.Buffer.Write(System.Text.Encoding.UTF8.GetBytes(frame));
+
+            // Wait > debounce window (500ms) for the watcher's timer to fire.
+            // Use a generous margin so the test isn't timing-flaky.
+            await Task.Delay(TimeSpan.FromMilliseconds(1500));
+
+            Assert.Equal("supervisor", capturedSource);
+            Assert.Equal("commit the cc-playwright changes too", captured);
+            Assert.Equal("commit the cc-playwright changes too", session.PendingPromptText);
+        }
+        finally { supervisor.Dispose(); manager.Dispose(); }
+    }
+
+    /// <summary>
+    /// The watcher remembers what it last pushed; if Claude Code's input stays
+    /// stable (same bytes, more output flowing) we don't re-fire the event.
+    /// </summary>
+    [Fact]
+    public async Task PromptInjectionWatcher_does_not_double_push_same_text()
+    {
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        var supervisor = new SessionStatusSupervisor(manager);
+        try
+        {
+            supervisor.Start();
+            var session = manager.CreateSession(Path.GetTempPath());
+            if (session.Buffer is null) return;
+
+            int pushCount = 0;
+            session.OnPendingPromptTextChanged += (_, source) =>
+            {
+                if (source == "supervisor") pushCount++;
+            };
+
+            var frame =
+                "\n\n" +
+                "> commit the cc-playwright changes too\n" +
+                "  >> bypass permissions on (shift+tab to cycle)\n";
+            session.Buffer.Write(System.Text.Encoding.UTF8.GetBytes(frame));
+            await Task.Delay(TimeSpan.FromMilliseconds(1000));
+
+            // Append unrelated noise; the frame at the tail is unchanged.
+            session.Buffer.Write(System.Text.Encoding.UTF8.GetBytes(
+                "some background log line\n" + frame));
+            await Task.Delay(TimeSpan.FromMilliseconds(1000));
+
+            Assert.Equal(1, pushCount);
+        }
+        finally { supervisor.Dispose(); manager.Dispose(); }
+    }
 }

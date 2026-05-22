@@ -452,6 +452,7 @@ public partial class MainWindow : Window
             _activeSession.Session.OnClaudeMetadataChanged -= OnActiveSessionMetadataChanged;
             _activeSession.Session.OnActivityStateChanged -= OnActiveSessionActivityChanged;
             _activeSession.Session.OnStatusColorChanged -= OnActiveSessionStatusColorChanged;
+            _activeSession.Session.OnPendingPromptTextChanged -= OnActiveSessionPendingPromptTextChanged;
             TerminalHost.Detach();
             GitChangesView.Detach();
             CleanView.Detach();
@@ -481,6 +482,11 @@ public partial class MainWindow : Window
         // Phase 4f: also subscribe to supervisor status changes so the terminal-tab
         // pending-question banner stays in sync with the Session tab's red callout.
         vm.Session.OnStatusColorChanged += OnActiveSessionStatusColorChanged;
+        // Subscribe to supervisor-injected prompt text. The supervisor watches the
+        // terminal buffer for text Claude Code has placed in its own input line
+        // and pushes it through this event; we mirror it into "Type a message..."
+        // when the box is empty.
+        vm.Session.OnPendingPromptTextChanged += OnActiveSessionPendingPromptTextChanged;
 
         // Update header
         SessionHeaderBanner.IsVisible = true;
@@ -565,6 +571,39 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Mirror supervisor-detected Claude Code prompt injections into the
+    /// "Type a message..." textbox. Only acts on supervisor-sourced writes
+    /// (source=="supervisor") so the textbox's own user-driven save (source=="user")
+    /// doesn't loop back. Never clobbers text the user is currently composing.
+    /// </summary>
+    private void OnActiveSessionPendingPromptTextChanged(string? text, string source)
+    {
+        if (!string.Equals(source, "supervisor", StringComparison.Ordinal)) return;
+        if (string.IsNullOrEmpty(text)) return;
+        // Capture into a non-nullable local so the lambda below sees a definite
+        // string and we don't need the null-forgiving operator (forbidden by CodingStyle).
+        string injectedText = text;
+
+        try
+        {
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (_activeSession is null) return;
+                // Honor user input: only fill an empty box. If they've started typing,
+                // the supervisor's suggestion is silently dropped for this cycle.
+                if (!string.IsNullOrEmpty(PromptInput.Text)) return;
+                PromptInput.Text = injectedText;
+                PromptInput.CaretIndex = injectedText.Length;
+                FileLog.Write($"[MainWindow] supervisor injected prompt text: len={injectedText.Length}, preview=\"{(injectedText.Length > 60 ? injectedText[..60] + "..." : injectedText)}\"");
+            });
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] OnActiveSessionPendingPromptTextChanged FAILED: {ex.Message}");
+        }
+    }
+
     // Keep the terminal-tab pending-question banner in sync with the supervisor's
     // verdict on the active session. Visible iff StatusColor==red and
     // LastStatusReason is non-empty. Same visual + same source-of-truth as the
@@ -604,6 +643,7 @@ public partial class MainWindow : Window
             _activeSession.Session.OnClaudeMetadataChanged -= OnActiveSessionMetadataChanged;
             _activeSession.Session.OnActivityStateChanged -= OnActiveSessionActivityChanged;
             _activeSession.Session.OnStatusColorChanged -= OnActiveSessionStatusColorChanged;
+            _activeSession.Session.OnPendingPromptTextChanged -= OnActiveSessionPendingPromptTextChanged;
         }
         TerminalHost.Detach();
         GitChangesView.Detach();
@@ -802,6 +842,7 @@ public partial class MainWindow : Window
             vm.Session.OnClaudeMetadataChanged -= OnActiveSessionMetadataChanged;
             vm.Session.OnActivityStateChanged -= OnActiveSessionActivityChanged;
             vm.Session.OnStatusColorChanged -= OnActiveSessionStatusColorChanged;
+            vm.Session.OnPendingPromptTextChanged -= OnActiveSessionPendingPromptTextChanged;
             TerminalHost.Detach();
             GitChangesView.Detach();
             CleanView.Detach();

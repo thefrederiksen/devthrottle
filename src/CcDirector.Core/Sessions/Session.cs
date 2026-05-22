@@ -191,8 +191,41 @@ public sealed class Session : IDisposable
     /// <summary>Chat messages for the Simple Chat view.</summary>
     public SessionChatHistory ChatHistory { get; } = new();
 
-    /// <summary>Prompt text the user was composing but hasn't sent yet. Persisted across switches and restarts.</summary>
-    public string? PendingPromptText { get; set; }
+    private string? _pendingPromptText;
+
+    /// <summary>
+    /// Prompt text the user was composing but hasn't sent yet. Persisted across
+    /// switches and restarts. Two writers exist: the UI when the user types (via
+    /// the property setter, source="user"), and the SessionStatusSupervisor when
+    /// it detects Claude Code has injected a suggestion into its own input line
+    /// (via <see cref="SetPendingPromptText"/>, source="supervisor"). Subscribers
+    /// to <see cref="OnPendingPromptTextChanged"/> can distinguish the two and
+    /// decide whether to apply.
+    /// </summary>
+    public string? PendingPromptText
+    {
+        get => _pendingPromptText;
+        set => SetPendingPromptText(value, "user");
+    }
+
+    /// <summary>
+    /// Fires when <see cref="PendingPromptText"/> changes. Args: (newText, source).
+    /// source is "user" for property-setter writes, or whatever string the caller
+    /// passes to <see cref="SetPendingPromptText"/> — currently "supervisor" for
+    /// terminal-injection detection.
+    /// </summary>
+    public event Action<string?, string>? OnPendingPromptTextChanged;
+
+    /// <summary>
+    /// Set the pending prompt text with an explicit source tag. Idempotent: a
+    /// write with the same value as the current one does not fire the event.
+    /// </summary>
+    public void SetPendingPromptText(string? value, string source)
+    {
+        if (_pendingPromptText == value) return;
+        _pendingPromptText = value;
+        OnPendingPromptTextChanged?.Invoke(value, source ?? "user");
+    }
 
     /// <summary>Name of the last selected tab (e.g. "Terminal", "Agent", "SourceControl"). Persisted across switches and restarts.</summary>
     public string? SelectedTabName { get; set; }
