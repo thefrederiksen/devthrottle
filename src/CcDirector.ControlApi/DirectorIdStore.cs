@@ -71,6 +71,15 @@ public static class DirectorIdStore
         return fresh;
     }
 
+    /// <summary>The slot key for the currently-running process (its exe path).</summary>
+    public static string CurrentProcessSlotKey() => DefaultSlotKey();
+
+    /// <summary>
+    /// 8-hex-char slot derived from a slot key. Stable across path-case and slash style.
+    /// Public so consumers (e.g. SingleInstanceGuard) can derive matching identifiers.
+    /// </summary>
+    public static string SlotFor(string slotKey) => Slot(slotKey);
+
     private static string DefaultSlotKey()
         => Environment.ProcessPath ?? AppContext.BaseDirectory;
 
