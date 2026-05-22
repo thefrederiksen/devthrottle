@@ -712,6 +712,133 @@ public sealed class SessionStatusSupervisorTests
     }
 
     [Fact]
+    public async Task OutputActivityWatcher_does_not_override_red_set_by_apply_turn_summary()
+    {
+        // Regression: Haiku turn summary correctly identified a pending question
+        // and painted red; then "Brewed for X" status-line redraws produced a 32+
+        // byte burst and the OutputActivityWatcher overwrote red with blue
+        // ("streaming output") ~0.3s later. Reproduced by the supervisor event
+        // log for session deb8ac5e: red ("Delete or gitignore...") -> blue
+        // ("streaming output") in 0.27s. The watcher must NOT overwrite red.
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        var supervisor = new SessionStatusSupervisor(manager);
+        try
+        {
+            supervisor.Start();
+            var (session, _) = CreateBufferSession(manager);
+            Assert.NotNull(session.Buffer);
+
+            // Drive into WaitingForInput so ApplyTurnSummary's stale-state guard
+            // (which blocks Working / WaitingForPerm) does not block the write.
+            session.HandlePipeEvent(new Pipes.PipeMessage { HookEventName = "Stop" });
+            Assert.Equal(ActivityState.WaitingForInput, session.ActivityState);
+
+            supervisor.ApplyTurnSummary(session, new TurnSummary
+            {
+                NeedsUser = "question",
+                NeedsUserShort = "Delete or gitignore the harness output?",
+                Headline = "asked about cleanup",
+            });
+            Assert.Equal(StatusColor.Red, session.StatusColor);
+            Assert.Equal("Delete or gitignore the harness output?", session.LastStatusReason);
+
+            // Now simulate the "Brewed for Xs" status-line redraw: a real burst
+            // of bytes lands in the buffer while Claude is sitting at its prompt.
+            var payload = new byte[SessionStatusSupervisor.OutputActivityMinBurstBytes * 4];
+            session.Buffer!.Write(payload);
+            await Task.Delay(TimeSpan.FromMilliseconds(500));
+
+            Assert.Equal(StatusColor.Red, session.StatusColor);
+            Assert.Equal("Delete or gitignore the harness output?", session.LastStatusReason);
+        }
+        finally { supervisor.Dispose(); manager.Dispose(); }
+    }
+
+    [Fact]
+    public async Task OutputActivityWatcher_does_not_override_red_set_by_promote_pending_question()
+    {
+        // Companion regression: red set by the fast-path buffer-marker scan
+        // (PromotePendingQuestion) must also survive byte bursts.
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        var supervisor = new SessionStatusSupervisor(manager);
+        try
+        {
+            supervisor.Start();
+            var (session, _) = CreateBufferSession(manager);
+            Assert.NotNull(session.Buffer);
+
+            supervisor.PromotePendingQuestion(session, "delete users.db?");
+            Assert.Equal(StatusColor.Red, session.StatusColor);
+
+            var payload = new byte[SessionStatusSupervisor.OutputActivityMinBurstBytes * 4];
+            session.Buffer!.Write(payload);
+            await Task.Delay(TimeSpan.FromMilliseconds(500));
+
+            Assert.Equal(StatusColor.Red, session.StatusColor);
+            Assert.Equal("delete users.db?", session.LastStatusReason);
+        }
+        finally { supervisor.Dispose(); manager.Dispose(); }
+    }
+
+    [Fact]
+    public async Task OutputActivityWatcher_does_not_promote_blue_during_waiting_for_input()
+    {
+        // When Claude has reported WaitingForInput via the Stop hook, cosmetic
+        // TUI bytes (cursor blink, "Brewed for Xs" timer redraws) must not flip
+        // the dot back to blue. The hook is authoritative for "Claude is done".
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        var supervisor = new SessionStatusSupervisor(manager);
+        try
+        {
+            supervisor.Start();
+            var (session, _) = CreateBufferSession(manager);
+            Assert.NotNull(session.Buffer);
+
+            session.HandlePipeEvent(new Pipes.PipeMessage { HookEventName = "Stop" });
+            Assert.Equal(ActivityState.WaitingForInput, session.ActivityState);
+            // Supervisor fast path paints green ("ready, awaiting next prompt")
+            // since no question marker matched.
+            Assert.Equal(StatusColor.Green, session.StatusColor);
+
+            var payload = new byte[SessionStatusSupervisor.OutputActivityMinBurstBytes * 4];
+            session.Buffer!.Write(payload);
+            await Task.Delay(TimeSpan.FromMilliseconds(500));
+
+            Assert.Equal(StatusColor.Green, session.StatusColor);
+            Assert.Equal("ready, awaiting next prompt", session.LastStatusReason);
+        }
+        finally { supervisor.Dispose(); manager.Dispose(); }
+    }
+
+    [Fact]
+    public async Task OutputActivityWatcher_does_not_promote_blue_during_idle()
+    {
+        // Idle (post-SessionStart, between turns) is also a "Claude is waiting"
+        // state. Welcome-message redraws or status-line ticks must not flicker
+        // the dot to blue here either.
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        var supervisor = new SessionStatusSupervisor(manager);
+        try
+        {
+            supervisor.Start();
+            var (session, _) = CreateBufferSession(manager);
+            Assert.NotNull(session.Buffer);
+
+            session.HandlePipeEvent(new Pipes.PipeMessage { HookEventName = "SessionStart" });
+            Assert.Equal(ActivityState.Idle, session.ActivityState);
+            Assert.Equal(StatusColor.Green, session.StatusColor);
+
+            var payload = new byte[SessionStatusSupervisor.OutputActivityMinBurstBytes * 4];
+            session.Buffer!.Write(payload);
+            await Task.Delay(TimeSpan.FromMilliseconds(500));
+
+            Assert.Equal(StatusColor.Green, session.StatusColor);
+            Assert.Equal("idle, ready for next task", session.LastStatusReason);
+        }
+        finally { supervisor.Dispose(); manager.Dispose(); }
+    }
+
+    [Fact]
     public async Task OutputActivityWatcher_does_not_resurrect_exited_session()
     {
         // Late bytes draining into a dead session's buffer must not paint blue.

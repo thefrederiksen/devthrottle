@@ -460,19 +460,25 @@ internal sealed class PromptInjectionWatcher : IDisposable
 
 /// <summary>
 /// Phase 2 safety-net watcher: if the session's terminal buffer is actively
-/// receiving bytes from Claude Code, the session is by definition working.
-/// Promotes <see cref="Session.StatusColor"/> to blue ("streaming output") even
-/// when the hook-event fast path missed the transition (relay backlog, the
-/// /clear-orphan window before the EventRouter relink lands, race conditions,
-/// restored sessions wired up before their buffer has data).
+/// receiving bytes from Claude Code AND the activity state is uncertain
+/// (Starting / Working), promote <see cref="Session.StatusColor"/> to blue
+/// ("streaming output"). The watcher exists to catch hook-event gaps: relay
+/// backlog, the /clear-orphan window before the EventRouter relink lands,
+/// race conditions, restored sessions wired up before their buffer has data.
 ///
 /// Conservative by design:
 ///  - Debounced (250ms) so a single redraw doesn't fire.
 ///  - Requires <see cref="SessionStatusSupervisor.OutputActivityMinBurstBytes"/>
 ///    bytes accumulated within the window so spinner ticks don't promote.
-///  - Never overrides <see cref="ActivityState.WaitingForPerm"/> -- that state
-///    is authoritative: Claude is blocked on the user regardless of what bytes
-///    happen to be rendering.
+///  - Defers to hook-reported activity state when that state is definitive:
+///    <see cref="ActivityState.WaitingForPerm"/>, <see cref="ActivityState.WaitingForInput"/>,
+///    <see cref="ActivityState.Idle"/>, <see cref="ActivityState.Exited"/>. In
+///    those states Claude has told us it is not working; any bytes are cosmetic
+///    (cursor blink, spinner ticks, status-line redraws like "Brewed for Xs"),
+///    not real streamed output.
+///  - Never overrides an existing <see cref="StatusColor.Red"/>. Red means the
+///    supervisor has positive evidence the user must act (pending question,
+///    permission, warning). A byte burst is not evidence the user has answered.
 ///  - Never re-fires once the color is already blue (no-op on subsequent bursts).
 /// </summary>
 internal sealed class OutputActivityWatcher : IDisposable
@@ -520,14 +526,25 @@ internal sealed class OutputActivityWatcher : IDisposable
             if (string.Equals(_session.StatusColor, StatusColor.Blue, StringComparison.Ordinal))
                 return;
 
-            // Permission prompts are authoritative red. Claude isn't moving until
-            // the user answers, even if some bytes are still rendering.
-            if (_session.ActivityState == ActivityState.WaitingForPerm)
+            // Defer to hook-reported activity state when it is definitive.
+            // WaitingForPerm: Claude is blocked on the user. WaitingForInput:
+            // Claude has finished its turn (Stop hook fired). Idle: Claude is
+            // between turns. Exited: process gone. In all four cases any bytes
+            // are cosmetic (cursor blink, spinner, "Brewed for Xs" status
+            // redraws) -- not real streamed output. Promoting to blue here
+            // overwrites a Red question prompt set by the slow-path turn
+            // summary, which produced the observed live bug.
+            if (_session.ActivityState is ActivityState.WaitingForPerm
+                                       or ActivityState.WaitingForInput
+                                       or ActivityState.Idle
+                                       or ActivityState.Exited)
                 return;
 
-            // Exited sessions should stay exited. The process is gone; any bytes
-            // still draining shouldn't resurrect the dot.
-            if (_session.ActivityState == ActivityState.Exited)
+            // Never override Red. Red is the supervisor's verdict that the user
+            // must act (pending question, permission, warning). A byte burst is
+            // not evidence the user has answered -- only an explicit hook
+            // (UserPromptSubmit, etc.) clears that.
+            if (string.Equals(_session.StatusColor, StatusColor.Red, StringComparison.Ordinal))
                 return;
 
             FileLog.Write($"[OutputActivityWatcher] session={_session.Id} burst={burstBytes}B -> blue (streaming output)");
