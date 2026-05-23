@@ -242,6 +242,39 @@ public sealed class Session : IDisposable
     /// <summary>Fires when a turn completes (Stop event received after UserPromptSubmit).</summary>
     public event Action<Session, TurnData>? OnTurnCompleted;
 
+    // ---------- Mobile mode + proactive supervisor explain (remote experience) ----------
+
+    /// <summary>
+    /// When true, this session participates in the mobile experience: the supervisor
+    /// proactively regenerates a plain-language "explain" briefing at each decision-point
+    /// turn-end and caches it (see <see cref="CachedExplainText"/>) so a phone opening the
+    /// session view sees it instantly. Toggled via the Control API; off by default to keep
+    /// the Opus cost off sessions nobody is watching remotely.
+    /// </summary>
+    public bool MobileMode { get; set; }
+
+    /// <summary>Latest proactively-generated supervisor briefing, or null if none yet.</summary>
+    public string? CachedExplainText { get; private set; }
+
+    /// <summary>When <see cref="CachedExplainText"/> was last generated (UTC).</summary>
+    public DateTime? CachedExplainAt { get; private set; }
+
+    /// <summary>Model that produced the cached briefing (e.g. "opus").</summary>
+    public string? CachedExplainModel { get; private set; }
+
+    /// <summary>
+    /// Store a freshly-generated proactive explain briefing. Only replaces the cache when
+    /// <paramref name="text"/> is non-empty, so a failed or timed-out regeneration preserves
+    /// the last good briefing instead of blanking the phone screen on a huge-context turn.
+    /// </summary>
+    public void SetCachedExplain(string? text, string? model)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return;
+        CachedExplainText = text;
+        CachedExplainModel = model;
+        CachedExplainAt = DateTime.UtcNow;
+    }
+
     /// <summary>
     /// Aggregate at-a-glance color for this session. Owned by the
     /// SessionStatusSupervisor on the Director; the rest of the system reads it

@@ -52,6 +52,7 @@ public sealed class ControlApiHost : IAsyncDisposable
     private GatewayClient? _gatewayClient;
     private TurnSummaryCache? _turnSummaryCache;
     private SessionStatusSupervisor? _statusSupervisor;
+    private ProactiveExplainService? _proactiveExplain;
     private Core.Storage.SessionLogManager? _sessionLogManager;
     private bool _stopped;
 
@@ -157,12 +158,17 @@ public sealed class ControlApiHost : IAsyncDisposable
         _turnSummaryCache = new TurnSummaryCache(_sessionManager, _sessionManager.Options, _statusSupervisor, _sessionLogManager);
         _turnSummaryCache.Start();
 
+        // Proactive explain: for mobile-mode sessions, regenerate + cache the Opus briefing
+        // at each decision-point turn-end so the phone reads it instantly on open.
+        _proactiveExplain = new ProactiveExplainService(_sessionManager, _sessionManager.Options.ClaudePath, _turnSummaryCache);
+        _proactiveExplain.Start();
+
         // Load the gateway config up front so the served HTML can render a "Gateway"
         // nav button pointing at it. Reused below for the GatewayClient registration.
         var gatewayConfig = Core.Configuration.GatewayConfig.Load();
         var gatewayUrl = gatewayConfig.IsEnabled ? gatewayConfig.Url : null;
 
-        ControlEndpoints.Map(_app, _sessionManager, DirectorId, _version, _requestShutdownAsync, _authEnabled, _repositoryRegistry, _turnSummaryCache, gatewayUrl);
+        ControlEndpoints.Map(_app, _sessionManager, DirectorId, _version, _requestShutdownAsync, _authEnabled, _repositoryRegistry, _turnSummaryCache, gatewayUrl, _proactiveExplain);
         DictationEndpoint.Map(_app, _sessionManager.Options);
 
         await _app.StartAsync();
@@ -212,6 +218,8 @@ public sealed class ControlApiHost : IAsyncDisposable
             _gatewayClient = null;
         }
 
+        _proactiveExplain?.Dispose();
+        _proactiveExplain = null;
         _turnSummaryCache?.Dispose();
         _turnSummaryCache = null;
         _statusSupervisor?.Dispose();

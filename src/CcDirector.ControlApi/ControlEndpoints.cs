@@ -22,7 +22,7 @@ namespace CcDirector.ControlApi;
 /// </summary>
 internal static class ControlEndpoints
 {
-    public static void Map(IEndpointRouteBuilder app, SessionManager sessionManager, string directorId, string version, Func<Task> requestShutdownAsync, bool authEnabled = false, RepositoryRegistry? repositoryRegistry = null, TurnSummaryCache? turnSummaryCache = null, string? gatewayUrl = null)
+    public static void Map(IEndpointRouteBuilder app, SessionManager sessionManager, string directorId, string version, Func<Task> requestShutdownAsync, bool authEnabled = false, RepositoryRegistry? repositoryRegistry = null, TurnSummaryCache? turnSummaryCache = null, string? gatewayUrl = null, ProactiveExplainService? proactiveExplain = null)
     {
         var logoutVisibility = authEnabled ? "" : "style=\"display:none\"";
         // URL of the Gateway this Director is registered with, for the "Gateway" nav
@@ -168,51 +168,55 @@ internal static class ControlEndpoints
             if (session is null)
                 return Results.NotFound(new { error = "session not found" });
 
-            // Build the context blob from in-memory caches.
-            var events = session.RecentSupervisorEvents
-                .Select(e => new Core.Supervisor.SupervisorAskEvent(e.At, e.OldColor, e.NewColor, e.Reason))
-                .ToList();
-            var summaries = turnSummaryCache?.GetForSession(session.Id).ToList() ?? new List<TurnSummary>();
-            var bufferTail = "";
-            try
-            {
-                var bytes = session.Buffer?.DumpAll();
-                if (bytes is not null && bytes.Length > 0)
-                {
-                    const int TailBytes = 8192;
-                    var start = Math.Max(0, bytes.Length - TailBytes);
-                    var tail = System.Text.Encoding.UTF8.GetString(bytes, start, bytes.Length - start);
-                    bufferTail = AnsiCleaner.Clean(tail);
-                    if (bufferTail.Length > 4000) bufferTail = bufferTail[^4000..];
-                }
-            }
-            catch (Exception ex) { FileLog.Write($"[ControlEndpoints] /supervisor/ask buffer tail FAILED: {ex.Message}"); }
-
-            var gitDirty = false;
-            try
-            {
-                var snap = await Core.Supervisor.SupervisorService.GitSnapshotAsync(session.RepoPath, ct);
-                gitDirty = snap.Dirty;
-            }
-            catch { /* best-effort; not having git is fine */ }
-
-            var ctx = new Core.Supervisor.SupervisorAskContext
-            {
-                SessionId = session.Id.ToString(),
-                RepoPath = session.RepoPath,
-                AgentKind = session.AgentKind.ToString(),
-                ActivityState = session.ActivityState.ToString(),
-                CurrentColor = session.StatusColor,
-                CurrentReason = session.LastStatusReason,
-                GitDirty = gitDirty,
-                RecentSupervisorEvents = events,
-                RecentTurnSummaries = summaries,
-                BufferTailText = bufferTail,
-            };
-
+            var ctx = await SupervisorContextBuilder.BuildAsync(session, turnSummaryCache, ct);
             var result = await Core.Supervisor.SupervisorService.AskAboutSessionAsync(
                 req.Question, ctx, sessionManager.Options.ClaudePath, ct, explain);
             return Results.Json(result);
+        });
+
+        // Mobile experience: the proactively-cached supervisor briefing for this session.
+        // Returns instantly (no LLM call) so a phone shows it the moment the view opens.
+        // text is null when nothing has been cached yet (mobile mode off, or first turn
+        // not finished). The phone falls back to the on-demand /supervisor/ask in that case.
+        app.MapGet("/sessions/{sid}/supervisor/explain", (string sid) =>
+        {
+            if (!Guid.TryParse(sid, out var guid))
+                return Results.BadRequest(new { error = "invalid session id format" });
+            var session = sessionManager.GetSession(guid);
+            if (session is null)
+                return Results.NotFound(new { error = "session not found" });
+
+            return Results.Json(new
+            {
+                mobileMode = session.MobileMode,
+                text = session.CachedExplainText,
+                at = session.CachedExplainAt,
+                model = session.CachedExplainModel,
+            });
+        });
+
+        // Toggle mobile mode for a session. When turned on, kick off an immediate background
+        // briefing so the cache is warm right away instead of waiting for the next turn-end.
+        app.MapPost("/sessions/{sid}/mobile-mode", async (string sid, HttpContext httpCtx) =>
+        {
+            if (!Guid.TryParse(sid, out var guid))
+                return Results.BadRequest(new { error = "invalid session id format" });
+            var session = sessionManager.GetSession(guid);
+            if (session is null)
+                return Results.NotFound(new { error = "session not found" });
+
+            var enabled = true;
+            try
+            {
+                var body = await httpCtx.Request.ReadFromJsonAsync<MobileModeRequest>();
+                if (body is not null) enabled = body.Enabled;
+            }
+            catch { /* empty body -> default enable */ }
+
+            session.MobileMode = enabled;
+            FileLog.Write($"[ControlEndpoints] /mobile-mode: session={guid} enabled={enabled}");
+            if (enabled) proactiveExplain?.TriggerBackgroundExplain(session);
+            return Results.Json(new { mobileMode = session.MobileMode });
         });
 
         // Phase 4b: observability into the supervisor. Returns current color + reason,

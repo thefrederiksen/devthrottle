@@ -801,6 +801,7 @@
       <div class="reason" id="supReason">loading...</div>
       <div class="since" id="supSince"></div>
     </div>
+    <button type="button" id="mobileModeBtn" class="explain-btn" onclick="return toggleMobileMode()" title="Mobile mode: supervisor briefs every turn-end and caches it so it's instant on open">Mobile: off</button>
     <button type="button" id="explainBtn" class="explain-btn" onclick="return runExplain()">Explain</button>
   </div>
 
@@ -1090,6 +1091,7 @@
         const result = await resp.json();
         bodyEl.textContent = result.answer || '(no answer)';
         metaEl.textContent = ' ' + (result.model || '?') + ' - ' + (result.latencyMs || 0) + ' ms';
+        _explainShownAt = Date.now();  // don't let a poll replace this fresh on-demand briefing with an older cache
       }
     } catch (err) {
       bodyEl.textContent = 'Explain failed: ' + (err && err.message ? err.message : err);
@@ -1098,6 +1100,58 @@
     }
     return false;
   };
+
+  // ---------- Mobile mode + proactive cached explain ----------
+  // On a phone you can't read the raw view, so the supervisor's plain-language briefing
+  // IS the experience. Mobile mode makes the Director regenerate that briefing at every
+  // turn-end and cache it; the phone reads the cache instantly here (no spinner).
+  const IS_MOBILE = window.matchMedia('(max-width: 600px)').matches;
+  let _explainShownAt = 0;  // ms epoch of the briefing currently rendered, so polling only replaces it with a newer one
+
+  function setMobileBtn(on) {
+    const btn = document.getElementById('mobileModeBtn');
+    if (!btn) return;
+    btn.textContent = on ? 'Mobile: ON' : 'Mobile: off';
+    btn.style.background = on ? 'var(--accent)' : '';
+  }
+
+  async function setMobileMode(enabled) {
+    try {
+      const resp = await fetch('/sessions/' + SID + '/mobile-mode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ enabled }),
+      });
+      if (resp.ok) { const d = await resp.json(); setMobileBtn(!!d.mobileMode); }
+    } catch {}
+  }
+
+  window.toggleMobileMode = function () {
+    const on = document.getElementById('mobileModeBtn').textContent.indexOf('ON') >= 0;
+    setMobileMode(!on);
+    return false;
+  };
+
+  // Render the proactively-cached briefing into the Explain panel. Instant: no LLM call.
+  // Only replaces what's shown when the cache is newer, so it never clobbers a fresh
+  // on-demand Explain the user just ran.
+  async function loadCachedExplain() {
+    try {
+      const resp = await fetch('/sessions/' + SID + '/supervisor/explain', { credentials: 'same-origin' });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      setMobileBtn(!!data.mobileMode);
+      if (data && data.text && data.at) {
+        const at = new Date(data.at).getTime();
+        if (Number.isNaN(at) || at <= _explainShownAt) return;
+        _explainShownAt = at;
+        document.getElementById('explainBody').textContent = data.text;
+        document.getElementById('explainMeta').textContent = ' ' + (data.model || 'opus') + ' - auto, ' + relativeTime(data.at);
+        document.getElementById('explainPanel').style.display = '';
+      }
+    } catch {}
+  }
 
   function escapeHtml(s) {
     if (s == null) return '';
@@ -1403,9 +1457,20 @@
   // Initial + recurring refresh
   refreshState();
   refreshSession();  // Phase 4c: Session is the default tab
+  // Mobile experience: auto-enable mobile mode on a phone-sized viewport (sticky), which
+  // warms the cached briefing server-side; then show whatever briefing is already cached
+  // instantly. Desktop toggles mobile mode manually via the button.
+  if (IS_MOBILE) {
+    setMobileMode(true);
+    // The full "(Enter to submit, Shift+Enter for newline)" hint clips in the collapsed
+    // one-row textarea on a phone (and Shift+Enter is moot on a soft keyboard). Shorten it.
+    const _pt = document.getElementById('prompt');
+    if (_pt) _pt.placeholder = 'Send to session...';
+  }
+  loadCachedExplain();
   setInterval(() => {
     refreshState();
-    if (activeView === 'session') refreshSession();
+    if (activeView === 'session') { refreshSession(); loadCachedExplain(); }
     else if (activeView === 'raw') refreshRaw();
     // voice tab does not poll
   }, 1500);
