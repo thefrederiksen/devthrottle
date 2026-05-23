@@ -122,10 +122,70 @@ footer{margin-top:50px;padding-top:18px;border-top:1px solid var(--line);color:v
 <h2 class="section">4. Cross-cutting findings<span class="tag">apply across surfaces</span></h2>
 <div class="cols"><div class="col"><div class="finding fl-high"><div class="ttl"><span class="badge b-high">HIGH</span>No authentication on the remote surfaces</div><p>All three surfaces loaded over the tailnet with no login (verified directly). Security rests entirely on the Tailscale network boundary, so anyone on the tailnet can open any session and send input to a live agent. Decide deliberately: is the tailnet boundary sufficient, or should the Director Control API carry the same token/cookie gate the gateway already supports?</p></div><div class="finding fl-high"><div class="ttl"><span class="badge b-high">HIGH</span>Wayfinding is fragmented across three ports</div><p>The gateway is on :443; each Director and its sessions are on :&lt;port&gt;. Movement between them is ad hoc (a 'Cards' link here, a back arrow there) and the port hop is visible in the URL. There is no consistent Gateway &gt; Director &gt; Session breadcrumb. Reverse-proxying everything under :443 as <code>/d/{id}/...</code> would unify both navigation and the per-port Tailscale mappings.</p></div><div class="finding fl-med"><div class="ttl"><span class="badge b-med">MED</span>Color-only status is a cross-surface theme</div><p>Gateway cards and the session badge both lean on color. Establish one shared status chip (dot + text) used everywhere.</p></div><div class="finding fl-med"><div class="ttl"><span class="badge b-med">MED</span>Desktop dead space is a cross-surface theme</div><p>Both the gateway and the session view collapse content into a fraction of a wide screen. A shared max-width / responsive-grid approach fixes both at once.</p></div><div class="finding fl-good"><div class="ttl"><span class="badge b-good">GOOD</span>Visually consistent product</div><p>Coherent dark theme, consistent accent blue, and consistent typography across all three surfaces. It reads as one product.</p></div></div></div>
 
-<h2 class="section">5. Prioritized ideas<span class="tag">what I would do</span></h2>
+<h2 class="section">5. Target experience<span class="tag">where we are going</span></h2>
+<p class="url">same session, three context-shaped modes off one supervisor</p>
+
+<div class="scope">
+  <b>Principle:</b> the raw terminal is a firehose. The right amount of detail depends entirely on the
+  device and the situation the person is in, and the <b>supervisor's job is to translate that firehose</b>
+  into what a human can actually consume right now &mdash; which is completely different at a desk, on a
+  phone, and in a car. So this is not one responsive page; it is <b>three modes</b> off the same session,
+  surfaced as tabs and ideally auto-selected by device.
+</div>
+
+<div class="cols">
+  <div class="col"><div class="panel">
+    <h3>Desktop &mdash; terminal</h3>
+    <p style="color:var(--muted);margin:0 0 10px;font-size:13.5px">Context: big screen, full attention, can read dense output.</p>
+    <ul class="comp">
+      <li><b>Shows:</b> the real terminal / raw view, undigested.</li>
+      <li><b>Why:</b> on a desktop you can read the firehose, so summarizing it only gets in the way. If you are on desktop HTML you might as well use the terminal.</li>
+    </ul>
+  </div></div>
+  <div class="col"><div class="panel">
+    <h3>Mobile &mdash; supervisor digest</h3>
+    <p style="color:var(--muted);margin:0 0 10px;font-size:13.5px">Context: small screen, glanceable, cannot read the raw view.</p>
+    <ul class="comp">
+      <li><b>Shows:</b> a simple "is it working" status plus the supervisor's plain-language explanation of the latest turn. No turn-by-turn detail.</li>
+      <li><b>Why:</b> the raw view is unconsumable on a phone, so we drop it on purpose and show the digest the supervisor already produced.</li>
+    </ul>
+  </div></div>
+  <div class="col"><div class="panel">
+    <h3>Car / voice &mdash; spoken</h3>
+    <p style="color:var(--muted);margin:0 0 10px;font-size:13.5px">Context: hands and eyes unavailable.</p>
+    <ul class="comp">
+      <li><b>Says:</b> a fully hands-free interface &mdash; voice in, voice out &mdash; talking to the session supervisor.</li>
+      <li><b>Why:</b> the explanation must be rendered as <b>speakable</b> text (real sentences, no code, no file paths, no symbols) so text-to-speech reads it cleanly. A raw explanation full of <code>file.cs:760</code> sounds like noise aloud.</li>
+    </ul>
+  </div></div>
+</div>
+
+<div class="scope">
+  <b>The mechanism that makes it work:</b> the supervisor explanation is generated <b>automatically the
+  moment a turn finishes</b> and <b>cached</b> &mdash; not on demand when the page opens. So when you pick
+  up your phone and open the session, <b>the explanation is already there</b>, instant and ambient, like
+  glancing at a notification. Running an Opus call after the page opens would mean staring at a spinner,
+  which defeats the entire point.
+  <pre class="wire" style="margin-top:12px">turn finishes
+   -&gt; supervisor "explain" runs (Opus side-call), proactively
+   -&gt; explanation cached on the session
+   -&gt; mobile opens : reads cache instantly (text digest)
+   -&gt; voice / car  : reads cache instantly (spoken, TTS-shaped)
+   -&gt; desktop      : ignores it, shows the raw terminal</pre>
+  This is the existing supervisor <code>Mode == "explain"</code> work, run <b>proactively per turn</b>
+  instead of only when asked.
+</div>
+
+<div class="cols"><div class="col">
+  <div class="finding fl-med"><div class="ttl"><span class="badge b-med">OPEN</span>Where does the cached explanation live, and what regenerates it?</div><p>Most likely produced at turn-end on the <b>Director</b> (it owns the session lifecycle), cached on the session, and exposed through the existing supervisor endpoint; replaced when the next turn completes. The gateway and the views just read it.</p></div>
+  <div class="finding fl-med"><div class="ttl"><span class="badge b-med">OPEN</span>Is the spoken version a second pass or the same text?</div><p>The mobile digest can contain code and symbols; the spoken version cannot. Decide whether voice gets a separate TTS-shaping pass, or whether one explanation is generated under a prompt that already forbids code/paths/symbols so both modes share it.</p></div>
+  <div class="finding fl-low"><div class="ttl"><span class="badge b-low">OPEN</span>How is the mode chosen?</div><p>Auto-select by viewport / user-agent (phone -&gt; digest, desktop -&gt; terminal, explicit voice entry -&gt; spoken) with a manual tab override, versus always letting the user pick.</p></div>
+</div></div>
+
+<h2 class="section">6. Prioritized ideas<span class="tag">what I would do</span></h2>
 <table class="prio">
   <tr><th>Priority</th><th>Idea</th><th>Type</th><th>Surface</th></tr>
-  <tr><td class="p p1">P1</td><td>Decide the auth posture for remote Director/Session surfaces (tailnet-only vs. token gate).</td><td>Security</td><td><code>gateway + director + session</code></td></tr><tr><td class="p p1">P1</td><td>Rethink the Director view: a real per-Director session list, or fold it into the gateway/session flow.</td><td>UX / IA</td><td><code>director</code></td></tr><tr><td class="p p2">P2</td><td>Unify status into a dot+text chip used everywhere.</td><td>Accessibility</td><td><code>gateway + session</code></td></tr><tr><td class="p p2">P2</td><td>Fix desktop dead space (responsive grid; two-pane session view).</td><td>Layout</td><td><code>gateway + session</code></td></tr><tr><td class="p p2">P2</td><td>Fix the mobile composer overlap in the session view.</td><td>Bug</td><td><code>session</code></td></tr><tr><td class="p p3">P3</td><td>Surface unreachable Directors (machineErrors) on the gateway.</td><td>Robustness</td><td><code>gateway</code></td></tr><tr><td class="p p3">P3</td><td>Add a consistent Gateway &gt; Director &gt; Session breadcrumb.</td><td>Navigation</td><td><code>all</code></td></tr><tr><td class="p p3">P3</td><td>Hide the deprecated 'Agent (legacy)' tab; tuck dev links on mobile.</td><td>Cleanup</td><td><code>session + gateway</code></td></tr>
+  <tr><td class="p p1">P1</td><td>Generate the supervisor "explain" proactively at every turn-end and cache it (powers the mobile digest and the voice mode).</td><td>Core feature</td><td><code>director + session</code></td></tr><tr><td class="p p1">P1</td><td>Three session modes as tabs: terminal (desktop), supervisor digest (mobile), voice (car), auto-selected by device.</td><td>UX / IA</td><td><code>session</code></td></tr><tr><td class="p p1">P1</td><td>Decide the auth posture for remote Director/Session surfaces (tailnet-only vs. token gate).</td><td>Security</td><td><code>gateway + director + session</code></td></tr><tr><td class="p p1">P1</td><td>Rethink the Director view: a real per-Director session list, or fold it into the gateway/session flow.</td><td>UX / IA</td><td><code>director</code></td></tr><tr><td class="p p2">P2</td><td>Unify status into a dot+text chip used everywhere.</td><td>Accessibility</td><td><code>gateway + session</code></td></tr><tr><td class="p p2">P2</td><td>Fix desktop dead space (responsive grid; two-pane session view).</td><td>Layout</td><td><code>gateway + session</code></td></tr><tr><td class="p p2">P2</td><td>Fix the mobile composer overlap in the session view.</td><td>Bug</td><td><code>session</code></td></tr><tr><td class="p p3">P3</td><td>Surface unreachable Directors (machineErrors) on the gateway.</td><td>Robustness</td><td><code>gateway</code></td></tr><tr><td class="p p3">P3</td><td>Add a consistent Gateway &gt; Director &gt; Session breadcrumb.</td><td>Navigation</td><td><code>all</code></td></tr><tr><td class="p p3">P3</td><td>Hide the deprecated 'Agent (legacy)' tab; tuck dev links on mobile.</td><td>Cleanup</td><td><code>session + gateway</code></td></tr>
 </table>
 
 <footer>
