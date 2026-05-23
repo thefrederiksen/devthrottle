@@ -1,7 +1,7 @@
 namespace CcDirector.Gateway.Contracts;
 
 /// <summary>
-/// Output of the Supervisor's per-turn summariser  (Phase 2 of the SessionSupervisor goal).
+/// Output of the Wingman's per-turn summariser  (Phase 2 of the SessionWingman goal).
 ///
 /// One of these is produced for each completed turn  (Stop hook fires) by a
 /// short Haiku side-call.  It feeds two surfaces:
@@ -11,7 +11,7 @@ namespace CcDirector.Gateway.Contracts;
 /// 2. The Voice mode TTS pipeline - the dedicated <see cref="SpokenText"/>
 ///    field is what gets read aloud, not the raw reply.  Designed for the ear.
 ///
-/// All fields default to safe empties so even when the Supervisor call fails
+/// All fields default to safe empties so even when the Wingman call fails
 /// or returns junk JSON, callers can ToString / serialise without nulls.
 /// </summary>
 public sealed class TurnSummary
@@ -41,11 +41,11 @@ public sealed class TurnSummary
     public string NeedsUserDetail { get; set; } = "";
 
     /// <summary>
-    /// Phase 4e: one CRISP sentence (under 200 chars) the supervisor uses as the
+    /// Phase 4e: one CRISP sentence (under 200 chars) the wingman uses as the
     /// Session View's prominent prompt and the Director's <see cref="Sessions.Session.LastStatusReason"/>
     /// when a session turns red. Distinct from <see cref="NeedsUserDetail"/>: the
     /// detail can be a paragraph; this must fit a single visual row. Empty when
-    /// <see cref="NeedsUser"/> is "no" or the Supervisor failed to produce one.
+    /// <see cref="NeedsUser"/> is "no" or the Wingman failed to produce one.
     /// </summary>
     public string NeedsUserShort { get; set; } = "";
 
@@ -56,7 +56,7 @@ public sealed class TurnSummary
     /// </summary>
     public string SpokenText { get; set; } = "";
 
-    /// <summary>"ok" | "supervisor_failed" | "parse_failed".</summary>
+    /// <summary>"ok" | "wingman_failed" | "parse_failed".</summary>
     public string Status { get; set; } = "ok";
 
     /// <summary>Free-text error detail when Status != "ok".</summary>

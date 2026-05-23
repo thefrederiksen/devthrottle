@@ -1,7 +1,7 @@
 using System.Net;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Sessions;
-using CcDirector.Core.Supervisor;
+using CcDirector.Core.Wingman;
 using CcDirector.Core.Utilities;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -51,7 +51,7 @@ public sealed class ControlApiHost : IAsyncDisposable
     private InstanceRegistration? _registration;
     private GatewayClient? _gatewayClient;
     private TurnSummaryCache? _turnSummaryCache;
-    private SessionStatusSupervisor? _statusSupervisor;
+    private SessionStatusWingman? _statusWingman;
     private ProactiveExplainService? _proactiveExplain;
     private Core.Storage.SessionLogManager? _sessionLogManager;
     private bool _stopped;
@@ -145,17 +145,17 @@ public sealed class ControlApiHost : IAsyncDisposable
         _sessionLogManager = new Core.Storage.SessionLogManager(_sessionManager);
         _sessionLogManager.Start();
 
-        // Phase 3: the SessionStatusSupervisor is the sole writer of each Session's
+        // Phase 3: the SessionStatusWingman is the sole writer of each Session's
         // StatusColor. Must start BEFORE TurnSummaryCache so brand-new sessions are
         // already "green/session created" by the time anything else observes them.
-        _statusSupervisor = new SessionStatusSupervisor(_sessionManager);
-        _statusSupervisor.Start();
+        _statusWingman = new SessionStatusWingman(_sessionManager);
+        _statusWingman.Start();
 
-        // Start the Supervisor's per-turn summary cache before mapping endpoints so
+        // Start the Wingman's per-turn summary cache before mapping endpoints so
         // /sessions/{sid}/turn-summaries returns whatever is already cached.  Hooks
         // OnSessionCreated + per-session OnTurnCompleted.  See Phase 2 of
         // docs/goals/GOAL_CC_DIRECTOR_SUPERVISOR.md.
-        _turnSummaryCache = new TurnSummaryCache(_sessionManager, _sessionManager.Options, _statusSupervisor, _sessionLogManager);
+        _turnSummaryCache = new TurnSummaryCache(_sessionManager, _sessionManager.Options, _statusWingman, _sessionLogManager);
         _turnSummaryCache.Start();
 
         // Proactive explain: for mobile-mode sessions, regenerate + cache the Opus briefing
@@ -222,8 +222,8 @@ public sealed class ControlApiHost : IAsyncDisposable
         _proactiveExplain = null;
         _turnSummaryCache?.Dispose();
         _turnSummaryCache = null;
-        _statusSupervisor?.Dispose();
-        _statusSupervisor = null;
+        _statusWingman?.Dispose();
+        _statusWingman = null;
         _sessionLogManager?.Dispose();
         _sessionLogManager = null;
 

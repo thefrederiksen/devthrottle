@@ -512,10 +512,10 @@ public partial class MainWindow : Window
         // Subscribe to metadata and activity changes for header updates
         vm.Session.OnClaudeMetadataChanged += OnActiveSessionMetadataChanged;
         vm.Session.OnActivityStateChanged += OnActiveSessionActivityChanged;
-        // Phase 4f: also subscribe to supervisor status changes so the terminal-tab
+        // Phase 4f: also subscribe to wingman status changes so the terminal-tab
         // pending-question banner stays in sync with the Session tab's red callout.
         vm.Session.OnStatusColorChanged += OnActiveSessionStatusColorChanged;
-        // Subscribe to supervisor-injected prompt text. The supervisor watches the
+        // Subscribe to wingman-injected prompt text. The wingman watches the
         // terminal buffer for text Claude Code has placed in its own input line
         // and pushes it through this event; we mirror it into "Type a message..."
         // when the box is empty.
@@ -554,9 +554,9 @@ public partial class MainWindow : Window
 
         // Restore last selected tab. Phase 5.2: default new sessions to the merged
         // Session tab (replaces Terminal as the default working view per spec).
-        // Restored values from older builds may say "Supervisor" - normalize.
+        // Restored values from older builds may say "Wingman" - normalize.
         var tabName = vm.Session.SelectedTabName;
-        if (string.Equals(tabName, "Supervisor", StringComparison.Ordinal)) tabName = "Session";
+        if (string.Equals(tabName, "Wingman", StringComparison.Ordinal)) tabName = "Session";
         if (string.IsNullOrEmpty(tabName)) tabName = "Session";
         if (tabName != _activeLeftTab)
             SwitchLeftTab(tabName);
@@ -592,7 +592,7 @@ public partial class MainWindow : Window
 
     private void OnActiveSessionStatusColorChanged(string oldColor, string newColor, string reason)
     {
-        // Event handler: try-catch per CLAUDE.md rule 4. Fires on the supervisor's
+        // Event handler: try-catch per CLAUDE.md rule 4. Fires on the wingman's
         // background thread; we marshal to the UI thread before touching controls.
         try
         {
@@ -605,14 +605,14 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Mirror supervisor-detected Claude Code prompt injections into the
-    /// "Type a message..." textbox. Only acts on supervisor-sourced writes
-    /// (source=="supervisor") so the textbox's own user-driven save (source=="user")
+    /// Mirror wingman-detected Claude Code prompt injections into the
+    /// "Type a message..." textbox. Only acts on wingman-sourced writes
+    /// (source=="wingman") so the textbox's own user-driven save (source=="user")
     /// doesn't loop back. Never clobbers text the user is currently composing.
     /// </summary>
     private void OnActiveSessionPendingPromptTextChanged(string? text, string source)
     {
-        if (!string.Equals(source, "supervisor", StringComparison.Ordinal)) return;
+        if (!string.Equals(source, "wingman", StringComparison.Ordinal)) return;
         if (string.IsNullOrEmpty(text)) return;
         // Capture into a non-nullable local so the lambda below sees a definite
         // string and we don't need the null-forgiving operator (forbidden by CodingStyle).
@@ -624,11 +624,11 @@ public partial class MainWindow : Window
             {
                 if (_activeSession is null) return;
                 // Honor user input: only fill an empty box. If they've started typing,
-                // the supervisor's suggestion is silently dropped for this cycle.
+                // the wingman's suggestion is silently dropped for this cycle.
                 if (!string.IsNullOrEmpty(PromptInput.Text)) return;
                 PromptInput.Text = injectedText;
                 PromptInput.CaretIndex = injectedText.Length;
-                FileLog.Write($"[MainWindow] supervisor injected prompt text: len={injectedText.Length}, preview=\"{(injectedText.Length > 60 ? injectedText[..60] + "..." : injectedText)}\"");
+                FileLog.Write($"[MainWindow] wingman injected prompt text: len={injectedText.Length}, preview=\"{(injectedText.Length > 60 ? injectedText[..60] + "..." : injectedText)}\"");
             });
         }
         catch (Exception ex)
@@ -637,7 +637,7 @@ public partial class MainWindow : Window
         }
     }
 
-    // Keep the terminal-tab pending-question banner in sync with the supervisor's
+    // Keep the terminal-tab pending-question banner in sync with the wingman's
     // verdict on the active session. Visible iff StatusColor==red and
     // LastStatusReason is non-empty. Same visual + same source-of-truth as the
     // Session tab's PendingQuestion widget. Exceptions propagate to the UI-thread

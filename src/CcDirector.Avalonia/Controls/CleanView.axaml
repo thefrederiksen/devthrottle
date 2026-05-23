@@ -214,7 +214,7 @@
         </DataTemplate>
 
         <!-- ===== PENDING QUESTION WIDGET - Big red callout, no expander ===== -->
-        <!-- Purpose: when Claude is waiting on the user, the supervisor's verbatim
+        <!-- Purpose: when Claude is waiting on the user, the wingman's verbatim
              restatement of the question is the most important thing on screen.
              Always expanded, plain (proportional) text, large readable type. No
              inner code-style border. Borrows the orange icon + deep-orange card

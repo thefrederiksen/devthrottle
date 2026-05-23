@@ -1,11 +1,11 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             x:Class="CcDirector.Avalonia.Controls.SupervisorView"
+             x:Class="CcDirector.Avalonia.Controls.WingmanView"
              Background="#1E1E1E"
              FontSize="13">
   <DockPanel Margin="14">
 
-    <!-- Banner: current supervisor verdict for the bound session. -->
+    <!-- Banner: current wingman verdict for the bound session. -->
     <Border DockPanel.Dock="Top" Padding="14" CornerRadius="10"
             Background="#252526" BorderBrush="#3C3C3C" BorderThickness="1"
             Margin="0,0,0,12">
@@ -35,7 +35,7 @@
     <Grid DockPanel.Dock="Bottom" ColumnDefinitions="*,Auto" Margin="0,12,0,0">
       <TextBox x:Name="QuestionBox"
                Grid.Column="0"
-               Watermark="Ask the supervisor about this session..."
+               Watermark="Ask the wingman about this session..."
                KeyDown="QuestionBox_KeyDown"
                Padding="10" />
       <Button x:Name="AskButton"
@@ -48,10 +48,10 @@
               Click="AskButton_Click" />
     </Grid>
 
-    <!-- Context-the-supervisor-sees footer (collapsible). -->
+    <!-- Context-the-wingman-sees footer (collapsible). -->
     <Expander DockPanel.Dock="Bottom"
               x:Name="ContextExpander"
-              Header="Context the supervisor sees"
+              Header="Context the wingman sees"
               Margin="0,8,0,0"
               IsExpanded="False">
       <TextBlock x:Name="ContextDigestText"
@@ -63,7 +63,7 @@
 
     <!-- Empty-state hint (visible when history is empty). -->
     <TextBlock x:Name="EmptyHint" DockPanel.Dock="Top"
-               Text="Each ask is a fresh, stateless Haiku call. The supervisor sees the session's recent events, turn summaries, and a buffer tail - it has no memory between asks."
+               Text="Each ask is a fresh, stateless Haiku call. The wingman sees the session's recent events, turn summaries, and a buffer tail - it has no memory between asks."
                Foreground="#6A6A6A" FontSize="11"
                TextWrapping="Wrap" FontStyle="Italic"
                Margin="2,0,2,12"
@@ -88,7 +88,7 @@
               </Border>
               <Border Background="#1F2937" CornerRadius="8" Padding="12" Margin="20,8,0,0">
                 <StackPanel>
-                  <TextBlock Text="SUPERVISOR" Foreground="#888888" FontWeight="Bold" FontSize="10" />
+                  <TextBlock Text="WINGMAN" Foreground="#888888" FontWeight="Bold" FontSize="10" />
                   <TextBlock Text="{Binding Answer}"
                              Foreground="#DDDDDD" TextWrapping="Wrap"
                              Margin="0,4,0,0" />

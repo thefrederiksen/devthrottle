@@ -17,6 +17,9 @@ internal static class GatewayEndpoints
     {
         var logoutVisibility = authEnabled ? "" : "style=\"display:none\"";
 
+        // Phone recorder ingest (offline-recorded audio -> transcription -> vault).
+        RecordingEndpoints.Map(app);
+
         // ===== HTML pages =====
         // Phase 1: the canonical "/" is the directory page. The legacy aggregator
         // manager UI is still reachable at "/legacy-manager" for the embedded
@@ -254,35 +257,48 @@ internal static class GatewayEndpoints
             return Results.Json(session);
         });
 
-        // Phase 4b: forward supervisor observability through the Gateway so the merged
+        // Phase 4b: forward wingman observability through the Gateway so the merged
         // Session View on the gateway side can render WHY a dot is the color it is.
-        app.MapGet("/sessions/{sid}/supervisor", async (string sid) =>
+        app.MapGet("/sessions/{sid}/wingman", async (string sid) =>
         {
             var (director, session) = await LocateSessionAsync(registry, client, sid);
             if (session is null || director is null)
                 return Results.NotFound(new { error = "session not found across any director" });
             var ep = (director.ControlEndpoint ?? "").TrimEnd('/');
-            var view = await client.GetSupervisorAsync(ep, sid);
+            var view = await client.GetWingmanAsync(ep, sid);
             if (view is null)
                 return Results.StatusCode(StatusCodes.Status502BadGateway);
             return Results.Json(view);
         });
 
-        // Phase 5: forward "ask the supervisor" calls. Each is one fresh side-call
+        // Phase 5: forward "ask the wingman" calls. Each is one fresh side-call
         // (Haiku for free-text asks; Opus when Mode=="explain"). Body forwards verbatim.
-        app.MapPost("/sessions/{sid}/supervisor/ask", async (string sid, SupervisorAskRequest req, CancellationToken ct) =>
+        app.MapPost("/sessions/{sid}/wingman/ask", async (string sid, WingmanAskRequest req, CancellationToken ct) =>
         {
             var explain = string.Equals(req?.Mode, "explain", StringComparison.OrdinalIgnoreCase);
             if (req is null || (!explain && string.IsNullOrWhiteSpace(req.Question)))
-                return Results.BadRequest(new SupervisorAskResult { Status = "bad_request", Error = "question is required" });
+                return Results.BadRequest(new WingmanAskResult { Status = "bad_request", Error = "question is required" });
             var (director, session) = await LocateSessionAsync(registry, client, sid);
             if (session is null || director is null)
                 return Results.NotFound(new { error = "session not found across any director" });
             var ep = (director.ControlEndpoint ?? "").TrimEnd('/');
-            var result = await client.AskSupervisorAsync(ep, sid, req, ct);
+            var result = await client.AskWingmanAsync(ep, sid, req, ct);
             if (result is null)
                 return Results.StatusCode(StatusCodes.Status502BadGateway);
             return Results.Json(result);
+        });
+
+        // Forward "set the session goal" to the owning Director. Body forwards verbatim.
+        app.MapPost("/sessions/{sid}/wingman/goal", async (string sid, WingmanGoalRequest req, CancellationToken ct) =>
+        {
+            var (director, session) = await LocateSessionAsync(registry, client, sid);
+            if (session is null || director is null)
+                return Results.NotFound(new { error = "session not found across any director" });
+            var ep = (director.ControlEndpoint ?? "").TrimEnd('/');
+            var body = await client.SetWingmanGoalAsync(ep, sid, req ?? new WingmanGoalRequest(), ct);
+            if (body is null)
+                return Results.StatusCode(StatusCodes.Status502BadGateway);
+            return Results.Content(body, "application/json");
         });
 
         app.MapPatch("/sessions/{sid}", async (string sid, SessionUpdateRequest req) =>

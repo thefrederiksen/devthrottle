@@ -10,13 +10,13 @@ using Xunit;
 namespace CcDirector.Gateway.Tests;
 
 /// <summary>
-/// Phase 5.1: integration coverage for the supervisor "ask" endpoint forwarding
+/// Phase 5.1: integration coverage for the wingman "ask" endpoint forwarding
 /// path. In-process Director + Gateway. We do not exercise the live <c>claude --print</c>
 /// invocation (no CLI in CI) - instead we use the fail-open contract: with an empty
 /// <c>ClaudePath</c>, <c>AskAboutSessionAsync</c> returns <c>Status="no_claude"</c>
 /// without spawning a process, which is enough to verify the wire path.
 /// </summary>
-public sealed class SupervisorAskForwardingTests : IAsyncLifetime
+public sealed class WingmanAskForwardingTests : IAsyncLifetime
 {
     private ControlApiHost _director = null!;
     private SessionManager _sm = null!;
@@ -65,8 +65,8 @@ public sealed class SupervisorAskForwardingTests : IAsyncLifetime
         // check when no Director claims the sid. So create one to ensure the
         // sid lookup succeeds.
         var sid = await TryCreateSessionOrFakeAsync();
-        var resp = await _http.PostAsJsonAsync($"sessions/{sid}/supervisor/ask",
-            new SupervisorAskRequest { Question = "" });
+        var resp = await _http.PostAsJsonAsync($"sessions/{sid}/wingman/ask",
+            new WingmanAskRequest { Question = "" });
         Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
     }
 
@@ -83,10 +83,10 @@ public sealed class SupervisorAskForwardingTests : IAsyncLifetime
             return;
         }
 
-        var resp = await _http.PostAsJsonAsync($"sessions/{sid}/supervisor/ask",
-            new SupervisorAskRequest { Question = "what is going on" });
+        var resp = await _http.PostAsJsonAsync($"sessions/{sid}/wingman/ask",
+            new WingmanAskRequest { Question = "what is going on" });
         Assert.True(resp.IsSuccessStatusCode, $"HTTP {(int)resp.StatusCode}");
-        var body = await resp.Content.ReadFromJsonAsync<SupervisorAskResult>();
+        var body = await resp.Content.ReadFromJsonAsync<WingmanAskResult>();
         Assert.NotNull(body);
         Assert.Equal("no_claude", body!.Status);
         // The digest must reflect the session - regardless of CLI configuration.
@@ -97,8 +97,8 @@ public sealed class SupervisorAskForwardingTests : IAsyncLifetime
     public async Task Ask_for_unknown_session_returns_404()
     {
         var bogus = Guid.NewGuid().ToString();
-        var resp = await _http.PostAsJsonAsync($"sessions/{bogus}/supervisor/ask",
-            new SupervisorAskRequest { Question = "anything" });
+        var resp = await _http.PostAsJsonAsync($"sessions/{bogus}/wingman/ask",
+            new WingmanAskRequest { Question = "anything" });
         Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
     }
 

@@ -20,7 +20,7 @@ public class SessionViewModel : INotifyPropertyChanged
         { ActivityState.Exited, new SolidColorBrush(Color.FromRgb(0x66, 0x66, 0x66)) },
     };
 
-    // Phase 4d: the sidebar color strip now reads the SessionStatusSupervisor's color
+    // Phase 4d: the sidebar color strip now reads the SessionStatusWingman's color
     // (Session.StatusColor) directly, so Desktop and Gateway always show the same color.
     // Brush palette matches Web/directory.html exactly: #22c55e green, #3b82f6 blue,
     // #eab308 yellow, #ef4444 red, #6a6a6a unknown/gray.
@@ -68,7 +68,7 @@ public class SessionViewModel : INotifyPropertyChanged
 
     /// <summary>
     /// Phase 4d: the sidebar color strip's brush. Reads <see cref="Session.StatusColor"/>
-    /// written by the SessionStatusSupervisor. Desktop and Gateway use the same field
+    /// written by the SessionStatusWingman. Desktop and Gateway use the same field
     /// so the same session shows the same color in both windows.
     /// </summary>
     public ISolidColorBrush StatusColorBrush => (Session.StatusColor?.ToLowerInvariant()) switch
@@ -80,7 +80,7 @@ public class SessionViewModel : INotifyPropertyChanged
         _        => UnknownStatusBrush,
     };
 
-    /// <summary>Tooltip-ready reason supplied by the supervisor for the current color.</summary>
+    /// <summary>Tooltip-ready reason supplied by the wingman for the current color.</summary>
     public string StatusReason => Session.LastStatusReason ?? "";
 
     public string DisplayName => Session.CustomName

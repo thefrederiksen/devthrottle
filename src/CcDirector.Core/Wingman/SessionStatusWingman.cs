@@ -3,15 +3,15 @@ using CcDirector.Core.Memory;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Utilities;
 
-namespace CcDirector.Core.Supervisor;
+namespace CcDirector.Core.Wingman;
 
 /// <summary>
-/// Per-Director supervisor that is the SINGLE WRITER of <see cref="Session.StatusColor"/>.
+/// Per-Director wingman that is the SINGLE WRITER of <see cref="Session.StatusColor"/>.
 ///
-/// Phase 3 of the SessionSupervisor goal: every live session has a meaningful color
-/// from the moment it is created — no "unknown" dots on the directory. The supervisor
+/// Phase 3 of the SessionWingman goal: every live session has a meaningful color
+/// from the moment it is created — no "unknown" dots on the directory. The wingman
 /// listens for real-time session events and updates the color accordingly. The UI
-/// renders exactly what the supervisor writes; it never derives or guesses.
+/// renders exactly what the wingman writes; it never derives or guesses.
 ///
 /// Two paths feed the color:
 ///
@@ -24,7 +24,7 @@ namespace CcDirector.Core.Supervisor;
 ///                                                       is the agent sitting at its
 ///                                                       prompt - it is NOT a pending
 ///                                                       question. Red is promoted only
-///                                                       when the supervisor has positive
+///                                                       when the wingman has positive
 ///                                                       evidence via the buffer scan or
 ///                                                       the slow-path turn summary.)
 ///                                  WaitingForPerm   -> red    ("waiting for permission")
@@ -35,21 +35,21 @@ namespace CcDirector.Core.Supervisor;
 ///                                                       so debug tools still see a value)
 ///
 /// 2. Slow path (turn summary, async; wired via <see cref="TurnSummaryCache"/> today)
-///    - On OnTurnCompleted, when Haiku returns a TurnSummary, the supervisor refines:
+///    - On OnTurnCompleted, when Haiku returns a TurnSummary, the wingman refines:
 ///      * needs_user = "question" | "error" | "permission" -> red    (+ detail)
-///      * supervisor warnings (rule violations etc.)       -> yellow (+ detail)
+///      * wingman warnings (rule violations etc.)       -> yellow (+ detail)
 ///      * needs_user = "idle" with git dirty               -> yellow ("idle, uncommitted")
 ///      * otherwise                                        -> green  ("clean turn")
 ///
 ///    The slow path is wired in by feeding finished summaries through
-///    <see cref="ApplyTurnSummary"/>. The supervisor does not generate summaries itself.
+///    <see cref="ApplyTurnSummary"/>. The wingman does not generate summaries itself.
 ///
 /// Race semantics: writes are unconditional, last-event-wins. The activity-state path
 /// produces near-instant updates; the turn-summary path arrives ~10 s later. When both
 /// fire close together, the final color reflects whatever was true at the moment of the
 /// last write — which is the truthful answer.
 /// </summary>
-public sealed class SessionStatusSupervisor : IDisposable
+public sealed class SessionStatusWingman : IDisposable
 {
     private readonly SessionManager _sessionManager;
     private readonly ConcurrentDictionary<Guid, Action<ActivityState, ActivityState>> _activityHandlers = new();
@@ -82,7 +82,7 @@ public sealed class SessionStatusSupervisor : IDisposable
     /// </summary>
     internal const int OutputActivityMinBurstBytes = 32;
 
-    public SessionStatusSupervisor(SessionManager sessionManager)
+    public SessionStatusWingman(SessionManager sessionManager)
     {
         _sessionManager = sessionManager;
     }
@@ -92,7 +92,7 @@ public sealed class SessionStatusSupervisor : IDisposable
     {
         if (_started) return;
         _started = true;
-        FileLog.Write("[SessionStatusSupervisor] Start");
+        FileLog.Write("[SessionStatusWingman] Start");
 
         _sessionManager.OnSessionCreated += OnSessionCreated;
 
@@ -111,7 +111,7 @@ public sealed class SessionStatusSupervisor : IDisposable
         // (greenfield); restored sessions get their truthful current-state color.
         var (color, reason) = ColorFromActivityState(session.ActivityState, isNew);
         session.SetStatusColor(color, reason);
-        FileLog.Write($"[SessionStatusSupervisor] init {session.Id} -> {color} ({reason})");
+        FileLog.Write($"[SessionStatusWingman] init {session.Id} -> {color} ({reason})");
 
         Action<ActivityState, ActivityState> handler = (oldState, newState) =>
         {
@@ -119,7 +119,7 @@ public sealed class SessionStatusSupervisor : IDisposable
             {
                 var (c, r) = ColorFromActivityState(newState, isNew: false);
                 session.SetStatusColor(c, r);
-                FileLog.Write($"[SessionStatusSupervisor] {session.Id} activity {oldState}->{newState} => {c} ({r})");
+                FileLog.Write($"[SessionStatusWingman] {session.Id} activity {oldState}->{newState} => {c} ({r})");
 
                 // Phase 4a: WaitingForInput is green by default; promote to red only
                 // when the buffer shows an actual question marker. Cheap; gated on the
@@ -137,7 +137,7 @@ public sealed class SessionStatusSupervisor : IDisposable
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[SessionStatusSupervisor] handler failed for {session.Id}: {ex.Message}");
+                FileLog.Write($"[SessionStatusWingman] handler failed for {session.Id}: {ex.Message}");
             }
         };
         _activityHandlers[session.Id] = handler;
@@ -172,7 +172,7 @@ public sealed class SessionStatusSupervisor : IDisposable
     ///
     /// Phase 4a: WaitingForInput is GREEN by default. The activity-state code cannot
     /// distinguish "agent asked a question mid-turn" from "agent finished and is back
-    /// at the prompt". Painting both red trained the user to ignore red. The supervisor
+    /// at the prompt". Painting both red trained the user to ignore red. The wingman
     /// promotes to Red only when it has positive evidence of a pending question:
     /// either the slow-path turn summary (<see cref="ApplyTurnSummary"/>) or a buffer
     /// scan for known question markers (<see cref="PromotePendingQuestionIfBufferShowsOne"/>).
@@ -223,7 +223,7 @@ public sealed class SessionStatusSupervisor : IDisposable
     /// Scan the tail of the session's terminal buffer for an active question marker.
     /// Cheap (no regex, single ToLower + Contains over &lt;= 4 KB). Called by the
     /// activity-state handler whenever a session enters WaitingForInput so the
-    /// supervisor can promote to Red even before the slow-path turn summary arrives.
+    /// wingman can promote to Red even before the slow-path turn summary arrives.
     /// </summary>
     internal void PromotePendingQuestionIfBufferShowsOne(Session session)
     {
@@ -241,14 +241,14 @@ public sealed class SessionStatusSupervisor : IDisposable
                 if (tail.Contains(marker, StringComparison.OrdinalIgnoreCase))
                 {
                     session.SetStatusColor(StatusColor.Red, "pending question");
-                    FileLog.Write($"[SessionStatusSupervisor] {session.Id} buffer marker '{marker}' -> red");
+                    FileLog.Write($"[SessionStatusWingman] {session.Id} buffer marker '{marker}' -> red");
                     return;
                 }
             }
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SessionStatusSupervisor] PromotePendingQuestionIfBufferShowsOne failed for {session.Id}: {ex.Message}");
+            FileLog.Write($"[SessionStatusWingman] PromotePendingQuestionIfBufferShowsOne failed for {session.Id}: {ex.Message}");
         }
     }
 
@@ -268,7 +268,7 @@ public sealed class SessionStatusSupervisor : IDisposable
     /// <summary>
     /// Slow-path: refine the color using a freshly-computed TurnSummary. Callers
     /// (today: <see cref="TurnSummaryCache"/>'s background completion handler) invoke
-    /// this once Haiku returns. The supervisor does not generate summaries itself.
+    /// this once Haiku returns. The wingman does not generate summaries itself.
     /// </summary>
     public void ApplyTurnSummary(Session session, Gateway.Contracts.TurnSummary summary, bool gitDirty = false, bool hasWarnings = false)
     {
@@ -282,11 +282,11 @@ public sealed class SessionStatusSupervisor : IDisposable
         // (session is now Working), the summary's needs_user=question is stale by
         // definition - the question has been answered. Don't let an in-flight blue
         // get repainted red by Haiku finishing 10s later. Reproduced as: user
-        // submits answer at T, supervisor goes blue, Haiku summary for prior turn
+        // submits answer at T, wingman goes blue, Haiku summary for prior turn
         // lands at T+10s carrying needs_user=question, banner flickers back to red.
         if (session.ActivityState is ActivityState.WaitingForPerm or ActivityState.Working)
         {
-            FileLog.Write($"[SessionStatusSupervisor] ApplyTurnSummary {session.Id} skipped: stale, activity={session.ActivityState}");
+            FileLog.Write($"[SessionStatusWingman] ApplyTurnSummary {session.Id} skipped: stale, activity={session.ActivityState}");
             return;
         }
 
@@ -301,19 +301,19 @@ public sealed class SessionStatusSupervisor : IDisposable
                 !string.IsNullOrWhiteSpace(summary.NeedsUserDetail) ? summary.NeedsUserDetail!.Trim() :
                 n;
             session.SetStatusColor(StatusColor.Red, reason);
-            FileLog.Write($"[SessionStatusSupervisor] ApplyTurnSummary {session.Id} => red (needs_user={n}, reasonLen={reason.Length})");
+            FileLog.Write($"[SessionStatusWingman] ApplyTurnSummary {session.Id} => red (needs_user={n}, reasonLen={reason.Length})");
             return;
         }
         if (hasWarnings)
         {
-            session.SetStatusColor(StatusColor.Yellow, "supervisor warning");
-            FileLog.Write($"[SessionStatusSupervisor] ApplyTurnSummary {session.Id} => yellow (warnings)");
+            session.SetStatusColor(StatusColor.Yellow, "wingman warning");
+            FileLog.Write($"[SessionStatusWingman] ApplyTurnSummary {session.Id} => yellow (warnings)");
             return;
         }
         if (n == "idle" && gitDirty)
         {
             session.SetStatusColor(StatusColor.Yellow, "idle, uncommitted changes");
-            FileLog.Write($"[SessionStatusSupervisor] ApplyTurnSummary {session.Id} => yellow (idle+dirty)");
+            FileLog.Write($"[SessionStatusWingman] ApplyTurnSummary {session.Id} => yellow (idle+dirty)");
             return;
         }
 
@@ -321,7 +321,7 @@ public sealed class SessionStatusSupervisor : IDisposable
         var headline = string.IsNullOrWhiteSpace(summary.Headline) ? "clean turn" : summary.Headline!;
         if (headline.Length > 80) headline = headline[..77] + "...";
         session.SetStatusColor(StatusColor.Green, headline);
-        FileLog.Write($"[SessionStatusSupervisor] ApplyTurnSummary {session.Id} => green (needs_user={n}, headline=\"{headline}\")");
+        FileLog.Write($"[SessionStatusWingman] ApplyTurnSummary {session.Id} => green (needs_user={n}, headline=\"{headline}\")");
     }
 
     public void Dispose()
@@ -347,7 +347,7 @@ public sealed class SessionStatusSupervisor : IDisposable
 /// <summary>
 /// Watches a session's terminal buffer for text Claude Code has injected into
 /// its own input-prompt line, and forwards detected text to
-/// <see cref="Session.SetPendingPromptText"/> with source "supervisor" so the
+/// <see cref="Session.SetPendingPromptText"/> with source "wingman" so the
 /// cc-director "Type a message..." textbox can mirror it.
 ///
 /// Operation:
@@ -356,7 +356,7 @@ public sealed class SessionStatusSupervisor : IDisposable
 /// 3. When the timer fires (no new bytes for 500ms), run
 ///    <see cref="PromptInputLineExtractor.ExtractClaudeCodeInputLine"/>.
 /// 4. If the extracted text is non-empty and differs from what we last pushed,
-///    call <c>session.SetPendingPromptText(text, "supervisor")</c>.
+///    call <c>session.SetPendingPromptText(text, "wingman")</c>.
 /// 5. The UI side decides whether to actually populate the visible textbox
 ///    (e.g. don't clobber what the user has already typed). This class is
 ///    intentionally ignorant of UI state.
@@ -405,7 +405,7 @@ internal sealed class PromptInjectionWatcher : IDisposable
     private void Bump()
     {
         if (Volatile.Read(ref _disposed) != 0) return;
-        try { _timer.Change(SessionStatusSupervisor.PromptInjectionDebounce, Timeout.InfiniteTimeSpan); }
+        try { _timer.Change(SessionStatusWingman.PromptInjectionDebounce, Timeout.InfiniteTimeSpan); }
         catch (ObjectDisposedException) { /* race with Dispose; ignore */ }
     }
 
@@ -438,7 +438,7 @@ internal sealed class PromptInjectionWatcher : IDisposable
                 return; // already pushed this exact text — don't re-fire
 
             FileLog.Write($"[PromptInjectionWatcher] session={_session.Id} push len={extracted.Length} text=\"{Truncate(extracted, 80)}\"");
-            _session.SetPendingPromptText(extracted, "supervisor");
+            _session.SetPendingPromptText(extracted, "wingman");
             _lastPushedText = extracted;
         }
         catch (Exception ex)
@@ -468,7 +468,7 @@ internal sealed class PromptInjectionWatcher : IDisposable
 ///
 /// Conservative by design:
 ///  - Debounced (250ms) so a single redraw doesn't fire.
-///  - Requires <see cref="SessionStatusSupervisor.OutputActivityMinBurstBytes"/>
+///  - Requires <see cref="SessionStatusWingman.OutputActivityMinBurstBytes"/>
 ///    bytes accumulated within the window so spinner ticks don't promote.
 ///  - Defers to hook-reported activity state when that state is definitive:
 ///    <see cref="ActivityState.WaitingForPerm"/>, <see cref="ActivityState.WaitingForInput"/>,
@@ -477,7 +477,7 @@ internal sealed class PromptInjectionWatcher : IDisposable
 ///    (cursor blink, spinner ticks, status-line redraws like "Brewed for Xs"),
 ///    not real streamed output.
 ///  - Never overrides an existing <see cref="StatusColor.Red"/>. Red means the
-///    supervisor has positive evidence the user must act (pending question,
+///    wingman has positive evidence the user must act (pending question,
 ///    permission, warning). A byte burst is not evidence the user has answered.
 ///  - Never re-fires once the color is already blue (no-op on subsequent bursts).
 /// </summary>
@@ -508,7 +508,7 @@ internal sealed class OutputActivityWatcher : IDisposable
     {
         if (Volatile.Read(ref _disposed) != 0) return;
         Interlocked.Add(ref _pendingBytes, byteCount);
-        try { _timer.Change(SessionStatusSupervisor.OutputActivityDebounce, Timeout.InfiniteTimeSpan); }
+        try { _timer.Change(SessionStatusWingman.OutputActivityDebounce, Timeout.InfiniteTimeSpan); }
         catch (ObjectDisposedException) { /* race with Dispose; ignore */ }
     }
 
@@ -518,7 +518,7 @@ internal sealed class OutputActivityWatcher : IDisposable
         try
         {
             var burstBytes = Interlocked.Exchange(ref _pendingBytes, 0);
-            if (burstBytes < SessionStatusSupervisor.OutputActivityMinBurstBytes)
+            if (burstBytes < SessionStatusWingman.OutputActivityMinBurstBytes)
                 return; // too small -- spinner / cursor blink, not a real stream
 
             // Already blue: nothing to do. The activity-state path or a prior
@@ -540,7 +540,7 @@ internal sealed class OutputActivityWatcher : IDisposable
                                        or ActivityState.Exited)
                 return;
 
-            // Never override Red. Red is the supervisor's verdict that the user
+            // Never override Red. Red is the wingman's verdict that the user
             // must act (pending question, permission, warning). A byte burst is
             // not evidence the user has answered -- only an explicit hook
             // (UserPromptSubmit, etc.) clears that.

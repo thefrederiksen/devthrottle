@@ -1,25 +1,25 @@
 using System.Text;
 using CcDirector.Core.Sessions;
-using CcDirector.Core.Supervisor;
+using CcDirector.Core.Wingman;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 
 namespace CcDirector.ControlApi;
 
 /// <summary>
-/// Builds the <see cref="SupervisorAskContext"/> blob fed to the supervisor (recent
-/// supervisor events, turn summaries, cleaned terminal-buffer tail, git-dirty flag).
+/// Builds the <see cref="WingmanAskContext"/> blob fed to the wingman (recent
+/// wingman events, turn summaries, cleaned terminal-buffer tail, git-dirty flag).
 ///
 /// Extracted so the on-demand "ask/explain" endpoint and the proactive
 /// <see cref="ProactiveExplainService"/> build identical context from one place.
 /// </summary>
-internal static class SupervisorContextBuilder
+internal static class WingmanContextBuilder
 {
-    public static async Task<SupervisorAskContext> BuildAsync(
+    public static async Task<WingmanAskContext> BuildAsync(
         Session session, TurnSummaryCache? turnSummaryCache, CancellationToken ct = default)
     {
-        var events = session.RecentSupervisorEvents
-            .Select(e => new SupervisorAskEvent(e.At, e.OldColor, e.NewColor, e.Reason))
+        var events = session.RecentWingmanEvents
+            .Select(e => new WingmanAskEvent(e.At, e.OldColor, e.NewColor, e.Reason))
             .ToList();
 
         var summaries = turnSummaryCache?.GetForSession(session.Id).ToList() ?? new List<TurnSummary>();
@@ -39,18 +39,18 @@ internal static class SupervisorContextBuilder
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SupervisorContextBuilder] buffer tail FAILED: {ex.Message}");
+            FileLog.Write($"[WingmanContextBuilder] buffer tail FAILED: {ex.Message}");
         }
 
         var gitDirty = false;
         try
         {
-            var snap = await SupervisorService.GitSnapshotAsync(session.RepoPath, ct);
+            var snap = await WingmanService.GitSnapshotAsync(session.RepoPath, ct);
             gitDirty = snap.Dirty;
         }
         catch { /* best-effort; not having git is fine */ }
 
-        return new SupervisorAskContext
+        return new WingmanAskContext
         {
             SessionId = session.Id.ToString(),
             RepoPath = session.RepoPath,
@@ -59,7 +59,7 @@ internal static class SupervisorContextBuilder
             CurrentColor = session.StatusColor,
             CurrentReason = session.LastStatusReason,
             GitDirty = gitDirty,
-            RecentSupervisorEvents = events,
+            RecentWingmanEvents = events,
             RecentTurnSummaries = summaries,
             BufferTailText = bufferTail,
         };

@@ -1,8 +1,8 @@
 using System.Text;
-using CcDirector.Core.Supervisor;
+using CcDirector.Core.Wingman;
 using Xunit;
 
-namespace CcDirector.Core.Tests.Supervisor;
+namespace CcDirector.Core.Tests.Wingman;
 
 /// <summary>
 /// Tests for <see cref="PromptInputLineExtractor"/>. The extractor is heuristic;

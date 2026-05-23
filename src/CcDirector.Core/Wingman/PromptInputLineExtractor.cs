@@ -1,7 +1,7 @@
 using System.Text;
 using CcDirector.Core.Utilities;
 
-namespace CcDirector.Core.Supervisor;
+namespace CcDirector.Core.Wingman;
 
 /// <summary>
 /// Extracts the text currently sitting in Claude Code's input-prompt line, parsed
@@ -25,7 +25,7 @@ namespace CcDirector.Core.Supervisor;
 /// space, to disambiguate from the "&gt;&gt; mode" arrow).
 ///
 /// The extractor is a pure function: same input bytes -&gt; same output. The
-/// session supervisor calls it on a debounce; this class does not poll or
+/// session wingman calls it on a debounce; this class does not poll or
 /// schedule anything itself.
 ///
 /// LIMITATION: this is heuristic. Claude Code's prompt rendering can change

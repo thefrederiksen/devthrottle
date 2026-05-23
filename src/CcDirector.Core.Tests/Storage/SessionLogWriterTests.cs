@@ -65,7 +65,7 @@ public sealed class SessionLogWriterTests : IDisposable
     }
 
     [Fact]
-    public async Task Writer_persists_supervisor_color_changes()
+    public async Task Writer_persists_wingman_color_changes()
     {
         var session = CreateTrackedSession();
         using var writer = new SessionLogWriter(session);
@@ -80,8 +80,8 @@ public sealed class SessionLogWriterTests : IDisposable
         // Dispose flushes synchronously.
         writer.Dispose();
 
-        var lines = File.ReadAllLines(SessionLogPaths.SupervisorEventsJsonl(session.Id));
-        Assert.True(lines.Length >= 2, $"expected >= 2 supervisor events, got {lines.Length}");
+        var lines = File.ReadAllLines(SessionLogPaths.WingmanEventsJsonl(session.Id));
+        Assert.True(lines.Length >= 2, $"expected >= 2 wingman events, got {lines.Length}");
         var first = JsonDocument.Parse(lines[0]).RootElement;
         Assert.Equal("blue", first.GetProperty("newColor").GetString());
         var second = JsonDocument.Parse(lines[1]).RootElement;
@@ -136,7 +136,7 @@ public sealed class SessionLogWriterTests : IDisposable
         await Task.Delay(200);
         writer2.Dispose();
 
-        var lines = File.ReadAllLines(SessionLogPaths.SupervisorEventsJsonl(session.Id));
+        var lines = File.ReadAllLines(SessionLogPaths.WingmanEventsJsonl(session.Id));
         Assert.True(lines.Length >= 2);
         var last = JsonDocument.Parse(lines[^1]).RootElement;
         Assert.Equal("green", last.GetProperty("newColor").GetString());

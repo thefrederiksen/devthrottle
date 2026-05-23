@@ -15,15 +15,15 @@ public sealed class VoiceCommandResponse
     public string Transcript { get; set; } = "";
 
     /// <summary>
-    /// The Supervisor-cleaned version of <see cref="Transcript"/>: filler words
+    /// The Wingman-cleaned version of <see cref="Transcript"/>: filler words
     /// removed, obvious mis-transcriptions fixed, intent preserved.  Set by
-    /// Phase 1 of the SessionSupervisor goal.  When cleanup fails or is skipped,
+    /// Phase 1 of the SessionWingman goal.  When cleanup fails or is skipped,
     /// this equals the raw transcript and <see cref="CleanupReason"/> explains why.
     /// The voice mode UI uses this (not the raw) when forwarding to /chat.
     /// </summary>
     public string? CleanedTranscript { get; set; }
 
-    /// <summary>One-sentence explanation from the Supervisor of what it changed
+    /// <summary>One-sentence explanation from the Wingman of what it changed
     /// (or "no changes needed" / a failure reason).</summary>
     public string? CleanupReason { get; set; }
 

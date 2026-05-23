@@ -1,8 +1,8 @@
-using CcDirector.Core.Supervisor;
+using CcDirector.Core.Wingman;
 using CcDirector.Gateway.Contracts;
 using Xunit;
 
-namespace CcDirector.Core.Tests.Supervisor;
+namespace CcDirector.Core.Tests.Wingman;
 
 public sealed class StatusColorTests
 {

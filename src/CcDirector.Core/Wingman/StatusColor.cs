@@ -1,9 +1,9 @@
 using CcDirector.Gateway.Contracts;
 
-namespace CcDirector.Core.Supervisor;
+namespace CcDirector.Core.Wingman;
 
 /// <summary>
-/// String constants for the five session status colors the SessionStatusSupervisor
+/// String constants for the five session status colors the SessionStatusWingman
 /// writes onto each <see cref="CcDirector.Core.Sessions.Session"/>. The UI renders
 /// these verbatim and never derives them from other fields.
 ///
@@ -15,9 +15,9 @@ namespace CcDirector.Core.Supervisor;
 ///   unknown = data-quality state - the data source itself is unreachable or unparseable.
 ///             Rendered as gray. NOT a session state per se.
 ///
-/// Phase 3 of the SessionSupervisor goal makes color a first-class, supervisor-owned
+/// Phase 3 of the SessionWingman goal makes color a first-class, wingman-owned
 /// field on the Session itself. The static helper below is kept as an internal
-/// utility for the supervisor's slow path (turn-summary interpretation).
+/// utility for the wingman's slow path (turn-summary interpretation).
 /// </summary>
 public static class StatusColor
 {
@@ -29,7 +29,7 @@ public static class StatusColor
 
     /// <summary>
     /// Map a completed turn's <see cref="TurnSummary"/> to a color decision. Used by
-    /// the supervisor's slow path AFTER a turn finishes. The caller (the supervisor)
+    /// the wingman's slow path AFTER a turn finishes. The caller (the wingman)
     /// is responsible for stamping the chosen color back onto the Session.
     /// </summary>
     public static string From(TurnSummary? latestSummary, bool gitDirty = false, bool hasWarnings = false)

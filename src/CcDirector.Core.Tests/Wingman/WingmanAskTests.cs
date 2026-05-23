@@ -1,21 +1,21 @@
-using CcDirector.Core.Supervisor;
+using CcDirector.Core.Wingman;
 using CcDirector.Gateway.Contracts;
 using Xunit;
 
-namespace CcDirector.Core.Tests.Supervisor;
+namespace CcDirector.Core.Tests.Wingman;
 
 /// <summary>
-/// Phase 5: tests for <see cref="SupervisorService.AskAboutSessionAsync"/> and its
+/// Phase 5: tests for <see cref="WingmanService.AskAboutSessionAsync"/> and its
 /// prompt builder. The actual <c>claude --print</c> invocation is not exercised
 /// here (no live CLI in CI); we test the fail-open contract and the prompt shape.
 /// </summary>
-public sealed class SupervisorAskTests
+public sealed class WingmanAskTests
 {
     [Fact]
     public async Task AskAboutSessionAsync_empty_question_returns_bad_request()
     {
-        var ctx = new SupervisorAskContext { SessionId = "s", RepoPath = "/tmp" };
-        var r = await SupervisorService.AskAboutSessionAsync("   ", ctx, claudeExePath: "claude.exe");
+        var ctx = new WingmanAskContext { SessionId = "s", RepoPath = "/tmp" };
+        var r = await WingmanService.AskAboutSessionAsync("   ", ctx, claudeExePath: "claude.exe");
         Assert.Equal("bad_request", r.Status);
         Assert.Contains("empty", r.Error ?? "", StringComparison.OrdinalIgnoreCase);
     }
@@ -23,18 +23,18 @@ public sealed class SupervisorAskTests
     [Fact]
     public async Task AskAboutSessionAsync_no_claude_path_fails_open_with_explanation()
     {
-        var ctx = new SupervisorAskContext { SessionId = "s", RepoPath = "/tmp" };
-        var r = await SupervisorService.AskAboutSessionAsync("what is happening", ctx, claudeExePath: "");
+        var ctx = new WingmanAskContext { SessionId = "s", RepoPath = "/tmp" };
+        var r = await WingmanService.AskAboutSessionAsync("what is happening", ctx, claudeExePath: "");
         Assert.Equal("no_claude", r.Status);
         Assert.Contains("not configured", r.Answer, StringComparison.OrdinalIgnoreCase);
-        // ContextDigest is still populated so the UI can show what the supervisor would have seen.
+        // ContextDigest is still populated so the UI can show what the wingman would have seen.
         Assert.NotEmpty(r.ContextDigest);
     }
 
     [Fact]
     public void BuildAskPrompt_includes_metadata_and_question()
     {
-        var ctx = new SupervisorAskContext
+        var ctx = new WingmanAskContext
         {
             SessionId = "s",
             RepoPath = "D:/repos/myproj",
@@ -44,9 +44,9 @@ public sealed class SupervisorAskTests
             CurrentReason = "idle, ready",
             GitDirty = true,
         };
-        var prompt = SupervisorService.BuildAskPrompt("why is this green", ctx);
+        var prompt = WingmanService.BuildAskPrompt("why is this green", ctx);
 
-        Assert.Contains("supervisor", prompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("wingman", prompt, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("D:/repos/myproj", prompt);
         Assert.Contains("Idle", prompt);
         Assert.Contains("Git dirty: True", prompt);
@@ -58,15 +58,15 @@ public sealed class SupervisorAskTests
     [Fact]
     public void BuildAskPrompt_omits_empty_sections()
     {
-        var ctx = new SupervisorAskContext
+        var ctx = new WingmanAskContext
         {
             SessionId = "s", RepoPath = "/tmp", AgentKind = "Pi", ActivityState = "Idle",
             CurrentColor = "green", CurrentReason = "idle",
             // No events, no summaries, no buffer.
         };
-        var prompt = SupervisorService.BuildAskPrompt("hi", ctx);
+        var prompt = WingmanService.BuildAskPrompt("hi", ctx);
 
-        Assert.DoesNotContain("SUPERVISOR DECISIONS", prompt);
+        Assert.DoesNotContain("WINGMAN DECISIONS", prompt);
         Assert.DoesNotContain("RECENT TURN SUMMARIES", prompt);
         Assert.DoesNotContain("TERMINAL BUFFER", prompt);
     }
@@ -74,19 +74,19 @@ public sealed class SupervisorAskTests
     [Fact]
     public void BuildAskPrompt_includes_events_when_present()
     {
-        var ctx = new SupervisorAskContext
+        var ctx = new WingmanAskContext
         {
             SessionId = "s", RepoPath = "/tmp", AgentKind = "ClaudeCode", ActivityState = "Idle",
             CurrentColor = "red", CurrentReason = "waiting for input",
-            RecentSupervisorEvents = new List<SupervisorAskEvent>
+            RecentWingmanEvents = new List<WingmanAskEvent>
             {
                 new(new DateTime(2026, 5, 21, 14, 30, 0, DateTimeKind.Utc), "blue", "red", "waiting for input"),
                 new(new DateTime(2026, 5, 21, 14, 29, 0, DateTimeKind.Utc), "green", "blue", "working"),
             },
         };
-        var prompt = SupervisorService.BuildAskPrompt("why red", ctx);
+        var prompt = WingmanService.BuildAskPrompt("why red", ctx);
 
-        Assert.Contains("SUPERVISOR DECISIONS", prompt);
+        Assert.Contains("WINGMAN DECISIONS", prompt);
         Assert.Contains("blue -> red", prompt);
         Assert.Contains("\"waiting for input\"", prompt);
     }
@@ -94,9 +94,9 @@ public sealed class SupervisorAskTests
     [Fact]
     public async Task AskAboutSessionAsync_explain_does_not_require_a_question()
     {
-        var ctx = new SupervisorAskContext { SessionId = "s", RepoPath = "/tmp" };
+        var ctx = new WingmanAskContext { SessionId = "s", RepoPath = "/tmp" };
         // Empty question is fine in explain mode; with no claude path it fails open.
-        var r = await SupervisorService.AskAboutSessionAsync("", ctx, claudeExePath: "", ct: default, explain: true);
+        var r = await WingmanService.AskAboutSessionAsync("", ctx, claudeExePath: "", ct: default, explain: true);
         Assert.Equal("no_claude", r.Status);
         Assert.NotEmpty(r.ContextDigest);
     }
@@ -104,7 +104,7 @@ public sealed class SupervisorAskTests
     [Fact]
     public void BuildExplainPrompt_has_two_sections_and_verbatim_rule_and_context()
     {
-        var ctx = new SupervisorAskContext
+        var ctx = new WingmanAskContext
         {
             SessionId = "s",
             RepoPath = "D:/repos/myproj",
@@ -114,7 +114,7 @@ public sealed class SupervisorAskTests
             CurrentReason = "waiting for input",
             GitDirty = false,
         };
-        var prompt = SupervisorService.BuildExplainPrompt(ctx);
+        var prompt = WingmanService.BuildExplainPrompt(ctx);
 
         Assert.Contains("WHAT'S HAPPENED", prompt);
         Assert.Contains("WHAT CLAUDE WANTS", prompt);
@@ -132,14 +132,14 @@ public sealed class SupervisorAskTests
         // ("Yes, go ahead with the revised plan") as if the user had typed it, while the
         // session was actually still WaitingForInput. The buffer section must teach the
         // model how to read the prompt box so it does not confabulate a user response.
-        var ctx = new SupervisorAskContext
+        var ctx = new WingmanAskContext
         {
             SessionId = "s", RepoPath = "/tmp", AgentKind = "ClaudeCode",
             ActivityState = "WaitingForInput", CurrentColor = "red", CurrentReason = "waiting",
             BufferTailText = "Want me to proceed?\n> 1. Yes, go ahead with the revised plan\n  2. No",
         };
 
-        var prompt = SupervisorService.BuildExplainPrompt(ctx);
+        var prompt = WingmanService.BuildExplainPrompt(ctx);
 
         Assert.Contains("TERMINAL BUFFER", prompt);
         // The interpretation guidance must travel with the buffer.
@@ -152,11 +152,11 @@ public sealed class SupervisorAskTests
     [Fact]
     public void ContextDigest_is_concise_and_human_readable()
     {
-        var ctx = new SupervisorAskContext
+        var ctx = new WingmanAskContext
         {
             SessionId = "s", RepoPath = "D:/r/cc-director", AgentKind = "ClaudeCode", ActivityState = "Idle",
             CurrentColor = "green", CurrentReason = "ok",
-            RecentSupervisorEvents = new List<SupervisorAskEvent>
+            RecentWingmanEvents = new List<WingmanAskEvent>
             {
                 new(DateTime.UtcNow, "a", "b", "c"),
                 new(DateTime.UtcNow, "a", "b", "c"),

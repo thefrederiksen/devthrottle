@@ -35,7 +35,7 @@ public sealed class SessionDto
 
     /// <summary>
     /// Aggregate at-a-glance status color, written by the Director's
-    /// SessionStatusSupervisor. The UI renders this verbatim and never derives it
+    /// SessionStatusWingman. The UI renders this verbatim and never derives it
     /// from other fields.
     /// Values: "green" (greenfield - new or just finished a task cleanly),
     /// "blue" (agent is working), "yellow" (soft warning, idle with uncommitted

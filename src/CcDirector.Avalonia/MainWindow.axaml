@@ -176,9 +176,9 @@
                                     <!-- Session content -->
                                     <StackPanel Grid.Column="0">
                                         <StackPanel Orientation="Horizontal">
-                                            <!-- Live supervisor status indicator. Reads
+                                            <!-- Live wingman status indicator. Reads
                                                  Session.StatusColor (written by the
-                                                 SessionStatusSupervisor) so the same
+                                                 SessionStatusWingman) so the same
                                                  session shows the same color on Desktop
                                                  and Gateway. Doubles as the drag handle
                                                  for reordering the session list. -->
@@ -573,7 +573,7 @@
                         <controls:CleanView x:Name="CleanView" />
                     </Panel>
 
-                    <!-- Session panel. Just the agent widget feed. The supervisor
+                    <!-- Session panel. Just the agent widget feed. The wingman
                          runs invisibly; its only UI presence is the highlight
                          styling applied to the most recent message card when a
                          question is pending. -->

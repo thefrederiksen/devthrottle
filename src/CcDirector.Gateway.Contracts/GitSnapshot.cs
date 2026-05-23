@@ -2,7 +2,7 @@ namespace CcDirector.Gateway.Contracts;
 
 /// <summary>
 /// Phase 6: a quick snapshot of the git state of a session's repo.
-/// Produced by the Supervisor (or a direct `git` invocation) after each turn.
+/// Produced by the Wingman (or a direct `git` invocation) after each turn.
 /// Surfaced in the Agent View and feeds the status colour when "idle + dirty".
 /// </summary>
 public sealed class GitSnapshot

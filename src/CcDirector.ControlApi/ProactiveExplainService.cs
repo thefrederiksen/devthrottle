@@ -1,18 +1,18 @@
 using System.Collections.Concurrent;
 using CcDirector.Core.Sessions;
-using CcDirector.Core.Supervisor;
+using CcDirector.Core.Wingman;
 using CcDirector.Core.Utilities;
 
 namespace CcDirector.ControlApi;
 
 /// <summary>
 /// Powers the mobile/voice "instant briefing" experience. For sessions flagged
-/// <see cref="Session.MobileMode"/>, this regenerates the supervisor "explain" briefing
+/// <see cref="Session.MobileMode"/>, this regenerates the wingman "explain" briefing
 /// (strong model / Opus) in the background at each decision-point turn-end - i.e. when the
 /// session transitions into <see cref="ActivityState.WaitingForInput"/> - and caches the
 /// result on the session via <see cref="Session.SetCachedExplain"/>.
 ///
-/// The phone then reads the cache instantly on open (GET /sessions/{id}/supervisor/explain)
+/// The phone then reads the cache instantly on open (GET /sessions/{id}/wingman/explain)
 /// rather than waiting on a live Opus call behind a spinner.
 ///
 /// Design notes (from the remote-experience plan, P1.2):
@@ -88,14 +88,14 @@ public sealed class ProactiveExplainService : IDisposable
             try
             {
                 await Task.Delay(SettleDelay, _cts.Token);
-                var ctx = await SupervisorContextBuilder.BuildAsync(session, _turnSummaryCache, _cts.Token);
-                var result = await SupervisorService.AskAboutSessionAsync(
+                var ctx = await WingmanContextBuilder.BuildAsync(session, _turnSummaryCache, _cts.Token);
+                var result = await WingmanService.AskAboutSessionAsync(
                     question: "", ctx, _claudePath, _cts.Token, explain: true);
 
                 if (result is not null && string.Equals(result.Status, "ok", StringComparison.OrdinalIgnoreCase))
                 {
-                    session.SetCachedExplain(result.Answer, result.Model);
-                    FileLog.Write($"[ProactiveExplainService] cached explain for {session.Id} (model={result.Model}, len={result.Answer?.Length ?? 0})");
+                    session.SetCachedExplain(result.Answer, result.Model, result.QuickReplies);
+                    FileLog.Write($"[ProactiveExplainService] cached explain for {session.Id} (model={result.Model}, len={result.Answer?.Length ?? 0}, replies={result.QuickReplies?.Count ?? 0})");
                 }
                 else
                 {

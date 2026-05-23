@@ -6,7 +6,7 @@ using CcDirector.Core.Backends;
 using CcDirector.Core.Claude;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Sessions;
-using CcDirector.Core.Supervisor;
+using CcDirector.Core.Wingman;
 using CcDirector.Core.Utilities;
 using CcDirector.Core.Voice;
 using CcDirector.Gateway.Contracts;
@@ -150,11 +150,11 @@ internal static class ControlEndpoints
             return Results.Json(Map(session, directorId, turnSummaryCache));
         });
 
-        // Phase 5: ask the supervisor a question about this session. One fresh
+        // Phase 5: ask the wingman a question about this session. One fresh
         // claude --print --model haiku call with no session persistence. The context
         // we pipe in comes from the session's recent events, turn summaries, buffer
         // tail, and metadata.
-        app.MapPost("/sessions/{sid}/supervisor/ask", async (string sid, SupervisorAskRequest req, CancellationToken ct) =>
+        app.MapPost("/sessions/{sid}/wingman/ask", async (string sid, WingmanAskRequest req, CancellationToken ct) =>
         {
             if (!Guid.TryParse(sid, out var guid))
                 return Results.BadRequest(new { error = "invalid session id format" });
@@ -162,23 +162,23 @@ internal static class ControlEndpoints
             // Explain mode briefs the whole session and needs no user question; the
             // free-text ask path still requires one.
             if (req is null || (!explain && string.IsNullOrWhiteSpace(req.Question)))
-                return Results.BadRequest(new SupervisorAskResult { Status = "bad_request", Error = "question is required" });
+                return Results.BadRequest(new WingmanAskResult { Status = "bad_request", Error = "question is required" });
 
             var session = sessionManager.GetSession(guid);
             if (session is null)
                 return Results.NotFound(new { error = "session not found" });
 
-            var ctx = await SupervisorContextBuilder.BuildAsync(session, turnSummaryCache, ct);
-            var result = await Core.Supervisor.SupervisorService.AskAboutSessionAsync(
+            var ctx = await WingmanContextBuilder.BuildAsync(session, turnSummaryCache, ct);
+            var result = await Core.Wingman.WingmanService.AskAboutSessionAsync(
                 req.Question, ctx, sessionManager.Options.ClaudePath, ct, explain);
             return Results.Json(result);
         });
 
-        // Mobile experience: the proactively-cached supervisor briefing for this session.
+        // Mobile experience: the proactively-cached wingman briefing for this session.
         // Returns instantly (no LLM call) so a phone shows it the moment the view opens.
         // text is null when nothing has been cached yet (mobile mode off, or first turn
-        // not finished). The phone falls back to the on-demand /supervisor/ask in that case.
-        app.MapGet("/sessions/{sid}/supervisor/explain", (string sid) =>
+        // not finished). The phone falls back to the on-demand /wingman/ask in that case.
+        app.MapGet("/sessions/{sid}/wingman/explain", (string sid) =>
         {
             if (!Guid.TryParse(sid, out var guid))
                 return Results.BadRequest(new { error = "invalid session id format" });
@@ -192,6 +192,7 @@ internal static class ControlEndpoints
                 text = session.CachedExplainText,
                 at = session.CachedExplainAt,
                 model = session.CachedExplainModel,
+                quickReplies = session.CachedQuickReplies,
             });
         });
 
@@ -255,9 +256,9 @@ internal static class ControlEndpoints
             return Results.File(path, ctype);
         });
 
-        // Phase 4b: observability into the supervisor. Returns current color + reason,
+        // Phase 4b: observability into the wingman. Returns current color + reason,
         // a timestamped log of recent decisions, and the latest TurnSummary if any.
-        app.MapGet("/sessions/{sid}/supervisor", (string sid) =>
+        app.MapGet("/sessions/{sid}/wingman", (string sid) =>
         {
             if (!Guid.TryParse(sid, out var guid))
                 return Results.BadRequest(new { error = "invalid session id format" });
@@ -266,16 +267,16 @@ internal static class ControlEndpoints
             if (session is null)
                 return Results.NotFound(new { error = "session not found" });
 
-            var events = session.RecentSupervisorEvents;
+            var events = session.RecentWingmanEvents;
             var latestSummary = turnSummaryCache?.GetForSession(session.Id).LastOrDefault();
 
-            return Results.Json(new SupervisorViewDto
+            return Results.Json(new WingmanViewDto
             {
                 SessionId = session.Id.ToString(),
                 CurrentColor = session.StatusColor,
                 CurrentReason = session.LastStatusReason,
                 Since = events.Count > 0 ? events[0].At : (DateTime?)null,
-                Events = events.Select(e => new SupervisorEventDto
+                Events = events.Select(e => new WingmanEventDto
                 {
                     At = e.At,
                     OldColor = e.OldColor,
@@ -283,6 +284,37 @@ internal static class ControlEndpoints
                     Reason = e.Reason,
                 }).ToList(),
                 LatestTurnSummary = latestSummary,
+                Goal = session.WingmanGoal,
+                GoalSetAt = session.WingmanGoalSetAt,
+                GoalState = session.WingmanGoalState,
+                GoalReason = session.WingmanGoalReason,
+                GoalEvaluatedAt = session.WingmanGoalEvaluatedAt,
+            });
+        });
+
+        // Goal management: set (or clear) the session's stated goal. Setting a goal
+        // kicks off an immediate background assessment so the verdict is warm. Pass an
+        // empty/null goal to clear it and stop goal-tracking.
+        app.MapPost("/sessions/{sid}/wingman/goal", (string sid, WingmanGoalRequest req) =>
+        {
+            if (!Guid.TryParse(sid, out var guid))
+                return Results.BadRequest(new { error = "invalid session id format" });
+
+            var session = sessionManager.GetSession(guid);
+            if (session is null)
+                return Results.NotFound(new { error = "session not found" });
+
+            session.SetWingmanGoal(req?.Goal);
+            FileLog.Write($"[ControlEndpoints] POST /wingman/goal: session={guid} goal=\"{req?.Goal}\"");
+
+            if (!string.IsNullOrWhiteSpace(req?.Goal) && turnSummaryCache is not null)
+                _ = turnSummaryCache.AssessGoalNowAsync(guid);
+
+            return Results.Json(new
+            {
+                goal = session.WingmanGoal,
+                goalSetAt = session.WingmanGoalSetAt,
+                goalState = session.WingmanGoalState,
             });
         });
 
@@ -735,8 +767,8 @@ internal static class ControlEndpoints
             };
         });
 
-        // ===== REST: Supervisor rules / git / recovery (Phases 5-7) =========================
-        // Each of these is a thin HTTP wrapper over the matching SupervisorService method.
+        // ===== REST: Wingman rules / git / recovery (Phases 5-7) =========================
+        // Each of these is a thin HTTP wrapper over the matching WingmanService method.
         app.MapPost("/sessions/{sid}/rule-violations", async (string sid, HttpContext ctx) =>
         {
             if (!Guid.TryParse(sid, out var guid))
@@ -748,7 +780,7 @@ internal static class ControlEndpoints
             if (latest is null)
                 return Results.Json(new RuleViolationsResponse { SessionId = sid, Status = "no_summary" });
 
-            var resp = await SupervisorService.CheckRulesAsync(latest, session.RepoPath, sessionManager.Options.ClaudePath, ctx.RequestAborted);
+            var resp = await WingmanService.CheckRulesAsync(latest, session.RepoPath, sessionManager.Options.ClaudePath, ctx.RequestAborted);
             resp.SessionId = sid;
             return Results.Json(resp);
         });
@@ -759,7 +791,7 @@ internal static class ControlEndpoints
                 return Results.BadRequest(new { error = "invalid session id format" });
             var session = sessionManager.GetSession(guid);
             if (session is null) return Results.NotFound(new { error = "session not found" });
-            var snap = await SupervisorService.GitSnapshotAsync(session.RepoPath, ctx.RequestAborted);
+            var snap = await WingmanService.GitSnapshotAsync(session.RepoPath, ctx.RequestAborted);
             return Results.Json(snap);
         });
 
@@ -770,7 +802,7 @@ internal static class ControlEndpoints
             var session = sessionManager.GetSession(guid);
             if (session is null) return Results.NotFound(new { error = "session not found" });
             var latest = turnSummaryCache?.GetForSession(guid).LastOrDefault();
-            var rp = await SupervisorService.BuildRecoveryPromptAsync(sid, session.RepoPath, latest, ctx.RequestAborted);
+            var rp = await WingmanService.BuildRecoveryPromptAsync(sid, session.RepoPath, latest, ctx.RequestAborted);
             return Results.Json(rp);
         });
 
@@ -811,8 +843,8 @@ internal static class ControlEndpoints
             });
         });
 
-        // ===== REST: Supervisor turn summaries (Phase 2) ====================================
-        // Per-completed-turn structured summary produced by the SessionSupervisor.
+        // ===== REST: Wingman turn summaries (Phase 2) ====================================
+        // Per-completed-turn structured summary produced by the SessionWingman.
         // Feeds the Agent View AND the voice mode's TTS (via summary.spokenText).
         // See docs/goals/GOAL_CC_DIRECTOR_SUPERVISOR.md section 4.
         app.MapGet("/sessions/{sid}/turn-summaries", (string sid) =>
@@ -837,7 +869,7 @@ internal static class ControlEndpoints
                 return Results.BadRequest(new { error = "invalid session id format" });
 
             if (turnSummaryCache is null)
-                return Results.Problem("Supervisor turn-summary cache not wired", statusCode: 500);
+                return Results.Problem("Wingman turn-summary cache not wired", statusCode: 500);
 
             var summary = await turnSummaryCache.GenerateForLatestTurnAsync(guid, ctx.RequestAborted);
             if (summary is null)
@@ -1263,7 +1295,7 @@ internal static class ControlEndpoints
 
     private static SessionDto Map(Session s, string directorId, TurnSummaryCache? cache = null)
     {
-        // Phase 3: StatusColor and LastStatusReason are owned by the SessionStatusSupervisor
+        // Phase 3: StatusColor and LastStatusReason are owned by the SessionStatusWingman
         // and live on the Session itself. Map() reads them directly - no derivation, no
         // recomputation from TurnSummaryCache, no fallback. The `cache` argument is kept for
         // other endpoints that surface raw summaries; it is not consulted for color.

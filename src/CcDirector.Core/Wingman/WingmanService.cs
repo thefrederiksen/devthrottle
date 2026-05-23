@@ -6,33 +6,33 @@ using CcDirector.Core.Configuration;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 
-namespace CcDirector.Core.Supervisor;
+namespace CcDirector.Core.Wingman;
 
 /// <summary>
-/// Generalised Session-Supervisor for cc-director.
+/// Generalised Session-Wingman for cc-director.
 ///
 /// Every method on this class is a one-shot side-call to `claude --print --bare
 /// --model haiku --tools ""` carrying a focused prompt - exactly the pattern
 /// <see cref="RecapGenerator"/> uses for the existing recap feature. The
-/// "Session Supervisor" from the PRD is the conceptual sum of these short
+/// "Session Wingman" from the PRD is the conceptual sum of these short
 /// fresh-context calls; we do NOT spawn a long-running shadow process per
 /// session.
 ///
-/// Methods correspond 1:1 to the PRD's Session Supervisor responsibilities.
+/// Methods correspond 1:1 to the PRD's Session Wingman responsibilities.
 /// </summary>
-public static class SupervisorService
+public static class WingmanService
 {
-    /// <summary>Cheap fast model we run the Supervisor on. Haiku family.</summary>
+    /// <summary>Cheap fast model we run the Wingman on. Haiku family.</summary>
     public const string DefaultModel = "haiku";
 
     /// <summary>
-    /// Strong model used for on-demand, user-facing supervisor work (the "Explain"
+    /// Strong model used for on-demand, user-facing wingman work (the "Explain"
     /// briefing) where answer quality matters more than latency/cost. Matches the
     /// best model a real session would run on.
     /// </summary>
     public const string StrongModel = "opus";
 
-    /// <summary>Hard timeout per Supervisor call.</summary>
+    /// <summary>Hard timeout per Wingman call.</summary>
     public static readonly TimeSpan ProcessTimeout = TimeSpan.FromSeconds(60);
 
     // ====================================================================
@@ -68,8 +68,8 @@ public static class SupervisorService
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SupervisorService] CleanVoiceTranscriptAsync FAILED: {ex.Message}");
-            return new VoiceCleanupResult(rawTranscript, "supervisor call failed: " + ex.Message);
+            FileLog.Write($"[WingmanService] CleanVoiceTranscriptAsync FAILED: {ex.Message}");
+            return new VoiceCleanupResult(rawTranscript, "wingman call failed: " + ex.Message);
         }
     }
 
@@ -104,7 +104,7 @@ public static class SupervisorService
     internal static VoiceCleanupResult ParseVoiceCleanupJson(string raw, string fallbackRaw)
     {
         if (string.IsNullOrWhiteSpace(raw))
-            return new VoiceCleanupResult(fallbackRaw, "supervisor returned empty output");
+            return new VoiceCleanupResult(fallbackRaw, "wingman returned empty output");
 
         var s = raw.Trim();
 
@@ -130,13 +130,13 @@ public static class SupervisorService
             var cleaned = root.TryGetProperty("cleaned", out var c) ? (c.GetString() ?? "") : "";
             var reason = root.TryGetProperty("reason", out var r) ? (r.GetString() ?? "") : "";
             if (string.IsNullOrWhiteSpace(cleaned))
-                return new VoiceCleanupResult(fallbackRaw, "supervisor returned empty 'cleaned' field");
+                return new VoiceCleanupResult(fallbackRaw, "wingman returned empty 'cleaned' field");
             return new VoiceCleanupResult(cleaned.Trim(), string.IsNullOrEmpty(reason) ? "no changes needed" : reason.Trim());
         }
         catch (JsonException ex)
         {
-            FileLog.Write($"[SupervisorService] cleanup JSON parse failed: {ex.Message}, raw='{Truncate(raw, 200)}'");
-            return new VoiceCleanupResult(fallbackRaw, "supervisor JSON parse failed");
+            FileLog.Write($"[WingmanService] cleanup JSON parse failed: {ex.Message}, raw='{Truncate(raw, 200)}'");
+            return new VoiceCleanupResult(fallbackRaw, "wingman JSON parse failed");
         }
     }
 
@@ -147,7 +147,7 @@ public static class SupervisorService
     /// <summary>
     /// Summarise one completed turn for both screen readers (Agent View) and
     /// ear listeners (voice TTS).  Returns a populated <see cref="TurnSummary"/>
-    /// even on Supervisor failure (status field reflects what happened).
+    /// even on Wingman failure (status field reflects what happened).
     /// </summary>
     public static async Task<TurnSummary> SummarizeTurnAsync(
         TurnData turn,
@@ -164,7 +164,7 @@ public static class SupervisorService
 
         if (string.IsNullOrWhiteSpace(claudeExePath))
         {
-            summary.Status = "supervisor_failed";
+            summary.Status = "wingman_failed";
             summary.Error = "no claude CLI configured";
             // Provide at least a rule-based headline so the UI is not empty.
             summary.Headline = BuildFallbackHeadline(turn);
@@ -182,8 +182,8 @@ public static class SupervisorService
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SupervisorService] SummarizeTurnAsync FAILED: {ex.Message}");
-            summary.Status = "supervisor_failed";
+            FileLog.Write($"[WingmanService] SummarizeTurnAsync FAILED: {ex.Message}");
+            summary.Status = "wingman_failed";
             summary.Error = ex.Message;
             summary.Headline = BuildFallbackHeadline(turn);
             summary.SpokenText = "Agent finished. Check the screen for details.";
@@ -273,7 +273,7 @@ public static class SupervisorService
         if (string.IsNullOrWhiteSpace(raw))
         {
             summary.Status = "parse_failed";
-            summary.Error = "supervisor returned empty output";
+            summary.Error = "wingman returned empty output";
             summary.Headline = BuildFallbackHeadline(turn);
             summary.SpokenText = "Agent finished. Check the screen for details.";
             return;
@@ -328,9 +328,9 @@ public static class SupervisorService
         }
         catch (JsonException ex)
         {
-            FileLog.Write($"[SupervisorService] turn-summary JSON parse failed: {ex.Message}, raw='{Truncate(raw, 200)}'");
+            FileLog.Write($"[WingmanService] turn-summary JSON parse failed: {ex.Message}, raw='{Truncate(raw, 200)}'");
             summary.Status = "parse_failed";
-            summary.Error = "supervisor JSON parse failed";
+            summary.Error = "wingman JSON parse failed";
             summary.Headline = BuildFallbackHeadline(turn);
             summary.SpokenText = "Agent finished. Check the screen for details.";
         }
@@ -353,7 +353,7 @@ public static class SupervisorService
         if (string.IsNullOrWhiteSpace(rulesText)) { resp.Status = "no_rules"; return resp; }
         if (string.IsNullOrWhiteSpace(claudeExePath))
         {
-            resp.Status = "supervisor_failed";
+            resp.Status = "wingman_failed";
             resp.Error = "no claude CLI configured";
             return resp;
         }
@@ -363,8 +363,8 @@ public static class SupervisorService
         try { stdout = await RunSideClaudeAsync(prompt, claudeExePath, ct); }
         catch (Exception ex)
         {
-            FileLog.Write($"[SupervisorService] CheckRulesAsync FAILED: {ex.Message}");
-            resp.Status = "supervisor_failed";
+            FileLog.Write($"[WingmanService] CheckRulesAsync FAILED: {ex.Message}");
+            resp.Status = "wingman_failed";
             resp.Error = ex.Message;
             return resp;
         }
@@ -397,7 +397,7 @@ public static class SupervisorService
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[SupervisorService] LoadRulesChain: walking parents failed: {ex.Message}");
+                FileLog.Write($"[WingmanService] LoadRulesChain: walking parents failed: {ex.Message}");
             }
         }
 
@@ -417,7 +417,7 @@ public static class SupervisorService
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SupervisorService] LoadRulesChain: global CLAUDE.md failed: {ex.Message}");
+            FileLog.Write($"[WingmanService] LoadRulesChain: global CLAUDE.md failed: {ex.Message}");
         }
 
         return sb.ToString();
@@ -458,7 +458,7 @@ public static class SupervisorService
         if (string.IsNullOrWhiteSpace(raw))
         {
             resp.Status = "parse_failed";
-            resp.Error = "supervisor returned empty output";
+            resp.Error = "wingman returned empty output";
             return;
         }
         var s = raw.Trim();
@@ -480,7 +480,7 @@ public static class SupervisorService
             if (!doc.RootElement.TryGetProperty("violations", out var arr) || arr.ValueKind != JsonValueKind.Array)
             {
                 resp.Status = "parse_failed";
-                resp.Error = "supervisor JSON missing 'violations' array";
+                resp.Error = "wingman JSON missing 'violations' array";
                 return;
             }
             foreach (var v in arr.EnumerateArray())
@@ -496,9 +496,9 @@ public static class SupervisorService
         }
         catch (JsonException ex)
         {
-            FileLog.Write($"[SupervisorService] rules JSON parse failed: {ex.Message}");
+            FileLog.Write($"[WingmanService] rules JSON parse failed: {ex.Message}");
             resp.Status = "parse_failed";
-            resp.Error = "supervisor JSON parse failed";
+            resp.Error = "wingman JSON parse failed";
         }
     }
 
@@ -542,7 +542,7 @@ public static class SupervisorService
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SupervisorService] GitSnapshotAsync FAILED: {ex.Message}");
+            FileLog.Write($"[WingmanService] GitSnapshotAsync FAILED: {ex.Message}");
             snap.Status = "git_failed";
             snap.Error = ex.Message;
         }
@@ -638,13 +638,13 @@ public static class SupervisorService
                 }
                 catch (Exception ex)
                 {
-                    FileLog.Write($"[SupervisorService] git diff for recovery prompt failed: {ex.Message}");
+                    FileLog.Write($"[WingmanService] git diff for recovery prompt failed: {ex.Message}");
                 }
             }
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SupervisorService] git snapshot for recovery prompt failed: {ex.Message}");
+            FileLog.Write($"[WingmanService] git snapshot for recovery prompt failed: {ex.Message}");
             rp.Status = "generated_with_warnings";
             rp.Error = ex.Message;
         }
@@ -713,22 +713,22 @@ public static class SupervisorService
     }
 
     // ====================================================================
-    // Phase 5: Supervisor Ask - interactive single-turn query about a session
+    // Phase 5: Wingman Ask - interactive single-turn query about a session
     // ====================================================================
 
     /// <summary>
-    /// Ask the supervisor a question about a specific session. One fresh
+    /// Ask the wingman a question about a specific session. One fresh
     /// <c>claude --print --model haiku</c> call with no session persistence.
-    /// The session's recent state (supervisor decisions, turn summaries, buffer
+    /// The session's recent state (wingman decisions, turn summaries, buffer
     /// tail, metadata) is piped in as context. No conversation memory between
     /// calls - each ask is independent.
     ///
     /// Caller supplies the session state via the parameters rather than passing
     /// the Session object so this stays a pure function (testable, no UI thread).
     /// </summary>
-    public static async Task<SupervisorAskResult> AskAboutSessionAsync(
+    public static async Task<WingmanAskResult> AskAboutSessionAsync(
         string question,
-        SupervisorAskContext context,
+        WingmanAskContext context,
         string claudeExePath,
         CancellationToken ct = default,
         bool explain = false)
@@ -738,18 +738,18 @@ public static class SupervisorService
         // Explain mode does not need a user question (it briefs the whole session);
         // the free-text ask path still requires one.
         if (!explain && string.IsNullOrWhiteSpace(question))
-            return new SupervisorAskResult { Status = "bad_request", Error = "empty question" };
+            return new WingmanAskResult { Status = "bad_request", Error = "empty question" };
 
         var model = explain ? StrongModel : DefaultModel;
 
         if (string.IsNullOrWhiteSpace(claudeExePath))
         {
             sw.Stop();
-            return new SupervisorAskResult
+            return new WingmanAskResult
             {
                 Status = "no_claude",
                 Error = "no claude CLI configured",
-                Answer = "Supervisor is not configured (no claude CLI path). Set agents.claudePath in config.json.",
+                Answer = "Wingman is not configured (no claude CLI path). Set agents.claudePath in config.json.",
                 ContextDigest = context.ToDigest(),
                 LatencyMs = sw.ElapsedMilliseconds,
             };
@@ -762,36 +762,77 @@ public static class SupervisorService
             var stdout = await RunSideClaudeAsync(prompt, claudeExePath, ct, model);
             sw.Stop();
             var answer = (stdout ?? "").Trim();
+            // Explain mode appends a "QUICK REPLIES:" JSON line; lift it off and clean the
+            // displayed briefing so the UI can render tap-to-answer buttons.
+            var quickReplies = new List<string>();
+            if (explain)
+            {
+                (answer, quickReplies) = ExtractQuickReplies(answer);
+            }
             // Cap response so a misbehaving model can't return a megabyte into the UI.
             if (answer.Length > 4000) answer = answer[..3997] + "...";
-            return new SupervisorAskResult
+            return new WingmanAskResult
             {
                 Answer = answer,
                 Model = model,
                 LatencyMs = sw.ElapsedMilliseconds,
                 ContextDigest = context.ToDigest(),
                 Status = "ok",
+                QuickReplies = quickReplies,
             };
         }
         catch (Exception ex)
         {
             sw.Stop();
-            FileLog.Write($"[SupervisorService] AskAboutSessionAsync FAILED: {ex.Message}");
-            return new SupervisorAskResult
+            FileLog.Write($"[WingmanService] AskAboutSessionAsync FAILED: {ex.Message}");
+            return new WingmanAskResult
             {
-                Status = "supervisor_failed",
+                Status = "wingman_failed",
                 Error = ex.Message,
-                Answer = "Supervisor call failed: " + ex.Message,
+                Answer = "Wingman call failed: " + ex.Message,
                 ContextDigest = context.ToDigest(),
                 LatencyMs = sw.ElapsedMilliseconds,
             };
         }
     }
 
-    internal static string BuildAskPrompt(string question, SupervisorAskContext context)
+    /// <summary>
+    /// Lift the trailing "QUICK REPLIES: [...]" line off an explain answer: returns the
+    /// briefing with that section removed, plus the parsed options (the model produced them
+    /// as JSON; we only parse our own structured trailer, not free prose). Capped at 4.
+    /// </summary>
+    internal static (string cleaned, List<string> replies) ExtractQuickReplies(string answer)
+    {
+        var replies = new List<string>();
+        if (string.IsNullOrEmpty(answer)) return (answer, replies);
+
+        var idx = answer.IndexOf("QUICK REPLIES:", StringComparison.OrdinalIgnoreCase);
+        if (idx < 0) return (answer, replies);
+
+        var after = answer[(idx + "QUICK REPLIES:".Length)..];
+        var cleaned = answer[..idx].TrimEnd();
+
+        var lb = after.IndexOf('[');
+        var rb = lb >= 0 ? after.IndexOf(']', lb + 1) : -1;
+        if (lb >= 0 && rb > lb)
+        {
+            try
+            {
+                var arr = System.Text.Json.JsonSerializer.Deserialize<List<string>>(after.Substring(lb, rb - lb + 1));
+                if (arr is not null)
+                    foreach (var s in arr)
+                        if (!string.IsNullOrWhiteSpace(s)) replies.Add(s.Trim());
+            }
+            catch { /* model didn't emit valid JSON; just no quick replies */ }
+        }
+        if (replies.Count > 4) replies = replies.GetRange(0, 4);
+        return (cleaned, replies);
+    }
+
+    internal static string BuildAskPrompt(string question, WingmanAskContext context)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("You are the supervisor for a CC Director session. The user has a question about THIS session.");
+        sb.AppendLine("You are the wingman for a CC Director session. The user has a question about THIS session.");
         sb.AppendLine();
         sb.AppendLine("Answer ONLY from the context below. If the context does not contain the answer, say:");
         sb.AppendLine("\"I don't have that in context.\"  Do NOT speculate. Do NOT invent file names, decisions, or activity.");
@@ -810,10 +851,10 @@ public static class SupervisorService
     /// preserving the agent's actual question verbatim (clarifying only when the bare
     /// question is ambiguous out of context).
     /// </summary>
-    internal static string BuildExplainPrompt(SupervisorAskContext context)
+    internal static string BuildExplainPrompt(WingmanAskContext context)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("You are the supervisor for a CC Director session. The user is away from their computer and wants a quick, clear briefing on THIS session so they can decide what to do next.");
+        sb.AppendLine("You are the wingman for a CC Director session. The user is away from their computer and wants a quick, clear briefing on THIS session so they can decide what to do next.");
         sb.AppendLine();
         sb.AppendLine("Write exactly TWO labeled sections, plain text, no markdown, no code blocks, no bullet symbols:");
         sb.AppendLine();
@@ -827,28 +868,34 @@ public static class SupervisorService
         sb.AppendLine("- If the agent asked multiple questions, include them all.");
         sb.AppendLine("- If the agent is mid-flow and not waiting on anything, write: \"Claude is still working; nothing is needed from you right now.\"");
         sb.AppendLine();
+        sb.AppendLine("QUICK REPLIES:");
+        sb.AppendLine("If \"WHAT CLAUDE WANTS\" is a decision the user can answer in a few words (yes/no, this-or-that, pick from a short menu), output the tappable answer options as a JSON array on ONE line, e.g.: [\"Yes, go ahead\", \"No, stop\"]");
+        sb.AppendLine("- 2 to 4 options. Each is the literal text the user would send back to the agent, phrased as the user's own reply (not a description).");
+        sb.AppendLine("- Cover the real choices the agent offered; do not invent options the agent did not imply.");
+        sb.AppendLine("- If there is no clear short answer (the agent is just working, or the reply needs real typing), output an empty array: []");
+        sb.AppendLine();
         sb.AppendLine("Answer ONLY from the context below. Do NOT invent file names, decisions, or questions. If the context does not show what the agent is asking, say so plainly.");
         sb.AppendLine();
         AppendSessionContext(sb, context);
         return sb.ToString();
     }
 
-    /// <summary>Appends the shared session-state sections (metadata, supervisor decisions,
+    /// <summary>Appends the shared session-state sections (metadata, wingman decisions,
     /// recent turn summaries, terminal buffer tail) used by both the ask and explain prompts.</summary>
-    private static void AppendSessionContext(StringBuilder sb, SupervisorAskContext context)
+    private static void AppendSessionContext(StringBuilder sb, WingmanAskContext context)
     {
         sb.AppendLine("=== SESSION METADATA ===");
         sb.AppendLine($"- Repo: {context.RepoPath}");
         sb.AppendLine($"- Agent: {context.AgentKind}");
         sb.AppendLine($"- Activity state: {context.ActivityState}");
-        sb.AppendLine($"- Supervisor color: {context.CurrentColor} ({context.CurrentReason})");
+        sb.AppendLine($"- Wingman color: {context.CurrentColor} ({context.CurrentReason})");
         sb.AppendLine($"- Git dirty: {context.GitDirty}");
 
-        if (context.RecentSupervisorEvents.Count > 0)
+        if (context.RecentWingmanEvents.Count > 0)
         {
             sb.AppendLine();
-            sb.AppendLine("=== SUPERVISOR DECISIONS (newest first) ===");
-            foreach (var e in context.RecentSupervisorEvents.Take(20))
+            sb.AppendLine("=== WINGMAN DECISIONS (newest first) ===");
+            foreach (var e in context.RecentWingmanEvents.Take(20))
                 sb.AppendLine($"- {e.At:HH:mm:ss}  {e.OldColor} -> {e.NewColor}  \"{e.Reason}\"");
         }
 
@@ -877,6 +924,119 @@ public static class SupervisorService
             sb.AppendLine("Use your judgment over the whole context to tell the agent's suggested choices apart from text the user actually entered, and treat the session as still waiting until there is real evidence the user responded. This is guidance for reading the screen, not a rigid rule to apply blindly.");
             sb.AppendLine();
             sb.AppendLine(Truncate(context.BufferTailText, 4000));
+        }
+    }
+
+    // ====================================================================
+    // Goal management: is the session still working toward its stated goal?
+    // ====================================================================
+
+    /// <summary>
+    /// Judge whether a session is still on track toward its stated goal, has
+    /// drifted, or has completed it. One fresh Haiku call over the goal plus the
+    /// session's recent turn summaries.
+    ///
+    /// Observational only - the caller decides what to do with the verdict. On any
+    /// failure (no claude CLI, parse error, timeout) returns
+    /// <see cref="GoalStates.Unknown"/> with a reason; we never fabricate a verdict.
+    /// </summary>
+    public static async Task<GoalAssessment> AssessGoalAsync(
+        string goal,
+        IReadOnlyList<TurnSummary> recentSummaries,
+        string repoPath,
+        string claudeExePath,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(goal))
+            return new GoalAssessment { State = GoalStates.Unknown, Reason = "no goal set" };
+        if (string.IsNullOrWhiteSpace(claudeExePath))
+            return new GoalAssessment { State = GoalStates.Unknown, Reason = "no claude CLI configured" };
+
+        var prompt = BuildGoalAssessmentPrompt(goal, recentSummaries ?? Array.Empty<TurnSummary>(), repoPath ?? "");
+
+        try
+        {
+            var stdout = await RunSideClaudeAsync(prompt, claudeExePath, ct);
+            return ParseGoalAssessmentJson(stdout);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[WingmanService] AssessGoalAsync FAILED: {ex.Message}");
+            return new GoalAssessment { State = GoalStates.Unknown, Reason = "wingman call failed: " + ex.Message };
+        }
+    }
+
+    internal static string BuildGoalAssessmentPrompt(string goal, IReadOnlyList<TurnSummary> recentSummaries, string repoPath)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("You are the goal-tracking wingman for a Claude Code session. The user set a GOAL for this session. Below the goal is a list of recent turn summaries describing what the agent has actually done, oldest first.");
+        sb.AppendLine();
+        sb.AppendLine("Your job: judge whether the session is still working toward the goal.");
+        sb.AppendLine();
+        sb.AppendLine("Pick exactly one state:");
+        sb.AppendLine("- \"on_track\": the recent work is plausibly in service of the goal, or the session just started and nothing contradicts it.");
+        sb.AppendLine("- \"drifting\": the recent work has clearly moved onto something unrelated to the goal, OR the agent is stuck/looping without progressing the goal.");
+        sb.AppendLine("- \"complete\": the goal appears to have been accomplished based on the summaries.");
+        sb.AppendLine();
+        sb.AppendLine("Be conservative. Prefer \"on_track\" unless there is clear evidence of drift or completion. A single tangential step is not drift; a sustained move away from the goal is.");
+        sb.AppendLine();
+        sb.AppendLine("Output ONE JSON object, no markdown fence, exactly this shape:");
+        sb.AppendLine("{\"state\": \"on_track|drifting|complete\", \"reason\": \"<one short plain-language sentence; name the goal and what the work shows>\"}");
+        sb.AppendLine();
+        sb.AppendLine($"=== GOAL ===");
+        sb.AppendLine(Truncate(goal, 1000));
+        sb.AppendLine();
+        sb.AppendLine($"=== RECENT TURN SUMMARIES (oldest first), repo {repoPath} ===");
+        if (recentSummaries.Count == 0)
+        {
+            sb.AppendLine("(no turns completed yet)");
+        }
+        else
+        {
+            foreach (var t in recentSummaries.TakeLast(8))
+            {
+                sb.AppendLine($"- {t.Headline}");
+                if (!string.IsNullOrEmpty(t.NeedsUser) && t.NeedsUser != "no")
+                    sb.AppendLine($"    needs_user: {t.NeedsUser}");
+                if (t.Decisions is { Count: > 0 })
+                    sb.AppendLine($"    decisions: {string.Join(" | ", t.Decisions)}");
+            }
+        }
+        return sb.ToString();
+    }
+
+    internal static GoalAssessment ParseGoalAssessmentJson(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+            return new GoalAssessment { State = GoalStates.Unknown, Reason = "wingman returned empty output" };
+
+        var s = raw.Trim();
+        if (s.StartsWith("```"))
+        {
+            var nl = s.IndexOf('\n');
+            if (nl > 0) s = s[(nl + 1)..];
+            var endFence = s.LastIndexOf("```", StringComparison.Ordinal);
+            if (endFence > 0) s = s[..endFence].Trim();
+        }
+        var firstBrace = s.IndexOf('{');
+        var lastBrace = s.LastIndexOf('}');
+        if (firstBrace >= 0 && lastBrace > firstBrace)
+            s = s.Substring(firstBrace, lastBrace - firstBrace + 1);
+
+        try
+        {
+            using var doc = JsonDocument.Parse(s);
+            var root = doc.RootElement;
+            var state = root.TryGetProperty("state", out var st) ? (st.GetString() ?? "").Trim().ToLowerInvariant() : "";
+            var reason = root.TryGetProperty("reason", out var r) ? (r.GetString() ?? "").Trim() : "";
+            if (!GoalStates.IsValid(state) || state == GoalStates.Unknown)
+                return new GoalAssessment { State = GoalStates.Unknown, Reason = "wingman returned an invalid goal state" };
+            return new GoalAssessment { State = state, Reason = reason };
+        }
+        catch (JsonException ex)
+        {
+            FileLog.Write($"[WingmanService] goal-assessment JSON parse failed: {ex.Message}, raw='{Truncate(raw, 200)}'");
+            return new GoalAssessment { State = GoalStates.Unknown, Reason = "wingman JSON parse failed" };
         }
     }
 
@@ -950,11 +1110,11 @@ public static class SupervisorService
 
         if (proc.ExitCode != 0)
         {
-            FileLog.Write($"[SupervisorService] claude --print exit={proc.ExitCode} in {sw.ElapsedMilliseconds}ms, stderr={Truncate(stderr, 400)}");
+            FileLog.Write($"[WingmanService] claude --print exit={proc.ExitCode} in {sw.ElapsedMilliseconds}ms, stderr={Truncate(stderr, 400)}");
             throw new InvalidOperationException($"claude --print exited {proc.ExitCode}: {stderr.Trim()}");
         }
 
-        FileLog.Write($"[SupervisorService] side-call done in {sw.ElapsedMilliseconds}ms, output chars={stdout.Length}");
+        FileLog.Write($"[WingmanService] side-call done in {sw.ElapsedMilliseconds}ms, output chars={stdout.Length}");
         return stdout.Trim();
     }
 
@@ -963,7 +1123,7 @@ public static class SupervisorService
 }
 
 /// <summary>
-/// Output of <see cref="SupervisorService.CleanVoiceTranscriptAsync"/>.
+/// Output of <see cref="WingmanService.CleanVoiceTranscriptAsync"/>.
 /// Always populated even on failure (Cleaned falls back to raw).
 /// </summary>
 public sealed record VoiceCleanupResult(string Cleaned, string Reason);

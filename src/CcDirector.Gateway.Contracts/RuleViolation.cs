@@ -2,7 +2,7 @@ namespace CcDirector.Gateway.Contracts;
 
 /// <summary>
 /// One detected violation of a CLAUDE.md rule by the main agent's recent activity.
-/// Produced by the Supervisor's CheckRulesAsync call (Phase 5).
+/// Produced by the Wingman's CheckRulesAsync call (Phase 5).
 /// Surfaced in the Agent View as a warning chip and feeds the status colour.
 /// </summary>
 public sealed class RuleViolation
@@ -26,7 +26,7 @@ public sealed class RuleViolationsResponse
     public string SessionId { get; set; } = "";
     public List<RuleViolation> Violations { get; set; } = new();
 
-    /// <summary>"ok" | "no_rules" | "no_summary" | "supervisor_failed" | "parse_failed".</summary>
+    /// <summary>"ok" | "no_rules" | "no_summary" | "wingman_failed" | "parse_failed".</summary>
     public string Status { get; set; } = "ok";
 
     public string? Error { get; set; }

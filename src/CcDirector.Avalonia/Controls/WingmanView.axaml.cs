@@ -15,12 +15,12 @@ using CcDirector.Gateway.Contracts;
 namespace CcDirector.Avalonia.Controls;
 
 /// <summary>
-/// Phase 5 desktop tab: ask the SessionStatusSupervisor questions about the
+/// Phase 5 desktop tab: ask the SessionStatusWingman questions about the
 /// currently-bound session. Each ask is one fresh, stateless Haiku call.
-/// Conversation history shown here is for the user's benefit only; the supervisor
+/// Conversation history shown here is for the user's benefit only; the wingman
 /// itself never has memory between calls.
 /// </summary>
-public partial class SupervisorView : UserControl
+public partial class WingmanView : UserControl
 {
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(50) };
     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
@@ -38,7 +38,7 @@ public partial class SupervisorView : UserControl
     private string? _directorBaseUrl;
     private readonly ObservableCollection<AskEntry> _history = new();
 
-    public SupervisorView()
+    public WingmanView()
     {
         InitializeComponent();
         HistoryList.ItemsSource = _history;
@@ -67,7 +67,7 @@ public partial class SupervisorView : UserControl
         else
         {
             SupReason.Text = "no session selected";
-            SupSubtitle.Text = "open a session in the sidebar to use the supervisor";
+            SupSubtitle.Text = "open a session in the sidebar to use the wingman";
             SupDot.Fill = StatusBrushes["unknown"];
             QuestionBox.IsEnabled = false;
             AskButton.IsEnabled = false;
@@ -117,7 +117,7 @@ public partial class SupervisorView : UserControl
         if (string.IsNullOrEmpty(question)) return;
         if (_session is null || string.IsNullOrEmpty(_directorBaseUrl))
         {
-            AppendEntry(question, "(supervisor is not connected; no session/Director URL)", "");
+            AppendEntry(question, "(wingman is not connected; no session/Director URL)", "");
             return;
         }
 
@@ -136,17 +136,17 @@ public partial class SupervisorView : UserControl
 
         try
         {
-            var url = $"{_directorBaseUrl}/sessions/{_session.Id}/supervisor/ask";
-            var body = new SupervisorAskRequest { Question = question };
+            var url = $"{_directorBaseUrl}/sessions/{_session.Id}/wingman/ask";
+            var body = new WingmanAskRequest { Question = question };
             using var resp = await Http.PostAsJsonAsync(url, body, JsonOpts);
             if (!resp.IsSuccessStatusCode)
             {
-                pending.Answer = $"supervisor HTTP {(int)resp.StatusCode}";
+                pending.Answer = $"wingman HTTP {(int)resp.StatusCode}";
                 pending.Footer = await resp.Content.ReadAsStringAsync();
             }
             else
             {
-                var result = await resp.Content.ReadFromJsonAsync<SupervisorAskResult>(JsonOpts);
+                var result = await resp.Content.ReadFromJsonAsync<WingmanAskResult>(JsonOpts);
                 if (result is null)
                 {
                     pending.Answer = "(empty response)";
@@ -162,7 +162,7 @@ public partial class SupervisorView : UserControl
         catch (Exception ex)
         {
             pending.Answer = "ask failed: " + ex.Message;
-            FileLog.Write($"[SupervisorView] ask FAILED: {ex.Message}");
+            FileLog.Write($"[WingmanView] ask FAILED: {ex.Message}");
         }
         finally
         {

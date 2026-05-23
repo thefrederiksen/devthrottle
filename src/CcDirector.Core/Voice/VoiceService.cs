@@ -5,7 +5,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Sessions;
-using CcDirector.Core.Supervisor;
+using CcDirector.Core.Wingman;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 
@@ -80,7 +80,7 @@ public sealed class VoiceService
 
         FileLog.Write($"[VoiceService] Transcript: \"{Truncate(transcript, 200)}\"");
 
-        // Phase 1 of the SessionSupervisor goal: clean the raw transcript via a Haiku
+        // Phase 1 of the SessionWingman goal: clean the raw transcript via a Haiku
         // side-call BEFORE we hand it off to the agent.  Cheap (~$0.0001), fast (~1 s),
         // saves the main agent from parsing filler words like "um like uh you know".
         // Fails open: on any error, CleanedTranscript == raw and the user sees the
@@ -88,7 +88,7 @@ public sealed class VoiceService
         VoiceCleanupResult cleanup;
         try
         {
-            cleanup = await Supervisor.SupervisorService.CleanVoiceTranscriptAsync(
+            cleanup = await Wingman.WingmanService.CleanVoiceTranscriptAsync(
                 transcript,
                 repoPath: "",       // best-effort: VoiceService doesn't currently know the session repo
                 claudeExePath: _options.ClaudePath,

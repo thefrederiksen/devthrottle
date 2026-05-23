@@ -353,7 +353,7 @@ function humanizeState(s) {
   }
 }
 
-// The status color is OWNED by the Director's SessionStatusSupervisor. We render
+// The status color is OWNED by the Director's SessionStatusWingman. We render
 // exactly what it returns. No derivation, no fallback. If the value isn't one of
 // the five known colors, we render "unknown" (gray) - that's the truthful answer.
 function statusColorOf(s) {
@@ -367,7 +367,7 @@ function statusReasonOf(s) {
 }
 
 // Dot tooltip - replaces the page-level legend. Combines the color's general
-// meaning with the supervisor's specific reason for THIS session.
+// meaning with the wingman's specific reason for THIS session.
 const COLOR_MEANING = {
   green:   "Green - ready",
   blue:    "Blue - agent working",
@@ -382,16 +382,17 @@ function dotTooltipOf(s) {
   return reason ? `${meaning}\n(${reason})` : meaning;
 }
 
-function sessionSortKey(s) {
-  const color = statusColorOf(s);
-  const order = { red: 0, yellow: 1, blue: 2, green: 3, unknown: 4 };
-  return [order[color] ?? 9, (s.name || s.repoPath || "").toLowerCase()];
-}
-
+// Sort by creation time (stable for the life of a session) so cards keep a
+// fixed position. We deliberately do NOT sort by status color - a card must not
+// jump around the list when its color changes. Falls back to sessionId to keep
+// the order deterministic if two sessions share a timestamp.
 function compareSessions(a, b) {
-  const ka = sessionSortKey(a), kb = sessionSortKey(b);
-  if (ka[0] !== kb[0]) return ka[0] - kb[0];
-  return ka[1].localeCompare(kb[1]);
+  const ta = new Date(a.createdAt).getTime();
+  const tb = new Date(b.createdAt).getTime();
+  const va = Number.isNaN(ta) ? 0 : ta;
+  const vb = Number.isNaN(tb) ? 0 : tb;
+  if (va !== vb) return va - vb;
+  return (a.sessionId || "").localeCompare(b.sessionId || "");
 }
 
 function groupByMachine(sessions) {

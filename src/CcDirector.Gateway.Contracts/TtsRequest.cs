@@ -2,7 +2,7 @@ namespace CcDirector.Gateway.Contracts;
 
 /// <summary>
 /// POST /tts request.  Used by the voice mode (Phase 3) to convert the
-/// Supervisor's spoken_text into natural-sounding audio via OpenAI TTS.
+/// Wingman's spoken_text into natural-sounding audio via OpenAI TTS.
 /// </summary>
 public sealed class TtsRequest
 {

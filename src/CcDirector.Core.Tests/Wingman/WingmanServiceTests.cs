@@ -1,12 +1,12 @@
 using CcDirector.Core.Claude;
-using CcDirector.Core.Supervisor;
+using CcDirector.Core.Wingman;
 using CcDirector.Gateway.Contracts;
 using Xunit;
 
-namespace CcDirector.Core.Tests.Supervisor;
+namespace CcDirector.Core.Tests.Wingman;
 
 /// <summary>
-/// Tests for the SupervisorService.
+/// Tests for the WingmanService.
 ///
 /// The actual side-claude --print invocation is not exercised here - it would
 /// require a live claude CLI install with credentials, which we cannot rely on
@@ -17,7 +17,7 @@ namespace CcDirector.Core.Tests.Supervisor;
 /// self-test gate documented in the goal doc; the user runs it manually with
 /// the live build.
 /// </summary>
-public sealed class SupervisorServiceTests
+public sealed class WingmanServiceTests
 {
     // --------------------------------------------------------------------
     // CleanVoiceTranscriptAsync fail-open contract
@@ -26,7 +26,7 @@ public sealed class SupervisorServiceTests
     [Fact]
     public async Task CleanVoiceTranscriptAsync_empty_raw_returns_empty_with_reason()
     {
-        var r = await SupervisorService.CleanVoiceTranscriptAsync("", repoPath: "", claudeExePath: "claude.exe");
+        var r = await WingmanService.CleanVoiceTranscriptAsync("", repoPath: "", claudeExePath: "claude.exe");
         Assert.Equal("", r.Cleaned);
         Assert.Contains("empty", r.Reason, StringComparison.OrdinalIgnoreCase);
     }
@@ -35,7 +35,7 @@ public sealed class SupervisorServiceTests
     public async Task CleanVoiceTranscriptAsync_no_claude_path_returns_raw_verbatim()
     {
         const string raw = "hello world";
-        var r = await SupervisorService.CleanVoiceTranscriptAsync(raw, repoPath: "", claudeExePath: "");
+        var r = await WingmanService.CleanVoiceTranscriptAsync(raw, repoPath: "", claudeExePath: "");
         Assert.Equal(raw, r.Cleaned);
         Assert.Contains("no claude", r.Reason, StringComparison.OrdinalIgnoreCase);
     }
@@ -45,22 +45,22 @@ public sealed class SupervisorServiceTests
     {
         const string raw = "list sessions";
         // Path that does not exist - Process.Start throws Win32Exception ("The system cannot find...").
-        var r = await SupervisorService.CleanVoiceTranscriptAsync(
+        var r = await WingmanService.CleanVoiceTranscriptAsync(
             raw, repoPath: "", claudeExePath: @"C:\__nonexistent__\claude.exe");
         Assert.Equal(raw, r.Cleaned);            // fail-open: raw is preserved
-        Assert.Contains("supervisor call failed", r.Reason, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("wingman call failed", r.Reason, StringComparison.OrdinalIgnoreCase);
     }
 
     // --------------------------------------------------------------------
     // JSON parser (internal) - exhaustive cases against the shape the
-    // Supervisor prompt asks Haiku to emit
+    // Wingman prompt asks Haiku to emit
     // --------------------------------------------------------------------
 
     [Fact]
     public void ParseVoiceCleanupJson_clean_pair_is_extracted()
     {
         const string raw = "{\"cleaned\":\"fix the bug in the login flow\",\"reason\":\"removed filler\"}";
-        var r = SupervisorService.ParseVoiceCleanupJson(raw, "FALLBACK");
+        var r = WingmanService.ParseVoiceCleanupJson(raw, "FALLBACK");
         Assert.Equal("fix the bug in the login flow", r.Cleaned);
         Assert.Equal("removed filler", r.Reason);
     }
@@ -69,7 +69,7 @@ public sealed class SupervisorServiceTests
     public void ParseVoiceCleanupJson_fenced_json_is_tolerated()
     {
         const string raw = "```json\n{\"cleaned\":\"do the thing\",\"reason\":\"no changes needed\"}\n```";
-        var r = SupervisorService.ParseVoiceCleanupJson(raw, "FALLBACK");
+        var r = WingmanService.ParseVoiceCleanupJson(raw, "FALLBACK");
         Assert.Equal("do the thing", r.Cleaned);
         Assert.Equal("no changes needed", r.Reason);
     }
@@ -78,7 +78,7 @@ public sealed class SupervisorServiceTests
     public void ParseVoiceCleanupJson_chatter_before_and_after_is_tolerated()
     {
         const string raw = "Sure! Here is the JSON:\n{\"cleaned\":\"x\",\"reason\":\"y\"}\nLet me know if you need more.";
-        var r = SupervisorService.ParseVoiceCleanupJson(raw, "FALLBACK");
+        var r = WingmanService.ParseVoiceCleanupJson(raw, "FALLBACK");
         Assert.Equal("x", r.Cleaned);
         Assert.Equal("y", r.Reason);
     }
@@ -87,7 +87,7 @@ public sealed class SupervisorServiceTests
     public void ParseVoiceCleanupJson_empty_cleaned_field_falls_back_to_raw()
     {
         const string raw = "{\"cleaned\":\"\",\"reason\":\"could not clean\"}";
-        var r = SupervisorService.ParseVoiceCleanupJson(raw, "FALLBACK_TRANSCRIPT");
+        var r = WingmanService.ParseVoiceCleanupJson(raw, "FALLBACK_TRANSCRIPT");
         Assert.Equal("FALLBACK_TRANSCRIPT", r.Cleaned);
         Assert.Contains("empty", r.Reason, StringComparison.OrdinalIgnoreCase);
     }
@@ -96,11 +96,11 @@ public sealed class SupervisorServiceTests
     public void ParseVoiceCleanupJson_garbage_falls_back_to_raw_with_reason()
     {
         const string raw = "this is not json at all";
-        var r = SupervisorService.ParseVoiceCleanupJson(raw, "FALLBACK_TRANSCRIPT");
+        var r = WingmanService.ParseVoiceCleanupJson(raw, "FALLBACK_TRANSCRIPT");
         Assert.Equal("FALLBACK_TRANSCRIPT", r.Cleaned);
-        // Could be either "supervisor returned empty output" (no { found) or "supervisor JSON parse failed".
+        // Could be either "wingman returned empty output" (no { found) or "wingman JSON parse failed".
         Assert.True(
-            r.Reason.Contains("supervisor", StringComparison.OrdinalIgnoreCase),
+            r.Reason.Contains("wingman", StringComparison.OrdinalIgnoreCase),
             $"unexpected reason: {r.Reason}");
     }
 
@@ -108,7 +108,7 @@ public sealed class SupervisorServiceTests
     public void ParseVoiceCleanupJson_missing_reason_defaults_to_no_changes_needed()
     {
         const string raw = "{\"cleaned\":\"x\"}";
-        var r = SupervisorService.ParseVoiceCleanupJson(raw, "FALLBACK");
+        var r = WingmanService.ParseVoiceCleanupJson(raw, "FALLBACK");
         Assert.Equal("x", r.Cleaned);
         Assert.Equal("no changes needed", r.Reason);
     }
@@ -117,7 +117,7 @@ public sealed class SupervisorServiceTests
     public void ParseVoiceCleanupJson_trims_whitespace_in_cleaned()
     {
         const string raw = "{\"cleaned\":\"   trimmed   \",\"reason\":\"   r   \"}";
-        var r = SupervisorService.ParseVoiceCleanupJson(raw, "FALLBACK");
+        var r = WingmanService.ParseVoiceCleanupJson(raw, "FALLBACK");
         Assert.Equal("trimmed", r.Cleaned);
         Assert.Equal("r", r.Reason);
     }
@@ -137,13 +137,13 @@ public sealed class SupervisorServiceTests
     [Fact]
     public void TruncateKeepEnd_short_input_returned_verbatim()
     {
-        Assert.Equal("hello", SupervisorService.TruncateKeepEnd("hello", 100));
+        Assert.Equal("hello", WingmanService.TruncateKeepEnd("hello", 100));
     }
 
     [Fact]
     public void TruncateKeepEnd_empty_returns_empty()
     {
-        Assert.Equal("", SupervisorService.TruncateKeepEnd("", 100));
+        Assert.Equal("", WingmanService.TruncateKeepEnd("", 100));
     }
 
     [Fact]
@@ -156,7 +156,7 @@ public sealed class SupervisorServiceTests
         var trailingQuestion = "Want me to turn this into the architecture & design spec the ticket asks for (with the open questions answered as concrete proposals)?";
         var input = head + " " + trailingQuestion;
 
-        var result = SupervisorService.TruncateKeepEnd(input, 200);
+        var result = WingmanService.TruncateKeepEnd(input, 200);
 
         Assert.True(result.Length <= 300, $"result too long: {result.Length}");
         Assert.EndsWith(trailingQuestion, result);
@@ -170,7 +170,7 @@ public sealed class SupervisorServiceTests
         var turn = MakeTurn("add a test", "Edit", "Bash");
         const string raw = "{\"headline\":\"Added a unit test for the empty case\",\"files_touched\":[\"a.cs\",\"b.cs\"],\"commands_run\":[\"dotnet test\"],\"decisions\":[\"chose xUnit\",\"used InlineData\"],\"needs_user\":\"no\",\"needs_user_detail\":\"\",\"spoken_text\":\"I added a test. Tests passed.\"}";
 
-        SupervisorService.ParseTurnSummaryJsonInto(raw, summary, turn);
+        WingmanService.ParseTurnSummaryJsonInto(raw, summary, turn);
 
         Assert.Equal("ok", summary.Status);
         Assert.Equal("Added a unit test for the empty case", summary.Headline);
@@ -190,7 +190,7 @@ public sealed class SupervisorServiceTests
         var turn = MakeTurn("which approach should we use?", "AskUserQuestion");
         const string raw = "{\"headline\":\"Asking which approach\",\"files_touched\":[],\"commands_run\":[],\"decisions\":[],\"needs_user\":\"question\",\"needs_user_detail\":\"Pick A or B.\",\"spoken_text\":\"I need you to decide between approach A and approach B.\"}";
 
-        SupervisorService.ParseTurnSummaryJsonInto(raw, summary, turn);
+        WingmanService.ParseTurnSummaryJsonInto(raw, summary, turn);
 
         Assert.Equal("question", summary.NeedsUser);
         Assert.StartsWith("I need you to", summary.SpokenText);
@@ -203,7 +203,7 @@ public sealed class SupervisorServiceTests
         var turn = MakeTurn("which approach?", "AskUserQuestion");
         const string raw = "{\"headline\":\"asks\",\"files_touched\":[],\"commands_run\":[],\"decisions\":[],\"needs_user\":\"question\",\"needs_user_detail\":\"Pick A or B. A is faster but writes to disk. B is slower but pure functional. Choose.\",\"needs_user_short\":\"A or B?\",\"spoken_text\":\"A or B\"}";
 
-        SupervisorService.ParseTurnSummaryJsonInto(raw, summary, turn);
+        WingmanService.ParseTurnSummaryJsonInto(raw, summary, turn);
 
         Assert.Equal("question", summary.NeedsUser);
         Assert.Equal("A or B?", summary.NeedsUserShort);
@@ -218,7 +218,7 @@ public sealed class SupervisorServiceTests
         var huge = new string('q', 800);
         var raw = $"{{\"headline\":\"h\",\"needs_user\":\"question\",\"needs_user_short\":\"{huge}\",\"spoken_text\":\"\"}}";
 
-        SupervisorService.ParseTurnSummaryJsonInto(raw, summary, turn);
+        WingmanService.ParseTurnSummaryJsonInto(raw, summary, turn);
 
         Assert.True(summary.NeedsUserShort.Length <= 500);
         Assert.EndsWith("...", summary.NeedsUserShort);
@@ -231,7 +231,7 @@ public sealed class SupervisorServiceTests
         var turn = MakeTurn("fix the bug", "Edit");
         const string raw = "{\"headline\":\"Fixed the bug\"}";
 
-        SupervisorService.ParseTurnSummaryJsonInto(raw, summary, turn);
+        WingmanService.ParseTurnSummaryJsonInto(raw, summary, turn);
 
         Assert.Equal("Fixed the bug", summary.Headline);
         Assert.Equal("Fixed the bug", summary.SpokenText);
@@ -245,7 +245,7 @@ public sealed class SupervisorServiceTests
         var turn = MakeTurn("anything", "Bash");
         turn.BashCommands.Add("ls -la");
 
-        SupervisorService.ParseTurnSummaryJsonInto("not json", summary, turn);
+        WingmanService.ParseTurnSummaryJsonInto("not json", summary, turn);
 
         Assert.Equal("parse_failed", summary.Status);
         Assert.False(string.IsNullOrEmpty(summary.Headline));
@@ -260,7 +260,7 @@ public sealed class SupervisorServiceTests
         var longText = new string('a', 800);
         var raw = "{\"headline\":\"h\",\"spoken_text\":\"" + longText + "\"}";
 
-        SupervisorService.ParseTurnSummaryJsonInto(raw, summary, turn);
+        WingmanService.ParseTurnSummaryJsonInto(raw, summary, turn);
 
         Assert.True(summary.SpokenText.Length <= 320, $"length was {summary.SpokenText.Length}");
         Assert.EndsWith("...", summary.SpokenText);
@@ -273,7 +273,7 @@ public sealed class SupervisorServiceTests
         var turn = MakeTurn("x");
         const string raw = "```json\n{\"headline\":\"h\",\"spoken_text\":\"done\",\"needs_user\":\"no\"}\n```";
 
-        SupervisorService.ParseTurnSummaryJsonInto(raw, summary, turn);
+        WingmanService.ParseTurnSummaryJsonInto(raw, summary, turn);
 
         Assert.Equal("h", summary.Headline);
         Assert.Equal("done", summary.SpokenText);
@@ -285,9 +285,9 @@ public sealed class SupervisorServiceTests
         var turn = MakeTurn("hello", "Bash");
         turn.BashCommands.Add("echo hi");
 
-        var s = await SupervisorService.SummarizeTurnAsync(turn, lastAssistantText: "Hi.", repoPath: "", claudeExePath: "");
+        var s = await WingmanService.SummarizeTurnAsync(turn, lastAssistantText: "Hi.", repoPath: "", claudeExePath: "");
 
-        Assert.Equal("supervisor_failed", s.Status);
+        Assert.Equal("wingman_failed", s.Status);
         Assert.False(string.IsNullOrEmpty(s.Headline));
         Assert.False(string.IsNullOrEmpty(s.SpokenText));
     }
@@ -299,7 +299,7 @@ public sealed class SupervisorServiceTests
     [Fact]
     public void LoadRulesChain_returns_empty_for_empty_repo_path()
     {
-        var content = SupervisorService.LoadRulesChain("", out var sources);
+        var content = WingmanService.LoadRulesChain("", out var sources);
         // Global CLAUDE.md may exist on the dev machine - just verify we got a string back.
         Assert.NotNull(content);
         Assert.NotNull(sources);
@@ -309,7 +309,7 @@ public sealed class SupervisorServiceTests
     public void ParseRulesJsonInto_empty_violations_array_is_ok()
     {
         var resp = new RuleViolationsResponse();
-        SupervisorService.ParseRulesJsonInto("{\"violations\":[]}", resp, null);
+        WingmanService.ParseRulesJsonInto("{\"violations\":[]}", resp, null);
         Assert.Equal("ok", resp.Status);
         Assert.Empty(resp.Violations);
     }
@@ -319,7 +319,7 @@ public sealed class SupervisorServiceTests
     {
         var resp = new RuleViolationsResponse();
         const string raw = "{\"violations\":[{\"rule\":\"no em dashes\",\"what\":\"used --\",\"severity\":\"warn\"}]}";
-        SupervisorService.ParseRulesJsonInto(raw, resp, @"C:\path\CLAUDE.md");
+        WingmanService.ParseRulesJsonInto(raw, resp, @"C:\path\CLAUDE.md");
         Assert.Equal("ok", resp.Status);
         Assert.Single(resp.Violations);
         Assert.Equal("no em dashes", resp.Violations[0].Rule);
@@ -332,7 +332,7 @@ public sealed class SupervisorServiceTests
     {
         var resp = new RuleViolationsResponse();
         const string raw = "{\"violations\":[{\"rule\":\"r\",\"what\":\"w\",\"severity\":\"chaos\"}]}";
-        SupervisorService.ParseRulesJsonInto(raw, resp, null);
+        WingmanService.ParseRulesJsonInto(raw, resp, null);
         Assert.Equal("warn", resp.Violations[0].Severity);
     }
 
@@ -340,7 +340,7 @@ public sealed class SupervisorServiceTests
     public void ParseRulesJsonInto_garbage_yields_parse_failed()
     {
         var resp = new RuleViolationsResponse();
-        SupervisorService.ParseRulesJsonInto("hi mom", resp, null);
+        WingmanService.ParseRulesJsonInto("hi mom", resp, null);
         Assert.Equal("parse_failed", resp.Status);
     }
 
@@ -351,7 +351,7 @@ public sealed class SupervisorServiceTests
     [Fact]
     public async Task GitSnapshotAsync_against_unreal_path_returns_not_a_repo()
     {
-        var snap = await SupervisorService.GitSnapshotAsync(@"C:\__nonexistent_dir__");
+        var snap = await WingmanService.GitSnapshotAsync(@"C:\__nonexistent_dir__");
         Assert.Equal("not_a_repo", snap.Status);
     }
 
@@ -360,7 +360,7 @@ public sealed class SupervisorServiceTests
     {
         var repo = TryFindCcDirectorRepo();
         if (repo is null) return;  // can't find the repo from the test runner CWD - skip silently
-        var snap = await SupervisorService.GitSnapshotAsync(repo);
+        var snap = await WingmanService.GitSnapshotAsync(repo);
         if (snap.Status != "ok")
             return;  // git not on PATH or some other env issue - skip silently
         Assert.False(string.IsNullOrEmpty(snap.Branch), "branch should be populated");
@@ -394,7 +394,7 @@ public sealed class SupervisorServiceTests
             CommandsRun = new List<string> { "dotnet test" },
             Decisions = new List<string> { "Chose Rename over Refactor" },
         };
-        var rp = await SupervisorService.BuildRecoveryPromptAsync("sid-abc", repoPath: AppContext.BaseDirectory, summary);
+        var rp = await WingmanService.BuildRecoveryPromptAsync("sid-abc", repoPath: AppContext.BaseDirectory, summary);
         Assert.False(string.IsNullOrEmpty(rp.MarkdownBlob));
         Assert.Contains("Session.cs", rp.MarkdownBlob);
         Assert.Contains("Was renaming", rp.MarkdownBlob);
@@ -403,7 +403,7 @@ public sealed class SupervisorServiceTests
     [Fact]
     public async Task BuildRecoveryPromptAsync_without_summary_marks_no_data()
     {
-        var rp = await SupervisorService.BuildRecoveryPromptAsync("sid-abc", repoPath: AppContext.BaseDirectory, lastSummary: null);
+        var rp = await WingmanService.BuildRecoveryPromptAsync("sid-abc", repoPath: AppContext.BaseDirectory, lastSummary: null);
         Assert.Equal("no_data", rp.Status);
         Assert.Contains("Recovery", rp.MarkdownBlob);
     }
@@ -415,7 +415,7 @@ public sealed class SupervisorServiceTests
     [Fact]
     public void CheckCodeReviewDiscipline_empty_input_returns_empty()
     {
-        var v = SupervisorService.CheckCodeReviewDiscipline(new List<TurnData>());
+        var v = WingmanService.CheckCodeReviewDiscipline(new List<TurnData>());
         Assert.Empty(v);
     }
 
@@ -424,7 +424,7 @@ public sealed class SupervisorServiceTests
     {
         var turn = MakeTurn("ship it", "Bash");
         turn.BashCommands.Add("git commit -m 'ship'");
-        var v = SupervisorService.CheckCodeReviewDiscipline(new List<TurnData> { turn });
+        var v = WingmanService.CheckCodeReviewDiscipline(new List<TurnData> { turn });
         Assert.Single(v);
         Assert.Equal("warn", v[0].Severity);
     }
@@ -435,7 +435,7 @@ public sealed class SupervisorServiceTests
         var reviewTurn = MakeTurn("/review-code please", "SlashCommand");
         var commitTurn = MakeTurn("ok ship it", "Bash");
         commitTurn.BashCommands.Add("git commit -m 'ship'");
-        var v = SupervisorService.CheckCodeReviewDiscipline(new List<TurnData> { reviewTurn, commitTurn });
+        var v = WingmanService.CheckCodeReviewDiscipline(new List<TurnData> { reviewTurn, commitTurn });
         Assert.Empty(v);
     }
 
@@ -448,9 +448,102 @@ public sealed class SupervisorServiceTests
         var noise = MakeTurn("intermediate work", "Edit");
         var commit2 = MakeTurn("second commit", "Bash");
         commit2.BashCommands.Add("git commit -m 'two'");
-        var v = SupervisorService.CheckCodeReviewDiscipline(new List<TurnData> { review, commit1, noise, commit2 });
+        var v = WingmanService.CheckCodeReviewDiscipline(new List<TurnData> { review, commit1, noise, commit2 });
         // First commit reviewed; second commit not reviewed since.
         Assert.Single(v);
         Assert.Contains("git commit", v[0].What, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // --------------------------------------------------------------------
+    // Goal management: AssessGoalAsync fail behaviour + parser + prompt
+    // --------------------------------------------------------------------
+
+    [Fact]
+    public async Task AssessGoalAsync_no_goal_returns_unknown()
+    {
+        var r = await WingmanService.AssessGoalAsync("", Array.Empty<TurnSummary>(), repoPath: "", claudeExePath: "claude.exe");
+        Assert.Equal(GoalStates.Unknown, r.State);
+        Assert.Contains("no goal", r.Reason, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task AssessGoalAsync_no_claude_path_returns_unknown()
+    {
+        var r = await WingmanService.AssessGoalAsync("ship the feature", Array.Empty<TurnSummary>(), repoPath: "", claudeExePath: "");
+        Assert.Equal(GoalStates.Unknown, r.State);
+        Assert.Contains("no claude", r.Reason, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task AssessGoalAsync_bad_path_returns_unknown_not_fabricated()
+    {
+        var r = await WingmanService.AssessGoalAsync(
+            "ship the feature", Array.Empty<TurnSummary>(), repoPath: "", claudeExePath: @"C:\__nonexistent__\claude.exe");
+        Assert.Equal(GoalStates.Unknown, r.State);
+        Assert.Contains("wingman call failed", r.Reason, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("on_track")]
+    [InlineData("drifting")]
+    [InlineData("complete")]
+    public void ParseGoalAssessmentJson_extracts_valid_state(string state)
+    {
+        var raw = "{\"state\":\"" + state + "\",\"reason\":\"because reasons\"}";
+        var r = WingmanService.ParseGoalAssessmentJson(raw);
+        Assert.Equal(state, r.State);
+        Assert.Equal("because reasons", r.Reason);
+    }
+
+    [Fact]
+    public void ParseGoalAssessmentJson_fenced_json_is_tolerated()
+    {
+        const string raw = "```json\n{\"state\":\"drifting\",\"reason\":\"moved to unrelated refactor\"}\n```";
+        var r = WingmanService.ParseGoalAssessmentJson(raw);
+        Assert.Equal(GoalStates.Drifting, r.State);
+    }
+
+    [Fact]
+    public void ParseGoalAssessmentJson_garbage_returns_unknown()
+    {
+        var r = WingmanService.ParseGoalAssessmentJson("not json at all");
+        Assert.Equal(GoalStates.Unknown, r.State);
+    }
+
+    [Fact]
+    public void ParseGoalAssessmentJson_invalid_state_returns_unknown()
+    {
+        var r = WingmanService.ParseGoalAssessmentJson("{\"state\":\"banana\",\"reason\":\"x\"}");
+        Assert.Equal(GoalStates.Unknown, r.State);
+    }
+
+    [Fact]
+    public void ParseGoalAssessmentJson_empty_returns_unknown()
+    {
+        var r = WingmanService.ParseGoalAssessmentJson("");
+        Assert.Equal(GoalStates.Unknown, r.State);
+    }
+
+    [Fact]
+    public void BuildGoalAssessmentPrompt_includes_goal_and_state_options()
+    {
+        var summaries = new List<TurnSummary>
+        {
+            new() { Headline = "Added the login form", NeedsUser = "no" },
+            new() { Headline = "Wrote tests for auth", NeedsUser = "no" },
+        };
+        var prompt = WingmanService.BuildGoalAssessmentPrompt("Implement login", summaries, "/tmp/repo");
+        Assert.Contains("Implement login", prompt);
+        Assert.Contains("on_track", prompt);
+        Assert.Contains("drifting", prompt);
+        Assert.Contains("complete", prompt);
+        Assert.Contains("Added the login form", prompt);
+    }
+
+    [Fact]
+    public void BuildGoalAssessmentPrompt_handles_no_summaries()
+    {
+        var prompt = WingmanService.BuildGoalAssessmentPrompt("Implement login", Array.Empty<TurnSummary>(), "/tmp/repo");
+        Assert.Contains("no turns completed yet", prompt);
     }
 }

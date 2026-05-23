@@ -97,45 +97,69 @@ public sealed class DirectorEndpointClient : IDisposable
         }
     }
 
-    public async Task<SupervisorViewDto?> GetSupervisorAsync(string endpoint, string sessionId, CancellationToken ct = default)
+    public async Task<WingmanViewDto?> GetWingmanAsync(string endpoint, string sessionId, CancellationToken ct = default)
     {
         try
         {
-            var resp = await _http.GetAsync($"{endpoint}/sessions/{sessionId}/supervisor", ct);
+            var resp = await _http.GetAsync($"{endpoint}/sessions/{sessionId}/wingman", ct);
             if (!resp.IsSuccessStatusCode) return null;
-            return await resp.Content.ReadFromJsonAsync<SupervisorViewDto>(cancellationToken: ct);
+            return await resp.Content.ReadFromJsonAsync<WingmanViewDto>(cancellationToken: ct);
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[DirectorEndpointClient] GetSupervisorAsync FAILED: endpoint={endpoint}, sid={sessionId}, error={ex.Message}");
+            FileLog.Write($"[DirectorEndpointClient] GetWingmanAsync FAILED: endpoint={endpoint}, sid={sessionId}, error={ex.Message}");
             return null;
         }
     }
 
     /// <summary>
-    /// Phase 5: forward a supervisor "ask" call through the Gateway to the owning Director.
+    /// Phase 5: forward a wingman "ask" call through the Gateway to the owning Director.
     /// Uses a longer per-call timeout (45 s) than the chatty aggregate endpoints because
     /// Haiku side-calls can take 5-30 s.
     /// </summary>
-    public async Task<SupervisorAskResult?> AskSupervisorAsync(string endpoint, string sessionId, SupervisorAskRequest req, CancellationToken ct = default)
+    public async Task<WingmanAskResult?> AskWingmanAsync(string endpoint, string sessionId, WingmanAskRequest req, CancellationToken ct = default)
     {
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(45) };
         if (!string.IsNullOrEmpty(_token))
             http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _token);
         try
         {
-            var resp = await http.PostAsJsonAsync($"{endpoint}/sessions/{sessionId}/supervisor/ask", req, ct);
+            var resp = await http.PostAsJsonAsync($"{endpoint}/sessions/{sessionId}/wingman/ask", req, ct);
             if (!resp.IsSuccessStatusCode)
             {
                 var body = await resp.Content.ReadAsStringAsync(ct);
-                FileLog.Write($"[DirectorEndpointClient] AskSupervisorAsync HTTP {(int)resp.StatusCode}: {Truncate(body, 200)}");
+                FileLog.Write($"[DirectorEndpointClient] AskWingmanAsync HTTP {(int)resp.StatusCode}: {Truncate(body, 200)}");
                 return null;
             }
-            return await resp.Content.ReadFromJsonAsync<SupervisorAskResult>(cancellationToken: ct);
+            return await resp.Content.ReadFromJsonAsync<WingmanAskResult>(cancellationToken: ct);
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[DirectorEndpointClient] AskSupervisorAsync FAILED: endpoint={endpoint}, sid={sessionId}, error={ex.Message}");
+            FileLog.Write($"[DirectorEndpointClient] AskWingmanAsync FAILED: endpoint={endpoint}, sid={sessionId}, error={ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Forward a "set the session goal" call to the owning Director. Returns the raw
+    /// JSON body the Director produced (goal + state) on success, or null on failure.
+    /// </summary>
+    public async Task<string?> SetWingmanGoalAsync(string endpoint, string sessionId, WingmanGoalRequest req, CancellationToken ct = default)
+    {
+        try
+        {
+            var resp = await _http.PostAsJsonAsync($"{endpoint}/sessions/{sessionId}/wingman/goal", req, ct);
+            if (!resp.IsSuccessStatusCode)
+            {
+                var body = await resp.Content.ReadAsStringAsync(ct);
+                FileLog.Write($"[DirectorEndpointClient] SetWingmanGoalAsync HTTP {(int)resp.StatusCode}: {Truncate(body, 200)}");
+                return null;
+            }
+            return await resp.Content.ReadAsStringAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[DirectorEndpointClient] SetWingmanGoalAsync FAILED: endpoint={endpoint}, sid={sessionId}, error={ex.Message}");
             return null;
         }
     }

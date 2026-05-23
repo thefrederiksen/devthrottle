@@ -196,9 +196,9 @@ public sealed class Session : IDisposable
     /// <summary>
     /// Prompt text the user was composing but hasn't sent yet. Persisted across
     /// switches and restarts. Two writers exist: the UI when the user types (via
-    /// the property setter, source="user"), and the SessionStatusSupervisor when
+    /// the property setter, source="user"), and the SessionStatusWingman when
     /// it detects Claude Code has injected a suggestion into its own input line
-    /// (via <see cref="SetPendingPromptText"/>, source="supervisor"). Subscribers
+    /// (via <see cref="SetPendingPromptText"/>, source="wingman"). Subscribers
     /// to <see cref="OnPendingPromptTextChanged"/> can distinguish the two and
     /// decide whether to apply.
     /// </summary>
@@ -211,7 +211,7 @@ public sealed class Session : IDisposable
     /// <summary>
     /// Fires when <see cref="PendingPromptText"/> changes. Args: (newText, source).
     /// source is "user" for property-setter writes, or whatever string the caller
-    /// passes to <see cref="SetPendingPromptText"/> — currently "supervisor" for
+    /// passes to <see cref="SetPendingPromptText"/> — currently "wingman" for
     /// terminal-injection detection.
     /// </summary>
     public event Action<string?, string>? OnPendingPromptTextChanged;
@@ -242,10 +242,10 @@ public sealed class Session : IDisposable
     /// <summary>Fires when a turn completes (Stop event received after UserPromptSubmit).</summary>
     public event Action<Session, TurnData>? OnTurnCompleted;
 
-    // ---------- Mobile mode + proactive supervisor explain (remote experience) ----------
+    // ---------- Mobile mode + proactive wingman explain (remote experience) ----------
 
     /// <summary>
-    /// When true, this session participates in the mobile experience: the supervisor
+    /// When true, this session participates in the mobile experience: the wingman
     /// proactively regenerates a plain-language "explain" briefing at each decision-point
     /// turn-end and caches it (see <see cref="CachedExplainText"/>) so a phone opening the
     /// session view sees it instantly. Toggled via the Control API; off by default to keep
@@ -253,7 +253,7 @@ public sealed class Session : IDisposable
     /// </summary>
     public bool MobileMode { get; set; }
 
-    /// <summary>Latest proactively-generated supervisor briefing, or null if none yet.</summary>
+    /// <summary>Latest proactively-generated wingman briefing, or null if none yet.</summary>
     public string? CachedExplainText { get; private set; }
 
     /// <summary>When <see cref="CachedExplainText"/> was last generated (UTC).</summary>
@@ -262,22 +262,26 @@ public sealed class Session : IDisposable
     /// <summary>Model that produced the cached briefing (e.g. "opus").</summary>
     public string? CachedExplainModel { get; private set; }
 
+    /// <summary>Tap-to-answer options from the latest briefing (may be empty).</summary>
+    public IReadOnlyList<string> CachedQuickReplies { get; private set; } = System.Array.Empty<string>();
+
     /// <summary>
     /// Store a freshly-generated proactive explain briefing. Only replaces the cache when
     /// <paramref name="text"/> is non-empty, so a failed or timed-out regeneration preserves
     /// the last good briefing instead of blanking the phone screen on a huge-context turn.
     /// </summary>
-    public void SetCachedExplain(string? text, string? model)
+    public void SetCachedExplain(string? text, string? model, IReadOnlyList<string>? quickReplies = null)
     {
         if (string.IsNullOrWhiteSpace(text)) return;
         CachedExplainText = text;
         CachedExplainModel = model;
+        CachedQuickReplies = quickReplies ?? System.Array.Empty<string>();
         CachedExplainAt = DateTime.UtcNow;
     }
 
     /// <summary>
     /// Aggregate at-a-glance color for this session. Owned by the
-    /// SessionStatusSupervisor on the Director; the rest of the system reads it
+    /// SessionStatusWingman on the Director; the rest of the system reads it
     /// but never writes it. Defaults to "green" at construction ("greenfield").
     /// Values: "green" | "blue" | "yellow" | "red" | "unknown".
     /// </summary>
@@ -295,38 +299,38 @@ public sealed class Session : IDisposable
     public event Action<string, string, string>? OnStatusColorChanged;
 
     /// <summary>
-    /// One decision the SessionStatusSupervisor wrote onto this session: what color it
+    /// One decision the SessionStatusWingman wrote onto this session: what color it
     /// chose, what reason, when, and which path produced it ("activity" | "turn-summary"
     /// | "promote" | "init" | "buffer-marker").
     /// </summary>
-    public sealed record SupervisorEvent(
+    public sealed record WingmanEvent(
         DateTime At,
         string OldColor,
         string NewColor,
         string Reason);
 
-    private const int SupervisorEventLogCapacity = 50;
-    private readonly LinkedList<SupervisorEvent> _supervisorEvents = new();
-    private readonly object _supervisorEventsLock = new();
+    private const int WingmanEventLogCapacity = 50;
+    private readonly LinkedList<WingmanEvent> _wingmanEvents = new();
+    private readonly object _wingmanEventsLock = new();
 
     /// <summary>
-    /// Most recent supervisor decisions for this session, newest first. Ring-buffered
-    /// at <c>SupervisorEventLogCapacity</c>. Surfaced via <c>GET /sessions/{sid}/supervisor</c>
+    /// Most recent wingman decisions for this session, newest first. Ring-buffered
+    /// at <c>WingmanEventLogCapacity</c>. Surfaced via <c>GET /sessions/{sid}/wingman</c>
     /// so the UI can show WHY a dot is the color it is.
     /// </summary>
-    public IReadOnlyList<SupervisorEvent> RecentSupervisorEvents
+    public IReadOnlyList<WingmanEvent> RecentWingmanEvents
     {
         get
         {
-            lock (_supervisorEventsLock)
-                return _supervisorEvents.ToList();
+            lock (_wingmanEventsLock)
+                return _wingmanEvents.ToList();
         }
     }
 
     /// <summary>
     /// Sole writer of <see cref="StatusColor"/>. Called by the
-    /// SessionStatusSupervisor. No other code path may set the color — that's
-    /// how we keep the UI a faithful mirror of the supervisor's verdict.
+    /// SessionStatusWingman. No other code path may set the color — that's
+    /// how we keep the UI a faithful mirror of the wingman's verdict.
     /// </summary>
     public void SetStatusColor(string color, string reason)
     {
@@ -337,15 +341,74 @@ public sealed class Session : IDisposable
         StatusColor = color;
         LastStatusReason = newReason;
 
-        var evt = new SupervisorEvent(DateTime.UtcNow, old, color, newReason);
-        lock (_supervisorEventsLock)
+        var evt = new WingmanEvent(DateTime.UtcNow, old, color, newReason);
+        lock (_wingmanEventsLock)
         {
-            _supervisorEvents.AddFirst(evt);
-            while (_supervisorEvents.Count > SupervisorEventLogCapacity)
-                _supervisorEvents.RemoveLast();
+            _wingmanEvents.AddFirst(evt);
+            while (_wingmanEvents.Count > WingmanEventLogCapacity)
+                _wingmanEvents.RemoveLast();
         }
 
         OnStatusColorChanged?.Invoke(old, color, LastStatusReason);
+    }
+
+    // ---- Wingman goal management ----
+    // The session's stated objective plus the Wingman's latest verdict on whether
+    // the session is still working toward it. Goal-tracking is dormant until a goal
+    // is set. Observational only: the verdict is surfaced, never auto-acted on.
+    private readonly object _goalLock = new();
+    private string? _wingmanGoal;
+    private DateTime? _wingmanGoalSetAt;
+    private string _wingmanGoalState = Gateway.Contracts.GoalStates.Unknown;
+    private string _wingmanGoalReason = "";
+    private DateTime? _wingmanGoalEvaluatedAt;
+
+    /// <summary>The session's stated goal, or null if none set.</summary>
+    public string? WingmanGoal { get { lock (_goalLock) return _wingmanGoal; } }
+
+    /// <summary>UTC time the goal was last set, or null if none.</summary>
+    public DateTime? WingmanGoalSetAt { get { lock (_goalLock) return _wingmanGoalSetAt; } }
+
+    /// <summary>Latest goal verdict: on_track | drifting | complete | unknown.</summary>
+    public string WingmanGoalState { get { lock (_goalLock) return _wingmanGoalState; } }
+
+    /// <summary>Short plain-language reason for <see cref="WingmanGoalState"/>.</summary>
+    public string WingmanGoalReason { get { lock (_goalLock) return _wingmanGoalReason; } }
+
+    /// <summary>UTC time the goal was last assessed, or null if never.</summary>
+    public DateTime? WingmanGoalEvaluatedAt { get { lock (_goalLock) return _wingmanGoalEvaluatedAt; } }
+
+    /// <summary>
+    /// Set (or clear) the session goal. Setting a new goal resets the verdict to
+    /// "unknown" so a stale on_track/drifting/complete does not linger. Pass null
+    /// or empty to clear the goal and stop goal-tracking.
+    /// </summary>
+    public void SetWingmanGoal(string? goal)
+    {
+        lock (_goalLock)
+        {
+            _wingmanGoal = string.IsNullOrWhiteSpace(goal) ? null : goal.Trim();
+            _wingmanGoalSetAt = _wingmanGoal is null ? null : DateTime.UtcNow;
+            _wingmanGoalState = Gateway.Contracts.GoalStates.Unknown;
+            _wingmanGoalReason = "";
+            _wingmanGoalEvaluatedAt = null;
+        }
+    }
+
+    /// <summary>
+    /// Record the Wingman's latest goal verdict. Ignored if no goal is set or the
+    /// state is not one of the four valid values (we never store a fabricated verdict).
+    /// </summary>
+    public void SetWingmanGoalAssessment(string state, string reason, DateTime evaluatedAt)
+    {
+        if (!Gateway.Contracts.GoalStates.IsValid(state)) return;
+        lock (_goalLock)
+        {
+            if (_wingmanGoal is null) return;
+            _wingmanGoalState = state;
+            _wingmanGoalReason = reason ?? "";
+            _wingmanGoalEvaluatedAt = evaluatedAt;
+        }
     }
 
     /// <summary>Access to the underlying backend for mode-specific operations.</summary>

@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Session Wingman - QA Report</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --panel2: #1c2230; --border: #2a3140;
+    --text: #e6edf3; --muted: #9aa7b4; --accent: #3b82f6; --accent2: #1f6feb;
+    --green: #22c55e; --blue: #3b82f6; --yellow: #eab308; --red: #ef4444; --grey: #6a6a6a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.55; font-size: 15px;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 32px 24px 80px; }
+  header.hero {
+    border: 1px solid var(--border); border-radius: 14px;
+    background: linear-gradient(135deg, rgba(31,111,235,0.12), rgba(34,197,94,0.06));
+    padding: 28px 30px; margin-bottom: 28px;
+  }
+  header.hero h1 { margin: 0 0 6px; font-size: 28px; letter-spacing: -0.3px; }
+  header.hero .sub { color: var(--muted); font-size: 15px; }
+  .verdict-banner {
+    display: inline-flex; align-items: center; gap: 10px; margin-top: 18px;
+    background: rgba(34,197,94,0.14); border: 1px solid rgba(34,197,94,0.5);
+    color: var(--green); font-weight: 700; padding: 8px 16px; border-radius: 999px;
+    font-size: 15px; letter-spacing: 0.4px;
+  }
+  .meta-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px; margin-top: 22px;
+  }
+  .meta-cell { background: rgba(0,0,0,0.25); border: 1px solid var(--border); border-radius: 9px; padding: 10px 13px; }
+  .meta-cell .k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; }
+  .meta-cell .v { font-size: 14px; font-weight: 600; margin-top: 3px; word-break: break-all; }
+  h2 {
+    font-size: 20px; margin: 40px 0 14px; padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  h3 { font-size: 16px; margin: 26px 0 10px; color: var(--text); }
+  p { color: var(--text); }
+  .lead { color: var(--muted); }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; margin: 16px 0; }
+  .badge {
+    display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 999px;
+    text-transform: uppercase; letter-spacing: 0.4px; vertical-align: middle;
+  }
+  .badge.pass { background: rgba(34,197,94,0.18); color: var(--green); }
+  .badge.info { background: rgba(59,130,246,0.18); color: var(--blue); }
+  .badge.warn { background: rgba(234,179,8,0.18); color: var(--yellow); }
+  .badge.grey { background: rgba(106,106,106,0.25); color: #b6c2cf; }
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 14px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+  td code, code.inline { background: rgba(0,0,0,0.35); padding: 1px 6px; border-radius: 5px; font-size: 13px; }
+  code, pre { font-family: "Cascadia Code", "Consolas", ui-monospace, monospace; }
+  pre {
+    background: #0a0e14; border: 1px solid var(--border); border-radius: 9px;
+    padding: 14px 16px; overflow-x: auto; font-size: 12.5px; color: #c9d4e0; line-height: 1.5;
+  }
+  .shot { margin: 18px 0 26px; }
+  .shot img {
+    width: 100%; border: 1px solid var(--border); border-radius: 10px; display: block;
+    background: #000;
+  }
+  .shot .cap { color: var(--muted); font-size: 13px; margin-top: 8px; }
+  .shot .cap b { color: var(--text); }
+  .pill { font-size: 12px; padding: 1px 8px; border-radius: 999px; font-weight: 700; }
+  .pill.green { background: rgba(34,197,94,0.18); color: var(--green); }
+  .pill.blue  { background: rgba(59,130,246,0.18); color: var(--blue); }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 720px) { .two { grid-template-columns: 1fr; } }
+  ul.tight { margin: 8px 0; padding-left: 22px; }
+  ul.tight li { margin: 4px 0; }
+  .note { border-left: 3px solid var(--accent); background: rgba(59,130,246,0.07); padding: 10px 14px; border-radius: 0 8px 8px 0; color: var(--muted); }
+  footer { margin-top: 50px; padding-top: 18px; border-top: 1px solid var(--border); color: var(--muted); font-size: 13px; }
+  .arrow { color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="hero">
+    <h1>Session Wingman - QA Report</h1>
+    <div class="sub">Rename of "Session Supervisor" to "Session Wingman" + first role-expansion slice (Goal Management). Verified end-to-end against a live test Director.</div>
+    <div class="verdict-banner">OVERALL RESULT: PASS</div>
+    <div class="meta-grid">
+      <div class="meta-cell"><div class="k">Date</div><div class="v">2026-05-23</div></div>
+      <div class="meta-cell"><div class="k">Build</div><div class="v">cc-director v0.3.2.0 (slot 5)</div></div>
+      <div class="meta-cell"><div class="k">Test Director</div><div class="v">cc-director-avalonia5.exe</div></div>
+      <div class="meta-cell"><div class="k">Control API</div><div class="v">http://localhost:7879</div></div>
+      <div class="meta-cell"><div class="k">Director ID</div><div class="v">550851be-af2a-41c4-ae25-3c337ddaeb0f</div></div>
+      <div class="meta-cell"><div class="k">Machine</div><div class="v">SOREN_NORTH</div></div>
+    </div>
+  </header>
+
+  <div class="card">
+    <h3 style="margin-top:0">Scope of this QA</h3>
+    <p class="lead">Two related deliverables were verified:</p>
+    <ul class="tight">
+      <li><b>The rename</b> - every "Supervisor" identifier, namespace, REST route, UI label and active design doc became "Wingman". Verified by a clean build, the full unit-test suite, and live REST calls against the renamed routes.</li>
+      <li><b>Goal Management</b> - the first slice of the expanded Wingman role. A session can be given a stated goal; after each turn the Wingman judges whether the session is on track, drifting, or complete (read-only, no auto-actions). Verified by unit tests, REST, and the browser UI.</li>
+    </ul>
+    <div class="note">Test method: built to an isolated slot (5) so the user's running Directors (slots default/4) were never touched; launched via the Windows Task Scheduler path so the Claude grandchild process survives; exercised real Haiku side-calls (not mocks).</div>
+  </div>
+
+  <h2>1. Summary scorecard</h2>
+  <table>
+    <thead><tr><th>Area</th><th>Check</th><th>Result</th></tr></thead>
+    <tbody>
+      <tr><td>Build</td><td>Slot-5 publish of renamed code</td><td><span class="badge pass">PASS</span> 0 warnings, 0 errors</td></tr>
+      <tr><td>Build</td><td>Core / Contracts / ControlApi / Gateway compile</td><td><span class="badge pass">PASS</span> 0 CS errors, 0 warnings</td></tr>
+      <tr><td>Unit tests</td><td>Wingman suite (incl. 12 new goal tests)</td><td><span class="badge pass">PASS</span> 129 / 129</td></tr>
+      <tr><td>REST</td><td><code>GET /sessions/{id}/wingman</code></td><td><span class="badge pass">PASS</span></td></tr>
+      <tr><td>REST</td><td><code>POST /sessions/{id}/wingman/goal</code></td><td><span class="badge pass">PASS</span></td></tr>
+      <tr><td>REST</td><td><code>POST /sessions/{id}/wingman/ask</code></td><td><span class="badge pass">PASS</span></td></tr>
+      <tr><td>REST</td><td><code>GET /sessions/{id}/wingman/explain</code></td><td><span class="badge pass">PASS</span></td></tr>
+      <tr><td>Feature</td><td>Goal verdict lifecycle (on_track <span class="arrow">-&gt;</span> complete)</td><td><span class="badge pass">PASS</span></td></tr>
+      <tr><td>UI</td><td>Goal panel renders + verdict chip</td><td><span class="badge pass">PASS</span></td></tr>
+      <tr><td>UI</td><td>Ask the Wingman works in browser</td><td><span class="badge pass">PASS</span></td></tr>
+      <tr><td>UI</td><td>JS console errors</td><td><span class="badge pass">PASS</span> only a benign favicon 404</td></tr>
+    </tbody>
+  </table>
+
+  <h2>2. Rename verification</h2>
+  <p>The "Supervisor" subsystem (a shipped feature, phases 1-8 plus the "Brain" work) was renamed to "Wingman" across 60+ files. Naming is now derivable from the repo; the dated execution logs (<code>GOAL_CC_DIRECTOR_SUPERVISOR.md</code>, <code>PRD_CC_DIRECTOR.md</code>) were deliberately left as historical records.</p>
+  <table>
+    <thead><tr><th>Layer</th><th>Before</th><th>After</th></tr></thead>
+    <tbody>
+      <tr><td>Namespace</td><td><code>CcDirector.Core.Supervisor</code></td><td><code>CcDirector.Core.Wingman</code></td></tr>
+      <tr><td>Service</td><td><code>SupervisorService</code></td><td><code>WingmanService</code></td></tr>
+      <tr><td>Status owner</td><td><code>SessionStatusSupervisor</code></td><td><code>SessionStatusWingman</code></td></tr>
+      <tr><td>Contracts</td><td><code>SupervisorViewDto</code>, <code>SupervisorAskRequest/Result</code></td><td><code>WingmanViewDto</code>, <code>WingmanAskRequest/Result</code></td></tr>
+      <tr><td>REST routes</td><td><code>/sessions/{id}/supervisor[/ask|/explain]</code></td><td><code>/sessions/{id}/wingman[/ask|/explain]</code></td></tr>
+      <tr><td>Disk log</td><td><code>supervisor-events.jsonl</code></td><td><code>wingman-events.jsonl</code></td></tr>
+      <tr><td>UI labels</td><td>SUPERVISOR / Ask the supervisor</td><td>WINGMAN / Ask the wingman</td></tr>
+      <tr><td>Design docs</td><td><code>docs/architecture/supervisor/</code></td><td><code>docs/architecture/wingman/</code></td></tr>
+    </tbody>
+  </table>
+  <p>The renamed UI labels are visible in every screenshot below ("WINGMAN LOG", "ASK THE WINGMAN", and the "WINGMAN" answer label).</p>
+
+  <h2>3. Goal Management - how it works</h2>
+  <p>Goal Management is the first expanded responsibility. It is strictly <b>observational</b> in this slice: the Wingman reports a verdict but never changes the status color or acts on the session.</p>
+  <div class="two">
+    <div class="card">
+      <h3 style="margin-top:0">Flow</h3>
+      <ul class="tight">
+        <li>User sets a goal via the UI or <code>POST /wingman/goal</code>.</li>
+        <li>Setting a goal triggers an immediate assessment (<code>AssessGoalNowAsync</code>).</li>
+        <li>After every completed turn, <code>TurnSummaryCache</code> re-assesses the goal against the recent turn summaries.</li>
+        <li>A one-shot Haiku call returns one of: <span class="pill green">on_track</span> <span class="pill blue">complete</span> <span class="badge warn">drifting</span> <span class="badge grey">unknown</span>.</li>
+        <li>The verdict + reason are stored on the session and surfaced in <code>GET /wingman</code> and the Session View.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">Safety properties</h3>
+      <ul class="tight">
+        <li>On any failure (no CLI, parse error, timeout) the verdict is <code>unknown</code> with a reason - a verdict is never fabricated.</li>
+        <li>Setting a new goal resets the verdict to <code>unknown</code> so a stale verdict cannot linger.</li>
+        <li>No status-color change, no message sent to the session. Read-only.</li>
+        <li>The riskier "act on your behalf" slices (auto-answering prompts) are deliberately NOT in this build.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>4. Live REST evidence</h2>
+
+  <h3>4.1 Director healthy</h3>
+  <pre>GET /healthz
+{"status":"ok","directors":1,"sessions":0,"version":"0.3.2.0",
+ "directorId":"550851be-af2a-41c4-ae25-3c337ddaeb0f","machineName":"SOREN_NORTH"}</pre>
+
+  <h3>4.2 Baseline - no goal set</h3>
+  <pre>GET /sessions/ebb67a64.../wingman
+{ "currentColor":"green", "currentReason":"idle, ready for next task",
+  "goal":null, "goalState":"unknown", "goalReason":"", "goalEvaluatedAt":null }</pre>
+
+  <h3>4.3 Set a goal</h3>
+  <pre>POST /sessions/ebb67a64.../wingman/goal
+  body: {"goal":"Explain in one sentence what the cc-director project does."}
+{ "goal":"Explain in one sentence what the cc-director project does.",
+  "goalSetAt":"2026-05-23T21:22:25Z", "goalState":"unknown" }   // verdict pending</pre>
+
+  <h3>4.4 Verdict lifecycle (real Haiku calls, from the Director log)</h3>
+  <table>
+    <thead><tr><th>Time</th><th>Verdict</th><th>Reason</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>17:22:30</td>
+        <td><span class="pill green">on_track</span></td>
+        <td>"Session just started with a clear goal to explain cc-director's purpose in one sentence; no work has been done yet."</td>
+      </tr>
+      <tr>
+        <td>17:26:08</td>
+        <td><span class="pill blue">complete</span></td>
+        <td>"The agent provided a one-sentence explanation of cc-director as a Windows desktop app managing concurrent Claude Code sessions across repos, fulfilling the goal."</td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="lead">Between the two verdicts, a real prompt ("In one sentence, what does the cc-director project do?") was sent to the session. The agent answered, the turn completed, <code>TurnSummaryCache</code> produced a summary, and the goal was automatically re-assessed - moving the verdict from <code>on_track</code> to <code>complete</code> with no manual trigger.</p>
+
+  <h3>4.5 Ask + Explain routes</h3>
+  <pre>POST /sessions/ebb67a64.../wingman/ask
+  body: {"question":"What is the current status color of this session and why?"}
+{ "status":"ok", "model":"haiku", "latencyMs":5216,
+  "answer":"The status color is green (idle, ready for next task). The session is
+            currently idle - the agent has finished streaming output and is waiting
+            for your next instruction." }
+
+GET /sessions/ebb67a64.../wingman/explain
+{ "mobileMode":false, "text":null }   // correct: no cached briefing (mobile mode off)</pre>
+
+  <h2>5. Browser UI - screenshots</h2>
+
+  <div class="shot">
+    <img src="screens/01-session-view-goal-on-track.png" alt="Session View with goal On track" />
+    <div class="cap"><b>Fig 1 - Goal set, verdict ON TRACK.</b> The Session View shows the green READY hero, the new GOAL panel with an <span class="pill green">ON TRACK</span> chip, the verdict reason, the editable goal input + Set button, the WINGMAN LOG, and the ASK THE WINGMAN panel. Note the renamed "WINGMAN" labels throughout.</div>
+  </div>
+
+  <div class="shot">
+    <img src="screens/02-session-view-goal-complete.png" alt="Session View with goal Complete" />
+    <div class="cap"><b>Fig 2 - After the session accomplished the goal, verdict COMPLETE.</b> The GOAL chip is now <span class="pill blue">COMPLETE</span> with the fulfillment reason. The LAST TURN card shows the turn headline and decision bullets (cc-director is a Windows desktop app; ships 35+ CLI tools and a REST API; orchestrates AI-assisted workflows). The WINGMAN LOG records the full color history.</div>
+  </div>
+
+  <div class="shot">
+    <img src="screens/03-ask-the-wingman.png" alt="Ask the Wingman answer" />
+    <div class="cap"><b>Fig 3 - Ask the Wingman, in-browser.</b> Question "Did this session accomplish its goal?" answered by the Wingman (Haiku, 7366 ms) with context metadata (events:5, turns:1, buffer:1698ch, repo:cc-director, color:green). Confirms the renamed <code>/wingman/ask</code> route works end-to-end from the UI.</div>
+  </div>
+
+  <h2>6. Unit test results</h2>
+  <p><span class="badge pass">PASS</span> <code>dotnet test --filter Wingman</code> gives <b>129 passed, 0 failed, 0 skipped</b>. 12 of these are the new Goal Management tests:</p>
+  <table>
+    <thead><tr><th>Test</th><th>What it proves</th></tr></thead>
+    <tbody>
+      <tr><td><code>AssessGoalAsync_no_goal_returns_unknown</code></td><td>Empty goal yields unknown, not a guess</td></tr>
+      <tr><td><code>AssessGoalAsync_no_claude_path_returns_unknown</code></td><td>No CLI configured yields unknown</td></tr>
+      <tr><td><code>AssessGoalAsync_bad_path_returns_unknown_not_fabricated</code></td><td>Process failure never fabricates a verdict</td></tr>
+      <tr><td><code>ParseGoalAssessmentJson_extracts_valid_state</code> (x3)</td><td>on_track / drifting / complete parse correctly</td></tr>
+      <tr><td><code>ParseGoalAssessmentJson_fenced_json_is_tolerated</code></td><td>Markdown-fenced JSON is handled</td></tr>
+      <tr><td><code>ParseGoalAssessmentJson_garbage_returns_unknown</code></td><td>Garbage input is safe</td></tr>
+      <tr><td><code>ParseGoalAssessmentJson_invalid_state_returns_unknown</code></td><td>Unknown state value is rejected</td></tr>
+      <tr><td><code>ParseGoalAssessmentJson_empty_returns_unknown</code></td><td>Empty input is safe</td></tr>
+      <tr><td><code>BuildGoalAssessmentPrompt_includes_goal_and_state_options</code></td><td>Prompt contains the goal + all state options</td></tr>
+      <tr><td><code>BuildGoalAssessmentPrompt_handles_no_summaries</code></td><td>Zero-turn case handled</td></tr>
+    </tbody>
+  </table>
+
+  <h2>7. Known limitations &amp; next steps</h2>
+  <ul class="tight">
+    <li><span class="badge info">SCOPE</span> Goal Management UI is wired in the <b>web</b> Session View only. The desktop Avalonia <code>WingmanView</code> does not yet show the goal (needs SessionViewModel plumbing).</li>
+    <li><span class="badge warn">DEFERRED</span> The "act on your behalf" responsibilities (Smart Decision Filtering / auto-answering trivial prompts, Interview-style questioning) are intentionally NOT built. They cross the read-only boundary and need an explicit autonomy guardrail + kill switch before implementation.</li>
+    <li><span class="badge info">NOTE</span> Nothing has been committed. All changes are in the working tree pending review.</li>
+    <li><span class="badge info">NOTE</span> The full-solution output build is blocked while the user's <code>cc-director-gateway</code> is running (file lock); this QA used an isolated slot-5 build to work around that without touching running instances.</li>
+  </ul>
+
+  <footer>
+    Generated 2026-05-23. Test Director: cc-director-avalonia5.exe on port 7879 (slot 5, isolated). No user-owned Director processes were stopped during this QA.
+  </footer>
+
+</div>
+</body>
+</html>

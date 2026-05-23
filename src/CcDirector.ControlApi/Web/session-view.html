@@ -137,7 +137,7 @@
 
   /* Phase 4c: Session View */
   #sessionView { padding: 14px; max-width: 1000px; margin: 0 auto; }
-  .supervisor-banner {
+  .wingman-banner {
     display: flex; align-items: center; gap: 14px;
     padding: 14px 16px;
     background: var(--panel);
@@ -145,27 +145,27 @@
     border-radius: 10px;
     margin-bottom: 14px;
   }
-  .supervisor-banner .dot {
+  .wingman-banner .dot {
     flex-shrink: 0;
     width: 28px; height: 28px; border-radius: 50%;
     box-shadow: 0 0 0 1px rgba(255,255,255,0.06);
   }
-  .supervisor-banner .dot.green   { background: #22c55e; }
-  .supervisor-banner .dot.blue    { background: #3b82f6; }
-  .supervisor-banner .dot.yellow  { background: #eab308; }
-  .supervisor-banner .dot.red     { background: #ef4444; }
-  .supervisor-banner .dot.unknown { background: #6a6a6a; }
-  .supervisor-banner .info { flex: 1; min-width: 0; }
-  .supervisor-banner .reason {
+  .wingman-banner .dot.green   { background: #22c55e; }
+  .wingman-banner .dot.blue    { background: #3b82f6; }
+  .wingman-banner .dot.yellow  { background: #eab308; }
+  .wingman-banner .dot.red     { background: #ef4444; }
+  .wingman-banner .dot.unknown { background: #6a6a6a; }
+  .wingman-banner .info { flex: 1; min-width: 0; }
+  .wingman-banner .reason {
     font-size: 16px; font-weight: 600; color: var(--text);
     line-height: 1.3;
     overflow-wrap: anywhere;
   }
-  .supervisor-banner .since {
+  .wingman-banner .since {
     margin-top: 2px;
     color: var(--muted); font-size: 12px;
   }
-  .supervisor-banner .explain-btn {
+  .wingman-banner .explain-btn {
     flex-shrink: 0;
     align-self: center;
     padding: 9px 18px;
@@ -178,8 +178,34 @@
     font-weight: 600;
     cursor: pointer;
   }
-  .supervisor-banner .explain-btn:hover:not(:disabled) { background: var(--accent-hover); }
-  .supervisor-banner .explain-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .wingman-banner .explain-btn:hover:not(:disabled) { background: var(--accent-hover); }
+  .wingman-banner .explain-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* State hero: the one-glance status. */
+  .state-hero {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 14px 16px; margin-bottom: 14px;
+  }
+  .state-hero .state-row { display: flex; align-items: center; gap: 10px; }
+  .state-word {
+    font-size: 22px; font-weight: 800; letter-spacing: 0.5px;
+    padding: 5px 14px; border-radius: 9px; color: #fff;
+  }
+  .state-word.green   { background: #16a34a; }
+  .state-word.blue    { background: #2563eb; }
+  .state-word.red     { background: #dc2626; }
+  .state-word.yellow  { background: #ca8a04; }
+  .state-word.unknown { background: #4b5563; }
+  .state-hero .state-controls { margin-left: auto; display: flex; gap: 6px; flex-shrink: 0; }
+  .mini-btn {
+    background: transparent; color: var(--muted); border: 1px solid var(--border);
+    border-radius: 6px; padding: 5px 9px; font-size: 11px; cursor: pointer;
+  }
+  .mini-btn:hover { color: var(--text); border-color: var(--muted); }
+  .state-hero .reason { font-size: 15px; color: var(--text); margin-top: 12px; line-height: 1.35; font-weight: 600; }
+  .state-hero .since { color: var(--muted); font-size: 12px; margin-top: 3px; }
+  /* On a phone the hero is purely informational - the controls are automatic. */
+  @media (max-width: 600px) { .state-hero .state-controls { display: none; } }
 
   /* Explain: on-demand Opus briefing of the whole session. */
   .explain-panel {
@@ -205,6 +231,23 @@
     color: var(--accent); text-decoration: underline; text-underline-offset: 2px;
     word-break: break-all;
   }
+  /* Collapsible detail sections (Agent activity, Wingman log). Collapsed on mobile so
+     the status + decision stay front and center; the header is a tappable disclosure. */
+  details.collapsible > summary {
+    cursor: pointer; user-select: none; padding: 4px 0; outline: none;
+  }
+  details.collapsible > summary:hover { color: var(--text); }
+
+  /* Tap-to-answer buttons under the decision card. */
+  .quick-replies { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .quick-replies:empty { display: none; }
+  .quick-replies button {
+    flex: 1 1 auto; min-height: 44px; padding: 10px 16px;
+    background: var(--accent); color: #fff; border: 0; border-radius: 9px;
+    font-size: 15px; font-weight: 600; cursor: pointer; line-height: 1.25;
+  }
+  .quick-replies button:hover:not(:disabled) { background: var(--accent-hover); }
+  .quick-replies button:disabled { opacity: 0.6; cursor: not-allowed; }
 
   .distilled-question {
     padding: 14px 16px;
@@ -251,7 +294,43 @@
   }
   .last-turn-decisions li { margin: 3px 0; }
 
-  .supervisor-log {
+  .goal-panel {
+    padding: 14px 16px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 14px;
+  }
+  .goal-label {
+    color: var(--muted); font-size: 11px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 6px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .goal-verdict {
+    font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px;
+    text-transform: uppercase; letter-spacing: 0.4px;
+  }
+  .goal-verdict.on_track { background: rgba(34,197,94,0.18);  color: #22c55e; }
+  .goal-verdict.drifting { background: rgba(234,179,8,0.18);  color: #eab308; }
+  .goal-verdict.complete { background: rgba(59,130,246,0.18); color: #3b82f6; }
+  .goal-verdict.unknown  { background: rgba(106,106,106,0.2); color: #9a9a9a; }
+  .goal-text { color: var(--text); font-size: 14px; line-height: 1.4; }
+  .goal-text.empty { color: var(--muted); font-style: italic; }
+  .goal-reason { color: var(--muted); font-size: 12px; margin-top: 6px; line-height: 1.4; }
+  .goal-edit { display: flex; gap: 8px; margin-top: 10px; }
+  .goal-edit input {
+    flex: 1 1 auto; min-width: 0; min-height: 38px; padding: 8px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px; font-size: 14px;
+  }
+  .goal-edit button {
+    min-height: 38px; padding: 8px 16px; background: var(--accent); color: #fff;
+    border: 0; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;
+  }
+  .goal-edit button:hover:not(:disabled) { background: var(--accent-hover); }
+  .goal-edit button:disabled { opacity: 0.6; cursor: not-allowed; }
+
+  .wingman-log {
     padding: 14px 16px;
     background: var(--panel);
     border: 1px solid var(--border);
@@ -295,7 +374,7 @@
     padding: 12px 0;
   }
 
-  /* Phase 5: Ask the supervisor */
+  /* Phase 5: Ask the wingman */
   .ask-block {
     margin-top: 14px;
     padding: 14px 16px;
@@ -313,7 +392,7 @@
   .ask-q { background: #2d2d2e; color: var(--text); }
   .ask-q::before { content: "Q  "; color: #0e639c; font-weight: 700; font-size: 11px; }
   .ask-a { background: #1f2937; color: var(--text); margin-left: 20px; }
-  .ask-a::before { content: "SUPERVISOR  "; color: var(--muted); font-weight: 700; font-size: 10px; }
+  .ask-a::before { content: "WINGMAN  "; color: var(--muted); font-weight: 700; font-size: 10px; }
   .ask-a .meta { display: block; margin-top: 6px; color: #6a6a6a; font-size: 10px; }
   .ask-form { display: flex; gap: 8px; }
   .ask-form input {
@@ -796,35 +875,47 @@
   </div>
 </div>
 
-<!-- Phase 4c: Session View - the merged supervisor-aware view that replaces the
-     default Agent tab. Shows supervisor banner + distilled question + latest turn
+<!-- Phase 4c: Session View - the merged wingman-aware view that replaces the
+     default Agent tab. Shows wingman banner + distilled question + latest turn
      summary + event log. Voice controls live inside it. Raw stays available. -->
 <div id="sessionView">
-  <div class="supervisor-banner" id="supBanner">
-    <div class="dot" id="supDot"></div>
-    <div class="info">
-      <div class="reason" id="supReason">loading...</div>
-      <div class="since" id="supSince"></div>
+  <!-- State hero: the one-glance answer. A big colour-coded state word (WORKING /
+       NEEDS YOU / READY) plus a one-line reason. Controls (mobile toggle, refresh) are
+       desktop-only; on a phone the briefing auto-loads and mobile mode auto-enables. -->
+  <div class="state-hero" id="supBanner">
+    <div class="state-row">
+      <span class="state-word unknown" id="stateWord">&hellip;</span>
+      <div class="state-controls">
+        <button type="button" id="mobileModeBtn" class="mini-btn" onclick="return toggleMobileMode()" title="Mobile mode">Mobile: off</button>
+        <button type="button" id="explainBtn" class="mini-btn" onclick="return runExplain()" title="Refresh the briefing now">Refresh</button>
+      </div>
     </div>
-    <button type="button" id="mobileModeBtn" class="explain-btn" onclick="return toggleMobileMode()" title="Mobile mode: supervisor briefs every turn-end and caches it so it's instant on open">Mobile: off</button>
-    <button type="button" id="explainBtn" class="explain-btn" onclick="return runExplain()">Explain</button>
+    <div class="reason" id="supReason">loading&hellip;</div>
+    <div class="since" id="supSince"></div>
+    <span class="dot" id="supDot" style="display:none"></span>
   </div>
 
   <!-- Explain: on-demand briefing of the whole session, generated by the
-       supervisor on the strong model (Opus). Plain-language overview plus the
+       wingman on the strong model (Opus). Plain-language overview plus the
        agent's actual question, preserved verbatim. -->
-  <div class="explain-panel" id="explainPanel" style="display:none">
-    <div class="explain-label">EXPLAIN<span class="explain-meta" id="explainMeta"></span></div>
-    <div class="explain-body" id="explainBody"></div>
-  </div>
-
+  <!-- Decision first: when the agent is waiting on the user, this is the loudest thing
+       on the screen, above the briefing. -->
   <div class="distilled-question" id="distilledQuestion" style="display:none">
-    <div class="distilled-label">SUPERVISOR SAYS</div>
+    <div class="distilled-label">ACTION NEEDED</div>
     <div class="distilled-text" id="distilledText"></div>
     <details class="distilled-detail">
       <summary>full agent text</summary>
       <div class="distilled-full" id="distilledFull"></div>
     </details>
+  </div>
+
+  <!-- Tap-to-answer: shown whenever the wingman offers reply options. One tap sends the
+       answer to the session (no typing). Hidden (CSS :empty) when there are none. -->
+  <div class="quick-replies" id="quickReplies"></div>
+
+  <div class="explain-panel" id="explainPanel" style="display:none">
+    <div class="explain-label">SUMMARY<span class="explain-meta" id="explainMeta"></span></div>
+    <div class="explain-body" id="explainBody"></div>
   </div>
 
   <div class="last-turn" id="lastTurn" style="display:none">
@@ -836,20 +927,32 @@
   <!-- Phase 5.2: agent widget feed merged into the Session tab. Same data the
        standalone Agent tab renders, but inline so users can see what the agent is
        doing without leaving the Session view. -->
-  <div class="agent-in-session" id="agentInSession">
-    <div class="log-label">AGENT ACTIVITY</div>
-    <div class="agent-in-session-body" id="agentInSessionBody"></div>
+  <!-- Agent activity intentionally removed from the Session view: it duplicated the
+       Raw terminal tab (which shows exactly what Claude is writing). The Session tab is
+       the digest; the Raw terminal tab is the detail.
+       Wingman log stays but collapsed on mobile (tap to expand); JS opens it on desktop. -->
+  <!-- Goal management: the session's stated objective plus the wingman's verdict on
+       whether the work is still tracking toward it. The verdict is observational
+       (read-only); the goal itself is editable here. -->
+  <div class="goal-panel" id="goalPanel">
+    <div class="goal-label">GOAL <span class="goal-verdict unknown" id="goalVerdict" style="display:none"></span></div>
+    <div class="goal-text empty" id="goalText">No goal set</div>
+    <div class="goal-reason" id="goalReason"></div>
+    <div class="goal-edit">
+      <input type="text" id="goalInput" placeholder="Set a goal for this session&hellip;" onkeydown="if(event.key==='Enter')return setGoal()" />
+      <button type="button" id="goalSetBtn" onclick="return setGoal()">Set</button>
+    </div>
   </div>
 
-  <div class="supervisor-log" id="supLog">
-    <div class="log-label">SUPERVISOR LOG</div>
+  <details class="wingman-log collapsible" id="supLog">
+    <summary class="log-label">Wingman log</summary>
     <ol class="log-entries" id="logEntries"></ol>
-  </div>
+  </details>
 
-  <!-- Phase 5: Ask the supervisor about this session. One fresh Haiku call per ask,
+  <!-- Phase 5: Ask the wingman about this session. One fresh Haiku call per ask,
        no conversation memory. History in this list is for the user's eyes only. -->
-  <div class="ask-block">
-    <div class="log-label">ASK THE SUPERVISOR</div>
+  <details class="ask-block collapsible">
+    <summary class="log-label">Ask the wingman</summary>
     <div id="askHistory" class="ask-history"></div>
     <form class="ask-form" onsubmit="return submitAsk(event)">
       <input type="text" id="askInput"
@@ -858,7 +961,7 @@
       <button type="submit" id="askBtn">Ask</button>
     </form>
     <div id="askContext" class="ask-context"></div>
-  </div>
+  </details>
 </div>
 
 <div id="voiceView">
@@ -964,24 +1067,35 @@
 
   async function refreshSession() {
     try {
-      const resp = await fetch('/sessions/' + SID + '/supervisor', { credentials: 'same-origin' });
+      const resp = await fetch('/sessions/' + SID + '/wingman', { credentials: 'same-origin' });
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
       const view = await resp.json();
       renderSession(view);
     } catch (e) {
-      document.getElementById('supReason').textContent = 'Failed to load supervisor view: ' + (e && e.message ? e.message : e);
+      document.getElementById('supReason').textContent = 'Failed to load wingman view: ' + (e && e.message ? e.message : e);
     }
-    // Phase 5.2: also refresh the agent feed since it's embedded in the
-    // Session tab (renders into agentInSessionBody).
-    try { await refreshAgent(); } catch {}
+    // Agent feed removed from the Session tab (it duplicated the Raw terminal tab).
   }
 
   function renderSession(view) {
     // Banner.
+    const cc = colorClass(view.currentColor);
     const dot = document.getElementById('supDot');
-    dot.className = 'dot ' + colorClass(view.currentColor);
+    dot.className = 'dot ' + cc;
+    // The one-glance state word, labelling the wingman's authoritative color.
+    const sw = document.getElementById('stateWord');
+    if (sw) {
+      sw.className = 'state-word ' + cc;
+      sw.textContent = ({ red: 'NEEDS YOU', blue: 'WORKING', green: 'READY', yellow: 'HEADS UP', unknown: 'ENDED' })[cc] || 'ENDED';
+    }
     document.getElementById('supReason').textContent = view.currentReason || '(no reason set)';
     document.getElementById('supSince').textContent = view.since ? ('since ' + relativeTime(view.since)) : '';
+    // Make the composer say what to do: when it needs you, this is where you answer.
+    const _pt = document.getElementById('prompt');
+    if (_pt) {
+      if (cc === 'red') _pt.placeholder = 'Type your answer here…';
+      else if (IS_MOBILE) _pt.placeholder = 'Send to session…';
+    }
 
     // Distilled question only when red AND we have a turn summary with needs_user_short.
     const dq = document.getElementById('distilledQuestion');
@@ -1010,7 +1124,30 @@
       lt.style.display = 'none';
     }
 
-    // Supervisor log.
+    // Goal panel: stated objective + wingman verdict (on_track/drifting/complete).
+    const goalText = document.getElementById('goalText');
+    const goalVerdict = document.getElementById('goalVerdict');
+    const goalReason = document.getElementById('goalReason');
+    const goalInput = document.getElementById('goalInput');
+    if (view.goal) {
+      goalText.textContent = view.goal;
+      goalText.classList.remove('empty');
+      const gs = (view.goalState || 'unknown').toLowerCase();
+      const known = (gs === 'on_track' || gs === 'drifting' || gs === 'complete');
+      goalVerdict.className = 'goal-verdict ' + (known ? gs : 'unknown');
+      goalVerdict.textContent = ({ on_track: 'On track', drifting: 'Drifting', complete: 'Complete' })[gs] || 'Assessing…';
+      goalVerdict.style.display = '';
+      goalReason.textContent = view.goalReason || '';
+      // Don't clobber what the user is mid-typing.
+      if (goalInput && document.activeElement !== goalInput) goalInput.value = view.goal;
+    } else {
+      goalText.textContent = 'No goal set';
+      goalText.classList.add('empty');
+      goalVerdict.style.display = 'none';
+      goalReason.textContent = '';
+    }
+
+    // Wingman log.
     const log = document.getElementById('logEntries');
     log.innerHTML = '';
     (view.events || []).forEach(ev => {
@@ -1026,7 +1163,35 @@
     });
   }
 
-  // ---------- Phase 5: Ask the supervisor ----------
+  // Set (or clear) the session goal. The verdict is computed asynchronously by a
+  // Haiku side-call, so we refresh immediately to show the goal, then again shortly
+  // to pick up the on_track/drifting/complete verdict.
+  window.setGoal = async function() {
+    const input = document.getElementById('goalInput');
+    const btn = document.getElementById('goalSetBtn');
+    if (!input) return false;
+    const goal = input.value.trim();
+    if (btn) btn.disabled = true;
+    try {
+      const resp = await fetch('/sessions/' + SID + '/wingman/goal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ goal })
+      });
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      if (input) input.blur();
+      await refreshSession();
+      setTimeout(refreshSession, 4000);
+    } catch (e) {
+      document.getElementById('goalReason').textContent = 'Failed to set goal: ' + (e && e.message ? e.message : e);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+    return false;
+  };
+
+  // ---------- Phase 5: Ask the wingman ----------
   window.submitAsk = async function(e) {
     if (e && e.preventDefault) e.preventDefault();
     const input = document.getElementById('askInput');
@@ -1045,7 +1210,7 @@
     btn.disabled = true;
 
     try {
-      const resp = await fetch('/sessions/' + SID + '/supervisor/ask', {
+      const resp = await fetch('/sessions/' + SID + '/wingman/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
@@ -1078,13 +1243,13 @@
     const metaEl = document.getElementById('explainMeta');
 
     panel.style.display = '';
-    bodyEl.textContent = 'Asking the supervisor (Opus). This can take a few seconds...';
+    bodyEl.textContent = 'Asking the wingman (Opus). This can take a few seconds...';
     metaEl.textContent = '';
     btn.disabled = true;
     panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
     try {
-      const resp = await fetch('/sessions/' + SID + '/supervisor/ask', {
+      const resp = await fetch('/sessions/' + SID + '/wingman/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
@@ -1095,7 +1260,8 @@
       } else {
         const result = await resp.json();
         renderBriefing(bodyEl, result.answer || '(no answer)');
-        metaEl.textContent = ' ' + (result.model || '?') + ' - ' + (result.latencyMs || 0) + ' ms';
+        metaEl.textContent = ' updated just now';
+        renderQuickReplies(result.quickReplies);
         _explainShownAt = Date.now();  // don't let a poll replace this fresh on-demand briefing with an older cache
       }
     } catch (err) {
@@ -1107,7 +1273,7 @@
   };
 
   // ---------- Mobile mode + proactive cached explain ----------
-  // On a phone you can't read the raw view, so the supervisor's plain-language briefing
+  // On a phone you can't read the raw view, so the wingman's plain-language briefing
   // IS the experience. Mobile mode makes the Director regenerate that briefing at every
   // turn-end and cache it; the phone reads the cache instantly here (no spinner).
   const IS_MOBILE = window.matchMedia('(max-width: 600px)').matches;
@@ -1143,7 +1309,7 @@
   // on-demand Explain the user just ran.
   async function loadCachedExplain() {
     try {
-      const resp = await fetch('/sessions/' + SID + '/supervisor/explain', { credentials: 'same-origin' });
+      const resp = await fetch('/sessions/' + SID + '/wingman/explain', { credentials: 'same-origin' });
       if (!resp.ok) return;
       const data = await resp.json();
       setMobileBtn(!!data.mobileMode);
@@ -1152,13 +1318,14 @@
         if (Number.isNaN(at) || at <= _explainShownAt) return;
         _explainShownAt = at;
         renderBriefing(document.getElementById('explainBody'), data.text);
-        document.getElementById('explainMeta').textContent = ' ' + (data.model || 'opus') + ' - auto, ' + relativeTime(data.at);
+        document.getElementById('explainMeta').textContent = data.at ? (' updated ' + relativeTime(data.at)) : '';
+        renderQuickReplies(data.quickReplies);
         document.getElementById('explainPanel').style.display = '';
       }
     } catch {}
   }
 
-  // Render a supervisor briefing into an element. On a phone, file paths the agent
+  // Render a wingman briefing into an element. On a phone, file paths the agent
   // references can't be opened as raw paths, so we turn paths to viewable files into
   // tap-able links that open the file in this same tab (Back returns). On desktop the
   // briefing stays plain text (you have the file system right there).
@@ -1179,6 +1346,30 @@
     if (!el) return;
     if (IS_MOBILE) el.innerHTML = linkifyPaths(text || '');
     else el.textContent = text || '';
+  }
+
+  // Tap-to-answer: render the wingman's suggested reply options as buttons. One tap drops
+  // the reply into the composer and sends it to the session - no typing.
+  function renderQuickReplies(list) {
+    const box = document.getElementById('quickReplies');
+    if (!box) return;
+    box.innerHTML = '';
+    (list || []).forEach(opt => {
+      if (!opt) return;
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = opt;
+      b.onclick = () => sendQuickReply(opt, box);
+      box.appendChild(b);
+    });
+  }
+  function sendQuickReply(text, box) {
+    if (box) box.querySelectorAll('button').forEach(b => b.disabled = true);
+    const pt = document.getElementById('prompt');
+    if (pt) pt.value = text;
+    if (typeof window.send === 'function') window.send({ preventDefault() {} });
+    // Clear the options once answered; the next poll re-renders the true state.
+    setTimeout(() => { const b = document.getElementById('quickReplies'); if (b) b.innerHTML = ''; }, 500);
   }
 
   function escapeHtml(s) {
@@ -1494,6 +1685,10 @@
     // one-row textarea on a phone (and Shift+Enter is moot on a soft keyboard). Shorten it.
     const _pt = document.getElementById('prompt');
     if (_pt) _pt.placeholder = 'Send to session...';
+  } else {
+    // Desktop has room: show the Agent activity / Wingman log expanded. On a phone they
+    // stay collapsed (tap the header) so the status + decision are not buried under detail.
+    document.querySelectorAll('details.collapsible').forEach(d => { d.open = true; });
   }
   loadCachedExplain();
   setInterval(() => {
@@ -1712,7 +1907,7 @@
     // between pulses during the /tts wait.  Stops the instant audio playback
     // begins (or we fall back to SpeechSynthesis).
     startContinuousHum(CUE.thinking.freq);
-    // Phase 3 (Supervisor goal): prefer OpenAI TTS over browser SpeechSynthesis
+    // Phase 3 (Wingman goal): prefer OpenAI TTS over browser SpeechSynthesis
     // because the SpeechSynthesis voices are too robotic for hands-free use.
     // Fall back to SpeechSynthesis on any failure (no key, network error,
     // OpenAI 5xx, etc.).
@@ -1964,7 +2159,7 @@
         return;
       }
 
-      // Phase 1 (Supervisor): show raw transcript as a small grey "raw" bubble
+      // Phase 1 (Wingman): show raw transcript as a small grey "raw" bubble
       // AND the cleaned version as the primary "user" bubble (the one that
       // actually goes to the agent).  When they are identical we collapse to
       // a single bubble.

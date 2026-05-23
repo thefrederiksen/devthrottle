@@ -8,10 +8,10 @@ namespace CcDirector.Core.Storage;
 /// <summary>
 /// Phase 5: per-Director coordinator that creates a <see cref="SessionLogWriter"/>
 /// for every session and tears it down when the session is gone. Mirrors the
-/// pattern used by <c>SessionStatusSupervisor</c> and <c>TurnSummaryCache</c>:
+/// pattern used by <c>SessionStatusWingman</c> and <c>TurnSummaryCache</c>:
 /// subscribe to <c>SessionManager.OnSessionCreated</c>, own the per-session helper.
 ///
-/// External consumers (the TurnSummaryCache, the supervisor, future agent-view
+/// External consumers (the TurnSummaryCache, the wingman, future agent-view
 /// pipeline) push their records through the writer via this manager:
 ///
 ///   manager.WriteTurnSummary(sessionId, summary);

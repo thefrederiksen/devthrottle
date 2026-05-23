@@ -5,10 +5,10 @@ using CcDirector.Core.Sessions;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 
-namespace CcDirector.Core.Supervisor;
+namespace CcDirector.Core.Wingman;
 
 /// <summary>
-/// Bridges Session.OnTurnCompleted -> SupervisorService.SummarizeTurnAsync -> per-session cache.
+/// Bridges Session.OnTurnCompleted -> WingmanService.SummarizeTurnAsync -> per-session cache.
 ///
 /// One instance per Director.  On <see cref="Start"/> it subscribes to
 /// <see cref="SessionManager.OnSessionCreated"/> so every new session gets a
@@ -21,7 +21,7 @@ public sealed class TurnSummaryCache : IDisposable
 {
     private readonly SessionManager _sessionManager;
     private readonly AgentOptions _options;
-    private readonly SessionStatusSupervisor? _statusSupervisor;
+    private readonly SessionStatusWingman? _statusWingman;
     private readonly Core.Storage.SessionLogManager? _logManager;
     private readonly ConcurrentDictionary<Guid, List<TurnSummary>> _cache = new();
     private readonly ConcurrentDictionary<Guid, Action<Session, TurnData>> _handlers = new();
@@ -31,11 +31,11 @@ public sealed class TurnSummaryCache : IDisposable
     /// <summary>Max summaries kept per session.  Older ones are evicted.</summary>
     public int MaxSummariesPerSession { get; set; } = 100;
 
-    public TurnSummaryCache(SessionManager sessionManager, AgentOptions options, SessionStatusSupervisor? statusSupervisor = null, Core.Storage.SessionLogManager? logManager = null)
+    public TurnSummaryCache(SessionManager sessionManager, AgentOptions options, SessionStatusWingman? statusWingman = null, Core.Storage.SessionLogManager? logManager = null)
     {
         _sessionManager = sessionManager;
         _options = options;
-        _statusSupervisor = statusSupervisor;
+        _statusWingman = statusWingman;
         _logManager = logManager;
     }
 
@@ -77,11 +77,35 @@ public sealed class TurnSummaryCache : IDisposable
 
         var lastAssistantText = TryReadLastAssistantText(session);
 
-        var summary = await SupervisorService.SummarizeTurnAsync(
+        var summary = await WingmanService.SummarizeTurnAsync(
             turn, lastAssistantText, session.RepoPath, _options.ClaudePath, ct);
 
         AddToCache(sessionId, summary);
         return summary;
+    }
+
+    /// <summary>
+    /// Run a goal assessment for a session right now (used when a goal is first set,
+    /// so the user sees a verdict without waiting for the next turn to finish). Safe
+    /// no-op when the session has no goal. Stores the verdict on the session.
+    /// </summary>
+    public async Task AssessGoalNowAsync(Guid sessionId, CancellationToken ct = default)
+    {
+        var session = _sessionManager.GetSession(sessionId);
+        if (session is null) return;
+        await AssessGoalIfSetAsync(session, ct);
+    }
+
+    private async Task AssessGoalIfSetAsync(Session session, CancellationToken ct = default)
+    {
+        var goal = session.WingmanGoal;
+        if (string.IsNullOrWhiteSpace(goal)) return;
+
+        var recent = GetForSession(session.Id);
+        var assessment = await WingmanService.AssessGoalAsync(
+            goal, recent, session.RepoPath, _options.ClaudePath, ct);
+        session.SetWingmanGoalAssessment(assessment.State, assessment.Reason, assessment.EvaluatedAt);
+        FileLog.Write($"[TurnSummaryCache] goal verdict for {session.Id}: {assessment.State} - {assessment.Reason}");
     }
 
     private void OnSessionCreated(Session session) => WireSession(session);
@@ -98,15 +122,20 @@ public sealed class TurnSummaryCache : IDisposable
                 try
                 {
                     var lastAssistantText = TryReadLastAssistantText(s);
-                    var summary = await SupervisorService.SummarizeTurnAsync(
+                    var summary = await WingmanService.SummarizeTurnAsync(
                         t, lastAssistantText, s.RepoPath, _options.ClaudePath);
                     AddToCache(s.Id, summary);
-                    // Hand the fresh summary to the status supervisor (slow path).
-                    _statusSupervisor?.ApplyTurnSummary(s, summary);
-                    // Phase 5: persist the summary to disk so the supervisor's history
+                    // Hand the fresh summary to the status wingman (slow path).
+                    _statusWingman?.ApplyTurnSummary(s, summary);
+                    // Phase 5: persist the summary to disk so the wingman's history
                     // survives Director restart and is replayable for "ask" queries.
                     _logManager?.WriteTurnSummary(s.Id, summary);
                     FileLog.Write($"[TurnSummaryCache] cached summary for {s.Id}: \"{(summary.Headline.Length > 80 ? summary.Headline[..80] + "..." : summary.Headline)}\"");
+
+                    // Goal management: if this session has a stated goal, judge whether
+                    // it is still on track. Observational only - we store the verdict on
+                    // the session for the Wingman view; we do not change the status color.
+                    await AssessGoalIfSetAsync(s);
                 }
                 catch (Exception ex)
                 {

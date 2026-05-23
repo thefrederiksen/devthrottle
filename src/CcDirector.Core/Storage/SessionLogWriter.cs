@@ -15,7 +15,7 @@ namespace CcDirector.Core.Storage;
 ///  - <c>raw.jsonl</c>              every chunk of bytes the terminal emitted
 ///                                  (base64-encoded so binary ANSI doesn't break JSON)
 ///  - <c>turns.jsonl</c>            every completed <see cref="TurnSummary"/>
-///  - <c>supervisor-events.jsonl</c> every color change the SessionStatusSupervisor wrote
+///  - <c>wingman-events.jsonl</c> every color change the SessionStatusWingman wrote
 ///  - <c>agent-view.jsonl</c>       (reserved - hooked up by the agent-view layer in a later slice)
 ///
 /// Hot-path safety: incoming events go through a bounded <see cref="Channel{T}"/>
@@ -54,7 +54,7 @@ public sealed class SessionLogWriter : IDisposable
     // File handles, opened lazily on first record per kind.
     private StreamWriter? _rawStream;
     private StreamWriter? _turnsStream;
-    private StreamWriter? _supervisorStream;
+    private StreamWriter? _wingmanStream;
     private StreamWriter? _agentViewStream;
 
     // Producer-side subscriptions we own so we can unhook on Dispose.
@@ -103,7 +103,7 @@ public sealed class SessionLogWriter : IDisposable
         // the cache. So no OnTurnCompleted subscription here - it would log the raw
         // turn before Haiku has labelled it, which isn't useful.
 
-        _onColor = (oldColor, newColor, reason) => Enqueue(new LogEntry(LogKind.SupervisorEvent, new
+        _onColor = (oldColor, newColor, reason) => Enqueue(new LogEntry(LogKind.WingmanEvent, new
         {
             ts = DateTime.UtcNow,
             oldColor,
@@ -114,9 +114,9 @@ public sealed class SessionLogWriter : IDisposable
     }
 
     /// <summary>
-    /// Called by <see cref="Supervisor.TurnSummaryCache"/> after Haiku returns and
+    /// Called by <see cref="Wingman.TurnSummaryCache"/> after Haiku returns and
     /// the summary has landed in the in-memory cache. We persist the summary so it
-    /// survives Director restart and is replayable by the supervisor.
+    /// survives Director restart and is replayable by the wingman.
     /// </summary>
     public void WriteTurnSummary(TurnSummary summary)
     {
@@ -154,7 +154,7 @@ public sealed class SessionLogWriter : IDisposable
 
         try { _rawStream?.Dispose(); } catch { }
         try { _turnsStream?.Dispose(); } catch { }
-        try { _supervisorStream?.Dispose(); } catch { }
+        try { _wingmanStream?.Dispose(); } catch { }
         try { _agentViewStream?.Dispose(); } catch { }
     }
 
@@ -209,7 +209,7 @@ public sealed class SessionLogWriter : IDisposable
         {
             LogKind.Raw             => GetOrOpen(ref _rawStream, SessionLogPaths.RawJsonl(_sessionId)),
             LogKind.Turn            => GetOrOpen(ref _turnsStream, SessionLogPaths.TurnsJsonl(_sessionId)),
-            LogKind.SupervisorEvent => GetOrOpen(ref _supervisorStream, SessionLogPaths.SupervisorEventsJsonl(_sessionId)),
+            LogKind.WingmanEvent => GetOrOpen(ref _wingmanStream, SessionLogPaths.WingmanEventsJsonl(_sessionId)),
             LogKind.AgentView       => GetOrOpen(ref _agentViewStream, SessionLogPaths.AgentViewJsonl(_sessionId)),
             _ => null,
         };
@@ -230,7 +230,7 @@ public sealed class SessionLogWriter : IDisposable
         return slot;
     }
 
-    private enum LogKind { Raw, Turn, SupervisorEvent, AgentView }
+    private enum LogKind { Raw, Turn, WingmanEvent, AgentView }
 
     private sealed record LogEntry(LogKind Kind, object Payload);
 }

@@ -28,7 +28,7 @@ public partial class CleanView : UserControl
     private string _filterMode = "All"; // "All", "UserOnly", "Conversation"
 
     // The orange question card pinned at the end of the feed whenever the
-    // supervisor says the session is in "red" status with a distilled question.
+    // wingman says the session is in "red" status with a distilled question.
     // We hold one instance and add/remove it from the collections directly so
     // the existing scroll-to-bottom behavior just works.
     private CleanWidgetViewModel? _pendingQuestionWidget;
@@ -62,7 +62,7 @@ public partial class CleanView : UserControl
         // Subscribe to activity state changes
         session.OnActivityStateChanged += OnActivityStateChanged;
 
-        // Subscribe to supervisor status changes so we can show/hide the
+        // Subscribe to wingman status changes so we can show/hide the
         // pending-question card inline at the end of the feed.
         session.OnStatusColorChanged += OnStatusColorChanged;
         SyncPendingQuestionWidget();
@@ -194,7 +194,7 @@ public partial class CleanView : UserControl
 
     private void OnStatusColorChanged(string oldColor, string newColor, string reason)
     {
-        // Event handler: try-catch per CLAUDE.md rule 4. Fires on the supervisor's
+        // Event handler: try-catch per CLAUDE.md rule 4. Fires on the wingman's
         // background thread; SyncPendingQuestionWidget marshals to the UI thread.
         try
         {
@@ -207,7 +207,7 @@ public partial class CleanView : UserControl
     }
 
     // Ensure the orange question card is present at the tail of the feed when
-    // the supervisor flags a pending question (color=red + non-empty reason),
+    // the wingman flags a pending question (color=red + non-empty reason),
     // and gone otherwise. Idempotent; safe to call repeatedly. Mutates
     // ObservableCollections so MUST run on the UI thread; callers marshal via
     // Dispatcher.UIThread.Post. Exceptions propagate to the UI-thread
@@ -239,7 +239,7 @@ public partial class CleanView : UserControl
             }
             else if (!string.Equals(_pendingQuestionWidget.Content, text, StringComparison.Ordinal))
             {
-                // Question text changed (supervisor reran the summary). Swap the
+                // Question text changed (wingman reran the summary). Swap the
                 // widget for a new one with the updated text; the binding is
                 // init-only so we cannot mutate in place.
                 FileLog.Write($"[CleanView] SyncPendingQuestionWidget: replace, session={_session.Id}, newReasonLen={text.Length}");
@@ -471,7 +471,7 @@ public partial class CleanView : UserControl
         PersistNewWidgetsToDisk(widgets);
 
         // ReplaceAllWidgets just cleared the pending-question widget; reinsert
-        // it at the tail if the supervisor still says there is one.
+        // it at the tail if the wingman still says there is one.
         _pendingQuestionWidget = null;
         SyncPendingQuestionWidget();
     }

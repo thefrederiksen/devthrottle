@@ -1,17 +1,17 @@
 namespace CcDirector.Gateway.Contracts;
 
 /// <summary>
-/// Phase 5: body for <c>POST /sessions/{sid}/supervisor/ask</c>. The user's question
+/// Phase 5: body for <c>POST /sessions/{sid}/wingman/ask</c>. The user's question
 /// is piped into a fresh, stateless Haiku call alongside this session's recent
-/// state. The supervisor never has memory between asks.
+/// state. The wingman never has memory between asks.
 /// </summary>
-public sealed class SupervisorAskRequest
+public sealed class WingmanAskRequest
 {
     /// <summary>The user's question about this session. Free text, max ~2000 chars.</summary>
     public string Question { get; set; } = "";
 
     /// <summary>
-    /// Optional mode. When set to "explain", the supervisor ignores <see cref="Question"/>
+    /// Optional mode. When set to "explain", the wingman ignores <see cref="Question"/>
     /// and instead produces a session briefing (what's happened + what the agent is
     /// waiting on) using the strong model (Opus) rather than the cheap Haiku default.
     /// </summary>
