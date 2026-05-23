@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Phone Recorder -> Gateway Transcription - Implementation Report</title>
+<style>
+  :root{
+    --bg:#0B1020; --panel:#141B2E; --panel2:#1B2540; --ink:#E6EAF2;
+    --muted:#8A93A6; --line:#27324d; --green:#5FD08A; --red:#E5484D;
+    --blue:#5B8DEF; --amber:#E8B339;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.55}
+  .wrap{max-width:1040px;margin:0 auto;padding:40px 24px 80px}
+  h1{font-size:34px;margin:0 0 6px}
+  h2{font-size:23px;margin:46px 0 14px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+  h3{font-size:17px;margin:24px 0 8px;color:#C7D0E4}
+  p,li{color:#C7D0E4}
+  .sub{color:var(--muted);font-size:15px;margin:0 0 20px}
+  code{background:#0d1426;border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-size:13px;color:#add0ff}
+  pre{background:#0d1426;border:1px solid var(--line);border-radius:10px;padding:16px;overflow:auto;font-size:13px;color:#cdd6e6}
+  .pill{display:inline-block;padding:3px 11px;border-radius:999px;font-size:12px;font-weight:600;letter-spacing:.3px}
+  .ok{background:rgba(95,208,138,.16);color:var(--green);border:1px solid rgba(95,208,138,.4)}
+  .warn{background:rgba(232,179,57,.14);color:var(--amber);border:1px solid rgba(232,179,57,.4)}
+  .grid{display:grid;gap:18px}
+  .cols-2{grid-template-columns:1fr 1fr}
+  .cols-3{grid-template-columns:1fr 1fr 1fr}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px}
+  .card h3{margin-top:0}
+  .shots{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+  .shots figure{margin:0;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:10px}
+  .shots img{width:100%;border-radius:8px;display:block;border:1px solid #000}
+  .shots figcaption{color:var(--muted);font-size:12.5px;padding:8px 4px 2px;text-align:center}
+  table{width:100%;border-collapse:collapse;font-size:14px;margin:8px 0}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--muted);font-weight:600}
+  .flow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:13.5px;color:#C7D0E4}
+  .flow .node{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 12px}
+  .flow .arrow{color:var(--blue);font-weight:700}
+  .todo{background:linear-gradient(180deg,rgba(232,179,57,.08),rgba(232,179,57,.02));
+    border:1px solid rgba(232,179,57,.35);border-radius:14px;padding:8px 22px}
+  .todo li{margin:12px 0}
+  .muted{color:var(--muted)}
+  .kbd{font-family:Consolas,monospace;font-size:12.5px;background:#0d1426;border:1px solid var(--line);border-radius:5px;padding:1px 6px;color:#9fb4d8}
+  .check{color:var(--green);font-weight:700}
+  .filetag{font-family:Consolas,monospace;font-size:12.5px;color:#9fb4d8}
+  a{color:var(--blue)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Phone Recorder &rarr; Gateway Transcription</h1>
+  <p class="sub">Otter replacement &middot; offline Android recorder + server-side transcription into the vault &middot; implementation report, 2026-05-23</p>
+  <p>
+    <span class="pill ok">Server pipeline: built &amp; tested</span>
+    <span class="pill ok">Android app: built, booted, recording verified</span>
+    <span class="pill ok">End-to-end: real audio &rarr; vault</span>
+    <span class="pill warn">3 human checks remain</span>
+  </p>
+
+  <h2>What this is</h2>
+  <p>
+    A standalone Android app records audio fully offline into crash-safe rolling segments, then uploads them
+    to the always-on CC Director Gateway, which transcribes each segment through the <em>existing</em> dictation
+    pipeline, cleans it with your company-term glossary, and files the result into a dedicated vault
+    transcripts collection. The phone stays a dumb, reliable recorder; all the heavy lifting is server-side.
+  </p>
+  <div class="flow">
+    <span class="node">Phone records offline<br><span class="muted">1-min .m4a segments + notes</span></span>
+    <span class="arrow">&rarr;</span>
+    <span class="node">Upload to Gateway<br><span class="muted">HTTPS / Tailscale</span></span>
+    <span class="arrow">&rarr;</span>
+    <span class="node">Transcribe + clean<br><span class="muted">reuses dictation pipeline</span></span>
+    <span class="arrow">&rarr;</span>
+    <span class="node">Vault transcript<br><span class="muted">+ audio attached</span></span>
+  </div>
+
+  <h2>The app, running on an emulator</h2>
+  <p class="sub">Built with .NET MAUI, deployed to a freshly-provisioned Android 35 emulator, and driven through a real record cycle.</p>
+  <div class="shots">
+    <figure>
+      <img src="screenshots/01-recorder-ui.png" alt="Recorder idle screen" />
+      <figcaption>1. Recorder screen &mdash; timer, segment counter, Record button, notes, Gateway upload.</figcaption>
+    </figure>
+    <figure>
+      <img src="screenshots/02-recording.png" alt="Recording in progress" />
+      <figcaption>2. Recording live &mdash; timer running, state "Recording", a note being typed.</figcaption>
+    </figure>
+    <figure>
+      <img src="screenshots/04-after-stop.png" alt="After stop, note on timeline" />
+      <figcaption>3. After Stop &mdash; "1 segment captured" and the note placed on the timeline at [00:33].</figcaption>
+    </figure>
+  </div>
+  <p class="muted" style="font-size:13px">
+    The emulator microphone records silence (no host audio source), but the capture, segment finalization,
+    note timestamping, and manifest writing are all real &mdash; see the manifest below.
+  </p>
+
+  <h2>Proof: a real recording the app produced</h2>
+  <p>Pulled straight off the device after the record cycle above. A finalized 36-second AAC segment plus a
+     manifest carrying the segment hash and the timestamped note:</p>
+  <pre>{
+  "RecordingId": "f753d93cba514596aa5fa8d9d71aab5e",
+  "Title": "Recording 2026-05-23 11:25",
+  "DeviceId": "sdk_gphone64_x86_64",
+  "StartedAt": "2026-05-23T15:25:53Z",  "EndedAt": "2026-05-23T15:26:30Z",
+  "SampleRateHz": 16000, "Channels": 1, "Codec": "aac-m4a",
+  "Chunks": [
+    { "Index": 0, "File": "0000.m4a", "StartMs": 466, "DurationMs": 36248,
+      "Bytes": 292000, "Sha256": "0d6be2e21811c1c7b4ec5eec133a1478d1de134db8339e9965822e21e165d7ef" }
+  ],
+  "Notes": [ { "TMs": 33350, "Text": "Discussed pricing and next steps" } ]
+}</pre>
+
+  <h2>Proof: real audio &rarr; transcript &rarr; vault</h2>
+  <p>
+    The full HTTP loop was exercised end to end against the new Gateway ingest endpoints, injecting the three
+    Phase&nbsp;0 speech clips as segments. Real OpenAI transcription, real glossary cleanup, real vault filing.
+    The cleanup pass even repaired the raw speech-to-text <code>ConTUI&nbsp;&rarr;&nbsp;ConPTY</code> and
+    <code>Mindzie&nbsp;&rarr;&nbsp;mindzie</code> from your vocabulary. The transcript landed as
+    <strong>vault document #476, type <code>transcript</code></strong>, with the audio stored beside it.
+  </p>
+  <div class="grid cols-2">
+    <div class="card">
+      <h3>Generated transcript (filed to vault)</h3>
+      <pre># Phase0 Injected Call (E2E)
+
+- Recorded: 2026-05-23T09:00:00Z
+- Segments: 3
+- Duration: 03:00
+
+## Notes
+- [00:01] injected audio test
+
+## Transcript
+I sent the cc-director patch to mindzie
+before the CenCon review. Soren Frederiksen
+needs the Avalonia changes for ConPTY tested
+by Friday. Tell mindzie that the CenCon report
+is ready and ping the cc-director gateway team.</pre>
+    </div>
+    <div class="card">
+      <h3>Vault entry</h3>
+      <pre>ID   Title                    Type        Tags
+476  Phase0 Injected Call     transcript  transcript,
+     (E2E)                                recording</pre>
+      <h3>Collection on disk (audio travels with vault)</h3>
+      <pre>vault/transcripts/e2e-7d5844db/
+  Phase0 Injected Call (E2E).md
+  0000.mp3  0001.mp3  0002.mp3</pre>
+    </div>
+  </div>
+
+  <h2>What was implemented</h2>
+  <div class="grid cols-2">
+    <div class="card">
+      <h3>Server (Gateway + Core)</h3>
+      <table>
+        <tr><th>File</th><th>Role</th></tr>
+        <tr><td class="filetag">Gateway.Contracts/RecordingManifest.cs</td><td>Wire DTOs (manifest, chunk, note, status)</td></tr>
+        <tr><td class="filetag">Core/Recording/RecordingIngestService.cs</td><td>Ingest state machine: store, transcribe, assemble, clean, file</td></tr>
+        <tr><td class="filetag">Core/Recording/OpenAiRecordingTranscriber.cs</td><td>Reuses OpenAiTranscriptionProvider + CleanupOrchestrator</td></tr>
+        <tr><td class="filetag">Core/Recording/CcVaultFiler.cs</td><td>Files via the cc-vault CLI into a dedicated library</td></tr>
+        <tr><td class="filetag">Gateway/Api/RecordingEndpoints.cs</td><td>The 4 <code>/ingest/recording</code> REST routes</td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <h3>Android app (.NET MAUI)</h3>
+      <table>
+        <tr><th>File</th><th>Role</th></tr>
+        <tr><td class="filetag">phone/CcRecorder/MainPage.xaml(.cs)</td><td>Recorder UI: record, timer, notes, upload, library</td></tr>
+        <tr><td class="filetag">Platforms/Android/AndroidAudioRecorder.cs</td><td>1-min AAC segment rotation, manifest, SHA-256</td></tr>
+        <tr><td class="filetag">Platforms/Android/RecorderForegroundService.cs</td><td>Foreground service: survives screen lock / background</td></tr>
+        <tr><td class="filetag">Recording/IngestUploader.cs</td><td>Resumable, idempotent upload to the Gateway</td></tr>
+        <tr><td class="filetag">Recording/LocalManifest.cs</td><td>On-device manifest model</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <h3>Key design decisions (as agreed)</h3>
+  <table>
+    <tr><th>Decision</th><th>Choice</th></tr>
+    <tr><td>Segment length</td><td>1 minute (max crash safety; each well under the 25&nbsp;MB transcription limit)</td></tr>
+    <tr><td>Vault destination</td><td>Dedicated <code>transcripts</code> library + typed <code>--type transcript</code> document</td></tr>
+    <tr><td>Audio retention</td><td>Original audio stored inside the vault collection (travels with backups)</td></tr>
+    <tr><td>Title flow</td><td>Record instantly with a timestamp default; rename later</td></tr>
+    <tr><td>Distribution</td><td>Sideloaded signed APK</td></tr>
+    <tr><td>Transcription</td><td>Reuses the existing dictation pipeline &mdash; no second STT path</td></tr>
+  </table>
+
+  <h2>Tests</h2>
+  <table>
+    <tr><th>Suite</th><th>Result</th><th>What it covers</th></tr>
+    <tr><td>RecordingIngestServiceTests (Core)</td><td><span class="check">10 passed</span></td><td>register/idempotency, chunk store, SHA mismatch, assemble+clean+file, vault-failure error state, and a real-audio end-to-end (Phase 0 clips)</td></tr>
+    <tr><td>RecordingEndpointsE2ETests (HTTP)</td><td><span class="check">1 passed</span></td><td>full wire flow over HTTP incl. idempotent re-PUT, real transcription, real vault filing (opt-in: <span class="kbd">CC_REC_E2E=1</span>)</td></tr>
+  </table>
+  <p class="muted" style="font-size:13px">Real-network tests self-skip without <span class="kbd">OPENAI_API_KEY</span>, matching the existing dictation tests. Both ran green against the live OpenAI API.</p>
+
+  <h2 style="border-color:rgba(232,179,57,.5)">What YOU need to test (hardware / physical)</h2>
+  <p class="sub">Everything that can be verified headless has been. These three need your real phone &mdash; they cannot be done in an emulator or unattended.</p>
+  <div class="todo">
+    <ol>
+      <li><strong>Real-microphone, multi-hour, crash-safety run.</strong>
+        Install the APK on your phone, start a long recording (target the real 2-3 hour case), lock the screen and
+        background the app, then force-kill it mid-segment. Confirm every prior 1-minute segment is on disk and
+        playable, and that no audio is lost. <span class="muted">This is the core promise; the emulator can't prove it.</span></li>
+      <li><strong>End-to-end over your tailnet.</strong>
+        Put the phone on your tailnet, enter your Gateway HTTPS URL + token in the app, record a short real clip,
+        hit "Upload latest recording", and confirm the transcript appears in the vault
+        (<span class="kbd">cc-vault docs list</span>) with the audio attached.</li>
+      <li><strong>APK install + permissions.</strong>
+        Sideload the signed APK (enable "install unknown apps"), grant the microphone permission on first Record,
+        and confirm the persistent "Recording" notification appears.</li>
+    </ol>
+  </div>
+
+  <h2>How to build &amp; run it yourself</h2>
+  <h3>The Android app</h3>
+  <pre># Build a self-contained debug APK (assemblies embedded, installable standalone)
+dotnet build phone/CcRecorder/CcRecorder.csproj -f net10.0-android -p:EmbedAssembliesIntoApk=true
+
+# Install on a connected device/emulator
+adb install -r phone/CcRecorder/bin/Debug/net10.0-android/com.ccdirector.recorder-Signed.apk</pre>
+  <p class="muted" style="font-size:13px">APK id <code>com.ccdirector.recorder</code>. For distribution, build <code>-c Release</code> with a signing keystore.</p>
+
+  <h3>The server (ingest endpoints live in the Gateway)</h3>
+  <p>The <code>/ingest/recording</code> routes are mapped into the Gateway automatically. To run the real
+     end-to-end test that files into the vault:</p>
+  <pre>setx OPENAI_API_KEY ...        # already set on this machine
+$env:CC_REC_E2E = "1"
+dotnet test src/CcDirector.Gateway.Tests --filter RecordingEndpointsE2ETests</pre>
+
+  <h2>Notes &amp; honest gaps</h2>
+  <ul>
+    <li><strong>Toolchain installed during this run:</strong> the .NET MAUI Android workload, a user-local Android SDK
+      (<code>%LOCALAPPDATA%\Android\Sdk</code>), platform-tools, the emulator, and an Android&nbsp;35 system image. <code>ANDROID_HOME</code> now points there.</li>
+    <li><strong>Progressive transcription</strong> (transcribing early segments while the call continues) is designed for
+      but not yet wired &mdash; the server currently transcribes all segments at <code>complete</code>. The chunked
+      design makes this a drop-in later.</li>
+    <li><strong>Foreground-service ownership:</strong> the recorder runs capture in-process with a foreground service
+      keeping it alive. For the strongest multi-hour guarantee, moving the MediaRecorder loop fully inside the service
+      is a hardening follow-up &mdash; flagged for the crash-safety test above.</li>
+    <li><strong>Not committed.</strong> All changes are left uncommitted for your review, per house rules.</li>
+  </ul>
+
+  <p class="muted" style="margin-top:40px;font-size:13px">
+    Plan of record: <code>docs/plans/phone-recorder-otter-replacement.md</code> &middot;
+    Generated by Claude Code, 2026-05-23.
+  </p>
+
+</div>
+</body>
+</html>

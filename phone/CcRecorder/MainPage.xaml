@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="CcRecorder.MainPage"
+             BackgroundColor="#0B1020"
+             Title="CC Recorder">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="20" Spacing="16">
+
+            <Label Text="CC Recorder"
+                   FontSize="26" FontAttributes="Bold" TextColor="#E6EAF2" />
+            <Label Text="Offline recorder. Records to the phone, uploads to the Gateway to transcribe."
+                   FontSize="13" TextColor="#8A93A6" />
+
+            <!-- Timer + state -->
+            <Border BackgroundColor="#141B2E" StrokeShape="RoundRectangle 14" Padding="20">
+                <VerticalStackLayout Spacing="6" HorizontalOptions="Center">
+                    <Label x:Name="TimerLabel" Text="00:00:00"
+                           FontSize="44" FontAttributes="Bold" TextColor="#E6EAF2"
+                           HorizontalOptions="Center" />
+                    <Label x:Name="StateLabel" Text="Idle"
+                           FontSize="14" TextColor="#5FD08A" HorizontalOptions="Center" />
+                    <Label x:Name="SegmentLabel" Text="0 segments captured"
+                           FontSize="13" TextColor="#8A93A6" HorizontalOptions="Center" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Entry x:Name="TitleEntry" Placeholder="Title (optional, rename later)"
+                   TextColor="#E6EAF2" PlaceholderColor="#5A6378" BackgroundColor="#141B2E" />
+
+            <Button x:Name="RecordButton" Text="Record"
+                    BackgroundColor="#E5484D" TextColor="White"
+                    FontSize="18" FontAttributes="Bold" HeightRequest="64"
+                    CornerRadius="12" Clicked="OnRecordClicked" />
+
+            <!-- Prominent upload/transcription status, always under the button -->
+            <Border x:Name="StatusBanner" IsVisible="False"
+                    BackgroundColor="#16324A" StrokeShape="RoundRectangle 12" Padding="16,12">
+                <Border.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OnBannerTapped" />
+                </Border.GestureRecognizers>
+                <VerticalStackLayout Spacing="2">
+                    <Label x:Name="BannerTitle" Text="" FontSize="15" FontAttributes="Bold" TextColor="#E6EAF2" />
+                    <Label x:Name="BannerDetail" Text="" FontSize="13" TextColor="#A9C7E8" />
+                </VerticalStackLayout>
+            </Border>
+
+            <!-- Notes -->
+            <Label Text="Notes while recording" FontSize="15" FontAttributes="Bold" TextColor="#E6EAF2" />
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                <Entry x:Name="NoteEntry" Grid.Column="0" Placeholder="Type a note, hit Add"
+                       TextColor="#E6EAF2" PlaceholderColor="#5A6378" BackgroundColor="#141B2E" />
+                <Button x:Name="AddNoteButton" Grid.Column="1" Text="Add"
+                        BackgroundColor="#2B6CB0" TextColor="White" Clicked="OnAddNoteClicked" />
+            </Grid>
+            <CollectionView x:Name="NotesList" HeightRequest="120">
+                <CollectionView.ItemTemplate>
+                    <DataTemplate>
+                        <Label Text="{Binding}" TextColor="#B7C0D4" FontSize="13" Padding="0,2" />
+                    </DataTemplate>
+                </CollectionView.ItemTemplate>
+            </CollectionView>
+
+            <!-- Uploads queue -->
+            <Label Text="Uploads" FontSize="15" FontAttributes="Bold" TextColor="#E6EAF2" />
+            <Label Text="Every recording is kept on your phone and uploads automatically in the background. Nothing is ever deleted."
+                   FontSize="12" TextColor="#8A93A6" />
+            <CollectionView x:Name="LibraryList" HeightRequest="240"
+                            SelectionMode="Single" SelectionChanged="OnRecordingSelected">
+                <CollectionView.ItemTemplate>
+                    <DataTemplate>
+                        <Border BackgroundColor="#141B2E" StrokeShape="RoundRectangle 8" Padding="10" Margin="0,3">
+                            <VerticalStackLayout>
+                                <Label Text="{Binding Title}" TextColor="#E6EAF2" FontAttributes="Bold" />
+                                <Label Text="{Binding Subtitle}" TextColor="#8A93A6" FontSize="12" />
+                            </VerticalStackLayout>
+                        </Border>
+                    </DataTemplate>
+                </CollectionView.ItemTemplate>
+            </CollectionView>
+
+            <!-- Server settings (out of the way; pre-filled) -->
+            <Label Text="Server settings" FontSize="13" FontAttributes="Bold" TextColor="#5A6378" Margin="0,12,0,0" />
+            <Entry x:Name="ServerEntry" Placeholder="https://gateway-host.ts.net"
+                   TextColor="#A9B4C8" PlaceholderColor="#5A6378" BackgroundColor="#0F1626"
+                   Unfocused="OnCredsChanged" />
+            <Entry x:Name="TokenEntry" Placeholder="Gateway token" IsPassword="True"
+                   TextColor="#A9B4C8" PlaceholderColor="#5A6378" BackgroundColor="#0F1626"
+                   Unfocused="OnCredsChanged" />
+
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

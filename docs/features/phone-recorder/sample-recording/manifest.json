@@ -1,0 +1,26 @@
+{
+  "RecordingId": "f753d93cba514596aa5fa8d9d71aab5e",
+  "Title": "Recording 2026-05-23 11:25",
+  "DeviceId": "sdk_gphone64_x86_64",
+  "StartedAt": "2026-05-23T15:25:53.4136509Z",
+  "EndedAt": "2026-05-23T15:26:30.1467521Z",
+  "SampleRateHz": 16000,
+  "Channels": 1,
+  "Codec": "aac-m4a",
+  "Chunks": [
+    {
+      "Index": 0,
+      "File": "0000.m4a",
+      "StartMs": 466,
+      "DurationMs": 36248,
+      "Bytes": 292000,
+      "Sha256": "0d6be2e21811c1c7b4ec5eec133a1478d1de134db8339e9965822e21e165d7ef"
+    }
+  ],
+  "Notes": [
+    {
+      "TMs": 33350,
+      "Text": "Discussed pricing and next steps"
+    }
+  ]
+}
