@@ -219,6 +219,42 @@ internal static class ControlEndpoints
             return Results.Json(new { mobileMode = session.MobileMode });
         });
 
+        // Mobile view-links: serve a local file INLINE so a phone can tap a link and VIEW
+        // the file (HTML/PDF/image/text) in the browser, instead of getting a useless file
+        // path it cannot open. Browser Back returns to the session.
+        //
+        // Security: per the solo-tailnet decision (see remote-experience-plan.md) there is
+        // NO sandbox/allowed-roots restriction - the tailnet boundary is the only gate, and
+        // the tailnet is the owner's own devices. Revisit (add auth/signed links) the moment
+        // a non-owner device or second user joins the tailnet.
+        app.MapGet("/file", (string? path) =>
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return Results.BadRequest(new { error = "path is required" });
+            if (!System.IO.File.Exists(path))
+                return Results.NotFound(new { error = "file not found: " + path });
+
+            var ext = System.IO.Path.GetExtension(path).ToLowerInvariant();
+            var ctype = ext switch
+            {
+                ".html" or ".htm" => "text/html; charset=utf-8",
+                ".pdf"            => "application/pdf",
+                ".png"            => "image/png",
+                ".jpg" or ".jpeg" => "image/jpeg",
+                ".gif"            => "image/gif",
+                ".svg"            => "image/svg+xml",
+                ".css"            => "text/css; charset=utf-8",
+                ".js"             => "text/javascript; charset=utf-8",
+                ".json"           => "application/json; charset=utf-8",
+                ".csv"            => "text/csv; charset=utf-8",
+                ".md" or ".txt" or ".log" => "text/plain; charset=utf-8",
+                _                 => "application/octet-stream",
+            };
+            FileLog.Write($"[ControlEndpoints] GET /file: {path} ({ctype})");
+            // No fileDownloadName -> served inline, so the browser renders it (not a download).
+            return Results.File(path, ctype);
+        });
+
         // Phase 4b: observability into the supervisor. Returns current color + reason,
         // a timestamped log of recent decisions, and the latest TurnSummary if any.
         app.MapGet("/sessions/{sid}/supervisor", (string sid) =>

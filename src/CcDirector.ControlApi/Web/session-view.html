@@ -200,6 +200,11 @@
     color: var(--text); font-size: 15px; line-height: 1.5;
     white-space: pre-wrap; overflow-wrap: anywhere;
   }
+  /* Tap-able view-link: a file path the agent referenced, opened in-tab on a phone. */
+  .explain-body a.view-link {
+    color: var(--accent); text-decoration: underline; text-underline-offset: 2px;
+    word-break: break-all;
+  }
 
   .distilled-question {
     padding: 14px 16px;
@@ -1089,7 +1094,7 @@
         bodyEl.textContent = 'Explain failed: HTTP ' + resp.status;
       } else {
         const result = await resp.json();
-        bodyEl.textContent = result.answer || '(no answer)';
+        renderBriefing(bodyEl, result.answer || '(no answer)');
         metaEl.textContent = ' ' + (result.model || '?') + ' - ' + (result.latencyMs || 0) + ' ms';
         _explainShownAt = Date.now();  // don't let a poll replace this fresh on-demand briefing with an older cache
       }
@@ -1146,11 +1151,34 @@
         const at = new Date(data.at).getTime();
         if (Number.isNaN(at) || at <= _explainShownAt) return;
         _explainShownAt = at;
-        document.getElementById('explainBody').textContent = data.text;
+        renderBriefing(document.getElementById('explainBody'), data.text);
         document.getElementById('explainMeta').textContent = ' ' + (data.model || 'opus') + ' - auto, ' + relativeTime(data.at);
         document.getElementById('explainPanel').style.display = '';
       }
     } catch {}
+  }
+
+  // Render a supervisor briefing into an element. On a phone, file paths the agent
+  // references can't be opened as raw paths, so we turn paths to viewable files into
+  // tap-able links that open the file in this same tab (Back returns). On desktop the
+  // briefing stays plain text (you have the file system right there).
+  const VIEWABLE_EXT = /\.(html?|pdf|png|jpe?g|gif|svg|md|txt|log|json|csv)$/i;
+  function linkifyPaths(text) {
+    const esc = escapeHtml(text);
+    // Windows paths with either slash (D:\a\b.html or D:/a/b.html) or POSIX (/a/b.pdf).
+    // Only linkify ones that end in a viewable extension - leave ordinary prose and
+    // non-viewable paths as plain text.
+    const re = /([A-Za-z]:[\\/][^\s"'<>]+|\/[A-Za-z0-9._\/-]+)/g;
+    return esc.replace(re, (m) => {
+      const raw = m.replace(/&amp;/g, '&');
+      if (!VIEWABLE_EXT.test(raw)) return m;
+      return '<a href="/file?path=' + encodeURIComponent(raw) + '" class="view-link">' + m + '</a>';
+    });
+  }
+  function renderBriefing(el, text) {
+    if (!el) return;
+    if (IS_MOBILE) el.innerHTML = linkifyPaths(text || '');
+    else el.textContent = text || '';
   }
 
   function escapeHtml(s) {
