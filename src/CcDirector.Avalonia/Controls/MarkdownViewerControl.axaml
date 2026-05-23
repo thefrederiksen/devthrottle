@@ -1,5 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="clr-namespace:CcDirector.Avalonia.Controls"
              x:Class="CcDirector.Avalonia.Controls.MarkdownViewerControl"
              Background="#1E1E1E">
 
@@ -44,7 +45,7 @@
         </Border>
 
         <!-- Preview mode: rendered HTML in a WebView -->
-        <WebView x:Name="PreviewWebView" Grid.Row="1" />
+        <c:WebView2Host x:Name="PreviewWebView" Grid.Row="1" />
 
         <!-- Editor mode: raw text -->
         <TextBox x:Name="EditorBox" Grid.Row="1"

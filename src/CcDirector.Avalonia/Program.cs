@@ -1,6 +1,5 @@
 using System.Runtime.InteropServices;
 using Avalonia;
-using Avalonia.WebView.Desktop;
 using CcDirector.ControlApi;
 
 namespace CcDirector.Avalonia;
@@ -31,7 +30,6 @@ internal static class Program
     public static AppBuilder BuildAvaloniaApp()
         => AppBuilder.Configure<App>()
             .UsePlatformDetect()
-            .UseDesktopWebView()
             .LogToTrace();
 
     private const uint MB_OK = 0x00000000;

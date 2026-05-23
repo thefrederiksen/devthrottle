@@ -84,7 +84,7 @@ public partial class MarkdownViewerControl : UserControl, IFileViewer
         if (EditorBox.IsVisible)
             _rawContent = EditorBox.Text ?? "";
 
-        PreviewWebView.HtmlContent = MarkdownHtmlRenderer.Render(_rawContent);
+        PreviewWebView.NavigateToString(MarkdownHtmlRenderer.Render(_rawContent));
         PreviewWebView.IsVisible = true;
         EditorBox.IsVisible = false;
         UpdateModeButton();

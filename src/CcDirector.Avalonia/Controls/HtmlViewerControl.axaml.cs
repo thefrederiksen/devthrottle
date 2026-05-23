@@ -17,6 +17,12 @@ public partial class HtmlViewerControl : UserControl, IFileViewer
     public HtmlViewerControl()
     {
         InitializeComponent();
+        WebViewHost.NavigationCompleted += OnNavigationCompleted;
+    }
+
+    private void OnNavigationCompleted(bool isSuccess)
+    {
+        global::Avalonia.Threading.Dispatcher.UIThread.Post(() => LoadingText.IsVisible = false);
     }
 
     public Task LoadFileAsync(string filePath)
@@ -29,9 +35,8 @@ public partial class HtmlViewerControl : UserControl, IFileViewer
         LoadingText.IsVisible = true;
 
         var url = PathToFileUri(filePath);
-        WebViewHost.Url = url;
+        WebViewHost.Navigate(url.AbsoluteUri);
 
-        LoadingText.IsVisible = false;
         FileLog.Write($"[HtmlViewer] Navigated to: {url.AbsoluteUri}");
         return Task.CompletedTask;
     }
@@ -59,7 +64,7 @@ public partial class HtmlViewerControl : UserControl, IFileViewer
         if (string.IsNullOrEmpty(_filePath)) return;
         try
         {
-            WebViewHost.Url = PathToFileUri(_filePath);
+            WebViewHost.Navigate(PathToFileUri(_filePath).AbsoluteUri);
             FileLog.Write($"[HtmlViewer] Reload: {_filePath}");
         }
         catch (Exception ex)

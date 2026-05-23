@@ -4,7 +4,6 @@ using System.Text.Json;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
-using AvaloniaWebView;
 using CcDirector.ControlApi;
 using CcDirector.Core.Claude;
 using CcDirector.Core.Configuration;
@@ -58,7 +57,6 @@ public partial class App : Application
     public override void RegisterServices()
     {
         base.RegisterServices();
-        AvaloniaWebViewBuilder.Initialize(default);
     }
 
     public override void OnFrameworkInitializationCompleted()

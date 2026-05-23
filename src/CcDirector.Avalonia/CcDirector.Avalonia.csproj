@@ -12,6 +12,7 @@
     <!-- CS0067: Interface-required events not yet wired (WIP document viewer controls) -->
     <!-- AVLN3001: Dialogs have no parameterless constructor (instantiated from code, not XAML loader) -->
     <ApplicationIcon>app.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="11.*" />
@@ -20,8 +21,7 @@
     <PackageReference Include="Avalonia.AvaloniaEdit" Version="11.*" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
     <PackageReference Include="Markdig" Version="0.38.0" />
-    <PackageReference Include="WebView.Avalonia" Version="11.0.0.1" />
-    <PackageReference Include="WebView.Avalonia.Desktop" Version="11.0.0.1" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2739.15" />
     <PackageReference Include="NAudio" Version="2.2.1" />
   </ItemGroup>
   <ItemGroup>

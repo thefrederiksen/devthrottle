@@ -17,6 +17,12 @@ public partial class PdfViewerControl : UserControl, IFileViewer
     public PdfViewerControl()
     {
         InitializeComponent();
+        WebViewHost.NavigationCompleted += OnNavigationCompleted;
+    }
+
+    private void OnNavigationCompleted(bool isSuccess)
+    {
+        global::Avalonia.Threading.Dispatcher.UIThread.Post(() => LoadingText.IsVisible = false);
     }
 
     public Task LoadFileAsync(string filePath)
@@ -29,9 +35,8 @@ public partial class PdfViewerControl : UserControl, IFileViewer
         LoadingText.IsVisible = true;
 
         var uri = new Uri(Path.GetFullPath(filePath));
-        WebViewHost.Url = uri;
+        WebViewHost.Navigate(uri.AbsoluteUri);
 
-        LoadingText.IsVisible = false;
         FileLog.Write($"[PdfViewer] Navigated to: {uri.AbsoluteUri}");
         return Task.CompletedTask;
     }
