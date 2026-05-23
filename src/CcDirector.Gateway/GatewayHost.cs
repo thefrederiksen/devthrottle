@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Api;
@@ -97,16 +98,41 @@ public sealed class GatewayHost : IAsyncDisposable
 
         _app.UseForwardedHeaders();
 
+        // Access log + single top-level exception boundary. Every request leaves one
+        // line (method, path, status, elapsed, client, host) so a phone-side problem is
+        // traceable after the fact. Health polls and favicon are skipped to keep the log
+        // focused on real traffic. RemoteIpAddress reflects X-Forwarded-For because
+        // UseForwardedHeaders ran first, so a phone shows its tailnet IP.
         _app.Use(async (ctx, next) =>
         {
-            try { await next(); }
+            var sw = Stopwatch.StartNew();
+            try
+            {
+                await next();
+            }
             catch (Exception ex)
             {
+                // Log full detail server-side; return a generic body so we never leak
+                // an exception type or message to a remote client.
                 Console.Error.WriteLine($"[GatewayHost] pipeline exception: {ex}");
-                FileLog.Write($"[GatewayHost] unhandled exception in pipeline: {ex}");
-                ctx.Response.StatusCode = 500;
+                FileLog.Write($"[GatewayHost] unhandled exception: {ctx.Request.Method} {ctx.Request.Path}{ctx.Request.QueryString}: {ex}");
                 if (!ctx.Response.HasStarted)
-                    await ctx.Response.WriteAsync($"internal error: {ex.GetType().Name}: {ex.Message}");
+                {
+                    ctx.Response.StatusCode = StatusCodes.Status500InternalServerError;
+                    ctx.Response.ContentType = "application/json; charset=utf-8";
+                    await ctx.Response.WriteAsync("{\"error\":\"internal error\"}");
+                }
+            }
+            finally
+            {
+                sw.Stop();
+                var path = ctx.Request.Path.Value ?? "";
+                if (!path.Equals("/healthz", StringComparison.OrdinalIgnoreCase)
+                    && !path.Equals("/favicon.ico", StringComparison.OrdinalIgnoreCase))
+                {
+                    var client = ctx.Connection.RemoteIpAddress?.ToString() ?? "?";
+                    FileLog.Write($"[GatewayHost] {ctx.Request.Method} {path}{ctx.Request.QueryString} -> {ctx.Response.StatusCode} ({sw.ElapsedMilliseconds}ms) client={client} host={ctx.Request.Host}");
+                }
             }
         });
 

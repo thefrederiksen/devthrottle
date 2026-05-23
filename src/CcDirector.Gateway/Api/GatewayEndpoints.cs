@@ -99,12 +99,14 @@ internal static class GatewayEndpoints
         app.MapGet("/healthz", async () =>
         {
             var directors = registry.ListDirectors();
-            int totalSessions = 0;
-            foreach (var d in directors)
+            // Fan out in parallel: /healthz is the most-polled endpoint, so it must not
+            // pay one client timeout per Director sequentially.
+            var counts = await Task.WhenAll(directors.Select(async d =>
             {
                 var sessions = await client.ListSessionsAsync(d.ControlEndpoint);
-                totalSessions += sessions?.Count ?? 0;
-            }
+                return sessions?.Count ?? 0;
+            }));
+            int totalSessions = counts.Sum();
 
             return Results.Json(new HealthDto
             {
@@ -733,14 +735,22 @@ internal static class GatewayEndpoints
         });
     }
 
+    // Locate the Director that owns a session. Every session endpoint calls this first,
+    // so it fans out to all Directors in parallel rather than scanning them one-by-one:
+    // total latency is bounded by the slowest single lookup (~the client timeout) instead
+    // of summing one timeout per Director. Exactly one Director should own a given sid.
     private static async Task<(DirectorDto? director, SessionDto? session)> LocateSessionAsync(DirectorRegistry registry, DirectorEndpointClient client, string sid)
     {
-        foreach (var d in registry.ListDirectors())
+        var lookups = registry.ListDirectors().Select(async d =>
         {
             var ep = (d.ControlEndpoint ?? "").TrimEnd('/');
             var s = await client.GetSessionAsync(ep, sid);
-            if (s is not null) return (d, s);
-        }
+            return (director: d, session: s);
+        }).ToList();
+
+        var results = await Task.WhenAll(lookups);
+        foreach (var (director, session) in results)
+            if (session is not null) return (director, session);
         return (null, null);
     }
 
