@@ -99,3 +99,6 @@ playground/raw-view-harness/out/
 
 # Browser automation snapshots
 .cc-browser/
+
+# Verify-run build output (dotnet build -o obj_verify/out; regenerable)
+obj_verify/
