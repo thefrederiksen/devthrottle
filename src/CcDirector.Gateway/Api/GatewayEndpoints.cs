@@ -747,7 +747,11 @@ internal static class GatewayEndpoints
     // Build the externally-reachable base URL for a Director's web UI.
     //
     // Priority:
-    //   1. If the Director explicitly registered a TailnetEndpoint, trust that.
+    //   1. If the Director registered a TailnetEndpoint that is actually routable
+    //      for THIS caller, trust it. A same-machine Director registers a loopback
+    //      endpoint (http://127.0.0.1:<port>) which IS its control endpoint but is
+    //      useless to a remote caller, so a loopback endpoint is honored only when
+    //      the caller is itself on loopback.
     //   2. Else if the caller reached the Gateway over a non-loopback host
     //      (e.g. https://<host>.<tailnet>.ts.net/), mirror that host
     //      and the request scheme onto the Director's own Control API port.
@@ -759,16 +763,23 @@ internal static class GatewayEndpoints
     // unreachable from a phone or any non-loopback client.
     private static string DeriveDirectorBaseUrl(HttpContext ctx, DirectorDto d)
     {
-        if (!string.IsNullOrEmpty(d.TailnetEndpoint))
-            return d.TailnetEndpoint.TrimEnd('/');
-
         var requestHost = ctx.Request.Host.Host;
-        var isLoopback = string.IsNullOrEmpty(requestHost)
+        var callerIsLoopback = string.IsNullOrEmpty(requestHost)
                          || requestHost == "localhost"
                          || requestHost == "127.0.0.1"
                          || requestHost == "::1";
 
-        if (!isLoopback
+        // 1. Honor an explicitly registered endpoint, but never feed a loopback
+        //    endpoint to a non-loopback caller (that is the phone-gets-127.0.0.1 bug).
+        if (!string.IsNullOrEmpty(d.TailnetEndpoint)
+            && Uri.TryCreate(d.TailnetEndpoint, UriKind.Absolute, out var tailnetUri)
+            && (callerIsLoopback || !tailnetUri.IsLoopback))
+        {
+            return d.TailnetEndpoint.TrimEnd('/');
+        }
+
+        // 2. Remote caller: mirror the public host + scheme onto the Director's port.
+        if (!callerIsLoopback
             && Uri.TryCreate(d.ControlEndpoint, UriKind.Absolute, out var controlUri)
             && controlUri.Port > 0)
         {

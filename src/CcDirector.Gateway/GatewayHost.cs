@@ -2,6 +2,7 @@ using System.Net;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Api;
 using CcDirector.Gateway.Discovery;
+using CcDirector.Gateway.Tailscale;
 using CcDirector.Gateway.Util;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -26,6 +27,7 @@ public sealed class GatewayHost : IAsyncDisposable
     public bool AuthEnabled { get; }
 
     private readonly DirectorEndpointClient _client;
+    private readonly TailscaleServeProvisioner _serveProvisioner;
     private WebApplication? _app;
     private bool _stopped;
 
@@ -36,13 +38,22 @@ public sealed class GatewayHost : IAsyncDisposable
         Registry = new DirectorRegistry();
         AuthEnabled = authEnabled;
         _client = new DirectorEndpointClient(Token);
+        _serveProvisioner = new TailscaleServeProvisioner(Registry, Port);
     }
 
     public async Task StartAsync()
     {
         FileLog.Write($"[GatewayHost] StartAsync: port={Port}");
 
+        // Subscribe the Tailscale provisioner BEFORE Registry.Start() so the initial
+        // file-discovery load fires OnDirectorAdded into it and every Director port
+        // gets an HTTPS mapping without anyone re-running a script.
+        _serveProvisioner.Start();
         Registry.Start();
+
+        // Registry is now loaded with the current Director set: drop any serve mappings
+        // for Directors that died while the Gateway was down (orphans -> 502 from a phone).
+        _serveProvisioner.ReconcileOrphans();
 
         // PreventHostingStartup avoids ASP.NET Core trying to load a (nonexistent) hosting startup
         // assembly with our application name, which otherwise emits a noisy crit log line on boot.
@@ -119,6 +130,10 @@ public sealed class GatewayHost : IAsyncDisposable
         _stopped = true;
         FileLog.Write($"[GatewayHost] StopAsync");
 
+        // Unsubscribe from registry events. We deliberately do NOT tear down the serve
+        // mappings: the Directors are still alive and reachable, and a Gateway restart
+        // re-asserts every mapping on Start().
+        _serveProvisioner.Dispose();
         Registry.Dispose();
         _client.Dispose();
 
