@@ -22,9 +22,13 @@ namespace CcDirector.ControlApi;
 /// </summary>
 internal static class ControlEndpoints
 {
-    public static void Map(IEndpointRouteBuilder app, SessionManager sessionManager, string directorId, string version, Func<Task> requestShutdownAsync, bool authEnabled = false, RepositoryRegistry? repositoryRegistry = null, TurnSummaryCache? turnSummaryCache = null)
+    public static void Map(IEndpointRouteBuilder app, SessionManager sessionManager, string directorId, string version, Func<Task> requestShutdownAsync, bool authEnabled = false, RepositoryRegistry? repositoryRegistry = null, TurnSummaryCache? turnSummaryCache = null, string? gatewayUrl = null)
     {
         var logoutVisibility = authEnabled ? "" : "style=\"display:none\"";
+        // URL of the Gateway this Director is registered with, for the "Gateway" nav
+        // button in the served HTML. Empty when no gateway.url is configured -- the
+        // pages hide the button rather than render a dead link.
+        var gatewayUrlAttr = System.Net.WebUtility.HtmlEncode(gatewayUrl ?? "");
         // ===== Healthz =====
         app.MapGet("/healthz", () => Results.Json(new HealthDto
         {
@@ -49,7 +53,8 @@ internal static class ControlEndpoints
                 return Results.Json(sessionManager.ListSessions().Select(s => Map(s, directorId, turnSummaryCache)).ToList());
 
             var html = EmbeddedResources.Load("chat.html")
-                .Replace("__LOGOUT_VISIBILITY__", logoutVisibility);
+                .Replace("__LOGOUT_VISIBILITY__", logoutVisibility)
+                .Replace("__GATEWAY_URL__", gatewayUrlAttr);
             return Results.Content(html, "text/html; charset=utf-8");
         });
 
@@ -114,7 +119,8 @@ internal static class ControlEndpoints
             var shortSid = sid.Substring(0, Math.Min(8, sid.Length));
             var html = EmbeddedResources.Load("session-view.html")
                 .Replace("__SID__", sid)
-                .Replace("__SHORT_SID__", shortSid);
+                .Replace("__SHORT_SID__", shortSid)
+                .Replace("__GATEWAY_URL__", gatewayUrlAttr);
             return Results.Content(html, "text/html; charset=utf-8");
         });
 
@@ -152,7 +158,10 @@ internal static class ControlEndpoints
         {
             if (!Guid.TryParse(sid, out var guid))
                 return Results.BadRequest(new { error = "invalid session id format" });
-            if (req is null || string.IsNullOrWhiteSpace(req.Question))
+            var explain = string.Equals(req?.Mode, "explain", StringComparison.OrdinalIgnoreCase);
+            // Explain mode briefs the whole session and needs no user question; the
+            // free-text ask path still requires one.
+            if (req is null || (!explain && string.IsNullOrWhiteSpace(req.Question)))
                 return Results.BadRequest(new SupervisorAskResult { Status = "bad_request", Error = "question is required" });
 
             var session = sessionManager.GetSession(guid);
@@ -202,7 +211,7 @@ internal static class ControlEndpoints
             };
 
             var result = await Core.Supervisor.SupervisorService.AskAboutSessionAsync(
-                req.Question, ctx, sessionManager.Options.ClaudePath, ct);
+                req.Question, ctx, sessionManager.Options.ClaudePath, ct, explain);
             return Results.Json(result);
         });
 

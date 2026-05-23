@@ -9,4 +9,11 @@ public sealed class SupervisorAskRequest
 {
     /// <summary>The user's question about this session. Free text, max ~2000 chars.</summary>
     public string Question { get; set; } = "";
+
+    /// <summary>
+    /// Optional mode. When set to "explain", the supervisor ignores <see cref="Question"/>
+    /// and instead produces a session briefing (what's happened + what the agent is
+    /// waiting on) using the strong model (Opus) rather than the cheap Haiku default.
+    /// </summary>
+    public string? Mode { get; set; }
 }

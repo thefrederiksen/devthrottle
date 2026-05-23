@@ -25,6 +25,13 @@ public static class SupervisorService
     /// <summary>Cheap fast model we run the Supervisor on. Haiku family.</summary>
     public const string DefaultModel = "haiku";
 
+    /// <summary>
+    /// Strong model used for on-demand, user-facing supervisor work (the "Explain"
+    /// briefing) where answer quality matters more than latency/cost. Matches the
+    /// best model a real session would run on.
+    /// </summary>
+    public const string StrongModel = "opus";
+
     /// <summary>Hard timeout per Supervisor call.</summary>
     public static readonly TimeSpan ProcessTimeout = TimeSpan.FromSeconds(60);
 
@@ -723,12 +730,17 @@ public static class SupervisorService
         string question,
         SupervisorAskContext context,
         string claudeExePath,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        bool explain = false)
     {
         var sw = Stopwatch.StartNew();
 
-        if (string.IsNullOrWhiteSpace(question))
+        // Explain mode does not need a user question (it briefs the whole session);
+        // the free-text ask path still requires one.
+        if (!explain && string.IsNullOrWhiteSpace(question))
             return new SupervisorAskResult { Status = "bad_request", Error = "empty question" };
+
+        var model = explain ? StrongModel : DefaultModel;
 
         if (string.IsNullOrWhiteSpace(claudeExePath))
         {
@@ -743,11 +755,11 @@ public static class SupervisorService
             };
         }
 
-        var prompt = BuildAskPrompt(question, context);
+        var prompt = explain ? BuildExplainPrompt(context) : BuildAskPrompt(question, context);
 
         try
         {
-            var stdout = await RunSideClaudeAsync(prompt, claudeExePath, ct);
+            var stdout = await RunSideClaudeAsync(prompt, claudeExePath, ct, model);
             sw.Stop();
             var answer = (stdout ?? "").Trim();
             // Cap response so a misbehaving model can't return a megabyte into the UI.
@@ -755,7 +767,7 @@ public static class SupervisorService
             return new SupervisorAskResult
             {
                 Answer = answer,
-                Model = DefaultModel,
+                Model = model,
                 LatencyMs = sw.ElapsedMilliseconds,
                 ContextDigest = context.ToDigest(),
                 Status = "ok",
@@ -785,6 +797,46 @@ public static class SupervisorService
         sb.AppendLine("\"I don't have that in context.\"  Do NOT speculate. Do NOT invent file names, decisions, or activity.");
         sb.AppendLine("Respond in 1-3 short sentences, plain text, no code blocks, no markdown headings.");
         sb.AppendLine();
+        AppendSessionContext(sb, context);
+        sb.AppendLine();
+        sb.AppendLine("=== USER QUESTION ===");
+        sb.Append(Truncate(question, 1500));
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Prompt for the on-demand "Explain" briefing. Produces a short, plain-language
+    /// account of what the session has done and what the agent is waiting on, while
+    /// preserving the agent's actual question verbatim (clarifying only when the bare
+    /// question is ambiguous out of context).
+    /// </summary>
+    internal static string BuildExplainPrompt(SupervisorAskContext context)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("You are the supervisor for a CC Director session. The user is away from their computer and wants a quick, clear briefing on THIS session so they can decide what to do next.");
+        sb.AppendLine();
+        sb.AppendLine("Write exactly TWO labeled sections, plain text, no markdown, no code blocks, no bullet symbols:");
+        sb.AppendLine();
+        sb.AppendLine("WHAT'S HAPPENED:");
+        sb.AppendLine("2 to 4 short sentences summarizing what the agent has worked on and where things stand right now. Plain language a non-expert can follow. No file paths or commands unless they are essential to understanding.");
+        sb.AppendLine();
+        sb.AppendLine("WHAT CLAUDE WANTS:");
+        sb.AppendLine("State the question, request, or decision the agent is waiting on, in the AGENT'S OWN WORDS.");
+        sb.AppendLine("- Preserve the agent's phrasing. Do NOT reword, soften, summarize, or improve the actual question. The user trusts the agent's words over yours.");
+        sb.AppendLine("- Only add a few words of clarification IN PARENTHESES when the bare question is ambiguous without context. Example: \"Want me to implement it?\" -> \"Want me to implement it (the Tailscale auto-provisioning)?\"");
+        sb.AppendLine("- If the agent asked multiple questions, include them all.");
+        sb.AppendLine("- If the agent is mid-flow and not waiting on anything, write: \"Claude is still working; nothing is needed from you right now.\"");
+        sb.AppendLine();
+        sb.AppendLine("Answer ONLY from the context below. Do NOT invent file names, decisions, or questions. If the context does not show what the agent is asking, say so plainly.");
+        sb.AppendLine();
+        AppendSessionContext(sb, context);
+        return sb.ToString();
+    }
+
+    /// <summary>Appends the shared session-state sections (metadata, supervisor decisions,
+    /// recent turn summaries, terminal buffer tail) used by both the ask and explain prompts.</summary>
+    private static void AppendSessionContext(StringBuilder sb, SupervisorAskContext context)
+    {
         sb.AppendLine("=== SESSION METADATA ===");
         sb.AppendLine($"- Repo: {context.RepoPath}");
         sb.AppendLine($"- Agent: {context.AgentKind}");
@@ -820,13 +872,12 @@ public static class SupervisorService
         {
             sb.AppendLine();
             sb.AppendLine("=== TERMINAL BUFFER (tail, ANSI stripped) ===");
+            sb.AppendLine("This is the raw terminal display, not a log of what the user did. Read it with care:");
+            sb.AppendLine("When the agent is waiting on the user, Claude Code draws a bordered box (horizontal lines above and below) holding one or more choices it is offering, usually with a cursor or arrow marker (such as '>' or a highlighted line) sitting in front of one of them. Text that appears inside that box is the AGENT'S OWN suggestion to the user, not something the user has done. The marker only shows which choice is highlighted by default; it does NOT mean the user selected, typed, or approved it. So a line like \"Yes, go ahead\" sitting inside the box between the lines with the cursor in front of it means the agent is asking that question, not that the user answered yes.");
+            sb.AppendLine("Use your judgment over the whole context to tell the agent's suggested choices apart from text the user actually entered, and treat the session as still waiting until there is real evidence the user responded. This is guidance for reading the screen, not a rigid rule to apply blindly.");
+            sb.AppendLine();
             sb.AppendLine(Truncate(context.BufferTailText, 4000));
         }
-
-        sb.AppendLine();
-        sb.AppendLine("=== USER QUESTION ===");
-        sb.Append(Truncate(question, 1500));
-        return sb.ToString();
     }
 
     // ====================================================================
@@ -838,7 +889,7 @@ public static class SupervisorService
     /// prompt as a positional arg.  Returns stdout text.  Throws on non-zero
     /// exit or timeout.
     /// </summary>
-    private static async Task<string> RunSideClaudeAsync(string prompt, string claudeExePath, CancellationToken ct)
+    private static async Task<string> RunSideClaudeAsync(string prompt, string claudeExePath, CancellationToken ct, string model = DefaultModel)
     {
         var psi = new ProcessStartInfo
         {
@@ -853,7 +904,7 @@ public static class SupervisorService
         };
         psi.ArgumentList.Add("--print");
         psi.ArgumentList.Add("--model");
-        psi.ArgumentList.Add(DefaultModel);
+        psi.ArgumentList.Add(string.IsNullOrWhiteSpace(model) ? DefaultModel : model);
         // NOTE: --bare is intentionally NOT passed.  --bare disables keychain reads,
         // which prevents the side-call from picking up the user's OAuth credentials
         // from ~/.claude/.credentials.json and fails with "Not logged in".

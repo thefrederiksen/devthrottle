@@ -268,10 +268,12 @@ internal static class GatewayEndpoints
             return Results.Json(view);
         });
 
-        // Phase 5: forward "ask the supervisor" calls. Each is one fresh Haiku side-call.
+        // Phase 5: forward "ask the supervisor" calls. Each is one fresh side-call
+        // (Haiku for free-text asks; Opus when Mode=="explain"). Body forwards verbatim.
         app.MapPost("/sessions/{sid}/supervisor/ask", async (string sid, SupervisorAskRequest req, CancellationToken ct) =>
         {
-            if (req is null || string.IsNullOrWhiteSpace(req.Question))
+            var explain = string.Equals(req?.Mode, "explain", StringComparison.OrdinalIgnoreCase);
+            if (req is null || (!explain && string.IsNullOrWhiteSpace(req.Question)))
                 return Results.BadRequest(new SupervisorAskResult { Status = "bad_request", Error = "question is required" });
             var (director, session) = await LocateSessionAsync(registry, client, sid);
             if (session is null || director is null)

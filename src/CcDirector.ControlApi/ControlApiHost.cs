@@ -157,7 +157,12 @@ public sealed class ControlApiHost : IAsyncDisposable
         _turnSummaryCache = new TurnSummaryCache(_sessionManager, _sessionManager.Options, _statusSupervisor, _sessionLogManager);
         _turnSummaryCache.Start();
 
-        ControlEndpoints.Map(_app, _sessionManager, DirectorId, _version, _requestShutdownAsync, _authEnabled, _repositoryRegistry, _turnSummaryCache);
+        // Load the gateway config up front so the served HTML can render a "Gateway"
+        // nav button pointing at it. Reused below for the GatewayClient registration.
+        var gatewayConfig = Core.Configuration.GatewayConfig.Load();
+        var gatewayUrl = gatewayConfig.IsEnabled ? gatewayConfig.Url : null;
+
+        ControlEndpoints.Map(_app, _sessionManager, DirectorId, _version, _requestShutdownAsync, _authEnabled, _repositoryRegistry, _turnSummaryCache, gatewayUrl);
         DictationEndpoint.Map(_app, _sessionManager.Options);
 
         await _app.StartAsync();
@@ -173,8 +178,8 @@ public sealed class ControlApiHost : IAsyncDisposable
         _registration.Register();
 
         // Phase 1: if gateway.url is configured, register with the Gateway over HTTP and
-        // start the heartbeat. Disabled (no-op) when local-only.
-        var gatewayConfig = Core.Configuration.GatewayConfig.Load();
+        // start the heartbeat. Disabled (no-op) when local-only. Reuses the config
+        // loaded above for the HTML nav button.
         _gatewayClient = new GatewayClient(gatewayConfig, DirectorId, Port, _version);
         _gatewayClient.Start();
 

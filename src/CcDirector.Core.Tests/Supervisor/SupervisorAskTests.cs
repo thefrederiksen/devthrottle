@@ -92,6 +92,64 @@ public sealed class SupervisorAskTests
     }
 
     [Fact]
+    public async Task AskAboutSessionAsync_explain_does_not_require_a_question()
+    {
+        var ctx = new SupervisorAskContext { SessionId = "s", RepoPath = "/tmp" };
+        // Empty question is fine in explain mode; with no claude path it fails open.
+        var r = await SupervisorService.AskAboutSessionAsync("", ctx, claudeExePath: "", ct: default, explain: true);
+        Assert.Equal("no_claude", r.Status);
+        Assert.NotEmpty(r.ContextDigest);
+    }
+
+    [Fact]
+    public void BuildExplainPrompt_has_two_sections_and_verbatim_rule_and_context()
+    {
+        var ctx = new SupervisorAskContext
+        {
+            SessionId = "s",
+            RepoPath = "D:/repos/myproj",
+            AgentKind = "ClaudeCode",
+            ActivityState = "WaitingForInput",
+            CurrentColor = "red",
+            CurrentReason = "waiting for input",
+            GitDirty = false,
+        };
+        var prompt = SupervisorService.BuildExplainPrompt(ctx);
+
+        Assert.Contains("WHAT'S HAPPENED", prompt);
+        Assert.Contains("WHAT CLAUDE WANTS", prompt);
+        // The verbatim-preservation rule must be present so the agent's question isn't reworded.
+        Assert.Contains("OWN WORDS", prompt);
+        // Shared session context still flows in.
+        Assert.Contains("D:/repos/myproj", prompt);
+        Assert.Contains("WaitingForInput", prompt);
+    }
+
+    [Fact]
+    public void BufferContext_explains_that_boxed_options_are_agent_suggestions_not_user_actions()
+    {
+        // Regression: the Explain briefing once narrated a highlighted menu option
+        // ("Yes, go ahead with the revised plan") as if the user had typed it, while the
+        // session was actually still WaitingForInput. The buffer section must teach the
+        // model how to read the prompt box so it does not confabulate a user response.
+        var ctx = new SupervisorAskContext
+        {
+            SessionId = "s", RepoPath = "/tmp", AgentKind = "ClaudeCode",
+            ActivityState = "WaitingForInput", CurrentColor = "red", CurrentReason = "waiting",
+            BufferTailText = "Want me to proceed?\n> 1. Yes, go ahead with the revised plan\n  2. No",
+        };
+
+        var prompt = SupervisorService.BuildExplainPrompt(ctx);
+
+        Assert.Contains("TERMINAL BUFFER", prompt);
+        // The interpretation guidance must travel with the buffer.
+        Assert.Contains("AGENT'S OWN suggestion", prompt);
+        Assert.Contains("not a rigid rule", prompt);
+        // And the buffer text itself is still included verbatim.
+        Assert.Contains("Yes, go ahead with the revised plan", prompt);
+    }
+
+    [Fact]
     public void ContextDigest_is_concise_and_human_readable()
     {
         var ctx = new SupervisorAskContext

@@ -221,9 +221,19 @@
   <h1>MANAGER</h1>
   <span class="session-line" id="sessionLine">Loading...</span>
   <span class="badge Unknown" id="sessionBadge">...</span>
+  <a id="gatewayBtn" data-url="__GATEWAY_URL__" title="Gateway directory (all Directors)">Gateway</a>
   <a href="/cards" title="Legacy cards view">Cards</a>
   <a href="/logout" __LOGOUT_VISIBILITY__>Logout</a>
 </header>
+<script>
+  // Gateway nav button: show only when this Director has a gateway.url configured.
+  (function () {
+    var g = document.getElementById('gatewayBtn');
+    if (!g) return;
+    var u = (g.dataset.url || '').trim();
+    if (u) g.href = u; else g.style.display = 'none';
+  })();
+</script>
 
 <div id="chatBanner"></div>
 
