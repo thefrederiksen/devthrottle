@@ -42,3 +42,28 @@ public static class StatusColor
         return Green;
     }
 }
+
+/// <summary>
+/// How confident a particular <c>SetStatusColor</c> write is, used to arbitrate
+/// between the multiple paths that can set a session's color (issue #136, option C).
+/// Higher values win. The rule (enforced in <c>Session.SetStatusColor</c>): within a
+/// single activity-state generation a <see cref="PositiveEvidence"/> verdict is
+/// sticky -- a lower-confidence write cannot repaint over it. A real activity-state
+/// change releases the stickiness. This replaces blind last-writer-wins, which let
+/// a cosmetic byte-burst or a re-evaluated mapping flip a genuine "needs you" badge.
+/// </summary>
+public enum StatusColorSource
+{
+    /// <summary>A guess inferred from the raw byte stream (e.g. the output-activity
+    /// watcher promoting to blue on a burst). Lowest confidence.</summary>
+    Inferred = 0,
+
+    /// <summary>Mapped from the authoritative <c>ActivityState</c> (the fast path,
+    /// or the terminal LLM state verdict). The normal baseline.</summary>
+    ActivityState = 1,
+
+    /// <summary>Backed by deterministic on-screen evidence the user must act: a
+    /// matched question/confirmation marker, a permission box, or a corroborated
+    /// turn-summary "needs user" verdict. Highest confidence.</summary>
+    PositiveEvidence = 2,
+}

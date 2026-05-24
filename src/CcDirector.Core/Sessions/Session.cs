@@ -4,6 +4,7 @@ using CcDirector.Core.Claude;
 using CcDirector.Core.Memory;
 using CcDirector.Core.Pipes;
 using CcDirector.Core.Utilities;
+using CcDirector.Core.Wingman;
 using CcDirector.Terminal.Core;
 using CcDirector.Terminal.Core.Rendering;
 
@@ -371,6 +372,19 @@ public sealed class Session : IDisposable
     private readonly object _wingmanEventsLock = new();
 
     /// <summary>
+    /// Monotonic counter bumped on every <see cref="ActivityState"/> change. Used by
+    /// <see cref="SetStatusColor"/> to scope colour-source precedence to the current
+    /// state "generation" (issue #136 option C).
+    /// </summary>
+    private long _activityGeneration;
+
+    /// <summary>The source of the last accepted colour write, and the generation it
+    /// was accepted in. Together they make a positive-evidence verdict sticky within
+    /// its generation so a lower-confidence write cannot repaint over it.</summary>
+    private StatusColorSource _lastColorSource = StatusColorSource.ActivityState;
+    private long _lastColorGeneration;
+
+    /// <summary>
     /// Most recent wingman decisions for this session, newest first. Ring-buffered
     /// at <c>WingmanEventLogCapacity</c>. Surfaced via <c>GET /sessions/{sid}/wingman</c>
     /// so the UI can show WHY a dot is the color it is.
@@ -389,11 +403,32 @@ public sealed class Session : IDisposable
     /// SessionStatusWingman. No other code path may set the color — that's
     /// how we keep the UI a faithful mirror of the wingman's verdict.
     /// </summary>
-    public void SetStatusColor(string color, string reason, bool llm = false)
+    public void SetStatusColor(string color, string reason, bool llm = false,
+        StatusColorSource source = StatusColorSource.ActivityState)
     {
         if (string.IsNullOrEmpty(color)) return;
+
+        // Source precedence (issue #136 option C). Within one activity-state
+        // generation, a positive-evidence verdict (a real on-screen question /
+        // permission gate / corroborated needs-user) is sticky: a lower-confidence
+        // write -- the activity-state mapping or a byte-stream guess -- cannot
+        // repaint over it. This is what stops the badge flip-flopping. A genuine
+        // state change bumps the generation (SetActivityState) and releases it.
+        var gen = Interlocked.Read(ref _activityGeneration);
+        if (gen == _lastColorGeneration
+            && _lastColorSource == StatusColorSource.PositiveEvidence
+            && source != StatusColorSource.PositiveEvidence)
+        {
+            FileLog.Write($"[Session] SetStatusColor dropped (lower precedence than sticky positive-evidence): color={color}, source={source}, gen={gen}");
+            return;
+        }
+
         var old = StatusColor;
         var newReason = reason ?? "";
+        // Record precedence even when colour+reason are unchanged, so a repeated
+        // positive-evidence verdict keeps (or re-establishes) its stickiness.
+        _lastColorSource = source;
+        _lastColorGeneration = gen;
         if (old == color && LastStatusReason == newReason) return;
         StatusColor = color;
         LastStatusReason = newReason;
@@ -743,6 +778,12 @@ public sealed class Session : IDisposable
         var old = ActivityState;
         if (old == newState) return;
         ActivityState = newState;
+        // A real state change opens a new "generation". This releases any sticky
+        // positive-evidence color from the previous generation (issue #136 option C):
+        // e.g. a red pending-question survives cosmetic repaints while the session is
+        // idle, but the moment the user answers (-> Working) the badge is free to go
+        // blue again.
+        Interlocked.Increment(ref _activityGeneration);
         OnActivityStateChanged?.Invoke(old, newState);
     }
 

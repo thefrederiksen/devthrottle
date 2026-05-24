@@ -232,7 +232,7 @@ public sealed class SessionStatusWingman : IDisposable
     {
         if (BufferShowsUserGate(session, out var marker))
         {
-            session.SetStatusColor(StatusColor.Red, "pending question");
+            session.SetStatusColor(StatusColor.Red, "pending question", source: StatusColorSource.PositiveEvidence);
             FileLog.Write($"[SessionStatusWingman] {session.Id} buffer marker '{marker}' -> red");
         }
     }
@@ -286,7 +286,7 @@ public sealed class SessionStatusWingman : IDisposable
         if (session is null) return;
         var reason = string.IsNullOrWhiteSpace(detail) ? "pending question" : detail.Trim();
         if (reason.Length > 500) reason = reason[..497] + "...";
-        session.SetStatusColor(StatusColor.Red, reason);
+        session.SetStatusColor(StatusColor.Red, reason, source: StatusColorSource.PositiveEvidence);
     }
 
     /// <summary>
@@ -341,7 +341,7 @@ public sealed class SessionStatusWingman : IDisposable
                 !string.IsNullOrWhiteSpace(summary.NeedsUserShort) ? summary.NeedsUserShort!.Trim() :
                 !string.IsNullOrWhiteSpace(summary.NeedsUserDetail) ? summary.NeedsUserDetail!.Trim() :
                 n;
-            session.SetStatusColor(StatusColor.Red, reason, llm: true);
+            session.SetStatusColor(StatusColor.Red, reason, llm: true, source: StatusColorSource.PositiveEvidence);
             FileLog.Write($"[SessionStatusWingman] ApplyTurnSummary {session.Id} => red (needs_user={n}, reasonLen={reason.Length})");
             return;
         }
@@ -589,7 +589,7 @@ internal sealed class OutputActivityWatcher : IDisposable
                 return;
 
             FileLog.Write($"[OutputActivityWatcher] session={_session.Id} burst={burstBytes}B -> blue (streaming output)");
-            _session.SetStatusColor(StatusColor.Blue, "streaming output");
+            _session.SetStatusColor(StatusColor.Blue, "streaming output", source: StatusColorSource.Inferred);
         }
         catch (Exception ex)
         {

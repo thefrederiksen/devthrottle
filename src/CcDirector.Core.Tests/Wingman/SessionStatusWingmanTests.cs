@@ -531,6 +531,84 @@ public sealed class SessionStatusWingmanTests
         finally { wingman.Dispose(); manager.Dispose(); }
     }
 
+    // ---------- Source precedence (issue #136 option C) ----------
+
+    [Fact]
+    public void StatusColor_positive_evidence_is_sticky_within_a_generation()
+    {
+        // A red set by positive evidence (a real on-screen question) must NOT be
+        // repainted by a lower-confidence write (the activity-state mapping or a
+        // byte-stream guess) while the session stays in the same state. This is the
+        // core of replacing last-writer-wins: a guess can't clobber evidence.
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        try
+        {
+            var session = manager.CreateSession(Path.GetTempPath());
+            session.HandlePipeEvent(new Pipes.PipeMessage { HookEventName = "Stop" }); // -> WaitingForInput (new gen)
+
+            session.SetStatusColor(StatusColor.Red, "delete users.db?", source: StatusColorSource.PositiveEvidence);
+            Assert.Equal(StatusColor.Red, session.StatusColor);
+
+            // Lower-confidence writes in the same generation are dropped.
+            session.SetStatusColor(StatusColor.Blue, "streaming output", source: StatusColorSource.Inferred);
+            Assert.Equal(StatusColor.Red, session.StatusColor);
+            session.SetStatusColor(StatusColor.Green, "ready, awaiting next prompt", source: StatusColorSource.ActivityState);
+            Assert.Equal(StatusColor.Red, session.StatusColor);
+            Assert.Equal("delete users.db?", session.LastStatusReason);
+        }
+        finally { manager.Dispose(); }
+    }
+
+    [Fact]
+    public void StatusColor_state_change_releases_sticky_positive_evidence()
+    {
+        // The stickiness is scoped to one activity-state generation. When the user
+        // actually acts (the session moves to Working), the badge is free to go blue
+        // again -- otherwise a resolved question would stay red forever.
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        try
+        {
+            var session = manager.CreateSession(Path.GetTempPath());
+            session.HandlePipeEvent(new Pipes.PipeMessage { HookEventName = "Stop" }); // WaitingForInput
+            session.SetStatusColor(StatusColor.Red, "approve the commit?", source: StatusColorSource.PositiveEvidence);
+            Assert.Equal(StatusColor.Red, session.StatusColor);
+
+            // User answers -> Working: new generation releases the sticky red.
+            session.HandlePipeEvent(new Pipes.PipeMessage { HookEventName = "UserPromptSubmit" });
+            session.SetStatusColor(StatusColor.Blue, "working", source: StatusColorSource.ActivityState);
+            Assert.Equal(StatusColor.Blue, session.StatusColor);
+            Assert.Equal("working", session.LastStatusReason);
+        }
+        finally { manager.Dispose(); }
+    }
+
+    [Fact]
+    public void StatusColor_equal_or_higher_confidence_still_writes()
+    {
+        // Precedence only blocks LOWER confidence than a sticky positive-evidence
+        // verdict. Same-or-higher confidence writes go through normally, and when no
+        // positive evidence is sticky, writes behave as before (last-writer-wins).
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        try
+        {
+            var session = manager.CreateSession(Path.GetTempPath());
+            session.HandlePipeEvent(new Pipes.PipeMessage { HookEventName = "Stop" });
+
+            // No sticky evidence yet: an activity-state green writes fine.
+            session.SetStatusColor(StatusColor.Green, "ready", source: StatusColorSource.ActivityState);
+            Assert.Equal(StatusColor.Green, session.StatusColor);
+
+            // Positive evidence upgrades to red...
+            session.SetStatusColor(StatusColor.Red, "first question?", source: StatusColorSource.PositiveEvidence);
+            Assert.Equal(StatusColor.Red, session.StatusColor);
+
+            // ...and another positive-evidence write (same confidence) still applies.
+            session.SetStatusColor(StatusColor.Red, "second question?", source: StatusColorSource.PositiveEvidence);
+            Assert.Equal("second question?", session.LastStatusReason);
+        }
+        finally { manager.Dispose(); }
+    }
+
     // ---------- Wingman lifecycle ----------
 
     [Fact]
