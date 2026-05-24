@@ -84,4 +84,8 @@ public sealed class WingmanEventDto
     public string OldColor { get; set; } = "";
     public string NewColor { get; set; } = "";
     public string Reason { get; set; } = "";
+
+    /// <summary>True when this color change came from an LLM call (turn summary / classify),
+    /// which has a token cost. Byte-activity state changes are false (free).</summary>
+    public bool Llm { get; set; }
 }

@@ -1059,11 +1059,6 @@
     </div>
   </div>
 
-  <details class="wingman-log collapsible" id="supLog">
-    <summary class="log-label">Wingman log</summary>
-    <ol class="log-entries" id="logEntries"></ol>
-  </details>
-
   <!-- Phase 5: Ask the wingman about this session. One fresh Haiku call per ask,
        no conversation memory. History in this list is for the user's eyes only. -->
   <details class="ask-block collapsible">
@@ -1098,6 +1093,11 @@
     .vote-block .vote-feedback { font-size: 13px; min-height: 16px; }
     .vote-block .vote-feedback.ok { color: #4ec9b0; }
     .vote-block .vote-feedback.err { color: #f48771; }
+    .log-entries .llm-tag {
+      font-size: 9px; font-weight: 700; letter-spacing: .5px; color: #dcdcaa;
+      border: 1px solid #5a5a3a; border-radius: 3px; padding: 0 3px; margin-left: 6px;
+      vertical-align: middle;
+    }
   </style>
   <details class="vote-block collapsible" id="voteBlock">
     <summary class="log-label">Status wrong? Tell us</summary>
@@ -1116,6 +1116,13 @@
       <button type="button" id="voteSubmitBtn" onclick="return submitStateVote()">Send feedback</button>
       <div class="vote-feedback" id="voteFeedback"></div>
     </div>
+  </details>
+
+  <!-- Wingman log: kept LAST on the page. Absolute timestamps (to the second) so
+       closely-spaced events stay readable; rows tagged LLM came from a model call. -->
+  <details class="wingman-log collapsible" id="supLog">
+    <summary class="log-label">Wingman log</summary>
+    <ol class="log-entries" id="logEntries"></ol>
   </details>
 </div>
 
@@ -1281,6 +1288,16 @@
     const h = Math.floor(m / 60);
     if (h < 24) return h + 'h ago';
     return Math.floor(h / 24) + 'd ago';
+  }
+  // Absolute local date + time to the second. Used in the Wingman log so closely-spaced
+  // events stay distinguishable (relative "1m ago" collapses them).
+  function fullTime(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    const p = n => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) +
+           ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
   }
   function colorClass(c) {
     c = (c || '').toLowerCase();
@@ -1479,13 +1496,18 @@
     log.innerHTML = '';
     (view.events || []).forEach(ev => {
       const li = document.createElement('li');
-      const ts2 = relativeTime(ev.at);
+      const ts2 = fullTime(ev.at);
       const oldClass = colorClass(ev.oldColor);
       const newClass = colorClass(ev.newColor);
+      // Mark rows whose color change came from an LLM call (token cost). Byte-activity
+      // changes (working/ready) carry no tag - they are free and can fire as often as needed.
+      const llmTag = ev.llm
+        ? ' <span class="llm-tag" title="This change came from an LLM call (token cost)">LLM</span>'
+        : '';
       li.innerHTML =
         '<span class="ts">' + escapeHtml(ts2) + '</span>' +
         '<span class="arrow"><span class="color ' + oldClass + '">' + escapeHtml(ev.oldColor || '-') + '</span> &rarr; <span class="color ' + newClass + '">' + escapeHtml(ev.newColor || '-') + '</span></span>' +
-        '<span class="reason-cell">' + escapeHtml(ev.reason || '') + '</span>';
+        '<span class="reason-cell">' + escapeHtml(ev.reason || '') + llmTag + '</span>';
       log.appendChild(li);
     });
   }

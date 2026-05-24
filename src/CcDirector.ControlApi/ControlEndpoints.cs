@@ -303,6 +303,7 @@ internal static class ControlEndpoints
                     OldColor = e.OldColor,
                     NewColor = e.NewColor,
                     Reason = e.Reason,
+                    Llm = e.Llm,
                 }).ToList(),
                 LatestTurnSummary = latestSummary,
                 Goal = session.WingmanGoal,

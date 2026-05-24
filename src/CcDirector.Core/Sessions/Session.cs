@@ -363,7 +363,8 @@ public sealed class Session : IDisposable
         DateTime At,
         string OldColor,
         string NewColor,
-        string Reason);
+        string Reason,
+        bool Llm = false);
 
     private const int WingmanEventLogCapacity = 50;
     private readonly LinkedList<WingmanEvent> _wingmanEvents = new();
@@ -388,7 +389,7 @@ public sealed class Session : IDisposable
     /// SessionStatusWingman. No other code path may set the color — that's
     /// how we keep the UI a faithful mirror of the wingman's verdict.
     /// </summary>
-    public void SetStatusColor(string color, string reason)
+    public void SetStatusColor(string color, string reason, bool llm = false)
     {
         if (string.IsNullOrEmpty(color)) return;
         var old = StatusColor;
@@ -397,7 +398,7 @@ public sealed class Session : IDisposable
         StatusColor = color;
         LastStatusReason = newReason;
 
-        var evt = new WingmanEvent(DateTime.UtcNow, old, color, newReason);
+        var evt = new WingmanEvent(DateTime.UtcNow, old, color, newReason, llm);
         lock (_wingmanEventsLock)
         {
             _wingmanEvents.AddFirst(evt);

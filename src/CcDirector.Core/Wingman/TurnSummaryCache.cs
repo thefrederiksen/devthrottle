@@ -158,13 +158,23 @@ public sealed class TurnSummaryCache : IDisposable
                 {
                     var sinceCursor = _bufferCursors.TryGetValue(s.Id, out var cur) ? cur : 0;
                     var (transcript, newCursor) = CaptureTurnTranscript(s.Buffer, sinceCursor);
-                    _bufferCursors[s.Id] = newCursor;
 
                     // No new terminal output since the last summary: a no-op or spurious
-                    // pulse. Nothing of ours to summarize, so don't fabricate one.
+                    // pulse. Advance past it and don't summarize.
                     if (string.IsNullOrWhiteSpace(transcript))
+                    {
+                        _bufferCursors[s.Id] = newCursor;
+                        return;
+                    }
+
+                    // Global 5s LLM floor (shared with the detector's classify). If we're
+                    // inside the window, skip WITHOUT advancing the cursor so this turn's
+                    // output rolls into the next summary rather than being dropped. This is
+                    // what stops a flappy session from looping on Haiku and burning tokens.
+                    if (!WingmanLlmThrottle.TryAcquire(s.Id))
                         return;
 
+                    _bufferCursors[s.Id] = newCursor;
                     var summary = await WingmanService.SummarizeTurnAsync(
                         transcript, t.Timestamp.UtcDateTime, s.RepoPath, _options.ClaudePath);
                     AddToCache(s.Id, summary);

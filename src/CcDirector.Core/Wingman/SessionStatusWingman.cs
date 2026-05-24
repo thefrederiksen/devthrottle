@@ -300,19 +300,19 @@ public sealed class SessionStatusWingman : IDisposable
                 !string.IsNullOrWhiteSpace(summary.NeedsUserShort) ? summary.NeedsUserShort!.Trim() :
                 !string.IsNullOrWhiteSpace(summary.NeedsUserDetail) ? summary.NeedsUserDetail!.Trim() :
                 n;
-            session.SetStatusColor(StatusColor.Red, reason);
+            session.SetStatusColor(StatusColor.Red, reason, llm: true);
             FileLog.Write($"[SessionStatusWingman] ApplyTurnSummary {session.Id} => red (needs_user={n}, reasonLen={reason.Length})");
             return;
         }
         if (hasWarnings)
         {
-            session.SetStatusColor(StatusColor.Yellow, "wingman warning");
+            session.SetStatusColor(StatusColor.Yellow, "wingman warning", llm: true);
             FileLog.Write($"[SessionStatusWingman] ApplyTurnSummary {session.Id} => yellow (warnings)");
             return;
         }
         if (n == "idle" && gitDirty)
         {
-            session.SetStatusColor(StatusColor.Yellow, "idle, uncommitted changes");
+            session.SetStatusColor(StatusColor.Yellow, "idle, uncommitted changes", llm: true);
             FileLog.Write($"[SessionStatusWingman] ApplyTurnSummary {session.Id} => yellow (idle+dirty)");
             return;
         }
@@ -320,7 +320,7 @@ public sealed class SessionStatusWingman : IDisposable
         // Clean turn -> back to green with the headline as the reason (truncated).
         var headline = string.IsNullOrWhiteSpace(summary.Headline) ? "clean turn" : summary.Headline!;
         if (headline.Length > 80) headline = headline[..77] + "...";
-        session.SetStatusColor(StatusColor.Green, headline);
+        session.SetStatusColor(StatusColor.Green, headline, llm: true);
         FileLog.Write($"[SessionStatusWingman] ApplyTurnSummary {session.Id} => green (needs_user={n}, headline=\"{headline}\")");
     }
 

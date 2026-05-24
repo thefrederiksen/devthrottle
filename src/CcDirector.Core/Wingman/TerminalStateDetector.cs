@@ -32,9 +32,6 @@ public sealed class TerminalStateDetector : IDisposable
     /// <summary>How long the terminal must be silent before the gate fires.</summary>
     public static readonly TimeSpan QuietThreshold = TimeSpan.FromSeconds(5);
 
-    /// <summary>Minimum gap between LLM classifications for one session.</summary>
-    private static readonly TimeSpan LlmCooldown = TimeSpan.FromSeconds(8);
-
     private readonly SessionManager _sessionManager;
     private readonly string _claudePath;
     private readonly bool _useLlm;
@@ -115,7 +112,6 @@ public sealed class TerminalStateDetector : IDisposable
 
         private long _lastByteTicks;
         private bool _active;
-        private DateTime _lastLlmAt = DateTime.MinValue;
         private int _llmInFlight;
         private int _disposed;
 
@@ -191,9 +187,14 @@ public sealed class TerminalStateDetector : IDisposable
 
         private void MaybeClassify()
         {
-            if (DateTime.UtcNow - _lastLlmAt < LlmCooldown) return;
             if (Interlocked.CompareExchange(ref _llmInFlight, 1, 0) != 0) return;
-            _lastLlmAt = DateTime.UtcNow;
+            // Global per-session floor: never call the LLM within 5s of the last one
+            // (shared with the turn summariser) so a flappy session can't loop on it.
+            if (!WingmanLlmThrottle.TryAcquire(_session.Id))
+            {
+                Interlocked.Exchange(ref _llmInFlight, 0);
+                return;
+            }
 
             _ = Task.Run(async () =>
             {
@@ -208,7 +209,16 @@ public sealed class TerminalStateDetector : IDisposable
                     // Only refine state if the terminal is still quiet (no new turn started
                     // while the model was thinking). If bytes resumed, OnBytes already set Working.
                     if (_driveState && !_active && st != "unknown")
-                        _session.ApplyTerminalActivityState(MapVerdictToActivityState(st));
+                    {
+                        var actState = MapVerdictToActivityState(st);
+                        _session.ApplyTerminalActivityState(actState);
+                        // Surface the classify in the wingman log with the model's OWN reason,
+                        // tagged LLM so its token cost is visible. (When this just confirms the
+                        // provisional state, ApplyTerminalActivityState was a no-op, so this is
+                        // the single, informative entry for the call.)
+                        var (color, _) = SessionStatusWingman.ColorFromActivityState(actState, isNew: false);
+                        _session.SetStatusColor(color, reason, llm: true);
+                    }
                 }
                 catch (Exception ex)
                 {
