@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="CcDirectorClient.MainPage"
+             BackgroundColor="#0B1020"
+             Shell.NavBarIsVisible="False"
+             Title="CC Director Client">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="20" Spacing="16">
+
+            <Label Text="CC Director Client"
+                   FontSize="26" FontAttributes="Bold" TextColor="#E6EAF2" />
+            <Label Text="Offline recorder. Records to the phone, uploads to the Gateway to transcribe."
+                   FontSize="13" TextColor="#8A93A6" />
+
+            <!-- Timer + state -->
+            <Border BackgroundColor="#141B2E" StrokeShape="RoundRectangle 14" Padding="20">
+                <VerticalStackLayout Spacing="6" HorizontalOptions="Center">
+                    <Label x:Name="TimerLabel" Text="00:00:00"
+                           FontSize="44" FontAttributes="Bold" TextColor="#E6EAF2"
+                           HorizontalOptions="Center" />
+                    <Label x:Name="StateLabel" Text="Idle"
+                           FontSize="14" TextColor="#5FD08A" HorizontalOptions="Center" />
+                    <Label x:Name="SegmentLabel" Text="0 segments captured"
+                           FontSize="13" TextColor="#8A93A6" HorizontalOptions="Center" />
+                    <!-- Live mic level so you can see it's hearing you -->
+                    <ProgressBar x:Name="LevelMeter" Progress="0" ProgressColor="#5FD08A"
+                                 HeightRequest="8" Margin="0,10,0,0" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Entry x:Name="TitleEntry" Placeholder="Title (optional, edit anytime until you stop)"
+                   TextColor="#E6EAF2" PlaceholderColor="#8A93A6" BackgroundColor="#141B2E" />
+
+            <Button x:Name="RecordButton" Text="Record"
+                    BackgroundColor="#E5484D" TextColor="White"
+                    FontSize="18" FontAttributes="Bold" HeightRequest="64"
+                    CornerRadius="12" Clicked="OnRecordClicked" />
+
+            <Button x:Name="PauseButton" Text="Pause" IsVisible="False"
+                    BackgroundColor="#2B6CB0" TextColor="White" HeightRequest="50"
+                    CornerRadius="12" Clicked="OnPauseClicked" />
+
+            <!-- Notes -->
+            <Label Text="Notes while recording" FontSize="15" FontAttributes="Bold" TextColor="#E6EAF2" />
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                <Entry x:Name="NoteEntry" Grid.Column="0" Placeholder="Type a note, hit Add"
+                       TextColor="#E6EAF2" PlaceholderColor="#5A6378" BackgroundColor="#141B2E" />
+                <Button x:Name="AddNoteButton" Grid.Column="1" Text="Add"
+                        BackgroundColor="#2B6CB0" TextColor="White" Clicked="OnAddNoteClicked" />
+            </Grid>
+            <CollectionView x:Name="NotesList" HeightRequest="120">
+                <CollectionView.ItemTemplate>
+                    <DataTemplate>
+                        <Label Text="{Binding}" TextColor="#B7C0D4" FontSize="13" Padding="0,2" />
+                    </DataTemplate>
+                </CollectionView.ItemTemplate>
+            </CollectionView>
+
+            <!-- Recordings list: per-row upload progress lives here, out of the
+                 way of the recording controls above. -->
+            <Label Text="Recordings" FontSize="15" FontAttributes="Bold" TextColor="#E6EAF2" />
+            <Label Text="Kept on your phone and uploaded automatically. Each row shows its own upload progress."
+                   FontSize="12" TextColor="#8A93A6" />
+            <CollectionView x:Name="LibraryList" HeightRequest="320"
+                            SelectionMode="Single" SelectionChanged="OnRecordingSelected">
+                <CollectionView.ItemTemplate>
+                    <DataTemplate>
+                        <Border BackgroundColor="#141B2E" StrokeShape="RoundRectangle 8" Padding="10" Margin="0,3">
+                            <VerticalStackLayout Spacing="4">
+                                <Label Text="{Binding Title}" TextColor="#E6EAF2" FontAttributes="Bold" />
+                                <Label Text="{Binding Subtitle}" TextColor="#8A93A6" FontSize="12" />
+                                <ProgressBar Progress="{Binding Progress}" ProgressColor="#5FD08A"
+                                             HeightRequest="6" IsVisible="{Binding IsUploading}" />
+                                <!-- Two independent status checkmarks: upload + transcription -->
+                                <HorizontalStackLayout Spacing="18" Margin="0,2,0,0">
+                                    <HorizontalStackLayout Spacing="5" VerticalOptions="Center">
+                                        <Path Data="M0,5 L4,9 L11,0"
+                                              Stroke="{Binding UploadStroke}" StrokeThickness="2.5"
+                                              WidthRequest="13" HeightRequest="11" VerticalOptions="Center" />
+                                        <Label Text="Uploaded" FontSize="11" TextColor="#8A93A6" VerticalOptions="Center" />
+                                    </HorizontalStackLayout>
+                                    <HorizontalStackLayout Spacing="5" VerticalOptions="Center">
+                                        <Path Data="M0,5 L4,9 L11,0"
+                                              Stroke="{Binding TransCheckStroke}" StrokeThickness="2.5"
+                                              WidthRequest="13" HeightRequest="11" VerticalOptions="Center"
+                                              IsVisible="{Binding TransShowCheck}" />
+                                        <Path Data="M0,0 L10,10 M10,0 L0,10"
+                                              Stroke="#E5484D" StrokeThickness="2.5"
+                                              WidthRequest="11" HeightRequest="11" VerticalOptions="Center"
+                                              IsVisible="{Binding TransShowX}" />
+                                        <Label Text="Transcribed" FontSize="11" TextColor="#8A93A6" VerticalOptions="Center" />
+                                    </HorizontalStackLayout>
+                                </HorizontalStackLayout>
+                            </VerticalStackLayout>
+                        </Border>
+                    </DataTemplate>
+                </CollectionView.ItemTemplate>
+            </CollectionView>
+
+            <!-- Server settings (out of the way; pre-filled) -->
+            <Label Text="Server settings" FontSize="13" FontAttributes="Bold" TextColor="#5A6378" Margin="0,12,0,0" />
+            <Entry x:Name="ServerEntry" Placeholder="https://gateway-host.ts.net"
+                   TextColor="#A9B4C8" PlaceholderColor="#5A6378" BackgroundColor="#0F1626"
+                   Unfocused="OnCredsChanged" />
+            <Entry x:Name="TokenEntry" Placeholder="Gateway token" IsPassword="True"
+                   TextColor="#A9B4C8" PlaceholderColor="#5A6378" BackgroundColor="#0F1626"
+                   Unfocused="OnCredsChanged" />
+
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

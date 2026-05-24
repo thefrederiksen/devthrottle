@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="456" height="456" viewBox="0 0 456 456" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Microphone body -->
+  <rect x="198" y="118" width="60" height="124" rx="30" fill="#FFFFFF"/>
+  <!-- Pickup arc cradling the mic -->
+  <path d="M166 206 a62 62 0 0 0 124 0" stroke="#FFFFFF" stroke-width="16" stroke-linecap="round" fill="none"/>
+  <!-- Stand -->
+  <line x1="228" y1="268" x2="228" y2="308" stroke="#FFFFFF" stroke-width="16" stroke-linecap="round"/>
+  <!-- Base -->
+  <line x1="196" y1="308" x2="260" y2="308" stroke="#FFFFFF" stroke-width="16" stroke-linecap="round"/>
+  <!-- Record dot -->
+  <circle cx="228" cy="160" r="14" fill="#E5484D"/>
+</svg>
