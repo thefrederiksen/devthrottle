@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Bug Fix Session - 2026-05-24</title>
+<style>
+        /* Boardroom Theme - Corporate, executive style with serif fonts */
+        
+        :root {
+            /* Colors */
+            --primary: #1A365D;
+            --primary-light: #2A4A7F;
+            --accent: #D69E2E;
+            --text: #2D3748;
+            --heading: #1A365D;
+            --background: #FFFFFF;
+            --code-bg: #EDF2F7;
+            --code-text: #1A365D;
+            --border: #CBD5E0;
+            --link: #2B6CB0;
+            --blockquote-text: #4A5568;
+            --blockquote-border: #D69E2E;
+            --blockquote-bg: #FFFFFF;
+            --table-header-bg: #1A365D;
+            --table-header-text: #FFFFFF;
+            --alt-row-bg: #F7FAFC;
+            --shadow-color: rgba(26, 54, 93, 0.08);
+        
+            /* Fonts */
+            --font-heading: "Palatino Linotype", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-body: "Georgia", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-code: "Courier New", "JetBrains Mono", "Fira Code", Consolas, monospace;
+        
+            /* Style */
+            --heading-letter-spacing: -0.02em;
+            --line-height: 1.7;
+            --radius: 4px;
+            --code-radius: 6px;
+            --shadow-sm: 0 1px 3px rgba(26, 54, 93, 0.08);
+            --shadow-md: 0 4px 12px rgba(26, 54, 93, 0.1);
+        }
+        
+        /* Base styles for all themes */
+        
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+        }
+        
+        html {
+            font-size: 16px;
+            line-height: var(--line-height);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: var(--font-body);
+            color: var(--text);
+            background: var(--background);
+        }
+        
+        .markdown-body {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 3rem 2.5rem;
+        }
+        
+        /* Typography */
+        h1, h2, h3, h4, h5, h6 {
+            font-family: var(--font-heading);
+            color: var(--heading);
+            margin-top: 1.8em;
+            margin-bottom: 0.6em;
+            font-weight: 600;
+            line-height: 1.25;
+            letter-spacing: var(--heading-letter-spacing);
+            orphans: 3;
+            widows: 3;
+        }
+        
+        h1 {
+            font-size: 2.25em;
+            margin-top: 0;
+        }
+        
+        h2 { font-size: 1.65em; }
+        h3 { font-size: 1.35em; }
+        h4 { font-size: 1.1em; }
+        h5 { font-size: 0.95em; }
+        h6 { font-size: 0.85em; color: var(--blockquote-text); }
+        
+        p {
+            margin: 1em 0;
+            orphans: 3;
+            widows: 3;
+        }
+        
+        /* Links */
+        a {
+            color: var(--link);
+            text-decoration: none;
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.2s ease;
+        }
+        
+        a:hover {
+            border-bottom-color: var(--link);
+        }
+        
+        /* Lists */
+        ul, ol {
+            margin: 1em 0;
+            padding-left: 2em;
+            line-height: var(--line-height);
+        }
+        
+        li {
+            margin: 0.35em 0;
+        }
+        
+        li > ul,
+        li > ol {
+            margin: 0.2em 0;
+        }
+        
+        /* Inline code */
+        code {
+            font-family: var(--font-code);
+            font-size: 0.875em;
+            padding: 0.15em 0.4em;
+            border-radius: var(--radius);
+            background: var(--code-bg);
+            color: var(--code-text);
+        }
+        
+        /* Code blocks */
+        pre {
+            margin: 1.5em 0;
+            padding: 1.25em 1.5em;
+            overflow-x: auto;
+            border-radius: var(--code-radius);
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow-sm);
+            position: relative;
+        }
+        
+        pre code {
+            padding: 0;
+            background: transparent;
+            border-radius: 0;
+            font-size: 0.875em;
+            line-height: 1.55;
+        }
+        
+        /* Blockquotes */
+        blockquote {
+            margin: 1.5em 0;
+            padding: 0.75em 1.25em;
+            border-left: 4px solid var(--blockquote-border);
+            background: var(--blockquote-bg);
+            color: var(--blockquote-text);
+            border-radius: 0 var(--radius) var(--radius) 0;
+        }
+        
+        blockquote p {
+            margin: 0.4em 0;
+        }
+        
+        blockquote p:first-child {
+            margin-top: 0;
+        }
+        
+        blockquote p:last-child {
+            margin-bottom: 0;
+        }
+        
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin: 1.5em 0;
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border);
+        }
+        
+        th, td {
+            padding: 0.75em 1em;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        th {
+            font-weight: 600;
+            background: var(--table-header-bg);
+            color: var(--table-header-text);
+        }
+        
+        tr:last-child td {
+            border-bottom: none;
+        }
+        
+        /* Horizontal rule */
+        hr {
+            border: none;
+            height: 2px;
+            max-width: 200px;
+            margin: 2.5em auto;
+            background: var(--border);
+            border-radius: 1px;
+        }
+        
+        /* Images */
+        img {
+            max-width: 100%;
+            height: auto;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        /* Task lists */
+        .task-list-item {
+            list-style-type: none;
+        }
+        
+        .task-list-item input[type="checkbox"] {
+            margin-right: 0.5em;
+        }
+        
+        /* Strong and emphasis */
+        strong {
+            font-weight: 700;
+        }
+        
+        /* Definition lists (if supported by parser) */
+        dt {
+            font-weight: 600;
+            margin-top: 1em;
+        }
+        
+        dd {
+            margin-left: 1.5em;
+            margin-bottom: 0.5em;
+        }
+        
+        
+        /* Boardroom: corporate authority with accent borders */
+        h1 {
+            border-bottom: 3px solid var(--accent);
+            padding-bottom: 0.5em;
+        }
+        
+        h2 {
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.3em;
+        }
+        
+        pre {
+            border-left: 4px solid var(--primary);
+            border-radius: 0 var(--code-radius) var(--code-radius) 0;
+        }
+        
+        pre::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--accent);
+            border-radius: 0;
+        }
+        
+        blockquote {
+            font-style: italic;
+        }
+        
+        hr {
+            background: var(--accent);
+            max-width: none;
+            height: 2px;
+        }
+        
+        tr:nth-child(even) td {
+            background: var(--alt-row-bg);
+        }
+        
+    </style>
+</head>
+<body>
+<article class="markdown-body">
+<h1>Bug Fix Session - 2026-05-24</h1>
+<p>Reviewed the latest open GitHub issues, fixed the clear/straightforward ones, and
+        verified the rest. One genuine code fix was needed and made; the other concrete
+        candidates turned out to be already resolved in the current code.</p>
+<hr/>
+<h2>FIXED: #106 - cc-powerpoint drops numbered-list body</h2>
+<p><strong>Status: Fixed, rebuilt, deployed, and verified.</strong></p>
+<h3>The bug</h3>
+<p>In <code>cc-powerpoint from-markdown</code>, a slide using a numbered list (<code>1. 2. 3.</code>)
+        produced a slide with only the title - the entire body was missing. Bullet lists
+        (<code>- </code>) worked fine.</p>
+<h3>Root cause</h3>
+<p><code>tools/cc-powerpoint/src/parser.py</code> -&gt; <code>_extract_bullets()</code> only tracked
+        <code>bullet_list_open</code> / <code>bullet_list_close</code> tokens from the markdown-it token stream.
+        Numbered lists emit <code>ordered_list_open</code> / <code>ordered_list_close</code>, which were ignored,
+        so <code>list_depth</code> never rose and no body items were collected.</p>
+<h3>The fix</h3>
+<pre><code class="language-python">if token.type in ("bullet_list_open", "ordered_list_open"):
+            list_depth += 1
+        elif token.type in ("bullet_list_close", "ordered_list_close"):
+            list_depth -= 1
+        </code></pre>
+<p>Added two regression tests (<code>test_numbered_list</code>, <code>test_numbered_sub_bullets</code>) to
+        <code>tests/test_parser.py</code>. All 19 parser tests pass.</p>
+<h3>Before vs after (same input markdown)</h3>
+<p>Input:</p>
+<pre><code># Numbered List Slide
+        
+        1. First item
+        2. Second item
+        3. Third item
+        </code></pre>
+<table>
+<thead>
+<tr>
+<th>Build</th>
+<th>Slide body text</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Shipped exe (before)</td>
+<td><code>['Numbered List Slide']</code> - body empty</td>
+</tr>
+<tr>
+<td>Fixed + deployed exe</td>
+<td><code>['Numbered List Slide', 'First item', 'Second item', 'Third item']</code></td>
+</tr>
+</tbody>
+</table>
+<h3>Verification screenshot</h3>
+<p>Rendered the generated slide with PowerPoint. The body now shows all three items:</p>
+<p><img alt="Numbered list slide now renders body" src="data:image/png;base64,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"/></p>
+<p>The fix was rebuilt via <code>build.ps1</code> and deployed to
+        <code>%LOCALAPPDATA%\cc-director\bin\cc-powerpoint.exe</code>; the deployed exe was
+        re-tested and produces the full body.</p>
+<hr/>
+<h2>VERIFIED ALREADY RESOLVED (no code change needed)</h2>
+<h3>#116 - cc-outlook calendar events <code>new_query()</code> error</h3>
+<p>The reported error (<code>ApiComponent.new_query() takes 1 positional argument but 2 were given</code>) no longer reproduces. The current <code>get_events()</code> passes <code>datetime</code>
+        objects to the O365 library, which handles them directly without building a
+        <code>new_query</code>. Ran <code>cc-outlook calendar events --days 14</code> against the live account
+        (both source and the shipped exe): a full event list returned cleanly, no error.
+        Recommend closing.</p>
+<h3>#120 - cc-browser: no JS eval / screenshot fails</h3>
+<p>The cc-browser v2 rewrite already ships both a JS-eval command
+        (<code>evaluate --fn "() =&gt; ..."</code>) and a <code>screenshot</code> command. The reporter tried the
+        non-existent names <code>eval</code> / <code>execute</code>; the actual command is <code>evaluate</code>. The core
+        "no way to run JavaScript" complaint is resolved. Recommend closing (or narrowing
+        to just the GPU "image readback" case if it still recurs).</p>
+<hr/>
+<h2>VERIFIED FIXED BY RECENT COMMITS (latest issues)</h2>
+<ul>
+<li><strong>#134</strong> (voice/dictation clips speech at start) - addressed by commit
+        <code>27e2c44</code> (show Initializing until capture is live).</li>
+<li><strong>#133</strong> (Dictate meter too small / unresponsive) - addressed by commit
+        <code>1fec455</code>. Confirmed in <code>dictate.html</code>: meter height raised to 92px, <code>gain</code>
+        2.2, and a <code>sqrt</code> response curve on the amplitude. Code matches the issue's
+        requested fix direction.</li>
+</ul>
+<hr/>
+<h2>SKIPPED (not straightforward / not clear)</h2>
+<ul>
+<li><strong>#129</strong> - Wingman reliable session-state detection: foundational + explicitly
+        "untested"; a research/hardening effort, not a discrete bug.</li>
+<li><strong>#130</strong> - Voice Mode for in-car session interaction: a design doc / future
+        feature ("Not building this now").</li>
+<li><strong>#131</strong> - Wingman terminal-state misclassification: an auto-created tracking
+        issue collecting correction votes, not a single fix.</li>
+<li><strong>#121</strong> - Terminal background-color leak on initial render: explicitly a
+        recurring bug that has "been fixed multiple times and keeps coming back" with
+        root cause for the initial-render case "not yet identified." Not straightforward
+        and not reliably testable from within a nested-ConPty session.</li>
+</ul>
+</article>
+</body>
+</html>

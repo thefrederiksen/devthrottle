@@ -120,6 +120,19 @@ class TestLayoutDetection:
         assert 0 in slides[1].sub_bullets
         assert slides[1].sub_bullets[0] == ["Sub A", "Sub B"]
 
+    def test_numbered_list(self):
+        md = "---\n# Title\n---\n# Items\n\n1. First item\n2. Second item\n3. Third item\n---"
+        slides = parse_markdown(md)
+        assert len(slides) == 2
+        assert slides[1].bullets == ["First item", "Second item", "Third item"]
+
+    def test_numbered_sub_bullets(self):
+        md = "---\n# Title\n---\n# Items\n\n1. Top\n   1. Sub A\n   2. Sub B\n2. Second\n---"
+        slides = parse_markdown(md)
+        assert len(slides) == 2
+        assert slides[1].bullets == ["Top", "Second"]
+        assert slides[1].sub_bullets[0] == ["Sub A", "Sub B"]
+
 
 class TestFullParsing:
     """Integration tests for complete markdown parsing."""

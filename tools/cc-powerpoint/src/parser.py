@@ -260,9 +260,9 @@ def _extract_bullets(tokens: list) -> tuple[list[str], dict[int, list[str]]]:
     list_depth = 0
 
     for i, token in enumerate(tokens):
-        if token.type == "bullet_list_open":
+        if token.type in ("bullet_list_open", "ordered_list_open"):
             list_depth += 1
-        elif token.type == "bullet_list_close":
+        elif token.type in ("bullet_list_close", "ordered_list_close"):
             list_depth -= 1
         elif token.type == "inline" and list_depth > 0:
             # Check if previous token opens a list item
