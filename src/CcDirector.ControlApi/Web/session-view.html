@@ -2465,6 +2465,10 @@
     upload:   { freq: 392, interval: 700  },  // G4 - calm waiting
     retry:    { freq: 247, interval: 480  },  // B3 - lower + faster, "still trying"
     thinking: { freq: 523, interval: 900  },  // C5 - higher + slower, "doing the thing"
+    // Agent-is-working heartbeat: a soft, occasional ping so the driver knows to
+    // wait without a constant pulse over a long (30-120s) turn. Deliberately
+    // slower + lower than the upload/retry cues so it reads as "still here, hang on".
+    working:  { freq: 466, interval: 2800 }, // A#4 every ~2.8s - "working, please wait"
   };
 
   // ----- Voice-friendly translation (strip code/markdown, summarise) ----
@@ -2849,7 +2853,7 @@
     if (!text || !text.trim()) return;
     appendVoiceBubble('user', text);
     setVoiceState('Agent thinking...');
-    startCue(CUE.thinking.freq, CUE.thinking.interval);
+    startCue(CUE.working.freq, CUE.working.interval);
     let chat;
     try {
       chat = await postChat(text);
@@ -2905,7 +2909,7 @@
       appendVoiceBubble('user', sendText);
 
       // 2) Send to the agent via /chat.
-      startCue(CUE.thinking.freq, CUE.thinking.interval);
+      startCue(CUE.working.freq, CUE.working.interval);
       setVoiceState('Agent thinking...');
       let chat;
       try {
