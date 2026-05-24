@@ -176,11 +176,16 @@ public sealed class ControlApiHost : IAsyncDisposable
         // set CC_DIRECTOR_TERMSTATE_LLM=0 to run the free byte-activity gate alone.
         var terminalDriven = Environment.GetEnvironmentVariable("CC_DIRECTOR_TERMINAL_STATE") != "0";
         var termStateLlm = Environment.GetEnvironmentVariable("CC_DIRECTOR_TERMSTATE_LLM") != "0";
+        // Phase 2: the LLM judge is a full-power read-only Claude Code session that reads
+        // the terminal snapshot via its own tools (Read/Grep/Glob), instead of the lighter
+        // one-shot call with a pasted tail. On by default; set
+        // CC_DIRECTOR_TERMSTATE_FULLSESSION=0 to fall back to the tail-paste judge.
+        var termStateFullSession = Environment.GetEnvironmentVariable("CC_DIRECTOR_TERMSTATE_FULLSESSION") != "0";
         Core.Sessions.Session.TerminalDrivenState = terminalDriven;
         _terminalStateDetector = new TerminalStateDetector(
-            _sessionManager, _sessionManager.Options.ClaudePath, useLlm: termStateLlm, driveState: terminalDriven);
+            _sessionManager, _sessionManager.Options.ClaudePath, useLlm: termStateLlm, driveState: terminalDriven, useFullSession: termStateFullSession);
         _terminalStateDetector.Start();
-        FileLog.Write($"[ControlApiHost] Session state source: {(terminalDriven ? "terminal" : "hooks")} (llm judge={termStateLlm})");
+        FileLog.Write($"[ControlApiHost] Session state source: {(terminalDriven ? "terminal" : "hooks")} (llm judge={termStateLlm}, full-session judge={termStateFullSession})");
 
         // Load the gateway config up front so the served HTML can render a "Gateway"
         // nav button pointing at it. Reused below for the GatewayClient registration.

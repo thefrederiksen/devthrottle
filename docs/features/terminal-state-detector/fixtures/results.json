@@ -1,0 +1,95 @@
+{
+  "generatedUtc": "2026-05-24 17:46:05Z",
+  "rows": [
+    {
+      "File": "waiting_input_bypass_footer.txt",
+      "Judge": "tail-paste",
+      "Expected": "WaitingForInput",
+      "Verdict": "waiting_for_input",
+      "MappedState": "WaitingForInput",
+      "Reason": "agent finished its task and is parked at empty input box (\u003E prompt); the bypass-permissions line is the mode footer, not a confirmation request",
+      "Pass": true
+    },
+    {
+      "File": "waiting_input_bypass_footer.txt",
+      "Judge": "full-session",
+      "Expected": "WaitingForInput",
+      "Verdict": "waiting_for_input",
+      "MappedState": "WaitingForInput",
+      "Reason": "Session shows completed work (\u0027Done. I updated the loader...\u0027) with prompt box at bottom (\u003E with \u0027? for shortcuts\u0027 hint) and no spinner or active indicator",
+      "Pass": true
+    },
+    {
+      "File": "permission_box.txt",
+      "Judge": "tail-paste",
+      "Expected": "WaitingForPerm",
+      "Verdict": "waiting_for_permission",
+      "MappedState": "WaitingForPerm",
+      "Reason": "parked on a numbered confirmation box asking to edit app-settings.json; the \u0027bypass permissions\u0027 line at bottom is just the mode footer, not the prompt",
+      "Pass": true
+    },
+    {
+      "File": "permission_box.txt",
+      "Judge": "full-session",
+      "Expected": "WaitingForPerm",
+      "Verdict": "waiting_for_permission",
+      "MappedState": "WaitingForPerm",
+      "Reason": "Bordered permission prompt asking to confirm an edit to app-settings.json with three numbered choices; cursor is parked waiting for user input",
+      "Pass": true
+    },
+    {
+      "File": "working_spinner.txt",
+      "Judge": "tail-paste",
+      "Expected": "Working",
+      "Verdict": "working",
+      "MappedState": "Working",
+      "Reason": "spinner and elapsed-time counter (Brewed for 8s, esc to interrupt) at the bottom indicate active work",
+      "Pass": true
+    },
+    {
+      "File": "working_spinner.txt",
+      "Judge": "full-session",
+      "Expected": "Working",
+      "Verdict": "working",
+      "MappedState": "Working",
+      "Reason": "Elapsed-time counter \u0027Brewed for 8s\u0027 and \u0027esc to interrupt\u0027 footer at line 4 indicate the agent is actively searching the codebase",
+      "Pass": true
+    },
+    {
+      "File": "plan_mode_input.txt",
+      "Judge": "tail-paste",
+      "Expected": "WaitingForInput",
+      "Verdict": "waiting_for_input",
+      "MappedState": "WaitingForInput",
+      "Reason": "empty input box at bottom; agent has presented a plan and is waiting for user approval or feedback",
+      "Pass": true
+    },
+    {
+      "File": "plan_mode_input.txt",
+      "Judge": "full-session",
+      "Expected": "WaitingForInput",
+      "Verdict": "waiting_for_input",
+      "MappedState": "WaitingForInput",
+      "Reason": "Input box with \u0027\u003E \u0027 prompt and \u0027? for shortcuts\u0027 hint visible; no spinner, no active indicator; agent presented a 3-step plan and is waiting for user instruction.",
+      "Pass": true
+    },
+    {
+      "File": "cancelled.txt",
+      "Judge": "tail-paste",
+      "Expected": "WaitingForInput",
+      "Verdict": "waiting_for_input",
+      "MappedState": "WaitingForInput",
+      "Reason": "user interrupted test run; agent has returned to empty input prompt and is awaiting next instruction",
+      "Pass": true
+    },
+    {
+      "File": "cancelled.txt",
+      "Judge": "full-session",
+      "Expected": "WaitingForInput",
+      "Verdict": "cancelled",
+      "MappedState": "WaitingForInput",
+      "Reason": "[Request interrupted by user] message shows tests were stopped mid-run; agent is back at the input prompt.",
+      "Pass": true
+    }
+  ]
+}

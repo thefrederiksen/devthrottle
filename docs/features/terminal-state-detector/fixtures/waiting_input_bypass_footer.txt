@@ -1,0 +1,6 @@
+  Done. I updated the loader to read the dictionary from the shared path and
+  added a regression test. Both build clean and the test passes.
+
+> Try "edit <filepath>" or "how do I ...?"
+
+  ? for shortcuts                                   bypass permissions on (shift+tab to cycle)

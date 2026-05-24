@@ -36,6 +36,7 @@ public sealed class TerminalStateDetector : IDisposable
     private readonly string _claudePath;
     private readonly bool _useLlm;
     private readonly bool _driveState;
+    private readonly bool _useFullSession;
     private readonly ConcurrentDictionary<Guid, Watcher> _watchers = new();
     private bool _started;
     private bool _disposed;
@@ -45,12 +46,21 @@ public sealed class TerminalStateDetector : IDisposable
     /// and raises turn-completed from the terminal. When false it is shadow-only (logs the
     /// terminal verdict next to the hook state, writes nothing).
     /// </param>
-    public TerminalStateDetector(SessionManager sessionManager, string claudePath, bool useLlm, bool driveState)
+    /// <param name="useFullSession">
+    /// When true, the LLM judge is a FULL-POWER fresh Claude Code session that reads the
+    /// terminal snapshot via its own read-only tools (Phase 2,
+    /// <see cref="WingmanService.ClassifyTerminalStateViaSessionAsync"/>). When false it is
+    /// the lighter one-shot call with a pasted tail
+    /// (<see cref="WingmanService.ClassifyTerminalStateAsync"/>). Only meaningful when
+    /// <paramref name="useLlm"/> is true.
+    /// </param>
+    public TerminalStateDetector(SessionManager sessionManager, string claudePath, bool useLlm, bool driveState, bool useFullSession = false)
     {
         _sessionManager = sessionManager;
         _claudePath = claudePath;
         _useLlm = useLlm;
         _driveState = driveState;
+        _useFullSession = useFullSession;
     }
 
     /// <summary>
@@ -69,7 +79,7 @@ public sealed class TerminalStateDetector : IDisposable
     {
         if (_started) return;
         _started = true;
-        FileLog.Write($"[TerminalStateDetector] Start (mode={(_driveState ? "authoritative" : "shadow")}, llm={_useLlm}, quiet={QuietThreshold.TotalSeconds}s)");
+        FileLog.Write($"[TerminalStateDetector] Start (mode={(_driveState ? "authoritative" : "shadow")}, llm={_useLlm}, judge={(_useFullSession ? "full-session" : "tail-paste")}, quiet={QuietThreshold.TotalSeconds}s)");
 
         _sessionManager.OnSessionCreated += OnSessionCreated;
         foreach (var s in _sessionManager.ListSessions())
@@ -82,7 +92,7 @@ public sealed class TerminalStateDetector : IDisposable
     {
         if (session.Buffer is null) return;
         if (_watchers.ContainsKey(session.Id)) return;
-        var w = new Watcher(session, _claudePath, _useLlm, _driveState);
+        var w = new Watcher(session, _claudePath, _useLlm, _driveState, _useFullSession);
         if (_watchers.TryAdd(session.Id, w))
             w.Start();
         else
@@ -107,6 +117,7 @@ public sealed class TerminalStateDetector : IDisposable
         private readonly string _claudePath;
         private readonly bool _useLlm;
         private readonly bool _driveState;
+        private readonly bool _useFullSession;
         private readonly Action<byte[]> _onBytes;
         private readonly System.Threading.Timer _quietTimer;
 
@@ -115,13 +126,14 @@ public sealed class TerminalStateDetector : IDisposable
         private int _llmInFlight;
         private int _disposed;
 
-        public Watcher(Session session, string claudePath, bool useLlm, bool driveState)
+        public Watcher(Session session, string claudePath, bool useLlm, bool driveState, bool useFullSession)
         {
             _session = session;
             _buffer = session.Buffer!;
             _claudePath = claudePath;
             _useLlm = useLlm;
             _driveState = driveState;
+            _useFullSession = useFullSession;
             _lastByteTicks = DateTime.UtcNow.Ticks;
             _onBytes = OnBytes;
             _quietTimer = new System.Threading.Timer(OnQuiet, null, Timeout.Infinite, Timeout.Infinite);
@@ -200,11 +212,24 @@ public sealed class TerminalStateDetector : IDisposable
             {
                 try
                 {
-                    var tail = SnapshotTail();
-                    if (string.IsNullOrWhiteSpace(tail)) return;
-                    var (st, reason) = await WingmanService.ClassifyTerminalStateAsync(
-                        tail, _session.AgentKind.ToString(), _claudePath);
-                    FileLog.Write($"[TerminalStateDetector] {_session.Id} LLM verdict={st} (\"{reason}\") | hook={_session.ActivityState} color={_session.StatusColor}");
+                    string st, reason;
+                    if (_useFullSession)
+                    {
+                        // Phase 2: hand the WHOLE terminal to a full-power read-only session
+                        // and let it pull what it needs.
+                        var full = SnapshotFull();
+                        if (string.IsNullOrWhiteSpace(full)) return;
+                        (st, reason) = await WingmanService.ClassifyTerminalStateViaSessionAsync(
+                            full, _session.AgentKind.ToString(), _session.RepoPath, _claudePath);
+                    }
+                    else
+                    {
+                        var tail = SnapshotTail();
+                        if (string.IsNullOrWhiteSpace(tail)) return;
+                        (st, reason) = await WingmanService.ClassifyTerminalStateAsync(
+                            tail, _session.AgentKind.ToString(), _claudePath);
+                    }
+                    FileLog.Write($"[TerminalStateDetector] {_session.Id} LLM verdict={st} (\"{reason}\") judge={(_useFullSession ? "full-session" : "tail-paste")} | hook={_session.ActivityState} color={_session.StatusColor}");
 
                     // Only refine state if the terminal is still quiet (no new turn started
                     // while the model was thinking). If bytes resumed, OnBytes already set Working.
@@ -232,6 +257,20 @@ public sealed class TerminalStateDetector : IDisposable
         }
 
         private string SnapshotTail(int maxChars = 4000)
+        {
+            var bytes = _buffer.DumpAll();
+            if (bytes.Length == 0) return string.Empty;
+            var text = TerminalOutputParser.StripAnsi(Encoding.UTF8.GetString(bytes));
+            if (text.Length > maxChars) text = text[^maxChars..];
+            return text;
+        }
+
+        /// <summary>
+        /// The whole ANSI-stripped terminal history (capped to a sane ceiling) for the
+        /// full-power session judge to read on its own. Unlike <see cref="SnapshotTail"/>
+        /// this does not pre-truncate to a guess - the session decides how far back to look.
+        /// </summary>
+        private string SnapshotFull(int maxChars = 200_000)
         {
             var bytes = _buffer.DumpAll();
             if (bytes.Length == 0) return string.Empty;

@@ -35,6 +35,50 @@ public static class WingmanService
     /// <summary>Hard timeout per Wingman call.</summary>
     public static readonly TimeSpan ProcessTimeout = TimeSpan.FromSeconds(60);
 
+    /// <summary>
+    /// Shared briefing on how a Claude Code session actually LOOKS on screen, so any
+    /// Wingman prompt reads the terminal the way someone who knows Claude Code would -
+    /// not the way a stranger guessing from keywords would. Trained once, reused by
+    /// every prompt builder.
+    ///
+    /// This exists because the field bug it fixes is precisely a keyword trap: the
+    /// persistent mode footer "bypass permissions on (shift+tab to cycle)" contains the
+    /// word "permission", and an uninformed reader flags it as a permission prompt - the
+    /// exact OPPOSITE of the truth (that mode means the agent never stops to ask).
+    /// </summary>
+    public const string ClaudeCodeScreenReference = """
+        HOW A CLAUDE CODE SESSION LOOKS (read this before judging):
+
+        1. PERSISTENT MODE FOOTER (NOT a prompt - it is ALWAYS on screen).
+           Near the bottom Claude Code shows its current permission MODE, one of:
+             - "bypass permissions on"   (often with "(shift+tab to cycle)")
+             - "accept edits on"         (often with "(shift+tab to cycle)")
+             - "plan mode on"            (often with "(shift+tab to cycle)")
+           This line is a STATUS INDICATOR, not a question. It is present whether the
+           agent is working, waiting, or idle. It NEVER by itself means the session is
+           waiting for permission. In particular "bypass permissions on" means the
+           agent will auto-approve everything and will NOT stop to ask - so seeing it
+           is evidence AGAINST waiting_for_permission, never for it. The word
+           "permission" in this footer is part of the mode name, not a request to you.
+
+        2. A REAL PERMISSION PROMPT looks completely different: a bordered box with a
+           question like "Do you want to proceed?" or "Do you want to make this edit to
+           <file>?", followed by a NUMBERED choice list, e.g.
+             "1. Yes   2. Yes, and don't ask again   3. No, and tell Claude what to do
+              differently"
+           with a selector arrow on one option. The session is parked on that box and
+           cannot continue until a number is chosen. THAT is waiting_for_permission.
+
+        3. THE INPUT BOX: a rounded/bordered box containing "> " (often a blinking
+           cursor) with a hint like "? for shortcuts" beneath it, and NO spinner and NO
+           pending question. That is the agent finished and waiting for the next
+           instruction => waiting_for_input.
+
+        4. ACTIVE / WORKING indicators: a spinner or animated glyph, an elapsed-time
+           counter (e.g. "Brewed for 12s"), an "esc to interrupt" footer, or text still
+           streaming in. Any of these at the bottom => working.
+        """;
+
     // ====================================================================
     // Terminal state classification (agent-agnostic, terminal-only)
     // ====================================================================
@@ -71,23 +115,105 @@ public static class WingmanService
         }
     }
 
+    /// <summary>
+    /// Phase 2 classifier: instead of pasting a fixed terminal slice into the prompt,
+    /// this runs a FULL-POWER, fresh-per-call Claude Code session (read-only tools:
+    /// Read/Grep/Glob, MCP off) and hands it the WHOLE terminal history as a snapshot
+    /// file. The session decides for itself how far back to read - it "looks into the
+    /// session and gets how much it needs" - then returns the same JSON verdict.
+    ///
+    /// Read-only by construction: the only tools allowed cannot write, and the session
+    /// has no access to the partner's PTY (no Send path exists outside the Director
+    /// process), so it cannot inject into - or resize - the terminal it is judging.
+    /// Stateless: a fresh "claude --print --no-session-persistence" per call, nothing
+    /// persisted. Fails closed to ("unknown", reason).
+    /// </summary>
+    public static async Task<(string state, string reason)> ClassifyTerminalStateViaSessionAsync(
+        string fullTerminalText, string agentName, string repoPath, string claudeExePath, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(claudeExePath))
+            return ("unknown", "no claude CLI configured");
+        if (string.IsNullOrWhiteSpace(fullTerminalText))
+            return ("unknown", "empty terminal");
+
+        // Materialise the partner terminal as a snapshot the full-power session can Read.
+        // A snapshot (not a live feed) is exactly right for a stateless judge: it answers
+        // "what state was this in at the moment I was triggered?".
+        var snapshotPath = Path.Combine(Path.GetTempPath(), $"cc-wingman-terminal-{Guid.NewGuid():N}.txt");
+        try
+        {
+            await File.WriteAllTextAsync(snapshotPath, fullTerminalText, ct);
+            var prompt = BuildTerminalStateSessionPrompt(snapshotPath, agentName ?? "an AI coding agent");
+            var workDir = Directory.Exists(repoPath) ? repoPath : Path.GetTempPath();
+            var stdout = await RunWingmanSessionAsync(
+                prompt, claudeExePath, workDir, allowedTools: "Read Grep Glob", maxTurns: 6, ct: ct);
+            return ParseTerminalStateJson(stdout);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[WingmanService] ClassifyTerminalStateViaSessionAsync FAILED: {ex.Message}");
+            return ("unknown", "session classify failed: " + ex.Message);
+        }
+        finally
+        {
+            try { if (File.Exists(snapshotPath)) File.Delete(snapshotPath); } catch { /* temp cleanup best-effort */ }
+        }
+    }
+
+    private static string BuildTerminalStateSessionPrompt(string snapshotPath, string agentName)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"You are the read-only Wingman for a terminal running {agentName} (an AI coding agent in an interactive TUI). Decide what the session is doing RIGHT NOW, the way a person who knows Claude Code would glancing at the screen.");
+        sb.AppendLine();
+        sb.AppendLine($"The session's terminal has been captured (ANSI stripped) to this file: {snapshotPath}");
+        sb.AppendLine("Use the Read tool to read it. The END of the file is the most recent output - that is what determines the state. The file may be long; read as much of the tail as you need (and more if the tail is ambiguous). You may also Read/Grep/Glob the repository if it helps you judge, but you usually will not need to.");
+        sb.AppendLine("You are READ-ONLY: never attempt to write, edit, or send anything - only observe.");
+        sb.AppendLine();
+        sb.AppendLine(ClaudeCodeScreenReference);
+        sb.AppendLine();
+        sb.AppendLine("When you have read enough, output ONE JSON object as your FINAL message, no markdown fence, exactly this shape:");
+        sb.AppendLine("{\"state\": \"working|waiting_for_input|waiting_for_permission|idle|cancelled|unknown\", \"reason\": \"<one short sentence citing what on screen tells you>\"}");
+        sb.AppendLine();
+        sb.AppendLine("How to decide (read the BOTTOM of the file - that is the most recent):");
+        sb.AppendLine("- working: an ACTIVE indicator at the bottom (point 4 above) - spinner, elapsed-time counter, \"esc to interrupt\", or text still streaming.");
+        sb.AppendLine("- waiting_for_permission: the agent is parked on a real bordered numbered-choice confirmation box (point 2), or a \"[y/n]\" prompt. The persistent mode footer (point 1) does NOT count.");
+        sb.AppendLine("- waiting_for_input: the agent finished and is sitting at an EMPTY input box (point 3). No spinner, no question pending.");
+        sb.AppendLine("- cancelled: the last action was interrupted/cancelled and the agent is back at the prompt.");
+        sb.AppendLine("- idle: nothing is happening and none of the above fit.");
+        sb.AppendLine("- unknown: the snapshot is too garbled or sparse to tell.");
+        sb.AppendLine();
+        sb.AppendLine("Two traps to avoid:");
+        sb.AppendLine("- Do NOT report working just because there is a lot of text; only an ACTIVE indicator at the bottom means working.");
+        sb.AppendLine("- Do NOT report waiting_for_permission just because you see the word \"permission\". The mode footer (\"bypass permissions on\", \"accept edits on\", \"plan mode on\", \"shift+tab to cycle\") is a status line, not a request. Only the bordered numbered-choice box is a permission prompt.");
+        return sb.ToString();
+    }
+
     private static string BuildTerminalStatePrompt(string terminalTail, string agentName)
     {
         var sb = new StringBuilder();
-        sb.AppendLine($"You are reading the tail of a terminal running {agentName} (an AI coding agent in an interactive TUI). Decide what the session is doing RIGHT NOW, the way a person glancing at the screen would.");
+        sb.AppendLine($"You are reading the tail of a terminal running {agentName} (an AI coding agent in an interactive TUI). Decide what the session is doing RIGHT NOW, the way a person who knows Claude Code would glancing at the screen.");
+        sb.AppendLine();
+        sb.AppendLine(ClaudeCodeScreenReference);
         sb.AppendLine();
         sb.AppendLine("Output ONE JSON object, no markdown fence, exactly this shape:");
         sb.AppendLine("{\"state\": \"working|waiting_for_input|waiting_for_permission|idle|cancelled|unknown\", \"reason\": \"<one short sentence citing what on screen tells you>\"}");
         sb.AppendLine();
         sb.AppendLine("How to decide (read the BOTTOM of the output - that is the most recent):");
-        sb.AppendLine("- working: the agent is actively producing output - a spinner or progress animation, an elapsed-time counter (e.g. \"Brewed for 12s\"), an \"esc to interrupt\" footer, or text still streaming in.");
-        sb.AppendLine("- waiting_for_permission: the agent has drawn a confirmation it cannot pass on its own - a yes/no box, a numbered choice list (\"1. Yes  2. No\"), or a \"[y/n]\" style prompt - and is parked on it.");
-        sb.AppendLine("- waiting_for_input: the agent has finished and is sitting at an EMPTY input prompt waiting for the user to type the next instruction. No spinner, no question pending.");
+        sb.AppendLine("- working: an ACTIVE indicator at the bottom (see point 4 above) - spinner, elapsed-time counter, \"esc to interrupt\", or text still streaming.");
+        sb.AppendLine("- waiting_for_permission: the agent has drawn a real confirmation it cannot pass on its own - the bordered question box with a numbered choice list from point 2 above, or a \"[y/n]\" style prompt - and is parked on it. The persistent mode footer from point 1 does NOT count.");
+        sb.AppendLine("- waiting_for_input: the agent has finished and is sitting at an EMPTY input box (point 3) waiting for the next instruction. No spinner, no question pending.");
         sb.AppendLine("- cancelled: the screen shows the last action was interrupted/cancelled (e.g. an \"Interrupted\" or \"Cancelled\" notice) and the agent is now back at the prompt doing nothing.");
         sb.AppendLine("- idle: nothing is happening and none of the above fit (e.g. a bare shell prompt, or a blank settled screen).");
         sb.AppendLine("- unknown: the tail is too garbled or sparse to tell.");
         sb.AppendLine();
-        sb.AppendLine("Do not assume 'working' just because there is a lot of text; only an ACTIVE indicator at the bottom means working. When the bottom shows a prompt box with no spinner, the agent is waiting, not working.");
+        sb.AppendLine("Two traps to avoid:");
+        sb.AppendLine("- Do NOT report working just because there is a lot of text; only an ACTIVE indicator at the bottom means working.");
+        sb.AppendLine("- Do NOT report waiting_for_permission just because you see the word \"permission\". The mode footer (\"bypass permissions on\", \"accept edits on\", \"plan mode on\", \"shift+tab to cycle\") is a status line, not a request. Only the bordered numbered-choice box is a permission prompt.");
+        sb.AppendLine();
+        sb.AppendLine("Examples (tail bottom -> correct verdict):");
+        sb.AppendLine("- \"... > Try \\\"how do I...\\\"   ? for shortcuts   bypass permissions on (shift+tab to cycle)\" -> {\"state\":\"waiting_for_input\",\"reason\":\"empty input box; the bypass-permissions line is the mode footer, not a prompt\"}");
+        sb.AppendLine("- \"... Do you want to make this edit to app.ts?  1. Yes  2. Yes, and don't ask again  3. No  bypass permissions on (shift+tab to cycle)\" -> {\"state\":\"waiting_for_permission\",\"reason\":\"parked on a numbered confirmation box for an edit\"}");
+        sb.AppendLine("- \"... Brewed for 8s (esc to interrupt)\" -> {\"state\":\"working\",\"reason\":\"elapsed-time counter and esc-to-interrupt footer\"}");
         sb.AppendLine();
         sb.AppendLine("TERMINAL TAIL (ANSI stripped; the end is the most recent):");
         sb.AppendLine(TruncateKeepEnd(terminalTail, 4000));
@@ -1214,6 +1340,100 @@ public static class WingmanService
 
         FileLog.Write($"[WingmanService] side-call done in {sw.ElapsedMilliseconds}ms, output chars={stdout.Length}");
         return stdout.Trim();
+    }
+
+    /// <summary>
+    /// Spawn a FULL-POWER, fresh-per-call Claude Code session for the Wingman:
+    /// "claude --print" with a scoped read-only tool allow-list, MCP disabled (lean,
+    /// fast cold start), bounded turns, fresh context (--no-session-persistence).
+    /// Returns the final stdout text. Throws on non-zero exit or timeout.
+    ///
+    /// This is the Phase 2 sibling of <see cref="RunSideClaudeAsync"/>: same fresh,
+    /// stateless lifecycle, but with tools enabled so the session can read what it
+    /// needs on its own instead of being handed a fixed paste. The caller is
+    /// responsible for choosing a read-only <paramref name="allowedTools"/> set; this
+    /// method never enables write/execute tools implicitly.
+    /// </summary>
+    private static async Task<string> RunWingmanSessionAsync(
+        string prompt, string claudeExePath, string workingDirectory, string allowedTools, int maxTurns,
+        CancellationToken ct, string model = DefaultModel)
+    {
+        // Empty MCP config + --strict-mcp-config => the session loads NO MCP servers
+        // (not the user's globals), so cold start stays lean and the tool surface is
+        // exactly what we allow below. Written fresh per call, deleted in finally.
+        var mcpConfigPath = Path.Combine(Path.GetTempPath(), $"cc-wingman-mcp-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(mcpConfigPath, "{\"mcpServers\":{}}", ct);
+
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = claudeExePath,
+                UseShellExecute = false,
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+                StandardOutputEncoding = Encoding.UTF8,
+                StandardErrorEncoding = Encoding.UTF8,
+            };
+            psi.ArgumentList.Add("--print");
+            psi.ArgumentList.Add("--model");
+            psi.ArgumentList.Add(string.IsNullOrWhiteSpace(model) ? DefaultModel : model);
+            psi.ArgumentList.Add("--no-session-persistence");
+            psi.ArgumentList.Add("--allowedTools");
+            psi.ArgumentList.Add(allowedTools);
+            psi.ArgumentList.Add("--mcp-config");
+            psi.ArgumentList.Add(mcpConfigPath);
+            psi.ArgumentList.Add("--strict-mcp-config");
+            psi.ArgumentList.Add("--max-turns");
+            psi.ArgumentList.Add(maxTurns.ToString());
+            psi.ArgumentList.Add("--dangerously-skip-permissions");
+            psi.ArgumentList.Add("--output-format");
+            psi.ArgumentList.Add("text");
+            psi.ArgumentList.Add(prompt);
+
+            psi.WorkingDirectory = Directory.Exists(workingDirectory) ? workingDirectory : Path.GetTempPath();
+
+            foreach (var k in new[] { "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SESSION_ID", "CC_SESSION_ID", "GIT_EDITOR" })
+                psi.Environment.Remove(k);
+
+            var sw = Stopwatch.StartNew();
+            using var proc = Process.Start(psi) ?? throw new InvalidOperationException("Process.Start returned null for claude --print (wingman session)");
+            proc.StandardInput.Close();
+
+            var stdoutTask = proc.StandardOutput.ReadToEndAsync(ct);
+            var stderrTask = proc.StandardError.ReadToEndAsync(ct);
+
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(ProcessTimeout);
+            try
+            {
+                await proc.WaitForExitAsync(cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                try { proc.Kill(entireProcessTree: true); } catch { }
+                throw new TimeoutException($"wingman session did not finish within {ProcessTimeout.TotalSeconds}s");
+            }
+
+            var stdout = await stdoutTask;
+            var stderr = await stderrTask;
+            sw.Stop();
+
+            if (proc.ExitCode != 0)
+            {
+                FileLog.Write($"[WingmanService] wingman session exit={proc.ExitCode} in {sw.ElapsedMilliseconds}ms, stderr={Truncate(stderr, 400)}");
+                throw new InvalidOperationException($"wingman session exited {proc.ExitCode}: {stderr.Trim()}");
+            }
+
+            FileLog.Write($"[WingmanService] wingman session done in {sw.ElapsedMilliseconds}ms (tools={allowedTools}, maxTurns={maxTurns}), output chars={stdout.Length}");
+            return stdout.Trim();
+        }
+        finally
+        {
+            try { if (File.Exists(mcpConfigPath)) File.Delete(mcpConfigPath); } catch { /* temp cleanup best-effort */ }
+        }
     }
 
     private static string Truncate(string s, int max)

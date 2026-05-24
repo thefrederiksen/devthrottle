@@ -1,0 +1,10 @@
+  Here is the plan:
+  1. Move the dictionary to the shared dictation path.
+  2. Update the loader and the cleanup orchestrator to read from it.
+  3. Add a regression test.
+
+  Let me know if you'd like changes, otherwise tell me to go ahead.
+
+> _
+
+  ? for shortcuts                                            plan mode on (shift+tab to cycle)
