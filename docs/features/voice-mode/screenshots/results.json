@@ -1,0 +1,326 @@
+{
+  "started": "2026-05-24T17:30:44.112346+00:00",
+  "base": "http://127.0.0.1:7880",
+  "sid": "d90bc45c-a928-47b4-a459-f1743a113704",
+  "runs": [
+    {
+      "scenario": "happy",
+      "stages": [
+        {
+          "key": "01_session_view_loaded",
+          "ok": true,
+          "note": "Session view loaded in mobile viewport",
+          "screenshot": "happy_01_loaded.png",
+          "at": "2026-05-24T17:30:46.816557+00:00"
+        },
+        {
+          "key": "02_voice_tab",
+          "ok": true,
+          "note": "Voice tab active. state='Ready. Tap the big button, speak, tap again to send.' main_btn_disabled=False",
+          "screenshot": "happy_02_voice_tab.png",
+          "at": "2026-05-24T17:30:48.401187+00:00"
+        },
+        {
+          "key": "03_recording",
+          "ok": true,
+          "note": "Recording overlay shown=True. state='Recording...'",
+          "screenshot": "happy_03_recording.png",
+          "at": "2026-05-24T17:30:50.066117+00:00"
+        },
+        {
+          "key": "04_sent",
+          "ok": true,
+          "note": "Tapped send; upload/transcribe started",
+          "screenshot": "happy_04_sent.png",
+          "at": "2026-05-24T17:31:08.396736+00:00"
+        },
+        {
+          "key": "05_transcribed",
+          "ok": true,
+          "note": "Transcript bubble: 'What files did you change in this session? Give me a short summary.13:31:17'",
+          "screenshot": "happy_05_transcribed.png",
+          "at": "2026-05-24T17:31:18.173395+00:00",
+          "transcript": "What files did you change in this session? Give me a short summary.13:31:17"
+        },
+        {
+          "key": "06_agent_reply",
+          "ok": true,
+          "note": "Agent reply after 9.1s: \"No files changed. I haven't edited, created, or deleted anything this session \u2014 and I haven't run any commits.\\nThe repo is still at commit `502223d seed` with a clean working tree (the only untracked \"",
+          "screenshot": "happy_06_agent_reply.png",
+          "at": "2026-05-24T17:31:27.493901+00:00",
+          "reply": "No files changed. I haven't edited, created, or deleted anything this session \u2014 and I haven't run any commits.\nThe repo is still at commit `502223d seed` with a clean working tree (the only untracked item, `.claude/`, was already there before we started and wasn't created by me).13:31:27",
+          "reply_wait_s": 9.1
+        },
+        {
+          "key": "07_tts_spoken",
+          "ok": true,
+          "note": "/tts calls: 2 (events: ['(request)', 200])",
+          "screenshot": "happy_07_after_speak.png",
+          "at": "2026-05-24T17:31:33.731060+00:00"
+        }
+      ],
+      "network": [
+        {
+          "url": "127.0.0.1:7880/sessions/d90bc45c-a928-47b4-a459-f1743a113704/wingman",
+          "status": "(request)",
+          "method": "GET",
+          "at": "2026-05-24T17:30:44.958512+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/sessions/d90bc45c-a928-47b4-a459-f1743a113704/wingman/explain",
+          "status": "(request)",
+          "method": "GET",
+          "at": "2026-05-24T17:30:44.958512+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/sessions/d90bc45c-a928-47b4-a459-f1743a113704/wingman",
+          "status": 200,
+          "method": "GET",
+          "at": "2026-05-24T17:30:44.960517+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/sessions/d90bc45c-a928-47b4-a459-f1743a113704/wingman/explain",
+          "status": 200,
+          "method": "GET",
+          "at": "2026-05-24T17:30:44.961517+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/sessions/d90bc45c-a928-47b4-a459-f1743a113704/wingman",
+          "status": "(request)",
+          "method": "GET",
+          "at": "2026-05-24T17:30:46.547772+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/sessions/d90bc45c-a928-47b4-a459-f1743a113704/wingman/explain",
+          "status": "(request)",
+          "method": "GET",
+          "at": "2026-05-24T17:30:46.547772+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/sessions/d90bc45c-a928-47b4-a459-f1743a113704/wingman/explain",
+          "status": 200,
+          "method": "GET",
+          "at": "2026-05-24T17:30:46.549281+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/sessions/d90bc45c-a928-47b4-a459-f1743a113704/wingman",
+          "status": 200,
+          "method": "GET",
+          "at": "2026-05-24T17:30:46.549281+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/sessions/d90bc45c-a928-47b4-a459-f1743a113704/voice-mode",
+          "status": "(request)",
+          "method": "POST",
+          "at": "2026-05-24T17:30:46.967897+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/sessions/d90bc45c-a928-47b4-a459-f1743a113704/voice-mode",
+          "status": 200,
+          "method": "POST",
+          "at": "2026-05-24T17:30:46.968897+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/command",
+          "status": "(request)",
+          "method": "POST",
+          "at": "2026-05-24T17:31:07.403957+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/chat",
+          "status": "(request)",
+          "method": "POST",
+          "at": "2026-05-24T17:31:17.852179+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/command",
+          "status": 200,
+          "method": "POST",
+          "at": "2026-05-24T17:31:17.839409+00:00",
+          "body": {
+            "transcript": "What files did you change in this session? Give me a short summary What files did you change in this session? Give me a short summary What files did you change in this session?",
+            "cleanedTranscript": "What files did you change in this session? Give me a short summary.",
+            "cleanupReason": "Removed triple repetition of the same question, keeping the intent intact.",
+            "replyText": "I did not catch a command. Try \"what sessions are running\" or \"open pi\".",
+            "intent": "Unknown",
+            "targetSessionId": null,
+            "targetSessionName": null,
+            "suggestions": [],
+            "status": "unknown_command",
+            "error": null
+          }
+        },
+        {
+          "url": "127.0.0.1:7880/tts",
+          "status": "(request)",
+          "method": "POST",
+          "at": "2026-05-24T17:31:27.151126+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/chat",
+          "status": 200,
+          "method": "POST",
+          "at": "2026-05-24T17:31:27.148104+00:00",
+          "body": {
+            "sessionId": "d90bc45c-a928-47b4-a459-f1743a113704",
+            "sessionName": "voice-harness-sandbox",
+            "reply": "No files changed. I haven't edited, created, or deleted anything this session \u2014 and I haven't run any commits.\nThe repo is still at commit `502223d seed` with a clean working tree (the only untracked item, `.claude/`, was already there before we started and wasn't created by me).",
+            "displayText": "No files changed. I haven't edited, created, or deleted anything this session \u2014 and I haven't run any commits.\nThe repo is still at commit `502223d seed` with a clean working tree (the only untracked item, `.claude/`, was already there before we started and wasn't created by me).",
+            "summary": "",
+            "activityState": "WaitingForInput",
+            "elapsedMs": 9198,
+            "status": "ok",
+            "error": null
+          }
+        },
+        {
+          "url": "127.0.0.1:7880/tts",
+          "status": 200,
+          "method": "POST",
+          "at": "2026-05-24T17:31:32.156388+00:00"
+        }
+      ],
+      "console": []
+    },
+    {
+      "scenario": "resilience",
+      "stages": [
+        {
+          "key": "01_session_view_loaded",
+          "ok": true,
+          "note": "Session view loaded in mobile viewport",
+          "screenshot": "resilience_01_loaded.png",
+          "at": "2026-05-24T17:31:36.635036+00:00"
+        },
+        {
+          "key": "02_voice_tab",
+          "ok": true,
+          "note": "Voice tab active. state='Ready. Tap the big button, speak, tap again to send.' main_btn_disabled=False",
+          "screenshot": "resilience_02_voice_tab.png",
+          "at": "2026-05-24T17:31:38.148514+00:00"
+        },
+        {
+          "key": "08_offline_retry",
+          "ok": true,
+          "note": "While offline, UI showed a retry message after 0.5s: 'Bad connection - retrying (attempt 2)...'",
+          "screenshot": "resilience_08_offline_retry.png",
+          "at": "2026-05-24T17:31:50.832551+00:00",
+          "offline_state": "Bad connection - retrying (attempt 2)...",
+          "stall_seconds": 0.5
+        },
+        {
+          "key": "09_recovered",
+          "ok": true,
+          "note": "Upload recovered after reconnect and produced a transcript",
+          "screenshot": "resilience_09_recovered.png",
+          "at": "2026-05-24T17:32:05.592596+00:00"
+        }
+      ],
+      "network": [
+        {
+          "url": "127.0.0.1:7880/sessions/d90bc45c-a928-47b4-a459-f1743a113704/wingman",
+          "status": "(request)",
+          "method": "GET",
+          "at": "2026-05-24T17:31:34.878194+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/sessions/d90bc45c-a928-47b4-a459-f1743a113704/wingman/explain",
+          "status": "(request)",
+          "method": "GET",
+          "at": "2026-05-24T17:31:34.878194+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/sessions/d90bc45c-a928-47b4-a459-f1743a113704/wingman",
+          "status": 200,
+          "method": "GET",
+          "at": "2026-05-24T17:31:34.891854+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/sessions/d90bc45c-a928-47b4-a459-f1743a113704/wingman/explain",
+          "status": 200,
+          "method": "GET",
+          "at": "2026-05-24T17:31:34.891854+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/sessions/d90bc45c-a928-47b4-a459-f1743a113704/wingman",
+          "status": "(request)",
+          "method": "GET",
+          "at": "2026-05-24T17:31:36.391129+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/sessions/d90bc45c-a928-47b4-a459-f1743a113704/wingman/explain",
+          "status": "(request)",
+          "method": "GET",
+          "at": "2026-05-24T17:31:36.391129+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/sessions/d90bc45c-a928-47b4-a459-f1743a113704/wingman",
+          "status": 200,
+          "method": "GET",
+          "at": "2026-05-24T17:31:36.397126+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/sessions/d90bc45c-a928-47b4-a459-f1743a113704/wingman/explain",
+          "status": 200,
+          "method": "GET",
+          "at": "2026-05-24T17:31:36.397126+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/sessions/d90bc45c-a928-47b4-a459-f1743a113704/voice-mode",
+          "status": "(request)",
+          "method": "POST",
+          "at": "2026-05-24T17:31:36.746392+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/sessions/d90bc45c-a928-47b4-a459-f1743a113704/voice-mode",
+          "status": 200,
+          "method": "POST",
+          "at": "2026-05-24T17:31:36.746392+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/command",
+          "status": "(request)",
+          "method": "POST",
+          "at": "2026-05-24T17:31:50.205022+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/command",
+          "status": "(request)",
+          "method": "POST",
+          "at": "2026-05-24T17:31:51.209045+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/chat",
+          "status": "(request)",
+          "method": "POST",
+          "at": "2026-05-24T17:32:03.957951+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/command",
+          "status": 200,
+          "method": "POST",
+          "at": "2026-05-24T17:32:03.943403+00:00",
+          "body": {
+            "transcript": "What are you working on right now?",
+            "cleanedTranscript": "What are you working on right now?",
+            "cleanupReason": "no changes needed",
+            "replyText": "I did not catch a command. Try \"what sessions are running\" or \"open pi\".",
+            "intent": "Unknown",
+            "targetSessionId": null,
+            "targetSessionName": null,
+            "suggestions": [],
+            "status": "unknown_command",
+            "error": null
+          }
+        }
+      ],
+      "console": [
+        {
+          "type": "error",
+          "text": "Failed to load resource: net::ERR_INTERNET_DISCONNECTED"
+        }
+      ]
+    }
+  ],
+  "finished": "2026-05-24T17:32:05.657449+00:00"
+}

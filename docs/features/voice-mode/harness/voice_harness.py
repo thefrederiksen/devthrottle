@@ -1,0 +1,321 @@
+"""
+Voice-mode operator harness.
+
+Drives the CC Director Voice tab from a desktop Chromium in MOBILE viewport,
+injecting a prepared WAV as the microphone (Chromium fake-audio capture), so we
+can play the in-car operator end-to-end WITHOUT a phone. The one thing this
+cannot exercise is a real cellular upload from the phone; we emulate spotty
+network with CDP Network.emulateNetworkConditions instead.
+
+It walks the voice interaction lifecycle, screenshots every stage, records the
+network calls (/voice/command, /chat, /tts) with status + timing, and writes a
+results.json the report generator consumes.
+
+Usage:
+    python voice_harness.py --base http://127.0.0.1:7880 --sid <session-id> \
+        --audio-dir <dir> --out <out-dir>
+"""
+import argparse
+import json
+import time
+import wave
+import os
+import sys
+from datetime import datetime, timezone
+from playwright.sync_api import sync_playwright
+
+# Windows consoles default to cp1252; agent replies contain unicode. Never let a
+# print() crash the run.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
+
+def wav_seconds(path):
+    with wave.open(path, "rb") as w:
+        return w.getnframes() / float(w.getframerate())
+
+
+def now_iso():
+    return datetime.now(timezone.utc).isoformat()
+
+
+class Recorder:
+    """Collects per-stage results, screenshots, and network events for one run."""
+
+    def __init__(self, out_dir, scenario):
+        self.out_dir = out_dir
+        self.scenario = scenario
+        self.stages = []
+        self.network = []
+        self.console = []
+
+    def stage(self, key, ok, note, shot=None, extra=None):
+        rec = {
+            "key": key,
+            "ok": bool(ok),
+            "note": note,
+            "screenshot": shot,
+            "at": now_iso(),
+        }
+        if extra:
+            rec.update(extra)
+        self.stages.append(rec)
+        flag = "PASS" if ok else "FAIL"
+        print(f"  [{flag}] {key}: {note}")
+
+    def shot(self, page, name):
+        fn = f"{self.scenario}_{name}.png"
+        path = os.path.join(self.out_dir, fn)
+        page.screenshot(path=path, full_page=False)
+        return fn
+
+
+def attach_listeners(page, rec):
+    interesting = ("/voice/command", "/voice/utterance", "/chat", "/tts",
+                   "/voice-mode", "/turn-summaries", "/wingman")
+
+    def on_response(resp):
+        url = resp.url
+        if any(seg in url for seg in interesting):
+            entry = {"url": url.split("://", 1)[-1], "status": resp.status,
+                     "method": resp.request.method, "at": now_iso()}
+            # Pull small JSON bodies (transcript/reply) where useful.
+            if "/voice/command" in url or "/chat" in url:
+                try:
+                    entry["body"] = resp.json()
+                except Exception:
+                    pass
+            rec.network.append(entry)
+
+    def on_request(req):
+        if any(seg in req.url for seg in interesting):
+            rec.network.append({"url": req.url.split("://", 1)[-1], "status": "(request)",
+                                "method": req.method, "at": now_iso()})
+
+    page.on("request", on_request)
+    page.on("response", on_response)
+    page.on("console", lambda m: rec.console.append({"type": m.type, "text": m.text[:400]}))
+
+
+def open_voice_tab(page, base, sid, rec):
+    page.goto(f"{base}/sessions/{sid}/view", wait_until="domcontentloaded")
+    page.wait_for_timeout(1500)
+    rec.stage("01_session_view_loaded", True, "Session view loaded in mobile viewport",
+              rec.shot(page, "01_loaded"))
+
+    tab = page.query_selector('.tab[data-view="voice"]')
+    if not tab:
+        rec.stage("02_voice_tab", False, "Voice tab not found in DOM")
+        return False
+    tab.click()
+    page.wait_for_timeout(1200)
+    state = (page.text_content("#voiceState") or "").strip()
+    btn_disabled = page.get_attribute("#voiceMainBtn", "disabled") is not None
+    ok = ("ready" in state.lower()) and not btn_disabled
+    rec.stage("02_voice_tab", ok,
+              f"Voice tab active. state='{state}' main_btn_disabled={btn_disabled}",
+              rec.shot(page, "02_voice_tab"))
+    return True
+
+
+def run_happy_path(page, rec, record_window_s):
+    # --- Tap to talk -> recording overlay ---
+    page.click("#voiceMainBtn")
+    overlay_ok = False
+    try:
+        page.wait_for_selector("#recordingOverlay.show", timeout=8000)
+        overlay_ok = True
+    except Exception:
+        pass
+    page.wait_for_timeout(1200)  # let the elapsed timer tick + audio flow
+    state = (page.text_content("#voiceState") or "").strip()
+    rec.stage("03_recording", overlay_ok,
+              f"Recording overlay shown={overlay_ok}. state='{state}'",
+              rec.shot(page, "03_recording"))
+
+    # Hold long enough to capture >=1 full clean pass of the looping fake audio.
+    print(f"  ... holding record for {record_window_s:.1f}s (fake mic playing)")
+    page.wait_for_timeout(int(record_window_s * 1000))
+
+    # --- Tap to send ---
+    if page.query_selector("#recStopBtn"):
+        page.click("#recStopBtn")
+    else:
+        page.click("#voiceMainBtn")
+    page.wait_for_timeout(800)
+    rec.stage("04_sent", True, "Tapped send; upload/transcribe started",
+              rec.shot(page, "04_sent"))
+
+    # --- Wait for transcript (user bubble) ---
+    transcript = None
+    try:
+        page.wait_for_selector(".voice-bubble.user", timeout=60000)
+        transcript = page.text_content(".voice-bubble.user")
+        transcript = (transcript or "").strip()
+    except Exception:
+        pass
+    rec.stage("05_transcribed", bool(transcript),
+              f"Transcript bubble: {transcript!r}",
+              rec.shot(page, "05_transcribed"),
+              extra={"transcript": transcript})
+
+    # --- Wait for agent reply (agent bubble) ---
+    reply = None
+    t0 = time.time()
+    try:
+        page.wait_for_selector(".voice-bubble.agent", timeout=150000)
+        reply = (page.text_content(".voice-bubble.agent") or "").strip()
+    except Exception:
+        pass
+    elapsed = round(time.time() - t0, 1)
+    rec.stage("06_agent_reply", bool(reply),
+              f"Agent reply after {elapsed}s: {reply[:200]!r}" if reply
+              else f"No agent reply within timeout ({elapsed}s)",
+              rec.shot(page, "06_agent_reply"),
+              extra={"reply": reply, "reply_wait_s": elapsed})
+
+    # --- TTS check: speak() fires /tts asynchronously AFTER the reply bubble, so
+    # give it a few seconds before judging / closing the page. ---
+    page.wait_for_timeout(6000)
+    tts_calls = [n for n in rec.network if "/tts" in n["url"]]
+    statuses = [c["status"] for c in tts_calls]
+    rec.stage("07_tts_spoken", len(tts_calls) > 0,
+              f"/tts calls: {len(tts_calls)} (events: {statuses})",
+              rec.shot(page, "07_after_speak"))
+
+
+def run_resilience(page, rec, record_window_s, cdp):
+    """Same send, but drop the network mid-upload to prove it keeps trying."""
+    page.click("#voiceMainBtn")
+    try:
+        page.wait_for_selector("#recordingOverlay.show", timeout=8000)
+    except Exception:
+        pass
+    page.wait_for_timeout(int(record_window_s * 1000))
+
+    # Go offline right as we tap send, so the upload POST is in flight.
+    if page.query_selector("#recStopBtn"):
+        page.click("#recStopBtn")
+    else:
+        page.click("#voiceMainBtn")
+    cdp.send("Network.emulateNetworkConditions", {
+        "offline": True, "latency": 0, "downloadThroughput": 0, "uploadThroughput": 0,
+    })
+    print("  ... network OFFLINE; watching retry behaviour")
+    # Poll up to 20s for the UI to flip from 'Uploading...' to a retry/connection
+    # message, and record how long that took (the stall time is itself a finding).
+    t0 = time.time()
+    state_off = ""
+    retrying = False
+    while time.time() - t0 < 20:
+        state_off = (page.text_content("#voiceState") or "").strip()
+        if "retry" in state_off.lower() or "connection" in state_off.lower():
+            retrying = True
+            break
+        page.wait_for_timeout(500)
+    stall_s = round(time.time() - t0, 1)
+    rec.stage("08_offline_retry", retrying,
+              f"While offline, UI showed a retry message after {stall_s}s: '{state_off}'" if retrying
+              else f"After {stall_s}s offline the UI still showed '{state_off}' (no retry feedback)",
+              rec.shot(page, "08_offline_retry"),
+              extra={"offline_state": state_off, "stall_seconds": stall_s})
+
+    # Back online; it should recover and complete.
+    cdp.send("Network.emulateNetworkConditions", {
+        "offline": False, "latency": 50, "downloadThroughput": 5_000_000,
+        "uploadThroughput": 1_000_000,
+    })
+    print("  ... network ONLINE; expecting recovery")
+    recovered = False
+    try:
+        page.wait_for_selector(".voice-bubble.user", timeout=90000)
+        recovered = True
+    except Exception:
+        pass
+    page.wait_for_timeout(1500)
+    rec.stage("09_recovered", recovered,
+              "Upload recovered after reconnect and produced a transcript" if recovered
+              else "Did NOT recover within timeout after reconnect",
+              rec.shot(page, "09_recovered"))
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--base", required=True)
+    ap.add_argument("--sid", required=True)
+    ap.add_argument("--audio-dir", required=True)
+    ap.add_argument("--out", required=True)
+    args = ap.parse_args()
+
+    os.makedirs(args.out, exist_ok=True)
+    happy_wav = os.path.join(args.audio_dir, "utterance_what_changed.wav")
+    resil_wav = os.path.join(args.audio_dir, "utterance_status.wav")
+
+    # iPhone-ish portrait mobile viewport.
+    mobile = {"viewport": {"width": 390, "height": 844}, "device_scale_factor": 3,
+              "is_mobile": True, "has_touch": True,
+              "user_agent": ("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
+                             "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 "
+                             "Mobile/15Eic Safari/604.1")}
+
+    results = {"started": now_iso(), "base": args.base, "sid": args.sid, "runs": []}
+
+    def launch(p, wav):
+        return p.chromium.launch(headless=True, args=[
+            "--use-fake-ui-for-media-stream",
+            "--use-fake-device-for-media-stream",
+            f"--use-file-for-fake-audio-capture={wav}",
+            "--autoplay-policy=no-user-gesture-required",
+        ])
+
+    with sync_playwright() as p:
+        # ---- Run 1: happy path ----
+        win = wav_seconds(happy_wav) * 2 + 1   # 2 loop periods guarantees one clean pass
+        print(f"[happy] fake mic = {os.path.basename(happy_wav)} ({wav_seconds(happy_wav):.1f}s), "
+              f"record window {win:.1f}s")
+        rec = Recorder(args.out, "happy")
+        b = launch(p, happy_wav)
+        ctx = b.new_context(**mobile, ignore_https_errors=True)
+        ctx.grant_permissions(["microphone"], origin=args.base)
+        page = ctx.new_page()
+        attach_listeners(page, rec)
+        try:
+            if open_voice_tab(page, args.base, args.sid, rec):
+                run_happy_path(page, rec, win)
+        except Exception as e:
+            rec.stage("ERROR", False, f"happy path crashed: {e}")
+        results["runs"].append({"scenario": "happy", "stages": rec.stages,
+                                "network": rec.network, "console": rec.console})
+        ctx.close(); b.close()
+
+        # ---- Run 2: spotty-network resilience ----
+        win2 = wav_seconds(resil_wav) * 2 + 1
+        print(f"[resilience] fake mic = {os.path.basename(resil_wav)}, record window {win2:.1f}s")
+        rec2 = Recorder(args.out, "resilience")
+        b = launch(p, resil_wav)
+        ctx = b.new_context(**mobile, ignore_https_errors=True)
+        ctx.grant_permissions(["microphone"], origin=args.base)
+        page = ctx.new_page()
+        attach_listeners(page, rec2)
+        cdp = ctx.new_cdp_session(page)
+        cdp.send("Network.enable")
+        try:
+            if open_voice_tab(page, args.base, args.sid, rec2):
+                run_resilience(page, rec2, win2, cdp)
+        except Exception as e:
+            rec2.stage("ERROR", False, f"resilience path crashed: {e}")
+        results["runs"].append({"scenario": "resilience", "stages": rec2.stages,
+                                "network": rec2.network, "console": rec2.console})
+        ctx.close(); b.close()
+
+    results["finished"] = now_iso()
+    with open(os.path.join(args.out, "results.json"), "w", encoding="utf-8") as f:
+        json.dump(results, f, indent=2)
+    print(f"\nDONE. results.json + screenshots in {args.out}")
+
+
+if __name__ == "__main__":
+    main()
