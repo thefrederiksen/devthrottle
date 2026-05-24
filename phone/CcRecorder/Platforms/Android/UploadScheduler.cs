@@ -27,7 +27,10 @@ public static class UploadScheduler
             .SetConstraints(NetworkConstraints())
             .SetBackoffCriteria(BackoffPolicy.Linear!, 30000, TimeUnit.Milliseconds!)
             .Build();
-        WorkManager.GetInstance(ctx).EnqueueUniqueWork(OneTimeName, ExistingWorkPolicy.Append!, req);
+        // AppendOrReplace (not Append): with plain Append, once a prior upload
+        // run ends FAILED/CANCELLED, every later request is chained behind it as
+        // a blocked prerequisite and never runs. Replace keeps the queue live.
+        WorkManager.GetInstance(ctx).EnqueueUniqueWork(OneTimeName, ExistingWorkPolicy.AppendOrReplace!, req);
     }
 
     /// <summary>A 15-minute safety-net pass so stragglers always drain eventually.</summary>

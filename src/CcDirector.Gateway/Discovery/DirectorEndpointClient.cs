@@ -164,6 +164,30 @@ public sealed class DirectorEndpointClient : IDisposable
         }
     }
 
+    /// <summary>
+    /// Forward a "kill this session" (DELETE) to the owning Director. Returns true
+    /// when the Director reports the session was killed.
+    /// </summary>
+    public async Task<bool> KillSessionAsync(string endpoint, string sessionId, CancellationToken ct = default)
+    {
+        try
+        {
+            var resp = await _http.DeleteAsync($"{endpoint}/sessions/{sessionId}", ct);
+            if (!resp.IsSuccessStatusCode)
+            {
+                var body = await resp.Content.ReadAsStringAsync(ct);
+                FileLog.Write($"[DirectorEndpointClient] KillSessionAsync HTTP {(int)resp.StatusCode}: {Truncate(body, 200)}");
+                return false;
+            }
+            return true;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[DirectorEndpointClient] KillSessionAsync FAILED: endpoint={endpoint}, sid={sessionId}, error={ex.Message}");
+            return false;
+        }
+    }
+
     private static string Truncate(string s, int max) => string.IsNullOrEmpty(s) || s.Length <= max ? s : s[..max] + "...";
 
     public async Task<(bool ok, SessionDto? body, string? error)> PatchSessionAsync(string endpoint, string sessionId, SessionUpdateRequest req, CancellationToken ct = default)
@@ -243,6 +267,61 @@ public sealed class DirectorEndpointClient : IDisposable
         {
             FileLog.Write($"[DirectorEndpointClient] PostInterruptAsync FAILED: endpoint={endpoint}, sid={sessionId}, error={ex.Message}");
             return false;
+        }
+    }
+
+    public async Task<bool> PostEscapeAsync(string endpoint, string sessionId, CancellationToken ct = default)
+    {
+        try
+        {
+            var resp = await _http.PostAsync($"{endpoint}/sessions/{sessionId}/escape", null, ct);
+            return resp.IsSuccessStatusCode;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[DirectorEndpointClient] PostEscapeAsync FAILED: endpoint={endpoint}, sid={sessionId}, error={ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Forward an uploaded image to the owning Director, which files it into the
+    /// screenshots folder on its machine (where the session runs) and returns the
+    /// saved absolute path. Returns (path, fileName) on success, or an error string.
+    /// </summary>
+    public async Task<(bool ok, string? path, string? fileName, string? error)> UploadImageAsync(
+        string endpoint, string sessionId, byte[] bytes, string fileName, string contentType, CancellationToken ct = default)
+    {
+        // Phone images can be a few MB; the shared client's 2 s timeout is too tight.
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
+        if (!string.IsNullOrEmpty(_token))
+            http.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _token);
+        try
+        {
+            using var content = new MultipartFormDataContent();
+            var part = new ByteArrayContent(bytes);
+            part.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(
+                string.IsNullOrWhiteSpace(contentType) ? "application/octet-stream" : contentType);
+            content.Add(part, "file", fileName);
+
+            var resp = await http.PostAsync($"{endpoint}/sessions/{sessionId}/upload-image", content, ct);
+            if (!resp.IsSuccessStatusCode)
+            {
+                var body = await resp.Content.ReadAsStringAsync(ct);
+                return (false, null, null, $"director returned {(int)resp.StatusCode}: {Truncate(body, 200)}");
+            }
+
+            using var doc = System.Text.Json.JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
+            var root = doc.RootElement;
+            var path = root.TryGetProperty("path", out var p) ? p.GetString() : null;
+            var name = root.TryGetProperty("fileName", out var n) ? n.GetString() : null;
+            return (true, path, name, null);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[DirectorEndpointClient] UploadImageAsync FAILED: endpoint={endpoint}, sid={sessionId}, error={ex.Message}");
+            return (false, null, null, ex.Message);
         }
     }
 

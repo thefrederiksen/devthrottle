@@ -200,6 +200,60 @@ public sealed class RecordingIngestService
         return ToDto(status);
     }
 
+    /// <summary>All recordings on this machine, newest first, for the Gateway transcripts page.</summary>
+    public IReadOnlyList<RecordingListItem> ListAll()
+    {
+        if (!Directory.Exists(_root)) return Array.Empty<RecordingListItem>();
+        var items = new List<RecordingListItem>();
+        foreach (var dir in Directory.GetDirectories(_root))
+        {
+            var statusPath = Path.Combine(dir, "status.json");
+            if (!File.Exists(statusPath)) continue;
+            StatusModel? s;
+            try { s = JsonSerializer.Deserialize<StatusModel>(File.ReadAllText(statusPath), JsonOpts); }
+            catch { continue; }
+            if (s is null) continue;
+
+            int segments = s.ChunksTotal;
+            long durationMs = 0;
+            var manifestPath = Path.Combine(dir, "manifest.json");
+            if (File.Exists(manifestPath))
+            {
+                try
+                {
+                    var m = JsonSerializer.Deserialize<RecordingManifest>(File.ReadAllText(manifestPath), JsonOpts);
+                    if (m is not null) { segments = m.Chunks.Count; durationMs = m.Chunks.Sum(c => c.DurationMs); }
+                }
+                catch { /* fall back to status counts */ }
+            }
+            items.Add(new RecordingListItem(
+                s.RecordingId, s.Title, s.StartedAt, s.State, segments, durationMs,
+                !string.IsNullOrWhiteSpace(s.Transcript)));
+        }
+        return items.OrderByDescending(i => i.StartedAt, StringComparer.Ordinal).ToList();
+    }
+
+    /// <summary>The cleaned transcript text, or the assembled markdown as a fallback.</summary>
+    public string? GetTranscript(string recordingId)
+    {
+        var s = LoadStatus(recordingId);
+        if (s is null) return null;
+        if (!string.IsNullOrWhiteSpace(s.Transcript)) return s.Transcript;
+        var md = Path.Combine(RecordingDir(recordingId), "transcript.md");
+        return File.Exists(md) ? File.ReadAllText(md) : null;
+    }
+
+    /// <summary>Path + content type of one audio segment, for browser playback. Null if absent.</summary>
+    public (string path, string contentType)? GetAudioFile(string recordingId, int index)
+    {
+        var s = LoadStatus(recordingId);
+        if (s is null) return null;
+        var ext = CodecToExt(s.Codec);
+        var (contentType, _) = CodecToHttp(s.Codec, ext);
+        var path = Path.Combine(RecordingDir(recordingId), $"{index:D4}.{ext}");
+        return File.Exists(path) ? (path, contentType) : null;
+    }
+
     // ===== assembly + markdown ==============================================
 
     private string AssembleRaw(string recordingId, RecordingManifest manifest)

@@ -10,6 +10,7 @@ public partial class MainPage : ContentPage
 
     private readonly IAudioRecorder _recorder;
     private readonly IDispatcherTimer _uiTimer;
+    private readonly IDispatcherTimer _queueRefreshTimer;
 
     public MainPage(IAudioRecorder recorder)
     {
@@ -23,10 +24,24 @@ public partial class MainPage : ContentPage
         });
 
         _uiTimer = Dispatcher.CreateTimer();
-        _uiTimer.Interval = TimeSpan.FromMilliseconds(500);
-        _uiTimer.Tick += (_, _) => RefreshTimer();
+        _uiTimer.Interval = TimeSpan.FromMilliseconds(100); // smooth level meter
+        _uiTimer.Tick += (_, _) => { RefreshTimer(); LevelMeter.Progress = _recorder.ReadLevel(); };
 
-        ServerEntry.Text = Preferences.Get(PrefServer, "");
+        // Re-read the queue from disk periodically so uploads done by the
+        // background WorkManager worker (a separate instance) show up live.
+        _queueRefreshTimer = Dispatcher.CreateTimer();
+        _queueRefreshTimer.Interval = TimeSpan.FromSeconds(2);
+        _queueRefreshTimer.Tick += (_, _) => { RefreshLibrary(); UpdateQueueBanner(); };
+
+        // Seed the gateway URL on first run (or after a reinstall that wiped
+        // preferences) so recordings upload without manual setup. Editable.
+        var savedServer = Preferences.Get(PrefServer, "");
+        if (string.IsNullOrWhiteSpace(savedServer))
+        {
+            savedServer = RecorderDefaults.GatewayUrl;
+            Preferences.Set(PrefServer, savedServer);
+        }
+        ServerEntry.Text = savedServer;
         TokenEntry.Text = Preferences.Get(PrefToken, "");
 
         // Drain the queue whenever the network comes back.
@@ -40,7 +55,18 @@ public partial class MainPage : ContentPage
         RefreshUi();
         RefreshLibrary();
         UpdateQueueBanner();
+        _queueRefreshTimer.Start();
+        // Foreground pass for instant feedback, plus the WorkManager path which
+        // runs under a wakelock so anything still pending drains even if the OS
+        // freezes this app a few seconds after it loses focus.
         _ = ProcessQueueAsync();
+        _recorder.EnqueueBackgroundUpload();
+    }
+
+    protected override void OnDisappearing()
+    {
+        base.OnDisappearing();
+        _queueRefreshTimer.Stop();
     }
 
     private async void OnRecordClicked(object? sender, EventArgs e)
@@ -49,13 +75,17 @@ public partial class MainPage : ContentPage
         {
             if (_recorder.IsRecording)
             {
+                // Capture the title as edited up to this moment, then stop. The
+                // field is editable throughout recording; the value at stop wins.
+                _recorder.SetTitle(TitleEntry.Text ?? "");
                 await _recorder.StopAsync();
+                TitleEntry.Text = ""; // reset for the next recording
                 _uiTimer.Stop();
                 RefreshUi();
                 RefreshLibrary();
-                UpdateQueueBanner();
-                // It's saved and queued. Upload happens in the background;
-                // the user can immediately start another recording.
+                // Explicit confirmation that it's saved + queued, then the
+                // upload runs in the background and the banner tracks it.
+                SetBanner("Saved - added to upload queue", "Uploading now in the background...", "#16324A");
                 _ = ProcessQueueAsync();
                 return;
             }
@@ -76,6 +106,13 @@ public partial class MainPage : ContentPage
         {
             await DisplayAlert("Recording error", ex.Message, "OK");
         }
+    }
+
+    private void OnPauseClicked(object? sender, EventArgs e)
+    {
+        if (_recorder.IsPaused) _recorder.Resume();
+        else _recorder.Pause();
+        RefreshUi();
     }
 
     private void OnAddNoteClicked(object? sender, EventArgs e)
@@ -102,21 +139,20 @@ public partial class MainPage : ContentPage
         if (e.CurrentSelection.FirstOrDefault() is not LibraryRow row) return;
         if (sender is CollectionView cv) cv.SelectedItem = null;
 
-        if (row.State == "Uploaded")
+        var isPlaying = _recorder.PlayingRecordingId == row.RecordingId;
+        var options = new List<string> { isPlaying ? "Stop playing" : "Play recording" };
+        if (!string.IsNullOrWhiteSpace(row.Transcript)) options.Add("Read transcript");
+        if (row.State is "Queued" or "Retry") options.Add("Upload now");
+        if (!string.IsNullOrWhiteSpace(row.UploadError)) options.Add("Why did upload fail?");
+
+        var choice = await DisplayActionSheet(row.Title, "Cancel", null, options.ToArray());
+        switch (choice)
         {
-            if (!string.IsNullOrWhiteSpace(row.Transcript))
-                await DisplayAlert(row.Title, row.Transcript, "Close");
-            else
-                await DisplayAlert(row.Title, "Uploaded to your server.", "OK");
-        }
-        else if (row.State == "Retry")
-        {
-            await DisplayAlert(row.Title,
-                "Saved on your phone. It will upload automatically; tap the status bar to try now.", "OK");
-        }
-        else
-        {
-            await DisplayAlert(row.Title, "Queued. It will upload automatically in the background.", "OK");
+            case "Play recording": _recorder.Play(row.RecordingId); break;
+            case "Stop playing": _recorder.StopPlayback(); break;
+            case "Read transcript": await DisplayAlert(row.Title, row.Transcript, "Close"); break;
+            case "Upload now": await ProcessQueueAsync(); break;
+            case "Why did upload fail?": await DisplayAlert("Upload error", row.UploadError ?? "", "OK"); break;
         }
     }
 
@@ -145,14 +181,23 @@ public partial class MainPage : ContentPage
 
     private void RefreshUi()
     {
-        RecordButton.Text = _recorder.IsRecording ? "Stop" : "Record";
-        RecordButton.BackgroundColor = _recorder.IsRecording
-            ? Color.FromArgb("#6B7280") : Color.FromArgb("#E5484D");
-        StateLabel.Text = _recorder.IsRecording ? "Recording" : "Idle";
-        StateLabel.TextColor = _recorder.IsRecording
-            ? Color.FromArgb("#E5484D") : Color.FromArgb("#5FD08A");
+        var rec = _recorder.IsRecording;
+        var paused = _recorder.IsPaused;
+
+        RecordButton.Text = rec ? "Stop" : "Record";
+        RecordButton.BackgroundColor = rec ? Color.FromArgb("#6B7280") : Color.FromArgb("#E5484D");
+
+        PauseButton.IsVisible = rec;
+        PauseButton.Text = paused ? "Resume" : "Pause";
+        PauseButton.BackgroundColor = paused ? Color.FromArgb("#3FA66A") : Color.FromArgb("#2B6CB0");
+
+        StateLabel.Text = !rec ? "Idle" : paused ? "Paused" : "Recording";
+        StateLabel.TextColor = !rec ? Color.FromArgb("#5FD08A")
+            : paused ? Color.FromArgb("#E8B339") : Color.FromArgb("#E5484D");
+
         var segs = _recorder.Current?.Chunks.Count ?? 0;
         SegmentLabel.Text = $"{segs} segment(s) captured";
+        if (!rec) LevelMeter.Progress = 0;
         RefreshTimer();
         RefreshNotes();
     }
@@ -171,8 +216,11 @@ public partial class MainPage : ContentPage
 
     private void RefreshLibrary()
     {
+        var playingId = _recorder.PlayingRecordingId;
         LibraryList.ItemsSource = _recorder.ListRecordings()
-            .Select(r => new LibraryRow(r.RecordingId, r.Title, BuildSubtitle(r), r.Transcript, r.State))
+            .Select(r => new LibraryRow(
+                r.RecordingId, r.Title, BuildSubtitle(r, r.RecordingId == playingId),
+                r.Transcript, r.State, r.UploadError))
             .ToList();
     }
 
@@ -189,26 +237,27 @@ public partial class MainPage : ContentPage
             SetBanner("All recordings uploaded", "Everything is safe on your server.", "#1C4A2E");
             return;
         }
-        if (!IsOnline())
+        if (Connectivity.Current.NetworkAccess == NetworkAccess.None)
         {
-            SetBanner($"{pending} waiting to upload", "No internet. Kept safe on your phone; will upload automatically.", "#4A3A16");
+            SetBanner($"{pending} waiting to upload", "No network yet. Kept safe on your phone; will upload automatically.", "#4A3A16");
             return;
         }
         SetBanner($"Uploading in the background ({pending} left)", "You can keep recording.", "#16324A");
     }
 
-    private static string BuildSubtitle(RecordingSummary r)
+    private static string BuildSubtitle(RecordingSummary r, bool playing)
     {
         var dur = TimeSpan.FromMilliseconds(r.DurationMs).ToString(@"hh\:mm\:ss");
         var stateText = r.State switch
         {
-            "Uploaded" => string.IsNullOrWhiteSpace(r.Transcript) ? "Uploaded to server" : "Uploaded to server  -  tap to read",
+            "Uploaded" => "Uploaded to server",
             "Uploading" => "Uploading...",
-            "Retry" => "Will retry - kept on phone",
+            "Retry" => "Upload failed - tap for details / retry",
             "Recording" => "Recording...",
             _ => "Queued for upload",
         };
-        return $"{dur}  -  {stateText}";
+        var prefix = playing ? "Playing now  -  " : "";
+        return $"{prefix}{dur}  -  {stateText}  -  tap to play";
     }
 
     private void SetBanner(string title, string detail, string bgColor)
@@ -219,5 +268,5 @@ public partial class MainPage : ContentPage
         BannerDetail.Text = detail;
     }
 
-    private sealed record LibraryRow(string RecordingId, string Title, string Subtitle, string? Transcript, string State);
+    private sealed record LibraryRow(string RecordingId, string Title, string Subtitle, string? Transcript, string State, string? UploadError);
 }

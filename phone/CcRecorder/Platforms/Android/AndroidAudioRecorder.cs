@@ -29,11 +29,69 @@ public sealed class AndroidAudioRecorder : IAudioRecorder
     private DateTime _startedUtc;
     private DateTime _segmentStartedUtc;
     private int _segmentIndex;
+    private bool _paused;
+    private TimeSpan _pausedAccum;
+    private DateTime _pauseStartedUtc;
 
     public bool IsRecording { get; private set; }
+    public bool IsPaused => _paused;
     public LocalManifest? Current => _manifest;
-    public TimeSpan Elapsed => IsRecording ? DateTime.UtcNow - _startedUtc : TimeSpan.Zero;
+
+    public TimeSpan Elapsed
+    {
+        get
+        {
+            if (!IsRecording) return TimeSpan.Zero;
+            var raw = DateTime.UtcNow - _startedUtc - _pausedAccum;
+            if (_paused) raw -= DateTime.UtcNow - _pauseStartedUtc;
+            return raw < TimeSpan.Zero ? TimeSpan.Zero : raw;
+        }
+    }
+
     public event EventHandler? Changed;
+
+    public void Pause()
+    {
+        lock (_gate)
+        {
+            if (!IsRecording || _paused) return;
+            _rollTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+            try { _recorder?.Pause(); } catch { /* device may not support; treated as best-effort */ }
+            _pauseStartedUtc = DateTime.UtcNow;
+            _paused = true;
+        }
+        RaiseChanged();
+    }
+
+    public void Resume()
+    {
+        lock (_gate)
+        {
+            if (!IsRecording || !_paused) return;
+            _pausedAccum += DateTime.UtcNow - _pauseStartedUtc;
+            try { _recorder?.Resume(); } catch { }
+            _rollTimer?.Change(SegmentLength, SegmentLength);
+            _paused = false;
+        }
+        RaiseChanged();
+    }
+
+    public double ReadLevel()
+    {
+        lock (_gate)
+        {
+            if (!IsRecording || _paused || _recorder is null) return 0;
+            try
+            {
+                // MaxAmplitude is 0..32767, peak since last read. Square-root
+                // shaping makes the meter feel linear to the ear.
+                var amp = _recorder.MaxAmplitude;
+                if (amp <= 0) return 0;
+                return Math.Clamp(Math.Sqrt(amp / 32767.0), 0, 1);
+            }
+            catch { return 0; }
+        }
+    }
 
     private static string RootDir =>
         Path.Combine(global::Android.App.Application.Context.GetExternalFilesDir(null)?.AbsolutePath
@@ -51,6 +109,7 @@ public sealed class AndroidAudioRecorder : IAudioRecorder
 
     public Task StartAsync(string title)
     {
+        StopPlayback(); // don't play and record at once
         lock (_gate)
         {
             if (IsRecording) return Task.CompletedTask;
@@ -68,6 +127,8 @@ public sealed class AndroidAudioRecorder : IAudioRecorder
             Directory.CreateDirectory(_recordingDir);
             _startedUtc = DateTime.UtcNow;
             _segmentIndex = 0;
+            _paused = false;
+            _pausedAccum = TimeSpan.Zero;
             IsRecording = true;
 
             StartForegroundService();
@@ -78,6 +139,17 @@ public sealed class AndroidAudioRecorder : IAudioRecorder
         }
         RaiseChanged();
         return Task.CompletedTask;
+    }
+
+    public void SetTitle(string title)
+    {
+        lock (_gate)
+        {
+            if (!IsRecording || _manifest is null) return;
+            _manifest.Title = string.IsNullOrWhiteSpace(title) ? DefaultTitle() : title.Trim();
+            SaveManifest();
+        }
+        RaiseChanged();
     }
 
     public void AddNote(string text)
@@ -103,6 +175,7 @@ public sealed class AndroidAudioRecorder : IAudioRecorder
             if (!IsRecording) return Task.CompletedTask;
             _rollTimer?.Dispose();
             _rollTimer = null;
+            if (_paused) { _recorder?.Resume(); _paused = false; } // so FinalizeSegment can stop cleanly
             FinalizeSegment();
             IsRecording = false;
             if (_manifest is not null)
@@ -122,12 +195,28 @@ public sealed class AndroidAudioRecorder : IAudioRecorder
 
     private static readonly SemaphoreSlim _uploadGate = new(1, 1);
 
+    public void EnqueueBackgroundUpload()
+        => UploadScheduler.EnqueueNow(global::Android.App.Application.Context);
+
     public async Task ProcessUploadQueueAsync()
     {
-        if (Connectivity.Current.NetworkAccess != NetworkAccess.Internet) return;
+        // Do NOT gate on NetworkAccess == Internet. The Gateway is reachable
+        // over Tailscale, which can ride a network that Android reports as
+        // "constrained"/"local" (or even on mobile data with no public
+        // internet). Only skip when there is no network radio at all; otherwise
+        // attempt and let failures fall back to Retry.
+        if (Connectivity.Current.NetworkAccess == NetworkAccess.None) return;
+
+        // A fresh install (or a reinstall that wiped preferences) has no saved
+        // URL. Seed the built-in default so the recording uploads instead of
+        // silently sitting in the queue. The UI keeps the field editable.
         var server = Preferences.Get("gateway_url", "").Trim();
+        if (string.IsNullOrWhiteSpace(server))
+        {
+            server = RecorderDefaults.GatewayUrl;
+            Preferences.Set("gateway_url", server);
+        }
         var token = Preferences.Get("gateway_token", "").Trim();
-        if (string.IsNullOrWhiteSpace(server)) return;
 
         if (!await _uploadGate.WaitAsync(0)) return; // a run is already in progress
         try
@@ -135,7 +224,7 @@ public sealed class AndroidAudioRecorder : IAudioRecorder
             foreach (var summary in ListRecordings())
             {
                 if (summary.State is not ("Queued" or "Retry" or "Uploading")) continue;
-                if (Connectivity.Current.NetworkAccess != NetworkAccess.Internet) break;
+                if (Connectivity.Current.NetworkAccess == NetworkAccess.None) break;
                 await UploadOneAsync(summary.RecordingId, server, token);
             }
         }
@@ -266,7 +355,7 @@ public sealed class AndroidAudioRecorder : IAudioRecorder
                 var state = m.EndedAt is null ? "Recording" : NormalizeState(m.State);
                 list.Add(new RecordingSummary(
                     m.RecordingId, m.Title, m.StartedAt, m.Chunks.Count,
-                    m.Chunks.Sum(c => c.DurationMs), state, m.VaultDocId, m.Transcript));
+                    m.Chunks.Sum(c => c.DurationMs), state, m.VaultDocId, m.Transcript, m.UploadError));
             }
             catch { /* skip unreadable manifest */ }
         }
@@ -283,6 +372,64 @@ public sealed class AndroidAudioRecorder : IAudioRecorder
         "" => "Queued",
         _ => s,
     };
+
+    // ===== playback =========================================================
+
+    private MediaPlayer? _player;
+    private List<string> _playQueue = new();
+    private int _playIndex;
+
+    public string? PlayingRecordingId { get; private set; }
+
+    public void Play(string recordingId)
+    {
+        StopPlayback();
+        var m = LoadManifest(recordingId);
+        if (m is null) return;
+        var dir = RecordingFolder(recordingId);
+        _playQueue = m.Chunks.OrderBy(c => c.Index)
+            .Select(c => Path.Combine(dir, c.File))
+            .Where(File.Exists)
+            .ToList();
+        if (_playQueue.Count == 0) return;
+
+        PlayingRecordingId = recordingId;
+        _playIndex = 0;
+        StartCurrentSegment();
+        RaiseChanged();
+    }
+
+    private void StartCurrentSegment()
+    {
+        if (_playIndex >= _playQueue.Count) { StopPlayback(); return; }
+        var p = new MediaPlayer();
+        p.Completion += (_, _) =>
+        {
+            _playIndex++;
+            try { _player?.Reset(); _player?.Release(); } catch { }
+            _player = null;
+            StartCurrentSegment(); // chain to the next segment
+        };
+        p.SetDataSource(_playQueue[_playIndex]);
+        p.Prepare();
+        p.Start();
+        _player = p;
+    }
+
+    public void StopPlayback()
+    {
+        if (_player is not null)
+        {
+            try { _player.Stop(); } catch { }
+            try { _player.Reset(); _player.Release(); } catch { }
+            _player = null;
+        }
+        if (PlayingRecordingId is not null)
+        {
+            PlayingRecordingId = null;
+            RaiseChanged();
+        }
+    }
 
     public LocalManifest? LoadManifest(string recordingId)
     {

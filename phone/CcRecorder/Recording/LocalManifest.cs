@@ -56,4 +56,5 @@ public sealed record RecordingSummary(
     long DurationMs,
     string State,
     string? VaultDocId,
-    string? Transcript);
+    string? Transcript,
+    string? UploadError);

@@ -111,6 +111,32 @@ internal static class RecordingEndpoints
                 return Results.NotFound(new { error = "unknown recording" });
             }
         });
+
+        // ===== Transcripts browser (dashboard page + read APIs) =============
+
+        app.MapGet("/transcripts", () =>
+        {
+            var html = EmbeddedResources.Load("transcripts.html");
+            return Results.Content(html, "text/html; charset=utf-8");
+        });
+
+        app.MapGet("/ingest/recordings", () => Results.Json(service.ListAll()));
+
+        app.MapGet("/ingest/recording/{id}/transcript", (string id) =>
+        {
+            var text = service.GetTranscript(id);
+            return text is null
+                ? Results.NotFound(new { error = "no transcript" })
+                : Results.Text(text, "text/plain; charset=utf-8");
+        });
+
+        app.MapGet("/ingest/recording/{id}/audio/{index:int}", (string id, int index) =>
+        {
+            var audio = service.GetAudioFile(id, index);
+            return audio is null
+                ? Results.NotFound(new { error = "no such segment" })
+                : Results.File(audio.Value.path, audio.Value.contentType, enableRangeProcessing: true);
+        });
     }
 
     private static RecordingIngestService BuildService()

@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CC Recorder - Road-Note Fixes</title>
+<style>
+  :root{--bg:#0B1020;--panel:#141B2E;--panel2:#1B2540;--ink:#E6EAF2;--muted:#8A93A6;
+        --line:#27324d;--green:#5FD08A;--red:#E5484D;--blue:#5B8DEF;--amber:#E8B339;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.55}
+  .wrap{max-width:1040px;margin:0 auto;padding:40px 24px 80px}
+  h1{font-size:32px;margin:0 0 6px}
+  h2{font-size:22px;margin:42px 0 14px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+  p,li{color:#C7D0E4}
+  .sub{color:var(--muted);font-size:15px;margin:0 0 20px}
+  code{background:#0d1426;border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-size:13px;color:#add0ff}
+  .pill{display:inline-block;padding:3px 11px;border-radius:999px;font-size:12px;font-weight:600}
+  .ok{background:rgba(95,208,138,.16);color:var(--green);border:1px solid rgba(95,208,138,.4)}
+  .partial{background:rgba(91,141,239,.16);color:var(--blue);border:1px solid rgba(91,141,239,.4)}
+  .pend{background:rgba(232,179,57,.14);color:var(--amber);border:1px solid rgba(232,179,57,.4)}
+  .defer{background:rgba(138,147,166,.16);color:var(--muted);border:1px solid rgba(138,147,166,.4)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin:14px 0}
+  .quote{border-left:3px solid var(--blue);padding:4px 0 4px 14px;margin:6px 0 12px;color:#A9C7E8;font-style:italic}
+  table{width:100%;border-collapse:collapse;font-size:14px;margin:8px 0}
+  th,td{text-align:left;padding:10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--muted);font-weight:600}
+  .shots{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .shots figure{margin:0;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:10px}
+  .shots img{width:100%;border-radius:8px;display:block;border:1px solid #000}
+  .shots figcaption{color:var(--muted);font-size:12.5px;padding:8px 4px 2px;text-align:center}
+  .iconrow{display:flex;align-items:center;gap:18px}
+  .iconbox{width:96px;height:96px;border-radius:22px;background:#141B2E;display:flex;align-items:center;justify-content:center;border:1px solid var(--line)}
+  .muted{color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>CC Recorder - fixes from your road notes</h1>
+  <p class="sub">You recorded a backlog while traveling. All six recordings transcribed into your vault; here's each note and what was done about it. 2026-05-23.</p>
+  <p>
+    <span class="pill ok">4 fixed &amp; verified</span>
+    <span class="pill partial">1 built, needs phone redeploy</span>
+    <span class="pill pend">1 coded, needs Gateway restart</span>
+    <span class="pill defer">1 deferred (big feature)</span>
+  </p>
+
+  <h2>Live recording meter <span class="pill ok">Done</span></h2>
+  <p class="quote">"...we need to show that it's recording. Maybe show that voice is coming in, like a synthesis that moves up and down... make sure nothing is turned down or too low." (13:52)</p>
+  <p>Added a <strong>live microphone level meter</strong> under the timer (the green bar), driven by the recorder's real-time audio amplitude at 10&nbsp;fps. It moves with your voice so you can confirm the mic is hearing you and isn't muted or too quiet. Verified on the emulator (silent there, so it sits near zero - it'll bounce on a real mic).</p>
+
+  <h2>Pause &amp; resume <span class="pill ok">Done</span></h2>
+  <p class="quote">"...an ability to record voices and then pause it and continue... there's no point for a mute button if we're doing pausing. Pausing should be enough." (13:53)</p>
+  <p>Added a <strong>Pause / Resume</strong> button. Pausing suspends capture and freezes the timer; resuming continues the same recording. Mute was intentionally skipped, per your call. Verified below.</p>
+  <div class="shots">
+    <figure>
+      <img src="screenshots/07-recording-with-pause-meter.png" alt="Recording with pause and meter" />
+      <figcaption>Recording: level meter, Pause button, and the background-upload banner.</figcaption>
+    </figure>
+    <figure>
+      <img src="screenshots/08-paused.png" alt="Paused state" />
+      <figcaption>Paused: state turns amber, timer frozen at 00:00:28, button becomes green Resume.</figcaption>
+    </figure>
+  </div>
+
+  <h2>Background upload that actually works <span class="pill ok">Done</span> <span class="pill partial">redeploy to phone</span></h2>
+  <p class="quote">"...it keeps saying uploading in the background, 2 left, and it doesn't seem to be uploading. Figure out if upload happens even if the app is in the background... screen times out... lock screen - is the app still running?" (14:35)</p>
+  <p>Two real problems, both fixed:</p>
+  <ul>
+    <li><strong>Root cause of "out of internet range":</strong> the app only uploaded when Android reported full <em>Internet</em> access. Your Gateway is reachable purely over <strong>Tailscale</strong>, which often rides a network Android labels "constrained" or "local" - so the app wrongly decided it was offline and never tried. Fixed: it now attempts whenever there's <em>any</em> network and lets the queue retry on failure, instead of pre-judging connectivity.</li>
+    <li><strong>True background upload:</strong> added Android <strong>WorkManager</strong>. The queue now drains even when the app is <em>fully swiped-closed</em> or the screen is locked, with a network constraint, automatic retry/backoff, a 15-minute safety-net pass, and resume-after-reboot. Recording capture itself already survives screen-lock via the foreground service.</li>
+  </ul>
+  <p class="muted" style="font-size:13px">Note: this is built and compiles; it needs one more deploy to your phone (the wireless link dropped when the phone slept). Everything that can be checked on the emulator passed.</p>
+
+  <h2>New app icon <span class="pill ok">Done</span></h2>
+  <p class="quote">"...we need a much better icon. It says .NET right now." (14:35)</p>
+  <div class="iconrow">
+    <div class="iconbox">
+      <svg width="64" height="64" viewBox="0 0 456 456" xmlns="http://www.w3.org/2000/svg">
+        <rect x="198" y="118" width="60" height="124" rx="30" fill="#FFFFFF"/>
+        <path d="M166 206 a62 62 0 0 0 124 0" stroke="#FFFFFF" stroke-width="16" stroke-linecap="round" fill="none"/>
+        <line x1="228" y1="268" x2="228" y2="308" stroke="#FFFFFF" stroke-width="16" stroke-linecap="round"/>
+        <line x1="196" y1="308" x2="260" y2="308" stroke="#FFFFFF" stroke-width="16" stroke-linecap="round"/>
+        <circle cx="228" cy="160" r="14" fill="#E5484D"/>
+      </svg>
+    </div>
+    <div>Replaced the default .NET bot with a <strong>microphone icon</strong> (white mic with a red record dot on a dark navy tile). This is the actual new icon, rendered here from the same SVG the app ships.</div>
+  </div>
+
+  <h2>Filed-but-stuck recordings <span class="pill pend">coded, needs Gateway restart</span></h2>
+  <p>While transcribing your road recordings I found a bug: two of them ("13:53" and "13:58") were <em>already transcribed and filed</em> to your vault, but the phone had marked them "Retry" - the upload reached the server and filed successfully, but the acknowledgment never made it back to the phone, so it thought it failed. Re-uploading then hit "document already exists."</p>
+  <p>Fix: the server now treats an <strong>already-filed recording as success</strong> (idempotent) and returns the existing transcript instead of erroring or creating a duplicate. The code is in; it goes live the next time the Gateway is rebuilt/restarted (needs your OK, since it's your running process).</p>
+
+  <h2>"What is it written in?" <span class="pill ok">Answered</span></h2>
+  <p class="quote">"...I don't know what this application is actually written in. Is it actually written in .NET, the phone application?" (14:35)</p>
+  <p>Yes - the phone app is <strong>.NET MAUI</strong> (C#), the same stack as the rest of cc-director. The audio capture and background upload use Android platform APIs (MediaRecorder, foreground service, WorkManager) called from C#.</p>
+
+  <h2>Gateway personal assistant + session launcher <span class="pill defer">deferred</span></h2>
+  <p class="quote">"We should have a personal assistant I can talk to on the Gateway... see all sessions, quickly fire up a personal assistant... start a new session and pick its repo from the Gateway, without going to the box. Buttons first, then voice." (13:58, 2 min)</p>
+  <p>This is a substantial, separate feature touching the Gateway UI and the Director session APIs - not a recorder fix. Captured here and in your vault; worth its own focused effort when you're ready.</p>
+
+  <h2>Two things waiting on you</h2>
+  <ol>
+    <li><strong>Reconnect the phone</strong> so I can push this build to it (wireless debugging drops when the phone sleeps - send me the current IP:port).</li>
+    <li><strong>Approve a quick Gateway restart</strong> so the idempotency fix goes live (~20s, doesn't touch your sessions).</li>
+  </ol>
+
+  <p class="muted" style="margin-top:36px;font-size:13px">Plan: <code>docs/plans/phone-recorder-otter-replacement.md</code> &middot; All changes uncommitted, per house rules.</p>
+
+</div>
+</body>
+</html>

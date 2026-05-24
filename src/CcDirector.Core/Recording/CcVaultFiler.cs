@@ -50,8 +50,19 @@ public sealed class CcVaultFiler : IVaultFiler
         }, ct);
 
         if (exit != 0)
+        {
+            // Idempotent: a transcript that was already filed on a prior attempt
+            // (e.g. the phone lost the success ack and retried) is the desired
+            // end state, not a failure. Treat "already exists" as success.
+            var combined = stderr + stdout;
+            if (combined.Contains("already exists", StringComparison.OrdinalIgnoreCase))
+            {
+                FileLog.Write($"[CcVaultFiler] transcript already filed, treating as success: {request.Title}");
+                return request.TranscriptMarkdownPath;
+            }
             throw new InvalidOperationException(
-                $"cc-vault docs add failed (exit {exit}): {Trim(stderr + stdout)}");
+                $"cc-vault docs add failed (exit {exit}): {Trim(combined)}");
+        }
 
         var id = ExtractId(stdout);
         FileLog.Write($"[CcVaultFiler] filed transcript: id={id}");

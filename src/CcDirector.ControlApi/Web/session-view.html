@@ -84,6 +84,28 @@
   }
   header a.navbtn:first-of-type { margin-left: -4px; }
   header a.navbtn:hover { background: rgba(14,99,156,0.15); }
+  /* Shut down the session from anywhere (incl. phone). Lives in the always-visible
+     header, NOT in .state-controls (which is hidden on mobile). Destructive: red,
+     confirm-guarded in JS. */
+  header .shutdown-btn {
+    margin-left: 4px; flex-shrink: 0; min-height: 36px; padding: 0 12px;
+    border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;
+    background: var(--bg); color: #ef4444; border: 1px solid rgba(239,68,68,0.5);
+    white-space: nowrap; -webkit-tap-highlight-color: rgba(239,68,68,0.3);
+  }
+  header .shutdown-btn:hover:not(:disabled) { background: rgba(239,68,68,0.14); border-color: #ef4444; }
+  header .shutdown-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+  /* Soft stop: sends a single Escape (0x1b) to the PTY to interrupt the current
+     turn. Non-destructive (reversible), so amber rather than the red Shut down,
+     and no confirm. Sits left of Shut down in the always-visible header. */
+  header .stop-btn {
+    margin-left: 4px; flex-shrink: 0; min-height: 36px; padding: 0 12px;
+    border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;
+    background: var(--bg); color: #dcdcaa; border: 1px solid rgba(220,220,170,0.5);
+    white-space: nowrap; -webkit-tap-highlight-color: rgba(220,220,170,0.3);
+  }
+  header .stop-btn:hover:not(:disabled) { background: rgba(220,220,170,0.14); border-color: #dcdcaa; }
+  header .stop-btn:disabled { opacity: 0.55; cursor: not-allowed; }
   header .title {
     color: var(--text);
     font-size: 13px;
@@ -99,6 +121,23 @@
     font-size: 11px;
     font-weight: 400;
     margin-left: 6px;
+  }
+  /* The session name is click-to-rename: clicking the name text swaps it for an
+     inline input (Enter saves, Escape cancels). The pencil hint makes the affordance
+     discoverable without consuming header space. */
+  header .title .name {
+    cursor: pointer;
+    border-radius: 4px;
+    padding: 1px 4px;
+    margin: -1px -4px;
+  }
+  header .title .name:hover { background: rgba(255,255,255,0.08); }
+  header .title .name .pencil { color: var(--muted); font-size: 11px; margin-left: 5px; }
+  header .title input.name-edit {
+    background: var(--bg); color: var(--text);
+    border: 1px solid var(--accent); border-radius: 6px;
+    padding: 4px 8px; font-size: 13px; font-weight: 600;
+    font-family: inherit; min-height: 30px; width: 100%; max-width: 320px;
   }
   header .state {
     font-size: 11px;
@@ -278,6 +317,40 @@
     white-space: pre-wrap;
     overflow-wrap: anywhere;
   }
+
+  /* "YOU ASKED": the verbatim prompt that kicked off the current turn. Shown only
+     while the session is WORKING (blue), directly under the state hero, so the user
+     sees what the active turn is working on. Blue left-accent ties it to the WORKING
+     color; the prompt text reuses the quote treatment from the distilled question. */
+  .you-asked {
+    padding: 14px 16px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--w-read);
+    border-radius: 10px;
+    margin-bottom: 14px;
+  }
+  .you-asked-label {
+    color: var(--muted); font-size: 11px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 6px;
+  }
+  .you-asked-label .ago {
+    color: #6a6a6a; font-weight: 400; text-transform: none; letter-spacing: 0; margin-left: 6px;
+  }
+  .you-asked-text {
+    color: var(--text); font-size: 15px; line-height: 1.45; font-weight: 600;
+    white-space: pre-wrap; overflow-wrap: anywhere;
+  }
+  /* Long prompts are clamped to a few lines; the disclosure reveals the rest. */
+  .you-asked-text.clamped {
+    display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .you-asked-more {
+    margin-top: 8px; color: var(--accent); font-size: 12px;
+    cursor: pointer; user-select: none;
+  }
+  .you-asked-more:hover { color: var(--accent-hover); }
 
   .last-turn {
     padding: 14px 16px;
@@ -862,10 +935,12 @@
     <a href="/" class="navbtn" aria-label="This Director's home">Director</a>
     <a class="navbtn" id="gatewayBtn" data-url="__GATEWAY_URL__" aria-label="Gateway directory">Gateway</a>
     <div class="title">
-      Session<span class="sid" id="sidShort">__SHORT_SID__</span>
+      <span class="name" id="sessionName" onclick="return beginRename()" title="Click to rename this session">Session<span class="pencil">&#9998;</span></span><span class="sid" id="sidShort">__SHORT_SID__</span>
     </div>
     <span class="state" id="state">?</span>
     <span class="counts" id="counts"></span>
+    <button type="button" id="stopBtn" class="stop-btn" onclick="return sendEscape()" title="Send Escape to interrupt the current turn (stops Claude generating)">Stop</button>
+    <button type="button" id="shutdownBtn" class="shutdown-btn" onclick="return shutdownSession()" title="Shut down this session (terminates the Claude process)">Shut down</button>
   </header>
 
   <div class="tabs">
@@ -893,6 +968,15 @@
     <div class="reason" id="supReason">loading&hellip;</div>
     <div class="since" id="supSince"></div>
     <span class="dot" id="supDot" style="display:none"></span>
+  </div>
+
+  <!-- "YOU ASKED": the verbatim prompt that started the current turn. Shown only while
+       the session is WORKING (blue) so the user can see what the active turn is on.
+       Sourced from the UserPromptSubmit hook, so it covers terminal / phone / voice. -->
+  <div class="you-asked" id="youAsked" style="display:none">
+    <div class="you-asked-label">YOU ASKED<span class="ago" id="youAskedAgo"></span></div>
+    <div class="you-asked-text" id="youAskedText"></div>
+    <div class="you-asked-more" id="youAskedMore" style="display:none" onclick="return expandYouAsked()">Show full prompt</div>
   </div>
 
   <!-- Explain: on-demand briefing of the whole session, generated by the
@@ -934,7 +1018,10 @@
   <!-- Goal management: the session's stated objective plus the wingman's verdict on
        whether the work is still tracking toward it. The verdict is observational
        (read-only); the goal itself is editable here. -->
-  <div class="goal-panel" id="goalPanel">
+  <!-- Goal panel hidden by request. Elements kept in the DOM so refreshSession()'s
+       getElementById writes stay safe (no JS guards needed); set display back to
+       show it again. -->
+  <div class="goal-panel" id="goalPanel" style="display:none">
     <div class="goal-label">GOAL <span class="goal-verdict unknown" id="goalVerdict" style="display:none"></span></div>
     <div class="goal-text empty" id="goalText">No goal set</div>
     <div class="goal-reason" id="goalReason"></div>
@@ -992,6 +1079,20 @@
 <form class="send" onsubmit="return send(event)">
   <textarea id="prompt" rows="1" placeholder="Send to session... (Enter to submit, Shift+Enter for newline)" autocomplete="off"></textarea>
   <div class="button-row">
+    <!-- Hidden file input; the Upload button triggers it. No "capture" attribute, so
+         phones offer the full picker (photo library AND camera) rather than forcing the
+         camera. Accepted types mirror the Director's allow-list. -->
+    <input type="file" id="imageInput" accept="image/*" style="display:none" />
+    <button type="button" id="escBtn"
+            style="background:#c0392b;color:white;"
+            title="Send Escape to the terminal to stop Claude Code">
+      Esc
+    </button>
+    <button type="button" id="uploadBtn"
+            style="background:#7c3aed;color:white;"
+            title="Upload an image; its path is dropped into the box for you to send">
+      Upload
+    </button>
     <button type="button" id="speakBtn"
             style="background:#16A34A;color:white;">
       Speak
@@ -1065,7 +1166,29 @@
     return (c === 'green' || c === 'blue' || c === 'yellow' || c === 'red') ? c : 'unknown';
   }
 
+  // Set once the session has been shut down, so periodic refresh stops hitting the
+  // now-dead session (which would 404 and clobber the "ENDED" message).
+  let _killed = false;
+
+  // Whether the user expanded the (otherwise clamped) "YOU ASKED" prompt, and the
+  // prompt text it applies to. Polling re-renders every few seconds; we only reset the
+  // expansion when the prompt itself changes, so an expanded card stays expanded.
+  let _youAskedExpanded = false;
+  let _youAskedLastText = null;
+
+  // Toggle the clamp on the "YOU ASKED" prompt text.
+  window.expandYouAsked = function () {
+    const txt = document.getElementById('youAskedText');
+    const more = document.getElementById('youAskedMore');
+    if (!txt || !more) return false;
+    _youAskedExpanded = !_youAskedExpanded;
+    txt.classList.toggle('clamped', !_youAskedExpanded);
+    more.textContent = _youAskedExpanded ? 'Show less' : 'Show full prompt';
+    return false;
+  };
+
   async function refreshSession() {
+    if (_killed) return;
     try {
       const resp = await fetch('/sessions/' + SID + '/wingman', { credentials: 'same-origin' });
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
@@ -1078,6 +1201,9 @@
   }
 
   function renderSession(view) {
+    // Session name in the header (no-op while the user is mid-edit so polling
+    // doesn't clobber what they're typing).
+    applySessionName(view.name);
     // Banner.
     const cc = colorClass(view.currentColor);
     const dot = document.getElementById('supDot');
@@ -1106,6 +1232,33 @@
       dq.style.display = '';
     } else {
       dq.style.display = 'none';
+    }
+
+    // "YOU ASKED": the prompt that started the current turn, shown only while WORKING
+    // (blue). When the turn finishes (green/red/yellow) we hide it; the LAST TURN panel
+    // below carries finished-turn history.
+    const ya = document.getElementById('youAsked');
+    if (cc === 'blue' && view.lastUserPrompt && view.lastUserPrompt.trim()) {
+      const txt = document.getElementById('youAskedText');
+      // Only reset state when the prompt text actually changed (a new turn started),
+      // so polling doesn't collapse a card the user just expanded.
+      if (view.lastUserPrompt !== _youAskedLastText) {
+        _youAskedLastText = view.lastUserPrompt;
+        _youAskedExpanded = false;
+        txt.textContent = view.lastUserPrompt;
+      }
+      txt.classList.toggle('clamped', !_youAskedExpanded);
+      document.getElementById('youAskedAgo').textContent =
+        view.lastUserPromptAt ? relativeTime(view.lastUserPromptAt) : '';
+      // Reveal the "Show full prompt"/"Show less" toggle only when the text actually
+      // overflows its clamp; otherwise the clamp is a no-op and the toggle misleads.
+      const more = document.getElementById('youAskedMore');
+      more.textContent = _youAskedExpanded ? 'Show less' : 'Show full prompt';
+      const overflowing = !_youAskedExpanded && (txt.scrollHeight > txt.clientHeight + 1);
+      more.style.display = (overflowing || _youAskedExpanded) ? '' : 'none';
+      ya.style.display = '';
+    } else {
+      ya.style.display = 'none';
     }
 
     // Last turn (always shown if we have one).
@@ -1163,6 +1316,88 @@
     });
   }
 
+  // ---------- Rename: edit the session's display name in the header ----------
+  // The name is stored server-side as the session's CustomName (null => default
+  // "Session" label). Clicking the name swaps in an inline input; Enter or blur
+  // commits via PATCH /sessions/{id}, Escape cancels.
+  let _currentName = null;     // server-side custom name, or null for the default label
+  let _editingName = false;
+
+  function nameDisplay(name) {
+    return (name && name.trim()) ? name.trim() : 'Session';
+  }
+
+  function applySessionName(name) {
+    _currentName = (name && name.trim()) ? name.trim() : null;
+    if (_editingName) return;  // don't overwrite the input the user is editing
+    const el = document.getElementById('sessionName');
+    if (!el) return;
+    el.textContent = nameDisplay(_currentName);
+    const pencil = document.createElement('span');
+    pencil.className = 'pencil';
+    pencil.innerHTML = '&#9998;';
+    el.appendChild(pencil);
+    document.title = 'CC Director - ' + nameDisplay(_currentName);
+  }
+
+  window.beginRename = function () {
+    if (_editingName) return false;
+    const el = document.getElementById('sessionName');
+    if (!el) return false;
+    _editingName = true;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'name-edit';
+    input.id = 'nameEdit';
+    input.value = _currentName || '';
+    input.placeholder = 'Session name';
+    input.maxLength = 120;
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); commitRename(input.value); }
+      else if (e.key === 'Escape') { e.preventDefault(); endRename(); }
+    });
+    input.addEventListener('blur', () => commitRename(input.value));
+    el.replaceWith(input);
+    input.focus();
+    input.select();
+    return false;
+  };
+
+  // Swap the input back for the clickable name span (after commit or cancel).
+  function endRename() {
+    _editingName = false;
+    const input = document.getElementById('nameEdit');
+    const span = document.createElement('span');
+    span.className = 'name';
+    span.id = 'sessionName';
+    span.title = 'Click to rename this session';
+    span.setAttribute('onclick', 'return beginRename()');
+    if (input) input.replaceWith(span);
+    applySessionName(_currentName);
+  }
+
+  async function commitRename(value) {
+    if (!_editingName) return;  // guard: Enter then the resulting blur both fire
+    const trimmed = (value || '').trim();
+    if (trimmed === (_currentName || '')) { endRename(); return; }  // unchanged
+    _editingName = false;  // block re-entry and stop polling from clobbering
+    try {
+      const resp = await fetch('/sessions/' + SID, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ name: trimmed }),
+      });
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const dto = await resp.json();
+      _currentName = (dto && dto.name && dto.name.trim()) ? dto.name.trim() : null;
+    } catch (e) {
+      alert('Rename failed: ' + (e && e.message ? e.message : e));
+    } finally {
+      endRename();
+    }
+  }
+
   // Set (or clear) the session goal. The verdict is computed asynchronously by a
   // Haiku side-call, so we refresh immediately to show the goal, then again shortly
   // to pick up the on_track/drifting/complete verdict.
@@ -1187,6 +1422,52 @@
       document.getElementById('goalReason').textContent = 'Failed to set goal: ' + (e && e.message ? e.message : e);
     } finally {
       if (btn) btn.disabled = false;
+    }
+    return false;
+  };
+
+  // Shut down (kill) this session. Works from the phone too: the DELETE goes to the
+  // page origin, which is the Gateway on a phone and the Director on desktop - both
+  // route to the owning Director's DELETE /sessions/{id}. Destructive, so confirm first.
+  // Send a single Escape (0x1b) to the session's PTY. This interrupts whatever
+  // Claude is doing in the current turn - the soft stop. Non-destructive, so no
+  // confirm; we briefly flash the button so the tap registers visually.
+  window.sendEscape = async function() {
+    if (_killed) return false;
+    const btn = document.getElementById('stopBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Stopped'; }
+    try {
+      const resp = await fetch('/sessions/' + SID + '/escape', { method: 'POST', credentials: 'same-origin' });
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    } catch (e) {
+      alert('Failed to send Escape: ' + (e && e.message ? e.message : e));
+    } finally {
+      if (btn) { setTimeout(() => { btn.disabled = false; btn.textContent = 'Stop'; }, 600); }
+    }
+    return false;
+  };
+
+  window.shutdownSession = async function() {
+    if (!confirm('Shut down this session? The Claude process will be terminated. This cannot be undone.')) return false;
+    const btn = document.getElementById('shutdownBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Shutting down...'; }
+    try {
+      const resp = await fetch('/sessions/' + SID, { method: 'DELETE', credentials: 'same-origin' });
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      _killed = true;
+      const sw = document.getElementById('stateWord');
+      if (sw) { sw.className = 'state-word unknown'; sw.textContent = 'ENDED'; }
+      const reason = document.getElementById('supReason');
+      if (reason) reason.textContent = 'Session shut down. You can close this page or return to the directory.';
+      const since = document.getElementById('supSince');
+      if (since) since.textContent = '';
+      if (btn) btn.textContent = 'Ended';
+      // Disable the composer so nothing more can be sent to a dead session.
+      const pt = document.getElementById('prompt');
+      if (pt) { pt.disabled = true; pt.placeholder = 'Session ended.'; }
+    } catch (e) {
+      alert('Failed to shut down session: ' + (e && e.message ? e.message : e));
+      if (btn) { btn.disabled = false; btn.textContent = 'Shut down'; }
     }
     return false;
   };
@@ -1641,6 +1922,66 @@
         insertAtCaret(inp, cleanedText);
       },
     });
+  });
+
+  // Esc button: send a single Escape to the PTY to interrupt Claude's current turn.
+  // Same /escape endpoint as the header Stop button; this just keeps it within thumb
+  // reach next to Send on the phone. Brief disable flashes so the tap registers.
+  document.getElementById('escBtn')?.addEventListener('click', async (ev) => {
+    if (_killed) return;
+    const btn = ev.currentTarget;
+    btn.disabled = true;
+    const orig = btn.textContent;
+    btn.textContent = 'Sent';
+    try {
+      const resp = await fetch('/sessions/' + SID + '/escape', { method: 'POST', credentials: 'same-origin' });
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    } catch (e) {
+      alert('Failed to send Escape: ' + (e && e.message ? e.message : e));
+    } finally {
+      setTimeout(() => { btn.disabled = false; btn.textContent = orig; }, 600);
+    }
+  });
+
+  // Upload button: pick an image (camera or library on a phone), POST it to the owning
+  // Director which files it into the screenshots folder, then drop the saved absolute
+  // path into the composer. The user adds context and taps Send, so the session learns
+  // where the image is. Upload goes to the page origin (Director on desktop, Gateway on
+  // phone); the Gateway forwards to the owning Director.
+  const _imageInput = document.getElementById('imageInput');
+  document.getElementById('uploadBtn')?.addEventListener('click', () => {
+    if (_killed) return;
+    _imageInput?.click();
+  });
+  _imageInput?.addEventListener('change', async () => {
+    const file = _imageInput.files && _imageInput.files[0];
+    if (!file) return;
+    const btn = document.getElementById('uploadBtn');
+    const orig = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = 'Uploading...'; }
+    try {
+      const fd = new FormData();
+      fd.append('file', file, file.name || 'image');
+      const resp = await fetch('/sessions/' + SID + '/upload-image', {
+        method: 'POST',
+        credentials: 'same-origin',
+        body: fd,
+      });
+      if (!resp.ok) {
+        let msg = 'HTTP ' + resp.status;
+        try { const j = await resp.json(); if (j && j.error) msg = j.error; } catch (_) {}
+        throw new Error(msg);
+      }
+      const data = await resp.json();
+      if (!data || !data.path) throw new Error('server did not return a path');
+      const inp = document.getElementById('prompt');
+      if (inp) insertAtCaret(inp, data.path);
+    } catch (e) {
+      alert('Upload failed: ' + (e && e.message ? e.message : e));
+    } finally {
+      _imageInput.value = ''; // allow re-selecting the same file
+      if (btn) { btn.disabled = false; btn.textContent = orig; }
+    }
   });
 
   window.send = async function (e) {

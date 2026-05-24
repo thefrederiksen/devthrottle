@@ -6,6 +6,7 @@ using CcDirector.Core.Backends;
 using CcDirector.Core.Claude;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Sessions;
+using CcDirector.Core.Storage;
 using CcDirector.Core.Wingman;
 using CcDirector.Core.Utilities;
 using CcDirector.Core.Voice;
@@ -273,6 +274,7 @@ internal static class ControlEndpoints
             return Results.Json(new WingmanViewDto
             {
                 SessionId = session.Id.ToString(),
+                Name = session.CustomName,
                 CurrentColor = session.StatusColor,
                 CurrentReason = session.LastStatusReason,
                 Since = events.Count > 0 ? events[0].At : (DateTime?)null,
@@ -289,6 +291,8 @@ internal static class ControlEndpoints
                 GoalState = session.WingmanGoalState,
                 GoalReason = session.WingmanGoalReason,
                 GoalEvaluatedAt = session.WingmanGoalEvaluatedAt,
+                LastUserPrompt = session.LastUserPrompt,
+                LastUserPromptAt = session.LastUserPromptAt,
             });
         });
 
@@ -1078,6 +1082,67 @@ internal static class ControlEndpoints
 
             session.SendInput(new byte[] { 0x03 });
             return Results.Json(new { accepted = true });
+        });
+
+        // Send a single Escape (0x1b) to the PTY. In Claude Code this interrupts the
+        // current turn (the soft stop), distinct from /interrupt's Ctrl+C (0x03).
+        app.MapPost("/sessions/{sid}/escape", (string sid) =>
+        {
+            FileLog.Write($"[ControlEndpoints] POST escape: sid={sid}");
+
+            if (!Guid.TryParse(sid, out var guid))
+                return Results.BadRequest(new { error = "invalid session id format" });
+
+            var session = sessionManager.GetSession(guid);
+            if (session is null)
+                return Results.NotFound(new { error = "session not found" });
+
+            session.SendInput(new byte[] { 0x1b });
+            return Results.Json(new { accepted = true });
+        });
+
+        // Upload an image (from the phone) and file it into the user's screenshots folder
+        // on THIS Director's machine, where the owning Claude session can read it by
+        // absolute path. Accepts multipart/form-data with one image field ("file"). Returns
+        // the saved absolute path so the client can drop it into the composer for the user
+        // to send. The session and the saved file live on the same machine by construction
+        // (the session runs here), so the path is always valid for that session.
+        app.MapPost("/sessions/{sid}/upload-image", async (string sid, HttpContext httpCtx) =>
+        {
+            FileLog.Write($"[ControlEndpoints] POST upload-image: sid={sid}");
+
+            if (!Guid.TryParse(sid, out var guid))
+                return Results.BadRequest(new { error = "invalid session id format" });
+
+            var session = sessionManager.GetSession(guid);
+            if (session is null)
+                return Results.NotFound(new { error = "session not found" });
+
+            if (!httpCtx.Request.HasFormContentType)
+                return Results.BadRequest(new { error = "expected multipart/form-data with an image file field 'file'" });
+
+            var form = await httpCtx.Request.ReadFormAsync(httpCtx.RequestAborted);
+            var file = form.Files.GetFile("file") ?? form.Files.FirstOrDefault();
+            if (file is null || file.Length == 0)
+                return Results.BadRequest(new { error = "no image uploaded; use form field 'file'" });
+
+            var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+            var allowed = new[] { ".png", ".jpg", ".jpeg", ".gif", ".webp", ".heic", ".bmp" };
+            if (!allowed.Contains(ext))
+                return Results.BadRequest(new { error = $"unsupported image type '{ext}'. Allowed: {string.Join(", ", allowed)}" });
+
+            var dir = CcStorage.Screenshots();
+            var name = $"upload-{DateTime.Now:yyyyMMdd-HHmmss-fff}{ext}";
+            var fullPath = Path.Combine(dir, name);
+
+            await using (var dest = File.Create(fullPath))
+            await using (var src = file.OpenReadStream())
+            {
+                await src.CopyToAsync(dest, httpCtx.RequestAborted);
+            }
+
+            FileLog.Write($"[ControlEndpoints] upload-image saved: {fullPath} ({file.Length} bytes)");
+            return Results.Json(new { path = fullPath, fileName = name });
         });
 
         // ===== REST: Fan-out within this Director =====

@@ -3,6 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="CcRecorder.MainPage"
              BackgroundColor="#0B1020"
+             Shell.NavBarIsVisible="False"
              Title="CC Recorder">
 
     <ScrollView>
@@ -23,16 +24,23 @@
                            FontSize="14" TextColor="#5FD08A" HorizontalOptions="Center" />
                     <Label x:Name="SegmentLabel" Text="0 segments captured"
                            FontSize="13" TextColor="#8A93A6" HorizontalOptions="Center" />
+                    <!-- Live mic level so you can see it's hearing you -->
+                    <ProgressBar x:Name="LevelMeter" Progress="0" ProgressColor="#5FD08A"
+                                 HeightRequest="8" Margin="0,10,0,0" />
                 </VerticalStackLayout>
             </Border>
 
-            <Entry x:Name="TitleEntry" Placeholder="Title (optional, rename later)"
-                   TextColor="#E6EAF2" PlaceholderColor="#5A6378" BackgroundColor="#141B2E" />
+            <Entry x:Name="TitleEntry" Placeholder="Title (optional, edit anytime until you stop)"
+                   TextColor="#E6EAF2" PlaceholderColor="#8A93A6" BackgroundColor="#141B2E" />
 
             <Button x:Name="RecordButton" Text="Record"
                     BackgroundColor="#E5484D" TextColor="White"
                     FontSize="18" FontAttributes="Bold" HeightRequest="64"
                     CornerRadius="12" Clicked="OnRecordClicked" />
+
+            <Button x:Name="PauseButton" Text="Pause" IsVisible="False"
+                    BackgroundColor="#2B6CB0" TextColor="White" HeightRequest="50"
+                    CornerRadius="12" Clicked="OnPauseClicked" />
 
             <!-- Prominent upload/transcription status, always under the button -->
             <Border x:Name="StatusBanner" IsVisible="False"

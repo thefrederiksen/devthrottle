@@ -46,10 +46,24 @@ public sealed class TurnSummaryCache : IDisposable
         FileLog.Write("[TurnSummaryCache] Start");
 
         _sessionManager.OnSessionCreated += OnSessionCreated;
+        _sessionManager.OnSessionContextReset += OnSessionContextReset;
 
         // Wire up existing sessions too (restored on startup).
         foreach (var s in _sessionManager.ListSessions())
             WireSession(s);
+    }
+
+    private void OnSessionContextReset(Session session) => ClearSession(session.Id);
+
+    /// <summary>
+    /// Drop all cached turn summaries for a session. Called after Claude Code rotates
+    /// its session id on <c>/clear</c> so the Wingman stops surfacing summaries of the
+    /// pre-clear conversation. No-op when the session has no cached summaries.
+    /// </summary>
+    public void ClearSession(Guid sessionId)
+    {
+        if (_cache.TryRemove(sessionId, out _))
+            FileLog.Write($"[TurnSummaryCache] cleared summaries for {sessionId} after /clear");
     }
 
     public IReadOnlyList<TurnSummary> GetForSession(Guid sessionId)
@@ -222,6 +236,7 @@ public sealed class TurnSummaryCache : IDisposable
         if (_disposed) return;
         _disposed = true;
         _sessionManager.OnSessionCreated -= OnSessionCreated;
+        _sessionManager.OnSessionContextReset -= OnSessionContextReset;
         foreach (var s in _sessionManager.ListSessions())
         {
             if (_handlers.TryRemove(s.Id, out var h))

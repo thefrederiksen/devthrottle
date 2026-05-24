@@ -282,6 +282,34 @@ public sealed class SessionManager : IDisposable
     /// <summary>Fires when a Claude session is registered to a Director session.</summary>
     public event Action<Session, string>? OnClaudeSessionRegistered;
 
+    /// <summary>
+    /// Fires after a session's Wingman context has been reset following a <c>/clear</c>.
+    /// Subscribers that cache per-session Wingman state outside the <see cref="Session"/>
+    /// (e.g. <c>TurnSummaryCache</c>) should drop their entries for this session so the
+    /// Wingman stops narrating the pre-clear conversation. Arg: the affected session.
+    /// </summary>
+    public event Action<Session>? OnSessionContextReset;
+
+    /// <summary>
+    /// Reset everything that described the conversation before a <c>/clear</c> for a
+    /// session: the Session's own Wingman context (status-event log + terminal replay
+    /// buffer) and, via <see cref="OnSessionContextReset"/>, external caches keyed by
+    /// the Director session id. Invoked from the EventRouter when Claude Code rotates
+    /// its session id on <c>/clear</c>. No-op (logged) when the session is not found.
+    /// </summary>
+    public void ResetSessionContextAfterClear(Guid directorSessionId)
+    {
+        FileLog.Write($"[SessionManager] ResetSessionContextAfterClear: id={directorSessionId}");
+        if (!_sessions.TryGetValue(directorSessionId, out var session))
+        {
+            FileLog.Write($"[SessionManager] ResetSessionContextAfterClear: session not found");
+            return;
+        }
+        session.ClearWingmanContext();
+        try { OnSessionContextReset?.Invoke(session); }
+        catch (Exception ex) { _log?.Invoke($"OnSessionContextReset handler threw: {ex.Message}"); }
+    }
+
     /// <summary>Fires when a session's CustomName is changed via <see cref="RenameSession"/>.
     /// Subscribers (e.g. the Avalonia main window) should update their view models
     /// and persist state. Args: (session, newName).</summary>

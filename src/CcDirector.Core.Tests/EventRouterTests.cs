@@ -165,6 +165,61 @@ public class EventRouterTests : IDisposable
     }
 
     [Fact]
+    public void Route_SessionStart_SourceClear_ResetsWingmanContext()
+    {
+        // /clear wipes the conversation, so the pre-clear Wingman context must be
+        // dropped: the OnSessionContextReset event fires and the session's status-event
+        // log is emptied. Without this the Wingman keeps narrating the old conversation.
+        var tempPath = Path.GetTempPath();
+        var session = _manager.CreateSession(tempPath);
+        _manager.RegisterClaudeSession("old-id", session.Id);
+
+        session.SetStatusColor("red", "waiting on user before /clear");
+        Assert.NotEmpty(session.RecentWingmanEvents);
+
+        var resetForThisSession = false;
+        _manager.OnSessionContextReset += s => { if (s.Id == session.Id) resetForThisSession = true; };
+
+        _router.Route(new PipeMessage
+        {
+            HookEventName = "SessionStart",
+            SessionId = "new-id-after-clear",
+            Source = "clear",
+            Cwd = tempPath
+        });
+
+        Assert.True(resetForThisSession);
+        Assert.Empty(session.RecentWingmanEvents);
+    }
+
+    [Fact]
+    public void Route_SessionStart_SourceCompact_KeepsWingmanContext()
+    {
+        // /compact keeps the conversation going, so its Wingman context must survive:
+        // no reset event, status-event log untouched.
+        var tempPath = Path.GetTempPath();
+        var session = _manager.CreateSession(tempPath);
+        _manager.RegisterClaudeSession("old-id", session.Id);
+
+        session.SetStatusColor("green", "all good before /compact");
+        Assert.NotEmpty(session.RecentWingmanEvents);
+
+        var resetFired = false;
+        _manager.OnSessionContextReset += _ => resetFired = true;
+
+        _router.Route(new PipeMessage
+        {
+            HookEventName = "SessionStart",
+            SessionId = "new-id-after-compact",
+            Source = "compact",
+            Cwd = tempPath
+        });
+
+        Assert.False(resetFired);
+        Assert.NotEmpty(session.RecentWingmanEvents);
+    }
+
+    [Fact]
     public void Route_SessionStart_SourceStartup_DoesNotRelink()
     {
         // A genuinely new session must not adopt an existing Director session's slot.

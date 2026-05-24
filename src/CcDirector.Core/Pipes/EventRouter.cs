@@ -75,6 +75,13 @@ public sealed class EventRouter : IDisposable
                 _sessionManager.RelinkClaudeSession(orphan.Id, msg.SessionId);
                 session = orphan;
                 _log?.Invoke($"Relinked {orphan.Id} after /{msg.Source} -> Claude session {msg.SessionId[..Math.Min(8, msg.SessionId.Length)]}...");
+
+                // /clear wipes the conversation: the pre-clear Wingman context (status
+                // events, replay buffer, turn summaries) now describes a conversation
+                // that no longer exists, so drop it. /compact keeps the conversation
+                // going, so its context must be preserved -- reset on "clear" only.
+                if (msg.Source == "clear")
+                    _sessionManager.ResetSessionContextAfterClear(orphan.Id);
             }
         }
 

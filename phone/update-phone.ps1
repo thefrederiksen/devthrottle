@@ -24,9 +24,10 @@ $lines = & $adb devices | Select-String "\sdevice$"
 $phone = $null
 foreach ($l in $lines) {
     $serial = ($l.ToString() -split "\s+")[0]
-    if ($serial -like "emulator-*") { continue }
-    if ($serial -like "*_adb-tls-connect*") { continue }
-    if ($serial -match "^\d{1,3}(\.\d{1,3}){3}:\d+$") { $phone = $serial; break }
+    if ($serial -like "emulator-*") { continue }   # skip the dev emulator
+    # First non-emulator device wins: a wireless IP:port serial or an
+    # mDNS (_adb-tls-connect) serial both identify the physical phone.
+    $phone = $serial; break
 }
 
 if (-not $phone) {

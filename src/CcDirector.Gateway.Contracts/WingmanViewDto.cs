@@ -12,6 +12,14 @@ public sealed class WingmanViewDto
     /// <summary>Session ID echoed back so callers can correlate without an extra trip.</summary>
     public string SessionId { get; set; } = "";
 
+    /// <summary>
+    /// User-defined display name for the session, or null when none is set (caller
+    /// shows a default). The web Session View renders this in the header and edits it
+    /// via <c>PATCH /sessions/{sid}</c>; surfacing it here means the page can show and
+    /// refresh the name without an extra round trip to <c>GET /sessions/{sid}</c>.
+    /// </summary>
+    public string? Name { get; set; }
+
     /// <summary>Current color the wingman has written: green/blue/yellow/red/unknown.</summary>
     public string CurrentColor { get; set; } = "";
 
@@ -53,6 +61,18 @@ public sealed class WingmanViewDto
 
     /// <summary>UTC time the goal was last assessed, or null if never.</summary>
     public DateTime? GoalEvaluatedAt { get; set; }
+
+    /// <summary>
+    /// Verbatim text of the most recent prompt the user submitted to this session,
+    /// or null if none seen. The Session page shows this as the "YOU ASKED" card
+    /// while the session is working, so the user can see what the active turn is
+    /// working on. Covers every entry point (terminal, phone, voice) because it is
+    /// sourced from the Claude Code UserPromptSubmit hook.
+    /// </summary>
+    public string? LastUserPrompt { get; set; }
+
+    /// <summary>UTC time <see cref="LastUserPrompt"/> was captured, or null if none.</summary>
+    public DateTime? LastUserPromptAt { get; set; }
 }
 
 /// <summary>

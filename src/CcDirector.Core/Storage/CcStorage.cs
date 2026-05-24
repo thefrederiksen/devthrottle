@@ -111,6 +111,39 @@ public static class CcStorage
     /// <summary>Shared settings file: config/config.json</summary>
     public static string ConfigJson() => Path.Combine(Config(), "config.json");
 
+    /// <summary>
+    /// User's screenshots directory, where phone-uploaded images are filed so the
+    /// owning session can read them by absolute path. Resolution order:
+    ///   1. config.json -> screenshots.source_directory (honored when explicitly set).
+    ///   2. The Windows "Pictures" known folder + \Screenshots. GetFolderPath follows
+    ///      a OneDrive redirect, so on a machine with Pictures backed up to OneDrive
+    ///      this yields e.g. D:\...\OneDrive\Pictures\Screenshots.
+    /// The directory is created if it does not exist.
+    /// </summary>
+    public static string Screenshots()
+    {
+        var configured = TryReadConfigString("screenshots", "source_directory");
+        if (!string.IsNullOrWhiteSpace(configured))
+            return Ensure(configured);
+
+        var pictures = Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
+        return Ensure(Path.Combine(pictures, "Screenshots"));
+    }
+
+    /// <summary>
+    /// Read a nested string value from config.json (config[section][key]). Returns null
+    /// when the file, section, or key is absent. Used for optional path overrides.
+    /// </summary>
+    private static string? TryReadConfigString(string section, string key)
+    {
+        var path = ConfigJson();
+        if (!File.Exists(path)) return null;
+        using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(path));
+        if (!doc.RootElement.TryGetProperty(section, out var sectionEl)) return null;
+        if (!sectionEl.TryGetProperty(key, out var valueEl)) return null;
+        return valueEl.ValueKind == System.Text.Json.JsonValueKind.String ? valueEl.GetString() : null;
+    }
+
     /// <summary>Communication queue database: config/comm-queue/communications.db</summary>
     public static string CommQueueDb() => Path.Combine(ToolConfig("comm-queue"), "communications.db");
 

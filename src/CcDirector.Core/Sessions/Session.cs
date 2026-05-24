@@ -295,6 +295,20 @@ public sealed class Session : IDisposable
     /// </summary>
     public string LastStatusReason { get; private set; } = "session created";
 
+    /// <summary>
+    /// The verbatim text of the most recent prompt the user submitted to this
+    /// session, or null if none has been seen. Captured from the Claude Code
+    /// <c>UserPromptSubmit</c> hook in <see cref="HandlePipeEvent"/>, so it covers
+    /// every entry point (desktop terminal, phone web page, voice) - not just
+    /// prompts sent through the Control API. Surfaced via
+    /// <c>GET /sessions/{sid}/wingman</c> so the Session page can show "what I just
+    /// asked" while the turn is working.
+    /// </summary>
+    public string? LastUserPrompt { get; private set; }
+
+    /// <summary>UTC time <see cref="LastUserPrompt"/> was captured, or null if none.</summary>
+    public DateTime? LastUserPromptAt { get; private set; }
+
     /// <summary>Fires when StatusColor changes. Args: (oldColor, newColor, reason).</summary>
     public event Action<string, string, string>? OnStatusColorChanged;
 
@@ -350,6 +364,23 @@ public sealed class Session : IDisposable
         }
 
         OnStatusColorChanged?.Invoke(old, color, LastStatusReason);
+    }
+
+    /// <summary>
+    /// Drop the per-session Wingman context that describes the conversation BEFORE
+    /// a <c>/clear</c>: the status-event log and the terminal replay buffer. Claude
+    /// Code rotates its session id on <c>/clear</c> (new, empty JSONL transcript), so
+    /// without this the Wingman keeps narrating the pre-clear conversation. NOT called
+    /// for <c>/compact</c>, which keeps the conversation going. The turn-summary cache
+    /// lives outside the Session and is cleared by its owner via
+    /// <see cref="SessionManager.OnSessionContextReset"/>.
+    /// </summary>
+    public void ClearWingmanContext()
+    {
+        FileLog.Write($"[Session] ClearWingmanContext: session={Id}");
+        lock (_wingmanEventsLock)
+            _wingmanEvents.Clear();
+        Buffer?.Clear();
     }
 
     // ---- Wingman goal management ----
@@ -592,6 +623,8 @@ public sealed class Session : IDisposable
         // Accumulate turn data for session summary
         if (msg.HookEventName == "UserPromptSubmit" && !string.IsNullOrEmpty(msg.Prompt))
         {
+            LastUserPrompt = msg.Prompt;
+            LastUserPromptAt = DateTime.UtcNow;
             var interrupted = _turnAccumulator.StartTurn(msg.Prompt);
             if (interrupted != null)
                 OnTurnCompleted?.Invoke(this, interrupted);

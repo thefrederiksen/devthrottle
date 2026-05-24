@@ -53,6 +53,37 @@ public class ActivityStateTests : IDisposable
     }
 
     [Fact]
+    public void HandlePipeEvent_UserPromptSubmit_CapturesLastUserPrompt()
+    {
+        var session = CreateTestSession();
+        Assert.Null(session.LastUserPrompt);
+
+        session.HandlePipeEvent(new PipeMessage { HookEventName = "UserPromptSubmit", Prompt = "fix the null deref" });
+
+        Assert.Equal("fix the null deref", session.LastUserPrompt);
+        Assert.NotNull(session.LastUserPromptAt);
+    }
+
+    [Fact]
+    public void HandlePipeEvent_SecondUserPromptSubmit_OverwritesLastUserPrompt()
+    {
+        var session = CreateTestSession();
+        session.HandlePipeEvent(new PipeMessage { HookEventName = "UserPromptSubmit", Prompt = "first ask" });
+        session.HandlePipeEvent(new PipeMessage { HookEventName = "Stop" });
+        session.HandlePipeEvent(new PipeMessage { HookEventName = "UserPromptSubmit", Prompt = "second ask" });
+
+        Assert.Equal("second ask", session.LastUserPrompt);
+    }
+
+    [Fact]
+    public void HandlePipeEvent_UserPromptSubmit_EmptyPrompt_LeavesLastUserPromptNull()
+    {
+        var session = CreateTestSession();
+        session.HandlePipeEvent(new PipeMessage { HookEventName = "UserPromptSubmit", Prompt = "" });
+        Assert.Null(session.LastUserPrompt);
+    }
+
+    [Fact]
     public void HandlePipeEvent_Notification_PermissionPrompt_SetsWaitingForPerm()
     {
         var session = CreateTestSession();

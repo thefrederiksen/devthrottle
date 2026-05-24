@@ -20,6 +20,9 @@ internal static class GatewayEndpoints
         // Phone recorder ingest (offline-recorded audio -> transcription -> vault).
         RecordingEndpoints.Map(app);
 
+        // Local-machine exe/slot management (the "Exes" page).
+        ExesEndpoints.Map(app, registry, client);
+
         // ===== HTML pages =====
         // Phase 1: the canonical "/" is the directory page. The legacy aggregator
         // manager UI is still reachable at "/legacy-manager" for the embedded
@@ -51,6 +54,13 @@ internal static class GatewayEndpoints
         app.MapGet("/api", () =>
         {
             var html = EmbeddedResources.Load("api.html");
+            return Results.Content(html, "text/html; charset=utf-8");
+        });
+
+        app.MapGet("/exes", () =>
+        {
+            var html = EmbeddedResources.Load("exes.html")
+                .Replace("__LOGOUT_VISIBILITY__", logoutVisibility);
             return Results.Content(html, "text/html; charset=utf-8");
         });
 
@@ -257,6 +267,21 @@ internal static class GatewayEndpoints
             return Results.Json(session);
         });
 
+        // Forward "kill this session" to the owning Director so a remote client (the
+        // phone) can shut a session down. Without this, DELETE only worked on the
+        // Director's own Control API, never through the Gateway.
+        app.MapDelete("/sessions/{sid}", async (string sid) =>
+        {
+            var (director, session) = await LocateSessionAsync(registry, client, sid);
+            if (session is null || director is null)
+                return Results.NotFound(new { error = "session not found across any director" });
+            var ep = (director.ControlEndpoint ?? "").TrimEnd('/');
+            var ok = await client.KillSessionAsync(ep, sid);
+            if (!ok)
+                return Results.StatusCode(StatusCodes.Status502BadGateway);
+            return Results.Json(new { killed = true });
+        });
+
         // Phase 4b: forward wingman observability through the Gateway so the merged
         // Session View on the gateway side can render WHY a dot is the color it is.
         app.MapGet("/sessions/{sid}/wingman", async (string sid) =>
@@ -395,6 +420,48 @@ internal static class GatewayEndpoints
             return ok
                 ? Results.Json(new { accepted = true })
                 : Results.StatusCode(StatusCodes.Status502BadGateway);
+        });
+
+        app.MapPost("/sessions/{sid}/escape", async (string sid) =>
+        {
+            var (director, session) = await LocateSessionAsync(registry, client, sid);
+            if (session is null || director is null)
+                return Results.NotFound(new { error = "session not found across any director" });
+
+            var ok = await client.PostEscapeAsync(director.ControlEndpoint, sid);
+            return ok
+                ? Results.Json(new { accepted = true })
+                : Results.StatusCode(StatusCodes.Status502BadGateway);
+        });
+
+        // Phone image upload: the browser POSTs the image to the Gateway (its origin); we
+        // forward the bytes to the owning Director, which files it into its screenshots
+        // folder (same machine as the session) and returns the saved absolute path.
+        app.MapPost("/sessions/{sid}/upload-image", async (string sid, HttpContext ctx) =>
+        {
+            var (director, session) = await LocateSessionAsync(registry, client, sid);
+            if (session is null || director is null)
+                return Results.NotFound(new { error = "session not found across any director" });
+
+            if (!ctx.Request.HasFormContentType)
+                return Results.BadRequest(new { error = "expected multipart/form-data with an image file field 'file'" });
+
+            var form = await ctx.Request.ReadFormAsync(ctx.RequestAborted);
+            var file = form.Files.GetFile("file") ?? form.Files.FirstOrDefault();
+            if (file is null || file.Length == 0)
+                return Results.BadRequest(new { error = "no image uploaded; use form field 'file'" });
+
+            using var ms = new MemoryStream();
+            await file.CopyToAsync(ms, ctx.RequestAborted);
+
+            FileLog.Write($"[GatewayEndpoints] POST upload-image: sid={sid}, director={director.DirectorId}, bytes={ms.Length}");
+
+            var (ok, path, fileName, err) = await client.UploadImageAsync(
+                director.ControlEndpoint, sid, ms.ToArray(), file.FileName, file.ContentType, ctx.RequestAborted);
+            if (!ok)
+                return Results.Json(new { error = err }, statusCode: StatusCodes.Status502BadGateway);
+
+            return Results.Json(new { path, fileName });
         });
 
         app.MapGet("/directors/{id}/repos", async (string id) =>
@@ -789,7 +856,7 @@ internal static class GatewayEndpoints
     //
     // Without (2), ViewUrl returns http://127.0.0.1:<port>/... which is
     // unreachable from a phone or any non-loopback client.
-    private static string DeriveDirectorBaseUrl(HttpContext ctx, DirectorDto d)
+    internal static string DeriveDirectorBaseUrl(HttpContext ctx, DirectorDto d)
     {
         var requestHost = ctx.Request.Host.Host;
         var callerIsLoopback = string.IsNullOrEmpty(requestHost)

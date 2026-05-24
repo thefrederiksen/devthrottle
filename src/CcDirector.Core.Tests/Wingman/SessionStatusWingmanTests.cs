@@ -252,6 +252,29 @@ public sealed class SessionStatusWingmanTests
     }
 
     [Fact]
+    public void ClearWingmanContext_clears_status_events_and_replay_buffer()
+    {
+        // After a /clear the conversation no longer exists, so ClearWingmanContext
+        // must empty both the status-event log and the terminal replay buffer that
+        // the Wingman feeds on.
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        try
+        {
+            var (session, _) = CreateBufferSession(manager);
+            session.SetStatusColor(StatusColor.Red, "needs user before /clear");
+            session.Buffer!.Write(new byte[] { 1, 2, 3, 4 });
+            Assert.NotEmpty(session.RecentWingmanEvents);
+            Assert.NotEmpty(session.Buffer!.DumpAll());
+
+            session.ClearWingmanContext();
+
+            Assert.Empty(session.RecentWingmanEvents);
+            Assert.Empty(session.Buffer!.DumpAll());
+        }
+        finally { manager.Dispose(); }
+    }
+
+    [Fact]
     public void WingmanEventLog_caps_at_50_entries()
     {
         var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });

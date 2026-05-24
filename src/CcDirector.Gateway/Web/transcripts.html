@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Transcripts - CC Director Gateway</title>
+<style>
+  :root{--bg:#0B1020;--panel:#141B2E;--panel2:#1B2540;--ink:#E6EAF2;--muted:#8A93A6;
+        --line:#27324d;--green:#5FD08A;--blue:#5B8DEF;--amber:#E8B339;--red:#E5484D;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.5}
+  .wrap{max-width:900px;margin:0 auto;padding:28px 20px 80px}
+  .top{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+  h1{font-size:26px;margin:0}
+  a.back{color:var(--blue);text-decoration:none;font-size:14px}
+  .sub{color:var(--muted);font-size:14px;margin:0 0 22px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin:12px 0}
+  .row{display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer}
+  .title{font-size:16px;font-weight:600}
+  .meta{color:var(--muted);font-size:13px;margin-top:3px}
+  .badge{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:600;white-space:nowrap}
+  .b-uploaded{background:rgba(95,208,138,.16);color:var(--green);border:1px solid rgba(95,208,138,.4)}
+  .b-other{background:rgba(232,179,57,.14);color:var(--amber);border:1px solid rgba(232,179,57,.4)}
+  .body{margin-top:14px;display:none}
+  .body.open{display:block}
+  .controls{display:flex;gap:10px;margin-bottom:12px}
+  button{background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px 14px;font-size:14px;cursor:pointer}
+  button:hover{border-color:var(--blue)}
+  button.play{background:#1f7a47;border-color:#2a9c5b;color:#fff}
+  .transcript{white-space:pre-wrap;background:#0d1426;border:1px solid var(--line);border-radius:10px;padding:14px;font-size:14px;color:#cdd6e6;max-height:380px;overflow:auto}
+  .empty{color:var(--muted);text-align:center;padding:60px 0}
+  .nowplaying{color:var(--green);font-size:12.5px;margin-left:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <h1>Transcripts</h1>
+    <a class="back" href="/">&larr; Dashboard</a>
+  </div>
+  <p class="sub">Recordings uploaded from the phone, transcribed into your vault. Click one to read it or play the audio.</p>
+  <div id="list"><p class="empty">Loading...</p></div>
+</div>
+
+<script>
+  let current = null; // currently playing Audio
+
+  function fmtDate(iso){
+    try { return new Date(iso).toLocaleString(); } catch { return iso; }
+  }
+  function fmtDur(ms){
+    const s = Math.round(ms/1000), m = Math.floor(s/60), r = s%60;
+    return (m<10?'0':'')+m+':'+(r<10?'0':'')+r;
+  }
+
+  function stopAudio(){
+    if (current){ current.pause(); current.onended=null; current = null; }
+    document.querySelectorAll('.nowplaying').forEach(e=>e.textContent='');
+  }
+
+  function playRecording(id, segments, labelEl){
+    stopAudio();
+    let i = 0;
+    const a = new Audio();
+    current = a;
+    a.onended = () => {
+      i++;
+      if (i < segments && current === a){ a.src = `/ingest/recording/${id}/audio/${i}`; a.play(); }
+      else if (current === a){ labelEl.textContent=''; current = null; }
+    };
+    a.onerror = () => { labelEl.textContent = ' (playback error)'; };
+    a.src = `/ingest/recording/${id}/audio/0`;
+    a.play().then(()=>{ labelEl.textContent = ' playing...'; }).catch(()=>{ labelEl.textContent=' (tap again to play)'; });
+  }
+
+  async function toggleBody(item, card){
+    const body = card.querySelector('.body');
+    if (body.classList.contains('open')){ body.classList.remove('open'); return; }
+    body.classList.add('open');
+    const tEl = body.querySelector('.transcript');
+    if (tEl.dataset.loaded !== '1'){
+      if (item.hasTranscript){
+        try {
+          const r = await fetch(`/ingest/recording/${item.recordingId}/transcript`);
+          tEl.textContent = r.ok ? await r.text() : '(transcript unavailable)';
+        } catch { tEl.textContent = '(failed to load transcript)'; }
+      } else {
+        tEl.textContent = item.state === 'filed' ? '(no transcript text stored)' : `Not transcribed yet (state: ${item.state}).`;
+      }
+      tEl.dataset.loaded = '1';
+    }
+  }
+
+  function render(items){
+    const list = document.getElementById('list');
+    if (!items.length){ list.innerHTML = '<p class="empty">No recordings yet. Record something on the phone and it will appear here.</p>'; return; }
+    list.innerHTML = '';
+    for (const item of items){
+      const card = document.createElement('div');
+      card.className = 'card';
+      const uploaded = item.state === 'filed';
+      card.innerHTML = `
+        <div class="row">
+          <div>
+            <div class="title"></div>
+            <div class="meta">${fmtDate(item.startedAt)} &middot; ${fmtDur(item.durationMs)} &middot; ${item.segments} segment(s)</div>
+          </div>
+          <span class="badge ${uploaded?'b-uploaded':'b-other'}">${uploaded?'transcribed':item.state}</span>
+        </div>
+        <div class="body">
+          <div class="controls">
+            <button class="play">Play audio</button><span class="nowplaying"></span>
+          </div>
+          <div class="transcript">Loading transcript...</div>
+        </div>`;
+      card.querySelector('.title').textContent = item.title;
+      card.querySelector('.row').addEventListener('click', () => toggleBody(item, card));
+      const npl = card.querySelector('.nowplaying');
+      card.querySelector('.play').addEventListener('click', (e) => {
+        e.stopPropagation();
+        playRecording(item.recordingId, item.segments || 1, npl);
+      });
+      list.appendChild(card);
+    }
+  }
+
+  fetch('/ingest/recordings')
+    .then(r => r.json())
+    .then(render)
+    .catch(() => { document.getElementById('list').innerHTML = '<p class="empty">Failed to load. Is the Gateway running?</p>'; });
+</script>
+</body>
+</html>

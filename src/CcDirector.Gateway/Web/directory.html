@@ -73,6 +73,8 @@
     border-radius: 6px;
   }
   header a.link:hover { background: rgba(14,99,156,0.15); }
+  header a.link-accent { background: var(--accent); color: white; font-weight: 600; }
+  header a.link-accent:hover { background: var(--accent-hover); }
 
   main { padding: 16px 14px 40px; max-width: 1400px; margin: 0 auto; }
 
@@ -165,6 +167,27 @@
     white-space: nowrap;
   }
   .card .title.unnamed { color: var(--muted); font-style: italic; font-weight: 500; }
+  .rename-target { cursor: text; }
+  .rename-pencil {
+    opacity: 0;
+    margin-left: 6px;
+    color: var(--muted-2);
+    font-size: 12px;
+    transition: opacity 120ms;
+  }
+  .card:hover .rename-pencil { opacity: 1; }
+  .name-edit {
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font: inherit;
+    font-weight: 600;
+    width: 100%;
+    max-width: 240px;
+    outline: none;
+  }
   .card .agent-pill {
     flex-shrink: 0;
     background: var(--panel-2);
@@ -212,73 +235,8 @@
   }
   .card .open-btn:hover { background: var(--accent-hover); }
 
-  /* List view */
-  table.list {
-    width: 100%;
-    border-collapse: collapse;
-    background: var(--panel);
-    border-radius: 8px;
-    overflow: hidden;
-  }
-  table.list th, table.list td {
-    text-align: left;
-    padding: 8px 12px;
-    border-bottom: 1px solid var(--border);
-    vertical-align: middle;
-  }
-  table.list thead th {
-    background: rgba(14,99,156,0.10);
-    color: var(--muted);
-    font-weight: 600;
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-  table.list tbody tr:last-child td { border-bottom: none; }
-  table.list tbody tr:hover { background: rgba(255,255,255,0.02); }
-  table.list .dot {
-    display: inline-block;
-    width: 14px; height: 14px;
-    border-radius: 50%;
-    vertical-align: middle;
-    box-shadow: 0 0 0 1px rgba(255,255,255,0.06);
-  }
-  table.list .dot.red { background: var(--red); }
-  table.list .dot.yellow { background: var(--yellow); }
-  table.list .dot.green { background: var(--green); }
-  table.list .dot.blue { background: var(--blue); }
-  table.list .dot.unknown { background: var(--muted-2); }
-  table.list .dot { cursor: help; }
-  table.list .agent-pill {
-    background: var(--panel-2);
-    color: var(--muted);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 1px 8px;
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    font-weight: 600;
-  }
-  table.list .repo { color: var(--muted); font-family: "Cascadia Code", Consolas, monospace; font-size: 11px; }
-  table.list .name { font-weight: 600; }
-  table.list .name.unnamed { font-style: italic; color: var(--muted); font-weight: 500; }
-  table.list .idle { color: var(--muted-2); font-size: 12px; }
-  table.list .open-btn {
-    display: inline-block;
-    background: var(--accent);
-    color: white;
-    text-decoration: none;
-    padding: 4px 12px;
-    border-radius: 6px;
-    font-size: 12px;
-    font-weight: 600;
-  }
-  table.list .open-btn:hover { background: var(--accent-hover); }
-
   @media (max-width: 720px) {
     .cards { grid-template-columns: 1fr; }
-    table.list .repo, table.list th.repo { display: none; }
   }
 </style>
 </head>
@@ -289,10 +247,9 @@
   <span class="spacer"></span>
   <div class="view-toggle" role="tablist" aria-label="View toggle">
     <button id="btn-cards" type="button" class="active" data-view="cards" role="tab" aria-selected="true">Cards</button>
-    <button id="btn-list" type="button" data-view="list" role="tab" aria-selected="false">List</button>
   </div>
-  <a class="link" href="/api">/api</a>
-  <a class="link" href="/healthz">healthz</a>
+  <a class="link link-accent" href="/transcripts">transcripts</a>
+  <a class="link link-accent" href="/exes">exes</a>
   <a class="link" href="/logout" __LOGOUT_VISIBILITY__>logout</a>
 </header>
 
@@ -305,7 +262,6 @@
 const REFRESH_MS = 2000;
 
 const state = {
-  view: localStorage.getItem("gw_view") || "cards",
   sessions: [],
   machineErrors: [],
 };
@@ -417,6 +373,16 @@ function groupByMachine(sessions) {
 
 // ---------- rendering ----------
 
+// Builds the clickable session-name element. Clicking it begins an inline rename
+// (see beginRename via event delegation on #content). extraClass distinguishes
+// the card title from the list-row name so existing styles still apply.
+function nameMarkup(s, extraClass) {
+  const name = s.name || "";
+  const unnamed = name ? "" : " unnamed";
+  const text = name ? escapeHtml(name) : "(unnamed)";
+  return `<span class="${extraClass}${unnamed} rename-target" data-sid="${escapeHtml(s.sessionId)}" data-name="${escapeHtml(name)}" title="Click to rename">${text}<span class="rename-pencil">&#9998;</span></span>`;
+}
+
 function renderHeader() {
   const sessions = state.sessions;
   const reds = sessions.filter(s => statusColorOf(s) === "red").length;
@@ -445,10 +411,7 @@ function renderCardsView(groups) {
       for (const s of g.sessions) {
         const color = statusColorOf(s);
         const dotTitle = dotTooltipOf(s);
-        const name = s.name || "";
-        const titleHtml = name
-          ? `<span class="title">${escapeHtml(name)}</span>`
-          : `<span class="title unnamed">(unnamed)</span>`;
+        const titleHtml = nameMarkup(s, "title");
         html += `<article class="card">`;
         html += `<div class="head">`;
         html += `<span class="dot ${color}" title="${escapeHtml(dotTitle)}"></span>`;
@@ -472,57 +435,6 @@ function renderCardsView(groups) {
   return html;
 }
 
-function renderListView(groups) {
-  let html = "";
-  for (const g of groups) {
-    if (g.sessions.length === 0 && !g.error) continue;
-    html += `<section class="machine-group">`;
-    html += `<div class="machine-header">`;
-    html += `<span class="name">${escapeHtml(g.name)}</span>`;
-    if (g.user) html += `<span class="user">&middot; ${escapeHtml(g.user)}</span>`;
-    html += `<span class="count">&middot; ${g.sessions.length} session${g.sessions.length === 1 ? "" : "s"}</span>`;
-    if (g.error) html += `<span class="unreachable">&middot; unreachable: ${escapeHtml(g.error)}</span>`;
-    html += `</div>`;
-
-    if (g.sessions.length > 0) {
-      html += `<table class="list">`;
-      html += `<thead><tr>
-        <th style="width:32px"></th>
-        <th>Agent</th>
-        <th>Name</th>
-        <th class="repo">Repo</th>
-        <th>State</th>
-        <th>Idle</th>
-        <th></th>
-      </tr></thead><tbody>`;
-      for (const s of g.sessions) {
-        const color = statusColorOf(s);
-        const dotTitle = dotTooltipOf(s);
-        const name = s.name || "";
-        const nameHtml = name
-          ? `<span class="name">${escapeHtml(name)}</span>`
-          : `<span class="name unnamed">(unnamed)</span>`;
-        html += `<tr>`;
-        html += `<td><span class="dot ${color}" title="${escapeHtml(dotTitle)}"></span></td>`;
-        html += `<td><span class="agent-pill">${escapeHtml(s.agent || "?")}</span></td>`;
-        html += `<td>${nameHtml}</td>`;
-        html += `<td class="repo" title="${escapeHtml(s.repoPath || "")}">${escapeHtml(repoBasename(s.repoPath))}</td>`;
-        html += `<td><span class="state">${escapeHtml(humanizeState(s.activityState))}</span></td>`;
-        html += `<td class="idle">${escapeHtml(relativeTime(s.lastActivityAt))}</td>`;
-        html += `<td>`;
-        if (s.viewUrl) {
-          html += `<a class="open-btn" href="${escapeHtml(s.viewUrl)}">Open</a>`;
-        }
-        html += `</td>`;
-        html += `</tr>`;
-      }
-      html += `</tbody></table>`;
-    }
-    html += `</section>`;
-  }
-  return html;
-}
-
 function render() {
   renderHeader();
   const groups = groupByMachine(state.sessions);
@@ -536,12 +448,87 @@ function render() {
       '</div>';
     return;
   }
-  content.innerHTML = state.view === "cards" ? renderCardsView(groups) : renderListView(groups);
+  content.innerHTML = renderCardsView(groups);
 }
+
+// ---------- rename ----------
+
+// Session id currently being edited inline, or null. While set, refresh() is
+// paused so the 2s auto-refresh does not blow away the input mid-edit.
+let editingSid = null;
+
+function beginRename(targetEl) {
+  if (editingSid) return;
+  const sid = targetEl.getAttribute("data-sid");
+  if (!sid) return;
+  const current = targetEl.getAttribute("data-name") || "";
+  editingSid = sid;
+
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "name-edit";
+  input.value = current;
+  input.placeholder = "Session name";
+  input.maxLength = 120;
+
+  let done = false;
+  const finish = (commit) => {
+    if (done) return;
+    done = true;
+    if (commit) commitRename(sid, input.value);
+    else cancelRename();
+  };
+
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); finish(true); }
+    else if (e.key === "Escape") { e.preventDefault(); finish(false); }
+  });
+  input.addEventListener("blur", () => finish(true));
+
+  targetEl.replaceWith(input);
+  input.focus();
+  input.select();
+}
+
+function cancelRename() {
+  editingSid = null;
+  render();        // rebuild from current state, swapping the input back to a span
+}
+
+async function commitRename(sid, value) {
+  const trimmed = (value || "").trim();
+  const session = state.sessions.find(x => x.sessionId === sid);
+  const existing = session && session.name ? session.name : "";
+  if (trimmed === existing) { cancelRename(); return; }
+
+  try {
+    const resp = await fetch("/sessions/" + encodeURIComponent(sid), {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({ name: trimmed }),
+    });
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    const dto = await resp.json();
+    if (session) session.name = (dto && dto.name && dto.name.trim()) ? dto.name.trim() : "";
+  } catch (e) {
+    alert("Rename failed: " + (e && e.message ? e.message : e));
+  } finally {
+    editingSid = null;
+    render();
+  }
+}
+
+// One delegated click handler survives the innerHTML rebuilds.
+document.getElementById("content").addEventListener("click", (e) => {
+  const target = e.target.closest(".rename-target");
+  if (target) { e.preventDefault(); beginRename(target); }
+});
 
 // ---------- data ----------
 
 async function refresh() {
+  if (editingSid) return;   // do not clobber an in-progress rename
   if (inflight) { inflight.abort(); inflight = null; }
   const controller = new AbortController();
   inflight = controller;
@@ -573,21 +560,7 @@ async function refresh() {
 
 // ---------- wiring ----------
 
-function setView(v) {
-  state.view = v;
-  localStorage.setItem("gw_view", v);
-  document.getElementById("btn-cards").classList.toggle("active", v === "cards");
-  document.getElementById("btn-cards").setAttribute("aria-selected", v === "cards" ? "true" : "false");
-  document.getElementById("btn-list").classList.toggle("active", v === "list");
-  document.getElementById("btn-list").setAttribute("aria-selected", v === "list" ? "true" : "false");
-  render();
-}
-
-document.getElementById("btn-cards").addEventListener("click", () => setView("cards"));
-document.getElementById("btn-list").addEventListener("click", () => setView("list"));
-
-// Initial view setup.
-setView(state.view);
+render();
 refresh();
 setInterval(refresh, REFRESH_MS);
 </script>

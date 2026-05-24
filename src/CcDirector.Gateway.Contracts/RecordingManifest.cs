@@ -57,6 +57,19 @@ public sealed record RecordingRegisterRequest(
 /// Response of <c>GET /ingest/recording/{id}/status</c>. <see cref="State"/>
 /// is one of: receiving, transcribing, cleaning, filed, error.
 /// </summary>
+/// <summary>
+/// One row in the Gateway transcripts list: enough to render the list and
+/// link to the transcript text + audio segments.
+/// </summary>
+public sealed record RecordingListItem(
+    string RecordingId,
+    string Title,
+    string StartedAt,
+    string State,
+    int Segments,
+    long DurationMs,
+    bool HasTranscript);
+
 public sealed record RecordingStatusDto(
     string RecordingId,
     string Title,
