@@ -591,22 +591,49 @@
                                    HorizontalAlignment="Center"
                                    VerticalAlignment="Center" />
 
-                        <!-- Terminal + scrollbar, plus a bottom-docked pending-question
-                             banner that mirrors the Session tab's red callout. The banner
-                             is non-interactive (no text input, no focus capture) so the
-                             terminal above it stays exactly Claude Code as the user typed
-                             it - the sacred-terminal rule. -->
-                        <DockPanel x:Name="TerminalDock" IsVisible="False">
-                            <!-- Pending-question banner: same visual as the Session tab's
+                        <!-- Terminal + scrollbar, with the pending-question banner drawn
+                             as an OVERLAY on top of the terminal (same grid cell, higher
+                             z-order, bottom-anchored) rather than a docked sibling.
+
+                             Docking the banner used to steal vertical space, which shrank
+                             the terminal, which forced a ConPty Resize and a full Claude
+                             Code repaint. The TerminalStateDetector read that repaint as
+                             "output flowing", flipped the session back to working (hiding
+                             the banner), which grew the terminal and resized again -> a
+                             ~5s blink/repaint loop that looked like the terminal was being
+                             injected into. Overlaying keeps the PTY geometry fixed no
+                             matter the banner's visibility - the sacred-terminal rule. -->
+                        <Grid x:Name="TerminalDock" IsVisible="False">
+                            <!-- Terminal + scrollbar fill the whole area -->
+                            <Grid x:Name="TerminalGrid">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <terminal:TerminalControl x:Name="TerminalHost"
+                                                          Grid.Column="0" />
+                                <ScrollBar x:Name="TerminalScrollBar" Grid.Column="1"
+                                           Orientation="Vertical"
+                                           Width="14"
+                                           Background="#1E1E1E"
+                                           Foreground="#5A5A5A"
+                                           AllowAutoHide="False"
+                                           Opacity="1" />
+                            </Grid>
+
+                            <!-- Pending-question banner overlay: bottom-anchored, drawn
+                                 over the terminal. Same visual as the Session tab's
                                  PendingQuestion widget; hidden unless the active session
-                                 is red with a non-empty reason. -->
+                                 is red with a non-empty reason. Non-interactive (no text
+                                 input, no focus capture) and does NOT resize the terminal. -->
                             <Border x:Name="TerminalPendingQuestionBanner"
-                                    DockPanel.Dock="Bottom"
+                                    VerticalAlignment="Bottom"
+                                    HorizontalAlignment="Stretch"
                                     Background="#7C2D12"
                                     BorderBrush="#F97316"
                                     BorderThickness="2"
                                     CornerRadius="8"
-                                    Margin="8,8,8,8"
+                                    Margin="8,8,22,8"
                                     Padding="16,14"
                                     IsVisible="False">
                                 <StackPanel>
@@ -634,24 +661,7 @@
                                                TextWrapping="Wrap" />
                                 </StackPanel>
                             </Border>
-
-                            <!-- Terminal + scrollbar fill remaining space -->
-                            <Grid x:Name="TerminalGrid">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <terminal:TerminalControl x:Name="TerminalHost"
-                                                          Grid.Column="0" />
-                                <ScrollBar x:Name="TerminalScrollBar" Grid.Column="1"
-                                           Orientation="Vertical"
-                                           Width="14"
-                                           Background="#1E1E1E"
-                                           Foreground="#5A5A5A"
-                                           AllowAutoHide="False"
-                                           Opacity="1" />
-                            </Grid>
-                        </DockPanel>
+                        </Grid>
                     </Panel>
 
                     <!-- Source Control panel -->
