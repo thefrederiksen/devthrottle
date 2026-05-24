@@ -52,6 +52,7 @@
       }
       .ccd-label.initializing { color: #dcdcaa; }
       .ccd-label.transcribing { color: #dcdcaa; }
+      .ccd-label.paused { color: #dcdcaa; }
       .ccd-label.error { color: #f44747; }
       .ccd-timer {
         margin-left: auto;
@@ -59,6 +60,7 @@
         font-size: 22px; font-weight: 600; color: #f44747;
       }
       .ccd-timer.transcribing { color: #dcdcaa; }
+      .ccd-timer.paused { color: #dcdcaa; }
       .ccd-eq {
         display: flex; align-items: flex-end; justify-content: center;
         gap: 5px; height: 52px; margin: 8px 0 14px;
@@ -81,6 +83,7 @@
       .ccd-eq.transcribing .bar:nth-child(7) { animation-delay: 0.48s; }
       .ccd-eq.transcribing .bar:nth-child(8) { animation-delay: 0.40s; }
       .ccd-eq.transcribing .bar:nth-child(9) { animation-delay: 0.32s; }
+      .ccd-eq.paused .bar { background: #6a6a6a; }
       @keyframes ccd-bar-idle {
         0%, 100% { height: 6px; }
         50%      { height: 38px; }
@@ -104,8 +107,14 @@
         cursor: pointer; min-width: 88px;
       }
       .ccd-btn-cancel { background: #2d2d30; color: #ccc; }
+      .ccd-btn-pause  { background: #2d2d30; color: #ccc; }
+      .ccd-btn-pause:disabled { opacity: 0.6; cursor: not-allowed; }
       .ccd-btn-stop   { background: #f44747; color: #fff; }
       .ccd-btn-stop:disabled { opacity: 0.6; cursor: not-allowed; }
+      .ccd-pause-glyph {
+        display: inline-flex; gap: 4px; align-items: center; justify-content: center;
+      }
+      .ccd-pause-glyph i { width: 4px; height: 14px; background: #ccc; display: block; border-radius: 1px; }
     `;
     const style = document.createElement('style');
     style.id = 'cc-dictate-styles';
@@ -131,6 +140,7 @@
         <div class="ccd-foot">
           <div class="ccd-hint">Setting up the microphone. Do not speak yet...</div>
           <button type="button" class="ccd-btn ccd-btn-cancel">Cancel</button>
+          <button type="button" class="ccd-btn ccd-btn-pause" disabled><span class="ccd-pause-glyph"><i></i><i></i></span></button>
           <button type="button" class="ccd-btn ccd-btn-stop" disabled>Stop</button>
         </div>
       </div>
@@ -161,8 +171,14 @@
     const transcriptEl= overlay.querySelector('.ccd-transcript');
     const hintEl      = overlay.querySelector('.ccd-hint');
     const cancelBtn   = overlay.querySelector('.ccd-btn-cancel');
+    const pauseBtn    = overlay.querySelector('.ccd-btn-pause');
     const stopBtn     = overlay.querySelector('.ccd-btn-stop');
 
+    // Segment-scoped (reset on each Resume): one WebSocket + capture graph per
+    // recording segment. The server's /dictate is single-shot (one start ->
+    // stop -> final -> close), so a Pause finalizes the current segment and a
+    // Resume opens a brand new segment. Cleaned text is accumulated across
+    // segments client-side, mirroring the desktop SpeakDialog.
     let mediaStream = null;
     let ws = null;
     let audioContext = null;
@@ -172,24 +188,59 @@
     let levelAnalyser = null;
     let levelData = null;
     let levelRaf = null;
+
+    // Persistent across segments.
     let timerHandle = null;
     let t0 = performance.now();
-    let stage = 'initializing'; // initializing | recording | transcribing | error
+    let elapsedBeforeSegmentMs = 0;       // total recorded time across prior segments
+    let accumulatedText = '';             // cleaned text from finalized segments
+    let currentPartial = '';              // live partial for the active segment
+    let finalIntent = 'complete';         // what to do when 'final' arrives: 'complete' | 'pause'
+    let stage = 'initializing';           // initializing | recording | paused | transcribing | error
     let done = false;
 
-    function teardown() {
-      if (done) return;
-      done = true;
-      try { if (timerHandle) clearInterval(timerHandle); } catch (_) {}
+    // Tear down just the current segment's WebSocket + audio graph. Detaches
+    // the socket handlers first so the controlled close does not trip the
+    // onclose/onerror error paths. Does NOT remove the overlay or fire any
+    // callback, so the dialog can keep living through a pause.
+    function teardownSegment() {
       try { if (levelRaf) cancelAnimationFrame(levelRaf); } catch (_) {}
+      levelRaf = null;
+      try { if (ws) { ws.onmessage = null; ws.onerror = null; ws.onclose = null; } } catch (_) {}
       try { if (sourceNode) sourceNode.disconnect(); } catch (_) {}
       try { if (workletNode) workletNode.disconnect(); } catch (_) {}
       try { if (audioContext) audioContext.close(); } catch (_) {}
       try { if (levelAudioContext) levelAudioContext.close(); } catch (_) {}
       try { if (mediaStream) mediaStream.getTracks().forEach(t => t.stop()); } catch (_) {}
       try { if (ws && ws.readyState === WebSocket.OPEN) ws.close(); } catch (_) {}
+      ws = null; audioContext = null; sourceNode = null; workletNode = null;
+      levelAudioContext = null; levelAnalyser = null; levelData = null; mediaStream = null;
+    }
+
+    function teardown() {
+      if (done) return;
+      done = true;
+      try { if (timerHandle) clearInterval(timerHandle); } catch (_) {}
+      teardownSegment();
       try { document.removeEventListener('keydown', onKeyDown); } catch (_) {}
       if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+    }
+
+    function joinText(left, right) {
+      if (!left) return right || '';
+      if (!right) return left;
+      if (/\s$/.test(left) || /^\s/.test(right)) return left + right;
+      return left + ' ' + right;
+    }
+
+    function renderTranscript() {
+      const combined = joinText(accumulatedText, currentPartial);
+      transcriptEl.textContent = combined || transcriptEl.getAttribute('data-empty');
+      transcriptEl.style.color = combined ? '#ddd' : '#888';
+    }
+
+    function setPauseGlyph() {
+      pauseBtn.innerHTML = '<span class="ccd-pause-glyph"><i></i><i></i></span>';
     }
 
     function complete(text) {
@@ -211,26 +262,68 @@
     document.addEventListener('keydown', onKeyDown);
     cancelBtn.addEventListener('click', cancel);
     stopBtn.addEventListener('click', () => {
-      if (stage !== 'recording') return;
-      sendStop();
+      if (stage === 'recording') {
+        finalIntent = 'complete';
+        sendStop();
+      } else if (stage === 'paused') {
+        // Nothing live to finalize; just hand back what we have accumulated.
+        complete(accumulatedText);
+      }
     });
+    pauseBtn.addEventListener('click', () => {
+      if (stage === 'recording') pause();
+      else if (stage === 'paused') resume();
+    });
+
+    function pause() {
+      // Freeze the timer at the click instant by banking the current segment's
+      // elapsed time, then finalize the segment so the server cleans up what
+      // was said. The 'final' handler (finalIntent === 'pause') accumulates the
+      // text and parks the UI in the paused state.
+      elapsedBeforeSegmentMs += performance.now() - t0;
+      currentPartial = '';
+      finalIntent = 'pause';
+      pauseBtn.disabled = true;
+      sendStop();
+    }
+
+    function resume() {
+      currentPartial = '';
+      pauseBtn.disabled = true;
+      startSegment();
+    }
 
     function setStage(s) {
       stage = s;
-      labelEl.classList.remove('initializing', 'transcribing', 'error');
-      eqEl.classList.remove('transcribing');
-      timerEl.classList.remove('transcribing');
+      labelEl.classList.remove('initializing', 'transcribing', 'paused', 'error');
+      eqEl.classList.remove('transcribing', 'paused');
+      timerEl.classList.remove('transcribing', 'paused');
       if (s === 'initializing') {
         labelEl.textContent = 'initializing';
         labelEl.classList.add('initializing');
         stopBtn.disabled = true;
         stopBtn.textContent = 'Stop';
+        pauseBtn.disabled = true;
+        setPauseGlyph();
         hintEl.textContent = 'Setting up the microphone. Do not speak yet...';
       } else if (s === 'recording') {
         labelEl.textContent = 'recording';
         stopBtn.disabled = false;
         stopBtn.textContent = 'Stop';
-        hintEl.textContent = 'Click Stop when you are done speaking. Esc to cancel.';
+        pauseBtn.disabled = false;
+        setPauseGlyph();
+        hintEl.textContent = 'Pause to take a break, Stop when done. Esc to cancel.';
+      } else if (s === 'paused') {
+        labelEl.textContent = 'paused';
+        labelEl.classList.add('paused');
+        timerEl.classList.add('paused');
+        eqEl.classList.add('paused');
+        stopBtn.disabled = false;
+        stopBtn.textContent = 'Stop';
+        pauseBtn.disabled = false;
+        pauseBtn.textContent = 'Resume';
+        eqBars.forEach(bar => { bar.style.height = '6px'; });
+        hintEl.textContent = 'Paused. Resume to keep talking, Stop to finish. Esc to cancel.';
       } else if (s === 'transcribing') {
         labelEl.textContent = 'transcribing';
         labelEl.classList.add('transcribing');
@@ -238,19 +331,24 @@
         eqEl.classList.add('transcribing');
         stopBtn.disabled = true;
         stopBtn.textContent = 'Wait...';
+        pauseBtn.disabled = true;
         hintEl.textContent = 'Running cleanup pass through gpt-4.1-nano...';
       } else if (s === 'error') {
         labelEl.textContent = 'error';
         labelEl.classList.add('error');
         stopBtn.style.display = 'none';
+        pauseBtn.style.display = 'none';
         cancelBtn.textContent = 'Close';
       }
     }
 
     function startTimer() {
+      // One interval for the whole dialog; segments after a Resume reuse it.
+      // Elapsed = banked time from prior segments + the current segment.
+      if (timerHandle) return;
       timerHandle = setInterval(() => {
         if (stage !== 'recording') return;
-        const ms = performance.now() - t0;
+        const ms = (performance.now() - t0) + elapsedBeforeSegmentMs;
         const s = Math.floor(ms / 1000);
         const tenths = Math.floor((ms % 1000) / 100);
         timerEl.textContent = (Math.floor(s / 60)) + ':' + String(s % 60).padStart(2, '0') + '.' + tenths;
@@ -336,6 +434,11 @@
       }
     }
 
+    function startSegment() {
+      setStage('initializing');
+      openWebSocket();
+    }
+
     function openWebSocket() {
       const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
       ws = new WebSocket(proto + '//' + location.host + '/dictate');
@@ -355,8 +458,8 @@
             bootCapture();
             break;
           case 'partial':
-            transcriptEl.textContent = msg.text || '(your words will appear here)';
-            transcriptEl.style.color = (msg.text ? '#ddd' : '#888');
+            currentPartial = msg.text || '';
+            renderTranscript();
             break;
           case 'state':
             // informational; not surfaced in the minimal overlay
@@ -364,9 +467,23 @@
           case 'transcribing':
             setStage('transcribing');
             break;
-          case 'final':
-            complete(msg.cleaned || msg.raw || '');
+          case 'final': {
+            const cleaned = msg.cleaned || msg.raw || '';
+            accumulatedText = joinText(accumulatedText, cleaned);
+            currentPartial = '';
+            if (finalIntent === 'pause') {
+              // End of a segment due to Pause: bank the text, drop the socket
+              // for this segment, and park in the paused state. A later Resume
+              // opens a fresh segment that appends to accumulatedText.
+              finalIntent = 'complete';
+              teardownSegment();
+              setStage('paused');
+              renderTranscript();
+            } else {
+              complete(accumulatedText);
+            }
             break;
+          }
           case 'error':
             hintEl.textContent = 'Server error: ' + (msg.message || 'unknown');
             setStage('error');
@@ -390,7 +507,7 @@
       };
     }
 
-    openWebSocket();
+    startSegment();
   }
 
   window.ccDictate = { start: start };
