@@ -947,6 +947,17 @@
     box-shadow: 0 6px 18px rgba(192,57,43,0.4);
   }
   .recording-overlay .rec-hint { color: var(--muted); font-size: 13px; max-width: 320px; }
+  /* Initializing state: shown immediately on tap, before capture is live.
+     The user is told NOT to speak yet, so we mute the pulse and disable Stop. */
+  .recording-overlay.initializing .pulse-ring {
+    background: #b8860b;
+    animation: none;
+    box-shadow: none;
+  }
+  .recording-overlay.initializing .stop-btn {
+    opacity: 0.55;
+    pointer-events: none;
+  }
 </style>
 </head>
 <body>
@@ -1145,10 +1156,10 @@
 
 <!-- Full-screen recording overlay (hidden until recording starts) -->
 <div id="recordingOverlay" class="recording-overlay" aria-hidden="true">
-  <div class="pulse-ring">REC</div>
+  <div class="pulse-ring" id="recPulseRing">REC</div>
   <div class="rec-elapsed" id="recElapsed">0.0s</div>
   <button id="recStopBtn" class="stop-btn" type="button">Tap to send</button>
-  <div class="rec-hint">Speak naturally. When done, tap "Tap to send".</div>
+  <div class="rec-hint" id="recHint">Speak naturally. When done, tap "Tap to send".</div>
 </div>
 
 <form class="send" onsubmit="return send(event)">
@@ -2303,6 +2314,30 @@
   const recordingOverlay   = document.getElementById('recordingOverlay');
   const recElapsedEl       = document.getElementById('recElapsed');
   const recStopBtn         = document.getElementById('recStopBtn');
+  const recPulseRingEl     = document.getElementById('recPulseRing');
+  const recHintEl          = document.getElementById('recHint');
+
+  function showRecordingOverlay(mode) {
+    recordingOverlay.classList.add('show');
+    recordingOverlay.setAttribute('aria-hidden', 'false');
+    if (mode === 'initializing') {
+      recordingOverlay.classList.add('initializing');
+      recPulseRingEl.textContent = 'WAIT';
+      recStopBtn.textContent = 'Initializing...';
+      recHintEl.textContent = 'Setting up the microphone. Do not speak yet...';
+      recElapsedEl.textContent = '';
+    } else {
+      recordingOverlay.classList.remove('initializing');
+      recPulseRingEl.textContent = 'REC';
+      recStopBtn.textContent = 'Tap to send';
+      recHintEl.textContent = 'Speak naturally. When done, tap "Tap to send".';
+    }
+  }
+
+  function hideRecordingOverlay() {
+    recordingOverlay.classList.remove('show', 'initializing');
+    recordingOverlay.setAttribute('aria-hidden', 'true');
+  }
 
   let mediaRecorder = null;
   let recordedChunks = [];
@@ -2565,6 +2600,13 @@
       return;
     }
 
+    // Immediate feedback: show the overlay in the "initializing" state BEFORE
+    // awaiting getUserMedia, and tell the user NOT to speak yet. We only flip
+    // to "Recording" once audio is actually flowing (first encoded chunk), so
+    // the leading words are never lost into the mic/encoder warm-up gap.
+    showRecordingOverlay('initializing');
+    setVoiceState('Initializing...');
+
     let stream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -2579,6 +2621,7 @@
       } else {
         msg = 'Microphone error: ' + ((e && (e.message || e.name)) || 'unknown');
       }
+      hideRecordingOverlay();
       setVoiceState(msg, 'error');
       appendVoiceBubble('system', msg);
       return;
@@ -2589,26 +2632,38 @@
     try {
       mediaRecorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
     } catch (e) {
+      hideRecordingOverlay();
       setVoiceState('MediaRecorder not supported: ' + e.message, 'error');
       stream.getTracks().forEach(t => t.stop());
       return;
     }
 
-    mediaRecorder.ondataavailable = (ev) => { if (ev.data && ev.data.size > 0) recordedChunks.push(ev.data); };
+    let liveConfirmed = false;
+    mediaRecorder.ondataavailable = (ev) => {
+      if (ev.data && ev.data.size > 0) recordedChunks.push(ev.data);
+      // The first real chunk means MediaRecorder is past its warm-up and is
+      // genuinely encoding audio. Only now do we flip to "Recording" and start
+      // the timer, so the user is invited to speak exactly when capture is live
+      // (not during the start() warm-up where leading audio would be dropped).
+      if (!liveConfirmed) {
+        liveConfirmed = true;
+        showRecordingOverlay('recording');
+        voiceMainBtn.classList.add('stop');
+        voiceMainBtn.textContent = 'Tap to send';
+        recordStartedAt = Date.now();
+        recElapsedEl.textContent = '0.0s';
+        setVoiceState('Recording...');
+        recordTimer = setInterval(() => {
+          const s = ((Date.now() - recordStartedAt) / 1000).toFixed(1);
+          recElapsedEl.textContent = s + 's';
+        }, 100);
+      }
+    };
     mediaRecorder.onstop = () => { stream.getTracks().forEach(t => t.stop()); };
 
-    mediaRecorder.start();
-    voiceMainBtn.classList.add('stop');
-    voiceMainBtn.textContent = 'Tap to send';
-    recordingOverlay.classList.add('show');
-    recordingOverlay.setAttribute('aria-hidden', 'false');
-    recordStartedAt = Date.now();
-    recElapsedEl.textContent = '0.0s';
-    setVoiceState('Recording...');
-    recordTimer = setInterval(() => {
-      const s = ((Date.now() - recordStartedAt) / 1000).toFixed(1);
-      recElapsedEl.textContent = s + 's';
-    }, 100);
+    // timeslice so ondataavailable fires promptly (first chunk ~250ms) instead
+    // of only at stop; that first chunk is our "capture is live" signal above.
+    mediaRecorder.start(250);
   }
 
   async function stopAndSend() {
@@ -2616,8 +2671,7 @@
     if (recordTimer) { clearInterval(recordTimer); recordTimer = null; }
     voiceMainBtn.classList.remove('stop');
     voiceMainBtn.textContent = 'Tap to talk';
-    recordingOverlay.classList.remove('show');
-    recordingOverlay.setAttribute('aria-hidden', 'true');
+    hideRecordingOverlay();
 
     const rec = mediaRecorder;
     mediaRecorder = null;

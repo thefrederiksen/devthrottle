@@ -50,6 +50,7 @@
         font-size: 18px; font-weight: 700; letter-spacing: 0.08em;
         text-transform: uppercase; color: #f44747;
       }
+      .ccd-label.initializing { color: #dcdcaa; }
       .ccd-label.transcribing { color: #dcdcaa; }
       .ccd-label.error { color: #f44747; }
       .ccd-timer {
@@ -118,7 +119,7 @@
     overlay.innerHTML = `
       <div class="ccd-card" role="dialog" aria-modal="true" aria-label="Dictation">
         <div class="ccd-head">
-          <div class="ccd-label">recording</div>
+          <div class="ccd-label initializing">initializing</div>
           <div class="ccd-timer">0:00.0</div>
         </div>
         <div class="ccd-eq">
@@ -128,9 +129,9 @@
         </div>
         <div class="ccd-transcript" data-empty="(your words will appear here)">(your words will appear here)</div>
         <div class="ccd-foot">
-          <div class="ccd-hint">Click Stop when you are done speaking. Esc to cancel.</div>
+          <div class="ccd-hint">Setting up the microphone. Do not speak yet...</div>
           <button type="button" class="ccd-btn ccd-btn-cancel">Cancel</button>
-          <button type="button" class="ccd-btn ccd-btn-stop">Stop</button>
+          <button type="button" class="ccd-btn ccd-btn-stop" disabled>Stop</button>
         </div>
       </div>
     `;
@@ -173,7 +174,7 @@
     let levelRaf = null;
     let timerHandle = null;
     let t0 = performance.now();
-    let stage = 'recording'; // recording | transcribing | error
+    let stage = 'initializing'; // initializing | recording | transcribing | error
     let done = false;
 
     function teardown() {
@@ -216,10 +217,21 @@
 
     function setStage(s) {
       stage = s;
-      labelEl.classList.remove('transcribing', 'error');
+      labelEl.classList.remove('initializing', 'transcribing', 'error');
       eqEl.classList.remove('transcribing');
       timerEl.classList.remove('transcribing');
-      if (s === 'transcribing') {
+      if (s === 'initializing') {
+        labelEl.textContent = 'initializing';
+        labelEl.classList.add('initializing');
+        stopBtn.disabled = true;
+        stopBtn.textContent = 'Stop';
+        hintEl.textContent = 'Setting up the microphone. Do not speak yet...';
+      } else if (s === 'recording') {
+        labelEl.textContent = 'recording';
+        stopBtn.disabled = false;
+        stopBtn.textContent = 'Stop';
+        hintEl.textContent = 'Click Stop when you are done speaking. Esc to cancel.';
+      } else if (s === 'transcribing') {
         labelEl.textContent = 'transcribing';
         labelEl.classList.add('transcribing');
         timerEl.classList.add('transcribing');
@@ -302,7 +314,18 @@
         await audioContext.audioWorklet.addModule('/dictate-worklet.js');
         sourceNode = audioContext.createMediaStreamSource(mediaStream);
         workletNode = new AudioWorkletNode(audioContext, 'pcm16-writer');
+        let firstFrame = false;
         workletNode.port.onmessage = (e) => {
+          // First PCM frame = capture is genuinely live. Only now flip to
+          // 'recording', invite the user to speak, and start the timer; this
+          // closes the window where the UI said "recording" but no audio was
+          // streaming yet (the source of the clipped first word).
+          if (!firstFrame) {
+            firstFrame = true;
+            t0 = performance.now();
+            setStage('recording');
+            startTimer();
+          }
           if (ws && ws.readyState === WebSocket.OPEN) ws.send(e.data);
         };
         sourceNode.connect(workletNode);
@@ -325,10 +348,11 @@
             ws.send(JSON.stringify({ type: 'start', profile: profile }));
             break;
           case 'started':
-            // Start the worklet capture and timer once the server is ready.
+            // Start the worklet capture once the server is ready. The overlay
+            // stays in 'initializing' and the timer does not run until the
+            // worklet actually emits its first PCM frame (see bootCapture), so
+            // we never invite the user to speak into a dead pipeline.
             bootCapture();
-            t0 = performance.now();
-            startTimer();
             break;
           case 'partial':
             transcriptEl.textContent = msg.text || '(your words will appear here)';
