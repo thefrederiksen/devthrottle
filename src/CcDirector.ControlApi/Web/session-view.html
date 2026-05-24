@@ -1144,8 +1144,24 @@
     voiceEl.style.display = activeView === 'voice' ? 'flex' : 'none';
     if (activeView === 'session') refreshSession();
     else if (activeView === 'raw') { rawFirstLoad = true; refreshRaw(); }
-    // voice tab is self-contained; nothing to refresh from server on tab switch
+    // Tell the server which mobile mode this session is now being watched in, so the
+    // wingman can key its remark style off it. Voice tab -> voice mode; any other tab
+    // leaves voice mode (back to text). Fire-and-forget; the tab UI does not wait on it.
+    setVoiceMode(activeView === 'voice');
   }));
+
+  // Flip the session's view mode on the server (POST /voice-mode). enabled -> Voice,
+  // disabled -> Text. Best-effort: a failure here must not block the tab switch.
+  async function setVoiceMode(enabled) {
+    try {
+      await fetch('/sessions/' + SID + '/voice-mode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ enabled }),
+      });
+    } catch {}
+  }
 
   // ---------- Phase 4c: Session View ----------
   function relativeTime(iso) {

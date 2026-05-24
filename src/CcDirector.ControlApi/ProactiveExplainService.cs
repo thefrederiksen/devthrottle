@@ -132,3 +132,6 @@ public sealed class ProactiveExplainService : IDisposable
 
 /// <summary>Body of POST /sessions/{sid}/mobile-mode.</summary>
 internal sealed record MobileModeRequest(bool Enabled);
+
+/// <summary>Body of POST /sessions/{sid}/voice-mode.</summary>
+internal sealed record VoiceModeRequest(bool Enabled);

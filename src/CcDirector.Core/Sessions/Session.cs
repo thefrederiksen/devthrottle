@@ -19,6 +19,24 @@ public enum SessionStatus
 }
 
 /// <summary>
+/// Which mobile view (if any) a phone is currently watching this session through. Set by the
+/// active mobile tab via the Control API. The wingman keys its remark STYLE off this.
+/// </summary>
+public enum MobileViewMode
+{
+    /// <summary>No phone is watching remotely (desktop, or the phone navigated away).
+    /// No proactive briefings; the wingman writes normal text remarks.</summary>
+    Off,
+
+    /// <summary>Phone is on the Session (text) tab. Proactive briefings on; normal text remarks.</summary>
+    Text,
+
+    /// <summary>Phone is on the Voice (in-car) tab. Proactive briefings on; the wingman writes
+    /// spoken-friendly remarks for hands-free / driving use.</summary>
+    Voice
+}
+
+/// <summary>
 /// Status of terminal-based verification (matching terminal content to .jsonl files).
 /// </summary>
 public enum TerminalVerificationStatus
@@ -245,13 +263,27 @@ public sealed class Session : IDisposable
     // ---------- Mobile mode + proactive wingman explain (remote experience) ----------
 
     /// <summary>
-    /// When true, this session participates in the mobile experience: the wingman
-    /// proactively regenerates a plain-language "explain" briefing at each decision-point
-    /// turn-end and caches it (see <see cref="CachedExplainText"/>) so a phone opening the
-    /// session view sees it instantly. Toggled via the Control API; off by default to keep
-    /// the Opus cost off sessions nobody is watching remotely.
+    /// Which mobile view a phone is currently watching this session through, set by the active
+    /// mobile tab via the Control API (Session tab -> Text, Voice tab -> Voice; Off when no phone
+    /// is watching). Single source of truth for the mobile experience; <see cref="MobileMode"/>
+    /// and <see cref="VoiceMode"/> are derived from it. Off by default. Not persisted: it tracks
+    /// what a remote viewer is looking at right now, not durable session state.
     /// </summary>
-    public bool MobileMode { get; set; }
+    public MobileViewMode ViewMode { get; set; } = MobileViewMode.Off;
+
+    /// <summary>
+    /// True when a phone is actively watching this session in either mobile mode (Text or Voice).
+    /// Gates the proactive wingman "explain" briefing regeneration (see <see cref="CachedExplainText"/>)
+    /// so the Opus cost stays off sessions nobody is watching remotely. Derived from <see cref="ViewMode"/>.
+    /// </summary>
+    public bool MobileMode => ViewMode != MobileViewMode.Off;
+
+    /// <summary>
+    /// True when the active mobile view is the Voice (in-car) tab. The wingman keys its remark
+    /// STYLE off this -- spoken-friendly remarks while it holds -- but that read lives in the
+    /// wingman, not here. Derived from <see cref="ViewMode"/>.
+    /// </summary>
+    public bool VoiceMode => ViewMode == MobileViewMode.Voice;
 
     /// <summary>Latest proactively-generated wingman briefing, or null if none yet.</summary>
     public string? CachedExplainText { get; private set; }

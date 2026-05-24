@@ -215,10 +215,39 @@ internal static class ControlEndpoints
             }
             catch { /* empty body -> default enable */ }
 
-            session.MobileMode = enabled;
-            FileLog.Write($"[ControlEndpoints] /mobile-mode: session={guid} enabled={enabled}");
+            // Session (text) tab: Text when watching, Off when the phone navigates away. This is
+            // the same gate as before (MobileMode is now derived from ViewMode), so proactive
+            // briefings behave identically; we only also distinguish Voice from Text now.
+            session.ViewMode = enabled ? MobileViewMode.Text : MobileViewMode.Off;
+            FileLog.Write($"[ControlEndpoints] /mobile-mode: session={guid} enabled={enabled} viewMode={session.ViewMode}");
             if (enabled) proactiveExplain?.TriggerBackgroundExplain(session);
             return Results.Json(new { mobileMode = session.MobileMode });
+        });
+
+        // Toggle voice (in-car) mode for a session. The mobile Voice tab calls this on tab switch:
+        // enabled -> Voice (the wingman will write spoken-friendly remarks); disabled -> Text (the
+        // user left the Voice tab but the phone is still on the mobile app). Like /mobile-mode this
+        // warms the briefing cache immediately so the phone has something to speak right away.
+        app.MapPost("/sessions/{sid}/voice-mode", async (string sid, HttpContext httpCtx) =>
+        {
+            if (!Guid.TryParse(sid, out var guid))
+                return Results.BadRequest(new { error = "invalid session id format" });
+            var session = sessionManager.GetSession(guid);
+            if (session is null)
+                return Results.NotFound(new { error = "session not found" });
+
+            var enabled = true;
+            try
+            {
+                var body = await httpCtx.Request.ReadFromJsonAsync<VoiceModeRequest>();
+                if (body is not null) enabled = body.Enabled;
+            }
+            catch { /* empty body -> default enable */ }
+
+            session.ViewMode = enabled ? MobileViewMode.Voice : MobileViewMode.Text;
+            FileLog.Write($"[ControlEndpoints] /voice-mode: session={guid} enabled={enabled} viewMode={session.ViewMode}");
+            proactiveExplain?.TriggerBackgroundExplain(session);
+            return Results.Json(new { voiceMode = session.VoiceMode, mobileMode = session.MobileMode });
         });
 
         // Mobile view-links: serve a local file INLINE so a phone can tap a link and VIEW
