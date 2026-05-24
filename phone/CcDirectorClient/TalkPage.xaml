@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="CcDirectorClient.TalkPage"
+             BackgroundColor="#0B1020"
+             Shell.NavBarIsVisible="False"
+             Title="Talk">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="20" Spacing="16">
+
+            <Label Text="CC Director Client"
+                   FontSize="26" FontAttributes="Bold" TextColor="#E6EAF2" />
+            <Label Text="Talk to a Claude Code session by voice. Push to talk, push to send, hear the reply."
+                   FontSize="13" TextColor="#8A93A6" />
+
+            <!-- ===== Session list (roster) ===== -->
+            <VerticalStackLayout x:Name="ListPanel" Spacing="12">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                    <Label Grid.Column="0" Text="Sessions" FontSize="18" FontAttributes="Bold"
+                           TextColor="#E6EAF2" VerticalOptions="Center" />
+                    <Button Grid.Column="1" x:Name="RefreshButton" Text="Refresh"
+                            BackgroundColor="#2B6CB0" TextColor="White" Clicked="OnRefreshClicked" />
+                </Grid>
+                <Label x:Name="ListStatusLabel" Text="Loading sessions..." FontSize="13" TextColor="#8A93A6" />
+
+                <CollectionView x:Name="SessionsList" SelectionMode="Single"
+                                SelectionChanged="OnSessionSelected" HeightRequest="420">
+                    <CollectionView.ItemTemplate>
+                        <DataTemplate>
+                            <Border BackgroundColor="#141B2E" StrokeShape="RoundRectangle 10" Padding="12" Margin="0,3">
+                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                                    <Border Grid.Column="0" WidthRequest="14" HeightRequest="14"
+                                            StrokeShape="RoundRectangle 7" BackgroundColor="{Binding Dot}"
+                                            VerticalOptions="Center" />
+                                    <VerticalStackLayout Grid.Column="1" Spacing="2">
+                                        <Label Text="{Binding Name}" TextColor="#E6EAF2" FontAttributes="Bold" />
+                                        <Label Text="{Binding Subtitle}" TextColor="#8A93A6" FontSize="12" />
+                                    </VerticalStackLayout>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </CollectionView.ItemTemplate>
+                </CollectionView>
+
+                <!-- Gateway settings (out of the way; pre-filled) -->
+                <Label Text="Gateway settings" FontSize="13" FontAttributes="Bold" TextColor="#5A6378" Margin="0,12,0,0" />
+                <Entry x:Name="ServerEntry" Placeholder="https://gateway-host.ts.net"
+                       TextColor="#A9B4C8" PlaceholderColor="#5A6378" BackgroundColor="#0F1626"
+                       Unfocused="OnCredsChanged" />
+                <Entry x:Name="TokenEntry" Placeholder="Gateway token (optional)" IsPassword="True"
+                       TextColor="#A9B4C8" PlaceholderColor="#5A6378" BackgroundColor="#0F1626"
+                       Unfocused="OnCredsChanged" />
+            </VerticalStackLayout>
+
+            <!-- ===== Single-session talk panel ===== -->
+            <VerticalStackLayout x:Name="TalkPanel" Spacing="16" IsVisible="False">
+                <Button x:Name="BackButton" Text="&lt; Back to sessions"
+                        BackgroundColor="Transparent" TextColor="#8A93A6"
+                        HorizontalOptions="Start" Clicked="OnBackClicked" />
+
+                <Border BackgroundColor="#141B2E" StrokeShape="RoundRectangle 14" Padding="18">
+                    <VerticalStackLayout Spacing="6">
+                        <Label x:Name="TalkSessionName" Text="" FontSize="22"
+                               FontAttributes="Bold" TextColor="#E6EAF2" />
+                        <Label x:Name="TalkSessionState" Text="" FontSize="13" TextColor="#8A93A6" />
+                    </VerticalStackLayout>
+                </Border>
+
+                <Button x:Name="TalkButton" Text="Talk"
+                        BackgroundColor="#5FD08A" TextColor="#06210F"
+                        FontSize="20" FontAttributes="Bold" HeightRequest="84"
+                        CornerRadius="16" Clicked="OnTalkClicked" />
+
+                <Border BackgroundColor="#0F1626" StrokeShape="RoundRectangle 12" Padding="14">
+                    <VerticalStackLayout Spacing="10">
+                        <Label Text="You said" FontSize="12" FontAttributes="Bold" TextColor="#5A6378" />
+                        <Label x:Name="TranscriptLabel" Text="-" TextColor="#B7C0D4" FontSize="14" />
+                        <Label Text="Reply" FontSize="12" FontAttributes="Bold" TextColor="#5A6378" Margin="0,8,0,0" />
+                        <Label x:Name="ReplyLabel" Text="-" TextColor="#E6EAF2" FontSize="14" />
+                    </VerticalStackLayout>
+                </Border>
+
+                <Label x:Name="TurnStatusLabel" Text="" FontSize="13" TextColor="#E8B339"
+                       HorizontalOptions="Center" />
+            </VerticalStackLayout>
+
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

@@ -1,5 +1,3 @@
-using Microsoft.Extensions.DependencyInjection;
-
 namespace CcDirectorClient;
 
 public partial class App : Application
@@ -11,7 +9,7 @@ public partial class App : Application
 
 	protected override Window CreateWindow(IActivationState? activationState)
 	{
-		var page = IPlatformApplication.Current!.Services.GetRequiredService<MainPage>();
-		return new Window(new NavigationPage(page));
+		// Shell hosts both screens: Talk (voice client) and Recorder (cloned offline recorder).
+		return new Window(new AppShell());
 	}
 }

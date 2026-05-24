@@ -6,9 +6,15 @@
     xmlns:local="clr-namespace:CcDirectorClient"
     Title="CcDirectorClient">
 
-    <ShellContent
-        Title="Home"
-        ContentTemplate="{DataTemplate local:MainPage}"
-        Route="MainPage" />
+    <TabBar>
+        <ShellContent
+            Title="Talk"
+            ContentTemplate="{DataTemplate local:TalkPage}"
+            Route="TalkPage" />
+        <ShellContent
+            Title="Recorder"
+            ContentTemplate="{DataTemplate local:MainPage}"
+            Route="MainPage" />
+    </TabBar>
 
 </Shell>

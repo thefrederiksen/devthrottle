@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Plain net10.0 (no MAUI/Android workload) so the pure-logic voice classes
+         can be unit tested off-device. Only dependency-free source files are
+         link-included from the app project; nothing here pulls in Microsoft.Maui
+         or Android types. -->
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <!-- Single source of truth: the pure-logic files are compiled here directly
+       from the app project rather than duplicated. These files have no MAUI or
+       Android dependency by design. -->
+  <ItemGroup>
+    <Compile Include="..\CcDirectorClient\Voice\ClientLog.cs" Link="Voice\ClientLog.cs" />
+    <Compile Include="..\CcDirectorClient\Voice\SessionInfo.cs" Link="Voice\SessionInfo.cs" />
+    <Compile Include="..\CcDirectorClient\Voice\RosterParser.cs" Link="Voice\RosterParser.cs" />
+    <Compile Include="..\CcDirectorClient\Voice\SessionFilter.cs" Link="Voice\SessionFilter.cs" />
+    <Compile Include="..\CcDirectorClient\Voice\ChatTurnResult.cs" Link="Voice\ChatTurnResult.cs" />
+    <Compile Include="..\CcDirectorClient\Voice\ConductorState.cs" Link="Voice\ConductorState.cs" />
+  </ItemGroup>
+
+</Project>
