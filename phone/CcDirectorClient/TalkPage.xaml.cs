@@ -23,15 +23,17 @@ public partial class TalkPage : ContentPage
 
     private readonly IUtteranceRecorder _recorder;
     private readonly IReplySpeaker _tts;
+    private readonly IVoiceForeground _foreground;
 
     private SessionInfo? _selected;
     private bool _busy;
 
-    public TalkPage(IUtteranceRecorder recorder, IReplySpeaker tts)
+    public TalkPage(IUtteranceRecorder recorder, IReplySpeaker tts, IVoiceForeground foreground)
     {
         InitializeComponent();
         _recorder = recorder;
         _tts = tts;
+        _foreground = foreground;
 
         var savedServer = Preferences.Get(PrefServer, "");
         if (string.IsNullOrWhiteSpace(savedServer))
@@ -58,6 +60,7 @@ public partial class TalkPage : ContentPage
         base.OnDisappearing();
         DeviceDisplay.Current.KeepScreenOn = false;
         _tts.Stop();
+        _foreground.Stop();
     }
 
     // ===== roster ===========================================================
@@ -142,6 +145,7 @@ public partial class TalkPage : ContentPage
     {
         if (_busy) return; // do not abandon a turn mid-flight
         _selected = null;
+        _foreground.Stop(); // leaving the conversation; release the background hold
         TalkPanel.IsVisible = false;
         ListPanel.IsVisible = true;
         _ = LoadRosterAsync();
@@ -161,6 +165,11 @@ public partial class TalkPage : ContentPage
                         "CC Director Client needs microphone access to talk.", "OK");
                     return;
                 }
+                // Start the foreground service now that the mic permission is
+                // granted, so the round-trip and the spoken reply survive the app
+                // being backgrounded or the screen going off (fixes "problem
+                // fetching"). Required order on Android 14+: permission first.
+                _foreground.Start();
                 await _recorder.StartAsync();
                 SetTalkButton(recording: true, busy: false);
                 TurnStatusLabel.Text = "Listening...";
