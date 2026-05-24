@@ -12,7 +12,7 @@ using CcDirector.Gateway.Contracts;
 namespace CcDirector.Core.Voice;
 
 /// <summary>
-/// One-shot voice command pipeline for the Director's Manager UI.
+/// One-shot voice command pipeline for the Director UI.
 ///
 /// Pipeline:
 ///   1. Audio blob in (webm/opus, mp3, wav, m4a ...).

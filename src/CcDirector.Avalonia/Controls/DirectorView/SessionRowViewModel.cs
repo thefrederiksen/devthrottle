@@ -3,9 +3,9 @@ using System.Runtime.CompilerServices;
 using Avalonia.Media;
 using CcDirector.Gateway.Contracts;
 
-namespace CcDirector.Avalonia.Controls.ManagerView;
+namespace CcDirector.Avalonia.Controls.DirectorView;
 
-/// <summary>One row in the Manager session list.</summary>
+/// <summary>One row in the Director session list.</summary>
 public sealed class SessionRowViewModel : INotifyPropertyChanged
 {
     public event PropertyChangedEventHandler? PropertyChanged;

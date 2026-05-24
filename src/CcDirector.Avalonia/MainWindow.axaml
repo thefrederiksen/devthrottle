@@ -3,7 +3,7 @@
         xmlns:terminal="clr-namespace:CcDirector.Terminal.Avalonia;assembly=CcDirector.Terminal.Avalonia"
         xmlns:controls="clr-namespace:CcDirector.Avalonia.Controls"
         xmlns:commMgr="clr-namespace:CcDirector.Avalonia.Controls.CommManager"
-        xmlns:mgr="clr-namespace:CcDirector.Avalonia.Controls.ManagerView"
+        xmlns:mgr="clr-namespace:CcDirector.Avalonia.Controls.DirectorView"
         x:Class="CcDirector.Avalonia.MainWindow"
         Title="CC Director"
         Width="1400" Height="900"
@@ -1064,9 +1064,9 @@
                         <controls:UsageDashboardView x:Name="UsageDashboardView" />
                     </TabItem>
 
-                    <!-- ===== Manager Tab ===== -->
-                    <TabItem Header="Manager" x:Name="TabItemManager">
-                        <mgr:ManagerView x:Name="ManagerView" />
+                    <!-- ===== Director Tab ===== -->
+                    <TabItem Header="Director" x:Name="TabItemDirector">
+                        <mgr:DirectorView x:Name="DirectorView" />
                     </TabItem>
 
                     <!-- ===== Hooks Tab (hidden for now) ===== -->

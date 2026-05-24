@@ -1,13 +1,13 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             x:Class="CcDirector.Avalonia.Controls.ManagerView.ManagerView"
+             x:Class="CcDirector.Avalonia.Controls.DirectorView.DirectorView"
              Background="#1E1E1E">
 
     <Grid RowDefinitions="Auto,*,Auto,Auto" Margin="16,12">
 
         <!-- Header -->
         <DockPanel Grid.Row="0" Margin="0,0,0,8">
-            <TextBlock Text="MANAGER"
+            <TextBlock Text="DIRECTOR"
                        Foreground="#CCCCCC"
                        FontWeight="SemiBold"
                        FontSize="12"

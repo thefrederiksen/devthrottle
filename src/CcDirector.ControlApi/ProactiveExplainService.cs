@@ -133,5 +133,8 @@ public sealed class ProactiveExplainService : IDisposable
 /// <summary>Body of POST /sessions/{sid}/mobile-mode.</summary>
 internal sealed record MobileModeRequest(bool Enabled);
 
+/// <summary>Body of POST /sessions/{sid}/state-vote - a user correction of the detected state.</summary>
+internal sealed record StateVoteRequest(string? CorrectState, string? Note, string? DetectedState, string? DetectedReason);
+
 /// <summary>Body of POST /sessions/{sid}/voice-mode.</summary>
 internal sealed record VoiceModeRequest(bool Enabled);

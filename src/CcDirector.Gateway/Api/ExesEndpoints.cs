@@ -59,8 +59,8 @@ internal static class ExesEndpoints
                         exePath = exePath ?? "",
                         controlEndpoint = d.ControlEndpoint,
                         // Routable base URL (loopback locally, public host via Tailscale). The
-                        // Director serves its Manager UI at the root, so this IS the manager page.
-                        managerUrl = GatewayEndpoints.DeriveDirectorBaseUrl(ctx, d),
+                        // Director serves its UI at the root, so this IS the Director page.
+                        directorUrl = GatewayEndpoints.DeriveDirectorBaseUrl(ctx, d),
                         version = d.Version,
                         startedAt = d.StartedAt,
                         source = d.Source,

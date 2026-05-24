@@ -9,9 +9,9 @@ using CcDirector.Core.Storage;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 
-namespace CcDirector.Avalonia.Controls.ManagerView;
+namespace CcDirector.Avalonia.Controls.DirectorView;
 
-public partial class ManagerView : UserControl
+public partial class DirectorView : UserControl
 {
     public const string DefaultGatewayUrl = "http://127.0.0.1:7878";
 
@@ -21,7 +21,7 @@ public partial class ManagerView : UserControl
     private string _gatewayUrl = DefaultGatewayUrl;
     private string? _gatewayToken;
 
-    public ManagerView()
+    public DirectorView()
     {
         InitializeComponent();
         SessionsList.ItemsSource = _rows;
@@ -48,7 +48,7 @@ public partial class ManagerView : UserControl
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[ManagerView] TryLoadToken FAILED: {ex.Message}");
+            FileLog.Write($"[DirectorView] TryLoadToken FAILED: {ex.Message}");
             return null;
         }
     }
@@ -71,7 +71,7 @@ public partial class ManagerView : UserControl
 
     private async void OnLoaded(object? sender, RoutedEventArgs e)
     {
-        FileLog.Write("[ManagerView] Loaded");
+        FileLog.Write("[DirectorView] Loaded");
         StatusText.Text = "Loading...";
         await RefreshAsync();
 
@@ -82,7 +82,7 @@ public partial class ManagerView : UserControl
 
     private void OnUnloaded(object? sender, RoutedEventArgs e)
     {
-        FileLog.Write("[ManagerView] Unloaded");
+        FileLog.Write("[DirectorView] Unloaded");
         _refreshTimer?.Stop();
         _refreshTimer = null;
     }
@@ -128,7 +128,7 @@ public partial class ManagerView : UserControl
         catch (Exception ex)
         {
             StatusText.Text = $"Refresh error: {ex.Message}";
-            FileLog.Write($"[ManagerView] RefreshAsync FAILED: {ex.Message}");
+            FileLog.Write($"[DirectorView] RefreshAsync FAILED: {ex.Message}");
         }
     }
 
@@ -195,7 +195,7 @@ public partial class ManagerView : UserControl
         catch (Exception ex)
         {
             ResultsBox.Text = $"Send failed: {ex.Message}";
-            FileLog.Write($"[ManagerView] BtnSend FAILED: {ex.Message}");
+            FileLog.Write($"[DirectorView] BtnSend FAILED: {ex.Message}");
         }
         finally
         {

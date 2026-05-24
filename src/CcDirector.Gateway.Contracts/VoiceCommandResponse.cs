@@ -28,7 +28,7 @@ public sealed class VoiceCommandResponse
     public string? CleanupReason { get; set; }
 
     /// <summary>
-    /// The spoken-style reply text the Manager wants the user to hear.
+    /// The spoken-style reply text the Director wants the user to hear.
     /// Always present even when the command is unknown or failed (in which
     /// case it is the explanation).
     /// </summary>

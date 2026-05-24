@@ -44,7 +44,7 @@ public partial class App : Application
     /// <summary>
     /// When true, suppress the startup workspace picker dialog (the modal that asks
     /// "Load workspace?" when at least one saved workspace exists). Useful for
-    /// headless / scripted launches such as the Manager dashboard testing flow.
+    /// headless / scripted launches such as the Director dashboard testing flow.
     /// Triggered by the <c>--skip-workspace-picker</c> command-line argument.
     /// </summary>
     public bool SkipWorkspacePicker { get; private set; }
@@ -480,6 +480,19 @@ public partial class App : Application
 
     private async Task InstallHooksAsync(Action<string> log)
     {
+        // Terminal-driven state (the default) makes the Wingman read the terminal, not
+        // Claude Code hooks. In that mode this build does NOT install hooks - they are
+        // agent-specific and brittle, and we no longer rely on them. We deliberately do
+        // NOT uninstall existing hooks here: ~/.claude/settings.json is shared, and other
+        // Directors still on the hook build would lose their state mid-session. Set
+        // CC_DIRECTOR_TERMINAL_STATE=0 to restore the hook path (and its install).
+        var terminalDriven = Environment.GetEnvironmentVariable("CC_DIRECTOR_TERMINAL_STATE") != "0";
+        if (terminalDriven)
+        {
+            log("Terminal-driven state mode: skipping Claude Code hook installation (Wingman reads the terminal).");
+            return;
+        }
+
         try
         {
             HookRelayScript.EnsureWritten();

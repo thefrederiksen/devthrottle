@@ -113,7 +113,7 @@ public sealed class SessionsAggregationTests : IAsyncLifetime
     [Fact]
     public async Task Flat_response_drops_failed_directors_silently()
     {
-        // Backward-compat path. ManagerView still consumes the flat shape.
+        // Backward-compat path. DirectorView still consumes the flat shape.
         var good = await StartFake("GOOD", "soren", new[] { Sample("g1", "ClaudeCode", "repo", "Idle", "green") });
         var bad = await StartFake("BAD", "soren", sessions: null, alwaysError: true);
         await Register(good);

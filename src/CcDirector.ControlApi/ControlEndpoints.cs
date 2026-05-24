@@ -19,7 +19,7 @@ namespace CcDirector.ControlApi;
 
 /// <summary>
 /// Maps the Director's Control API endpoints onto the provided IEndpointRouteBuilder.
-/// Now serves both REST JSON and a self-contained HTML Manager UI.
+/// Now serves both REST JSON and a self-contained HTML Director UI.
 /// </summary>
 internal static class ControlEndpoints
 {
@@ -43,25 +43,15 @@ internal static class ControlEndpoints
         }));
 
         // ===== HTML pages =====
-        // The Manager chat (chat.html) is the default UI at "/".  The older
-        // cards-grid Manager moved to "/cards" and remains available for the
-        // few flows that need it (multi-session overview, fan-out, etc.).
-        // See docs/features/director/GOAL_VOICE_MANAGER.md.
+        // The cards-grid Director (manager.html) is the default UI at "/" -- the
+        // multi-session directory the phone lands on. The old text-only "Director
+        // chat" screen was removed; per-session messaging lives in the session view.
         app.MapGet("/", (HttpContext ctx) =>
         {
             // If browser asks for JSON, give them session list (handy for curl users)
             if (!DirectorAuth.PrefersHtml(ctx))
                 return Results.Json(sessionManager.ListSessions().Select(s => Map(s, directorId, turnSummaryCache)).ToList());
 
-            var html = EmbeddedResources.Load("chat.html")
-                .Replace("__LOGOUT_VISIBILITY__", logoutVisibility)
-                .Replace("__GATEWAY_URL__", gatewayUrlAttr);
-            return Results.Content(html, "text/html; charset=utf-8");
-        });
-
-        // Legacy cards-grid Manager (still useful for the multi-session overview).
-        app.MapGet("/cards", (HttpContext ctx) =>
-        {
             var html = EmbeddedResources.Load("manager.html")
                 .Replace("__LOGOUT_VISIBILITY__", logoutVisibility);
             return Results.Content(html, "text/html; charset=utf-8");
@@ -745,7 +735,7 @@ internal static class ControlEndpoints
             }
         });
 
-        // ===== REST: Voice (Whisper-backed Manager UI voice mode) ==================
+        // ===== REST: Voice (Whisper-backed Director UI voice mode) ==================
         // Accepts a multipart/form-data upload with one audio file field. Returns the
         // transcript + an executed reply. The OpenAI key lives in AgentOptions and is
         // never sent to the browser.
@@ -906,35 +896,51 @@ internal static class ControlEndpoints
 
             var summary = await turnSummaryCache.GenerateForLatestTurnAsync(guid, ctx.RequestAborted);
             if (summary is null)
-                return Results.NotFound(new { error = "session not found or has no JSONL yet" });
+                return Results.NotFound(new { error = "session not found or has no terminal output yet" });
             return Results.Json(summary, statusCode: 201);
         });
 
-        // GET /chat/status - reports whether the Manager has a configured session it
-        // can talk to.  The chat UI calls this on page load so it can show a useful
-        // placeholder (or guide the user to set Chat.SessionRepoPath) before any
-        // message is sent.
-        app.MapGet("/chat/status", () =>
+        // POST /sessions/{sid}/state-vote - human correction of the terminal state detector.
+        // The user says what the status SHOULD have been; we capture it with the terminal
+        // tail and file it to the GitHub tracking issue (and always locally). This is the
+        // ground-truth feedback loop that replaces automated hook-vs-terminal measurement.
+        app.MapPost("/sessions/{sid}/state-vote", async (string sid, StateVoteRequest req, HttpContext ctx) =>
         {
-            var svc = new ChatService(sessionManager, sessionManager.Options);
-            var info = svc.GetConfiguredSession();
-            if (info is null)
+            FileLog.Write($"[ControlEndpoints] POST state-vote: sid={sid}, correct={req?.CorrectState}");
+            if (!Guid.TryParse(sid, out var guid))
+                return Results.BadRequest(new { error = "invalid session id format" });
+            var session = sessionManager.GetSession(guid);
+            if (session is null) return Results.NotFound(new { error = "session not found" });
+            if (req is null || string.IsNullOrWhiteSpace(req.CorrectState))
+                return Results.BadRequest(new { error = "correctState is required" });
+
+            // Capture this session's own terminal tail (ANSI stripped) for context.
+            var tail = "";
+            try
             {
-                return Results.Json(new
+                var bytes = session.Buffer?.DumpAll();
+                if (bytes is { Length: > 0 })
                 {
-                    available = false,
-                    chatSessionRepoPath = sessionManager.Options.ChatSessionRepoPath,
-                });
+                    const int TailBytes = 8192;
+                    var start = Math.Max(0, bytes.Length - TailBytes);
+                    tail = AnsiCleaner.Clean(Encoding.UTF8.GetString(bytes, start, bytes.Length - start));
+                }
             }
-            return Results.Json(new
-            {
-                available = true,
-                chatSessionRepoPath = sessionManager.Options.ChatSessionRepoPath,
-                sessionId = info.SessionId,
-                sessionName = info.SessionName,
-                repoPath = info.RepoPath,
-                activityState = info.ActivityState,
-            });
+            catch (Exception ex) { FileLog.Write($"[ControlEndpoints] state-vote tail FAILED: {ex.Message}"); }
+
+            var vote = new Core.Feedback.StateVote(
+                SessionId: sid,
+                RepoPath: session.RepoPath,
+                Agent: session.AgentKind.ToString(),
+                DetectedState: string.IsNullOrWhiteSpace(req.DetectedState) ? session.ActivityState.ToString() : req.DetectedState!,
+                DetectedReason: req.DetectedReason ?? session.LastStatusReason ?? "",
+                CorrectState: req.CorrectState!,
+                Note: req.Note ?? "",
+                TerminalTail: tail,
+                At: DateTime.UtcNow);
+
+            var result = await Core.Feedback.StateVoteService.SubmitAsync(vote, ctx.RequestAborted);
+            return Results.Json(result);
         });
 
         app.MapPost("/handover", async (HandoverRequest req) =>

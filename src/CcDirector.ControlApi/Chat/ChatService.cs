@@ -8,7 +8,7 @@ using CcDirector.Gateway.Contracts;
 namespace CcDirector.ControlApi.Chat;
 
 /// <summary>
-/// Phase 1 of the Manager chat: relay one user message to a configured session,
+/// Phase 1 of the Director chat: relay one user message to a configured session,
 /// wait for the agent to finish its turn, return the agent's reply.
 ///
 /// The "configured session" is whichever session on this Director has a RepoPath
@@ -31,27 +31,6 @@ public sealed class ChatService
     {
         _sessionManager = sessionManager;
         _options = options;
-    }
-
-    /// <summary>True when a session matching <see cref="AgentOptions.ChatSessionRepoPath"/> is live.</summary>
-    public bool IsAvailable
-    {
-        get
-        {
-            if (string.IsNullOrWhiteSpace(_options.ChatSessionRepoPath)) return false;
-            return ResolveConfiguredSession() is not null;
-        }
-    }
-
-    public ConfiguredSessionInfo? GetConfiguredSession()
-    {
-        var session = ResolveConfiguredSession();
-        if (session is null) return null;
-        return new ConfiguredSessionInfo(
-            SessionId: session.Id.ToString(),
-            SessionName: DisplayName(session),
-            RepoPath: session.RepoPath,
-            ActivityState: session.ActivityState.ToString());
     }
 
     public async Task<ChatResponse> HandleAsync(ChatRequest req, CancellationToken ct = default)
@@ -80,7 +59,7 @@ public sealed class ChatService
             if (session is null)
             {
                 var hint = string.IsNullOrEmpty(_options.ChatSessionRepoPath)
-                    ? "Set Chat.SessionRepoPath in appsettings.json to point at the repo you want the Manager to talk to."
+                    ? "Set Chat.SessionRepoPath in appsettings.json to point at the repo you want the Director to talk to."
                     : $"No live session has RepoPath matching '{_options.ChatSessionRepoPath}'. Start one in the Director app first.";
                 return new ChatResponse
                 {
@@ -283,10 +262,4 @@ public sealed class ChatService
         Status = status,
         Error = error,
     };
-
-    public sealed record ConfiguredSessionInfo(
-        string SessionId,
-        string SessionName,
-        string RepoPath,
-        string ActivityState);
 }

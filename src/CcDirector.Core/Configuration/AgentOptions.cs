@@ -29,11 +29,11 @@ public class AgentOptions
     public string GeminiPath { get; set; } = DefaultNpmCliPath("gemini");
 
     /// <summary>
-    /// Absolute path to the repository the Manager chat will relay every chat
+    /// Absolute path to the repository the Director chat will relay every chat
     /// message to. Set via appsettings.json "Chat.SessionRepoPath" - e.g.
     /// "D:/ReposFred/private" - so the Director's /chat endpoint knows which
     /// session represents "the agent" for one-session deployments.
-    /// Null means the Manager chat will require an explicit SessionId per request.
+    /// Null means the Director chat will require an explicit SessionId per request.
     /// </summary>
     public string? ChatSessionRepoPath { get; set; }
 
@@ -53,7 +53,7 @@ public class AgentOptions
     /// OpenAI API key used by the voice mode for Whisper transcription.
     /// Loaded from appsettings.json "Voice.OpenAiKey" first, then falls back to
     /// the OPENAI_API_KEY environment variable. Null/empty disables the voice
-    /// mode in the Manager UI (the button is hidden / disabled).
+    /// mode in the Director UI (the button is hidden / disabled).
     /// Never sent to browsers.
     /// </summary>
     public string? OpenAiKey { get; set; }

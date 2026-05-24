@@ -167,10 +167,9 @@ public sealed class WingmanServiceTests
     public void ParseTurnSummaryJsonInto_full_object_populates_all_fields()
     {
         var summary = new TurnSummary();
-        var turn = MakeTurn("add a test", "Edit", "Bash");
         const string raw = "{\"headline\":\"Added a unit test for the empty case\",\"files_touched\":[\"a.cs\",\"b.cs\"],\"commands_run\":[\"dotnet test\"],\"decisions\":[\"chose xUnit\",\"used InlineData\"],\"needs_user\":\"no\",\"needs_user_detail\":\"\",\"spoken_text\":\"I added a test. Tests passed.\"}";
 
-        WingmanService.ParseTurnSummaryJsonInto(raw, summary, turn);
+        WingmanService.ParseTurnSummaryJsonInto(raw, summary);
 
         Assert.Equal("ok", summary.Status);
         Assert.Equal("Added a unit test for the empty case", summary.Headline);
@@ -187,10 +186,9 @@ public sealed class WingmanServiceTests
     public void ParseTurnSummaryJsonInto_needs_user_question_preserves_field()
     {
         var summary = new TurnSummary();
-        var turn = MakeTurn("which approach should we use?", "AskUserQuestion");
         const string raw = "{\"headline\":\"Asking which approach\",\"files_touched\":[],\"commands_run\":[],\"decisions\":[],\"needs_user\":\"question\",\"needs_user_detail\":\"Pick A or B.\",\"spoken_text\":\"I need you to decide between approach A and approach B.\"}";
 
-        WingmanService.ParseTurnSummaryJsonInto(raw, summary, turn);
+        WingmanService.ParseTurnSummaryJsonInto(raw, summary);
 
         Assert.Equal("question", summary.NeedsUser);
         Assert.StartsWith("I need you to", summary.SpokenText);
@@ -200,10 +198,9 @@ public sealed class WingmanServiceTests
     public void ParseTurnSummaryJsonInto_extracts_needs_user_short()
     {
         var summary = new TurnSummary();
-        var turn = MakeTurn("which approach?", "AskUserQuestion");
         const string raw = "{\"headline\":\"asks\",\"files_touched\":[],\"commands_run\":[],\"decisions\":[],\"needs_user\":\"question\",\"needs_user_detail\":\"Pick A or B. A is faster but writes to disk. B is slower but pure functional. Choose.\",\"needs_user_short\":\"A or B?\",\"spoken_text\":\"A or B\"}";
 
-        WingmanService.ParseTurnSummaryJsonInto(raw, summary, turn);
+        WingmanService.ParseTurnSummaryJsonInto(raw, summary);
 
         Assert.Equal("question", summary.NeedsUser);
         Assert.Equal("A or B?", summary.NeedsUserShort);
@@ -214,11 +211,10 @@ public sealed class WingmanServiceTests
     public void ParseTurnSummaryJsonInto_truncates_long_needs_user_short()
     {
         var summary = new TurnSummary();
-        var turn = MakeTurn("?", "Edit");
         var huge = new string('q', 800);
         var raw = $"{{\"headline\":\"h\",\"needs_user\":\"question\",\"needs_user_short\":\"{huge}\",\"spoken_text\":\"\"}}";
 
-        WingmanService.ParseTurnSummaryJsonInto(raw, summary, turn);
+        WingmanService.ParseTurnSummaryJsonInto(raw, summary);
 
         Assert.True(summary.NeedsUserShort.Length <= 500);
         Assert.EndsWith("...", summary.NeedsUserShort);
@@ -228,10 +224,9 @@ public sealed class WingmanServiceTests
     public void ParseTurnSummaryJsonInto_missing_spoken_text_falls_back_to_headline()
     {
         var summary = new TurnSummary();
-        var turn = MakeTurn("fix the bug", "Edit");
         const string raw = "{\"headline\":\"Fixed the bug\"}";
 
-        WingmanService.ParseTurnSummaryJsonInto(raw, summary, turn);
+        WingmanService.ParseTurnSummaryJsonInto(raw, summary);
 
         Assert.Equal("Fixed the bug", summary.Headline);
         Assert.Equal("Fixed the bug", summary.SpokenText);
@@ -242,10 +237,8 @@ public sealed class WingmanServiceTests
     public void ParseTurnSummaryJsonInto_garbage_falls_back_to_synthesized_headline()
     {
         var summary = new TurnSummary();
-        var turn = MakeTurn("anything", "Bash");
-        turn.BashCommands.Add("ls -la");
 
-        WingmanService.ParseTurnSummaryJsonInto("not json", summary, turn);
+        WingmanService.ParseTurnSummaryJsonInto("not json", summary);
 
         Assert.Equal("parse_failed", summary.Status);
         Assert.False(string.IsNullOrEmpty(summary.Headline));
@@ -256,11 +249,10 @@ public sealed class WingmanServiceTests
     public void ParseTurnSummaryJsonInto_caps_spoken_text_at_320_chars()
     {
         var summary = new TurnSummary();
-        var turn = MakeTurn("x");
         var longText = new string('a', 800);
         var raw = "{\"headline\":\"h\",\"spoken_text\":\"" + longText + "\"}";
 
-        WingmanService.ParseTurnSummaryJsonInto(raw, summary, turn);
+        WingmanService.ParseTurnSummaryJsonInto(raw, summary);
 
         Assert.True(summary.SpokenText.Length <= 320, $"length was {summary.SpokenText.Length}");
         Assert.EndsWith("...", summary.SpokenText);
@@ -270,10 +262,9 @@ public sealed class WingmanServiceTests
     public void ParseTurnSummaryJsonInto_fenced_json_is_tolerated()
     {
         var summary = new TurnSummary();
-        var turn = MakeTurn("x");
         const string raw = "```json\n{\"headline\":\"h\",\"spoken_text\":\"done\",\"needs_user\":\"no\"}\n```";
 
-        WingmanService.ParseTurnSummaryJsonInto(raw, summary, turn);
+        WingmanService.ParseTurnSummaryJsonInto(raw, summary);
 
         Assert.Equal("h", summary.Headline);
         Assert.Equal("done", summary.SpokenText);
@@ -282,14 +273,63 @@ public sealed class WingmanServiceTests
     [Fact]
     public async Task SummarizeTurnAsync_no_claude_path_returns_fallback_summary()
     {
-        var turn = MakeTurn("hello", "Bash");
-        turn.BashCommands.Add("echo hi");
-
-        var s = await WingmanService.SummarizeTurnAsync(turn, lastAssistantText: "Hi.", repoPath: "", claudeExePath: "");
+        // Terminal-only: the Wingman summarises this session's own terminal transcript,
+        // never a JSONL file. With no claude CLI configured it returns a safe fallback.
+        var s = await WingmanService.SummarizeTurnAsync(
+            "agent did some work and asked: should I continue?",
+            DateTime.UtcNow, repoPath: "", claudeExePath: "");
 
         Assert.Equal("wingman_failed", s.Status);
         Assert.False(string.IsNullOrEmpty(s.Headline));
         Assert.False(string.IsNullOrEmpty(s.SpokenText));
+    }
+
+    [Fact]
+    public async Task ClassifyTerminalStateAsync_no_claude_path_is_unknown()
+    {
+        var (state, reason) = await WingmanService.ClassifyTerminalStateAsync(
+            "some terminal text", "ClaudeCode", claudeExePath: "");
+
+        Assert.Equal("unknown", state);
+        Assert.False(string.IsNullOrEmpty(reason));
+    }
+
+    [Theory]
+    [InlineData("working")]
+    [InlineData("waiting_for_input")]
+    [InlineData("waiting_for_permission")]
+    [InlineData("idle")]
+    [InlineData("cancelled")]
+    public void ParseTerminalStateJson_accepts_valid_states(string state)
+    {
+        var (parsed, _) = WingmanService.ParseTerminalStateJson(
+            $"{{\"state\":\"{state}\",\"reason\":\"because\"}}");
+
+        Assert.Equal(state, parsed);
+    }
+
+    [Fact]
+    public void ParseTerminalStateJson_invalid_state_falls_back_to_unknown()
+    {
+        var (state, _) = WingmanService.ParseTerminalStateJson("{\"state\":\"banana\",\"reason\":\"x\"}");
+        Assert.Equal("unknown", state);
+    }
+
+    [Fact]
+    public void ParseTerminalStateJson_fenced_json_is_tolerated()
+    {
+        var (state, reason) = WingmanService.ParseTerminalStateJson(
+            "```json\n{\"state\":\"working\",\"reason\":\"spinner is animating\"}\n```");
+
+        Assert.Equal("working", state);
+        Assert.Equal("spinner is animating", reason);
+    }
+
+    [Fact]
+    public void ParseTerminalStateJson_garbage_is_unknown()
+    {
+        var (state, _) = WingmanService.ParseTerminalStateJson("not json at all");
+        Assert.Equal("unknown", state);
     }
 
     // ====================================================================

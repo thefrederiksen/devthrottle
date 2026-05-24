@@ -36,6 +36,99 @@ public static class WingmanService
     public static readonly TimeSpan ProcessTimeout = TimeSpan.FromSeconds(60);
 
     // ====================================================================
+    // Terminal state classification (agent-agnostic, terminal-only)
+    // ====================================================================
+
+    /// <summary>
+    /// Classify what an agent's session is doing RIGHT NOW from the tail of its
+    /// terminal, with no hooks and no agent-specific rules - the model reads the
+    /// rendered screen the way a person would. Returns one of:
+    /// working | waiting_for_input | waiting_for_permission | idle | cancelled | unknown,
+    /// plus a one-line reason. Stateless: one fresh Haiku call, nothing persisted.
+    ///
+    /// This is the "judge" stage of the terminal state detector - invoked when the
+    /// cheap byte-activity gate notices the terminal has gone quiet. Fails closed to
+    /// ("unknown", reason) so a missing CLI or parse error never fabricates a state.
+    /// </summary>
+    public static async Task<(string state, string reason)> ClassifyTerminalStateAsync(
+        string terminalTail, string agentName, string claudeExePath, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(claudeExePath))
+            return ("unknown", "no claude CLI configured");
+        if (string.IsNullOrWhiteSpace(terminalTail))
+            return ("unknown", "empty terminal");
+
+        var prompt = BuildTerminalStatePrompt(terminalTail, agentName ?? "an AI coding agent");
+        try
+        {
+            var stdout = await RunSideClaudeAsync(prompt, claudeExePath, ct);
+            return ParseTerminalStateJson(stdout);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[WingmanService] ClassifyTerminalStateAsync FAILED: {ex.Message}");
+            return ("unknown", "classify call failed: " + ex.Message);
+        }
+    }
+
+    private static string BuildTerminalStatePrompt(string terminalTail, string agentName)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"You are reading the tail of a terminal running {agentName} (an AI coding agent in an interactive TUI). Decide what the session is doing RIGHT NOW, the way a person glancing at the screen would.");
+        sb.AppendLine();
+        sb.AppendLine("Output ONE JSON object, no markdown fence, exactly this shape:");
+        sb.AppendLine("{\"state\": \"working|waiting_for_input|waiting_for_permission|idle|cancelled|unknown\", \"reason\": \"<one short sentence citing what on screen tells you>\"}");
+        sb.AppendLine();
+        sb.AppendLine("How to decide (read the BOTTOM of the output - that is the most recent):");
+        sb.AppendLine("- working: the agent is actively producing output - a spinner or progress animation, an elapsed-time counter (e.g. \"Brewed for 12s\"), an \"esc to interrupt\" footer, or text still streaming in.");
+        sb.AppendLine("- waiting_for_permission: the agent has drawn a confirmation it cannot pass on its own - a yes/no box, a numbered choice list (\"1. Yes  2. No\"), or a \"[y/n]\" style prompt - and is parked on it.");
+        sb.AppendLine("- waiting_for_input: the agent has finished and is sitting at an EMPTY input prompt waiting for the user to type the next instruction. No spinner, no question pending.");
+        sb.AppendLine("- cancelled: the screen shows the last action was interrupted/cancelled (e.g. an \"Interrupted\" or \"Cancelled\" notice) and the agent is now back at the prompt doing nothing.");
+        sb.AppendLine("- idle: nothing is happening and none of the above fit (e.g. a bare shell prompt, or a blank settled screen).");
+        sb.AppendLine("- unknown: the tail is too garbled or sparse to tell.");
+        sb.AppendLine();
+        sb.AppendLine("Do not assume 'working' just because there is a lot of text; only an ACTIVE indicator at the bottom means working. When the bottom shows a prompt box with no spinner, the agent is waiting, not working.");
+        sb.AppendLine();
+        sb.AppendLine("TERMINAL TAIL (ANSI stripped; the end is the most recent):");
+        sb.AppendLine(TruncateKeepEnd(terminalTail, 4000));
+        return sb.ToString();
+    }
+
+    internal static (string state, string reason) ParseTerminalStateJson(string raw)
+    {
+        var valid = new[] { "working", "waiting_for_input", "waiting_for_permission", "idle", "cancelled", "unknown" };
+        if (string.IsNullOrWhiteSpace(raw)) return ("unknown", "classifier returned empty output");
+
+        var s = raw.Trim();
+        if (s.StartsWith("```"))
+        {
+            var nl = s.IndexOf('\n');
+            if (nl > 0) s = s[(nl + 1)..];
+            var endFence = s.LastIndexOf("```", StringComparison.Ordinal);
+            if (endFence > 0) s = s[..endFence].Trim();
+        }
+        var firstBrace = s.IndexOf('{');
+        var lastBrace = s.LastIndexOf('}');
+        if (firstBrace >= 0 && lastBrace > firstBrace)
+            s = s.Substring(firstBrace, lastBrace - firstBrace + 1);
+
+        try
+        {
+            using var doc = JsonDocument.Parse(s);
+            var root = doc.RootElement;
+            var state = root.TryGetProperty("state", out var st) ? (st.GetString() ?? "").Trim().ToLowerInvariant() : "";
+            var reason = root.TryGetProperty("reason", out var r) ? (r.GetString() ?? "").Trim() : "";
+            if (!valid.Contains(state)) return ("unknown", $"classifier returned invalid state '{state}'");
+            return (state, reason);
+        }
+        catch (JsonException ex)
+        {
+            FileLog.Write($"[WingmanService] terminal-state JSON parse failed: {ex.Message}, raw='{Truncate(raw, 200)}'");
+            return ("unknown", "classifier JSON parse failed");
+        }
+    }
+
+    // ====================================================================
     // Phase 1: Voice transcript cleanup
     // ====================================================================
 
@@ -148,10 +241,15 @@ public static class WingmanService
     /// Summarise one completed turn for both screen readers (Agent View) and
     /// ear listeners (voice TTS).  Returns a populated <see cref="TurnSummary"/>
     /// even on Wingman failure (status field reflects what happened).
+    ///
+    /// Source of truth is the session's OWN terminal transcript (ANSI stripped) -
+    /// the bytes that actually appeared on this session's PTY. The Wingman never
+    /// reads Claude Code's shared per-repo .jsonl files, so it cannot pick up
+    /// another session's conversation. See <see cref="TurnSummaryCache"/>.
     /// </summary>
     public static async Task<TurnSummary> SummarizeTurnAsync(
-        TurnData turn,
-        string? lastAssistantText,
+        string terminalTranscript,
+        DateTime turnStartedAt,
         string repoPath,
         string claudeExePath,
         CancellationToken ct = default)
@@ -159,25 +257,24 @@ public static class WingmanService
         var summary = new TurnSummary
         {
             GeneratedAt = DateTime.UtcNow,
-            TurnStartedAt = turn.Timestamp.UtcDateTime,
+            TurnStartedAt = turnStartedAt,
         };
 
         if (string.IsNullOrWhiteSpace(claudeExePath))
         {
             summary.Status = "wingman_failed";
             summary.Error = "no claude CLI configured";
-            // Provide at least a rule-based headline so the UI is not empty.
-            summary.Headline = BuildFallbackHeadline(turn);
+            summary.Headline = BuildFallbackHeadline();
             summary.SpokenText = "Agent finished. Check the screen for details.";
             return summary;
         }
 
-        var prompt = BuildTurnSummaryPrompt(turn, lastAssistantText ?? "", repoPath ?? "");
+        var prompt = BuildTurnSummaryPrompt(terminalTranscript ?? "", repoPath ?? "");
 
         try
         {
             var stdout = await RunSideClaudeAsync(prompt, claudeExePath, ct);
-            ParseTurnSummaryJsonInto(stdout, summary, turn);
+            ParseTurnSummaryJsonInto(stdout, summary);
             return summary;
         }
         catch (Exception ex)
@@ -185,37 +282,32 @@ public static class WingmanService
             FileLog.Write($"[WingmanService] SummarizeTurnAsync FAILED: {ex.Message}");
             summary.Status = "wingman_failed";
             summary.Error = ex.Message;
-            summary.Headline = BuildFallbackHeadline(turn);
+            summary.Headline = BuildFallbackHeadline();
             summary.SpokenText = "Agent finished. Check the screen for details.";
             return summary;
         }
     }
 
-    private static string BuildFallbackHeadline(TurnData turn)
-    {
-        if (turn.FilesTouched.Count > 0 && turn.BashCommands.Count > 0)
-            return $"Edited {Path.GetFileName(turn.FilesTouched[0])} and ran {turn.BashCommands.Count} command(s).";
-        if (turn.FilesTouched.Count > 0)
-            return $"Touched {turn.FilesTouched.Count} file(s); first: {Path.GetFileName(turn.FilesTouched[0])}.";
-        if (turn.BashCommands.Count > 0)
-            return $"Ran {turn.BashCommands.Count} shell command(s).";
-        if (turn.ToolsUsed.Count > 0)
-            return $"Used tools: {string.Join(", ", turn.ToolsUsed.Take(3))}.";
-        return "Turn completed.";
-    }
+    /// <summary>
+    /// Generic fallback headline used only when the Wingman side-call is unavailable
+    /// or fails. We deliberately do NOT derive it from hook-reported tools/files: the
+    /// Wingman's only content source is this session's terminal, and a failed call
+    /// has no terminal-derived summary to show.
+    /// </summary>
+    private static string BuildFallbackHeadline() => "Agent completed a turn.";
 
-    private static string BuildTurnSummaryPrompt(TurnData turn, string lastAssistantText, string repoPath)
+    private static string BuildTurnSummaryPrompt(string terminalTranscript, string repoPath)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("You are summarising one turn of a Claude Code session for a user who does not want to read the raw output, and who may be listening to a voice playback while driving.");
+        sb.AppendLine("You are summarising one turn of a Claude Code session for a user who does not want to read the raw terminal, and who may be listening to a voice playback while driving.");
         sb.AppendLine();
-        sb.AppendLine("INPUT: the user's prompt, the tools the agent used, the files it touched, the commands it ran, the last assistant text.");
+        sb.AppendLine("INPUT: the terminal output of the turn that just finished (the agent's rendered output with ANSI escape codes stripped). Read it and report what the agent did and whether it needs the user. Anything the agent is asking lives at the END of the output.");
         sb.AppendLine();
         sb.AppendLine("Output ONE JSON object, no markdown fence, exactly this shape:");
         sb.AppendLine("{");
         sb.AppendLine("  \"headline\": \"<one short sentence describing what the agent did this turn>\",");
-        sb.AppendLine("  \"files_touched\": [\"<list of distinct file paths touched, max 5>\"],");
-        sb.AppendLine("  \"commands_run\": [\"<list of distinct shell commands, max 3>\"],");
+        sb.AppendLine("  \"files_touched\": [\"<distinct file paths the output shows were touched, max 5; empty if none visible>\"],");
+        sb.AppendLine("  \"commands_run\": [\"<distinct shell commands the output shows were run, max 3; empty if none visible>\"],");
         sb.AppendLine("  \"decisions\": [\"<key decisions or findings, max 3 bullets>\"],");
         sb.AppendLine("  \"needs_user\": \"<one of: 'no' | 'question' | 'error' | 'permission' | 'idle'>\",");
         sb.AppendLine("  \"needs_user_detail\": \"<short sentence if needs_user != 'no', empty otherwise>\",");
@@ -224,7 +316,7 @@ public static class WingmanService
         sb.AppendLine("}");
         sb.AppendLine();
         sb.AppendLine("Rules for needs_user:");
-        sb.AppendLine("- 'question': pick this when the agent's reply ends with an explicit question that the user must answer before the agent continues. The presence of a question mark at the end of the last assistant text is a STRONG signal, even when most of the turn was technical work (analysis, code, diagrams). A polite \"Want me to ...?\", \"Should I ...?\", \"Would you like ...?\", \"OK to ...?\" at the end of an otherwise informational reply STILL counts as 'question'.");
+        sb.AppendLine("- 'question': pick this when the agent's output ends with an explicit question that the user must answer before the agent continues. A question mark at the END of the terminal output is a STRONG signal, even when most of the turn was technical work (analysis, code, diagrams). A polite \"Want me to ...?\", \"Should I ...?\", \"Would you like ...?\", \"OK to ...?\" at the end of an otherwise informational reply STILL counts as 'question'.");
         sb.AppendLine("- 'error': agent reports an error it cannot resolve on its own.");
         sb.AppendLine("- 'permission': agent paused for an OS-level permission prompt (Yes/No, [y/n]).");
         sb.AppendLine("- 'idle': agent finished cleanly and has nothing pending.");
@@ -245,13 +337,10 @@ public static class WingmanService
         sb.AppendLine("- If needs_user != \"no\", start with: \"I need you to <decide / answer / approve>.  <question>.\"");
         sb.AppendLine("- If the agent did nothing meaningful, spoken_text can be: \"Acknowledged, nothing to report.\"");
         sb.AppendLine();
-        sb.AppendLine("TURN DATA:");
-        sb.AppendLine($"- Repo: {repoPath}");
-        sb.AppendLine($"- User prompt: {Truncate(turn.UserPrompt, 1500)}");
-        sb.AppendLine($"- Tools used: {string.Join(", ", turn.ToolsUsed)}");
-        sb.AppendLine($"- Files touched: {string.Join(" | ", turn.FilesTouched.Take(10))}");
-        sb.AppendLine($"- Commands run: {string.Join(" | ", turn.BashCommands.Take(10))}");
-        sb.AppendLine($"- Last assistant text (up to 8000 chars from the END - the question, if any, lives at the end; quote it verbatim): {TruncateKeepEnd(lastAssistantText, 8000)}");
+        sb.AppendLine($"Repo: {repoPath}");
+        sb.AppendLine();
+        sb.AppendLine("TURN OUTPUT (this session's terminal, ANSI stripped; the END is the most recent text and is where any question lives - quote it verbatim):");
+        sb.AppendLine(TruncateKeepEnd(terminalTranscript, 8000));
         return sb.ToString();
     }
 
@@ -268,13 +357,13 @@ public static class WingmanService
         return "... [earlier text omitted] ..." + s[^max..];
     }
 
-    internal static void ParseTurnSummaryJsonInto(string raw, TurnSummary summary, TurnData turn)
+    internal static void ParseTurnSummaryJsonInto(string raw, TurnSummary summary)
     {
         if (string.IsNullOrWhiteSpace(raw))
         {
             summary.Status = "parse_failed";
             summary.Error = "wingman returned empty output";
-            summary.Headline = BuildFallbackHeadline(turn);
+            summary.Headline = BuildFallbackHeadline();
             summary.SpokenText = "Agent finished. Check the screen for details.";
             return;
         }
@@ -316,7 +405,7 @@ public static class WingmanService
                 summary.Decisions = d.EnumerateArray().Select(e => e.GetString() ?? "").Where(x => x.Length > 0).Take(3).ToList();
 
             // Defensive fill-ins so callers never get empty fields.
-            if (string.IsNullOrEmpty(summary.Headline)) summary.Headline = BuildFallbackHeadline(turn);
+            if (string.IsNullOrEmpty(summary.Headline)) summary.Headline = BuildFallbackHeadline();
             if (string.IsNullOrEmpty(summary.SpokenText)) summary.SpokenText = summary.Headline;
             if (string.IsNullOrEmpty(summary.NeedsUser)) summary.NeedsUser = "no";
 
@@ -331,7 +420,7 @@ public static class WingmanService
             FileLog.Write($"[WingmanService] turn-summary JSON parse failed: {ex.Message}, raw='{Truncate(raw, 200)}'");
             summary.Status = "parse_failed";
             summary.Error = "wingman JSON parse failed";
-            summary.Headline = BuildFallbackHeadline(turn);
+            summary.Headline = BuildFallbackHeadline();
             summary.SpokenText = "Agent finished. Check the screen for details.";
         }
     }
@@ -856,17 +945,26 @@ public static class WingmanService
         var sb = new StringBuilder();
         sb.AppendLine("You are the wingman for a CC Director session. The user is away from their computer and wants a quick, clear briefing on THIS session so they can decide what to do next.");
         sb.AppendLine();
-        sb.AppendLine("Write exactly TWO labeled sections, plain text, no markdown, no code blocks, no bullet symbols:");
+        sb.AppendLine("Write exactly TWO labeled sections, plain text, no code blocks, no bullet symbols. The ONLY markdown allowed is a table (see below); otherwise no markdown:");
         sb.AppendLine();
         sb.AppendLine("WHAT'S HAPPENED:");
-        sb.AppendLine("2 to 4 short sentences summarizing what the agent has worked on and where things stand right now. Plain language a non-expert can follow. No file paths or commands unless they are essential to understanding.");
+        sb.AppendLine("Be terse. 1 to 3 short sentences, fewer is better. No padding, no preamble, no restating the obvious, no narrating an empty session. Plain language a non-expert can follow. No file paths or commands unless they are essential to understanding.");
+        sb.AppendLine("- If no real work has happened yet (the session is fresh or idle and the agent has not done anything), say so in ONE short sentence and stop. Example: \"Nothing yet; the session is idle and waiting for a task.\" Do NOT speculate about what it might do.");
+        sb.AppendLine("- The terminal's input box may show faint placeholder or example text (such as a suggested command or a sample file name) when it is empty. That is NOT something the agent did or the user typed. Never describe placeholder text as activity.");
+        sb.AppendLine("- If the agent presented a TABLE the user needs to SEE to make sense of things (a comparison, a set of options, a plan laid out in rows, or data with columns), reproduce that table as a GitHub-style markdown table right here, after the sentences. Keep the agent's row and column content; do not invent rows. Example:");
+        sb.AppendLine("    | Item | Today |");
+        sb.AppendLine("    | --- | --- |");
+        sb.AppendLine("    | Session name | header |");
+        sb.AppendLine("- Only include a table when the agent actually presented tabular content the user must see. Do NOT turn ordinary prose, lists, or a single value into a table. At most one table.");
         sb.AppendLine();
         sb.AppendLine("WHAT CLAUDE WANTS:");
         sb.AppendLine("State the question, request, or decision the agent is waiting on, in the AGENT'S OWN WORDS.");
         sb.AppendLine("- Preserve the agent's phrasing. Do NOT reword, soften, summarize, or improve the actual question. The user trusts the agent's words over yours.");
         sb.AppendLine("- Only add a few words of clarification IN PARENTHESES when the bare question is ambiguous without context. Example: \"Want me to implement it?\" -> \"Want me to implement it (the Tailscale auto-provisioning)?\"");
         sb.AppendLine("- If the agent asked multiple questions, include them all.");
-        sb.AppendLine("- If the agent is mid-flow and not waiting on anything, write: \"Claude is still working; nothing is needed from you right now.\"");
+        sb.AppendLine("- If the session is idle and nothing is pending (it finished, or it never started), write exactly: \"Nothing pending. Waiting for you to give it a task.\" and nothing else.");
+        sb.AppendLine("- If the agent is mid-flow and actively working but not waiting on anything, write: \"Claude is still working; nothing is needed from you right now.\"");
+        sb.AppendLine("- Do NOT combine these two; an idle session is not \"still working\".");
         sb.AppendLine();
         sb.AppendLine("QUICK REPLIES:");
         sb.AppendLine("If \"WHAT CLAUDE WANTS\" is a decision the user can answer in a few words (yes/no, this-or-that, pick from a short menu), output the tappable answer options as a JSON array on ONE line, e.g.: [\"Yes, go ahead\", \"No, stop\"]");

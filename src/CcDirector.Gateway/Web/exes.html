@@ -249,7 +249,7 @@ function render() {
       html += `<span class="badge${dir.slot ? "" : " gray"}">${escapeHtml(slotLabel)}</span>`;
       html += `<span class="meta">PID <b>${dir.pid}</b> &middot; port <b>${escapeHtml(portOf(dir.controlEndpoint))}</b> &middot; v${escapeHtml(dir.version || "?")} &middot; up ${escapeHtml(relativeTime(dir.startedAt))}</span>`;
       html += `<span class="spacer"></span>`;
-      if (dir.managerUrl) html += `<a class="btn" href="${escapeHtml(dir.managerUrl)}">Manager &rarr;</a>`;
+      if (dir.directorUrl) html += `<a class="btn" href="${escapeHtml(dir.directorUrl)}">Director &rarr;</a>`;
       html += `<button class="btn danger" onclick="killDirector('${escapeHtml(dir.directorId)}', ${dir.slot || 0}, ${dir.pid})">Kill</button>`;
       html += `</div>`;
       if (dir.exePath) html += `<div class="exe" title="${escapeHtml(dir.exePath)}">${escapeHtml(dir.exePath)}</div>`;

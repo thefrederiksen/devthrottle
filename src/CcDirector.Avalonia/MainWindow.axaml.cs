@@ -1603,12 +1603,12 @@ public partial class MainWindow : Window
             await dialog.ShowDialog<bool?>(this);
         };
 
-        var manager = new MenuItem { Header = "Manager (multi-session)" };
+        var manager = new MenuItem { Header = "Director (multi-session)" };
         manager.Click += (_, _) =>
         {
-            FileLog.Write("[MainWindow] Menu: Manager");
-            // Select the Manager tab in the right panel
-            RightPanelTabs.SelectedItem = TabItemManager;
+            FileLog.Write("[MainWindow] Menu: Director");
+            // Select the Director tab in the right panel
+            RightPanelTabs.SelectedItem = TabItemDirector;
         };
 
         var separator3 = new Separator();

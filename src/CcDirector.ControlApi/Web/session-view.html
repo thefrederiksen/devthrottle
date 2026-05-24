@@ -84,28 +84,6 @@
   }
   header a.navbtn:first-of-type { margin-left: -4px; }
   header a.navbtn:hover { background: rgba(14,99,156,0.15); }
-  /* Shut down the session from anywhere (incl. phone). Lives in the always-visible
-     header, NOT in .state-controls (which is hidden on mobile). Destructive: red,
-     confirm-guarded in JS. */
-  header .shutdown-btn {
-    margin-left: 4px; flex-shrink: 0; min-height: 36px; padding: 0 12px;
-    border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;
-    background: var(--bg); color: #ef4444; border: 1px solid rgba(239,68,68,0.5);
-    white-space: nowrap; -webkit-tap-highlight-color: rgba(239,68,68,0.3);
-  }
-  header .shutdown-btn:hover:not(:disabled) { background: rgba(239,68,68,0.14); border-color: #ef4444; }
-  header .shutdown-btn:disabled { opacity: 0.55; cursor: not-allowed; }
-  /* Soft stop: sends a single Escape (0x1b) to the PTY to interrupt the current
-     turn. Non-destructive (reversible), so amber rather than the red Shut down,
-     and no confirm. Sits left of Shut down in the always-visible header. */
-  header .stop-btn {
-    margin-left: 4px; flex-shrink: 0; min-height: 36px; padding: 0 12px;
-    border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;
-    background: var(--bg); color: #dcdcaa; border: 1px solid rgba(220,220,170,0.5);
-    white-space: nowrap; -webkit-tap-highlight-color: rgba(220,220,170,0.3);
-  }
-  header .stop-btn:hover:not(:disabled) { background: rgba(220,220,170,0.14); border-color: #dcdcaa; }
-  header .stop-btn:disabled { opacity: 0.55; cursor: not-allowed; }
   header .title {
     color: var(--text);
     font-size: 13px;
@@ -139,20 +117,49 @@
     padding: 4px 8px; font-size: 13px; font-weight: 600;
     font-family: inherit; min-height: 30px; width: 100%; max-width: 320px;
   }
-  header .state {
-    font-size: 11px;
-    padding: 4px 9px;
-    border-radius: 12px;
-    color: #1e1e1e;
-    background: var(--muted);
-    font-weight: 700;
-    flex-shrink: 0;
+  /* Compact state indicator: a small colored dot beside the name. Replaces the old
+     text badge -- the full state word lives in the state-hero below, and the dot
+     keeps an at-a-glance signal in the header once the hero scrolls away. */
+  header .state-dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    flex-shrink: 0; background: var(--muted);
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.12);
   }
-  header .counts {
-    color: var(--muted);
-    font-size: 11px;
-    flex-shrink: 0;
+
+  /* Overflow menu: a kebab button (top-right) opening a dropdown that holds the
+     secondary and destructive actions (Rename, Gateway, Stop, Shut down). This keeps
+     the header to back-nav + state dot + name, and puts the destructive Shut down
+     behind a deliberate tap instead of at the cramped screen edge. */
+  header .menu-wrap { position: relative; flex-shrink: 0; margin-left: 4px; }
+  header .menu-btn {
+    display: inline-flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 3px; width: 40px; min-height: 36px; padding: 0;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    cursor: pointer; -webkit-tap-highlight-color: rgba(255,255,255,0.15);
   }
+  header .menu-btn:hover { background: rgba(255,255,255,0.06); }
+  header .menu-btn .kebab-dot { width: 4px; height: 4px; border-radius: 50%; background: var(--text); }
+  header .menu-panel {
+    position: absolute; top: calc(100% + 6px); right: 0; z-index: 50;
+    min-width: 210px; padding: 6px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  header .menu-panel[hidden] { display: none; }
+  header .menu-item {
+    display: flex; align-items: center; width: 100%; text-align: left;
+    padding: 0 12px; min-height: 44px;
+    background: transparent; border: 0; border-radius: 7px;
+    color: var(--text); font-size: 14px; font-weight: 500; font-family: inherit;
+    cursor: pointer; text-decoration: none; white-space: nowrap;
+    -webkit-tap-highlight-color: rgba(14,99,156,0.3);
+  }
+  header .menu-item:hover:not(:disabled) { background: rgba(255,255,255,0.07); }
+  header .menu-item.danger { color: #ef4444; }
+  header .menu-item.danger:hover:not(:disabled) { background: rgba(239,68,68,0.14); }
+  header .menu-item:disabled { opacity: 0.55; cursor: not-allowed; }
+  header .menu-sep { height: 1px; margin: 5px 6px; background: var(--border); }
 
   .tabs {
     display: flex;
@@ -269,6 +276,19 @@
   .explain-body a.view-link {
     color: var(--accent); text-decoration: underline; text-underline-offset: 2px;
     word-break: break-all;
+  }
+  /* A table the agent presented, reproduced from the briefing's markdown. Renders as a
+     real table so it wraps to phone width instead of overflowing like pasted ASCII art. */
+  .explain-body table.briefing-table {
+    border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px;
+  }
+  .explain-body table.briefing-table th,
+  .explain-body table.briefing-table td {
+    border: 1px solid rgba(14,99,156,0.4); padding: 6px 9px;
+    text-align: left; vertical-align: top; overflow-wrap: anywhere;
+  }
+  .explain-body table.briefing-table th {
+    background: rgba(14,99,156,0.12); font-weight: 700;
   }
   /* Collapsible detail sections (Agent activity, Wingman log). Collapsed on mobile so
      the status + decision stay front and center; the header is a tappable disclosure. */
@@ -723,7 +743,7 @@
     font-size: 16px;        /* >=16px so iOS Safari doesn't zoom on focus */
     line-height: 1.4;
     min-height: 44px;
-    max-height: 40vh;       /* grow up to ~40% of the screen, then scroll inside */
+    max-height: 70vh;       /* grow up to ~70% of the screen, then scroll inside */
     resize: none;           /* height controlled by JS autosize */
     overflow-y: auto;
     box-sizing: border-box;
@@ -933,14 +953,22 @@
 <div class="topbar">
   <header>
     <a href="/" class="navbtn" aria-label="This Director's home">Director</a>
-    <a class="navbtn" id="gatewayBtn" data-url="__GATEWAY_URL__" aria-label="Gateway directory">Gateway</a>
+    <span class="state-dot" id="stateDot" title="Session state"></span>
     <div class="title">
       <span class="name" id="sessionName" onclick="return beginRename()" title="Click to rename this session">Session<span class="pencil">&#9998;</span></span><span class="sid" id="sidShort">__SHORT_SID__</span>
     </div>
-    <span class="state" id="state">?</span>
-    <span class="counts" id="counts"></span>
-    <button type="button" id="stopBtn" class="stop-btn" onclick="return sendEscape()" title="Send Escape to interrupt the current turn (stops Claude generating)">Stop</button>
-    <button type="button" id="shutdownBtn" class="shutdown-btn" onclick="return shutdownSession()" title="Shut down this session (terminates the Claude process)">Shut down</button>
+    <div class="menu-wrap">
+      <button type="button" id="menuBtn" class="menu-btn" aria-label="Session menu" aria-haspopup="true" aria-expanded="false" onclick="return toggleSessionMenu()">
+        <span class="kebab-dot"></span><span class="kebab-dot"></span><span class="kebab-dot"></span>
+      </button>
+      <div class="menu-panel" id="menuPanel" role="menu" hidden>
+        <button type="button" class="menu-item" role="menuitem" onclick="return menuRename()">Rename session</button>
+        <a class="menu-item" id="gatewayBtn" data-url="__GATEWAY_URL__" role="menuitem">Gateway directory</a>
+        <button type="button" id="stopBtn" class="menu-item" role="menuitem" onclick="return menuStop()" title="Send Escape to interrupt the current turn">Stop the turn</button>
+        <div class="menu-sep"></div>
+        <button type="button" id="shutdownBtn" class="menu-item danger" role="menuitem" onclick="return menuShutdown()" title="Shut down this session (terminates the Claude process)">Shut down session</button>
+      </div>
+    </div>
   </header>
 
   <div class="tabs">
@@ -1049,6 +1077,46 @@
     </form>
     <div id="askContext" class="ask-context"></div>
   </details>
+
+  <!-- Status feedback: the human is the judge of the terminal state detector. If the
+       state word at the top is wrong, say what it should have been - it's filed to a
+       GitHub tracking issue (with the terminal tail) so we can improve detection. -->
+  <style>
+    .vote-block .vote-body { display: flex; flex-direction: column; gap: 8px; padding: 8px 2px; }
+    .vote-block .vote-detected { color: #888; font-size: 13px; }
+    .vote-block .vote-detected b { color: #ddd; }
+    .vote-block .vote-label { color: #888; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; }
+    .vote-block select, .vote-block textarea {
+      background: #1e1e1e; color: #ddd; border: 1px solid #3c3c3c; border-radius: 8px;
+      padding: 10px 12px; font: inherit; font-size: 16px; box-sizing: border-box; width: 100%;
+    }
+    .vote-block button {
+      background: #0e639c; color: #fff; border: 0; border-radius: 8px; padding: 0 18px;
+      min-height: 44px; font-weight: 600; cursor: pointer; align-self: flex-start;
+    }
+    .vote-block button:disabled { opacity: .5; cursor: not-allowed; }
+    .vote-block .vote-feedback { font-size: 13px; min-height: 16px; }
+    .vote-block .vote-feedback.ok { color: #4ec9b0; }
+    .vote-block .vote-feedback.err { color: #f48771; }
+  </style>
+  <details class="vote-block collapsible" id="voteBlock">
+    <summary class="log-label">Status wrong? Tell us</summary>
+    <div class="vote-body">
+      <div class="vote-detected">Detected: <b id="voteDetected">&hellip;</b></div>
+      <label class="vote-label" for="voteCorrect">It should have been</label>
+      <select id="voteCorrect">
+        <option value="">Pick the correct state&hellip;</option>
+        <option value="WORKING">WORKING - the agent is busy</option>
+        <option value="NEEDS YOU">NEEDS YOU - waiting for my answer</option>
+        <option value="WAITING FOR PERMISSION">WAITING FOR PERMISSION - a yes/no prompt</option>
+        <option value="READY">READY - idle, waiting for a task</option>
+        <option value="ENDED">ENDED - the session is over</option>
+      </select>
+      <textarea id="voteNote" rows="2" placeholder="Optional: why is it wrong? (e.g. 'I cancelled but it still says working')"></textarea>
+      <button type="button" id="voteSubmitBtn" onclick="return submitStateVote()">Send feedback</button>
+      <div class="vote-feedback" id="voteFeedback"></div>
+    </div>
+  </details>
 </div>
 
 <div id="voiceView">
@@ -1077,7 +1145,7 @@
 </div>
 
 <form class="send" onsubmit="return send(event)">
-  <textarea id="prompt" rows="1" placeholder="Send to session... (Enter to submit, Shift+Enter for newline)" autocomplete="off"></textarea>
+  <textarea id="prompt" rows="1" placeholder="Type or paste... (Enter adds a newline; tap Send to submit)" autocomplete="off"></textarea>
   <div class="button-row">
     <!-- Hidden file input; the Upload button triggers it. No "capture" attribute, so
          phones offer the full picker (photo library AND camera) rather than forcing the
@@ -1110,23 +1178,60 @@
   const rawScrollbackEl = document.getElementById('rawScrollback');
   const rawLiveGridEl = document.getElementById('rawLiveGrid');
   const voiceEl = document.getElementById('voiceView');
-  const stateEl = document.getElementById('state');
-  const countsEl = document.getElementById('counts');
+  const stateDotEl = document.getElementById('stateDot');
   const tabs = document.querySelectorAll('.tab');
 
   let activeView = 'session';
   let lastWidgetCount = 0;
   const sessionEl = document.getElementById('sessionView');
 
-  // Gateway nav button: only show it when this Director has a gateway.url
-  // configured (server injects the URL into data-url; empty => hide the button
-  // rather than render a dead link).
+  // Gateway nav button (in the overflow menu): links back to the Gateway directory.
+  // Two authoritative sources, in priority order:
+  //   1. The "gw" query param the Gateway stamps onto deep links when you open a
+  //      session from its directory -- the exact Gateway address you came from.
+  //   2. This Director's configured gateway.url (server-injected into data-url),
+  //      used when the page was opened directly rather than via a Gateway.
+  // If neither is present we hide the item rather than render a dead link (e.g.
+  // you reached this session straight from the Director's own home).
   (function initGatewayBtn() {
     const g = document.getElementById('gatewayBtn');
     if (!g) return;
-    const u = (g.dataset.url || '').trim();
+    let u = '';
+    try {
+      const gw = new URLSearchParams(window.location.search).get('gw');
+      if (gw) u = gw.trim();
+    } catch (_) { /* malformed query string -> fall through to config url */ }
+    if (!u) u = (g.dataset.url || '').trim();
     if (u) g.href = u; else g.style.display = 'none';
   })();
+
+  // ---------- Header overflow menu ----------
+  // The kebab opens a small dropdown holding the secondary/destructive actions so
+  // the header itself stays to back-nav + state dot + name. Closes on outside tap,
+  // Escape, or after an item is chosen.
+  function setMenuOpen(open) {
+    const panel = document.getElementById('menuPanel');
+    const btn = document.getElementById('menuBtn');
+    if (!panel || !btn) return;
+    panel.hidden = !open;
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+  window.toggleSessionMenu = function () {
+    const panel = document.getElementById('menuPanel');
+    setMenuOpen(panel ? panel.hidden : true);
+    return false;
+  };
+  window.closeSessionMenu = function () { setMenuOpen(false); };
+  document.addEventListener('click', (e) => {
+    const wrap = e.target.closest && e.target.closest('.menu-wrap');
+    if (!wrap) window.closeSessionMenu();
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') window.closeSessionMenu(); });
+
+  // Menu item handlers: close the menu first, then run the existing action.
+  window.menuRename = function () { window.closeSessionMenu(); window.beginRename(); return false; };
+  window.menuStop = function () { window.closeSessionMenu(); window.sendEscape(); return false; };
+  window.menuShutdown = function () { window.closeSessionMenu(); window.shutdownSession(); return false; };
 
   function stateColor(s) {
     return ({
@@ -1203,6 +1308,51 @@
     return false;
   };
 
+  window.submitStateVote = async function () {
+    const sel = document.getElementById('voteCorrect');
+    const note = document.getElementById('voteNote');
+    const fb = document.getElementById('voteFeedback');
+    const btn = document.getElementById('voteSubmitBtn');
+    const correct = sel ? sel.value : '';
+    if (!correct) {
+      fb.textContent = 'Pick what the state should have been.';
+      fb.className = 'vote-feedback err';
+      return false;
+    }
+    btn.disabled = true;
+    fb.textContent = 'Sending feedback…';
+    fb.className = 'vote-feedback';
+    try {
+      const resp = await fetch('/sessions/' + SID + '/state-vote', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          correctState: correct,
+          note: note ? note.value : '',
+          detectedState: window.__detectedWord || '',
+          detectedReason: window.__detectedReason || ''
+        })
+      });
+      const body = await resp.json();
+      if (resp.ok && body && body.saved) {
+        fb.textContent = 'Thanks! ' + (body.detail || 'Feedback recorded.');
+        fb.className = 'vote-feedback ok';
+        if (note) note.value = '';
+        sel.value = '';
+      } else {
+        fb.textContent = 'Failed: ' + ((body && body.detail) || ('HTTP ' + resp.status));
+        fb.className = 'vote-feedback err';
+      }
+    } catch (e) {
+      fb.textContent = 'Failed: ' + (e && e.message ? e.message : e);
+      fb.className = 'vote-feedback err';
+    } finally {
+      btn.disabled = false;
+    }
+    return false;
+  };
+
   async function refreshSession() {
     if (_killed) return;
     try {
@@ -1232,6 +1382,14 @@
     }
     document.getElementById('supReason').textContent = view.currentReason || '(no reason set)';
     document.getElementById('supSince').textContent = view.since ? ('since ' + relativeTime(view.since)) : '';
+    // Remember what the detector currently shows, so the "Status wrong?" feedback can
+    // report the exact detected state the user is disputing.
+    try {
+      window.__detectedWord = sw ? sw.textContent : '';
+      window.__detectedReason = view.currentReason || '';
+      const vd = document.getElementById('voteDetected');
+      if (vd) vd.textContent = window.__detectedWord + (window.__detectedReason ? ' (' + window.__detectedReason + ')' : '');
+    } catch (e) {}
     // Make the composer say what to do: when it needs you, this is where you answer.
     const _pt = document.getElementById('prompt');
     if (_pt) {
@@ -1451,14 +1609,14 @@
   window.sendEscape = async function() {
     if (_killed) return false;
     const btn = document.getElementById('stopBtn');
-    if (btn) { btn.disabled = true; btn.textContent = 'Stopped'; }
+    if (btn) { btn.disabled = true; btn.textContent = 'Stopping...'; }
     try {
       const resp = await fetch('/sessions/' + SID + '/escape', { method: 'POST', credentials: 'same-origin' });
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
     } catch (e) {
       alert('Failed to send Escape: ' + (e && e.message ? e.message : e));
     } finally {
-      if (btn) { setTimeout(() => { btn.disabled = false; btn.textContent = 'Stop'; }, 600); }
+      if (btn) { setTimeout(() => { btn.disabled = false; btn.textContent = 'Stop the turn'; }, 600); }
     }
     return false;
   };
@@ -1483,7 +1641,7 @@
       if (pt) { pt.disabled = true; pt.placeholder = 'Session ended.'; }
     } catch (e) {
       alert('Failed to shut down session: ' + (e && e.message ? e.message : e));
-      if (btn) { btn.disabled = false; btn.textContent = 'Shut down'; }
+      if (btn) { btn.disabled = false; btn.textContent = 'Shut down session'; }
     }
     return false;
   };
@@ -1639,10 +1797,66 @@
       return '<a href="/file?path=' + encodeURIComponent(raw) + '" class="view-link">' + m + '</a>';
     });
   }
+  // Render one run of non-table briefing text. On a phone we linkify viewable file
+  // paths; on desktop the text stays plain (you have the file system right there).
+  function renderBriefingText(text) {
+    return IS_MOBILE ? linkifyPaths(text) : escapeHtml(text);
+  }
+  // A markdown table separator row, e.g. "| --- | :--: |". This is what distinguishes
+  // a real table from a line that merely contains a pipe character.
+  const MD_TABLE_SEP = /^\s*\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)*\|?\s*$/;
+  function splitTableCells(line) {
+    let s = line.trim();
+    if (s.startsWith('|')) s = s.slice(1);
+    if (s.endsWith('|')) s = s.slice(0, -1);
+    return s.split('|').map(c => c.trim());
+  }
+  function renderTable(headerLine, rowLines) {
+    const head = splitTableCells(headerLine);
+    let html = '<table class="briefing-table"><thead><tr>';
+    head.forEach(c => { html += '<th>' + renderBriefingText(c) + '</th>'; });
+    html += '</tr></thead><tbody>';
+    rowLines.forEach(r => {
+      const cells = splitTableCells(r);
+      html += '<tr>';
+      for (let i = 0; i < head.length; i++) {
+        html += '<td>' + renderBriefingText(cells[i] != null ? cells[i] : '') + '</td>';
+      }
+      html += '</tr>';
+    });
+    return html + '</tbody></table>';
+  }
+  // Render a wingman briefing. The text is plain except that the wingman may include a
+  // single GitHub-style markdown table when the agent presented tabular content the user
+  // needs to see. We pull those table blocks out and render them as real HTML tables
+  // (they wrap to phone width, unlike pasted ASCII art) and treat everything else as text.
   function renderBriefing(el, text) {
     if (!el) return;
-    if (IS_MOBILE) el.innerHTML = linkifyPaths(text || '');
-    else el.textContent = text || '';
+    const lines = (text || '').split('\n');
+    let html = '';
+    let textRun = [];
+    const flushText = () => {
+      if (textRun.length) { html += renderBriefingText(textRun.join('\n')); textRun = []; }
+    };
+    for (let i = 0; i < lines.length; i++) {
+      // A table is a header line, then a separator row, then zero+ body rows with pipes.
+      if (i + 1 < lines.length && lines[i].includes('|') && MD_TABLE_SEP.test(lines[i + 1])) {
+        const headerLine = lines[i];
+        const rowLines = [];
+        let j = i + 2;
+        while (j < lines.length && lines[j].includes('|') && lines[j].trim() !== '') {
+          rowLines.push(lines[j]);
+          j++;
+        }
+        flushText();
+        html += renderTable(headerLine, rowLines);
+        i = j - 1;
+      } else {
+        textRun.push(lines[i]);
+      }
+    }
+    flushText();
+    el.innerHTML = html;
   }
 
   // Tap-to-answer: render the wingman's suggested reply options as buttons. One tap drops
@@ -1777,7 +1991,6 @@
       widgets.forEach(w => {
         agentInSessionBody.appendChild(renderWidget(w));
       });
-      countsEl.textContent = widgets.length + ' turn(s)';
 
       // Auto-scroll to bottom when new widgets appear
       if (widgets.length > lastWidgetCount && nearBottom) {
@@ -1821,10 +2034,10 @@
   const promptEl = document.getElementById('prompt');
   function autosizePrompt() {
     if (!promptEl) return;
-    // Cap matches the CSS `max-height: 40vh` so JS and CSS agree on the ceiling;
+    // Cap matches the CSS `max-height: 70vh` so JS and CSS agree on the ceiling;
     // past it the textarea scrolls internally. Recomputed each call so it adapts
     // when the phone rotates or the on-screen keyboard resizes the viewport.
-    const maxH = Math.round(window.innerHeight * 0.4);
+    const maxH = Math.round(window.innerHeight * 0.7);
     promptEl.style.height = 'auto';
     const h = Math.min(promptEl.scrollHeight, maxH);
     promptEl.style.height = h + 'px';
@@ -1834,15 +2047,9 @@
   }
   if (promptEl) {
     promptEl.addEventListener('input', autosizePrompt);
-    // Enter submits (matches the previous <input type="text"> behavior),
-    // Shift+Enter inserts a newline. IME composition is respected so users
-    // typing in Japanese/Korean/Chinese aren't interrupted mid-character.
-    promptEl.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
-        e.preventDefault();
-        if (typeof window.send === 'function') window.send(e);
-      }
-    });
+    // Enter inserts a newline (native textarea behavior); the only way to submit
+    // is the Send button. This lets the user compose / paste multi-line text on a
+    // phone without an accidental send firing the moment they press Enter.
   }
 
   async function refreshRaw() {
@@ -1902,8 +2109,10 @@
       const r = await fetch('/sessions/' + SID, { credentials: 'same-origin' });
       if (!r.ok) return;
       const dto = await r.json();
-      stateEl.textContent = dto.activityState;
-      stateEl.style.background = stateColor(dto.activityState);
+      if (stateDotEl) {
+        stateDotEl.style.background = stateColor(dto.activityState);
+        stateDotEl.title = 'Session state: ' + dto.activityState;
+      }
     } catch {}
   }
 
@@ -2038,10 +2247,9 @@
   // instantly. Desktop toggles mobile mode manually via the button.
   if (IS_MOBILE) {
     setMobileMode(true);
-    // The full "(Enter to submit, Shift+Enter for newline)" hint clips in the collapsed
-    // one-row textarea on a phone (and Shift+Enter is moot on a soft keyboard). Shorten it.
+    // The full hint clips in the collapsed one-row textarea on a phone. Shorten it.
     const _pt = document.getElementById('prompt');
-    if (_pt) _pt.placeholder = 'Send to session...';
+    if (_pt) _pt.placeholder = 'Type or paste, then tap Send...';
   } else {
     // Desktop has room: show the Agent activity / Wingman log expanded. On a phone they
     // stay collapsed (tap the header) so the status + decision are not buried under detail.

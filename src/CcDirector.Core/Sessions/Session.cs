@@ -260,6 +260,16 @@ public sealed class Session : IDisposable
     /// <summary>Fires when a turn completes (Stop event received after UserPromptSubmit).</summary>
     public event Action<Session, TurnData>? OnTurnCompleted;
 
+    /// <summary>
+    /// When true, this Director derives ActivityState and turn boundaries from the
+    /// terminal stream (<c>TerminalStateDetector</c>) instead of Claude Code hooks.
+    /// Set once at startup. In this mode <see cref="HandlePipeEvent"/> is inert for
+    /// state and turns - hooks, if any still arrive, are ignored - and the detector is
+    /// the single authority. Reversible via the CC_DIRECTOR_TERMINAL_STATE env var so
+    /// we can fall back to the hook path without a rebuild.
+    /// </summary>
+    public static bool TerminalDrivenState { get; set; }
+
     // ---------- Mobile mode + proactive wingman explain (remote experience) ----------
 
     /// <summary>
@@ -650,6 +660,11 @@ public sealed class Session : IDisposable
     /// <summary>Process a hook event and transition activity state accordingly.</summary>
     public void HandlePipeEvent(PipeMessage msg)
     {
+        // Terminal-driven mode: the TerminalStateDetector owns ActivityState and turn
+        // boundaries from the terminal stream. Hooks are inert here - we neither change
+        // state nor accumulate/raise turns from them.
+        if (TerminalDrivenState) return;
+
         FileLog.Write($"[Session] HandlePipeEvent: session={Id}, event={msg.HookEventName}, tool={msg.ToolName ?? "n/a"}, currentState={ActivityState}");
 
         // Accumulate turn data for session summary
@@ -729,6 +744,20 @@ public sealed class Session : IDisposable
         ActivityState = newState;
         OnActivityStateChanged?.Invoke(old, newState);
     }
+
+    /// <summary>
+    /// Set ActivityState from the <c>TerminalStateDetector</c> in terminal-driven mode.
+    /// The detector is the single authority for state in that mode; this is its writer.
+    /// </summary>
+    internal void ApplyTerminalActivityState(ActivityState newState) => SetActivityState(newState);
+
+    /// <summary>
+    /// Raise <see cref="OnTurnCompleted"/> from the terminal detector when it observes a
+    /// turn end (terminal output went quiet). Carries a minimal <see cref="TurnData"/>:
+    /// the turn summary is built from the terminal buffer, not from this payload.
+    /// </summary>
+    internal void NotifyTurnEndedFromTerminal()
+        => OnTurnCompleted?.Invoke(this, new TurnData("", new List<string>(), new List<string>(), new List<string>(), DateTimeOffset.UtcNow));
 
     /// <summary>
     /// Refresh Claude session metadata from sessions-index.json.
@@ -1018,7 +1047,9 @@ public sealed class Session : IDisposable
         FileLog.Write($"[Session] ProcessExited: session={Id}, exitCode={exitCode}, pid={ProcessId}, uptime={(DateTimeOffset.UtcNow - CreatedAt).TotalSeconds:F1}s");
         ExitCode = exitCode;
         Status = SessionStatus.Exited;
-        HandlePipeEvent(new PipeMessage { HookEventName = "SessionEnd" });
+        // Process exit is an authoritative, transport-independent signal - drive the
+        // state directly so it works in both terminal-driven and hook modes.
+        SetActivityState(ActivityState.Exited);
     }
 
     private void OnBackendStatusChanged(string status)

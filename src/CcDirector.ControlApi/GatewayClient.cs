@@ -217,13 +217,17 @@ public sealed class GatewayClient : IDisposable
 
     private string ResolveTailnetEndpoint()
     {
-        // Priority: explicit config override > MachineName-based default.
-        // We deliberately don't try to "auto-detect" a Tailscale interface address -
-        // there are too many ways that can be wrong (multiple interfaces, no Tailscale
-        // installed, machine isn't on the tailnet, etc.). If the default isn't reachable
-        // from where the Gateway runs, the operator sets gateway.tailnetEndpoint explicitly.
+        // Default is LOOPBACK. The Director binds 127.0.0.1 only; the Gateway is
+        // co-located (same tailnet node) so it reaches the Director over loopback, and
+        // the phone reaches it via Tailscale Serve (HTTPS), which the Gateway provisions
+        // per Director. Registering a loopback endpoint here makes DeriveDirectorBaseUrl
+        // mirror the public host onto the Director port (https://<host>:<port>) for remote
+        // callers instead of handing them an unreachable raw machine-name:port URL.
+        //
+        // If the Gateway runs on a DIFFERENT machine than this Director, loopback won't
+        // be reachable from it - set gateway.tailnetEndpoint explicitly in that case.
         if (!string.IsNullOrWhiteSpace(_config.TailnetEndpoint))
             return _config.TailnetEndpoint!;
-        return $"http://{Environment.MachineName}:{_port}";
+        return $"http://127.0.0.1:{_port}";
     }
 }

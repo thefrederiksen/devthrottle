@@ -25,8 +25,8 @@ internal static class GatewayEndpoints
 
         // ===== HTML pages =====
         // Phase 1: the canonical "/" is the directory page. The legacy aggregator
-        // manager UI is still reachable at "/legacy-manager" for the embedded
-        // Avalonia ManagerView until it migrates to per-Director direct calls.
+        // Director UI is still reachable at "/legacy-manager" for the embedded
+        // Avalonia DirectorView until it migrates to per-Director direct calls.
         app.MapGet("/", (HttpContext ctx) =>
         {
             var accept = ctx.Request.Headers["Accept"].ToString();
@@ -219,6 +219,7 @@ internal static class GatewayEndpoints
                 if (sessions is null) continue;
 
                 var baseUrl = DeriveDirectorBaseUrl(ctx, d);
+                var gatewayBaseUrl = DeriveGatewayBaseUrl(ctx);
                 foreach (var s in sessions)
                 {
                     if (!string.IsNullOrEmpty(agent) && !string.Equals(s.Agent, agent, StringComparison.OrdinalIgnoreCase))
@@ -241,7 +242,11 @@ internal static class GatewayEndpoints
                     s.MachineName = d.MachineName;
                     s.User = d.User;
                     s.TailnetEndpoint = baseUrl;
-                    s.ViewUrl = $"{baseUrl}/sessions/{s.SessionId}/view";
+                    // Stamp the deep link with the Gateway's own address (as this caller
+                    // reached it) so the session view can offer a "back to Gateway" menu
+                    // item. The session view is served by the Director on a different
+                    // origin/port, so it cannot otherwise know where the Gateway lives.
+                    s.ViewUrl = $"{baseUrl}/sessions/{s.SessionId}/view?gw={Uri.EscapeDataString(gatewayBaseUrl)}";
                     all.Add(s);
                 }
             }
@@ -263,7 +268,7 @@ internal static class GatewayEndpoints
             session.MachineName = director.MachineName;
             session.User = director.User;
             session.TailnetEndpoint = baseUrl;
-            session.ViewUrl = $"{baseUrl}/sessions/{session.SessionId}/view";
+            session.ViewUrl = $"{baseUrl}/sessions/{session.SessionId}/view?gw={Uri.EscapeDataString(DeriveGatewayBaseUrl(ctx))}";
             return Results.Json(session);
         });
 
@@ -882,6 +887,14 @@ internal static class GatewayEndpoints
         }
 
         return (d.ControlEndpoint ?? "").TrimEnd('/');
+    }
+
+    // The Gateway's own externally-reachable base URL, exactly as THIS caller reached
+    // it (scheme + host + optional port). Stamped onto session deep links so the
+    // Director-served session view can link back to the Gateway directory it came from.
+    internal static string DeriveGatewayBaseUrl(HttpContext ctx)
+    {
+        return $"{ctx.Request.Scheme}://{ctx.Request.Host.Value}";
     }
 
     private static string? ResolveDirectorExe()

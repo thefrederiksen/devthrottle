@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
+using System.Text;
 using CcDirector.Core.Claude;
 using CcDirector.Core.Configuration;
+using CcDirector.Core.Memory;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
@@ -25,6 +27,10 @@ public sealed class TurnSummaryCache : IDisposable
     private readonly Core.Storage.SessionLogManager? _logManager;
     private readonly ConcurrentDictionary<Guid, List<TurnSummary>> _cache = new();
     private readonly ConcurrentDictionary<Guid, Action<Session, TurnData>> _handlers = new();
+    // Per-session terminal-buffer read cursor. A turn summary covers the bytes this
+    // session's PTY emitted since the previous summary. Keyed by Director session Guid
+    // so one session can never read another's output.
+    private readonly ConcurrentDictionary<Guid, long> _bufferCursors = new();
     private bool _started;
     private bool _disposed;
 
@@ -53,7 +59,13 @@ public sealed class TurnSummaryCache : IDisposable
             WireSession(s);
     }
 
-    private void OnSessionContextReset(Session session) => ClearSession(session.Id);
+    private void OnSessionContextReset(Session session)
+    {
+        ClearSession(session.Id);
+        // Advance the read cursor past everything already on screen so the next summary
+        // covers only post-/clear output, not the wiped conversation.
+        _bufferCursors[session.Id] = session.Buffer?.TotalBytesWritten ?? 0;
+    }
 
     /// <summary>
     /// Drop all cached turn summaries for a session. Called after Claude Code rotates
@@ -85,14 +97,14 @@ public sealed class TurnSummaryCache : IDisposable
         var session = _sessionManager.GetSession(sessionId);
         if (session is null) return null;
 
-        // Build a synthetic TurnData from whatever is currently in the JSONL.
-        var turn = SnapshotLatestTurnFromJsonl(session);
-        if (turn is null) return null;
-
-        var lastAssistantText = TryReadLastAssistantText(session);
+        // On-demand: summarize what is currently on THIS session's terminal (the tail
+        // of its own PTY buffer). No JSONL, no shared folder - cannot pick up another
+        // session's conversation.
+        var transcript = SnapshotTerminalTail(session.Buffer);
+        if (string.IsNullOrWhiteSpace(transcript)) return null;
 
         var summary = await WingmanService.SummarizeTurnAsync(
-            turn, lastAssistantText, session.RepoPath, _options.ClaudePath, ct);
+            transcript, DateTime.UtcNow, session.RepoPath, _options.ClaudePath, ct);
 
         AddToCache(sessionId, summary);
         return summary;
@@ -129,15 +141,32 @@ public sealed class TurnSummaryCache : IDisposable
         if (_handlers.ContainsKey(session.Id)) return;
         FileLog.Write($"[TurnSummaryCache] wiring session {session.Id}");
 
+        // Start the read cursor at the current end of this session's buffer, so the
+        // first summary covers only output produced from here on.
+        _bufferCursors[session.Id] = session.Buffer?.TotalBytesWritten ?? 0;
+
         Action<Session, TurnData> handler = (s, t) =>
         {
+            // The turn-completed event is only a TIMING pulse (when a turn ends).
+            // The summary CONTENT comes solely from this session's own terminal
+            // buffer below - never from the event's hook-derived TurnData, and never
+            // from Claude Code's shared .jsonl. So even a mis-delivered pulse can only
+            // summarize the receiving session's own output.
             _ = Task.Run(async () =>
             {
                 try
                 {
-                    var lastAssistantText = TryReadLastAssistantText(s);
+                    var sinceCursor = _bufferCursors.TryGetValue(s.Id, out var cur) ? cur : 0;
+                    var (transcript, newCursor) = CaptureTurnTranscript(s.Buffer, sinceCursor);
+                    _bufferCursors[s.Id] = newCursor;
+
+                    // No new terminal output since the last summary: a no-op or spurious
+                    // pulse. Nothing of ours to summarize, so don't fabricate one.
+                    if (string.IsNullOrWhiteSpace(transcript))
+                        return;
+
                     var summary = await WingmanService.SummarizeTurnAsync(
-                        t, lastAssistantText, s.RepoPath, _options.ClaudePath);
+                        transcript, t.Timestamp.UtcDateTime, s.RepoPath, _options.ClaudePath);
                     AddToCache(s.Id, summary);
                     // Hand the fresh summary to the status wingman (slow path).
                     _statusWingman?.ApplyTurnSummary(s, summary);
@@ -172,63 +201,38 @@ public sealed class TurnSummaryCache : IDisposable
     }
 
     /// <summary>
-    /// Read the FULL last assistant text widget out of the session's JSONL, with no
-    /// front-truncation. The caller is responsible for fitting the result into its
-    /// own prompt budget; question detection needs the END of the response (where
-    /// trailing "?" lives), so we never lop the tail off here. Returns null when
-    /// the JSONL is missing or has no assistant text yet (brand-new session, or
-    /// link not yet recorded).
+    /// Capture this session's terminal output produced since <paramref name="sinceCursor"/>,
+    /// ANSI-stripped, ready to hand to the Wingman summariser. Returns the cleaned text
+    /// plus the new cursor to store for the next turn. The text is the literal byte
+    /// stream of THIS session's PTY - it cannot contain another session's output.
+    ///
+    /// When the delta is very large (a long turn) we keep the END, where the agent's
+    /// most recent message and any trailing question live.
     /// </summary>
-    /// <remarks>
-    /// Bypasses <see cref="SummaryBuilder.Build"/> on purpose: that path runs the
-    /// content through <c>Truncate(s, 2000)</c> which keeps the FIRST 2000 chars,
-    /// reliably cutting off any trailing question on a long response.
-    /// </remarks>
-    internal static string? TryReadLastAssistantText(Session session)
+    internal static (string transcript, long newCursor) CaptureTurnTranscript(
+        CircularTerminalBuffer? buffer, long sinceCursor, int maxChars = 16000)
     {
-        try
-        {
-            if (string.IsNullOrEmpty(session.ClaudeSessionId)) return null;
-            var jsonl = ClaudeSessionReader.GetJsonlPath(session.ClaudeSessionId, session.RepoPath);
-            if (!File.Exists(jsonl)) return null;
-            var messages = StreamMessageParser.ParseFile(jsonl);
-            var widgets = WidgetBuilder.BuildFromMessages(messages);
-            for (int i = widgets.Count - 1; i >= 0; i--)
-            {
-                if (widgets[i].Kind == "Text" && !string.IsNullOrEmpty(widgets[i].Content))
-                    return widgets[i].Content;
-            }
-            return null;
-        }
-        catch (Exception ex)
-        {
-            FileLog.Write($"[TurnSummaryCache] TryReadLastAssistantText FAILED for {session.Id}: {ex.Message}");
-            return null;
-        }
+        if (buffer is null) return (string.Empty, sinceCursor);
+        var (bytes, newCursor) = buffer.GetWrittenSince(sinceCursor);
+        if (bytes.Length == 0) return (string.Empty, newCursor);
+        var text = TerminalOutputParser.StripAnsi(Encoding.UTF8.GetString(bytes));
+        if (text.Length > maxChars) text = text[^maxChars..];
+        return (text, newCursor);
     }
 
-    private static TurnData? SnapshotLatestTurnFromJsonl(Session session)
+    /// <summary>
+    /// Snapshot the tail of a session's terminal buffer (what is currently on screen),
+    /// ANSI-stripped. Used by the on-demand path where there is no per-turn cursor -
+    /// we just summarise the most recent output. Returns empty when the buffer is empty.
+    /// </summary>
+    private static string SnapshotTerminalTail(CircularTerminalBuffer? buffer, int maxChars = 16000)
     {
-        // For on-demand summary requests we synthesise a TurnData from the JSONL
-        // structured summary; this is enough for the Haiku prompt.
-        try
-        {
-            if (string.IsNullOrEmpty(session.ClaudeSessionId)) return null;
-            var jsonl = ClaudeSessionReader.GetJsonlPath(session.ClaudeSessionId, session.RepoPath);
-            if (!File.Exists(jsonl)) return null;
-            var messages = StreamMessageParser.ParseFile(jsonl);
-            var s = SummaryBuilder.Build(messages);
-            return new TurnData(
-                UserPrompt: s.LastUserPrompt ?? "",
-                ToolsUsed: new List<string>(),
-                FilesTouched: s.FilesTouched.Select(f => f.Path).Take(10).ToList(),
-                BashCommands: s.RecentCommands.Take(10).ToList(),
-                Timestamp: DateTimeOffset.UtcNow);
-        }
-        catch
-        {
-            return null;
-        }
+        if (buffer is null) return string.Empty;
+        var bytes = buffer.DumpAll();
+        if (bytes.Length == 0) return string.Empty;
+        var text = TerminalOutputParser.StripAnsi(Encoding.UTF8.GetString(bytes));
+        if (text.Length > maxChars) text = text[^maxChars..];
+        return text;
     }
 
     public void Dispose()

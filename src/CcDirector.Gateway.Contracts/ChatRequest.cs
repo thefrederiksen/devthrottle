@@ -3,7 +3,7 @@ namespace CcDirector.Gateway.Contracts;
 /// <summary>
 /// Body of POST /chat on the Director.
 ///
-/// The Manager chat is intentionally simple in v1: one configured session
+/// The Director chat is intentionally simple in v1: one configured session
 /// (Chat.SessionRepoPath in appsettings) plays the role of "the agent." Every
 /// chat message becomes a SendTextAsync call against that session; the agent
 /// reply is read back from the session's terminal buffer once the session

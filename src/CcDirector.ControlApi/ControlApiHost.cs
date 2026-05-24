@@ -19,9 +19,9 @@ namespace CcDirector.ControlApi;
 /// URL is bookmarkable across restarts and reachable from Tailscale clients.
 ///
 /// Binding:
-///   - Listens on 0.0.0.0 (all interfaces) so loopback + LAN + Tailscale all work.
-///   - Auth (cookie or Bearer token) is required for every state-changing or
-///     potentially-sensitive request. Token lives in gateway-token.txt.
+///   - Listens on loopback (127.0.0.1) ONLY. The raw port is never on the LAN or the
+///     Tailscale interface; remote access is exclusively via Tailscale Serve (HTTPS),
+///     auto-provisioned per Director by the Gateway's TailscaleServeProvisioner.
 ///
 /// Lifecycle:
 ///   - StartAsync() -> picks port via PortAllocator, starts Kestrel, writes instances/{guid}.json
@@ -53,6 +53,7 @@ public sealed class ControlApiHost : IAsyncDisposable
     private TurnSummaryCache? _turnSummaryCache;
     private SessionStatusWingman? _statusWingman;
     private ProactiveExplainService? _proactiveExplain;
+    private TerminalStateDetector? _terminalStateDetector;
     private Core.Storage.SessionLogManager? _sessionLogManager;
     private bool _stopped;
 
@@ -61,7 +62,7 @@ public sealed class ControlApiHost : IAsyncDisposable
     /// </summary>
     /// <param name="useEphemeralPort">
     /// If true, Kestrel picks a free port and we bind only to loopback (intended for tests).
-    /// If false (production), PortAllocator picks a stable port in [7879..7898] and we bind to 0.0.0.0.
+    /// If false (production), PortAllocator picks a stable port in [7879..7898] and we bind to loopback (Tailscale Serve fronts it).
     /// </param>
     /// <param name="authEnabled">
     /// If true, bearer-token or cookie auth is required for all routes except /healthz/login/logout.
@@ -102,7 +103,11 @@ public sealed class ControlApiHost : IAsyncDisposable
         else
         {
             Port = PortAllocator.Allocate(DirectorId);
-            builder.WebHost.ConfigureKestrel(o => o.Listen(IPAddress.Any, Port));
+            // Loopback ONLY. The raw port is never exposed on the LAN or the Tailscale
+            // interface; the sole remote path is Tailscale Serve (HTTPS), which the
+            // Gateway's TailscaleServeProvisioner maps as https://<host>:<port> ->
+            // http://localhost:<port>. This kills the plain-HTTP-on-raw-port surface.
+            builder.WebHost.ConfigureKestrel(o => o.Listen(IPAddress.Loopback, Port));
         }
 
         builder.Logging.ClearProviders();
@@ -163,6 +168,20 @@ public sealed class ControlApiHost : IAsyncDisposable
         _proactiveExplain = new ProactiveExplainService(_sessionManager, _sessionManager.Options.ClaudePath, _turnSummaryCache);
         _proactiveExplain.Start();
 
+        // Terminal-driven state: the detector derives ActivityState + turn boundaries from
+        // the terminal stream (agent-agnostic, no hooks). On by default; set
+        // CC_DIRECTOR_TERMINAL_STATE=0 to fall back to the Claude-Code hook path without a
+        // rebuild. When off, the detector still runs in shadow mode (logs only).
+        // The LLM judge stage (nuanced states: waiting vs permission) is on by default;
+        // set CC_DIRECTOR_TERMSTATE_LLM=0 to run the free byte-activity gate alone.
+        var terminalDriven = Environment.GetEnvironmentVariable("CC_DIRECTOR_TERMINAL_STATE") != "0";
+        var termStateLlm = Environment.GetEnvironmentVariable("CC_DIRECTOR_TERMSTATE_LLM") != "0";
+        Core.Sessions.Session.TerminalDrivenState = terminalDriven;
+        _terminalStateDetector = new TerminalStateDetector(
+            _sessionManager, _sessionManager.Options.ClaudePath, useLlm: termStateLlm, driveState: terminalDriven);
+        _terminalStateDetector.Start();
+        FileLog.Write($"[ControlApiHost] Session state source: {(terminalDriven ? "terminal" : "hooks")} (llm judge={termStateLlm})");
+
         // Load the gateway config up front so the served HTML can render a "Gateway"
         // nav button pointing at it. Reused below for the GatewayClient registration.
         var gatewayConfig = Core.Configuration.GatewayConfig.Load();
@@ -178,7 +197,7 @@ public sealed class ControlApiHost : IAsyncDisposable
             Port = ReadAssignedPort(_app)
                 ?? throw new InvalidOperationException("Kestrel started but did not expose a bound address.");
         }
-        FileLog.Write($"[ControlApiHost] Kestrel listening on " + (_useEphemeralPort ? $"http://127.0.0.1:{Port}" : $"http://0.0.0.0:{Port}"));
+        FileLog.Write($"[ControlApiHost] Kestrel listening on http://127.0.0.1:{Port} (loopback only; remote access via Tailscale Serve)");
 
         _registration = new InstanceRegistration(DirectorId, Port, _version);
         _registration.Register();
@@ -218,6 +237,8 @@ public sealed class ControlApiHost : IAsyncDisposable
             _gatewayClient = null;
         }
 
+        _terminalStateDetector?.Dispose();
+        _terminalStateDetector = null;
         _proactiveExplain?.Dispose();
         _proactiveExplain = null;
         _turnSummaryCache?.Dispose();
