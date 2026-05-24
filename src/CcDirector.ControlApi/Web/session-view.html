@@ -2300,10 +2300,11 @@
   // VOICE MODE
   // ---------------------------------------------------------------------
   // Walkie-talkie: one tap to start recording (full-screen overlay), one
-  // tap to stop + send.  Audio -> /voice/command (Whisper) -> transcript ->
-  // POST /chat { sessionId, text } -> reply -> voice-friendly translation
-  // -> SpeechSynthesis.  Audio cues are WebAudio-synthesised so we don't
-  // ship audio files.  /voice/command POST auto-retries with backoff.
+  // tap to stop + send.  Audio is uploaded as resumable chunks while you speak
+  // (/voice/utterance register -> chunk -> complete), transcribed there, then
+  // POST /chat { sessionId, text } -> reply -> SpeechSynthesis/TTS.  Audio cues
+  // are WebAudio-synthesised so we don't ship audio files.  The chunk uploader
+  // retries through network drops without re-sending what already landed.
   // =====================================================================
 
   const voiceMainBtn       = document.getElementById('voiceMainBtn');
@@ -2574,6 +2575,108 @@
 
   voiceStopSpeakBtn.addEventListener('click', stopAllSpeech);
 
+  // ===== Resumable chunked upload =======================================
+  // We record with a 250ms timeslice (also our "capture is live" signal) and
+  // upload each webm fragment as its own chunk AS IT IS PRODUCED. Each chunk is
+  // SHA256-stamped and idempotent server-side, so on spotty car LTE a dropped
+  // connection just retries the current chunk; everything already uploaded stays
+  // uploaded. On send we drain the queue, then POST /complete to reassemble +
+  // transcribe. Replaces the old whole-blob /voice/command upload.
+  let utteranceId = null;
+  let chunkIndex = 0;        // next index to assign to an emitted fragment
+  let uploadQueue = [];      // pending {index, blob}
+  let uploaderActive = false;
+  let uploadAborted = false;
+  let uploadedCount = 0;
+  let uploadRetryShown = false;
+
+  async function sha256Hex(buf) {
+    const d = await crypto.subtle.digest('SHA-256', buf);
+    return Array.from(new Uint8Array(d)).map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  async function registerUtterance() {
+    const r = await fetch('/voice/utterance', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' }, body: '{}',
+    });
+    const body = await r.json().catch(() => null);
+    if (!body) throw new Error('register failed (HTTP ' + r.status + ')');
+    if (body.status === 'no_key') { const e = new Error(body.error || 'no OpenAI key'); e.noKey = true; throw e; }
+    return body.utteranceId;
+  }
+
+  // Upload one chunk, retrying until uploadAborted on network failure. The audio
+  // is held locally, so retrying is safe: we never drop the user's words.
+  async function putChunkWithRetry(index, blob) {
+    const buf = await blob.arrayBuffer();
+    const sha = await sha256Hex(buf);
+    let delay = 800;
+    while (!uploadAborted) {
+      try {
+        const r = await fetch('/voice/utterance/' + utteranceId + '/chunk/' + index, {
+          method: 'PUT', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/octet-stream', 'X-Chunk-Sha256': sha },
+          body: buf,
+        });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        if (uploadRetryShown) { uploadRetryShown = false; stopCue(); }
+        return true;
+      } catch (e) {
+        if (!uploadRetryShown) {
+          uploadRetryShown = true;
+          startCue(CUE.retry.freq, CUE.retry.interval);
+          setVoiceState('Bad connection - holding your audio, retrying...');
+        }
+        await new Promise(r => setTimeout(r, delay));
+        delay = Math.min(delay * 2, 15000);
+      }
+    }
+    return false;
+  }
+
+  // Drain the queue sequentially (chunks must keep their order for reassembly).
+  function kickUploader() {
+    if (uploaderActive) return;
+    uploaderActive = true;
+    (async () => {
+      try {
+        while (uploadQueue.length > 0 && !uploadAborted) {
+          const item = uploadQueue[0];
+          const ok = await putChunkWithRetry(item.index, item.blob);
+          if (!ok) break;
+          uploadQueue.shift();
+          uploadedCount++;
+        }
+      } finally { uploaderActive = false; }
+    })();
+  }
+
+  // Wait until every queued chunk has been uploaded (with retry through drops).
+  async function waitForUploadDrain() {
+    while ((uploadQueue.length > 0 || uploaderActive) && !uploadAborted) {
+      kickUploader();
+      await new Promise(r => setTimeout(r, 200));
+    }
+  }
+
+  // Ask the server to reassemble all chunks + transcribe. If a chunk is still in
+  // flight the server returns 409 with the missing indices; we re-drain and retry.
+  async function completeUtterance(totalChunks, mimeType) {
+    for (let attempt = 0; attempt < 6 && !uploadAborted; attempt++) {
+      const r = await fetch('/voice/utterance/' + utteranceId + '/complete', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ totalChunks, mime: mimeType, sessionId: SID }),
+      });
+      const body = await r.json().catch(() => null);
+      if (r.ok && body) return body;
+      if (r.status === 409) { await waitForUploadDrain(); await new Promise(r => setTimeout(r, 500)); continue; }
+      throw new Error('complete failed (HTTP ' + r.status + ')');
+    }
+    throw new Error('could not assemble all audio chunks');
+  }
+
   // ----- Recording lifecycle -------------------------------------------
   async function startRecording() {
     if (voiceBusy) return;
@@ -2628,6 +2731,18 @@
     }
 
     recordedChunks = [];
+    // Fresh utterance for this recording; reset the chunk-upload state and
+    // register up front so chunks can start flowing the instant they are emitted.
+    chunkIndex = 0; uploadQueue = []; uploadedCount = 0; uploadAborted = false; uploadRetryShown = false; utteranceId = null;
+    try {
+      utteranceId = await registerUtterance();
+    } catch (e) {
+      hideRecordingOverlay();
+      const msg = e.noKey ? ('Voice mode disabled: ' + e.message) : ('Could not start voice upload: ' + e.message);
+      setVoiceState(msg, 'error');
+      appendVoiceBubble('system', msg);
+      return;
+    }
     const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : '';
     try {
       mediaRecorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
@@ -2640,7 +2755,12 @@
 
     let liveConfirmed = false;
     mediaRecorder.ondataavailable = (ev) => {
-      if (ev.data && ev.data.size > 0) recordedChunks.push(ev.data);
+      if (ev.data && ev.data.size > 0) {
+        recordedChunks.push(ev.data);
+        // Upload this fragment as its own resumable chunk immediately.
+        uploadQueue.push({ index: chunkIndex++, blob: ev.data });
+        kickUploader();
+      }
       // The first real chunk means MediaRecorder is past its warm-up and is
       // genuinely encoding audio. Only now do we flip to "Recording" and start
       // the timer, so the user is invited to speak exactly when capture is live
@@ -2682,47 +2802,17 @@
       });
     }
 
-    if (recordedChunks.length === 0) {
-      setVoiceState('No audio captured.', 'error');
-      return;
-    }
-
-    const blob = new Blob(recordedChunks, { type: rec.mimeType || 'audio/webm' });
+    const totalBytes = recordedChunks.reduce((n, b) => n + b.size, 0);
+    const mimeType = rec.mimeType || 'audio/webm';
     recordedChunks = [];
 
-    if (blob.size < 1000) {
-      setVoiceState('Too short. Hold longer next time.', 'error');
+    if (chunkIndex === 0 || totalBytes < 1000) {
+      uploadAborted = true;  // stop the background uploader; nothing worth sending
+      setVoiceState(totalBytes === 0 ? 'No audio captured.' : 'Too short. Hold longer next time.', 'error');
       return;
     }
 
-    await voicePipeline(blob);
-  }
-
-  async function uploadWithRetry(blob, maxAttempts) {
-    let attempt = 0;
-    let delay = 1000;
-    while (true) {
-      attempt++;
-      try {
-        if (attempt === 1) {
-          startCue(CUE.upload.freq, CUE.upload.interval);
-          setVoiceState('Uploading...');
-        }
-        const fd = new FormData();
-        const ext = (blob.type.includes('webm')) ? 'webm' : 'audio';
-        fd.append('file', blob, 'recording.' + ext);
-        const r = await fetch('/voice/command', { method: 'POST', credentials: 'same-origin', body: fd });
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        return await r.json();
-      } catch (e) {
-        if (attempt >= maxAttempts) throw e;
-        // Switch the sound to "still trying" on the first failure.
-        startCue(CUE.retry.freq, CUE.retry.interval);
-        setVoiceState('Bad connection - retrying (attempt ' + (attempt + 1) + ')...');
-        await new Promise(r => setTimeout(r, delay));
-        delay = Math.min(delay * 2, 30000);
-      }
-    }
+    await finishUtteranceAndConverse(chunkIndex, mimeType);
   }
 
   async function postChat(text) {
@@ -2780,12 +2870,16 @@
     setVoiceState('Ready. Tap the big button to talk again.', 'ok');
   }
 
-  async function voicePipeline(blob) {
+  async function finishUtteranceAndConverse(totalChunks, mimeType) {
     voiceBusy = true;
     voiceMainBtn.disabled = true;
     try {
-      // 1) Upload + transcribe via /voice/command (with retry).
-      const voiceResp = await uploadWithRetry(blob, 6);  // ~63 s total worst-case
+      // 1) Ensure every chunk has landed (resumable; retries through drops),
+      //    then ask the server to reassemble + transcribe.
+      startCue(CUE.upload.freq, CUE.upload.interval);
+      setVoiceState('Uploading...');
+      await waitForUploadDrain();
+      const voiceResp = await completeUtterance(totalChunks, mimeType);
       stopCue();
       if (voiceResp.status === 'no_key') {
         setVoiceState('Voice mode disabled: ' + (voiceResp.error || 'no OpenAI key'), 'error');

@@ -1,7 +1,7 @@
 {
-  "started": "2026-05-24T17:30:44.112346+00:00",
+  "started": "2026-05-24T18:13:59.990874+00:00",
   "base": "http://127.0.0.1:7880",
-  "sid": "d90bc45c-a928-47b4-a459-f1743a113704",
+  "sid": "26a8dedd-75c4-48a3-ace2-4a4b150f3266",
   "runs": [
     {
       "scenario": "happy",
@@ -11,164 +11,908 @@
           "ok": true,
           "note": "Session view loaded in mobile viewport",
           "screenshot": "happy_01_loaded.png",
-          "at": "2026-05-24T17:30:46.816557+00:00"
+          "at": "2026-05-24T18:14:02.396595+00:00"
         },
         {
           "key": "02_voice_tab",
           "ok": true,
           "note": "Voice tab active. state='Ready. Tap the big button, speak, tap again to send.' main_btn_disabled=False",
           "screenshot": "happy_02_voice_tab.png",
-          "at": "2026-05-24T17:30:48.401187+00:00"
+          "at": "2026-05-24T18:14:03.872710+00:00"
         },
         {
           "key": "03_recording",
           "ok": true,
           "note": "Recording overlay shown=True. state='Recording...'",
           "screenshot": "happy_03_recording.png",
-          "at": "2026-05-24T17:30:50.066117+00:00"
+          "at": "2026-05-24T18:14:05.271020+00:00"
         },
         {
           "key": "04_sent",
           "ok": true,
           "note": "Tapped send; upload/transcribe started",
           "screenshot": "happy_04_sent.png",
-          "at": "2026-05-24T17:31:08.396736+00:00"
+          "at": "2026-05-24T18:14:23.454634+00:00"
         },
         {
           "key": "05_transcribed",
           "ok": true,
-          "note": "Transcript bubble: 'What files did you change in this session? Give me a short summary.13:31:17'",
+          "note": "Transcript bubble: 'What files did you change in this session? Give me a short summary.14:14:30'",
           "screenshot": "happy_05_transcribed.png",
-          "at": "2026-05-24T17:31:18.173395+00:00",
-          "transcript": "What files did you change in this session? Give me a short summary.13:31:17"
+          "at": "2026-05-24T18:14:30.587120+00:00",
+          "transcript": "What files did you change in this session? Give me a short summary.14:14:30"
         },
         {
           "key": "06_agent_reply",
           "ok": true,
-          "note": "Agent reply after 9.1s: \"No files changed. I haven't edited, created, or deleted anything this session \u2014 and I haven't run any commits.\\nThe repo is still at commit `502223d seed` with a clean working tree (the only untracked \"",
+          "note": "Agent reply after 10.1s: \"I haven't changed any files in this session \u2014 this is the start of our conversation, so I haven't made any edits yet.\\nFor reference, the only thing showing in git status is an untracked `.claude/` dir\"",
           "screenshot": "happy_06_agent_reply.png",
-          "at": "2026-05-24T17:31:27.493901+00:00",
-          "reply": "No files changed. I haven't edited, created, or deleted anything this session \u2014 and I haven't run any commits.\nThe repo is still at commit `502223d seed` with a clean working tree (the only untracked item, `.claude/`, was already there before we started and wasn't created by me).13:31:27",
-          "reply_wait_s": 9.1
+          "at": "2026-05-24T18:14:40.874548+00:00",
+          "reply": "I haven't changed any files in this session \u2014 this is the start of our conversation, so I haven't made any edits yet.\nFor reference, the only thing showing in git status is an untracked `.claude/` directory, which I didn't create as part of any task here.\nIs there something you'd like me to work on?14:14:40",
+          "reply_wait_s": 10.1
         },
         {
           "key": "07_tts_spoken",
           "ok": true,
           "note": "/tts calls: 2 (events: ['(request)', 200])",
           "screenshot": "happy_07_after_speak.png",
-          "at": "2026-05-24T17:31:33.731060+00:00"
+          "at": "2026-05-24T18:14:47.026101+00:00"
         }
       ],
       "network": [
         {
-          "url": "127.0.0.1:7880/sessions/d90bc45c-a928-47b4-a459-f1743a113704/wingman",
+          "url": "127.0.0.1:7880/sessions/26a8dedd-75c4-48a3-ace2-4a4b150f3266/wingman",
           "status": "(request)",
           "method": "GET",
-          "at": "2026-05-24T17:30:44.958512+00:00"
+          "at": "2026-05-24T18:14:00.626882+00:00"
         },
         {
-          "url": "127.0.0.1:7880/sessions/d90bc45c-a928-47b4-a459-f1743a113704/wingman/explain",
+          "url": "127.0.0.1:7880/sessions/26a8dedd-75c4-48a3-ace2-4a4b150f3266/wingman/explain",
           "status": "(request)",
           "method": "GET",
-          "at": "2026-05-24T17:30:44.958512+00:00"
+          "at": "2026-05-24T18:14:00.627882+00:00"
         },
         {
-          "url": "127.0.0.1:7880/sessions/d90bc45c-a928-47b4-a459-f1743a113704/wingman",
+          "url": "127.0.0.1:7880/sessions/26a8dedd-75c4-48a3-ace2-4a4b150f3266/wingman/explain",
           "status": 200,
           "method": "GET",
-          "at": "2026-05-24T17:30:44.960517+00:00"
+          "at": "2026-05-24T18:14:00.633886+00:00"
         },
         {
-          "url": "127.0.0.1:7880/sessions/d90bc45c-a928-47b4-a459-f1743a113704/wingman/explain",
+          "url": "127.0.0.1:7880/sessions/26a8dedd-75c4-48a3-ace2-4a4b150f3266/wingman",
           "status": 200,
           "method": "GET",
-          "at": "2026-05-24T17:30:44.961517+00:00"
+          "at": "2026-05-24T18:14:00.637974+00:00"
         },
         {
-          "url": "127.0.0.1:7880/sessions/d90bc45c-a928-47b4-a459-f1743a113704/wingman",
+          "url": "127.0.0.1:7880/sessions/26a8dedd-75c4-48a3-ace2-4a4b150f3266/wingman",
           "status": "(request)",
           "method": "GET",
-          "at": "2026-05-24T17:30:46.547772+00:00"
+          "at": "2026-05-24T18:14:02.190385+00:00"
         },
         {
-          "url": "127.0.0.1:7880/sessions/d90bc45c-a928-47b4-a459-f1743a113704/wingman/explain",
+          "url": "127.0.0.1:7880/sessions/26a8dedd-75c4-48a3-ace2-4a4b150f3266/wingman/explain",
           "status": "(request)",
           "method": "GET",
-          "at": "2026-05-24T17:30:46.547772+00:00"
+          "at": "2026-05-24T18:14:02.190385+00:00"
         },
         {
-          "url": "127.0.0.1:7880/sessions/d90bc45c-a928-47b4-a459-f1743a113704/wingman/explain",
+          "url": "127.0.0.1:7880/sessions/26a8dedd-75c4-48a3-ace2-4a4b150f3266/wingman",
           "status": 200,
           "method": "GET",
-          "at": "2026-05-24T17:30:46.549281+00:00"
+          "at": "2026-05-24T18:14:02.190385+00:00"
         },
         {
-          "url": "127.0.0.1:7880/sessions/d90bc45c-a928-47b4-a459-f1743a113704/wingman",
+          "url": "127.0.0.1:7880/sessions/26a8dedd-75c4-48a3-ace2-4a4b150f3266/wingman/explain",
           "status": 200,
           "method": "GET",
-          "at": "2026-05-24T17:30:46.549281+00:00"
+          "at": "2026-05-24T18:14:02.191380+00:00"
         },
         {
-          "url": "127.0.0.1:7880/sessions/d90bc45c-a928-47b4-a459-f1743a113704/voice-mode",
+          "url": "127.0.0.1:7880/sessions/26a8dedd-75c4-48a3-ace2-4a4b150f3266/voice-mode",
           "status": "(request)",
           "method": "POST",
-          "at": "2026-05-24T17:30:46.967897+00:00"
+          "at": "2026-05-24T18:14:02.517787+00:00"
         },
         {
-          "url": "127.0.0.1:7880/sessions/d90bc45c-a928-47b4-a459-f1743a113704/voice-mode",
+          "url": "127.0.0.1:7880/sessions/26a8dedd-75c4-48a3-ace2-4a4b150f3266/voice-mode",
           "status": 200,
           "method": "POST",
-          "at": "2026-05-24T17:30:46.968897+00:00"
+          "at": "2026-05-24T18:14:02.518788+00:00"
         },
         {
-          "url": "127.0.0.1:7880/voice/command",
+          "url": "127.0.0.1:7880/voice/utterance",
           "status": "(request)",
           "method": "POST",
-          "at": "2026-05-24T17:31:07.403957+00:00"
+          "at": "2026-05-24T18:14:03.957576+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance",
+          "status": 200,
+          "method": "POST",
+          "at": "2026-05-24T18:14:03.959078+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/0",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:04.264069+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/0",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:04.271578+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/1",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:04.558013+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/1",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:04.561015+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/2",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:04.859677+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/2",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:04.863226+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/3",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:05.159907+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/3",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:05.161910+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/4",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:05.458740+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/4",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:05.460245+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/5",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:05.758769+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/5",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:05.760278+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/6",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:06.059580+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/6",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:06.060581+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/7",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:06.358483+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/7",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:06.360484+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/8",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:06.659712+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/8",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:06.660718+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/9",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:06.958644+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/9",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:06.960648+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/10",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:07.257847+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/10",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:07.259848+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/11",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:07.560020+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/11",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:07.561020+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/12",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:07.858551+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/12",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:07.859551+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/13",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:08.160194+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/13",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:08.161877+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/14",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:08.458066+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/14",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:08.460067+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/15",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:08.757387+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/15",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:08.759389+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/16",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:09.058545+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/16",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:09.060048+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/17",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:09.358179+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/17",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:09.360687+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/18",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:09.657763+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/18",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:09.660268+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/19",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:09.958609+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/19",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:09.960787+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/20",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:10.257976+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/20",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:10.259977+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/21",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:10.560795+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/21",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:10.562798+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/22",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:10.859028+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/22",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:10.861027+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/23",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:11.158188+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/23",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:11.160192+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/24",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:11.459914+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/24",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:11.461912+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/25",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:11.758743+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/25",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:11.761318+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/26",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:12.058684+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/26",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:12.060686+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/27",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:12.359058+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/27",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:12.360059+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/28",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:12.659649+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/28",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:12.661649+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/29",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:12.958649+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/29",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:12.961649+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/30",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:13.261217+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/30",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:13.262374+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/31",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:13.558144+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/31",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:13.560649+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/32",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:13.858361+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/32",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:13.861365+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/33",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:14.160481+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/33",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:14.161480+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/34",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:14.458918+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/34",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:14.459917+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/35",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:14.759625+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/35",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:14.760626+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/36",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:15.058721+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/36",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:15.060719+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/37",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:15.358150+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/37",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:15.360150+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/38",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:15.659214+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/38",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:15.660214+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/39",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:15.959444+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/39",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:15.961443+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/40",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:16.258995+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/40",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:16.260561+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/41",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:16.558774+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/41",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:16.559775+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/42",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:16.858991+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/42",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:16.859990+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/43",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:17.158195+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/43",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:17.160196+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/44",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:17.459031+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/44",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:17.460032+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/45",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:17.757634+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/45",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:17.759185+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/46",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:18.058619+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/46",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:18.060616+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/47",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:18.359430+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/47",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:18.361431+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/48",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:18.657448+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/48",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:18.658449+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/49",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:18.957389+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/49",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:18.959934+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/50",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:19.258667+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/50",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:19.259668+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/51",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:19.559114+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/51",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:19.560114+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/52",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:19.858830+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/52",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:19.859833+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/53",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:20.159163+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/53",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:20.161666+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/54",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:20.458587+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/54",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:20.461587+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/55",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:20.760034+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/55",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:20.760034+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/56",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:21.059363+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/56",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:21.060362+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/57",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:21.359111+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/57",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:21.360113+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/58",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:21.658640+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/58",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:21.660145+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/59",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:21.958900+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/59",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:21.960893+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/60",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:22.258376+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/60",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:22.259880+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/61",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:22.529560+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/chunk/61",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:22.534578+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/complete",
+          "status": "(request)",
+          "method": "POST",
+          "at": "2026-05-24T18:14:22.730563+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/f83d433151404715a5a05c7e597db242/complete",
+          "status": 200,
+          "method": "POST",
+          "at": "2026-05-24T18:14:30.361238+00:00"
         },
         {
           "url": "127.0.0.1:7880/chat",
           "status": "(request)",
           "method": "POST",
-          "at": "2026-05-24T17:31:17.852179+00:00"
-        },
-        {
-          "url": "127.0.0.1:7880/voice/command",
-          "status": 200,
-          "method": "POST",
-          "at": "2026-05-24T17:31:17.839409+00:00",
-          "body": {
-            "transcript": "What files did you change in this session? Give me a short summary What files did you change in this session? Give me a short summary What files did you change in this session?",
-            "cleanedTranscript": "What files did you change in this session? Give me a short summary.",
-            "cleanupReason": "Removed triple repetition of the same question, keeping the intent intact.",
-            "replyText": "I did not catch a command. Try \"what sessions are running\" or \"open pi\".",
-            "intent": "Unknown",
-            "targetSessionId": null,
-            "targetSessionName": null,
-            "suggestions": [],
-            "status": "unknown_command",
-            "error": null
-          }
+          "at": "2026-05-24T18:14:30.370923+00:00"
         },
         {
           "url": "127.0.0.1:7880/tts",
           "status": "(request)",
           "method": "POST",
-          "at": "2026-05-24T17:31:27.151126+00:00"
+          "at": "2026-05-24T18:14:40.322613+00:00"
         },
         {
           "url": "127.0.0.1:7880/chat",
           "status": 200,
           "method": "POST",
-          "at": "2026-05-24T17:31:27.148104+00:00",
+          "at": "2026-05-24T18:14:40.321111+00:00",
           "body": {
-            "sessionId": "d90bc45c-a928-47b4-a459-f1743a113704",
+            "sessionId": "26a8dedd-75c4-48a3-ace2-4a4b150f3266",
             "sessionName": "voice-harness-sandbox",
-            "reply": "No files changed. I haven't edited, created, or deleted anything this session \u2014 and I haven't run any commits.\nThe repo is still at commit `502223d seed` with a clean working tree (the only untracked item, `.claude/`, was already there before we started and wasn't created by me).",
-            "displayText": "No files changed. I haven't edited, created, or deleted anything this session \u2014 and I haven't run any commits.\nThe repo is still at commit `502223d seed` with a clean working tree (the only untracked item, `.claude/`, was already there before we started and wasn't created by me).",
+            "reply": "I haven't changed any files in this session \u2014 this is the start of our conversation, so I haven't made any edits yet.\nFor reference, the only thing showing in git status is an untracked `.claude/` directory, which I didn't create as part of any task here.\nIs there something you'd like me to work on?",
+            "displayText": "I haven't changed any files in this session \u2014 this is the start of our conversation, so I haven't made any edits yet.\nFor reference, the only thing showing in git status is an untracked `.claude/` directory, which I didn't create as part of any task here.\nIs there something you'd like me to work on?",
             "summary": "",
             "activityState": "WaitingForInput",
-            "elapsedMs": 9198,
+            "elapsedMs": 9934,
             "status": "ok",
             "error": null
           }
@@ -177,7 +921,7 @@
           "url": "127.0.0.1:7880/tts",
           "status": 200,
           "method": "POST",
-          "at": "2026-05-24T17:31:32.156388+00:00"
+          "at": "2026-05-24T18:14:45.205004+00:00"
         }
       ],
       "console": []
@@ -190,131 +934,868 @@
           "ok": true,
           "note": "Session view loaded in mobile viewport",
           "screenshot": "resilience_01_loaded.png",
-          "at": "2026-05-24T17:31:36.635036+00:00"
+          "at": "2026-05-24T18:14:49.091114+00:00"
         },
         {
           "key": "02_voice_tab",
           "ok": true,
           "note": "Voice tab active. state='Ready. Tap the big button, speak, tap again to send.' main_btn_disabled=False",
           "screenshot": "resilience_02_voice_tab.png",
-          "at": "2026-05-24T17:31:38.148514+00:00"
+          "at": "2026-05-24T18:14:50.601900+00:00"
         },
         {
-          "key": "08_offline_retry",
+          "key": "08_offline_holds",
           "ok": true,
-          "note": "While offline, UI showed a retry message after 0.5s: 'Bad connection - retrying (attempt 2)...'",
-          "screenshot": "resilience_08_offline_retry.png",
-          "at": "2026-05-24T17:31:50.832551+00:00",
-          "offline_state": "Bad connection - retrying (attempt 2)...",
-          "stall_seconds": 0.5
+          "note": "Dropped network mid-recording after 14 chunks; UI held the audio (state: 'Uploading...') instead of failing.",
+          "screenshot": "resilience_08_offline_holds.png",
+          "at": "2026-05-24T18:15:09.705864+00:00",
+          "chunks_up_before_drop": 14
         },
         {
-          "key": "09_recovered",
+          "key": "09_resumed",
           "ok": true,
-          "note": "Upload recovered after reconnect and produced a transcript",
-          "screenshot": "resilience_09_recovered.png",
-          "at": "2026-05-24T17:32:05.592596+00:00"
+          "note": "After reconnect the held chunks resumed: 55 chunks uploaded total (was 14 before the drop) and the utterance transcribed without re-recording.",
+          "screenshot": "resilience_09_resumed.png",
+          "at": "2026-05-24T18:15:32.162335+00:00",
+          "chunks_up_after_recover": 55,
+          "chunks_up_before_drop": 14
         }
       ],
       "network": [
         {
-          "url": "127.0.0.1:7880/sessions/d90bc45c-a928-47b4-a459-f1743a113704/wingman",
+          "url": "127.0.0.1:7880/sessions/26a8dedd-75c4-48a3-ace2-4a4b150f3266/wingman",
           "status": "(request)",
           "method": "GET",
-          "at": "2026-05-24T17:31:34.878194+00:00"
+          "at": "2026-05-24T18:14:47.389235+00:00"
         },
         {
-          "url": "127.0.0.1:7880/sessions/d90bc45c-a928-47b4-a459-f1743a113704/wingman/explain",
+          "url": "127.0.0.1:7880/sessions/26a8dedd-75c4-48a3-ace2-4a4b150f3266/wingman/explain",
           "status": "(request)",
           "method": "GET",
-          "at": "2026-05-24T17:31:34.878194+00:00"
+          "at": "2026-05-24T18:14:47.390235+00:00"
         },
         {
-          "url": "127.0.0.1:7880/sessions/d90bc45c-a928-47b4-a459-f1743a113704/wingman",
+          "url": "127.0.0.1:7880/sessions/26a8dedd-75c4-48a3-ace2-4a4b150f3266/wingman",
           "status": 200,
           "method": "GET",
-          "at": "2026-05-24T17:31:34.891854+00:00"
+          "at": "2026-05-24T18:14:47.392796+00:00"
         },
         {
-          "url": "127.0.0.1:7880/sessions/d90bc45c-a928-47b4-a459-f1743a113704/wingman/explain",
+          "url": "127.0.0.1:7880/sessions/26a8dedd-75c4-48a3-ace2-4a4b150f3266/wingman/explain",
           "status": 200,
           "method": "GET",
-          "at": "2026-05-24T17:31:34.891854+00:00"
+          "at": "2026-05-24T18:14:47.393798+00:00"
         },
         {
-          "url": "127.0.0.1:7880/sessions/d90bc45c-a928-47b4-a459-f1743a113704/wingman",
+          "url": "127.0.0.1:7880/sessions/26a8dedd-75c4-48a3-ace2-4a4b150f3266/wingman",
           "status": "(request)",
           "method": "GET",
-          "at": "2026-05-24T17:31:36.391129+00:00"
+          "at": "2026-05-24T18:14:48.894760+00:00"
         },
         {
-          "url": "127.0.0.1:7880/sessions/d90bc45c-a928-47b4-a459-f1743a113704/wingman/explain",
+          "url": "127.0.0.1:7880/sessions/26a8dedd-75c4-48a3-ace2-4a4b150f3266/wingman/explain",
           "status": "(request)",
           "method": "GET",
-          "at": "2026-05-24T17:31:36.391129+00:00"
+          "at": "2026-05-24T18:14:48.894760+00:00"
         },
         {
-          "url": "127.0.0.1:7880/sessions/d90bc45c-a928-47b4-a459-f1743a113704/wingman",
+          "url": "127.0.0.1:7880/sessions/26a8dedd-75c4-48a3-ace2-4a4b150f3266/wingman/explain",
           "status": 200,
           "method": "GET",
-          "at": "2026-05-24T17:31:36.397126+00:00"
+          "at": "2026-05-24T18:14:48.895761+00:00"
         },
         {
-          "url": "127.0.0.1:7880/sessions/d90bc45c-a928-47b4-a459-f1743a113704/wingman/explain",
+          "url": "127.0.0.1:7880/sessions/26a8dedd-75c4-48a3-ace2-4a4b150f3266/wingman",
           "status": 200,
           "method": "GET",
-          "at": "2026-05-24T17:31:36.397126+00:00"
+          "at": "2026-05-24T18:14:48.895761+00:00"
         },
         {
-          "url": "127.0.0.1:7880/sessions/d90bc45c-a928-47b4-a459-f1743a113704/voice-mode",
+          "url": "127.0.0.1:7880/sessions/26a8dedd-75c4-48a3-ace2-4a4b150f3266/voice-mode",
           "status": "(request)",
           "method": "POST",
-          "at": "2026-05-24T17:31:36.746392+00:00"
+          "at": "2026-05-24T18:14:49.204185+00:00"
         },
         {
-          "url": "127.0.0.1:7880/sessions/d90bc45c-a928-47b4-a459-f1743a113704/voice-mode",
+          "url": "127.0.0.1:7880/sessions/26a8dedd-75c4-48a3-ace2-4a4b150f3266/voice-mode",
           "status": 200,
           "method": "POST",
-          "at": "2026-05-24T17:31:36.746392+00:00"
+          "at": "2026-05-24T18:14:49.204815+00:00"
         },
         {
-          "url": "127.0.0.1:7880/voice/command",
+          "url": "127.0.0.1:7880/voice/utterance",
           "status": "(request)",
           "method": "POST",
-          "at": "2026-05-24T17:31:50.205022+00:00"
+          "at": "2026-05-24T18:14:50.700888+00:00"
         },
         {
-          "url": "127.0.0.1:7880/voice/command",
+          "url": "127.0.0.1:7880/voice/utterance",
+          "status": 200,
+          "method": "POST",
+          "at": "2026-05-24T18:14:50.704110+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/0",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:51.004784+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/0",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:51.005784+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/1",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:51.303039+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/1",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:51.305155+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/2",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:51.602989+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/2",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:51.605496+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/3",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:51.902319+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/3",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:51.903318+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/4",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:52.203998+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/4",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:52.205033+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/5",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:52.503666+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/5",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:52.505670+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/6",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:52.802274+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/6",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:52.804275+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/7",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:53.102976+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/7",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:53.104975+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/8",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:53.401568+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/8",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:53.404379+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/9",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:53.702616+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/9",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:53.703615+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/10",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:54.002465+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/10",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:54.005672+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/11",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:54.303303+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/11",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:54.305300+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/12",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:54.602778+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/12",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:54.604782+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/13",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:54.903100+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/13",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:14:54.905099+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/14",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:55.202795+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/14",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:56.028979+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/14",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:14:57.634448+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/14",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:15:00.836258+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/14",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:15:07.240469+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/14",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:15:20.056671+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/14",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:15:20.151978+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/15",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:15:20.151978+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/15",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:15:20.242613+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/16",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:15:20.243617+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/16",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:15:20.335700+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/17",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:15:20.335700+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/17",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:15:20.427239+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/18",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:15:20.428398+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/18",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:15:20.521293+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/19",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:15:20.521804+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/19",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:15:20.600267+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/20",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:15:20.602768+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/20",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:15:20.691551+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/21",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:15:20.692550+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/21",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:15:20.786130+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/22",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:15:20.787130+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/22",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:15:20.877825+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/23",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:15:20.878823+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/23",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:15:20.968980+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/24",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:15:20.969984+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/24",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:15:21.048038+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/25",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:15:21.048038+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/25",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:15:21.140227+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/26",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:15:21.140227+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/26",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:15:21.235184+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/27",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:15:21.235184+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/27",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:15:21.326250+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/28",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:15:21.326250+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/28",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:15:21.419499+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/29",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:15:21.419499+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/29",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:15:21.511203+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/30",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:15:21.511203+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/30",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:15:21.604819+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/31",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:15:21.604819+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/31",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:15:21.701296+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/32",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:15:21.701296+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/32",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:15:21.790455+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/33",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:15:21.791454+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/33",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:15:21.886481+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/34",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:15:21.886481+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/34",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:15:21.975521+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/35",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:15:21.976522+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/35",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:15:22.068992+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/36",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:15:22.069997+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/36",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:15:22.160240+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/37",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:15:22.161240+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/37",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:15:22.236745+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/38",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:15:22.239249+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/38",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:15:22.327573+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/39",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:15:22.329076+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/39",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:15:22.421291+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/40",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:15:22.422349+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/40",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:15:22.512350+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/41",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:15:22.513349+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/41",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:15:22.606448+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/42",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:15:22.607951+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/42",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:15:22.702283+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/43",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:15:22.703282+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/43",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:15:22.793362+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/44",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:15:22.793362+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/44",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:15:22.887116+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/45",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:15:22.887116+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/45",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:15:22.982593+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/46",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:15:22.982593+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/46",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:15:23.072154+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/47",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:15:23.072154+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/47",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:15:23.167408+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/48",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:15:23.168951+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/48",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:15:23.256795+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/49",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:15:23.257747+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/49",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:15:23.352886+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/50",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:15:23.352886+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/50",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:15:23.443342+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/51",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:15:23.444342+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/51",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:15:23.536743+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/52",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:15:23.537747+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/52",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:15:23.632657+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/53",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:15:23.632657+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/53",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:15:23.726610+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/54",
+          "status": "(request)",
+          "method": "PUT",
+          "at": "2026-05-24T18:15:23.726610+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/chunk/54",
+          "status": 200,
+          "method": "PUT",
+          "at": "2026-05-24T18:15:23.819994+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/complete",
           "status": "(request)",
           "method": "POST",
-          "at": "2026-05-24T17:31:51.209045+00:00"
+          "at": "2026-05-24T18:15:24.005391+00:00"
+        },
+        {
+          "url": "127.0.0.1:7880/voice/utterance/733db70443c8415faf82c1cae1e5a368/complete",
+          "status": 200,
+          "method": "POST",
+          "at": "2026-05-24T18:15:30.065790+00:00"
         },
         {
           "url": "127.0.0.1:7880/chat",
           "status": "(request)",
           "method": "POST",
-          "at": "2026-05-24T17:32:03.957951+00:00"
-        },
-        {
-          "url": "127.0.0.1:7880/voice/command",
-          "status": 200,
-          "method": "POST",
-          "at": "2026-05-24T17:32:03.943403+00:00",
-          "body": {
-            "transcript": "What are you working on right now?",
-            "cleanedTranscript": "What are you working on right now?",
-            "cleanupReason": "no changes needed",
-            "replyText": "I did not catch a command. Try \"what sessions are running\" or \"open pi\".",
-            "intent": "Unknown",
-            "targetSessionId": null,
-            "targetSessionName": null,
-            "suggestions": [],
-            "status": "unknown_command",
-            "error": null
-          }
+          "at": "2026-05-24T18:15:30.080364+00:00"
         }
       ],
       "console": [
+        {
+          "type": "error",
+          "text": "Failed to load resource: net::ERR_INTERNET_DISCONNECTED"
+        },
+        {
+          "type": "error",
+          "text": "Failed to load resource: net::ERR_INTERNET_DISCONNECTED"
+        },
+        {
+          "type": "error",
+          "text": "Failed to load resource: net::ERR_INTERNET_DISCONNECTED"
+        },
+        {
+          "type": "error",
+          "text": "Failed to load resource: net::ERR_INTERNET_DISCONNECTED"
+        },
+        {
+          "type": "error",
+          "text": "Failed to load resource: net::ERR_INTERNET_DISCONNECTED"
+        },
+        {
+          "type": "error",
+          "text": "Failed to load resource: net::ERR_INTERNET_DISCONNECTED"
+        },
+        {
+          "type": "error",
+          "text": "Failed to load resource: net::ERR_INTERNET_DISCONNECTED"
+        },
+        {
+          "type": "error",
+          "text": "Failed to load resource: net::ERR_INTERNET_DISCONNECTED"
+        },
+        {
+          "type": "error",
+          "text": "Failed to load resource: net::ERR_INTERNET_DISCONNECTED"
+        },
+        {
+          "type": "error",
+          "text": "Failed to load resource: net::ERR_INTERNET_DISCONNECTED"
+        },
+        {
+          "type": "error",
+          "text": "Failed to load resource: net::ERR_INTERNET_DISCONNECTED"
+        },
+        {
+          "type": "error",
+          "text": "Failed to load resource: net::ERR_INTERNET_DISCONNECTED"
+        },
+        {
+          "type": "error",
+          "text": "Failed to load resource: net::ERR_INTERNET_DISCONNECTED"
+        },
         {
           "type": "error",
           "text": "Failed to load resource: net::ERR_INTERNET_DISCONNECTED"
@@ -322,5 +1803,5 @@
       ]
     }
   ],
-  "finished": "2026-05-24T17:32:05.657449+00:00"
+  "finished": "2026-05-24T18:15:32.245907+00:00"
 }

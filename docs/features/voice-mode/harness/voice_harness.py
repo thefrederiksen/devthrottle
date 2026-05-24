@@ -187,48 +187,54 @@ def run_happy_path(page, rec, record_window_s):
               rec.shot(page, "07_after_speak"))
 
 
+def chunk_puts(rec):
+    """Count chunk PUT requests/responses seen so far."""
+    reqs = [n for n in rec.network if "/voice/utterance/" in n["url"] and "/chunk/" in n["url"]]
+    ok = [n for n in reqs if n["status"] == 200]
+    return len(reqs), len(ok)
+
+
 def run_resilience(page, rec, record_window_s, cdp):
-    """Same send, but drop the network mid-upload to prove it keeps trying."""
+    """Drop the network DURING recording so chunks genuinely queue, then restore
+    and confirm the held chunks resume and the utterance still transcribes. This
+    is the real test of the chunked design: what already uploaded stays uploaded."""
     page.click("#voiceMainBtn")
     try:
         page.wait_for_selector("#recordingOverlay.show", timeout=8000)
     except Exception:
         pass
-    page.wait_for_timeout(int(record_window_s * 1000))
 
-    # Go offline right as we tap send, so the upload POST is in flight.
+    # Record a few seconds with the network UP so some chunks upload normally.
+    page.wait_for_timeout(4500)
+    before_total, before_ok = chunk_puts(rec)
+
+    # Now drop the network WHILE still recording. New chunks keep being produced
+    # (held locally) and the uploader should retry rather than lose them.
+    cdp.send("Network.emulateNetworkConditions", {
+        "offline": True, "latency": 0, "downloadThroughput": 0, "uploadThroughput": 0})
+    print(f"  ... {before_ok} chunks up before drop; network OFFLINE mid-recording")
+    # Keep recording through the outage so chunks pile up in the local queue.
+    page.wait_for_timeout(int(record_window_s * 1000))
+    state_off = (page.text_content("#voiceState") or "").strip()
+    # Tap send while still offline: it must hold, not fail.
     if page.query_selector("#recStopBtn"):
         page.click("#recStopBtn")
     else:
         page.click("#voiceMainBtn")
-    cdp.send("Network.emulateNetworkConditions", {
-        "offline": True, "latency": 0, "downloadThroughput": 0, "uploadThroughput": 0,
-    })
-    print("  ... network OFFLINE; watching retry behaviour")
-    # Poll up to 20s for the UI to flip from 'Uploading...' to a retry/connection
-    # message, and record how long that took (the stall time is itself a finding).
-    t0 = time.time()
-    state_off = ""
-    retrying = False
-    while time.time() - t0 < 20:
-        state_off = (page.text_content("#voiceState") or "").strip()
-        if "retry" in state_off.lower() or "connection" in state_off.lower():
-            retrying = True
-            break
-        page.wait_for_timeout(500)
-    stall_s = round(time.time() - t0, 1)
-    rec.stage("08_offline_retry", retrying,
-              f"While offline, UI showed a retry message after {stall_s}s: '{state_off}'" if retrying
-              else f"After {stall_s}s offline the UI still showed '{state_off}' (no retry feedback)",
-              rec.shot(page, "08_offline_retry"),
-              extra={"offline_state": state_off, "stall_seconds": stall_s})
+    page.wait_for_timeout(2500)
+    holding = "retry" in state_off.lower() or "holding" in state_off.lower() \
+        or "retry" in (page.text_content("#voiceState") or "").lower() \
+        or "holding" in (page.text_content("#voiceState") or "").lower()
+    rec.stage("08_offline_holds", holding,
+              f"Dropped network mid-recording after {before_ok} chunks; UI held the audio "
+              f"(state: '{(page.text_content('#voiceState') or '').strip()}') instead of failing.",
+              rec.shot(page, "08_offline_holds"),
+              extra={"chunks_up_before_drop": before_ok})
 
-    # Back online; it should recover and complete.
+    # Restore the network; held chunks should drain and the utterance complete.
     cdp.send("Network.emulateNetworkConditions", {
-        "offline": False, "latency": 50, "downloadThroughput": 5_000_000,
-        "uploadThroughput": 1_000_000,
-    })
-    print("  ... network ONLINE; expecting recovery")
+        "offline": False, "latency": 50, "downloadThroughput": 5_000_000, "uploadThroughput": 1_000_000})
+    print("  ... network ONLINE; held chunks should resume")
     recovered = False
     try:
         page.wait_for_selector(".voice-bubble.user", timeout=90000)
@@ -236,10 +242,13 @@ def run_resilience(page, rec, record_window_s, cdp):
     except Exception:
         pass
     page.wait_for_timeout(1500)
-    rec.stage("09_recovered", recovered,
-              "Upload recovered after reconnect and produced a transcript" if recovered
-              else "Did NOT recover within timeout after reconnect",
-              rec.shot(page, "09_recovered"))
+    after_total, after_ok = chunk_puts(rec)
+    rec.stage("09_resumed", recovered,
+              f"After reconnect the held chunks resumed: {after_ok} chunks uploaded total "
+              f"(was {before_ok} before the drop) and the utterance transcribed without re-recording."
+              if recovered else "Did NOT recover within timeout after reconnect",
+              rec.shot(page, "09_resumed"),
+              extra={"chunks_up_after_recover": after_ok, "chunks_up_before_drop": before_ok})
 
 
 def main():

@@ -127,6 +127,61 @@ public sealed class VoiceService
         }
     }
 
+    /// <summary>
+    /// Transcribe an already-assembled audio blob and run the Wingman filler-word
+    /// cleanup, returning both raw and cleaned text. Used by the resumable
+    /// /voice/utterance path, which reassembles the chunked upload into one blob and
+    /// then needs exactly the transcribe+clean half of <see cref="HandleAsync"/>
+    /// WITHOUT the command intent parsing. Fails open on cleanup (cleaned == raw).
+    /// </summary>
+    public async Task<VoiceCommandResponse> TranscribeAndCleanAsync(
+        Stream audio, string fileName, string repoPath, CancellationToken ct = default)
+    {
+        var key = _options.ResolveOpenAiKey();
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            FileLog.Write("[VoiceService] TranscribeAndCleanAsync: no OpenAI key configured");
+            return new VoiceCommandResponse
+            {
+                Status = "no_key",
+                Error = "OpenAI API key missing",
+            };
+        }
+
+        string transcript;
+        try
+        {
+            transcript = await TranscribeAsync(audio, fileName, key, ct);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[VoiceService] TranscribeAndCleanAsync transcribe FAILED: {ex.Message}");
+            return new VoiceCommandResponse { Status = "transcribe_failed", Error = ex.Message };
+        }
+
+        FileLog.Write($"[VoiceService] Utterance transcript: \"{Truncate(transcript, 200)}\"");
+
+        VoiceCleanupResult cleanup;
+        try
+        {
+            cleanup = await Wingman.WingmanService.CleanVoiceTranscriptAsync(
+                transcript, repoPath, _options.ClaudePath, ct);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[VoiceService] Utterance cleanup wrapper failed: {ex.Message}");
+            cleanup = new VoiceCleanupResult(transcript, "cleanup wrapper failed: " + ex.Message);
+        }
+
+        return new VoiceCommandResponse
+        {
+            Transcript = transcript,
+            CleanedTranscript = cleanup.Cleaned,
+            CleanupReason = cleanup.Reason,
+            Status = "ok",
+        };
+    }
+
     // ====== Whisper transcription ======================================================
 
     private static async Task<string> TranscribeAsync(

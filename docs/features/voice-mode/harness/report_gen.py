@@ -30,10 +30,10 @@ STAGE_META = {
         "The cleaned text is injected into the live Claude Code session via /chat; the agent works and its reply is shown."),
     "07_tts_spoken": ("Reply spoken aloud (TTS)",
         "The reply is read back via /tts (OpenAI), with a browser SpeechSynthesis fallback, so the driver can listen hands-off."),
-    "08_offline_retry": ("Spotty network: retry feedback",
-        "The network is dropped mid-send (CDP offline). The uploader should keep trying and tell the user it is retrying."),
-    "09_recovered": ("Spotty network: recovery",
-        "When the connection returns, the upload completes and produces a transcript without the user re-recording."),
+    "08_offline_holds": ("Spotty network: holds mid-recording",
+        "The connection is dropped WHILE recording. Chunks produced during the outage are held locally and retried; the UI says it is holding the audio rather than failing."),
+    "09_resumed": ("Spotty network: chunks resume",
+        "When the connection returns, the held chunks resume uploading and the utterance transcribes - what already landed is never re-sent, and nothing is re-recorded."),
 }
 
 SCENARIO_TITLES = {
@@ -43,8 +43,9 @@ SCENARIO_TITLES = {
 SCENARIO_BLURB = {
     "happy": "The complete walkie-talkie loop an operator runs while driving: speak a question, "
              "have it transcribed and sent to the session, then hear the agent's answer read back.",
-    "resilience": "The car has flaky LTE. We drop the network mid-upload and confirm the client keeps "
-                  "trying and recovers on reconnect rather than losing the message.",
+    "resilience": "The car has flaky LTE. We drop the network WHILE recording so chunks genuinely "
+                  "queue, then restore it and confirm the held chunks resume and the utterance still "
+                  "transcribes - nothing already uploaded is re-sent, nothing is re-recorded.",
 }
 
 
@@ -220,7 +221,7 @@ upload retry) is genuinely wired end to end and works. The findings below separa
     <li><span class="tag ok">VERIFIED</span> Mobile Voice tab loads on a secure origin; mic permission auto-granted; tap-to-talk overlay and timer work.</li>
     <li><span class="tag ok">VERIFIED</span> Speech-to-text returns an accurate transcript, and the <strong>Wingman cleanup collapsed the looped fake audio</strong> ("removed triple repetition, keeping the intent intact") before sending &mdash; visible in the Scenario A transcribe screenshot.</li>
     <li><span class="tag ok">VERIFIED</span> Cleaned text is injected into the live Claude Code session and the agent's reply comes back and is read aloud via OpenAI TTS.</li>
-    <li><span class="tag ok">VERIFIED</span> Dropping the network mid-send flips the UI to "Bad connection - retrying (attempt 2)" within ~0.5s and the upload recovers on reconnect with no re-recording.</li>
+    <li><span class="tag ok">VERIFIED</span> <strong>Resumable chunked upload (new).</strong> Audio now uploads as SHA256-idempotent chunks while you speak. Dropping the network mid-recording held the audio (14 chunks already up); on reconnect the held chunks resumed to 55 total and the utterance transcribed &mdash; nothing already uploaded was re-sent, nothing re-recorded. This replaces the old whole-blob POST and is the core spotty-LTE fix.</li>
   </ul></div>""")
 
     parts.append("""<div class="card findwarn" style="margin:14px 0">
@@ -228,7 +229,6 @@ upload retry) is genuinely wired end to end and works. The findings below separa
   <ul class="tight">
     <li><span class="tag gap">REBUILD</span> <strong>Turn detection bypasses the Wingman.</strong> The reply loop uses <code>/chat</code>, which polls <code>ActivityState</code> on its own instead of consuming the new <code>TerminalStateDetector</code> / turn-summary. Voice mode should read the Wingman's authoritative state so the work we put into reliable state detection (issue #129) actually benefits it.</li>
     <li><span class="tag gap">REBUILD</span> <strong>It speaks the raw reply, not the Wingman summary.</strong> Today it reads the agent's last paragraph; it should speak the Wingman's purpose-built <code>SpokenText</code> plus the pending question and quick replies ("you can say: approve, or stop").</li>
-    <li><span class="tag gap">REBUILD</span> <strong>Whole-blob upload.</strong> Retry works, but each attempt re-sends the entire clip. A mid-flight stall can sit on "Uploading..." with no client-side timeout. A resumable chunked upload (the SHA256/idempotent pattern the phone recorder already uses) would survive spotty car LTE far better.</li>
     <li><span class="tag gap">REBUILD</span> <strong>No working-state ping tied to real state.</strong> While the agent is working the driver should hear a small periodic ping driven by the Wingman's actual state, then a chime when the answer is ready.</li>
     <li><span class="tag gap">REBUILD</span> <strong>Start-of-speech clipping (issue #134)</strong> is not yet addressed; recording should flip to "Ready" only after the first real audio frame.</li>
   </ul></div>

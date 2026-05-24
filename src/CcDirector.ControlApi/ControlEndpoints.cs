@@ -767,6 +767,58 @@ internal static class ControlEndpoints
             return Results.Json(new { available = svc.IsAvailable });
         });
 
+        // ===== REST: Resumable voice utterance upload (spotty-network safe) =========
+        // Same origin as the Voice tab. Flow: register -> chunk(idempotent) -> complete.
+        // Built for the car: each chunk that lands stays landed, so a dropped connection
+        // resumes at the next missing chunk instead of re-sending the whole clip.
+        app.MapPost("/voice/utterance", (VoiceUtteranceRegisterRequest? req) =>
+        {
+            var svc = new VoiceUtteranceService(sessionManager, sessionManager.Options);
+            if (!svc.IsAvailable)
+                return Results.Json(new { status = "no_key", error = "OpenAI API key missing" });
+            var id = svc.Register(req?.UtteranceId);
+            return Results.Json(new { utteranceId = id });
+        });
+
+        // Raw audio bytes in the body; X-Chunk-Sha256 header carries the hex digest so the
+        // server can reject corruption and treat an identical retry as a no-op.
+        app.MapPut("/voice/utterance/{id}/chunk/{index:int}", async (string id, int index, HttpContext ctx) =>
+        {
+            var sha = ctx.Request.Headers["X-Chunk-Sha256"].ToString();
+            using var ms = new MemoryStream();
+            await ctx.Request.Body.CopyToAsync(ms, ctx.RequestAborted);
+            var bytes = ms.ToArray();
+
+            var svc = new VoiceUtteranceService(sessionManager, sessionManager.Options);
+            try
+            {
+                await svc.StoreChunkAsync(id, index, bytes, string.IsNullOrEmpty(sha) ? null : sha, ctx.RequestAborted);
+                return Results.Json(new { ok = true, index, bytes = bytes.Length });
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[ControlEndpoints] PUT /voice/utterance chunk FAILED: {ex.Message}");
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        });
+
+        app.MapPost("/voice/utterance/{id}/complete", async (string id, VoiceUtteranceCompleteRequest req, HttpContext ctx) =>
+        {
+            if (req is null || req.TotalChunks <= 0)
+                return Results.BadRequest(new { error = "totalChunks (>0) is required" });
+
+            var repoPath = "";
+            if (!string.IsNullOrEmpty(req.SessionId) && Guid.TryParse(req.SessionId, out var sg))
+                repoPath = sessionManager.GetSession(sg)?.RepoPath ?? "";
+
+            var svc = new VoiceUtteranceService(sessionManager, sessionManager.Options);
+            var resp = await svc.CompleteAsync(id, req.TotalChunks, req.Mime ?? "audio/webm", repoPath, ctx.RequestAborted);
+            // "incomplete" is a client-recoverable state (re-send missing chunks), so 409.
+            return resp.Status == "incomplete"
+                ? Results.Json(resp, statusCode: StatusCodes.Status409Conflict)
+                : Results.Json(resp);
+        });
+
         // ===== REST: Manager chat (Phase 1) =================================================
         // Relays one user message to the session configured by Chat.SessionRepoPath in
         // appsettings.json. Waits for the agent's turn to complete, returns the reply.
