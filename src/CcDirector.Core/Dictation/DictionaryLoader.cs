@@ -103,7 +103,7 @@ public sealed class DictionaryLoader : IDisposable
         }
     }
 
-    internal static DictationDictionary LoadFromDisk(string path)
+    public static DictationDictionary LoadFromDisk(string path)
     {
         FileLog.Write($"[DictionaryLoader] LoadFromDisk: {path}");
         if (!File.Exists(path))
@@ -114,6 +114,55 @@ public sealed class DictionaryLoader : IDisposable
 
         var yaml = File.ReadAllText(path);
         return Parse(yaml);
+    }
+
+    /// <summary>
+    /// Serialize a dictionary back to the YAML layout <see cref="Parse"/> reads.
+    /// Null style prompts are omitted; everything else round-trips. Exposed
+    /// internally for testing without touching disk.
+    /// </summary>
+    internal static string Serialize(DictationDictionary dict)
+    {
+        var shape = new YamlShape
+        {
+            Vocabulary = dict.Vocabulary.ToList(),
+            CommonMistranscriptions = dict.CommonMistranscriptions
+                .ToDictionary(kv => kv.Key, kv => kv.Value.ToList()),
+            Profiles = dict.Profiles.ToDictionary(
+                kv => kv.Key,
+                kv => new YamlProfile
+                {
+                    CleanupEnabled = kv.Value.CleanupEnabled,
+                    StylePrompt = kv.Value.StylePrompt,
+                }),
+        };
+
+        var serializer = new SerializerBuilder()
+            .WithNamingConvention(UnderscoredNamingConvention.Instance)
+            .ConfigureDefaultValuesHandling(DefaultValuesHandling.OmitNull)
+            .Build();
+
+        return serializer.Serialize(shape);
+    }
+
+    /// <summary>
+    /// Write the dictionary to disk atomically (temp file + move), creating the
+    /// containing directory if it does not exist.
+    /// </summary>
+    public static void WriteToDisk(string path, DictationDictionary dict)
+    {
+        FileLog.Write($"[DictionaryLoader] WriteToDisk: {path}, "
+                      + $"vocab={dict.Vocabulary.Count}, "
+                      + $"patterns={dict.CommonMistranscriptions.Count}, "
+                      + $"profiles={dict.Profiles.Count}");
+        var dir = Path.GetDirectoryName(Path.GetFullPath(path))
+                  ?? throw new InvalidOperationException($"Cannot resolve directory for {path}");
+        Directory.CreateDirectory(dir);
+
+        var yaml = Serialize(dict);
+        var tmp = path + ".tmp";
+        File.WriteAllText(tmp, yaml);
+        File.Move(tmp, path, overwrite: true);
     }
 
     /// <summary>

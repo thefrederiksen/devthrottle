@@ -60,8 +60,7 @@
     padding: 6px 14px;
     font-size: 12px;
     cursor: pointer;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.3px;
     font-weight: 600;
   }
   header .view-toggle button.active { background: var(--accent); color: white; }
@@ -114,8 +113,7 @@
     border-bottom: 1px solid var(--border);
     color: var(--muted);
     font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.3px;
   }
   .machine-header .name { color: var(--text); font-weight: 700; font-size: 13px; }
   .machine-header .user { color: var(--muted-2); }
@@ -196,8 +194,8 @@
     border-radius: 10px;
     padding: 2px 8px;
     font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+    text-transform: capitalize;
+    letter-spacing: 0.3px;
     font-weight: 600;
   }
   .card .repo {
@@ -248,7 +246,7 @@
   <div class="view-toggle" role="tablist" aria-label="View toggle">
     <button id="btn-cards" type="button" class="active" data-view="cards" role="tab" aria-selected="true">Cards</button>
   </div>
-  <a class="link link-accent" href="/transcripts">transcripts</a>
+  <a class="link link-accent" href="/voice">voice</a>
   <a class="link link-accent" href="/exes">exes</a>
   <a class="link" href="/logout" __LOGOUT_VISIBILITY__>logout</a>
 </header>

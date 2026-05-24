@@ -1,4 +1,6 @@
 using System.Text.Json;
+using CcDirector.Core.Dictation;
+using CcDirector.Core.Dictation.Models;
 using CcDirector.Core.Recording;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
@@ -118,12 +120,104 @@ internal static class RecordingEndpoints
             }
         });
 
-        // ===== Transcripts browser (dashboard page + read APIs) =============
+        // ===== Voice Recorder pages (Transcripts + Dictionary tabs) =========
+
+        // /voice is the section entry point; it lands on the Transcripts tab.
+        app.MapGet("/voice", () => Results.Redirect("/transcripts"));
 
         app.MapGet("/transcripts", () =>
         {
             var html = EmbeddedResources.Load("transcripts.html");
             return Results.Content(html, "text/html; charset=utf-8");
+        });
+
+        app.MapGet("/dictionary", () =>
+        {
+            var html = EmbeddedResources.Load("dictionary.html");
+            return Results.Content(html, "text/html; charset=utf-8");
+        });
+
+        // ===== Dictionary data API ==========================================
+        // The glossary is a single shared YAML file used by both phone-recording
+        // transcription and desktop dictation. The page sends the whole document
+        // on save (no partial merge) so the file stays the single source of truth.
+
+        app.MapGet("/ingest/dictionary", () =>
+        {
+            var dict = DictionaryLoader.LoadFromDisk(DictionaryFilePath());
+            return Results.Json(ToDto(dict));
+        });
+
+        app.MapPut("/ingest/dictionary", async (HttpContext ctx) =>
+        {
+            try
+            {
+                var dto = await JsonSerializer.DeserializeAsync<DictionaryDto>(
+                    ctx.Request.Body, JsonOpts, ctx.RequestAborted);
+                if (dto is null)
+                    return Results.BadRequest(new { error = "dictionary body required" });
+
+                DictionaryLoader.WriteToDisk(DictionaryFilePath(), FromDto(dto));
+                var reread = DictionaryLoader.LoadFromDisk(DictionaryFilePath());
+                return Results.Json(ToDto(reread));
+            }
+            catch (JsonException ex)
+            {
+                FileLog.Write($"[RecordingEndpoints] dictionary bad JSON: {ex.Message}");
+                return Results.BadRequest(new { error = "invalid JSON" });
+            }
+        });
+
+        // Additive convenience endpoint so an agent in a session can add a term
+        // (and optional mistranscription spellings) without round-tripping the
+        // whole document. Existing entries are preserved; duplicates are ignored.
+        app.MapPost("/ingest/dictionary/terms", async (HttpContext ctx) =>
+        {
+            try
+            {
+                var add = await JsonSerializer.DeserializeAsync<DictionaryAddRequest>(
+                    ctx.Request.Body, JsonOpts, ctx.RequestAborted);
+                var hasTerms = add?.Terms is { Count: > 0 };
+                var hasPatterns = add?.Mistranscriptions is { Count: > 0 };
+                if (add is null || (!hasTerms && !hasPatterns))
+                    return Results.BadRequest(new { error = "provide 'terms' and/or 'mistranscriptions'" });
+
+                var path = DictionaryFilePath();
+                var current = ToDto(DictionaryLoader.LoadFromDisk(path));
+
+                foreach (var term in add.Terms ?? new())
+                {
+                    var t = term?.Trim();
+                    if (!string.IsNullOrWhiteSpace(t) && !current.Vocabulary.Contains(t))
+                        current.Vocabulary.Add(t);
+                }
+
+                foreach (var kv in add.Mistranscriptions ?? new())
+                {
+                    var term = kv.Key?.Trim();
+                    if (string.IsNullOrWhiteSpace(term) || kv.Value is null)
+                        continue;
+                    if (!current.CommonMistranscriptions.TryGetValue(term, out var variants))
+                    {
+                        variants = new List<string>();
+                        current.CommonMistranscriptions[term] = variants;
+                    }
+                    foreach (var v in kv.Value)
+                    {
+                        var vv = v?.Trim();
+                        if (!string.IsNullOrWhiteSpace(vv) && !variants.Contains(vv))
+                            variants.Add(vv);
+                    }
+                }
+
+                DictionaryLoader.WriteToDisk(path, FromDto(current));
+                return Results.Json(ToDto(DictionaryLoader.LoadFromDisk(path)));
+            }
+            catch (JsonException ex)
+            {
+                FileLog.Write($"[RecordingEndpoints] dictionary add bad JSON: {ex.Message}");
+                return Results.BadRequest(new { error = "invalid JSON" });
+            }
         });
 
         app.MapGet("/ingest/recordings", () => Results.Json(service.ListAll()));
@@ -254,6 +348,30 @@ internal static class RecordingEndpoints
         DELETE {base}/ingest/recording/{id}
                Delete the transient local transcript. A promoted vault copy is kept.
 
+        ## Dictionary (speech-to-text glossary)
+
+        The shared glossary that biases transcription toward the user's terms.
+        Editing it affects both phone-recording transcription and desktop
+        dictation. Changes apply on the next recording (no restart).
+
+        GET    {base}/ingest/dictionary
+               The glossary as JSON:
+                 { "vocabulary": ["mindzie", ...],
+                   "commonMistranscriptions": { "ConPTY": ["Conty", ...] },
+                   "profiles": { "default": { "cleanupEnabled": true, "stylePrompt": null } } }
+
+        POST   {base}/ingest/dictionary/terms
+               Add term(s) and/or mistranscription spellings. Additive: existing
+               entries are kept and duplicates ignored. JSON body, either field
+               optional:
+                 { "terms": ["NewTerm"],
+                   "mistranscriptions": { "ConPTY": ["Conty"] } }
+               Returns the updated dictionary. Use this for "add this word".
+
+        PUT    {base}/ingest/dictionary
+               Replace the ENTIRE glossary. Body is the shape GET returns. Use
+               only when rewriting the whole thing; prefer POST .../terms to add.
+
         (Replace {base} with the Base URL above.)
 
         ## Typical workflow for an agent
@@ -273,12 +391,78 @@ internal static class RecordingEndpoints
         var root = Path.Combine(localAppData, "cc-director", "transcripts");
         // Promotion target: the vault transcripts collection (permanent copy).
         var collectionDir = Path.Combine(localAppData, "cc-director", "vault", "transcripts");
-        var dictionaryPath = Path.Combine(localAppData, "cc-director", "dictation", "dictionary.yaml");
 
         FileLog.Write($"[RecordingEndpoints] BuildService: root={root}, collection={collectionDir}");
 
-        var transcriber = new OpenAiRecordingTranscriber(dictionaryPath: dictionaryPath);
+        var transcriber = new OpenAiRecordingTranscriber(dictionaryPath: DictionaryFilePath());
         var filer = new CcVaultFiler(collectionDir);
         return new RecordingIngestService(root, transcriber, filer, collectionDir);
     }
+
+    /// <summary>
+    /// The single shared dictation glossary file. Used by both the recording
+    /// transcriber and the dictionary editor endpoints so the path is defined
+    /// in exactly one place.
+    /// </summary>
+    private static string DictionaryFilePath()
+    {
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        return Path.Combine(localAppData, "cc-director", "dictation", "dictionary.yaml");
+    }
+
+    private static DictionaryDto ToDto(DictationDictionary dict) => new(
+        Vocabulary: dict.Vocabulary.ToList(),
+        CommonMistranscriptions: dict.CommonMistranscriptions
+            .ToDictionary(kv => kv.Key, kv => kv.Value.ToList()),
+        Profiles: dict.Profiles.ToDictionary(
+            kv => kv.Key,
+            kv => new DictionaryProfileDto(kv.Value.CleanupEnabled, kv.Value.StylePrompt)));
+
+    private static DictationDictionary FromDto(DictionaryDto dto)
+    {
+        var vocab = (dto.Vocabulary ?? new List<string>())
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .Select(v => v.Trim())
+            .ToList();
+
+        var patterns = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
+        foreach (var kv in dto.CommonMistranscriptions ?? new())
+        {
+            if (string.IsNullOrWhiteSpace(kv.Key) || kv.Value is null)
+                continue;
+            var variants = kv.Value
+                .Where(v => !string.IsNullOrWhiteSpace(v))
+                .Select(v => v.Trim())
+                .ToList();
+            if (variants.Count > 0)
+                patterns[kv.Key.Trim()] = variants;
+        }
+
+        var profiles = new Dictionary<string, DictationProfile>(StringComparer.OrdinalIgnoreCase);
+        foreach (var kv in dto.Profiles ?? new())
+        {
+            if (string.IsNullOrWhiteSpace(kv.Key) || kv.Value is null)
+                continue;
+            var name = kv.Key.Trim();
+            profiles[name] = new DictationProfile(
+                Name: name,
+                CleanupEnabled: kv.Value.CleanupEnabled,
+                StylePrompt: string.IsNullOrWhiteSpace(kv.Value.StylePrompt) ? null : kv.Value.StylePrompt.Trim());
+        }
+
+        return new DictationDictionary(vocab, patterns, profiles);
+    }
 }
+
+/// <summary>JSON shape for the dictionary editor (GET/PUT /ingest/dictionary).</summary>
+internal sealed record DictionaryDto(
+    List<string> Vocabulary,
+    Dictionary<string, List<string>> CommonMistranscriptions,
+    Dictionary<string, DictionaryProfileDto> Profiles);
+
+internal sealed record DictionaryProfileDto(bool CleanupEnabled, string? StylePrompt);
+
+/// <summary>Additive request for POST /ingest/dictionary/terms.</summary>
+internal sealed record DictionaryAddRequest(
+    List<string>? Terms,
+    Dictionary<string, List<string>>? Mistranscriptions);

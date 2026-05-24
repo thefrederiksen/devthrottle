@@ -135,6 +135,72 @@ public sealed class DictionaryLoaderTests
     }
 
     [Fact]
+    public void Serialize_RoundTrips_Vocabulary_Patterns_AndProfiles()
+    {
+        var original = new DictationDictionary(
+            new[] { "mindzie", "CenCon", "ConPTY" },
+            new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
+            {
+                ["ConPTY"] = new[] { "Contui", "ContUI" },
+                ["mindzie"] = new[] { "Minzy" },
+            },
+            new Dictionary<string, DictationProfile>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["default"] = new DictationProfile("default", CleanupEnabled: true, StylePrompt: null),
+                ["email"] = new DictationProfile("email", CleanupEnabled: true, StylePrompt: "tighten to professional prose"),
+                ["code"] = new DictationProfile("code", CleanupEnabled: false, StylePrompt: null),
+            });
+
+        var reparsed = DictionaryLoader.Parse(DictionaryLoader.Serialize(original));
+
+        Assert.Equal(original.Vocabulary, reparsed.Vocabulary);
+        Assert.Equal(new[] { "Contui", "ContUI" }, reparsed.CommonMistranscriptions["ConPTY"]);
+        Assert.Equal(new[] { "Minzy" }, reparsed.CommonMistranscriptions["mindzie"]);
+        Assert.False(reparsed.Profiles["code"].CleanupEnabled);
+        Assert.Equal("tighten to professional prose", reparsed.Profiles["email"].StylePrompt);
+        Assert.Null(reparsed.Profiles["default"].StylePrompt);
+    }
+
+    [Fact]
+    public void Serialize_Empty_RoundTripsToEmptyWithDefaultProfile()
+    {
+        var reparsed = DictionaryLoader.Parse(DictionaryLoader.Serialize(DictationDictionary.Empty));
+        Assert.Empty(reparsed.Vocabulary);
+        Assert.Empty(reparsed.CommonMistranscriptions);
+        Assert.True(reparsed.Profiles.ContainsKey("default"));
+    }
+
+    [Fact]
+    public void WriteToDisk_ThenLoad_RoundTrips()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        var path = Path.Combine(dir, "dictation", "dictionary.yaml");
+        try
+        {
+            var original = new DictationDictionary(
+                new[] { "hello", "world" },
+                new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
+                {
+                    ["hello"] = new[] { "helo" },
+                },
+                new Dictionary<string, DictationProfile>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["default"] = new DictationProfile("default", CleanupEnabled: true, StylePrompt: null),
+                });
+
+            DictionaryLoader.WriteToDisk(path, original);
+            var loaded = DictionaryLoader.LoadFromDisk(path);
+
+            Assert.Equal(new[] { "hello", "world" }, loaded.Vocabulary);
+            Assert.Equal(new[] { "helo" }, loaded.CommonMistranscriptions["hello"]);
+        }
+        finally
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void LoadFromDisk_MissingFile_ReturnsEmpty()
     {
         var nowhere = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString() + ".yaml");

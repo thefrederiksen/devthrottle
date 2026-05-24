@@ -29,6 +29,7 @@
     <EmbeddedResource Include="Web\directory.html" />
     <EmbeddedResource Include="Web\api.html" />
     <EmbeddedResource Include="Web\transcripts.html" />
+    <EmbeddedResource Include="Web\dictionary.html" />
     <EmbeddedResource Include="Web\exes.html" />
   </ItemGroup>
 
