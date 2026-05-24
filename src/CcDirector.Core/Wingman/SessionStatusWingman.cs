@@ -217,6 +217,9 @@ public sealed class SessionStatusWingman : IDisposable
         "please confirm",
         "press enter to continue",
         "select an option",
+        // Interrupted: user pressed Esc mid-turn; Claude Code parks on this footer
+        // waiting for redirection. A genuine user gate (see issue #129).
+        "what should claude do instead",
     };
 
     /// <summary>
@@ -227,28 +230,49 @@ public sealed class SessionStatusWingman : IDisposable
     /// </summary>
     internal void PromotePendingQuestionIfBufferShowsOne(Session session)
     {
+        if (BufferShowsUserGate(session, out var marker))
+        {
+            session.SetStatusColor(StatusColor.Red, "pending question");
+            FileLog.Write($"[SessionStatusWingman] {session.Id} buffer marker '{marker}' -> red");
+        }
+    }
+
+    /// <summary>
+    /// Returns true when the tail of the session's terminal buffer shows POSITIVE,
+    /// deterministic evidence that the agent is parked waiting on the user: a known
+    /// question phrasing, a yes/no or numbered-choice confirmation, or the
+    /// interrupted footer. The persistent mode footer ("bypass permissions on ...")
+    /// is deliberately NOT in <see cref="QuestionMarkers"/>, so it never counts.
+    /// Cheap: single ToLower + Contains over &lt;= 4 KB. Used both to promote to red
+    /// directly and (issue #136) to corroborate an LLM turn-summary verdict before
+    /// it is allowed to flip an idle session red.
+    /// </summary>
+    internal static bool BufferShowsUserGate(Session session, out string marker)
+    {
+        marker = "";
         try
         {
             var buf = session.Buffer;
-            if (buf is null) return;
+            if (buf is null) return false;
             var bytes = buf.DumpAll();
-            if (bytes is null || bytes.Length == 0) return;
+            if (bytes is null || bytes.Length == 0) return false;
             const int TailBytes = 4096;
             var start = Math.Max(0, bytes.Length - TailBytes);
             var tail = System.Text.Encoding.UTF8.GetString(bytes, start, bytes.Length - start).ToLowerInvariant();
-            foreach (var marker in QuestionMarkers)
+            foreach (var m in QuestionMarkers)
             {
-                if (tail.Contains(marker, StringComparison.OrdinalIgnoreCase))
+                if (tail.Contains(m, StringComparison.OrdinalIgnoreCase))
                 {
-                    session.SetStatusColor(StatusColor.Red, "pending question");
-                    FileLog.Write($"[SessionStatusWingman] {session.Id} buffer marker '{marker}' -> red");
-                    return;
+                    marker = m;
+                    return true;
                 }
             }
+            return false;
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SessionStatusWingman] PromotePendingQuestionIfBufferShowsOne failed for {session.Id}: {ex.Message}");
+            FileLog.Write($"[SessionStatusWingman] BufferShowsUserGate failed for {session.Id}: {ex.Message}");
+            return false;
         }
     }
 
@@ -291,6 +315,23 @@ public sealed class SessionStatusWingman : IDisposable
         }
 
         var n = (summary.NeedsUser ?? "").Trim().ToLowerInvariant();
+
+        // Issue #136: a turn summary must NOT, on its own, flip an idle session to
+        // red. When the session is sitting at its prompt (WaitingForInput/Idle) and
+        // the buffer shows no real on-screen user gate, an LLM verdict of
+        // question/permission/error is uncorroborated -- it is the classifier
+        // misreading the persistent mode footer ("bypass permissions on ...") or the
+        // agent's conversational "say the word when you want it" as a pending gate.
+        // That false red contradicted the idle state and flip-flopped against the
+        // deterministic fast path. Downgrade it to idle; the fast path stays green.
+        if (n is "question" or "error" or "permission"
+            && session.ActivityState is ActivityState.WaitingForInput or ActivityState.Idle
+            && !BufferShowsUserGate(session, out _))
+        {
+            FileLog.Write($"[SessionStatusWingman] ApplyTurnSummary {session.Id} needs_user={n} uncorroborated by buffer at {session.ActivityState} -> treating as idle (issue #136)");
+            n = "idle";
+        }
+
         if (n is "question" or "error" or "permission")
         {
             // Phase 4e: prefer NeedsUserShort (one crisp sentence) over NeedsUserDetail

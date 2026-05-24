@@ -429,6 +429,8 @@ public static class WingmanService
         sb.AppendLine();
         sb.AppendLine("INPUT: the terminal output of the turn that just finished (the agent's rendered output with ANSI escape codes stripped). Read it and report what the agent did and whether it needs the user. Anything the agent is asking lives at the END of the output.");
         sb.AppendLine();
+        sb.AppendLine(ClaudeCodeScreenReference);
+        sb.AppendLine();
         sb.AppendLine("Output ONE JSON object, no markdown fence, exactly this shape:");
         sb.AppendLine("{");
         sb.AppendLine("  \"headline\": \"<one short sentence describing what the agent did this turn>\",");
@@ -444,9 +446,10 @@ public static class WingmanService
         sb.AppendLine("Rules for needs_user:");
         sb.AppendLine("- 'question': pick this when the agent's output ends with an explicit question that the user must answer before the agent continues. A question mark at the END of the terminal output is a STRONG signal, even when most of the turn was technical work (analysis, code, diagrams). A polite \"Want me to ...?\", \"Should I ...?\", \"Would you like ...?\", \"OK to ...?\" at the end of an otherwise informational reply STILL counts as 'question'.");
         sb.AppendLine("- 'error': agent reports an error it cannot resolve on its own.");
-        sb.AppendLine("- 'permission': agent paused for an OS-level permission prompt (Yes/No, [y/n]).");
-        sb.AppendLine("- 'idle': agent finished cleanly and has nothing pending.");
+        sb.AppendLine("- 'permission': the agent is PARKED on a real bordered numbered-choice confirmation box (point 2 above), or a \"[y/n]\" prompt, and cannot continue until the user picks. The persistent mode footer (point 1: \"bypass permissions on\", \"accept edits on\", \"plan mode on\", \"shift+tab to cycle\") does NOT count and is evidence AGAINST permission.");
+        sb.AppendLine("- 'idle': agent finished cleanly and has nothing pending (the input box from point 3 is empty, no spinner, no pending question).");
         sb.AppendLine("- 'no': agent is mid-flow or returned a non-question informational reply with no trailing question.");
+        sb.AppendLine("- Do NOT report 'permission' or 'question' just because you see the word \"permission\" or a mention of committing/approving. The mode footer is a status line, not a request. An agent OFFERING to do something later (\"I can commit when you give the word\", \"say the word and I'll push\", \"let me know if you want X\") is NOT waiting on you: that is 'no'. Only a real on-screen gate (numbered box, [y/n], or a direct question the agent is parked on) counts.");
         sb.AppendLine();
         sb.AppendLine("Rules for needs_user_short:");
         sb.AppendLine("- Restate the agent's question VERBATIM. Copy the words the agent used.");

@@ -463,6 +463,74 @@ public sealed class SessionStatusWingmanTests
         finally { manager.Dispose(); wingman.Dispose(); }
     }
 
+    [Fact]
+    public void ApplyTurnSummary_uncorroborated_needs_user_at_idle_prompt_stays_green()
+    {
+        // Issue #136: a session sitting at its prompt (WaitingForInput) whose buffer
+        // shows only the persistent mode footer + a conversational offer must NOT be
+        // flipped red by a turn summary that misread that footer ("bypass permissions
+        // on ...") or the agent's "say the word when you want it" as a pending gate.
+        // This is the exact live bug: red NEEDS-YOU banner contradicting the idle
+        // state and flip-flopping against the green fast path.
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        var wingman = new SessionStatusWingman(manager);
+        try
+        {
+            var (session, _) = CreateBufferSession(manager);
+            session.HandlePipeEvent(new Pipes.PipeMessage { HookEventName = "Stop" });
+            Assert.Equal(ActivityState.WaitingForInput, session.ActivityState);
+            Assert.Equal(StatusColor.Green, session.StatusColor);
+
+            // Only the mode footer + a conversational offer on screen -- no real gate.
+            session.Buffer!.Write(System.Text.Encoding.UTF8.GetBytes(
+                "Nothing committed. Say the word when you want it on main.\n" +
+                "  bypass permissions on (shift+tab to cycle)\n"));
+
+            wingman.ApplyTurnSummary(session, new TurnSummary
+            {
+                NeedsUser = "permission",
+                NeedsUserShort = "bypass permissions on (shift+tab to cycle)",
+                Headline = "awaits permission to commit",
+            });
+
+            // Suppressed -> treated as idle/clean. Must NOT be red.
+            Assert.NotEqual(StatusColor.Red, session.StatusColor);
+            Assert.Equal(StatusColor.Green, session.StatusColor);
+        }
+        finally { wingman.Dispose(); manager.Dispose(); }
+    }
+
+    [Fact]
+    public void ApplyTurnSummary_corroborated_question_at_idle_prompt_goes_red()
+    {
+        // The other side of issue #136: when a REAL question is on screen (a known
+        // marker), the idle-corroboration gate lets the turn summary paint red as
+        // before. The fix suppresses only uncorroborated verdicts.
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        var wingman = new SessionStatusWingman(manager);
+        try
+        {
+            var (session, _) = CreateBufferSession(manager);
+            session.HandlePipeEvent(new Pipes.PipeMessage { HookEventName = "Stop" });
+            Assert.Equal(ActivityState.WaitingForInput, session.ActivityState);
+
+            session.Buffer!.Write(System.Text.Encoding.UTF8.GetBytes(
+                "Do you want to delete the old build artifacts?\n" +
+                "  bypass permissions on (shift+tab to cycle)\n"));
+
+            wingman.ApplyTurnSummary(session, new TurnSummary
+            {
+                NeedsUser = "question",
+                NeedsUserShort = "Do you want to delete the old build artifacts?",
+                Headline = "asked about cleanup",
+            });
+
+            Assert.Equal(StatusColor.Red, session.StatusColor);
+            Assert.Equal("Do you want to delete the old build artifacts?", session.LastStatusReason);
+        }
+        finally { wingman.Dispose(); manager.Dispose(); }
+    }
+
     // ---------- Wingman lifecycle ----------
 
     [Fact]
@@ -755,6 +823,12 @@ public sealed class SessionStatusWingmanTests
             // (which blocks Working / WaitingForPerm) does not block the write.
             session.HandlePipeEvent(new Pipes.PipeMessage { HookEventName = "Stop" });
             Assert.Equal(ActivityState.WaitingForInput, session.ActivityState);
+
+            // Issue #136: at the idle prompt the turn summary now needs deterministic
+            // corroboration before it may paint red. Put a real question on screen.
+            session.Buffer!.Write(System.Text.Encoding.UTF8.GetBytes(
+                "Do you want to delete or gitignore the harness output?\n" +
+                "  bypass permissions on (shift+tab to cycle)\n"));
 
             wingman.ApplyTurnSummary(session, new TurnSummary
             {
