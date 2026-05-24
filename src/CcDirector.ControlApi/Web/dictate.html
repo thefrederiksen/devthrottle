@@ -111,16 +111,16 @@
   .equalizer {
     display: flex;
     align-items: flex-end;
-    gap: 5px;
-    height: 56px;
+    gap: 6px;
+    height: 100px;
     flex: 1;
     justify-content: center;
   }
   .equalizer .bar {
-    width: 8px;
+    width: 12px;
     background: #555;
     border-radius: 3px;
-    height: 6px;
+    height: 8px;
     transition: height 60ms linear, background 120ms;
   }
   .stage.recording    .equalizer .bar { background: var(--bad); }
@@ -423,7 +423,7 @@
   }
 
   function flatlineEqualizer() {
-    eqBars.forEach(bar => { bar.style.height = '6px'; });
+    eqBars.forEach(bar => { bar.style.height = '8px'; });
   }
 
   function setupLevelMeter(stream) {
@@ -446,14 +446,15 @@
     levelAnalyser.getByteFrequencyData(levelData);
     const bandCount = levelData.length;
     const barCount = eqBars.length;
-    const maxHeight = 50;
-    const minHeight = 6;
+    const maxHeight = 92;
+    const minHeight = 8;
+    const gain = 2.2;
     for (let i = 0; i < barCount; i++) {
       const half = Math.floor(barCount / 2);
       const distFromCenter = Math.abs(i - half);
       const t = distFromCenter / Math.max(1, half);
       const bandIdx = Math.min(bandCount - 1, Math.floor(2 + t * (bandCount - 4)));
-      const v = levelData[bandIdx] / 255;
+      const v = Math.min(1, Math.sqrt(levelData[bandIdx] / 255) * gain);
       const h = minHeight + v * (maxHeight - minHeight);
       eqBars[i].style.height = h.toFixed(0) + 'px';
     }
