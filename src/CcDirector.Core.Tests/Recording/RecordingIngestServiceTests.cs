@@ -42,6 +42,20 @@ public sealed class RecordingIngestServiceTests : IDisposable
 
     private static string Sha(byte[] b) => Convert.ToHexString(SHA256.HashData(b)).ToLowerInvariant();
 
+    /// <summary>Register, store one chunk, and complete so the recording reaches
+    /// the "transcribed" state with a local transcript.md on disk.</summary>
+    private static async Task TranscribeOneChunk(RecordingIngestService svc, string id)
+    {
+        svc.Register(Reg(id));
+        var c0 = Encoding.UTF8.GetBytes("audio-0");
+        await svc.StoreChunkAsync(id, 0, c0, Sha(c0));
+        var manifest = new RecordingManifest(id, "Test Call", "dev-1",
+            "2026-05-23T09:00:00Z", null, 16000, 1, "mp3",
+            new() { new RecordingChunkInfo(0, "0000.mp3", 0, 60000, c0.Length, Sha(c0)) },
+            new());
+        await svc.CompleteAsync(id, manifest);
+    }
+
     [Fact]
     public void Register_CreatesReceivingStatus()
     {
@@ -132,36 +146,67 @@ public sealed class RecordingIngestServiceTests : IDisposable
 
         var status = await svc.CompleteAsync("rec1", manifest);
 
-        Assert.Equal("filed", status.State);
+        Assert.Equal("transcribed", status.State);
         Assert.Equal(2, status.ChunksTranscribed);
-        Assert.NotNull(status.VaultDocId);
 
-        // Filer received a markdown that carries cleaned transcript + the note.
-        Assert.Single(filer.Filed);
-        var md = File.ReadAllText(filer.Filed[0].TranscriptMarkdownPath);
+        // Transcripts are transient: completing does NOT file into the vault.
+        Assert.Null(status.VaultDocId);
+        Assert.Empty(filer.Filed);
+
+        // The cleaned transcript markdown is written locally with the note.
+        var md = File.ReadAllText(svc.LocalTranscriptPath("rec1")!);
         Assert.Contains("CLEANED", md);          // FakeTranscriber stamps cleanup
         Assert.Contains("Discussed pricing", md); // note rendered
         Assert.Contains("[01:05]", md);           // note timestamp offset
     }
 
     [Fact]
-    public async Task Complete_VaultFailure_RecordsErrorAndRethrows()
+    public async Task Promote_FilesTranscribedRecordingIntoVault()
+    {
+        var filer = new FakeFiler();
+        var svc = NewService(new FakeTranscriber(), filer);
+        await TranscribeOneChunk(svc, "rec1");
+
+        var status = await svc.PromoteToVaultAsync("rec1");
+
+        Assert.NotNull(status.VaultDocId);
+        Assert.Single(filer.Filed);
+        var md = File.ReadAllText(filer.Filed[0].TranscriptMarkdownPath);
+        Assert.Contains("CLEANED", md);
+    }
+
+    [Fact]
+    public async Task Promote_IsIdempotent_DoesNotReFile()
+    {
+        var filer = new FakeFiler();
+        var svc = NewService(new FakeTranscriber(), filer);
+        await TranscribeOneChunk(svc, "rec1");
+
+        await svc.PromoteToVaultAsync("rec1");
+        await svc.PromoteToVaultAsync("rec1");
+
+        Assert.Single(filer.Filed); // filed exactly once
+    }
+
+    [Fact]
+    public async Task Promote_BeforeTranscribed_Throws()
+    {
+        var svc = NewService(new FakeTranscriber(), new FakeFiler());
+        svc.Register(Reg("rec1"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => svc.PromoteToVaultAsync("rec1"));
+    }
+
+    [Fact]
+    public async Task Promote_VaultFailure_Rethrows_AndStaysUnpromoted()
     {
         var svc = NewService(new FakeTranscriber(), new FakeFiler { ThrowOnFile = true });
-        svc.Register(Reg("rec1"));
-        var c0 = Encoding.UTF8.GetBytes("audio-0");
-        await svc.StoreChunkAsync("rec1", 0, c0, Sha(c0));
+        await TranscribeOneChunk(svc, "rec1");
 
-        var manifest = new RecordingManifest("rec1", "Test Call", "dev-1",
-            "2026-05-23T09:00:00Z", null, 16000, 1, "mp3",
-            new() { new RecordingChunkInfo(0, "0000.mp3", 0, 60000, c0.Length, Sha(c0)) },
-            new());
-
-        await Assert.ThrowsAsync<InvalidOperationException>(() => svc.CompleteAsync("rec1", manifest));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => svc.PromoteToVaultAsync("rec1"));
 
         var status = svc.GetStatus("rec1");
-        Assert.Equal("error", status.State);
-        Assert.NotNull(status.Error);
+        Assert.Equal("transcribed", status.State);
+        Assert.Null(status.VaultDocId);
     }
 
     [Fact]
@@ -169,6 +214,113 @@ public sealed class RecordingIngestServiceTests : IDisposable
     {
         var svc = NewService(new FakeTranscriber(), new FakeFiler());
         Assert.Throws<InvalidOperationException>(() => svc.GetStatus("nope"));
+    }
+
+    [Fact]
+    public async Task DeleteRecording_RemovesLocalTranscript()
+    {
+        var svc = NewService(new FakeTranscriber(), new FakeFiler());
+        await TranscribeOneChunk(svc, "rec1");
+        Assert.NotNull(svc.LocalTranscriptPath("rec1"));
+
+        svc.DeleteRecording("rec1");
+
+        Assert.Null(svc.LocalTranscriptPath("rec1"));
+        Assert.Throws<InvalidOperationException>(() => svc.GetStatus("rec1"));
+        Assert.DoesNotContain(svc.ListAll(), i => i.RecordingId == "rec1");
+    }
+
+    [Fact]
+    public async Task DeleteRecording_AfterPromote_KeepsVaultCopy()
+    {
+        var svc = NewService(new FakeTranscriber(), new FakeFiler());
+        await TranscribeOneChunk(svc, "rec1");
+        await svc.PromoteToVaultAsync("rec1");
+
+        // The vault copy lives in the collection dir, separate from the local
+        // transcripts root; deleting the transient transcript must not touch it.
+        var collectionDir = Path.Combine(_tmp, "collection", "rec1");
+        Assert.True(Directory.Exists(collectionDir));
+
+        svc.DeleteRecording("rec1");
+
+        Assert.Null(svc.LocalTranscriptPath("rec1"));
+        Assert.True(Directory.Exists(collectionDir)); // vault copy preserved
+    }
+
+    [Fact]
+    public void DeleteRecording_Unknown_Throws()
+    {
+        var svc = NewService(new FakeTranscriber(), new FakeFiler());
+        Assert.Throws<InvalidOperationException>(() => svc.DeleteRecording("nope"));
+    }
+
+    [Fact]
+    public void LocalTranscriptPath_BeforeTranscription_IsNull()
+    {
+        var svc = NewService(new FakeTranscriber(), new FakeFiler());
+        svc.Register(Reg("rec1"));
+        Assert.Null(svc.LocalTranscriptPath("rec1"));
+    }
+
+    [Fact]
+    public void UpdateMeta_SetsTitleSubtitleSummary_AndPersists()
+    {
+        var svc = NewService(new FakeTranscriber(), new FakeFiler());
+        svc.Register(Reg("rec1"));
+
+        var item = svc.UpdateMeta("rec1", new RecordingMetaUpdate(
+            Title: "Pricing call with Acme",
+            Subtitle: "Q3 renewal",
+            Summary: "Agreed to a 10 percent uplift; follow up next week."));
+
+        Assert.Equal("Pricing call with Acme", item.Title);
+        Assert.Equal("Q3 renewal", item.Subtitle);
+        Assert.StartsWith("Agreed", item.Summary);
+
+        // Persisted: a fresh listing reflects the same values.
+        var listed = svc.ListAll().Single(i => i.RecordingId == "rec1");
+        Assert.Equal("Pricing call with Acme", listed.Title);
+        Assert.Equal("Q3 renewal", listed.Subtitle);
+    }
+
+    [Fact]
+    public void UpdateMeta_NullFields_LeaveExistingUnchanged()
+    {
+        var svc = NewService(new FakeTranscriber(), new FakeFiler());
+        svc.Register(Reg("rec1")); // title "Test Call"
+        svc.UpdateMeta("rec1", new RecordingMetaUpdate(null, "sub", "sum"));
+
+        // Title null -> keep "Test Call"; subtitle/summary unchanged when null.
+        var item = svc.UpdateMeta("rec1", new RecordingMetaUpdate(Title: null, Subtitle: null, Summary: null));
+
+        Assert.Equal("Test Call", item.Title);
+        Assert.Equal("sub", item.Subtitle);
+        Assert.Equal("sum", item.Summary);
+    }
+
+    [Fact]
+    public void UpdateMeta_BlankTitle_IsIgnored()
+    {
+        var svc = NewService(new FakeTranscriber(), new FakeFiler());
+        svc.Register(Reg("rec1"));
+        var item = svc.UpdateMeta("rec1", new RecordingMetaUpdate(Title: "   ", Subtitle: null, Summary: null));
+        Assert.Equal("Test Call", item.Title);
+    }
+
+    [Fact]
+    public void UpdateMeta_Unknown_Throws()
+    {
+        var svc = NewService(new FakeTranscriber(), new FakeFiler());
+        Assert.Throws<InvalidOperationException>(
+            () => svc.UpdateMeta("nope", new RecordingMetaUpdate("t", null, null)));
+    }
+
+    [Fact]
+    public void TranscriptsRoot_PointsAtRecordingsRoot()
+    {
+        var svc = NewService(new FakeTranscriber(), new FakeFiler());
+        Assert.Equal(Path.Combine(_tmp, "recordings"), svc.TranscriptsRoot);
     }
 
     [Fact]
@@ -203,9 +355,11 @@ public sealed class RecordingIngestServiceTests : IDisposable
 
         var status = await svc.CompleteAsync("e2e", manifest);
 
-        Assert.Equal("filed", status.State);
+        Assert.Equal("transcribed", status.State);
         Assert.Equal(clips.Count, status.ChunksTranscribed);
 
+        // Promote into the (fake) vault so we can inspect the filed markdown.
+        await svc.PromoteToVaultAsync("e2e");
         var md = File.ReadAllText(filer.Filed[0].TranscriptMarkdownPath);
         // At least one of the known Phase 0 company terms must survive cleanup.
         var hit = md.Contains("ConPTY", StringComparison.OrdinalIgnoreCase)

@@ -12,21 +12,40 @@
   .wrap{max-width:900px;margin:0 auto;padding:28px 20px 80px}
   .top{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
   h1{font-size:26px;margin:0}
+  .topactions{display:flex;align-items:center;gap:14px}
   a.back{color:var(--blue);text-decoration:none;font-size:14px}
+  button.ghost{background:transparent;border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:6px 12px;font-size:13px;cursor:pointer}
+  button.ghost:hover{border-color:var(--blue)}
+  .agentmsg{color:var(--green);font-size:12.5px}
   .sub{color:var(--muted);font-size:14px;margin:0 0 22px}
   .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin:12px 0}
   .row{display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer}
   .title{font-size:16px;font-weight:600}
+  .subtitle{color:var(--ink);opacity:.8;font-size:13.5px;margin-top:1px}
   .meta{color:var(--muted);font-size:13px;margin-top:3px}
   .badge{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:600;white-space:nowrap}
   .b-uploaded{background:rgba(95,208,138,.16);color:var(--green);border:1px solid rgba(95,208,138,.4)}
   .b-other{background:rgba(232,179,57,.14);color:var(--amber);border:1px solid rgba(232,179,57,.4)}
+  .b-vault{background:rgba(91,141,239,.16);color:var(--blue);border:1px solid rgba(91,141,239,.4)}
+  .badges{display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
   .body{margin-top:14px;display:none}
   .body.open{display:block}
   .controls{display:flex;gap:10px;margin-bottom:12px}
   button{background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px 14px;font-size:14px;cursor:pointer}
   button:hover{border-color:var(--blue)}
   button.play{background:#1f7a47;border-color:#2a9c5b;color:#fff}
+  button.danger{background:#3a1418;border-color:#7a2429;color:#f0b4b6}
+  button.danger:hover{border-color:var(--red)}
+  button:disabled{opacity:.45;cursor:default}
+  button:disabled:hover{border-color:var(--line)}
+  .copied{color:var(--green);font-size:12.5px;margin-left:8px}
+  .details{background:#0d1426;border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:12px}
+  .details .fld{display:block;margin-bottom:10px}
+  .details .lbl{display:block;color:var(--muted);font-size:12px;margin-bottom:4px}
+  .details input,.details textarea{width:100%;background:#0B1020;color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:14px;font-family:inherit}
+  .details input:focus,.details textarea:focus{outline:none;border-color:var(--blue)}
+  .details textarea{min-height:64px;resize:vertical}
+  .savemsg{color:var(--green);font-size:12.5px;margin-left:8px}
   .transcript{white-space:pre-wrap;background:#0d1426;border:1px solid var(--line);border-radius:10px;padding:14px;font-size:14px;color:#cdd6e6;max-height:380px;overflow:auto}
   .empty{color:var(--muted);text-align:center;padding:60px 0}
   .nowplaying{color:var(--green);font-size:12.5px;margin-left:8px}
@@ -36,9 +55,13 @@
 <div class="wrap">
   <div class="top">
     <h1>Transcripts</h1>
-    <a class="back" href="/">&larr; Dashboard</a>
+    <div class="topactions">
+      <span class="agentmsg" id="agentmsg"></span>
+      <button class="ghost" id="agentinfo" title="Copy API endpoint + directory + usage so an external agent can connect and process these transcripts">Copy agent info</button>
+      <a class="back" href="/">&larr; Dashboard</a>
+    </div>
   </div>
-  <p class="sub">Recordings uploaded from the phone, transcribed into your vault. Click one to read it or play the audio.</p>
+  <p class="sub">Recordings uploaded from the phone and transcribed. These are kept locally and are temporary. Use "Save to vault" to keep one permanently, or "Delete" to remove a transient transcript. Click one to read it or play the audio.</p>
   <div id="list"><p class="empty">Loading...</p></div>
 </div>
 
@@ -73,6 +96,107 @@
     a.play().then(()=>{ labelEl.textContent = ' playing...'; }).catch(()=>{ labelEl.textContent=' (tap again to play)'; });
   }
 
+  async function copyPath(path, labelEl){
+    try {
+      await navigator.clipboard.writeText(path);
+      labelEl.textContent = ' copied: ' + path;
+    } catch {
+      // Clipboard API needs a secure context; fall back to selecting nothing
+      // and just showing the path so the user can copy it manually.
+      labelEl.textContent = ' ' + path;
+    }
+    setTimeout(() => { labelEl.textContent = ''; }, 6000);
+  }
+
+  async function deleteRecording(item, card){
+    const vaultNote = item.inVault
+      ? '\n\nThis recording is saved in the vault; that copy is kept.'
+      : '';
+    if (!confirm(`Delete "${item.title}"?\n\nThis removes the local transcript and its audio.${vaultNote}\n\nThis cannot be undone.`)) return;
+    stopAudio();
+    try {
+      const r = await fetch(`/ingest/recording/${item.recordingId}`, { method: 'DELETE' });
+      if (r.ok){
+        card.remove();
+        if (!document.querySelectorAll('.card').length)
+          document.getElementById('list').innerHTML = '<p class="empty">No recordings yet. Record something on the phone and it will appear here.</p>';
+      } else {
+        alert('Delete failed: ' + (await r.text()));
+      }
+    } catch (e) {
+      alert('Delete failed: ' + e);
+    }
+  }
+
+  async function promoteToVault(item, btn, labelEl){
+    btn.disabled = true;
+    labelEl.textContent = ' saving to vault...';
+    try {
+      const r = await fetch(`/ingest/recording/${item.recordingId}/promote`, { method: 'POST' });
+      if (r.ok){
+        item.inVault = true;
+        btn.textContent = 'In vault';
+        btn.title = 'Saved in the vault. The vault copy is kept even if you delete this transcript.';
+        labelEl.textContent = ' saved to vault';
+        setTimeout(() => { labelEl.textContent = ''; }, 5000);
+      } else {
+        btn.disabled = false;
+        const body = await r.json().catch(() => ({}));
+        labelEl.textContent = ' save failed: ' + (body.error || r.status);
+      }
+    } catch (e) {
+      btn.disabled = false;
+      labelEl.textContent = ' save failed: ' + e;
+    }
+  }
+
+  async function copyAgentInfo(labelEl){
+    labelEl.textContent = ' building...';
+    try {
+      const r = await fetch('/ingest/agent-info');
+      const text = await r.text();
+      try { await navigator.clipboard.writeText(text); labelEl.textContent = ' copied agent info to clipboard'; }
+      catch { labelEl.textContent = ' clipboard blocked; see console'; console.log(text); }
+    } catch (e) {
+      labelEl.textContent = ' failed: ' + e;
+    }
+    setTimeout(() => { labelEl.textContent = ''; }, 6000);
+  }
+
+  async function saveDetails(item, card, btn, labelEl){
+    btn.disabled = true;
+    labelEl.textContent = ' saving...';
+    const body = {
+      title: card.querySelector('.f-title').value,
+      subtitle: card.querySelector('.f-subtitle').value,
+      summary: card.querySelector('.f-summary').value,
+    };
+    try {
+      const r = await fetch(`/ingest/recording/${item.recordingId}/meta`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (r.ok){
+        const updated = await r.json();
+        item.title = updated.title; item.subtitle = updated.subtitle; item.summary = updated.summary;
+        card.querySelector('.title').textContent = item.title;
+        const subEl = card.querySelector('.subtitle');
+        subEl.textContent = item.subtitle || '';
+        subEl.style.display = item.subtitle ? '' : 'none';
+        labelEl.textContent = ' saved';
+      } else {
+        const e = await r.json().catch(() => ({}));
+        labelEl.textContent = ' save failed: ' + (e.error || r.status);
+      }
+    } catch (e) {
+      labelEl.textContent = ' save failed: ' + e;
+    } finally {
+      btn.disabled = false;
+      setTimeout(() => { labelEl.textContent = ''; }, 5000);
+    }
+  }
+
   async function toggleBody(item, card){
     const body = card.querySelector('.body');
     if (body.classList.contains('open')){ body.classList.remove('open'); return; }
@@ -85,7 +209,8 @@
           tEl.textContent = r.ok ? await r.text() : '(transcript unavailable)';
         } catch { tEl.textContent = '(failed to load transcript)'; }
       } else {
-        tEl.textContent = item.state === 'filed' ? '(no transcript text stored)' : `Not transcribed yet (state: ${item.state}).`;
+        const done = item.state === 'transcribed' || item.state === 'filed';
+        tEl.textContent = done ? '(no transcript text stored)' : `Not transcribed yet (state: ${item.state}).`;
       }
       tEl.dataset.loaded = '1';
     }
@@ -98,31 +223,96 @@
     for (const item of items){
       const card = document.createElement('div');
       card.className = 'card';
-      const uploaded = item.state === 'filed';
+      const done = item.state === 'transcribed' || item.state === 'filed';
       card.innerHTML = `
         <div class="row">
           <div>
             <div class="title"></div>
+            <div class="subtitle"></div>
             <div class="meta">${fmtDate(item.startedAt)} &middot; ${fmtDur(item.durationMs)} &middot; ${item.segments} segment(s)</div>
           </div>
-          <span class="badge ${uploaded?'b-uploaded':'b-other'}">${uploaded?'transcribed':item.state}</span>
+          <div class="badges">
+            <span class="badge ${done?'b-uploaded':'b-other'}">${done?'transcribed':item.state}</span>
+            ${item.inVault ? '<span class="badge b-vault">in vault</span>' : ''}
+          </div>
         </div>
         <div class="body">
           <div class="controls">
-            <button class="play">Play audio</button><span class="nowplaying"></span>
+            <button class="play">Play audio</button>
+            <button class="copy">Copy path</button>
+            <button class="vault">Save to vault</button>
+            <button class="danger del">Delete</button>
+            <span class="nowplaying"></span><span class="copied"></span><span class="vaultmsg"></span>
+          </div>
+          <div class="details">
+            <label class="fld"><span class="lbl">Title</span><input class="f-title" type="text"></label>
+            <label class="fld"><span class="lbl">Subtitle</span><input class="f-subtitle" type="text"></label>
+            <label class="fld"><span class="lbl">Summary</span><textarea class="f-summary"></textarea></label>
+            <button class="save">Save details</button><span class="savemsg"></span>
           </div>
           <div class="transcript">Loading transcript...</div>
         </div>`;
       card.querySelector('.title').textContent = item.title;
+      const subEl = card.querySelector('.subtitle');
+      subEl.textContent = item.subtitle || '';
+      subEl.style.display = item.subtitle ? '' : 'none';
+      card.querySelector('.f-title').value = item.title || '';
+      card.querySelector('.f-subtitle').value = item.subtitle || '';
+      card.querySelector('.f-summary').value = item.summary || '';
       card.querySelector('.row').addEventListener('click', () => toggleBody(item, card));
       const npl = card.querySelector('.nowplaying');
+      const copied = card.querySelector('.copied');
+      const vaultMsg = card.querySelector('.vaultmsg');
       card.querySelector('.play').addEventListener('click', (e) => {
         e.stopPropagation();
         playRecording(item.recordingId, item.segments || 1, npl);
       });
+
+      const copyBtn = card.querySelector('.copy');
+      if (item.transcriptPath){
+        copyBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          copyPath(item.transcriptPath, copied);
+        });
+      } else {
+        copyBtn.disabled = true;
+        copyBtn.title = 'Path available once the recording is transcribed';
+      }
+
+      const vaultBtn = card.querySelector('.vault');
+      if (item.inVault){
+        vaultBtn.disabled = true;
+        vaultBtn.textContent = 'In vault';
+        vaultBtn.title = 'Saved in the vault. The vault copy is kept even if you delete this transcript.';
+      } else if (!done){
+        vaultBtn.disabled = true;
+        vaultBtn.title = 'Available once the recording is transcribed';
+      } else {
+        vaultBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          promoteToVault(item, vaultBtn, vaultMsg);
+        });
+      }
+
+      card.querySelector('.del').addEventListener('click', (e) => {
+        e.stopPropagation();
+        deleteRecording(item, card);
+      });
+
+      const saveBtn = card.querySelector('.save');
+      const saveMsg = card.querySelector('.savemsg');
+      saveBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        saveDetails(item, card, saveBtn, saveMsg);
+      });
+
       list.appendChild(card);
     }
   }
+
+  document.getElementById('agentinfo').addEventListener('click', () => {
+    copyAgentInfo(document.getElementById('agentmsg'));
+  });
 
   fetch('/ingest/recordings')
     .then(r => r.json())

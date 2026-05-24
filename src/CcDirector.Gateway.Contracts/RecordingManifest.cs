@@ -68,7 +68,23 @@ public sealed record RecordingListItem(
     string State,
     int Segments,
     long DurationMs,
-    bool HasTranscript);
+    bool HasTranscript,
+    string? TranscriptPath,
+    bool InVault,
+    string? Subtitle,
+    string? Summary);
+
+/// <summary>
+/// Body of <c>PATCH /ingest/recording/{id}/meta</c>. Updates the human-readable
+/// metadata a person or an external agent attaches to a transcript. Every field
+/// is optional: a null field is left unchanged, a non-null field is applied
+/// (subtitle/summary may be set to empty to clear them; a blank title is
+/// ignored so a transcript never loses its title).
+/// </summary>
+public sealed record RecordingMetaUpdate(
+    string? Title,
+    string? Subtitle,
+    string? Summary);
 
 public sealed record RecordingStatusDto(
     string RecordingId,

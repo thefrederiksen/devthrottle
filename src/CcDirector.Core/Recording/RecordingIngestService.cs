@@ -9,11 +9,18 @@ namespace CcDirector.Core.Recording;
 
 /// <summary>
 /// Server-side ingest for phone recordings. Receives finalized audio segments,
-/// transcribes each through <see cref="IRecordingTranscriber"/>, assembles and
-/// cleans the full transcript, and files it into the vault via
-/// <see cref="IVaultFiler"/>.
+/// transcribes each through <see cref="IRecordingTranscriber"/>, then assembles
+/// and cleans the full transcript into a local transcripts folder.
 ///
-/// On-disk layout, one directory per recording under the recordings root:
+/// Transcripts are <b>transient by default</b>: they live only in the local
+/// transcripts area and are never written to the vault automatically. The user
+/// promotes the ones worth keeping into the vault explicitly via
+/// <see cref="PromoteToVaultAsync"/>, which copies the markdown + audio into the
+/// vault transcripts collection and files them through <see cref="IVaultFiler"/>.
+/// Deleting a transient transcript (<see cref="DeleteRecording"/>) removes only
+/// the local copy; a promoted vault copy is independent and is never touched.
+///
+/// On-disk layout, one directory per recording under the transcripts root:
 /// <code>
 ///   &lt;root&gt;/&lt;recordingId&gt;/
 ///     status.json        ingest state machine + header fields
@@ -24,8 +31,9 @@ namespace CcDirector.Core.Recording;
 /// </code>
 ///
 /// All operations are idempotent so the phone can retry safely: re-registering
-/// is a no-op, re-uploading a segment with the same hash is a no-op, and
-/// re-completing reuses already-transcribed segments.
+/// is a no-op, re-uploading a segment with the same hash is a no-op,
+/// re-completing reuses already-transcribed segments, and re-promoting a
+/// recording already in the vault returns its existing result.
 /// </summary>
 public sealed class RecordingIngestService
 {
@@ -115,12 +123,12 @@ public sealed class RecordingIngestService
             var status = LoadStatus(recordingId)
                 ?? throw new InvalidOperationException($"Recording '{recordingId}' is not registered.");
 
-            // Idempotent: a recording that already filed returns its existing
-            // result without re-transcribing or re-filing. This makes it safe
-            // for the phone to complete twice (in-app path + background worker).
-            if (status.State == "filed")
+            // Idempotent: a recording that already transcribed returns its
+            // existing result without re-transcribing. This makes it safe for
+            // the phone to complete twice (in-app path + background worker).
+            if (status.State == "transcribed")
             {
-                FileLog.Write($"[RecordingIngestService] Complete: id={recordingId} already filed, returning existing result");
+                FileLog.Write($"[RecordingIngestService] Complete: id={recordingId} already transcribed, returning existing result");
                 return ToDto(status);
             }
 
@@ -161,19 +169,13 @@ public sealed class RecordingIngestService
                 var mdPath = Path.Combine(RecordingDir(recordingId), "transcript.md");
                 await WriteAtomicAsync(mdPath, Encoding.UTF8.GetBytes(markdown), ct);
 
-                var (collectionMdPath, audioPaths) = await PlaceInCollectionAsync(recordingId, status, manifest, markdown, ext, ct);
-
-                var docId = await _vaultFiler.FileTranscriptAsync(new VaultFilingRequest(
-                    Title: status.Title,
-                    TranscriptMarkdownPath: collectionMdPath,
-                    AudioFilePaths: audioPaths,
-                    RecordedDateUtc: status.StartedAt), ct);
-
-                status.VaultDocId = docId;
-                status.State = "filed";
+                // Transcripts are transient: they stay local and are NOT filed
+                // into the vault here. The user promotes the ones worth keeping
+                // via PromoteToVaultAsync.
+                status.State = "transcribed";
                 status.Error = null;
                 SaveStatus(status);
-                FileLog.Write($"[RecordingIngestService] Complete done: id={recordingId} vaultDoc={docId}");
+                FileLog.Write($"[RecordingIngestService] Complete done: id={recordingId} (local transcript, not filed)");
                 return ToDto(status);
             }
             catch (Exception ex)
@@ -200,6 +202,9 @@ public sealed class RecordingIngestService
         return ToDto(status);
     }
 
+    /// <summary>Absolute path of the local transcripts root, for agent integration.</summary>
+    public string TranscriptsRoot => _root;
+
     /// <summary>All recordings on this machine, newest first, for the Gateway transcripts page.</summary>
     public IReadOnlyList<RecordingListItem> ListAll()
     {
@@ -213,24 +218,132 @@ public sealed class RecordingIngestService
             try { s = JsonSerializer.Deserialize<StatusModel>(File.ReadAllText(statusPath), JsonOpts); }
             catch { continue; }
             if (s is null) continue;
-
-            int segments = s.ChunksTotal;
-            long durationMs = 0;
-            var manifestPath = Path.Combine(dir, "manifest.json");
-            if (File.Exists(manifestPath))
-            {
-                try
-                {
-                    var m = JsonSerializer.Deserialize<RecordingManifest>(File.ReadAllText(manifestPath), JsonOpts);
-                    if (m is not null) { segments = m.Chunks.Count; durationMs = m.Chunks.Sum(c => c.DurationMs); }
-                }
-                catch { /* fall back to status counts */ }
-            }
-            items.Add(new RecordingListItem(
-                s.RecordingId, s.Title, s.StartedAt, s.State, segments, durationMs,
-                !string.IsNullOrWhiteSpace(s.Transcript)));
+            items.Add(ToListItem(s));
         }
         return items.OrderByDescending(i => i.StartedAt, StringComparer.Ordinal).ToList();
+    }
+
+    /// <summary>
+    /// Updates the human-readable metadata (title, subtitle, summary) a person
+    /// or an external agent attaches to a transcript. Null fields are left
+    /// unchanged; a blank title is ignored so a transcript never loses its
+    /// title. Returns the updated list item. Throws if the recording is unknown.
+    /// </summary>
+    public RecordingListItem UpdateMeta(string recordingId, RecordingMetaUpdate update)
+    {
+        FileLog.Write($"[RecordingIngestService] UpdateMeta: id={recordingId}");
+        var status = LoadStatus(recordingId)
+            ?? throw new InvalidOperationException($"Recording '{recordingId}' is not registered.");
+
+        if (!string.IsNullOrWhiteSpace(update.Title)) status.Title = update.Title.Trim();
+        if (update.Subtitle is not null) status.Subtitle = update.Subtitle;
+        if (update.Summary is not null) status.Summary = update.Summary;
+        SaveStatus(status);
+        return ToListItem(status);
+    }
+
+    private RecordingListItem ToListItem(StatusModel s)
+    {
+        int segments = s.ChunksTotal;
+        long durationMs = 0;
+        var manifestPath = Path.Combine(RecordingDir(s.RecordingId), "manifest.json");
+        if (File.Exists(manifestPath))
+        {
+            try
+            {
+                var m = JsonSerializer.Deserialize<RecordingManifest>(File.ReadAllText(manifestPath), JsonOpts);
+                if (m is not null) { segments = m.Chunks.Count; durationMs = m.Chunks.Sum(c => c.DurationMs); }
+            }
+            catch { /* fall back to status counts for display only */ }
+        }
+        return new RecordingListItem(
+            s.RecordingId, s.Title, s.StartedAt, s.State, segments, durationMs,
+            !string.IsNullOrWhiteSpace(s.Transcript), LocalTranscriptPath(s.RecordingId),
+            !string.IsNullOrWhiteSpace(s.VaultDocId), s.Subtitle, s.Summary);
+    }
+
+    /// <summary>
+    /// Absolute path to the local transcript markdown for this recording, or
+    /// null if it has not been transcribed yet. This is the transient on-disk
+    /// copy, suitable for opening in code.
+    /// </summary>
+    public string? LocalTranscriptPath(string recordingId)
+    {
+        var path = Path.Combine(RecordingDir(recordingId), "transcript.md");
+        return File.Exists(path) ? path : null;
+    }
+
+    /// <summary>
+    /// Copies a transcribed recording into the vault transcripts collection
+    /// (markdown + audio) and files it through the vault. Idempotent: a
+    /// recording already in the vault returns its existing result. Throws if the
+    /// recording is unknown or has not finished transcribing.
+    /// </summary>
+    public async Task<RecordingStatusDto> PromoteToVaultAsync(string recordingId, CancellationToken ct = default)
+    {
+        var gate = _locks.GetOrAdd(recordingId, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct);
+        try
+        {
+            FileLog.Write($"[RecordingIngestService] PromoteToVault: id={recordingId}");
+            var status = LoadStatus(recordingId)
+                ?? throw new InvalidOperationException($"Recording '{recordingId}' is not registered.");
+
+            // Idempotent: already in the vault.
+            if (!string.IsNullOrWhiteSpace(status.VaultDocId))
+            {
+                FileLog.Write($"[RecordingIngestService] PromoteToVault: id={recordingId} already in vault ({status.VaultDocId})");
+                return ToDto(status);
+            }
+
+            if (status.State != "transcribed")
+                throw new InvalidOperationException(
+                    $"Recording '{recordingId}' is not ready to promote (state: {status.State}).");
+
+            var mdPath = Path.Combine(RecordingDir(recordingId), "transcript.md");
+            if (!File.Exists(mdPath))
+                throw new InvalidOperationException($"Transcript markdown missing at {mdPath}.");
+
+            var manifest = LoadManifest(recordingId)
+                ?? throw new InvalidOperationException($"Manifest missing for recording '{recordingId}'.");
+
+            var ext = CodecToExt(status.Codec);
+            var markdown = await File.ReadAllTextAsync(mdPath, ct);
+            var (collectionMdPath, audioPaths) = await PlaceInCollectionAsync(recordingId, status, manifest, markdown, ext, ct);
+
+            var docId = await _vaultFiler.FileTranscriptAsync(new VaultFilingRequest(
+                Title: status.Title,
+                TranscriptMarkdownPath: collectionMdPath,
+                AudioFilePaths: audioPaths,
+                RecordedDateUtc: status.StartedAt), ct);
+
+            status.VaultDocId = docId;
+            SaveStatus(status);
+            FileLog.Write($"[RecordingIngestService] PromoteToVault done: id={recordingId} vaultDoc={docId}");
+            return ToDto(status);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Deletes the transient local transcript: its directory under the
+    /// transcripts root (audio segments, per-segment text, status, manifest,
+    /// markdown). A promoted copy in the vault is independent and is never
+    /// touched here. Throws if no such local transcript exists.
+    /// </summary>
+    public void DeleteRecording(string recordingId)
+    {
+        FileLog.Write($"[RecordingIngestService] DeleteRecording: id={recordingId}");
+        var recDir = RecordingDir(recordingId);
+        if (!Directory.Exists(recDir))
+            throw new InvalidOperationException($"Recording '{recordingId}' was not found.");
+
+        Directory.Delete(recDir, recursive: true);
+        _locks.TryRemove(recordingId, out _);
+        FileLog.Write($"[RecordingIngestService] DeleteRecording done: id={recordingId}");
     }
 
     /// <summary>The cleaned transcript text, or the assembled markdown as a fallback.</summary>
@@ -353,6 +466,13 @@ public sealed class RecordingIngestService
         File.WriteAllText(path, JsonSerializer.Serialize(manifest, JsonOpts));
     }
 
+    private RecordingManifest? LoadManifest(string id)
+    {
+        var path = Path.Combine(RecordingDir(id), "manifest.json");
+        if (!File.Exists(path)) return null;
+        return JsonSerializer.Deserialize<RecordingManifest>(File.ReadAllText(path), JsonOpts);
+    }
+
     private RecordingStatusDto ToDto(StatusModel s)
     {
         var dir = RecordingDir(s.RecordingId);
@@ -437,5 +557,7 @@ public sealed class RecordingIngestService
         public string? VaultDocId { get; set; }
         public string? Error { get; set; }
         public string? Transcript { get; set; }
+        public string? Subtitle { get; set; }
+        public string? Summary { get; set; }
     }
 }
