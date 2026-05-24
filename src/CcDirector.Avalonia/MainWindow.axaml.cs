@@ -484,12 +484,10 @@ public partial class MainWindow : Window
 
             _activeSession.Session.OnClaudeMetadataChanged -= OnActiveSessionMetadataChanged;
             _activeSession.Session.OnActivityStateChanged -= OnActiveSessionActivityChanged;
-            _activeSession.Session.OnStatusColorChanged -= OnActiveSessionStatusColorChanged;
             _activeSession.Session.OnPendingPromptTextChanged -= OnActiveSessionPendingPromptTextChanged;
             TerminalHost.Detach();
             GitChangesView.Detach();
             CleanView.Detach();
-            SessionCleanView.Detach();
         }
 
         _activeSession = vm;
@@ -499,22 +497,18 @@ public partial class MainWindow : Window
             SessionHeaderBanner.IsVisible = false;
             PlaceholderText.IsVisible = true;
             TerminalDock.IsVisible = false;
-            TerminalPendingQuestionBanner.IsVisible = false;
             PromptBarBorder.IsVisible = false;
             TabBarRefreshButton.IsVisible = false;
             TabBarCaptureButton.IsVisible = false;
+            TabBarOpenWingmanButton.IsVisible = false;
             GitChangesView.Detach();
             CleanView.Detach();
-            SessionCleanView.Detach();
             return;
         }
 
         // Subscribe to metadata and activity changes for header updates
         vm.Session.OnClaudeMetadataChanged += OnActiveSessionMetadataChanged;
         vm.Session.OnActivityStateChanged += OnActiveSessionActivityChanged;
-        // Phase 4f: also subscribe to wingman status changes so the terminal-tab
-        // pending-question banner stays in sync with the Session tab's red callout.
-        vm.Session.OnStatusColorChanged += OnActiveSessionStatusColorChanged;
         // Subscribe to wingman-injected prompt text. The wingman watches the
         // terminal buffer for text Claude Code has placed in its own input line
         // and pushes it through this event; we mirror it into "Type a message..."
@@ -528,7 +522,6 @@ public partial class MainWindow : Window
         // Attach terminal
         PlaceholderText.IsVisible = false;
         TerminalDock.IsVisible = true;
-        UpdateTerminalPendingQuestionBanner();
         TerminalHost.Attach(vm.Session);
         UpdateScrollBar();
 
@@ -539,25 +532,25 @@ public partial class MainWindow : Window
         // Attach clean view (legacy Agent tab)
         CleanView.Attach(vm.Session);
 
-        // Phase 5.2: also attach the Session-tab's embedded CleanView. Both poll the
-        // same JSONL; minor cost, robust over re-parenting.
-        SessionCleanView.Attach(vm.Session);
-
-        // Show prompt bar and refresh button
+        // Show prompt bar and header buttons
         PromptBarBorder.IsVisible = true;
         TabBarRefreshButton.IsVisible = _activeLeftTab == "Terminal";
         TabBarCaptureButton.IsVisible = _activeLeftTab == "Terminal";
+        TabBarOpenWingmanButton.IsVisible = true;
 
         // Restore prompt text for incoming session
         PromptInput.Text = vm.Session.PendingPromptText ?? "";
         PromptInput.CaretIndex = PromptInput.Text.Length;
 
-        // Restore last selected tab. Phase 5.2: default new sessions to the merged
-        // Session tab (replaces Terminal as the default working view per spec).
-        // Restored values from older builds may say "Wingman" - normalize.
+        // Restore last selected tab. The Session/Agent tabs were removed; the
+        // wingman/voice view now opens in an external browser. Normalize any
+        // persisted values from older builds and default to Terminal.
         var tabName = vm.Session.SelectedTabName;
-        if (string.Equals(tabName, "Wingman", StringComparison.Ordinal)) tabName = "Session";
-        if (string.IsNullOrEmpty(tabName)) tabName = "Session";
+        if (string.Equals(tabName, "Session", StringComparison.Ordinal) ||
+            string.Equals(tabName, "Agent", StringComparison.Ordinal) ||
+            string.Equals(tabName, "Wingman", StringComparison.Ordinal))
+            tabName = "Terminal";
+        if (string.IsNullOrEmpty(tabName)) tabName = "Terminal";
         if (tabName != _activeLeftTab)
             SwitchLeftTab(tabName);
 
@@ -588,20 +581,6 @@ public partial class MainWindow : Window
     private void OnActiveSessionActivityChanged(ActivityState oldState, ActivityState newState)
     {
         Dispatcher.UIThread.Post(UpdateSessionHeader);
-    }
-
-    private void OnActiveSessionStatusColorChanged(string oldColor, string newColor, string reason)
-    {
-        // Event handler: try-catch per CLAUDE.md rule 4. Fires on the wingman's
-        // background thread; we marshal to the UI thread before touching controls.
-        try
-        {
-            Dispatcher.UIThread.Post(UpdateTerminalPendingQuestionBanner);
-        }
-        catch (Exception ex)
-        {
-            FileLog.Write($"[MainWindow] OnActiveSessionStatusColorChanged FAILED: old={oldColor}, new={newColor}: {ex.Message}");
-        }
     }
 
     /// <summary>
@@ -637,37 +616,6 @@ public partial class MainWindow : Window
         }
     }
 
-    // Keep the terminal-tab pending-question banner in sync with the wingman's
-    // verdict on the active session. Visible iff StatusColor==red and
-    // LastStatusReason is non-empty. Same visual + same source-of-truth as the
-    // Session tab's PendingQuestion widget. Exceptions propagate to the UI-thread
-    // unhandled-exception handler in App.axaml.cs which logs them centrally.
-    private void UpdateTerminalPendingQuestionBanner()
-    {
-        if (_activeSession == null)
-        {
-            TerminalPendingQuestionBanner.IsVisible = false;
-            return;
-        }
-
-        var s = _activeSession.Session;
-        bool shouldShow = string.Equals(s.StatusColor, "red", StringComparison.OrdinalIgnoreCase)
-                          && !string.IsNullOrWhiteSpace(s.LastStatusReason);
-
-        if (shouldShow)
-        {
-            FileLog.Write($"[MainWindow] UpdateTerminalPendingQuestionBanner: show, session={s.Id}, reasonLen={s.LastStatusReason?.Length ?? 0}");
-            TerminalPendingQuestionText.Text = s.LastStatusReason ?? "";
-            TerminalPendingQuestionBanner.IsVisible = true;
-        }
-        else
-        {
-            if (TerminalPendingQuestionBanner.IsVisible)
-                FileLog.Write($"[MainWindow] UpdateTerminalPendingQuestionBanner: hide, session={s.Id}, color={s.StatusColor}");
-            TerminalPendingQuestionBanner.IsVisible = false;
-        }
-    }
-
     private async Task CloseAllSessionsAsync()
     {
         FileLog.Write("[MainWindow] CloseAllSessionsAsync");
@@ -675,7 +623,6 @@ public partial class MainWindow : Window
         {
             _activeSession.Session.OnClaudeMetadataChanged -= OnActiveSessionMetadataChanged;
             _activeSession.Session.OnActivityStateChanged -= OnActiveSessionActivityChanged;
-            _activeSession.Session.OnStatusColorChanged -= OnActiveSessionStatusColorChanged;
             _activeSession.Session.OnPendingPromptTextChanged -= OnActiveSessionPendingPromptTextChanged;
         }
         TerminalHost.Detach();
@@ -702,7 +649,6 @@ public partial class MainWindow : Window
         SessionHeaderBanner.IsVisible = false;
         PlaceholderText.IsVisible = true;
         TerminalDock.IsVisible = false;
-        TerminalPendingQuestionBanner.IsVisible = false;
         PromptBarBorder.IsVisible = false;
 
         FileLog.Write($"[MainWindow] CloseAllSessionsAsync: removed {snapshots.Count} session(s)");
@@ -799,8 +745,6 @@ public partial class MainWindow : Window
                 UpdateSessionHeader();
                 CleanView.Detach();
                 CleanView.Attach(vm.Session);
-                SessionCleanView.Detach();
-                SessionCleanView.Attach(vm.Session);
             }
 
             ShowNotification($"Session relinked to {dialog.SelectedSessionId[..8]}...");
@@ -874,7 +818,6 @@ public partial class MainWindow : Window
         {
             vm.Session.OnClaudeMetadataChanged -= OnActiveSessionMetadataChanged;
             vm.Session.OnActivityStateChanged -= OnActiveSessionActivityChanged;
-            vm.Session.OnStatusColorChanged -= OnActiveSessionStatusColorChanged;
             vm.Session.OnPendingPromptTextChanged -= OnActiveSessionPendingPromptTextChanged;
             TerminalHost.Detach();
             GitChangesView.Detach();
@@ -884,7 +827,6 @@ public partial class MainWindow : Window
             SessionHeaderBanner.IsVisible = false;
             PlaceholderText.IsVisible = true;
             TerminalDock.IsVisible = false;
-            TerminalPendingQuestionBanner.IsVisible = false;
             PromptBarBorder.IsVisible = false;
         }
 
@@ -1771,11 +1713,6 @@ public partial class MainWindow : Window
         SwitchLeftTab("SourceControl");
     }
 
-    private void SessionTabButton_Click(object? sender, RoutedEventArgs e)
-    {
-        SwitchLeftTab("Session");
-    }
-
     private bool _commsInitialized;
 
     private async void BtnComms_Click(object? sender, RoutedEventArgs e)
@@ -1897,8 +1834,6 @@ public partial class MainWindow : Window
         bool isDocTab = tab.StartsWith("Doc:", StringComparison.Ordinal);
 
         // Update fixed tab button styles
-        SessionTabButton.Background = tab == "Session" ? accentBrush : TransparentBrush;
-        SessionTabButton.Foreground = tab == "Session" ? whiteBrush : InactiveTextBrush;
         AgentTabButton.Background = tab == "Agent" ? accentBrush : TransparentBrush;
         AgentTabButton.Foreground = tab == "Agent" ? whiteBrush : InactiveTextBrush;
         TerminalTabButton.Background = tab == "Terminal" ? accentBrush : TransparentBrush;
@@ -1914,7 +1849,6 @@ public partial class MainWindow : Window
         }
 
         // Show/hide panels
-        SessionPanel.IsVisible = tab == "Session";
         AgentPanel.IsVisible = tab == "Agent";
         TerminalPanel.IsVisible = tab == "Terminal";
         SourceControlPanel.IsVisible = tab == "SourceControl";
