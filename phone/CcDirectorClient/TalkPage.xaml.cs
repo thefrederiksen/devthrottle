@@ -28,6 +28,11 @@ public partial class TalkPage : ContentPage
     private SessionInfo? _selected;
     private bool _busy;
 
+    // Conductor mode: rotate only through sessions that need the user, one at a
+    // time, waiting after each (push-to-talk reply or Next). Nothing auto-advances.
+    private readonly ConductorState _conductor = new();
+    private bool _conductorMode;
+
     public TalkPage(IUtteranceRecorder recorder, IReplySpeaker tts, IVoiceForeground foreground)
     {
         InitializeComponent();
@@ -128,6 +133,13 @@ public partial class TalkPage : ContentPage
 
     private void EnterTalk(SessionInfo session)
     {
+        _conductorMode = false;
+        NextButton.IsVisible = false;
+        ShowTalkPanelFor(session);
+    }
+
+    private void ShowTalkPanelFor(SessionInfo session)
+    {
         _selected = session;
         TalkSessionName.Text = session.DisplayName;
         TalkSessionState.Text = string.IsNullOrWhiteSpace(session.LastStatusReason)
@@ -145,10 +157,108 @@ public partial class TalkPage : ContentPage
     {
         if (_busy) return; // do not abandon a turn mid-flight
         _selected = null;
+        _conductorMode = false;
+        NextButton.IsVisible = false;
         _foreground.Stop(); // leaving the conversation; release the background hold
         TalkPanel.IsVisible = false;
         ListPanel.IsVisible = true;
         _ = LoadRosterAsync();
+    }
+
+    // ===== all-sessions conductor ==========================================
+
+    private async void OnConductorClicked(object? sender, EventArgs e)
+    {
+        if (_busy) return;
+        try
+        {
+            // Replies use the mic, and we want the foreground hold up before the
+            // first spoken item so backgrounding mid-recap does not cut it off.
+            // Required order on Android 14+: permission before starting the
+            // microphone-typed foreground service.
+            var status = await Permissions.RequestAsync<Permissions.Microphone>();
+            if (status != PermissionStatus.Granted)
+            {
+                await DisplayAlert("Microphone needed",
+                    "CC Director Client needs microphone access to reply to sessions.", "OK");
+                return;
+            }
+
+            ListStatusLabel.Text = "Finding sessions that need you...";
+            var gateway = new GatewayClient(ServerEntry.Text ?? "", TokenEntry.Text ?? "");
+            var roster = await gateway.GetRosterAsync();
+            _conductor.Update(roster);
+
+            if (!_conductor.HasWork)
+            {
+                ListStatusLabel.Text = "No sessions need you right now.";
+                await DisplayAlert("All caught up", "No sessions need you right now.", "OK");
+                return;
+            }
+
+            _conductorMode = true;
+            _foreground.Start();
+            NextButton.IsVisible = true;
+            await SpeakCurrentConductorItemAsync();
+        }
+        catch (Exception ex)
+        {
+            ListStatusLabel.Text = $"Could not start conductor: {ex.Message}";
+            await DisplayAlert("Conductor error", ex.Message, "OK");
+        }
+    }
+
+    private async void OnNextClicked(object? sender, EventArgs e)
+    {
+        if (_busy || !_conductorMode) return;
+        try
+        {
+            // Refresh first so a session that has been resolved drops out, then
+            // move to the next one. Only the explicit Next advances - nothing auto-rotates.
+            var gateway = new GatewayClient(ServerEntry.Text ?? "", TokenEntry.Text ?? "");
+            var roster = await gateway.GetRosterAsync();
+            _conductor.Update(roster);
+            _conductor.Advance();
+
+            if (!_conductor.HasWork)
+            {
+                await DisplayAlert("All caught up", "No more sessions need you.", "OK");
+                OnBackClicked(this, EventArgs.Empty);
+                return;
+            }
+            await SpeakCurrentConductorItemAsync();
+        }
+        catch (Exception ex)
+        {
+            await DisplayAlert("Conductor error", ex.Message, "OK");
+        }
+    }
+
+    private async Task SpeakCurrentConductorItemAsync()
+    {
+        var session = _conductor.Current;
+        if (session is null) { OnBackClicked(this, EventArgs.Empty); return; }
+
+        ShowTalkPanelFor(session);
+        TalkSessionState.Text = $"Needs you - {_conductor.Count} in queue";
+        SetTalkButton(recording: false, busy: true);
+        TurnStatusLabel.Text = "Reading...";
+
+        var convo = new VoiceConversation(new DirectorVoiceClient(TokenEntry.Text ?? ""), _tts);
+        try
+        {
+            await convo.SpeakConductorItemAsync(session, OnTurnUpdate);
+            TurnStatusLabel.Text = "Push Talk to reply, or Next.";
+        }
+        catch (Exception ex)
+        {
+            TurnStatusLabel.Text = "";
+            await DisplayAlert("Voice error", ex.Message, "OK");
+        }
+        finally
+        {
+            SetTalkButton(recording: false, busy: false);
+        }
     }
 
     private async void OnTalkClicked(object? sender, EventArgs e)
@@ -209,8 +319,11 @@ public partial class TalkPage : ContentPage
         {
             case "transcript": TranscriptLabel.Text = u.Text; TurnStatusLabel.Text = ""; break;
             case "reply": ReplyLabel.Text = u.Text; TurnStatusLabel.Text = ""; break;
+            case "answer": ReplyLabel.Text = u.Text; TurnStatusLabel.Text = ""; break;
+            case "recap": TranscriptLabel.Text = u.Text; break;       // conductor context
+            case "name": TurnStatusLabel.Text = $"Reading: {u.Text}"; break;
             case "progress": TurnStatusLabel.Text = u.Text; break;
-            default: TurnStatusLabel.Text = u.Text; break; // transcribing / thinking
+            default: TurnStatusLabel.Text = u.Text; break;            // transcribing / thinking
         }
     });
 

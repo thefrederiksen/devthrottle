@@ -24,6 +24,10 @@
                 </Grid>
                 <Label x:Name="ListStatusLabel" Text="Loading sessions..." FontSize="13" TextColor="#8A93A6" />
 
+                <Button x:Name="ConductorButton" Text="Talk to all sessions that need me"
+                        BackgroundColor="#6B46C1" TextColor="White" HeightRequest="50"
+                        CornerRadius="12" Clicked="OnConductorClicked" />
+
                 <CollectionView x:Name="SessionsList" SelectionMode="Single"
                                 SelectionChanged="OnSessionSelected" HeightRequest="420">
                     <CollectionView.ItemTemplate>
@@ -71,6 +75,10 @@
                         BackgroundColor="#5FD08A" TextColor="#06210F"
                         FontSize="20" FontAttributes="Bold" HeightRequest="84"
                         CornerRadius="16" Clicked="OnTalkClicked" />
+
+                <Button x:Name="NextButton" Text="Next session" IsVisible="False"
+                        BackgroundColor="#6B46C1" TextColor="White" HeightRequest="54"
+                        CornerRadius="12" Clicked="OnNextClicked" />
 
                 <Border BackgroundColor="#0F1626" StrokeShape="RoundRectangle 12" Padding="14">
                     <VerticalStackLayout Spacing="10">
