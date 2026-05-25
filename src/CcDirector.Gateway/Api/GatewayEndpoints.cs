@@ -20,6 +20,10 @@ internal static class GatewayEndpoints
         // Phone recorder ingest (offline-recorded audio -> transcription -> vault).
         RecordingEndpoints.Map(app);
 
+        // Read-only view of the Communication Manager approval queue (see the phone's
+        // pending drafts remotely). Step 1 of centralizing the comm queue on the Gateway.
+        CommQueueEndpoints.Map(app);
+
         // Local-machine exe/slot management (the "Exes" page).
         ExesEndpoints.Map(app, registry, client);
 
