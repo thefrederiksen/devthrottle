@@ -21,9 +21,20 @@ public partial class TalkPage : ContentPage
     private static readonly Color DotRed = Color.FromArgb("#E5484D");
     private static readonly Color DotGray = Color.FromArgb("#5A6378");
 
+    // Voice status line colors (the big "where we are" label).
+    private const string StatusGreen = "#5FD08A";   // ready / done
+    private const string StatusYellow = "#E8B339";  // in progress
+    private const string StatusRed = "#E5484D";     // recording / error
+    private const string StatusBlue = "#2B6CB0";    // speaking / reading
+
     private readonly IUtteranceRecorder _recorder;
     private readonly IReplySpeaker _tts;
     private readonly IVoiceForeground _foreground;
+
+    // Pumps the live mic level meter + elapsed time while recording (100ms,
+    // same cadence as the offline recorder's meter).
+    private readonly IDispatcherTimer _levelTimer;
+    private DateTime _recStart;
 
     private SessionInfo? _selected;
     private bool _busy;
@@ -43,6 +54,15 @@ public partial class TalkPage : ContentPage
         _recorder = recorder;
         _tts = tts;
         _foreground = foreground;
+
+        _levelTimer = Dispatcher.CreateTimer();
+        _levelTimer.Interval = TimeSpan.FromMilliseconds(100);
+        _levelTimer.Tick += (_, _) =>
+        {
+            LevelMeter.Progress = _recorder.ReadLevel();
+            var secs = (int)(DateTime.UtcNow - _recStart).TotalSeconds;
+            RecElapsedLabel.Text = TimeSpan.FromSeconds(secs).ToString(@"mm\:ss");
+        };
 
         var savedServer = Preferences.Get(PrefServer, "");
         if (string.IsNullOrWhiteSpace(savedServer))
@@ -68,6 +88,7 @@ public partial class TalkPage : ContentPage
     {
         base.OnDisappearing();
         DeviceDisplay.Current.KeepScreenOn = false;
+        _levelTimer.Stop();
         _tts.Stop();
         _foreground.Stop();
     }
@@ -151,6 +172,10 @@ public partial class TalkPage : ContentPage
         TranscriptLabel.Text = "-";
         ReplyLabel.Text = "-";
         TurnStatusLabel.Text = "";
+        _levelTimer.Stop();
+        RecordingCard.IsVisible = false;
+        LevelMeter.Progress = 0;
+        SetVoiceStatus("Ready", StatusGreen);
         SetTalkButton(recording: false, busy: false);
 
         ListPanel.IsVisible = false;
@@ -163,6 +188,9 @@ public partial class TalkPage : ContentPage
         // rather than trapping the user; the turn runners swallow the resulting
         // cancellation quietly.
         _turnCts?.Cancel();
+        _levelTimer.Stop();
+        RecordingCard.IsVisible = false;
+        LevelMeter.Progress = 0;
         if (_recorder.IsRecording)
         {
             try { _ = _recorder.StopAsync(); } catch { /* discarding a half-captured clip on leave */ }
@@ -254,7 +282,8 @@ public partial class TalkPage : ContentPage
         ShowTalkPanelFor(session);
         TalkSessionState.Text = $"Needs you - {_conductor.Count} in queue";
         SetTalkButton(recording: false, busy: true);
-        TurnStatusLabel.Text = "Reading...";
+        SetVoiceStatus("Reading...", StatusBlue);
+        TurnStatusLabel.Text = "";
 
         _turnCts?.Cancel();
         _turnCts = new CancellationTokenSource();
@@ -262,7 +291,8 @@ public partial class TalkPage : ContentPage
         try
         {
             await convo.SpeakConductorItemAsync(session, OnTurnUpdate, _turnCts.Token);
-            TurnStatusLabel.Text = "Push Talk to reply, or Next.";
+            SetVoiceStatus("Push Talk to reply, or Next", StatusGreen);
+            TurnStatusLabel.Text = "";
         }
         catch (OperationCanceledException)
         {
@@ -300,11 +330,21 @@ public partial class TalkPage : ContentPage
                 _foreground.Start();
                 await _recorder.StartAsync();
                 SetTalkButton(recording: true, busy: false);
-                TurnStatusLabel.Text = "Listening...";
+                TurnStatusLabel.Text = "";
+                _recStart = DateTime.UtcNow;
+                RecElapsedLabel.Text = "00:00";
+                LevelMeter.Progress = 0;
+                RecordingCard.IsVisible = true;
+                _levelTimer.Start();
+                SetVoiceStatus("Recording", StatusRed);
                 return;
             }
 
             // Second press: stop capturing and run the round-trip.
+            _levelTimer.Stop();
+            RecordingCard.IsVisible = false;
+            LevelMeter.Progress = 0;
+            SetVoiceStatus("Sending", StatusYellow);
             var audio = await _recorder.StopAsync();
             await RunTurnAsync(_selected, audio);
         }
@@ -314,7 +354,11 @@ public partial class TalkPage : ContentPage
         }
         catch (Exception ex)
         {
+            _levelTimer.Stop();
+            RecordingCard.IsVisible = false;
+            LevelMeter.Progress = 0;
             TurnStatusLabel.Text = "";
+            SetVoiceStatus("Something went wrong", StatusRed);
             SetTalkButton(recording: false, busy: false);
             await DisplayAlert("Voice error", ex.Message, "OK");
         }
@@ -330,6 +374,8 @@ public partial class TalkPage : ContentPage
         try
         {
             await convo.SpeakTurnAsync(session, audio, OnTurnUpdate, _turnCts.Token);
+            TurnStatusLabel.Text = "";
+            SetVoiceStatus("Ready", StatusGreen);
         }
         finally
         {
@@ -341,16 +387,55 @@ public partial class TalkPage : ContentPage
     {
         switch (u.Stage)
         {
+            case "transcribing": SetVoiceStatus("Transcribing...", StatusYellow); break;
             case "transcript": TranscriptLabel.Text = u.Text; TurnStatusLabel.Text = ""; break;
-            case "reply": ReplyLabel.Text = u.Text; TurnStatusLabel.Text = ""; break;
-            case "answer": ReplyLabel.Text = u.Text; TurnStatusLabel.Text = ""; break;
-            case "recap": TranscriptLabel.Text = u.Text; break;       // conductor context
-            case "name": TurnStatusLabel.Text = $"Reading: {u.Text}"; break;
-            case "waiting": TurnStatusLabel.Text = u.Text; break;     // session busy; holding the question
-            case "progress": TurnStatusLabel.Text = u.Text; break;
-            default: TurnStatusLabel.Text = u.Text; break;            // transcribing / thinking
+            case "thinking": SetVoiceStatus("Agent working...", StatusYellow); break;
+            case "progress": SetVoiceStatus("Agent working...", StatusYellow); TurnStatusLabel.Text = u.Text; break;
+            case "waiting": SetVoiceStatus("Session busy - holding your question", StatusYellow); TurnStatusLabel.Text = u.Text; break;
+            case "reply": ReplyLabel.Text = u.Text; TurnStatusLabel.Text = ""; SetVoiceStatus("Speaking...", StatusBlue); break;
+            case "name": SetVoiceStatus($"Reading: {u.Text}", StatusBlue); break;       // conductor
+            case "recap": TranscriptLabel.Text = u.Text; SetVoiceStatus("Speaking...", StatusBlue); break;
+            case "answer": ReplyLabel.Text = u.Text; TurnStatusLabel.Text = ""; SetVoiceStatus("Speaking...", StatusBlue); break;
+            default: TurnStatusLabel.Text = u.Text; break;
         }
     });
+
+    private void SetVoiceStatus(string text, string colorHex)
+    {
+        VoiceStatusLabel.Text = text;
+        VoiceStatusLabel.TextColor = Color.FromArgb(colorHex);
+    }
+
+    // On-demand "where are we": speak the selected session's name, recap, and
+    // latest answer (the same intro the conductor reads), so you can ask what is
+    // happening without sending a chat turn.
+    private async void OnWhatsHappeningClicked(object? sender, EventArgs e)
+    {
+        if (_selected is null || _busy) return;
+        try
+        {
+            SetTalkButton(recording: false, busy: true);
+            SetVoiceStatus("Checking...", StatusBlue);
+            _turnCts?.Cancel();
+            _turnCts = new CancellationTokenSource();
+            var convo = new VoiceConversation(new DirectorVoiceClient(TokenEntry.Text ?? ""), _tts);
+            await convo.SpeakConductorItemAsync(_selected, OnTurnUpdate, _turnCts.Token);
+            SetVoiceStatus("Ready", StatusGreen);
+        }
+        catch (OperationCanceledException)
+        {
+            // User left; nothing to report.
+        }
+        catch (Exception ex)
+        {
+            SetVoiceStatus("Something went wrong", StatusRed);
+            await DisplayAlert("Voice error", ex.Message, "OK");
+        }
+        finally
+        {
+            SetTalkButton(recording: false, busy: false);
+        }
+    }
 
     private void SetTalkButton(bool recording, bool busy)
     {

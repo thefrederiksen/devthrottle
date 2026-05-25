@@ -71,10 +71,38 @@
                     </VerticalStackLayout>
                 </Border>
 
+                <!-- Big, always-present status so you always know where we are. -->
+                <Label x:Name="VoiceStatusLabel" Text="Ready" FontSize="17"
+                       FontAttributes="Bold" TextColor="#5FD08A" HorizontalOptions="Center" />
+
                 <Button x:Name="TalkButton" Text="Talk"
                         BackgroundColor="#5FD08A" TextColor="#06210F"
                         FontSize="20" FontAttributes="Bold" HeightRequest="84"
                         CornerRadius="16" Clicked="OnTalkClicked" />
+
+                <!-- Recording view: shows the live mic level so you can see your
+                     voice is being captured, plus elapsed time and the send hint. -->
+                <Border x:Name="RecordingCard" IsVisible="False"
+                        BackgroundColor="#21121A" Stroke="#E5484D" StrokeThickness="1"
+                        StrokeShape="RoundRectangle 14" Padding="16">
+                    <VerticalStackLayout Spacing="12">
+                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                            <Border Grid.Column="0" WidthRequest="12" HeightRequest="12"
+                                    StrokeShape="RoundRectangle 6" BackgroundColor="#E5484D"
+                                    VerticalOptions="Center" />
+                            <Label Grid.Column="1" Text="Recording - tap Send when done"
+                                   TextColor="#E6EAF2" FontAttributes="Bold" VerticalOptions="Center" />
+                            <Label Grid.Column="2" x:Name="RecElapsedLabel" Text="00:00"
+                                   TextColor="#8A93A6" VerticalOptions="Center" />
+                        </Grid>
+                        <ProgressBar x:Name="LevelMeter" Progress="0" ProgressColor="#5FD08A"
+                                     HeightRequest="10" />
+                    </VerticalStackLayout>
+                </Border>
+
+                <Button x:Name="WhatsUpButton" Text="What's happening?"
+                        BackgroundColor="#2B6CB0" TextColor="White" HeightRequest="48"
+                        CornerRadius="12" Clicked="OnWhatsHappeningClicked" />
 
                 <Button x:Name="NextButton" Text="Next session" IsVisible="False"
                         BackgroundColor="#6B46C1" TextColor="White" HeightRequest="54"

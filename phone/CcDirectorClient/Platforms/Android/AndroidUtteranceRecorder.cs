@@ -20,6 +20,27 @@ public sealed class AndroidUtteranceRecorder : IUtteranceRecorder
 
     public bool IsRecording { get; private set; }
 
+    public double ReadLevel()
+    {
+        lock (_gate)
+        {
+            if (!IsRecording || _recorder is null) return 0;
+            try
+            {
+                // MaxAmplitude is 0..32767, peak since last read. Square-root
+                // shaping makes the meter feel linear to the ear (mirrors the
+                // offline recorder's level meter).
+                var amp = _recorder.MaxAmplitude;
+                if (amp <= 0) return 0;
+                return Math.Clamp(Math.Sqrt(amp / 32767.0), 0, 1);
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+    }
+
     public Task StartAsync()
     {
         lock (_gate)

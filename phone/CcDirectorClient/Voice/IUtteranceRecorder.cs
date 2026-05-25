@@ -13,6 +13,12 @@ public interface IUtteranceRecorder
     /// <summary>True while an utterance is being captured.</summary>
     bool IsRecording { get; }
 
+    /// <summary>
+    /// Current microphone level as 0..1 (peak since the last call), for a live
+    /// "your voice is being heard" meter. Returns 0 when not recording.
+    /// </summary>
+    double ReadLevel();
+
     /// <summary>Begin capturing. Throws if already recording or the mic is unavailable.</summary>
     Task StartAsync();
 
