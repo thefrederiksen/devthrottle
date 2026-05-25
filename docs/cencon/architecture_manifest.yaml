@@ -5,12 +5,12 @@
 schema_version: "1.0.0"
 project:
   name: CC Director
-  description: Cross-platform application for managing multiple Claude Code CLI sessions
-  version: "1.1.0"
+  description: Cross-platform application for managing multiple Claude Code CLI sessions, with a per-machine HTTP Control API, a tailnet Gateway for remote/mobile access, and background scheduling
+  version: "1.2.0"
   framework: ".NET 10"
-  platform: "Windows 10/11 (WPF), Mac/Linux (experimental backend)"
+  platform: "Windows 10/11 (Avalonia primary; WPF archived), Mac/Linux (experimental backend)"
 
-last_updated: "2026-05-22"
+last_updated: "2026-05-25"
 
 # C4 Level 1: System Context
 context:
@@ -46,19 +46,52 @@ context:
 
     - id: openai_api
       name: OpenAI API
-      description: Cloud API for speech-to-text and text-to-speech
+      description: Cloud API for speech-to-text (Whisper/Realtime) and text-to-speech
       type: external_system
       relationship:
         target: cc-director
-        description: Voice mode transcription and synthesis
+        description: Voice mode + dictation transcription, recording transcription, and TTS synthesis
+
+    - id: tailscale
+      name: Tailscale
+      description: WireGuard-based mesh VPN with Tailscale Serve HTTPS reverse proxy
+      type: external_system
+      relationship:
+        target: gateway
+        description: Gateway invokes the tailscale CLI to publish HTTPS mappings (443 -> loopback) so the dashboard/Directors are reachable from the owner's phone over the tailnet; TLS terminates at Tailscale
+
+    - id: vault
+      name: cc-vault Document Store
+      description: Personal knowledge vault accessed exclusively through the cc-vault CLI
+      type: external_system
+      relationship:
+        target: cc-director
+        description: Recording transcripts and session handovers are filed into the vault via `cc-vault docs add` (the only sanctioned vault write path)
+
+    - id: github
+      name: GitHub (gh CLI)
+      description: GitHub issue tracker reached through the gh CLI
+      type: external_system
+      relationship:
+        target: cc-director
+        description: Human corrections to the terminal-state detector are posted best-effort to a tracking issue via gh
+
+    - id: phone_recorder
+      name: Phone Recorder / Mobile Client
+      description: Mobile app (CcRecorder / CcDirectorClient) used by the developer to capture audio and drive sessions remotely
+      type: person
+      relationship:
+        target: gateway
+        description: Uploads recordings and voice utterances and drives sessions over the tailnet via the Gateway
 
 # C4 Level 2: Container Diagram
 containers:
   - id: wpf_ui
     name: WPF UI Layer
     technology: C# / WPF / XAML
-    description: Desktop application user interface
-    project: CcDirector.Wpf
+    description: Original desktop UI. ARCHIVED - superseded by the Avalonia UI; source now lives under archived/CcDirector.Wpf and is not built into the shipping app.
+    status: archived
+    project: archived/CcDirector.Wpf
     components:
       - name: MainWindow
         description: Primary window with session sidebar and content area
@@ -288,6 +321,66 @@ containers:
       - name: DatabaseService (Core)
         description: SQLite persistence for communications (cross-platform, shared with Avalonia)
         file: Communications/Services/DatabaseService.cs
+      - name: SchedulerService
+        description: Background scheduler singleton combining leader election, comm-queue runner dispatch, and hot-reload of the runners config
+        file: Scheduler/SchedulerService.cs
+      - name: CommQueueScheduler
+        description: Per-tick body that queries the comm-queue DB, evaluates runner eligibility (cooldown, schedule, item count) and fires runners via Process.Start with human-cadence jitter
+        file: Scheduler/CommQueueScheduler.cs
+      - name: MutexLeaderElection
+        description: Single-leader election across Director instances via a global named kernel mutex; followers poll to acquire on leader death
+        file: Scheduler/MutexLeaderElection.cs
+      - name: LeaderIdentityStore
+        description: Sidecar JSON tracking the current leader PID/exe/timestamp so followers can display and detect a stale leader
+        file: Scheduler/LeaderIdentityStore.cs
+      - name: Cron
+        description: Schedule factory (Daily, Weekdays, EveryMinutes) with ShouldFire/Describe
+        file: Scheduler/Cron.cs
+      - name: RunnersConfig
+        description: On-disk runners.json loader/seeder with FileSystemWatcher hot-reload
+        files:
+          - Scheduler/RunnersConfig.cs
+          - Scheduler/RunnerRegistration.cs
+      - name: RecordingIngestService
+        description: Server-side phone-recording ingest - register, store SHA256-checked audio chunks, transcribe, assemble markdown, optionally promote to vault (transient until promoted)
+        file: Recording/RecordingIngestService.cs
+      - name: IRecordingTranscriber / OpenAiRecordingTranscriber
+        description: Transcriber abstraction and its OpenAI implementation (reuses the dictation STT + cleanup pipeline)
+        files:
+          - Recording/IRecordingTranscriber.cs
+          - Recording/OpenAiRecordingTranscriber.cs
+      - name: IVaultFiler / CcVaultFiler
+        description: Vault filing abstraction and its implementation that files transcripts via the cc-vault CLI (idempotent)
+        files:
+          - Recording/IVaultFiler.cs
+          - Recording/CcVaultFiler.cs
+      - name: WingmanService
+        description: Umbrella for read-only Wingman LLM tasks - terminal-state classification, voice-transcript cleanup, turn summarization, CLAUDE.md rule checks, git snapshot, recovery prompts, and free-text session Q&A (one-shot claude --print calls)
+        file: Wingman/WingmanService.cs
+      - name: TerminalStateDetector
+        description: Content-aware quiet gate plus optional LLM judge that derives a session's activity state from the terminal alone (shadow-mode by default)
+        file: Wingman/TerminalStateDetector.cs
+      - name: SessionStatusWingman
+        description: Per-Director single writer of Session.StatusColor; fast activity->color path plus a slow turn-summary/buffer refine path, with prompt-injection and output-activity watchers
+        file: Wingman/SessionStatusWingman.cs
+      - name: WingmanLlmThrottle
+        description: Global per-session gate limiting Wingman LLM calls to at most one per 5 seconds
+        file: Wingman/WingmanLlmThrottle.cs
+      - name: StateVoteService
+        description: Persists human corrections of the terminal-state detector to a local JSONL log and posts them best-effort to a GitHub tracking issue via gh
+        file: Feedback/StateVoteService.cs
+      - name: VoiceService
+        description: End-to-end voice command pipeline - Whisper transcription, Wingman cleanup, intent parse, and execution against SessionManager
+        file: Voice/VoiceService.cs
+      - name: VoiceUtteranceService
+        description: Resumable phone voice upload - SHA256-checked chunked parts reassembled on complete, transcribed once, cleaned, logged, then deleted (transient)
+        file: Voice/VoiceUtteranceService.cs
+      - name: VoiceTurnLog
+        description: Disk-backed 5-day log pairing each voice turn's audio, inbound (raw/cleaned transcript) and outbound (agent vs spoken reply) for fidelity review
+        file: Voice/VoiceTurnLog.cs
+      - name: ClaudeSummarizer
+        description: IResponseSummarizer implementation that summarizes agent responses (fidelity over brevity) and long-turn progress via Haiku
+        file: Voice/Services/ClaudeSummarizer.cs
 
   - id: native_apis
     name: Platform-Specific APIs
@@ -324,8 +417,9 @@ containers:
   - id: communication_manager
     name: Communication Manager
     technology: C# / WPF / SQLite
-    description: Multi-platform outbound communication queue with approval workflow
-    project: CcDirector.CommunicationManager
+    description: Standalone multi-platform outbound communication queue with approval workflow. ARCHIVED as a separate WPF app (source under archived/CcDirector.CommunicationManager); the queue itself lives on as the CommManagerView inside the Avalonia UI plus the shared Communications services in Core, and is surfaced remotely by the Gateway CommQueue endpoints.
+    status: archived
+    project: archived/CcDirector.CommunicationManager
     dependencies:
       - CcDirector.Core
     components:
@@ -393,6 +487,145 @@ containers:
         description: Custom vocabulary configuration for improved recognition
         file: CustomDictionary.cs
 
+  - id: control_api
+    name: Director Control API
+    technology: C# / ASP.NET Core / Kestrel
+    description: Per-Director HTTP/WebSocket control surface. Binds loopback-only (127.0.0.1, stable port in 7879..7898) and is reached remotely only through Tailscale Serve. Exposes session control, terminal buffer reads, wingman, recap/turn summaries, voice/dictation, manager chat, and serves the HTML session/manager UI.
+    project: CcDirector.ControlApi
+    dependencies:
+      - CcDirector.Core
+      - CcDirector.Gateway.Contracts
+    components:
+      - name: ControlApiHost
+        description: Kestrel host lifecycle - loopback bind, port allocation, optional auth, and Gateway registration
+        file: ControlApiHost.cs
+      - name: ControlEndpoints
+        description: Maps the full Director REST surface (40+ routes) and HTML pages
+        file: ControlEndpoints.cs
+      - name: DirectorAuth
+        description: Optional bearer-token / cookie middleware; token read from the shared per-machine gateway-token.txt; whitelists /healthz, /login, /logout
+        file: DirectorAuth.cs
+      - name: GatewayClient
+        description: Client for Director->Gateway register/heartbeat/unregister with exponential backoff (no-op if no gateway configured)
+        file: GatewayClient.cs
+      - name: DictationEndpoint
+        description: WebSocket handler for /dictate streaming speech-to-text via the OpenAI Realtime API
+        file: DictationEndpoint.cs
+      - name: ProactiveExplainService
+        description: Background Opus briefing generator that caches a session explanation on turn-end for instant mobile/voice retrieval
+        file: ProactiveExplainService.cs
+      - name: WingmanContextBuilder
+        description: Assembles session history, turn summaries and buffer tail into context for the wingman /ask endpoint
+        file: WingmanContextBuilder.cs
+      - name: ChatService
+        description: Manager-chat relay - sends user text to the configured session, waits for the agent turn, returns the reply (with optional TTS summary)
+        file: Chat/ChatService.cs
+      - name: PortAllocator / SingleInstanceGuard / InstanceRegistration / DirectorIdStore
+        description: Stable per-Director port allocation, single-instance guarding, and instances/{id}.json registration + stable Director ID persistence
+        files:
+          - PortAllocator.cs
+          - SingleInstanceGuard.cs
+          - InstanceRegistration.cs
+          - DirectorIdStore.cs
+      - name: HandoverArchive
+        description: Archives session handover context to the vault on /handover
+        file: HandoverArchive.cs
+      - name: Web UI assets
+        description: Embedded HTML/JS served by the Control API (manager grid, per-session view, browser login, live dictation capture)
+        files:
+          - Web/manager.html
+          - Web/session-view.html
+          - Web/login.html
+          - Web/dictate.html
+          - Web/dictate-client.js
+          - Web/dictate-worklet.js
+
+  - id: gateway
+    name: Tailnet Gateway
+    technology: C# / ASP.NET Core / Kestrel
+    description: One-per-machine HTTP host that aggregates all local Directors and publishes them over the tailnet. Discovers Directors (filesystem watch + HTTP register/heartbeat), proxies to their Control APIs, serves a dashboard, accepts phone recording/voice uploads, exposes a read-only comm-queue view, and manages dev slots. Bearer-or-cookie auth; TLS terminates at Tailscale Serve.
+    project: CcDirector.Gateway
+    dependencies:
+      - CcDirector.Gateway.Contracts
+      - CcDirector.Core
+    components:
+      - name: GatewayHost
+        description: Kestrel host runner; wires the registry, Tailscale provisioner and Director client; one instance per machine
+        file: GatewayHost.cs
+      - name: GatewayEndpoints
+        description: Main HTTP surface mapping Directors/Sessions/Recordings/Handovers/Fanout/Events routes
+        file: Api/GatewayEndpoints.cs
+      - name: RecordingEndpoints
+        description: Phone-recorder ingest - register, upload audio chunks, complete, transcribe, promote, status, and dictionary endpoints
+        file: Api/RecordingEndpoints.cs
+      - name: CommQueueEndpoints
+        description: Read-only tailnet view of the local Communication Manager SQLite approval queue
+        file: Api/CommQueueEndpoints.cs
+      - name: ExesEndpoints
+        description: Local machine exe/slot management - list Directors+sessions, delete/build/launch dev slots 1-4
+        file: Api/ExesEndpoints.cs
+      - name: DirectorRegistry
+        description: In-memory registry of live Directors via dual ingress (instances/*.json watch + HTTP register/heartbeat) with a 60s stale timeout
+        file: Discovery/DirectorRegistry.cs
+      - name: DirectorEndpointClient
+        description: HttpClient wrapper for each Director's Control API (prompts, sessions, kills, wingman asks, image upload, recap)
+        file: Discovery/DirectorEndpointClient.cs
+      - name: TailscaleServeProvisioner
+        description: Keeps `tailscale serve` HTTPS mappings in sync with the live Director set (443 -> gateway, per-Director ports)
+        file: Tailscale/TailscaleServeProvisioner.cs
+      - name: TailscaleIdentity
+        description: Resolves this machine's Magic DNS name via `tailscale status --json`
+        file: Tailscale/TailscaleIdentity.cs
+      - name: GatewayAuth / AuthMiddleware
+        description: Loads or generates a 32-byte URL-safe bearer token (persisted under config/director) and enforces bearer-or-cookie auth, whitelisting /healthz, /login, /logout
+        files:
+          - Util/GatewayAuth.cs
+          - Util/AuthMiddleware.cs
+
+  - id: gateway_app
+    name: Gateway Tray App
+    technology: C# / Avalonia (net10.0-windows)
+    description: Single-instance Windows tray application that hosts the Gateway in-process and provides Open Dashboard / Logs / Restart / Quit, autostart registration, and port-conflict diagnostics
+    project: CcDirector.GatewayApp
+    dependencies:
+      - CcDirector.Gateway
+      - CcDirector.Core
+    components:
+      - name: GatewayTrayController
+        description: Owns the tray icon and in-process GatewayHost; distinguishes "our gateway already running" from a foreign port holder on startup
+        file: GatewayTrayController.cs
+      - name: Autostart
+        description: Idempotent HKCU Run-key registration for launch at login
+        file: Autostart.cs
+      - name: Program / App / GatewayAppOptions
+        description: STAThread entry with single-instance mutex, Avalonia app shell, and CLI option parsing (--port, --no-autostart)
+        files:
+          - Program.cs
+          - App.axaml.cs
+          - GatewayAppOptions.cs
+
+  - id: gateway_contracts
+    name: Gateway Contracts
+    technology: C# / .NET 10 (Library)
+    description: Dependency-free DTO contracts shared between the Gateway, the Control API and clients (Director/Session/Health metadata, prompt/buffer/wingman/handover/fanout requests and responses, recording manifests, chat/TTS, and agent/session state records)
+    project: CcDirector.Gateway.Contracts
+    components:
+      - name: Director / Session / Health DTOs
+        description: DirectorDto, SessionDto, HealthDto core metadata objects
+        files:
+          - DirectorDto.cs
+          - SessionDto.cs
+      - name: Request/Response contracts
+        description: Prompt, Buffer, Wingman (ask/view), Handover, Fanout, NewSession, LaunchDirector, registration and update contracts
+        files:
+          - WingmanAskResult.cs
+          - WingmanViewDto.cs
+      - name: Recording / Chat / state records
+        description: RecordingManifest, ChatRequest/Response, TtsRequest, GoalAssessment and related agent-state DTOs
+        files:
+          - RecordingManifest.cs
+          - GoalAssessment.cs
+
 # Data flows
 data_flows:
   - id: hook_event_flow
@@ -451,6 +684,74 @@ data_flows:
       - "RunToolAndMarkPostedAsync() executes CLI tool"
       - "MarkPosted() updates DB status to 'posted'"
 
+  - id: remote_access_flow
+    name: Remote Access Flow (tailnet)
+    description: Owner's phone reaching local Directors over the tailnet via the Gateway
+    path:
+      - Phone (browser/mobile client) over tailnet
+      - "Tailscale Serve (HTTPS, TLS terminated)"
+      - GatewayHost (Kestrel, loopback)
+      - DirectorRegistry (resolve target Director)
+      - DirectorEndpointClient -> Director Control API (loopback)
+      - ControlEndpoints route handler
+
+  - id: dictation_flow
+    name: In-Process Dictation Flow
+    description: Desktop SpeakDialog dictation captured and transcribed in-process
+    path:
+      - "MicAudioCapture (NAudio WaveIn, 24kHz/16-bit mono)"
+      - "OnAudioBands -> SpeakDialog equalizer; OnInputRms -> level hint"
+      - "OpenAiRealtimeProvider (streaming STT)"
+      - "CleanupOrchestrator (transcript cleanup)"
+      - SpeakDialog inserts/sends cleaned text into the prompt
+
+  - id: recording_ingest_flow
+    name: Phone Recording Ingest Flow
+    description: Phone-captured audio transcribed and optionally filed to the vault
+    path:
+      - Phone uploads chunks -> Gateway RecordingEndpoints
+      - RecordingIngestService (SHA256-checked chunk store, state machine)
+      - "OpenAiRecordingTranscriber (Whisper STT + cleanup)"
+      - Assembled markdown transcript
+      - "On promote: CcVaultFiler -> `cc-vault docs add`"
+
+  - id: voice_utterance_flow
+    name: Resumable Voice Utterance Flow
+    description: Phone voice command uploaded resumably, transcribed, and executed
+    path:
+      - "Phone -> /voice/utterance register + chunk PUTs (idempotent, SHA256)"
+      - "VoiceUtteranceService reassembles + transcribes once"
+      - "WingmanService.CleanVoiceTranscriptAsync (cleanup)"
+      - "VoiceService intent parse -> SessionManager action"
+      - "VoiceTurnLog records inbound/outbound for review"
+
+  - id: wingman_state_flow
+    name: Wingman Terminal-State Flow
+    description: Read-only derivation of session status from the terminal
+    path:
+      - Session terminal bytes (CircularTerminalBuffer)
+      - "TerminalStateDetector quiet gate (content-aware)"
+      - "WingmanLlmThrottle (<= 1 LLM call / 5s / session)"
+      - "WingmanService.ClassifyTerminalStateAsync (claude --print)"
+      - "SessionStatusWingman writes Session.StatusColor"
+
+  - id: comm_queue_scheduling_flow
+    name: Comm-Queue Scheduling Flow
+    description: Leader Director periodically fires comm-queue runners
+    path:
+      - "MutexLeaderElection (one leader across Directors)"
+      - "SchedulerService tick"
+      - "CommQueueScheduler queries comm-queue DB + evaluates runner eligibility"
+      - "Process.Start runner command (human-cadence jitter)"
+
+  - id: state_vote_flow
+    name: State Correction (Vote) Flow
+    description: Human correction of the terminal-state detector
+    path:
+      - "POST /sessions/{sid}/state-vote"
+      - "StateVoteService appends to local state-votes.jsonl (authoritative)"
+      - "Best-effort gh issue create/comment"
+
 # Security boundaries
 security_boundaries:
   - id: process_isolation
@@ -477,6 +778,29 @@ security_boundaries:
       - repositories: "~/Documents/CcDirector/repositories.json"
       - root_directories: "%LOCALAPPDATA%\\CcDirector\\root-directories.json"
       - hooks_config: "~/.claude/settings.json"
+      - gateway_token: "%LOCALAPPDATA%\\cc-director\\config\\director\\gateway-token.txt"
+      - director_instances: "%LOCALAPPDATA%\\cc-director\\config\\director\\instances\\{directorId}.json"
+      - scheduler_state: "%LOCALAPPDATA%\\cc-director\\config\\director\\ (runners.json, leader.json, state.json)"
+      - transcripts: "%LOCALAPPDATA%\\cc-director\\transcripts\\ and vault\\transcripts\\"
+      - voice_logs: "%LOCALAPPDATA%\\cc-director\\voice-utterances\\ and voice-turn-logs\\"
+      - state_votes: "%LOCALAPPDATA%\\cc-director\\state-votes\\"
+
+  - id: http_control_surface
+    name: HTTP Control + Gateway Surface
+    description: >
+      Both the per-Director Control API and the per-machine Gateway run Kestrel.
+      The Control API binds loopback-only (127.0.0.1, port 7879..7898). The Gateway
+      listens for tailnet traffic, with TLS terminated by Tailscale Serve which then
+      forwards plaintext to the local host. Remote access is exclusively via the
+      tailnet - there is no plain-HTTP exposure to the LAN/internet.
+    components:
+      - "Control API: 127.0.0.1:{7879..7898} (loopback)"
+      - "Gateway: Kestrel + Tailscale Serve (HTTPS 443 -> loopback)"
+    auth: >
+      Optional bearer-token / cookie auth backed by a per-machine 32-byte random
+      token (gateway-token.txt); /healthz, /login, /logout are public. The trust
+      boundary is the single-owner tailnet by design; the /file endpoint serves
+      absolute paths without a sandbox and relies on that boundary.
 
 # Design patterns used
 patterns:
@@ -530,3 +854,33 @@ patterns:
       - Configuration/RepositoryRegistry.cs
       - Configuration/RootDirectoryStore.cs
       - Configuration/RootDirectoryConfig.cs
+
+  - name: Leader Election
+    implementation: Global named kernel mutex with a dedicated election thread and a sidecar identity file
+    purpose: Ensures only one Director instance runs the comm-queue scheduler at a time
+    files:
+      - Scheduler/MutexLeaderElection.cs
+      - Scheduler/LeaderIdentityStore.cs
+
+  - name: Idempotent Chunked Upload
+    implementation: SHA256-checked chunk parts reassembled on complete, replay-safe
+    purpose: Resumable phone audio/recording uploads that tolerate retries and partial transfers
+    files:
+      - Voice/VoiceUtteranceService.cs
+      - Recording/RecordingIngestService.cs
+
+  - name: Read-Only Observer (Wingman)
+    implementation: One-shot claude --print classification/summarization that only writes Wingman-owned session fields (StatusColor, pending prompt, activity state)
+    purpose: Derive session status and summaries from the terminal without ever writing to the PTY
+    files:
+      - Wingman/WingmanService.cs
+      - Wingman/TerminalStateDetector.cs
+      - Wingman/SessionStatusWingman.cs
+
+  - name: CLI Delegation
+    implementation: Sensitive side effects delegated to sanctioned CLIs via Process.Start
+    purpose: Vault writes go through cc-vault; issue tracking through gh; remote ingress through the tailscale CLI
+    files:
+      - Recording/CcVaultFiler.cs
+      - Feedback/StateVoteService.cs
+      - Gateway/Tailscale/TailscaleServeProvisioner.cs

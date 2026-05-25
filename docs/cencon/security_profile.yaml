@@ -5,11 +5,11 @@
 schema_version: "1.0.0"
 project:
   name: CC Director
-  version: "1.1.0"
+  version: "1.2.0"
 
 # Last verification date - used for drift detection
 # Security profile is considered STALE if older than drift_threshold_days
-last_verified: "2026-05-03"
+last_verified: "2026-05-25"
 
 # Drift configuration
 drift:
@@ -68,6 +68,21 @@ owasp_desktop:
       - NamedPipeServerStream with local access only
       - PipeMessage validation before routing
 
+  - id: DT-07
+    name: HTTP Control + Gateway Surface
+    description: Check the HTTP/WebSocket surfaces (per-Director Control API and per-machine Gateway)
+    status: PASS
+    checks:
+      - Control API binds loopback only (127.0.0.1, port 7879..7898); never 0.0.0.0
+      - Remote access only via Tailscale Serve (TLS terminated by Tailscale, forwarded to loopback); no plain-HTTP LAN/internet exposure
+      - Bearer-token / cookie auth available, backed by a per-machine 32-byte random token (gateway-token.txt); /healthz, /login, /logout public
+    mitigations:
+      - Trust boundary is the single-owner tailnet by design (one node, the owner)
+      - Process.Start callers (Tailscale, gh, cc-vault, dev-slot builds) use argument lists, not shell concatenation; dev-slot index validated to 1..4
+    notes:
+      - "By design: the /file endpoint serves absolute paths without a sandbox and relies on the tailnet trust boundary - revisit only if a non-owner ever joins the tailnet"
+      - "Recording/voice IDs are GUID-validated and path-safed; chunks are SHA256-checked"
+
   - id: DT-05
     name: Information Disclosure
     description: Check for sensitive information leakage
@@ -100,14 +115,14 @@ soc2_alignment:
     alignment: |
       - Application runs in user context (no elevation required)
       - Named pipes accessible only to local user
-      - No network-exposed endpoints
+      - HTTP Control API binds loopback only; Gateway is reachable only over the owner's tailnet (Tailscale Serve), gated by a per-machine bearer token
 
   - id: CC6.6
     name: System Boundary Protection
     description: The entity implements controls to prevent unauthorized access
     alignment: |
       - Process isolation per Claude session
-      - No inbound network connections
+      - No plain-HTTP inbound exposure to the LAN/internet; remote ingress only via Tailscale Serve (TLS) to a single-owner tailnet
       - File system access limited to user directories
 
   - id: CC7.2

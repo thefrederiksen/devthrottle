@@ -1,14 +1,14 @@
 # CC Director - CenCon Documentation Index
 
-**Version:** 1.1.0
-**Last Updated:** 2026-04-01
+**Version:** 1.2.0
+**Last Updated:** 2026-05-25
 **Schema:** CenCon Method v1.0
 
 ---
 
 ## Overview
 
-CC Director is a Windows desktop application for managing multiple Claude Code CLI sessions simultaneously. It provides multi-session management, real-time activity tracking, session persistence, embedded console hosting, git integration, and voice mode.
+CC Director is a Windows desktop application (Avalonia; the original WPF UI is archived) for managing multiple Claude Code CLI sessions simultaneously. It provides multi-session management, real-time activity tracking, session persistence, embedded console hosting, git integration, and voice mode. Each Director also runs a loopback HTTP **Control API**, and a per-machine **Gateway** publishes the local Directors over the owner's Tailscale tailnet for remote/mobile access. A background **scheduler** (single-leader across Directors) fires comm-queue runners, and a read-only **Wingman** derives session status from the terminal.
 
 This document serves as the central reference combining product requirements, system architecture, and security profile.
 
@@ -32,17 +32,9 @@ This document serves as the central reference combining product requirements, sy
 
 ## System Components
 
-### WPF UI Layer (CcDirector.Wpf)
+### WPF UI Layer (archived/CcDirector.Wpf) - ARCHIVED
 
-| Component | Purpose |
-|-----------|---------|
-| MainWindow | Primary application window with session sidebar and content area |
-| EmbeddedBackend | Native console window overlay using Win32 SetParent |
-| EmbeddedConsoleHost | Control for hosting embedded console windows |
-| TerminalControl | Custom control for terminal rendering with ANSI parsing |
-| Dialogs | Modal dialogs (NewSession, Rename, Relink, Close, Clone, GitHubRepoPicker) |
-| SettingsView | Read-only settings overlay showing all configuration values grouped by category |
-| Voice UI | Voice mode controls and audio playback/recording |
+Superseded by the Avalonia UI; source moved under `archived/` and no longer built into the shipping app. Retained for reference only.
 
 ### Avalonia UI Layer (CcDirector.Avalonia)
 
@@ -75,17 +67,57 @@ This document serves as the central reference combining product requirements, sy
 | AlphaMode | Global alpha mode toggle for gating experimental features |
 | CcStorage | Single source of truth for all cc-director storage paths |
 | FileLog | Thread-safe async file logging |
+| SchedulerService / CommQueueScheduler | Leader-elected background scheduler that fires comm-queue runners |
+| MutexLeaderElection / LeaderIdentityStore | Single-leader election across Directors (named mutex + identity sidecar) |
+| RecordingIngestService | Phone-recording ingest, transcription, and optional vault promotion |
+| OpenAiRecordingTranscriber / CcVaultFiler | OpenAI transcription and cc-vault filing for recordings |
+| WingmanService | Read-only LLM tasks: terminal-state classify, cleanup, summaries, rule checks |
+| TerminalStateDetector / SessionStatusWingman | Terminal-derived activity state and the single writer of StatusColor |
+| StateVoteService | Local-first human corrections of the state detector, synced to GitHub via gh |
+| VoiceService / VoiceUtteranceService | Voice command pipeline and resumable phone voice upload |
+| VoiceTurnLog / ClaudeSummarizer | Voice turn fidelity log and Haiku response summarizer |
 
-### Communication Manager (CcDirector.CommunicationManager)
+### Director Control API (CcDirector.ControlApi)
 
 | Component | Purpose |
 |-----------|---------|
-| MainViewModel | MVVM view model for queue management and multi-platform dispatch |
-| ContentService | Communication approval/rejection/posting workflows |
-| DatabaseService | SQLite persistence for communications and media |
-| ContentItem | Domain model supporting 8 platform types |
-| PlatformTemplateSelector | Routes items to platform-specific XAML templates |
-| TimelineView | Visual timeline rendering of scheduled communications |
+| ControlApiHost | Loopback Kestrel host (127.0.0.1, port 7879..7898) with optional auth and Gateway registration |
+| ControlEndpoints | Full Director REST surface (40+ routes) plus HTML pages |
+| DirectorAuth | Bearer-token / cookie middleware (shared per-machine token) |
+| GatewayClient | Director -> Gateway register/heartbeat/unregister |
+| DictationEndpoint | WebSocket /dictate streaming STT (OpenAI Realtime) |
+| ProactiveExplainService | Background Opus briefing cached on turn-end for mobile/voice |
+| ChatService | Manager-chat relay with optional TTS summary |
+| Web assets | manager.html, session-view.html, login.html, dictate.html (+ JS) |
+
+### Tailnet Gateway (CcDirector.Gateway)
+
+| Component | Purpose |
+|-----------|---------|
+| GatewayHost | One-per-machine Kestrel host aggregating local Directors |
+| GatewayEndpoints | Directors/Sessions/Recordings/Handovers/Fanout routes |
+| RecordingEndpoints | Phone-recorder ingest (chunk upload, transcribe, promote) |
+| CommQueueEndpoints | Read-only tailnet view of the comm-queue approval DB |
+| ExesEndpoints | List Directors/sessions and build/launch dev slots 1-4 |
+| DirectorRegistry / DirectorEndpointClient | Live-Director discovery and Control API proxying |
+| TailscaleServeProvisioner / TailscaleIdentity | Publishes HTTPS mappings and resolves Magic DNS via the tailscale CLI |
+| GatewayAuth / AuthMiddleware | Per-machine bearer token and bearer/cookie enforcement |
+
+### Gateway Tray App (CcDirector.GatewayApp)
+
+| Component | Purpose |
+|-----------|---------|
+| GatewayTrayController | Tray icon hosting the Gateway in-process (Open Dashboard/Logs/Restart/Quit) |
+| Autostart | Idempotent HKCU Run-key registration for launch at login |
+| Program / App / GatewayAppOptions | Single-instance entry, Avalonia shell, CLI options |
+
+### Gateway Contracts (CcDirector.Gateway.Contracts)
+
+Dependency-free DTOs shared by the Gateway, Control API, and clients (Director/Session/Health metadata; prompt/buffer/wingman/handover/fanout requests and responses; recording manifests; chat/TTS; agent-state records).
+
+### Communication Manager - ARCHIVED (archived/CcDirector.CommunicationManager)
+
+Standalone WPF queue app, archived. The queue lives on as the Avalonia `CommManagerView` plus the shared `Communications` services in Core, surfaced remotely by the Gateway CommQueue endpoints.
 
 ### Engine (CcDirector.Engine)
 
@@ -229,6 +261,26 @@ DispatchItemAsync() routes by platform
         +-- other --> Logged as "skipped" (not yet supported)
 ```
 
+### Remote Access Flow (tailnet)
+
+```
+Phone (browser / mobile client)
+        |
+        | HTTPS over tailnet
+        v
+Tailscale Serve  (TLS terminated, forwarded to loopback)
+        |
+        v
+GatewayHost (Kestrel, per machine)
+        |
+        | DirectorRegistry resolves target Director
+        v
+DirectorEndpointClient --> Director Control API (127.0.0.1)
+        |
+        v
+ControlEndpoints route handler
+```
+
 ---
 
 ## Security Profile Summary
@@ -239,8 +291,9 @@ DispatchItemAsync() routes by platform
 
 - **Process Isolation**: Each Claude session runs in isolated conhost.exe process
 - **IPC Boundary**: Named pipes local-only (no network exposure)
-- **Credential Handling**: No secrets in source; environment variables only (OPENAI_API_KEY)
-- **Input Validation**: All paths validated before Process.Start
+- **HTTP Surface**: Control API binds loopback only; remote access exclusively via Tailscale Serve (TLS) to a single-owner tailnet, gated by a per-machine bearer token. No plain-HTTP LAN/internet exposure.
+- **Credential Handling**: No secrets in source; environment variables only (OPENAI_API_KEY); gateway token is a generated 32-byte random value stored under %LOCALAPPDATA%
+- **Input Validation**: All paths validated before Process.Start; recording/voice IDs GUID-validated; chunks SHA256-checked
 - **Logging**: Sensitive data truncated; no secrets logged
 
 ### Compliance Alignment
