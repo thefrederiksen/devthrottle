@@ -825,8 +825,10 @@ internal static class ControlEndpoints
         // See docs/features/director/GOAL_VOICE_MANAGER.md Phase 1.
         app.MapPost("/chat", async (ChatRequest req, HttpContext ctx) =>
         {
-            FileLog.Write($"[ControlEndpoints] POST /chat: textLen={req?.Text?.Length ?? 0}");
-            if (req is null || string.IsNullOrWhiteSpace(req.Text))
+            FileLog.Write($"[ControlEndpoints] POST /chat: textLen={req?.Text?.Length ?? 0}, pollOnly={req?.PollOnly ?? false}");
+            // A poll request carries no new message (PollOnly): it only reads the
+            // session's current state, so Text is not required in that mode.
+            if (req is null || (!req.PollOnly && string.IsNullOrWhiteSpace(req.Text)))
                 return Results.BadRequest(new { error = "text is required" });
 
             var svc = new ChatService(sessionManager, sessionManager.Options);
@@ -835,7 +837,7 @@ internal static class ControlEndpoints
             // Map the service status to an HTTP code so the UI can branch cleanly.
             return resp.Status switch
             {
-                "ok" or "timeout" => Results.Json(resp),
+                "ok" or "timeout" or "working" => Results.Json(resp),
                 "no_session_configured" => Results.Json(resp, statusCode: StatusCodes.Status503ServiceUnavailable),
                 "session_not_found" => Results.Json(resp, statusCode: StatusCodes.Status404NotFound),
                 "session_busy" => Results.Json(resp, statusCode: StatusCodes.Status409Conflict),

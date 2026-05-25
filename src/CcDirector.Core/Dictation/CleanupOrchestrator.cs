@@ -99,12 +99,17 @@ public sealed class CleanupOrchestrator : IDisposable
             }
             return new CleanupOutcome(cleaned, Applied: true, Reason: null);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
+            // Genuine caller cancellation - propagate.
             throw;
         }
         catch (Exception ex)
         {
+            // Anything else - including this client's own HttpClient.Timeout,
+            // which surfaces as a TaskCanceledException even though the caller's
+            // token was not cancelled - fails open per the documented contract:
+            // ship the raw transcript rather than failing the whole recording.
             sw.Stop();
             FileLog.Write($"[CleanupOrchestrator] CleanAsync FAILED in {sw.ElapsedMilliseconds}ms: {ex.Message}");
             return new CleanupOutcome(rawTranscript, Applied: false, Reason: "cleanup failed: " + ex.Message);

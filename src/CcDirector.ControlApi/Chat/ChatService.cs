@@ -3,6 +3,8 @@ using CcDirector.Core.Claude;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Utilities;
+using CcDirector.Core.Voice.Interfaces;
+using CcDirector.Core.Voice.Services;
 using CcDirector.Gateway.Contracts;
 
 namespace CcDirector.ControlApi.Chat;
@@ -15,9 +17,12 @@ namespace CcDirector.ControlApi.Chat;
 /// matching <see cref="AgentOptions.ChatSessionRepoPath"/>. If the caller passes
 /// an explicit SessionId on the request, that overrides the configured default.
 ///
-/// Phase 1 does NOT:
+/// When the request sets Voice=true (the reply will be read aloud), the agent's
+/// reply is also rewritten into an ear-friendly spoken form in ChatResponse.Summary.
+/// Typed chat leaves Summary empty.
+///
+/// This service does NOT:
 /// - Auto-create the session if it does not exist (returns "no_session_configured").
-/// - Summarise the reply for TTS (Summary is empty; the chat layer or a later phase fills it).
 /// - Cache anything across calls (each /chat call is independent).
 /// </summary>
 public sealed class ChatService
@@ -27,15 +32,22 @@ public sealed class ChatService
     private readonly SessionManager _sessionManager;
     private readonly AgentOptions _options;
 
-    public ChatService(SessionManager sessionManager, AgentOptions options)
+    // Lazily created the first time a voice request needs an ear-friendly rewrite,
+    // so typed-chat calls never pay the CLI-availability check. Tests may inject one.
+    private IResponseSummarizer? _summarizer;
+
+    public ChatService(SessionManager sessionManager, AgentOptions options, IResponseSummarizer? summarizer = null)
     {
         _sessionManager = sessionManager;
         _options = options;
+        _summarizer = summarizer;
     }
 
     public async Task<ChatResponse> HandleAsync(ChatRequest req, CancellationToken ct = default)
     {
-        if (req is null || string.IsNullOrWhiteSpace(req.Text))
+        // A poll request carries no new message — it only inspects the session.
+        // Only a real (sending) request requires Text.
+        if (req is null || (!req.PollOnly && string.IsNullOrWhiteSpace(req.Text)))
         {
             return new ChatResponse
             {
@@ -71,6 +83,12 @@ public sealed class ChatService
 
         if (session.Status is SessionStatus.Exited or SessionStatus.Failed)
             return Bail("session_not_found", "session has exited");
+
+        // Poll request: read the session's current state + latest reply and
+        // return immediately. The client drives the cadence with repeated polls,
+        // so we never hold a request open for the length of the agent's turn.
+        if (req.PollOnly)
+            return await BuildPollResponseAsync(session, req.Voice, req.WantProgress, ct);
 
         FileLog.Write($"[ChatService] HandleAsync: sid={session.Id}, len={req.Text.Length}");
         var sw = Stopwatch.StartNew();
@@ -131,13 +149,20 @@ public sealed class ChatService
             _ => "ok",
         };
 
+        // Ear-friendly spoken version, only when this reply will be read aloud
+        // and the turn actually finished (a timeout reply is partial; the voice
+        // client follows it via polling instead, so we don't summarise it here).
+        var summary = (req.Voice && status == "ok")
+            ? await BuildSpokenSummaryAsync(displayText, ct)
+            : "";
+
         return new ChatResponse
         {
             SessionId = session.Id.ToString(),
             SessionName = DisplayName(session),
             Reply = reply,
             DisplayText = displayText,
-            Summary = "",
+            Summary = summary,
             ActivityState = finalState.ToString(),
             ElapsedMs = sw.ElapsedMilliseconds,
             Status = status,
@@ -146,6 +171,124 @@ public sealed class ChatService
     }
 
     // ====== Internals =================================================================
+
+    /// <summary>
+    /// Snapshot the session's current activity state and latest assistant reply
+    /// for a poll request. The turn is considered finished (status "ok") once the
+    /// session is back at a stopping point (Idle / WaitingForInput / WaitingForPerm);
+    /// otherwise it is still "working". These are the same stopping points the
+    /// blocking send path waits for, so the two paths agree on "done".
+    /// </summary>
+    private async Task<ChatResponse> BuildPollResponseAsync(Session session, bool voice, bool wantProgress, CancellationToken ct)
+    {
+        var state = session.ActivityState;
+
+        // Poll reads the clean JSONL transcript ONLY. A poll request has no
+        // per-call cursor, so the buffer-diff fallback would have to dump the
+        // whole terminal screen (TUI chrome, spinner frames, footer) as the
+        // "reply" — never acceptable. When the session is not yet linked to a
+        // JSONL file we return an empty reply truthfully rather than scrape.
+        var fromJsonl = TryReadLastAssistantFromJsonl(session);
+        var displayText = string.IsNullOrWhiteSpace(fromJsonl) ? "" : TrimChatBubble(fromJsonl);
+        var reply = displayText;
+
+        string status;
+        if (state is ActivityState.Exited || session.Status is SessionStatus.Exited or SessionStatus.Failed)
+            status = "session_not_found";
+        else if (state is ActivityState.Idle or ActivityState.WaitingForInput or ActivityState.WaitingForPerm)
+            status = "ok";
+        else
+            status = "working";
+
+        // Only the terminal "ok" poll carries the final reply the client will
+        // speak, so we summarise just that one (the intermediate "working" polls
+        // skip it). Matches the blocking path's behaviour.
+        var summary = (voice && status == "ok")
+            ? await BuildSpokenSummaryAsync(displayText, ct)
+            : "";
+
+        // A progress note is only meaningful while the turn is still running and
+        // only when the client explicitly asked for one (it does so about every
+        // two minutes, not on every cheap poll, because it costs a Haiku call).
+        var progressNote = (wantProgress && status == "working")
+            ? await BuildProgressNoteAsync(session, ct)
+            : "";
+
+        return new ChatResponse
+        {
+            SessionId = session.Id.ToString(),
+            SessionName = DisplayName(session),
+            Reply = reply,
+            DisplayText = displayText,
+            Summary = summary,
+            ProgressNote = progressNote,
+            ActivityState = state.ToString(),
+            ElapsedMs = 0,
+            Status = status,
+        };
+    }
+
+    /// <summary>
+    /// Build a short spoken note of what the agent is doing right now from the
+    /// tail of its terminal output. Returns empty string when there is nothing to
+    /// read or the summarizer is unavailable — the client then stays silent for
+    /// that window rather than reading raw terminal text aloud.
+    /// </summary>
+    private async Task<string> BuildProgressNoteAsync(Session session, CancellationToken ct)
+    {
+        var tail = ReadBufferTail(session, 4000);
+        if (string.IsNullOrWhiteSpace(tail))
+            return "";
+
+        _summarizer ??= new ClaudeSummarizer();
+        if (!_summarizer.IsAvailable)
+        {
+            FileLog.Write($"[ChatService] Progress note skipped: summarizer unavailable: {_summarizer.UnavailableReason}");
+            return "";
+        }
+
+        var note = (await _summarizer.SummarizeProgressAsync(tail, ct)).Trim();
+        FileLog.Write($"[ChatService] Progress note: tailLen={tail.Length}, noteLen={note.Length}");
+        return note;
+    }
+
+    /// <summary>
+    /// Read the cleaned tail (last <paramref name="maxBytes"/> bytes) of the
+    /// session's terminal buffer. This is a read-only inspection — it never writes
+    /// to or resizes the PTY — so it respects the wingman read-only invariant.
+    /// </summary>
+    private static string ReadBufferTail(Session session, int maxBytes)
+    {
+        var buf = session.Buffer;
+        if (buf is null) return "";
+        var total = buf.TotalBytesWritten;
+        if (total <= 0) return "";
+        var (bytes, _) = buf.GetWrittenSince(Math.Max(0, total - maxBytes));
+        if (bytes.Length == 0) return "";
+        return AnsiCleaner.Clean(bytes);
+    }
+
+    /// <summary>
+    /// Produce the ear-friendly spoken version of a reply via the haiku-backed
+    /// summarizer. Returns empty string when there is nothing to say or the
+    /// summarizer is unavailable; the caller decides what to speak in that case.
+    /// </summary>
+    private async Task<string> BuildSpokenSummaryAsync(string replyText, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(replyText))
+            return "";
+
+        _summarizer ??= new ClaudeSummarizer();
+        if (!_summarizer.IsAvailable)
+        {
+            FileLog.Write($"[ChatService] Spoken summary skipped: summarizer unavailable: {_summarizer.UnavailableReason}");
+            return "";
+        }
+
+        var spoken = (await _summarizer.SummarizeAsync(replyText, ct)).Trim();
+        FileLog.Write($"[ChatService] Spoken summary: replyLen={replyText.Length}, spokenLen={spoken.Length}");
+        return spoken;
+    }
 
     private Session? ResolveConfiguredSession()
     {

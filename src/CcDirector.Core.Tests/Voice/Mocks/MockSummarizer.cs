@@ -31,10 +31,24 @@ public class MockSummarizer : IResponseSummarizer
     public int SummarizeCallCount { get; private set; }
     public string? LastResponse { get; private set; }
 
+    public int SummarizeProgressCallCount { get; private set; }
+    public string? LastProgressActivity { get; private set; }
+
     public async Task<string> SummarizeAsync(string response, CancellationToken cancellationToken = default)
     {
         SummarizeCallCount++;
         LastResponse = response;
+
+        if (_delayMs > 0)
+            await Task.Delay(_delayMs, cancellationToken);
+
+        return _summary;
+    }
+
+    public async Task<string> SummarizeProgressAsync(string recentActivity, CancellationToken cancellationToken = default)
+    {
+        SummarizeProgressCallCount++;
+        LastProgressActivity = recentActivity;
 
         if (_delayMs > 0)
             await Task.Delay(_delayMs, cancellationToken);

@@ -29,9 +29,18 @@ public sealed class ChatResponse
     /// rendering in a chat bubble.</summary>
     public string DisplayText { get; set; } = "";
 
-    /// <summary>Short ear-friendly summary intended for TTS. Empty when the
-    /// summary step has not been performed (Phase 1).</summary>
+    /// <summary>Short ear-friendly summary of the FINAL reply intended for TTS.
+    /// Filled only when the turn finished (Status "ok") and the request set
+    /// Voice=true; empty otherwise.</summary>
     public string Summary { get; set; } = "";
+
+    /// <summary>Short ear-friendly note describing what the agent is doing RIGHT
+    /// NOW, for a long-running turn. Filled only on a poll request that set
+    /// WantProgress=true while the turn is still in progress (Status "working");
+    /// empty otherwise. Distinct from <see cref="Summary"/>, which is the final
+    /// answer. The voice client speaks this periodically so a driver hears that
+    /// work is still happening, with a plain-language sense of what.</summary>
+    public string ProgressNote { get; set; } = "";
 
     /// <summary>Activity state of the session at the end of the round-trip.</summary>
     public string ActivityState { get; set; } = "";
@@ -39,8 +48,10 @@ public sealed class ChatResponse
     /// <summary>Total milliseconds the round-trip took.</summary>
     public long ElapsedMs { get; set; }
 
-    /// <summary>"ok" | "no_session_configured" | "session_not_found" |
-    /// "session_busy" | "timeout" | "send_failed".</summary>
+    /// <summary>"ok" | "working" | "no_session_configured" |
+    /// "session_not_found" | "session_busy" | "timeout" | "send_failed".
+    /// "working" is returned only for poll requests (ChatRequest.PollOnly):
+    /// it means the agent's turn is still in progress, keep polling.</summary>
     public string Status { get; set; } = "ok";
 
     /// <summary>Free-text error detail when Status != "ok".</summary>

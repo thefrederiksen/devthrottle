@@ -182,7 +182,11 @@
   .tab.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
 
   /* Phase 4c: Session View */
-  #sessionView { padding: 14px; padding-bottom: calc(80px + env(safe-area-inset-bottom)); max-width: 1000px; margin: 0 auto; }
+  /* --composerH is the live, measured height of the fixed bottom bar (form.send),
+     published by syncRawViewBottom(). It already includes the bar's safe-area
+     padding, so we add only a small breathing gap -- never env(safe-area...) again,
+     or the area gets counted twice. The fallback covers the moment before JS runs. */
+  #sessionView { padding: 14px; padding-bottom: calc(var(--composerH, 150px) + 14px); max-width: 1000px; margin: 0 auto; }
   .wingman-banner {
     display: flex; align-items: center; gap: 14px;
     padding: 14px 16px;
@@ -509,7 +513,7 @@
   /* ===== AGENT VIEW ===== */
   #agentView {
     padding: 10px 12px;
-    padding-bottom: calc(80px + env(safe-area-inset-bottom));
+    padding-bottom: calc(var(--composerH, 150px) + 14px);
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -787,13 +791,13 @@
     header .counts { font-size: 10px; }
     .card.tool { margin-left: 14px; }
     .card { padding: 8px 10px; border-radius: 6px; }
-    #agentView { padding: 8px 10px; padding-bottom: calc(80px + env(safe-area-inset-bottom)); gap: 5px; }
+    #agentView { padding: 8px 10px; padding-bottom: calc(var(--composerH, 150px) + 14px); gap: 5px; }
   }
 
   /* ===== VOICE VIEW ===== */
   #voiceView {
     padding: 14px;
-    padding-bottom: calc(96px + env(safe-area-inset-bottom));
+    padding-bottom: calc(var(--composerH, 150px) + 14px);
     display: none;
     flex-direction: column;
     gap: 16px;
@@ -856,42 +860,56 @@
   }
   .voice-controls .btn-stop-speak:hover { background: #4a4a4a; }
 
-  .voice-log {
+  /* The Voice tab is a single, non-scrolling screen: you talk and listen while
+     driving, so nothing here grows the page or moves the big button. When the
+     Voice tab is active we lock the page and pin #voiceView between the sticky
+     topbar (--rawTop) and the fixed composer (--composerH). Only the reply text
+     and the expandable full reply scroll, and only inside their own boxes. */
+  html.voice-active, body.voice-active { overflow: hidden; height: 100%; }
+  body.voice-active #voiceView {
+    position: fixed;
+    top: var(--rawTop, 96px);
+    left: 0; right: 0;
+    bottom: var(--composerH, 150px);
+    padding: 12px;
+    gap: 12px;
+    overflow: hidden;
+  }
+  /* Latest exchange fills the space under the call-to-action; it never scrolls
+     the page, its inner reply box absorbs overflow instead. */
+  .voice-latest {
+    flex: 1 1 auto; min-height: 0;
     display: flex; flex-direction: column; gap: 10px;
+    overflow: hidden;
   }
-  .voice-bubble {
-    padding: 12px 14px;
-    border-radius: 14px;
-    line-height: 1.5;
-    white-space: pre-wrap;
-    word-wrap: break-word;
-    font-size: 16px;
-    max-width: min(95%, 720px);
+  .voice-latest-user {
+    flex: 0 0 auto;
+    color: var(--muted); font-size: 13px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  .voice-bubble.user {
-    background: var(--accent);
-    color: #fff;
-    align-self: flex-end;
-    border-bottom-right-radius: 4px;
+  .voice-latest-sys {
+    flex: 0 0 auto;
+    color: var(--muted); font-size: 13px; font-style: italic;
   }
-  .voice-bubble.agent {
-    background: #2a2a2c;
-    color: var(--text);
-    align-self: flex-start;
-    border-bottom-left-radius: 4px;
+  .voice-latest-reply {
+    flex: 1 1 auto; min-height: 0; overflow-y: auto;
+    background: #2a2a2c; color: var(--text);
+    border-radius: 14px; padding: 14px 16px;
+    font-size: 17px; line-height: 1.5;
+    white-space: pre-wrap; word-wrap: break-word;
   }
-  .voice-bubble.system {
-    background: transparent;
-    color: var(--muted);
-    align-self: center;
-    font-style: italic;
-    font-size: 13px;
+  .voice-latest-full { flex: 0 0 auto; }
+  .voice-latest-full > summary {
+    color: var(--accent); font-size: 13px; cursor: pointer;
+    padding: 6px 0; min-height: 32px; list-style: none;
   }
-  .voice-bubble .ts {
-    display: block;
-    font-size: 10px;
-    opacity: 0.65;
-    margin-top: 4px;
+  .voice-latest-full > summary::-webkit-details-marker { display: none; }
+  .voice-latest-full-body {
+    max-height: 30vh; overflow-y: auto;
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 12px; margin-top: 6px;
+    font-size: 14px; line-height: 1.5;
+    white-space: pre-wrap; word-wrap: break-word;
   }
 
   /* Full-screen recording overlay */
@@ -1147,7 +1165,15 @@
       <button id="voiceStopSpeakBtn" class="btn-stop-speak" type="button">Stop speaking</button>
     </div>
   </div>
-  <div id="voiceLog" class="voice-log"></div>
+  <div id="voiceLatest" class="voice-latest">
+    <div id="voiceLatestUser" class="voice-latest-user" hidden></div>
+    <div id="voiceLatestSys" class="voice-latest-sys" hidden></div>
+    <div id="voiceLatestReply" class="voice-latest-reply" hidden></div>
+    <details id="voiceLatestFull" class="voice-latest-full" hidden>
+      <summary>Show full reply</summary>
+      <div id="voiceLatestFullBody" class="voice-latest-full-body"></div>
+    </details>
+  </div>
 </div>
 <div id="rawView" style="display:none">
   <div id="rawScrollback"></div>
@@ -1265,6 +1291,12 @@
     sessionEl.style.display = activeView === 'session' ? '' : 'none';
     rawEl.style.display = activeView === 'raw' ? '' : 'none';
     voiceEl.style.display = activeView === 'voice' ? 'flex' : 'none';
+    // Lock the page to a single non-scrolling screen on the Voice tab. Re-measure
+    // the topbar/composer first so #voiceView pins to their current heights.
+    const voiceActive = activeView === 'voice';
+    if (voiceActive) { syncRawViewTop(); syncRawViewBottom(); }
+    document.documentElement.classList.toggle('voice-active', voiceActive);
+    document.body.classList.toggle('voice-active', voiceActive);
     if (activeView === 'session') refreshSession();
     else if (activeView === 'raw') { rawFirstLoad = true; refreshRaw(); }
     // Tell the server which mobile mode this session is now being watched in, so the
@@ -2056,10 +2088,25 @@
     const formEl = document.querySelector('form.send');
     const h = formEl ? formEl.getBoundingClientRect().height : 64;
     document.documentElement.style.setProperty('--rawBottom', h + 'px');
+    // Same measured height drives the bottom padding of every scrollable view
+    // (Session, Voice, Agent) so their last item can always scroll clear of the
+    // fixed composer bar. getBoundingClientRect().height already includes the
+    // bar's safe-area-inset padding, so the views add only a plain breathing gap.
+    document.documentElement.style.setProperty('--composerH', h + 'px');
   }
   window.addEventListener('resize', () => { syncRawViewTop(); syncRawViewBottom(); autosizePrompt(); });
   syncRawViewTop();
   syncRawViewBottom();
+
+  // The composer bar grows and shrinks (textarea autosize, the button row
+  // wrapping, the on-screen keyboard changing the safe-area inset, the bar being
+  // disabled on a dead session). A ResizeObserver re-measures on every one of
+  // those so the content padding tracks the bar's true height and the bottom of
+  // the page is never hidden behind it.
+  const _composerEl = document.querySelector('form.send');
+  if (_composerEl && 'ResizeObserver' in window) {
+    new ResizeObserver(() => syncRawViewBottom()).observe(_composerEl);
+  }
 
   // Auto-grow the prompt textarea up to ~5 lines, then start scrolling
   // inside it. Phone users compose dictated multi-paragraph prompts here
@@ -2309,7 +2356,11 @@
 
   const voiceMainBtn       = document.getElementById('voiceMainBtn');
   const voiceState         = document.getElementById('voiceState');
-  const voiceLog           = document.getElementById('voiceLog');
+  const voiceLatestUser    = document.getElementById('voiceLatestUser');
+  const voiceLatestSys     = document.getElementById('voiceLatestSys');
+  const voiceLatestReply   = document.getElementById('voiceLatestReply');
+  const voiceLatestFull    = document.getElementById('voiceLatestFull');
+  const voiceLatestFullBody = document.getElementById('voiceLatestFullBody');
   const voiceSpeakToggle   = document.getElementById('voiceSpeakToggle');
   const voiceStopSpeakBtn  = document.getElementById('voiceStopSpeakBtn');
   const recordingOverlay   = document.getElementById('recordingOverlay');
@@ -2355,17 +2406,46 @@
     voiceState.className = 'voice-state' + (cls ? ' ' + cls : '');
   }
 
+  // The Voice view shows ONLY the latest exchange in a fixed, non-scrolling panel
+  // (driving: you listen, you don't read). Each setter updates one slot in that
+  // panel instead of appending an ever-growing, page-scrolling log.
+
+  // A new user utterance starts a fresh turn: clear the previous answer.
+  function setVoiceUser(text) {
+    voiceLatestUser.textContent = text || '';
+    voiceLatestUser.hidden = !text;
+    voiceLatestSys.hidden = true;
+    voiceLatestReply.hidden = true;
+    voiceLatestFull.hidden = true;
+    voiceLatestFull.open = false;
+  }
+
+  // System notes: errors, "raw transcript", connection messages.
+  function setVoiceSys(text) {
+    voiceLatestSys.textContent = text || '';
+    voiceLatestSys.hidden = !text;
+  }
+
+  // The agent's answer: show the spoken version; keep the full technical reply
+  // behind "Show full reply" (only when it adds something beyond the spoken one).
+  function setVoiceReply(spoken, full) {
+    const spokenText = (spoken || '').trim();
+    const fullText = (full || '').trim();
+    voiceLatestReply.textContent = spokenText || fullText || '';
+    voiceLatestReply.hidden = !(spokenText || fullText);
+    const showFull = fullText && fullText !== spokenText;
+    voiceLatestFullBody.textContent = showFull ? fullText : '';
+    voiceLatestFull.hidden = !showFull;
+    if (!showFull) voiceLatestFull.open = false;
+    voiceLatestSys.hidden = true;
+  }
+
+  // Back-compat shim: existing call sites use appendVoiceBubble(role, text).
+  // Route each role to the matching slot in the fixed latest-exchange panel.
   function appendVoiceBubble(role, text) {
-    if (!text) return;
-    const div = document.createElement('div');
-    div.className = 'voice-bubble ' + role;
-    div.textContent = text;
-    const ts = document.createElement('span');
-    ts.className = 'ts';
-    ts.textContent = new Date().toLocaleTimeString();
-    div.appendChild(ts);
-    voiceLog.appendChild(div);
-    requestAnimationFrame(() => { window.scrollTo(0, document.body.scrollHeight); });
+    if (role === 'user') setVoiceUser(text);
+    else if (role === 'agent') setVoiceReply(text, text);
+    else setVoiceSys(text);
   }
 
   // ----- WebAudio cues (no audio files needed) -------------------------
@@ -2441,6 +2521,10 @@
     cueGain = null;
   }
 
+  // Answer-arrived chime. Kept gentle (peak gain in line with the soft heartbeat
+  // cues) so a turn that finishes after a long wait does not jolt the driver with
+  // a loud beep - this is the "loud beep ~2 min in" reported from a real drive,
+  // which was this chime firing when the turn completed.
   function playChime() {
     const ctx = ensureAudioCtx();
     if (!ctx) return;
@@ -2454,7 +2538,7 @@
       o.connect(g).connect(ctx.destination);
       const start = now + i * 0.12;
       g.gain.setValueAtTime(0.0001, start);
-      g.gain.exponentialRampToValueAtTime(0.08, start + 0.04);
+      g.gain.exponentialRampToValueAtTime(0.035, start + 0.04);
       g.gain.exponentialRampToValueAtTime(0.0001, start + 0.5);
       o.start(start);
       o.stop(start + 0.55);
@@ -2469,6 +2553,11 @@
     // wait without a constant pulse over a long (30-120s) turn. Deliberately
     // slower + lower than the upload/retry cues so it reads as "still here, hang on".
     working:  { freq: 466, interval: 2800 }, // A#4 every ~2.8s - "working, please wait"
+    // Long-wait heartbeat: once a turn runs past the first blocking wait and we
+    // switch to polling, slow the ping right down so a multi-minute (up to
+    // 20-30 min) wait is reassuring rather than nagging. Still audible so an
+    // in-car driver knows the agent is alive without looking at the screen.
+    waiting:  { freq: 440, interval: 6000 }, // A4 every ~6s - "still working, hang on"
   };
 
   // ----- Voice-friendly translation (strip code/markdown, summarise) ----
@@ -2524,60 +2613,108 @@
     stopCue();
   }
 
-  async function speak(text) {
-    if (!voiceSpeakToggle.checked) return;
-    if (!text) return;
-    stopAllSpeech();
-    // Audio-generation gap cue: between sending the text to /tts and the
-    // moment the returned MP3 starts playing, the ear has nothing to track.
-    // CONTINUOUS hum (not the pulsed cue) so there is no perceived silence
-    // between pulses during the /tts wait.  Stops the instant audio playback
-    // begins (or we fall back to SpeechSynthesis).
-    startContinuousHum(CUE.thinking.freq);
-    // Phase 3 (Wingman goal): prefer OpenAI TTS over browser SpeechSynthesis
-    // because the SpeechSynthesis voices are too robotic for hands-free use.
-    // Fall back to SpeechSynthesis on any failure (no key, network error,
-    // OpenAI 5xx, etc.).
-    try {
-      const resp = await fetch('/tts', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
-      });
-      if (resp.ok) {
-        const blob = await resp.blob();
-        if (blob && blob.size > 0) {
-          const url = URL.createObjectURL(blob);
-          const audio = new Audio(url);
-          currentTtsAudio = audio;
-          audio.onended = () => { try { URL.revokeObjectURL(url); } catch {} if (currentTtsAudio === audio) currentTtsAudio = null; };
-          audio.onerror = () => { try { URL.revokeObjectURL(url); } catch {} if (currentTtsAudio === audio) currentTtsAudio = null; };
-          // Stop the loading cue at the moment actual audio playback begins.
-          // audio.play()'s promise resolves when play has been REQUESTED, but
-          // there's a small decode/wake-up gap before sound emerges.  The
-          // 'playing' event fires when sound is genuinely coming out, which is
-          // the right cue-off moment.
-          audio.onplaying = () => stopCue();
-          await audio.play();
-          return;
+  // Speak ONE utterance and resolve when it has FINISHED playing (not merely
+  // started). The speech queue depends on this so an utterance is never cut off
+  // by the next one. Prefers OpenAI /tts; falls back to the browser's
+  // SpeechSynthesis on any failure (no key, network error, OpenAI 5xx, etc.).
+  function speakNow(text) {
+    return new Promise((resolve) => {
+      if (!voiceSpeakToggle.checked || !text) { resolve(); return; }
+      stopAllSpeech();
+      // Audio-generation gap cue: between sending the text to /tts and the moment
+      // the returned MP3 starts playing, the ear has nothing to track. CONTINUOUS
+      // hum (not the pulsed cue) so there is no perceived silence during the wait.
+      startContinuousHum(CUE.thinking.freq);
+      let settled = false;
+      const done = () => { if (!settled) { settled = true; resolve(); } };
+      (async () => {
+        try {
+          const resp = await fetch('/tts', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text }),
+          });
+          if (resp.ok) {
+            const blob = await resp.blob();
+            if (blob && blob.size > 0) {
+              const url = URL.createObjectURL(blob);
+              const audio = new Audio(url);
+              currentTtsAudio = audio;
+              audio.onended = () => { try { URL.revokeObjectURL(url); } catch {} if (currentTtsAudio === audio) currentTtsAudio = null; done(); };
+              audio.onerror = () => { try { URL.revokeObjectURL(url); } catch {} if (currentTtsAudio === audio) currentTtsAudio = null; done(); };
+              // Stop the loading cue when sound is genuinely coming out (the
+              // 'playing' event), not merely when play() was requested.
+              audio.onplaying = () => stopCue();
+              await audio.play();
+              return;   // resolved later by onended / onerror
+            }
+          }
+          // /tts returned but produced no audio: fall through to the browser fallback.
+          stopCue();
+        } catch {
+          stopCue();
         }
-      }
-      // /tts returned but produced no audio: fall through to the browser fallback.
-      stopCue();
-    } catch {
-      stopCue();
-    }
-
-    // Fallback: browser SpeechSynthesis.
-    if (window.speechSynthesis) {
-      const u = new SpeechSynthesisUtterance(text);
-      u.rate = 1.05;
-      window.speechSynthesis.speak(u);
-    }
+        // Fallback: browser SpeechSynthesis.
+        if (window.speechSynthesis) {
+          const u = new SpeechSynthesisUtterance(text);
+          u.rate = 1.05;
+          u.onend = done;
+          u.onerror = done;
+          window.speechSynthesis.speak(u);
+        } else {
+          done();
+        }
+      })();
+    });
   }
 
-  voiceStopSpeakBtn.addEventListener('click', stopAllSpeech);
+  // ----- Serial speech queue -------------------------------------------
+  // Utterances play one at a time and a playing one is NEVER interrupted. Each
+  // carries a kind: 'progress' is a periodic "still working" note (droppable);
+  // 'reply' is the final answer or a system notice (never dropped). When the
+  // final answer is queued we drop progress notes that have not started yet, but
+  // let the one currently being spoken finish first ("finish what it's saying").
+  let speechQueue = [];
+  let speaking = false;
+  let answerArrived = false;   // set once the agent's turn produced its final reply
+
+  function enqueueSpeech(text, kind) {
+    if (!text || !voiceSpeakToggle.checked) return;
+    speechQueue.push({ text: text, kind: kind || 'reply' });
+    pumpSpeech();
+  }
+
+  async function pumpSpeech() {
+    if (speaking) return;
+    const item = speechQueue.shift();
+    if (!item) {
+      // Queue drained. If we are still waiting on the agent, resume the calm
+      // heartbeat that speaking silenced, so the line never goes dead between
+      // progress notes. Once the answer has arrived we stay quiet.
+      if (!answerArrived) startCue(CUE.waiting.freq, CUE.waiting.interval);
+      return;
+    }
+    speaking = true;
+    try { await speakNow(item.text); } catch {}
+    speaking = false;
+    pumpSpeech();
+  }
+
+  // Remove not-yet-started progress notes. The one currently being spoken is
+  // already off the queue and finishes naturally.
+  function dropPendingProgress() {
+    speechQueue = speechQueue.filter(function (it) { return it.kind !== 'progress'; });
+  }
+
+  // "Stop speaking" button: silence everything now and clear the whole queue.
+  function flushSpeech() {
+    speechQueue = [];
+    speaking = false;
+    stopAllSpeech();
+  }
+
+  voiceStopSpeakBtn.addEventListener('click', flushSpeech);
 
   // ===== Resumable chunked upload =======================================
   // We record with a 250ms timeslice (also our "capture is live" signal) and
@@ -2819,32 +2956,137 @@
     await finishUtteranceAndConverse(chunkIndex, mimeType);
   }
 
-  async function postChat(text) {
+  // The agent's turn can run anywhere from a couple of seconds to 20-30
+  // minutes (long tool chains, big edits). We do NOT hold one HTTP request open
+  // for that whole time: the first /chat call blocks only briefly to catch
+  // quick replies in a single clean round-trip, and anything longer transitions
+  // to polling (many cheap requests) so a dropped mobile/Tailscale connection
+  // can never lose the turn.
+  const CHAT_FIRST_WAIT_MS   = 60000; // first /chat send blocks up to this
+  const CHAT_POLL_INTERVAL_MS = 4000; // then poll the session every 4s
+  const CHAT_POLL_MAX_FAILS   = 5;    // consecutive poll failures before surfacing a connection error
+  const PROGRESS_INTERVAL_MS  = 120000; // speak a "what's happening" note ~every 2 min during a long turn
+
+  async function postChatRaw(payload) {
     const r = await fetch('/chat', {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, sessionId: SID, timeoutMs: 180000 }),
+      body: JSON.stringify(payload),
     });
     const body = await r.json().catch(() => null);
     if (!body) throw new Error('Empty response from /chat (HTTP ' + r.status + ')');
     return body;
   }
 
-  // Render the agent's reply bubble and read the SAME text aloud.  There is
-  // exactly one piece of text per turn (the agent's last spoken paragraph
-  // from the JSONL transcript): the bubble shows it, the speaker reads it.
-  // No separate "speaker version", no Haiku side-call, no length branching.
-  // The server splits long replies at sentence boundaries and concatenates
-  // the resulting MP3s, so there is no per-call length cap to flag here.
-  async function renderReplyAndSpeak(chat) {
-    const display = (chat.displayText || chat.reply || '').trim();
-    if (display) {
-      appendVoiceBubble('agent', display);
-      speak(display);
-    } else {
-      appendVoiceBubble('system', 'Agent finished but produced no visible output.');
+  // Send a NEW user message and wait briefly for the reply. voice:true tells the
+  // Director to also return an ear-friendly spoken rewrite (no code aloud) in
+  // chat.summary, which is what we actually read out.
+  function postChat(text) {
+    return postChatRaw({ text, sessionId: SID, timeoutMs: CHAT_FIRST_WAIT_MS, voice: true });
+  }
+
+  // Poll-only: read the session's current state + latest reply WITHOUT sending
+  // anything. Returns immediately server-side; the client controls cadence.
+  // voice:true so the terminal "ok" poll carries the spoken rewrite too.
+  function pollChat() {
+    return postChatRaw({ text: '', sessionId: SID, pollOnly: true, voice: true });
+  }
+
+  function fmtElapsed(ms) {
+    const s = Math.floor(ms / 1000);
+    const m = Math.floor(s / 60);
+    return m > 0 ? (m + 'm ' + (s % 60) + 's') : (s + 's');
+  }
+
+  // After a message is sent, follow the turn to completion. `chat` is the
+  // response from the initial send. If the agent finished within the first wait
+  // we return immediately. Otherwise we poll until the session returns to a
+  // stopping point, showing a gentle heartbeat + elapsed readout so the driver
+  // knows it is still alive, then return the FINAL reply (never a mid-turn
+  // fragment). Resolves to a chat response whose status is 'ok',
+  // 'session_not_found', or 'poll_failed' — never 'timeout'.
+  async function awaitAgentReply(chat, startedAtMs) {
+    answerArrived = false;
+    if (chat.status !== 'timeout') { answerArrived = true; return chat; }   // turn already done
+
+    // Still working: switch to the calmer long-wait heartbeat and poll.
+    startCue(CUE.waiting.freq, CUE.waiting.interval);
+    let fails = 0;
+    let nextProgressAt = startedAtMs + PROGRESS_INTERVAL_MS;
+    while (true) {
+      setVoiceState('Agent still working... ' + fmtElapsed(Date.now() - startedAtMs)
+                    + '. I will read the answer aloud when it is ready.');
+      // About every two minutes, fetch a spoken "what's happening" note. Fire it
+      // WITHOUT blocking the poll cadence: it queues itself when it returns, and
+      // drops itself if the real answer arrived in the meantime.
+      if (Date.now() >= nextProgressAt) {
+        nextProgressAt += PROGRESS_INTERVAL_MS;
+        requestAndQueueProgress();
+      }
+      await new Promise(r => setTimeout(r, CHAT_POLL_INTERVAL_MS));
+      let poll;
+      try {
+        poll = await pollChat();
+        fails = 0;
+      } catch (e) {
+        // A transient drop on a phone / Tailscale link during a long turn is
+        // expected; keep polling. Only give up after several in a row so we
+        // surface a genuine connection loss honestly instead of hanging.
+        if (++fails >= CHAT_POLL_MAX_FAILS) {
+          answerArrived = true;
+          return { status: 'poll_failed' };
+        }
+        continue;
+      }
+      if (poll.status === 'ok' || poll.status === 'session_not_found') {
+        answerArrived = true;
+        return poll;
+      }
+      // 'working' -> keep polling.
     }
+  }
+
+  // Ask the Director for a one-line spoken progress note and queue it to be read
+  // aloud. Best-effort: a failed request, an empty note, or a turn that finished
+  // while we were asking all result in saying nothing this window.
+  async function requestAndQueueProgress() {
+    let resp;
+    try {
+      resp = await postChatRaw({ text: '', sessionId: SID, pollOnly: true, voice: true, wantProgress: true });
+    } catch (e) {
+      return;   // transient drop; the heartbeat already conveys "still alive"
+    }
+    if (answerArrived) return;            // the real answer beat us; don't speak stale progress
+    if (resp.status !== 'working') return;
+    const note = (resp.progressNote || '').trim();
+    if (!note) return;
+    setVoiceSys(note);                    // also show it on screen
+    enqueueSpeech(note, 'progress');
+  }
+
+  // Two versions of the agent's reply now arrive per turn:
+  //   chat.summary     - ear-friendly spoken rewrite (plain concepts, no code),
+  //                      produced server-side by the haiku summariser.
+  //   chat.displayText - the full technical reply (kept behind a tap on screen).
+  // We READ the spoken version aloud and SHOW the spoken version on screen, with
+  // the full reply tucked into an expandable panel for anyone who wants to read it.
+  async function renderReplyAndSpeak(chat) {
+    // The answer is here: stop any further progress notes from queuing, and drop
+    // any that are still waiting (a progress note currently being spoken finishes
+    // on its own, then the answer plays right after it).
+    answerArrived = true;
+    dropPendingProgress();
+    const full   = (chat.displayText || chat.reply || '').trim();
+    const spoken = (chat.summary || '').trim();
+    if (!full && !spoken) {
+      setVoiceReply('', 'Agent finished but produced no visible output.');
+      return;
+    }
+    setVoiceReply(spoken, full);
+    // Never read the raw technical reply aloud. If the spoken rewrite is missing
+    // (summariser unavailable), say so plainly rather than dumping code to TTS.
+    enqueueSpeech(spoken || 'I have the answer on the screen, but could not prepare a spoken version this time.', 'reply');
   }
 
   // Send a TYPED message through the same chat-and-speak pipeline used by
@@ -2854,9 +3096,11 @@
     appendVoiceBubble('user', text);
     setVoiceState('Agent thinking...');
     startCue(CUE.working.freq, CUE.working.interval);
+    const startedAt = Date.now();
     let chat;
     try {
       chat = await postChat(text);
+      chat = await awaitAgentReply(chat, startedAt);
     } catch (e) {
       stopCue();
       setVoiceState('Chat call failed: ' + e.message, 'error');
@@ -2864,14 +3108,26 @@
       return;
     }
     stopCue();
+    if (handleNonReplyStatus(chat)) return;
     playChime();
     await renderReplyAndSpeak(chat);
-    if (chat.status === 'timeout') {
-      appendVoiceBubble('system', 'Timed out waiting for the agent. The reply above may be partial.');
-    } else if (chat.status === 'session_not_found') {
-      appendVoiceBubble('system', 'Session not found.');
-    }
     setVoiceState('Ready. Tap the big button to talk again.', 'ok');
+  }
+
+  // Show the right message for the terminal states that are NOT a normal reply.
+  // Returns true if the caller should stop (no reply to render/speak).
+  function handleNonReplyStatus(chat) {
+    if (chat.status === 'poll_failed') {
+      setVoiceState('Lost connection while waiting. The agent may still be running — tap to check again.', 'error');
+      appendVoiceBubble('system', 'Lost connection while waiting for the agent. It may still be running; reconnect to check.');
+      return true;
+    }
+    if (chat.status === 'session_not_found') {
+      setVoiceState('Session ended.', 'error');
+      appendVoiceBubble('system', 'Session ended before the agent replied.');
+      return true;
+    }
+    return false;
   }
 
   async function finishUtteranceAndConverse(totalChunks, mimeType) {
@@ -2903,17 +3159,22 @@
       // actually goes to the agent).  When they are identical we collapse to
       // a single bubble.
       const sendText = cleaned || transcript;
+      // User line first (it clears the previous turn), THEN the optional raw note,
+      // otherwise setVoiceUser would wipe the note we just set.
+      appendVoiceBubble('user', sendText);
       if (cleaned && cleaned !== transcript) {
         appendVoiceBubble('system', 'raw: "' + transcript + '"' + (cleanupReason ? ' (' + cleanupReason + ')' : ''));
       }
-      appendVoiceBubble('user', sendText);
 
-      // 2) Send to the agent via /chat.
+      // 2) Send to the agent via /chat, then follow the turn to completion
+      //    (polling through long runs) before reading the reply aloud.
       startCue(CUE.working.freq, CUE.working.interval);
       setVoiceState('Agent thinking...');
+      const startedAt = Date.now();
       let chat;
       try {
         chat = await postChat(sendText);
+        chat = await awaitAgentReply(chat, startedAt);
       } catch (e) {
         stopCue();
         setVoiceState('Chat call failed: ' + e.message, 'error');
@@ -2921,16 +3182,9 @@
         return;
       }
       stopCue();
+      if (handleNonReplyStatus(chat)) return;
       playChime();
-
       await renderReplyAndSpeak(chat);
-
-      if (chat.status === 'timeout') {
-        appendVoiceBubble('system', 'Timed out waiting for the agent. The reply above may be partial.');
-      } else if (chat.status === 'session_not_found') {
-        appendVoiceBubble('system', 'Session not found.');
-      }
-
       setVoiceState('Ready. Tap the big button to talk again.', 'ok');
     } catch (e) {
       stopCue();

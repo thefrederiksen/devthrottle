@@ -21,10 +21,26 @@ public class ClaudeSummarizer : IResponseSummarizer
     /// The prompt template for summarization.
     /// </summary>
     private const string SummarizationPrompt = """
-        Read this Claude response and summarize it in 2-3 casual sentences,
-        as if telling a friend what happened. Skip code details, file paths,
-        and technical specifics. Focus on what was accomplished or what
-        the answer was. Output ONLY the summary text, nothing else.
+        You are turning a coding agent's written reply into words a person will
+        hear out loud, probably while driving. Rewrite it as two to four short,
+        casual sentences, like telling a friend what happened or what the answer
+        is. Speak in concepts only. Do not read code, commands, file paths,
+        function names, or symbols out loud. If code matters, say in plain words
+        what it does or would do. Output ONLY the spoken version, nothing else.
+        """;
+
+    /// <summary>
+    /// The prompt template for periodic progress notes during a long turn. The
+    /// input is a raw, noisy terminal tail; the job is to extract intent.
+    /// </summary>
+    private const string ProgressPrompt = """
+        Below is the recent terminal output of a coding agent that is STILL working
+        on a task. In one or two short, calm spoken sentences, tell a person who is
+        listening while driving what the agent appears to be doing right now. Speak
+        in plain concepts only: no code, commands, file paths, function names, or
+        symbols. Begin as if continuing to wait, for example "Still going" or
+        "Still working". If you genuinely cannot tell what it is doing, say only
+        that it is still working. Output ONLY the spoken update, nothing else.
         """;
 
     /// <inheritdoc />
@@ -89,72 +105,94 @@ public class ClaudeSummarizer : IResponseSummarizer
         }
     }
 
-    private async Task<string> RunClaudeSummarizationAsync(string response, CancellationToken cancellationToken)
+    /// <inheritdoc />
+    public async Task<string> SummarizeProgressAsync(string recentActivity, CancellationToken cancellationToken = default)
     {
-        // Write response to temp file to avoid command line escaping issues
-        var tempFile = Path.GetTempFileName();
+        FileLog.Write($"[ClaudeSummarizer] SummarizeProgressAsync: activity length={recentActivity?.Length ?? 0}");
+
+        if (!IsAvailable)
+        {
+            throw new InvalidOperationException($"Claude CLI not available: {UnavailableReason}");
+        }
+
+        if (string.IsNullOrWhiteSpace(recentActivity))
+        {
+            return "";
+        }
+
         try
         {
-            await File.WriteAllTextAsync(tempFile, response, cancellationToken);
-
-            // Build the command with piped input
-            var psi = new ProcessStartInfo
-            {
-                FileName = ClaudeExecutable,
-                Arguments = $"-p \"{SummarizationPrompt}\" --model {Model} --output-format text",
-                RedirectStandardInput = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-
-            using var process = new Process { StartInfo = psi };
-            process.Start();
-
-            // Write response to stdin
-            await process.StandardInput.WriteAsync(response);
-            process.StandardInput.Close();
-
-            // Wait for completion with timeout
-            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeoutCts.CancelAfter(TimeSpan.FromSeconds(TimeoutSeconds));
-
-            var outputTask = process.StandardOutput.ReadToEndAsync(timeoutCts.Token);
-            var errorTask = process.StandardError.ReadToEndAsync(timeoutCts.Token);
-
-            await Task.WhenAll(outputTask, errorTask);
-            await process.WaitForExitAsync(timeoutCts.Token);
-
-            var output = await outputTask;
-            var error = await errorTask;
-
-            if (process.ExitCode != 0)
-            {
-                FileLog.Write($"[ClaudeSummarizer] Claude exited with code {process.ExitCode}: {error}");
-                throw new InvalidOperationException($"Claude CLI failed: {error}");
-            }
-
-            var summary = output.Trim();
-            if (string.IsNullOrEmpty(summary))
-            {
-                FileLog.Write("[ClaudeSummarizer] Empty output from Claude");
-                return TruncateForSpeech(response);
-            }
-
-            return CleanupForSpeech(summary);
+            var note = CleanupForSpeech(await RunClaudeAsync(ProgressPrompt, recentActivity, cancellationToken));
+            FileLog.Write($"[ClaudeSummarizer] Progress note: {note.Length} chars");
+            return note;
         }
-        finally
+        catch (OperationCanceledException)
         {
-            try
-            {
-                File.Delete(tempFile);
-            }
-            catch
-            {
-                // Ignore cleanup errors
-            }
+            throw;
         }
+        catch (Exception ex)
+        {
+            // A progress note is a best-effort, throwaway courtesy spoken every
+            // couple of minutes. If Haiku fails we say nothing this window rather
+            // than read raw terminal text aloud; the failure is logged, not hidden.
+            FileLog.Write($"[ClaudeSummarizer] SummarizeProgressAsync FAILED: {ex.Message}");
+            return "";
+        }
+    }
+
+    private async Task<string> RunClaudeSummarizationAsync(string response, CancellationToken cancellationToken)
+    {
+        var summary = await RunClaudeAsync(SummarizationPrompt, response, cancellationToken);
+        if (string.IsNullOrEmpty(summary))
+        {
+            FileLog.Write("[ClaudeSummarizer] Empty output from Claude");
+            return TruncateForSpeech(response);
+        }
+        return CleanupForSpeech(summary);
+    }
+
+    /// <summary>
+    /// Run <c>claude -p &lt;prompt&gt;</c> with <paramref name="input"/> piped to
+    /// stdin and return the trimmed stdout. Throws when the CLI exits non-zero.
+    /// </summary>
+    private static async Task<string> RunClaudeAsync(string prompt, string input, CancellationToken cancellationToken)
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = ClaudeExecutable,
+            Arguments = $"-p \"{prompt}\" --model {Model} --output-format text",
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        using var process = new Process { StartInfo = psi };
+        process.Start();
+
+        await process.StandardInput.WriteAsync(input);
+        process.StandardInput.Close();
+
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(TimeoutSeconds));
+
+        var outputTask = process.StandardOutput.ReadToEndAsync(timeoutCts.Token);
+        var errorTask = process.StandardError.ReadToEndAsync(timeoutCts.Token);
+
+        await Task.WhenAll(outputTask, errorTask);
+        await process.WaitForExitAsync(timeoutCts.Token);
+
+        var output = await outputTask;
+        var error = await errorTask;
+
+        if (process.ExitCode != 0)
+        {
+            FileLog.Write($"[ClaudeSummarizer] Claude exited with code {process.ExitCode}: {error}");
+            throw new InvalidOperationException($"Claude CLI failed: {error}");
+        }
+
+        return output.Trim();
     }
 
     private void CheckAvailability()

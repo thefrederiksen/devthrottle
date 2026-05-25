@@ -654,58 +654,10 @@
     <div id="results" class="results" style="display:none"></div>
   </div>
   </div><!-- /listMode -->
-
-  <!-- Detail mode -->
-  <div id="detailMode" class="detail" style="display:none">
-    <div class="top-bar">
-      <button class="btn-back" id="backBtn">&larr; Back to sessions</button>
-    </div>
-
-    <div id="detailHeader" class="header-panel">
-      <div class="name-row">
-        <div class="name-display" id="nameDisplay"></div>
-        <div class="name-edit" id="nameEdit" style="display:none"><input type="text" id="nameInput" maxlength="80" /></div>
-        <button class="btn-icon" id="renameBtn">Rename</button>
-        <button class="btn-icon" id="renameSaveBtn" style="display:none">Save</button>
-        <button class="btn-icon" id="renameCancelBtn" style="display:none">Cancel</button>
-        <span class="badge" id="detailBadge"></span>
-      </div>
-      <div class="meta-row">
-        <span><span class="agent-tag" id="detailAgent"></span></span>
-        <span id="detailElapsed"></span>
-        <span class="repo-path" id="detailRepo"></span>
-      </div>
-      <div class="action-row">
-        <a id="detailRawLink" target="_blank" rel="noopener">Open raw view</a>
-        <button id="interruptBtn">Interrupt</button>
-      </div>
-    </div>
-
-    <div class="recap-panel">
-      <h2>What was done <span id="recapStale" class="recap-stale" style="display:none">(stale)</span></h2>
-      <div class="recap-controls">
-        <button class="btn-icon" id="recapRefreshBtn">Refresh recap</button>
-        <span class="meta" id="recapMeta"></span>
-      </div>
-      <div class="recap-body" id="recapBody"><div class="recap-empty">Loading...</div></div>
-    </div>
-
-    <div class="send-panel">
-      <h2>Send next command</h2>
-      <textarea id="detailPrompt" placeholder="Type a prompt to send to this session..."></textarea>
-      <div class="send-row">
-        <span class="send-feedback" id="sendFeedback"></span>
-        <span class="spacer"></span>
-        <button id="detailSendBtn">Send</button>
-      </div>
-    </div>
-  </div>
 </main>
 
 <script>
 (function () {
-  const listMode = document.getElementById('listMode');
-  const detailMode = document.getElementById('detailMode');
   const sessionsEl = document.getElementById('sessions');
   const emptyEl = document.getElementById('empty');
   const statsEl = document.getElementById('stats');
@@ -717,37 +669,8 @@
   const sendBtn = document.getElementById('sendBtn');
   const resultsEl = document.getElementById('results');
 
-  // Detail view elements
-  const backBtn = document.getElementById('backBtn');
-  const detailHeader = document.getElementById('detailHeader');
-  const nameDisplay = document.getElementById('nameDisplay');
-  const nameEdit = document.getElementById('nameEdit');
-  const nameInput = document.getElementById('nameInput');
-  const renameBtn = document.getElementById('renameBtn');
-  const renameSaveBtn = document.getElementById('renameSaveBtn');
-  const renameCancelBtn = document.getElementById('renameCancelBtn');
-  const detailBadge = document.getElementById('detailBadge');
-  const detailAgent = document.getElementById('detailAgent');
-  const detailRepo = document.getElementById('detailRepo');
-  const detailElapsed = document.getElementById('detailElapsed');
-  const detailRawLink = document.getElementById('detailRawLink');
-  const interruptBtn = document.getElementById('interruptBtn');
-  const recapBody = document.getElementById('recapBody');
-  const recapStale = document.getElementById('recapStale');
-  const recapMeta = document.getElementById('recapMeta');
-  const recapRefreshBtn = document.getElementById('recapRefreshBtn');
-  const detailPrompt = document.getElementById('detailPrompt');
-  const detailSendBtn = document.getElementById('detailSendBtn');
-  const sendFeedback = document.getElementById('sendFeedback');
-
   const selected = new Set();
   let cards = new Map();
-
-  // Detail-mode state
-  let selectedSessionId = null;   // null = list mode
-  let selectedSessionDto = null;
-  let renameInFlight = false;
-  let recapInFlight = false;
 
   function fmtElapsed(iso) {
     if (!iso) return '';
@@ -761,43 +684,6 @@
   function displayName(s) {
     if (s && s.name && s.name.trim()) return s.name.trim();
     return repoName(s ? s.repoPath : '') || (s && s.sessionId ? s.sessionId.slice(0,8) : '');
-  }
-
-  function escapeHtml(s) {
-    return (s || '').replace(/[&<>"']/g, c => ({
-      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-    }[c]));
-  }
-
-  // Tiny markdown-to-HTML for recap output. Handles: "## heading", "- bullet",
-  // blank-line paragraph separation. Not a general parser; recap output is constrained.
-  function renderRecapMarkdown(md) {
-    if (!md || !md.trim()) return '<div class="recap-empty">Empty recap.</div>';
-    const lines = md.replace(/\r\n/g, '\n').split('\n');
-    let html = '';
-    let inList = false;
-    let inPara = false;
-    function closeList() { if (inList) { html += '</ul>'; inList = false; } }
-    function closePara() { if (inPara) { html += '</p>'; inPara = false; } }
-    for (const raw of lines) {
-      const line = raw.trim();
-      if (line.startsWith('## ')) {
-        closeList(); closePara();
-        html += '<h3>' + escapeHtml(line.substring(3).trim()) + '</h3>';
-      } else if (line.startsWith('- ') || line.startsWith('* ')) {
-        closePara();
-        if (!inList) { html += '<ul>'; inList = true; }
-        html += '<li>' + escapeHtml(line.substring(2).trim()) + '</li>';
-      } else if (line === '') {
-        closeList(); closePara();
-      } else {
-        closeList();
-        if (!inPara) { html += '<p>'; inPara = true; }
-        html += escapeHtml(line) + ' ';
-      }
-    }
-    closeList(); closePara();
-    return html;
   }
 
   function renderCard(s) {
@@ -824,10 +710,11 @@
         if (cb.checked) selected.add(s.sessionId); else selected.delete(s.sessionId);
         updateSelectedCount();
       });
-      // Clicking the checkbox toggles fan-out selection; clicking anywhere else opens the detail view.
+      // Clicking the checkbox toggles fan-out selection; clicking anywhere else
+      // opens the session view directly (no intermediate detail page).
       card.addEventListener('click', (e) => {
         if (e.target.closest('.sel')) return;
-        enterDetailMode(s.sessionId);
+        window.location.href = '/sessions/' + s.sessionId + '/view';
       });
       sessionsEl.appendChild(card);
       cards.set(s.sessionId, card);
@@ -877,18 +764,6 @@
       const waiting = list.filter(s => s.activityState === 'WaitingForInput' || s.activityState === 'WaitingForPerm').length;
       statsEl.textContent = list.length + ' sessions (' + idle + ' idle, ' + working + ' working, ' + waiting + ' waiting)';
       updateSelectedCount();
-
-      // If we are in detail mode, refresh the selected session header from the list.
-      if (selectedSessionId) {
-        const sel = list.find(s => s.sessionId === selectedSessionId);
-        if (sel) {
-          selectedSessionDto = sel;
-          paintDetailHeader(sel);
-        } else {
-          // Session disappeared - drop back to list mode.
-          exitDetailMode();
-        }
-      }
     } catch (e) {
       statsEl.textContent = 'Refresh error: ' + e.message;
     }
@@ -945,226 +820,6 @@
       sendBtn.disabled = false;
     }
   });
-
-  // ====== Detail mode (single session) ======
-  function enterDetailMode(sid) {
-    selectedSessionId = sid;
-    selectedSessionDto = null;
-    nameEdit.style.display = 'none';
-    nameDisplay.style.display = '';
-    renameBtn.style.display = '';
-    renameSaveBtn.style.display = 'none';
-    renameCancelBtn.style.display = 'none';
-    detailPrompt.value = '';
-    sendFeedback.textContent = '';
-    sendFeedback.className = 'send-feedback';
-    recapBody.innerHTML = '<div class="recap-empty">Loading...</div>';
-    recapStale.style.display = 'none';
-    recapMeta.textContent = '';
-    listMode.style.display = 'none';
-    detailMode.style.display = '';
-    window.scrollTo({ top: 0, behavior: 'auto' });
-    refresh();
-    loadRecap(/* forceGenerate= */ false);
-  }
-
-  function exitDetailMode() {
-    selectedSessionId = null;
-    selectedSessionDto = null;
-    detailMode.style.display = 'none';
-    listMode.style.display = '';
-  }
-
-  function paintDetailHeader(s) {
-    detailHeader.className = 'header-panel state-' + (s.activityState || 'Unknown');
-    nameDisplay.textContent = displayName(s);
-    detailBadge.textContent = s.activityState;
-    detailBadge.className = 'badge ' + s.activityState;
-    detailAgent.textContent = s.agent;
-    detailRepo.textContent = s.repoPath || '';
-    detailElapsed.textContent = 'started ' + fmtElapsed(s.createdAt) + ' ago';
-    detailRawLink.href = '/sessions/' + s.sessionId + '/view';
-  }
-
-  backBtn.addEventListener('click', exitDetailMode);
-
-  // Rename flow
-  renameBtn.addEventListener('click', () => {
-    if (!selectedSessionDto) return;
-    nameInput.value = selectedSessionDto.name || '';
-    nameDisplay.style.display = 'none';
-    nameEdit.style.display = '';
-    renameBtn.style.display = 'none';
-    renameSaveBtn.style.display = '';
-    renameCancelBtn.style.display = '';
-    setTimeout(() => { nameInput.focus(); nameInput.select(); }, 30);
-  });
-  renameCancelBtn.addEventListener('click', () => {
-    nameDisplay.style.display = '';
-    nameEdit.style.display = 'none';
-    renameBtn.style.display = '';
-    renameSaveBtn.style.display = 'none';
-    renameCancelBtn.style.display = 'none';
-  });
-  renameSaveBtn.addEventListener('click', saveName);
-  nameInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); saveName(); }
-    else if (e.key === 'Escape') { e.preventDefault(); renameCancelBtn.click(); }
-  });
-
-  async function saveName() {
-    if (!selectedSessionId || renameInFlight) return;
-    renameInFlight = true;
-    renameSaveBtn.disabled = true;
-    try {
-      const newName = nameInput.value.trim();
-      const r = await fetch('/sessions/' + selectedSessionId, {
-        method: 'PATCH',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: newName }),
-      });
-      if (!r.ok) {
-        const body = await r.text();
-        alert('Rename failed: ' + r.status + ' ' + body);
-        return;
-      }
-      const dto = await r.json();
-      selectedSessionDto = dto;
-      paintDetailHeader(dto);
-      renameCancelBtn.click();
-    } catch (e) {
-      alert('Rename error: ' + e.message);
-    } finally {
-      renameInFlight = false;
-      renameSaveBtn.disabled = false;
-    }
-  }
-
-  // Interrupt
-  interruptBtn.addEventListener('click', async () => {
-    if (!selectedSessionId) return;
-    interruptBtn.disabled = true;
-    try {
-      const r = await fetch('/sessions/' + selectedSessionId + '/interrupt', {
-        method: 'POST', credentials: 'same-origin'
-      });
-      sendFeedback.textContent = r.ok ? 'Interrupt sent.' : ('Interrupt failed: ' + r.status);
-      sendFeedback.className = 'send-feedback ' + (r.ok ? 'ok' : 'error');
-    } catch (e) {
-      sendFeedback.textContent = 'Interrupt error: ' + e.message;
-      sendFeedback.className = 'send-feedback error';
-    } finally {
-      interruptBtn.disabled = false;
-    }
-  });
-
-  // Send prompt to this single session
-  detailSendBtn.addEventListener('click', sendDetailPrompt);
-  detailPrompt.addEventListener('keydown', (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-      e.preventDefault();
-      sendDetailPrompt();
-    }
-  });
-
-  async function sendDetailPrompt() {
-    if (!selectedSessionId) return;
-    const text = detailPrompt.value;
-    if (!text.trim()) {
-      sendFeedback.textContent = 'Type something to send.';
-      sendFeedback.className = 'send-feedback error';
-      return;
-    }
-    detailSendBtn.disabled = true;
-    sendFeedback.textContent = 'Sending...';
-    sendFeedback.className = 'send-feedback';
-    try {
-      const r = await fetch('/sessions/' + selectedSessionId + '/prompt', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, appendEnter: true, waitForIdle: false, timeoutMs: 60000 }),
-      });
-      if (!r.ok) {
-        const body = await r.text();
-        sendFeedback.textContent = 'Send failed: ' + r.status + ' ' + body;
-        sendFeedback.className = 'send-feedback error';
-        return;
-      }
-      detailPrompt.value = '';
-      sendFeedback.textContent = 'Prompt sent.';
-      sendFeedback.className = 'send-feedback ok';
-      refresh();
-    } catch (e) {
-      sendFeedback.textContent = 'Send error: ' + e.message;
-      sendFeedback.className = 'send-feedback error';
-    } finally {
-      detailSendBtn.disabled = false;
-    }
-  }
-
-  // Recap
-  recapRefreshBtn.addEventListener('click', () => loadRecap(true));
-
-  async function loadRecap(forceGenerate) {
-    if (!selectedSessionId || recapInFlight) return;
-    recapInFlight = true;
-    recapRefreshBtn.disabled = true;
-    const targetSid = selectedSessionId;
-    try {
-      if (forceGenerate) {
-        recapBody.innerHTML = '<div class="recap-empty">Generating recap... (10-60s)</div>';
-        recapMeta.textContent = '';
-        recapStale.style.display = 'none';
-      }
-      const url = '/sessions/' + targetSid + '/recap';
-      const r = await fetch(url, {
-        method: forceGenerate ? 'POST' : 'GET',
-        credentials: 'same-origin',
-      });
-      if (targetSid !== selectedSessionId) return; // user navigated away
-      if (!r.ok) {
-        recapBody.innerHTML = '<div class="recap-empty">Recap failed: HTTP ' + r.status + '</div>';
-        return;
-      }
-      const data = await r.json();
-      paintRecap(data, forceGenerate);
-    } catch (e) {
-      if (targetSid === selectedSessionId) {
-        recapBody.innerHTML = '<div class="recap-empty">Recap error: ' + escapeHtml(e.message) + '</div>';
-      }
-    } finally {
-      recapInFlight = false;
-      recapRefreshBtn.disabled = false;
-    }
-  }
-
-  function paintRecap(data, wasGenerated) {
-    if (data.status === 'not_cached') {
-      recapBody.innerHTML = '<div class="recap-empty">No recap yet. Click "Refresh recap" to generate one (uses Haiku, takes 10-60s).</div>';
-      recapMeta.textContent = '';
-      recapStale.style.display = 'none';
-      return;
-    }
-    if (data.status !== 'ok') {
-      recapBody.innerHTML = '<div class="recap-empty">Recap unavailable: ' + escapeHtml(data.error || data.status) + '</div>';
-      recapMeta.textContent = '';
-      recapStale.style.display = 'none';
-      return;
-    }
-    recapBody.innerHTML = renderRecapMarkdown(data.recap || '');
-    recapStale.style.display = data.isStale ? '' : 'none';
-    const ts = data.generatedAt ? new Date(data.generatedAt).toLocaleString() : '';
-    const ms = data.elapsedMs ? (data.elapsedMs/1000).toFixed(1) + 's' : '';
-    const model = data.model || '';
-    recapMeta.textContent = [
-      ts ? ('generated ' + ts) : '',
-      model ? ('model ' + model) : '',
-      ms ? ('took ' + ms) : '',
-      'at turn ' + data.atTurnCount + ' of ' + data.currentTurnCount,
-    ].filter(Boolean).join(' | ');
-  }
 
   // ====== New Session modal ======
   const newSessionBtn = document.getElementById('newSessionBtn');

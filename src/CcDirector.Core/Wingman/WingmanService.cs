@@ -1098,13 +1098,15 @@ public static class WingmanService
         sb.AppendLine("- Only include a table when the agent actually presented tabular content the user must see. Do NOT turn ordinary prose, lists, or a single value into a table. At most one table.");
         sb.AppendLine();
         sb.AppendLine("WHAT CLAUDE WANTS:");
-        sb.AppendLine("State the question, request, or decision the agent is waiting on, in the AGENT'S OWN WORDS.");
+        // The session's working/waiting/idle verdict is ALREADY computed deterministically
+        // by SessionStatusWingman (the colored badge the user sees). Anchor this section to
+        // that verdict so the briefing can never contradict the badge -- the old prompt let
+        // the model re-decide working-vs-waiting from the buffer, which produced summaries
+        // like "Claude is still working" while the badge correctly read "NEEDS YOU".
+        sb.AppendLine(WhatClaudeWantsDirective(context.CurrentColor));
         sb.AppendLine("- Preserve the agent's phrasing. Do NOT reword, soften, summarize, or improve the actual question. The user trusts the agent's words over yours.");
         sb.AppendLine("- Only add a few words of clarification IN PARENTHESES when the bare question is ambiguous without context. Example: \"Want me to implement it?\" -> \"Want me to implement it (the Tailscale auto-provisioning)?\"");
         sb.AppendLine("- If the agent asked multiple questions, include them all.");
-        sb.AppendLine("- If the session is idle and nothing is pending (it finished, or it never started), write exactly: \"Nothing pending. Waiting for you to give it a task.\" and nothing else.");
-        sb.AppendLine("- If the agent is mid-flow and actively working but not waiting on anything, write: \"Claude is still working; nothing is needed from you right now.\"");
-        sb.AppendLine("- Do NOT combine these two; an idle session is not \"still working\".");
         sb.AppendLine();
         sb.AppendLine("QUICK REPLIES:");
         sb.AppendLine("If \"WHAT CLAUDE WANTS\" is a decision the user can answer in a few words (yes/no, this-or-that, pick from a short menu), output the tappable answer options as a JSON array on ONE line, e.g.: [\"Yes, go ahead\", \"No, stop\"]");
@@ -1116,6 +1118,36 @@ public static class WingmanService
         sb.AppendLine();
         AppendSessionContext(sb, context);
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// Binds the briefing's "WHAT CLAUDE WANTS" section to the authoritative status color
+    /// the wingman already computed, so the LLM cannot re-derive a contradicting verdict
+    /// from the raw buffer. Red/blue/green/yellow map to the four real situations; the model
+    /// still does the useful work of extracting the verbatim question when the state is red.
+    /// </summary>
+    internal static string WhatClaudeWantsDirective(string color)
+    {
+        return (color ?? "").Trim().ToLowerInvariant() switch
+        {
+            StatusColor.Red =>
+                "The session's state has ALREADY been determined: the agent is WAITING ON THE USER. Treat this as fact. "
+                + "State, in the agent's OWN WORDS, the exact question, request, or decision it is waiting on. "
+                + "Do NOT write that Claude is still working or that nothing is needed -- that contradicts the determined state and is wrong. "
+                + "If the buffer does not clearly show the question, say the agent is waiting on a response but the exact prompt is not visible.",
+            StatusColor.Blue =>
+                "The session's state has ALREADY been determined: the agent is actively WORKING and is not waiting on anything. "
+                + "Write exactly: \"Claude is still working; nothing is needed from you right now.\" Do not state a question or invent a decision.",
+            StatusColor.Green =>
+                "The session's state has ALREADY been determined: the session is idle / ready and nothing is pending. "
+                + "Write exactly: \"Nothing pending. Waiting for you to give it a task.\" and nothing else.",
+            StatusColor.Yellow =>
+                "The session's state has ALREADY been determined: the session is idle but needs attention (for example uncommitted work or a soft warning). "
+                + "State what needs attention in ONE short sentence. Do not say Claude is still working.",
+            _ =>
+                "The session's current state could not be determined from the data source. "
+                + "Say plainly that the state is unknown; do NOT guess whether the agent is working or waiting.",
+        };
     }
 
     /// <summary>Appends the shared session-state sections (metadata, wingman decisions,

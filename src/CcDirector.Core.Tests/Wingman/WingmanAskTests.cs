@@ -126,6 +126,52 @@ public sealed class WingmanAskTests
     }
 
     [Fact]
+    public void BuildExplainPrompt_anchors_what_claude_wants_to_the_computed_color()
+    {
+        // Regression: the briefing's "WHAT CLAUDE WANTS" once re-judged working-vs-waiting
+        // from the buffer and could contradict the badge -- saying "Claude is still working"
+        // while the deterministic state read NEEDS YOU (red). The section must now be bound
+        // to the authoritative color instead of left to the model's own buffer reading.
+
+        // Red = waiting on the user: must demand the verbatim question and forbid "still working".
+        var red = WingmanService.BuildExplainPrompt(new WingmanAskContext
+        {
+            SessionId = "s", RepoPath = "/tmp", CurrentColor = "red", ActivityState = "WaitingForInput",
+        });
+        Assert.Contains("WAITING ON THE USER", red);
+        Assert.Contains("contradicts the determined state", red);
+
+        // Blue = working: must emit the exact "still working" sentence, no invented question.
+        var blue = WingmanService.BuildExplainPrompt(new WingmanAskContext
+        {
+            SessionId = "s", RepoPath = "/tmp", CurrentColor = "blue", ActivityState = "Working",
+        });
+        Assert.Contains("actively WORKING", blue);
+        Assert.Contains("Claude is still working; nothing is needed from you right now.", blue);
+
+        // Green = idle/ready: must emit the exact "nothing pending" sentence.
+        var green = WingmanService.BuildExplainPrompt(new WingmanAskContext
+        {
+            SessionId = "s", RepoPath = "/tmp", CurrentColor = "green", ActivityState = "Idle",
+        });
+        Assert.Contains("Nothing pending. Waiting for you to give it a task.", green);
+    }
+
+    [Fact]
+    public void WhatClaudeWantsDirective_red_forbids_still_working()
+    {
+        // The whole point of the anchor: a red (NEEDS YOU) session can never be told to
+        // report that it is still working.
+        var directive = WingmanService.WhatClaudeWantsDirective("red");
+        Assert.Contains("WAITING ON THE USER", directive);
+        Assert.Contains("Do NOT write that Claude is still working", directive);
+
+        // Unknown color is truthful about not knowing rather than guessing a state.
+        var unknown = WingmanService.WhatClaudeWantsDirective("unknown");
+        Assert.Contains("could not be determined", unknown);
+    }
+
+    [Fact]
     public void BufferContext_explains_that_boxed_options_are_agent_suggestions_not_user_actions()
     {
         // Regression: the Explain briefing once narrated a highlighted menu option
