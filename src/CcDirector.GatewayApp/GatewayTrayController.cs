@@ -1,0 +1,247 @@
+using System.Diagnostics;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Platform;
+using Avalonia.Threading;
+using CcDirector.Core.Utilities;
+using CcDirector.Gateway;
+using CcDirector.Gateway.Tailscale;
+
+namespace CcDirector.GatewayApp;
+
+/// <summary>
+/// Owns the tray icon and the in-process <see cref="GatewayHost"/>. This is the whole app:
+/// no main window, just a notification-area icon whose menu drives the gateway. Closing
+/// nothing kills the process - only the Quit menu item shuts it down (see App's
+/// OnExplicitShutdown).
+/// </summary>
+public sealed class GatewayTrayController : IDisposable
+{
+    private enum HostState { Starting, Running, Stopped, Failed }
+
+    private readonly IClassicDesktopStyleApplicationLifetime _desktop;
+    private readonly int _port;
+
+    private TrayIcon? _trayIcon;
+    private NativeMenuItem? _statusItem;
+    private GatewayHost? _host;
+    private HostState _state = HostState.Stopped;
+    private bool _busy;
+    private bool _disposed;
+
+    public GatewayTrayController(IClassicDesktopStyleApplicationLifetime desktop, int port)
+    {
+        _desktop = desktop;
+        _port = port;
+    }
+
+    /// <summary>Build the tray icon, register autostart, and start the gateway.</summary>
+    public void Start()
+    {
+        FileLog.Write("[GatewayTrayController] Start");
+
+        BuildTrayIcon();
+        RegisterAutostartSafe();
+
+        SetState(HostState.Starting);
+        _ = StartHostAsync();
+    }
+
+    private void BuildTrayIcon()
+    {
+        var menu = new NativeMenu();
+
+        _statusItem = new NativeMenuItem("Gateway starting...") { IsEnabled = false };
+        menu.Add(_statusItem);
+        menu.Add(new NativeMenuItemSeparator());
+
+        var openDashboard = new NativeMenuItem("Open Dashboard");
+        openDashboard.Click += (_, _) => OpenDashboard();
+        menu.Add(openDashboard);
+
+        var openLogs = new NativeMenuItem("Open Logs Folder");
+        openLogs.Click += (_, _) => OpenLogsFolder();
+        menu.Add(openLogs);
+
+        var restart = new NativeMenuItem("Restart Gateway");
+        restart.Click += (_, _) => _ = RestartAsync();
+        menu.Add(restart);
+
+        menu.Add(new NativeMenuItemSeparator());
+
+        var quit = new NativeMenuItem("Quit");
+        quit.Click += (_, _) => _ = QuitAsync();
+        menu.Add(quit);
+
+        _trayIcon = new TrayIcon
+        {
+            Icon = new WindowIcon(AssetLoader.Open(new Uri("avares://cc-director-gateway-tray/Assets/tray.ico"))),
+            ToolTipText = "CC Director Gateway",
+            Menu = menu,
+            IsVisible = true,
+        };
+
+        var icons = new TrayIcons { _trayIcon };
+        TrayIcon.SetIcons(Application.Current!, icons);
+        FileLog.Write("[GatewayTrayController] Tray icon created");
+    }
+
+    private async Task StartHostAsync()
+    {
+        try
+        {
+            // A fresh host each start: StopAsync disposes the registry and Tailscale
+            // provisioner, so a restart needs a new instance rather than reusing a torn-down one.
+            var host = new GatewayHost(_port);
+            await host.StartAsync();
+            _host = host;
+            SetState(HostState.Running);
+            FileLog.Write($"[GatewayTrayController] Gateway running on :{_port}");
+        }
+        catch (Exception ex)
+        {
+            SetState(HostState.Failed);
+            FileLog.Write($"[GatewayTrayController] StartHostAsync FAILED: {ex.Message}");
+        }
+    }
+
+    private async Task StopHostAsync()
+    {
+        if (_host is null) return;
+        try
+        {
+            await _host.StopAsync();
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GatewayTrayController] StopHostAsync error: {ex.Message}");
+        }
+        finally
+        {
+            _host = null;
+        }
+    }
+
+    private async Task RestartAsync()
+    {
+        if (_busy) return;
+        _busy = true;
+        try
+        {
+            FileLog.Write("[GatewayTrayController] RestartAsync");
+            SetState(HostState.Starting);
+            await StopHostAsync();
+            await StartHostAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task QuitAsync()
+    {
+        FileLog.Write("[GatewayTrayController] QuitAsync");
+        await StopHostAsync();
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            if (_trayIcon is not null) _trayIcon.IsVisible = false;
+            _desktop.Shutdown();
+        });
+    }
+
+    private void OpenDashboard()
+    {
+        // The Tailscale front-door call can block briefly, so resolve + launch off the UI thread.
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                var url = ResolveDashboardUrl();
+                FileLog.Write($"[GatewayTrayController] OpenDashboard: {url}");
+                Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[GatewayTrayController] OpenDashboard FAILED: {ex.Message}");
+            }
+        });
+    }
+
+    private string ResolveDashboardUrl()
+    {
+        // Prefer the remotely reachable HTTPS front door; fall back to loopback for a
+        // machine with no Tailscale. Both point at this same in-process gateway.
+        var frontDoor = TailscaleIdentity.TryGetFrontDoorBaseUrl();
+        return frontDoor is not null ? frontDoor + "/" : $"http://127.0.0.1:{_port}/";
+    }
+
+    private void OpenLogsFolder()
+    {
+        try
+        {
+            var logDir = Path.GetDirectoryName(FileLog.CurrentLogPath)!;
+            Directory.CreateDirectory(logDir);
+            FileLog.Write($"[GatewayTrayController] OpenLogsFolder: {logDir}");
+            Process.Start(new ProcessStartInfo(logDir) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GatewayTrayController] OpenLogsFolder FAILED: {ex.Message}");
+        }
+    }
+
+    private void RegisterAutostartSafe()
+    {
+        if (!GatewayAppOptions.RegisterAutostart)
+        {
+            FileLog.Write("[GatewayTrayController] Autostart registration skipped (--no-autostart)");
+            return;
+        }
+
+        try
+        {
+            var exePath = Environment.ProcessPath
+                          ?? Process.GetCurrentProcess().MainModule?.FileName
+                          ?? throw new InvalidOperationException("Could not resolve own exe path for autostart");
+            Autostart.EnsureRegistered(exePath);
+        }
+        catch (Exception ex)
+        {
+            // Autostart is a convenience, not a hard dependency of running right now.
+            // Log truthfully and keep running rather than failing the whole app.
+            FileLog.Write($"[GatewayTrayController] Autostart registration FAILED: {ex.Message}");
+        }
+    }
+
+    private void SetState(HostState state)
+    {
+        _state = state;
+        var (status, tip) = state switch
+        {
+            HostState.Starting => ("Gateway starting...", "CC Director Gateway - starting"),
+            HostState.Running => ($"Gateway running on :{_port}", $"CC Director Gateway - running on :{_port}"),
+            HostState.Stopped => ("Gateway stopped", "CC Director Gateway - stopped"),
+            HostState.Failed => ("Gateway FAILED - see logs", "CC Director Gateway - failed to start"),
+            _ => ("Gateway", "CC Director Gateway"),
+        };
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_statusItem is not null) _statusItem.Header = status;
+            if (_trayIcon is not null) _trayIcon.ToolTipText = tip;
+        });
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        // Synchronous best-effort stop on shutdown.
+        try { _host?.StopAsync().GetAwaiter().GetResult(); }
+        catch (Exception ex) { FileLog.Write($"[GatewayTrayController] Dispose stop error: {ex.Message}"); }
+        _host = null;
+        if (_trayIcon is not null) _trayIcon.IsVisible = false;
+    }
+}
