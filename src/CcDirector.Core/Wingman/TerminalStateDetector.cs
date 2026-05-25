@@ -270,24 +270,24 @@ public sealed class TerminalStateDetector : IDisposable
             {
                 try
                 {
-                    string st, reason;
+                    string st, reason, awaiting;
                     if (_useFullSession)
                     {
                         // Phase 2: hand the WHOLE terminal to a full-power read-only session
                         // and let it pull what it needs.
                         var full = SnapshotFull();
                         if (string.IsNullOrWhiteSpace(full)) return;
-                        (st, reason) = await WingmanService.ClassifyTerminalStateViaSessionAsync(
+                        (st, reason, awaiting) = await WingmanService.ClassifyTerminalStateViaSessionAsync(
                             full, _session.AgentKind.ToString(), _session.RepoPath, _claudePath);
                     }
                     else
                     {
                         var tail = SnapshotTail();
                         if (string.IsNullOrWhiteSpace(tail)) return;
-                        (st, reason) = await WingmanService.ClassifyTerminalStateAsync(
+                        (st, reason, awaiting) = await WingmanService.ClassifyTerminalStateAsync(
                             tail, _session.AgentKind.ToString(), _claudePath);
                     }
-                    FileLog.Write($"[TerminalStateDetector] {_session.Id} LLM verdict={st} (\"{reason}\") judge={(_useFullSession ? "full-session" : "tail-paste")} | hook={_session.ActivityState} color={_session.StatusColor}");
+                    FileLog.Write($"[TerminalStateDetector] {_session.Id} LLM verdict={st} (\"{reason}\") awaiting=\"{(awaiting.Length > 60 ? awaiting[..60] + "..." : awaiting)}\" judge={(_useFullSession ? "full-session" : "tail-paste")} | hook={_session.ActivityState} color={_session.StatusColor}");
 
                     // Only refine state if the terminal is still quiet (no new turn started
                     // while the model was thinking). If bytes resumed, OnBytes already set Working.
@@ -295,25 +295,13 @@ public sealed class TerminalStateDetector : IDisposable
                     {
                         var actState = MapVerdictToActivityState(st);
                         _session.ApplyTerminalActivityState(actState);
-                        // Surface the classify in the wingman log with the model's OWN reason,
-                        // tagged LLM so its token cost is visible. (When this just confirms the
-                        // provisional state, ApplyTerminalActivityState was a no-op, so this is
-                        // the single, informative entry for the call.)
-                        if (st == "cancelled")
-                        {
-                            // Interrupted: the user pressed Esc and Claude is parked asking
-                            // "What should Claude do instead?". The activity state is
-                            // WaitingForInput, but this is a real "needs you" situation, so
-                            // the colour is red positive-evidence with the model's reason
-                            // (issue #137 item 5, foundational #129).
-                            var why = string.IsNullOrWhiteSpace(reason) ? "interrupted - waiting for redirection" : reason;
-                            _session.SetStatusColor(StatusColor.Red, why, llm: true, source: StatusColorSource.PositiveEvidence);
-                        }
-                        else
-                        {
-                            var (color, _) = SessionStatusWingman.ColorFromActivityState(actState, isNew: false);
-                            _session.SetStatusColor(color, reason, llm: true, source: SessionStatusWingman.SourceForState(actState));
-                        }
+                        // Issue #137 item 3: the detector is the single colour authority in
+                        // terminal-driven mode. ColorFromVerdict maps the state + the verbatim
+                        // pending request ("awaiting") to colour: red positive-evidence for a
+                        // pending question / permission / interrupt, green when idle, blue when
+                        // working. The model's OWN reason is the wingman-log entry (tagged LLM).
+                        var (color, cReason, csource) = SessionStatusWingman.ColorFromVerdict(st, reason, awaiting);
+                        _session.SetStatusColor(color, cReason, llm: true, source: csource);
                     }
                 }
                 catch (Exception ex)

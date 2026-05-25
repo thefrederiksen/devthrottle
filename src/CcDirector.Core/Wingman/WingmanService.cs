@@ -94,13 +94,13 @@ public static class WingmanService
     /// cheap byte-activity gate notices the terminal has gone quiet. Fails closed to
     /// ("unknown", reason) so a missing CLI or parse error never fabricates a state.
     /// </summary>
-    public static async Task<(string state, string reason)> ClassifyTerminalStateAsync(
+    public static async Task<(string state, string reason, string awaiting)> ClassifyTerminalStateAsync(
         string terminalTail, string agentName, string claudeExePath, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(claudeExePath))
-            return ("unknown", "no claude CLI configured");
+            return ("unknown", "no claude CLI configured", "");
         if (string.IsNullOrWhiteSpace(terminalTail))
-            return ("unknown", "empty terminal");
+            return ("unknown", "empty terminal", "");
 
         var prompt = BuildTerminalStatePrompt(terminalTail, agentName ?? "an AI coding agent");
         try
@@ -111,7 +111,7 @@ public static class WingmanService
         catch (Exception ex)
         {
             FileLog.Write($"[WingmanService] ClassifyTerminalStateAsync FAILED: {ex.Message}");
-            return ("unknown", "classify call failed: " + ex.Message);
+            return ("unknown", "classify call failed: " + ex.Message, "");
         }
     }
 
@@ -128,13 +128,13 @@ public static class WingmanService
     /// Stateless: a fresh "claude --print --no-session-persistence" per call, nothing
     /// persisted. Fails closed to ("unknown", reason).
     /// </summary>
-    public static async Task<(string state, string reason)> ClassifyTerminalStateViaSessionAsync(
+    public static async Task<(string state, string reason, string awaiting)> ClassifyTerminalStateViaSessionAsync(
         string fullTerminalText, string agentName, string repoPath, string claudeExePath, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(claudeExePath))
-            return ("unknown", "no claude CLI configured");
+            return ("unknown", "no claude CLI configured", "");
         if (string.IsNullOrWhiteSpace(fullTerminalText))
-            return ("unknown", "empty terminal");
+            return ("unknown", "empty terminal", "");
 
         // Materialise the partner terminal as a snapshot the full-power session can Read.
         // A snapshot (not a live feed) is exactly right for a stateless judge: it answers
@@ -152,7 +152,7 @@ public static class WingmanService
         catch (Exception ex)
         {
             FileLog.Write($"[WingmanService] ClassifyTerminalStateViaSessionAsync FAILED: {ex.Message}");
-            return ("unknown", "session classify failed: " + ex.Message);
+            return ("unknown", "session classify failed: " + ex.Message, "");
         }
         finally
         {
@@ -172,7 +172,9 @@ public static class WingmanService
         sb.AppendLine(ClaudeCodeScreenReference);
         sb.AppendLine();
         sb.AppendLine("When you have read enough, output ONE JSON object as your FINAL message, no markdown fence, exactly this shape:");
-        sb.AppendLine("{\"state\": \"working|waiting_for_input|waiting_for_permission|idle|cancelled|unknown\", \"reason\": \"<one short sentence citing what on screen tells you>\"}");
+        sb.AppendLine("{\"state\": \"working|waiting_for_input|waiting_for_permission|idle|cancelled|unknown\", \"reason\": \"<one short sentence citing what on screen tells you>\", \"awaiting\": \"<see below>\"}");
+        sb.AppendLine();
+        sb.AppendLine("awaiting: if the agent's last message asks the user a QUESTION or requests a DECISION it is now waiting on (a prose question ending in '?', a 'Want me to ...?', or a confirmation it is parked on), copy that request VERBATIM here. If the agent simply finished with nothing pending, or it is still working, leave \"awaiting\" as an empty string.");
         sb.AppendLine();
         sb.AppendLine("How to decide (read the BOTTOM of the file - that is the most recent):");
         sb.AppendLine("- working: an ACTIVE indicator at the bottom (point 4 above) - spinner, elapsed-time counter, \"esc to interrupt\", or text still streaming.");
@@ -196,7 +198,9 @@ public static class WingmanService
         sb.AppendLine(ClaudeCodeScreenReference);
         sb.AppendLine();
         sb.AppendLine("Output ONE JSON object, no markdown fence, exactly this shape:");
-        sb.AppendLine("{\"state\": \"working|waiting_for_input|waiting_for_permission|idle|cancelled|unknown\", \"reason\": \"<one short sentence citing what on screen tells you>\"}");
+        sb.AppendLine("{\"state\": \"working|waiting_for_input|waiting_for_permission|idle|cancelled|unknown\", \"reason\": \"<one short sentence citing what on screen tells you>\", \"awaiting\": \"<see below>\"}");
+        sb.AppendLine();
+        sb.AppendLine("awaiting: if the agent's last message asks the user a QUESTION or requests a DECISION it is now waiting on (a prose question ending in '?', a 'Want me to ...?', or a confirmation it is parked on), copy that request VERBATIM here. If the agent simply finished with nothing pending, or it is still working, leave \"awaiting\" as an empty string.");
         sb.AppendLine();
         sb.AppendLine("How to decide (read the BOTTOM of the output - that is the most recent):");
         sb.AppendLine("- working: an ACTIVE indicator at the bottom (see point 4 above) - spinner, elapsed-time counter, \"esc to interrupt\", or text still streaming.");
@@ -211,19 +215,20 @@ public static class WingmanService
         sb.AppendLine("- Do NOT report waiting_for_permission just because you see the word \"permission\". The mode footer (\"bypass permissions on\", \"accept edits on\", \"plan mode on\", \"shift+tab to cycle\") is a status line, not a request. Only the bordered numbered-choice box is a permission prompt.");
         sb.AppendLine();
         sb.AppendLine("Examples (tail bottom -> correct verdict):");
-        sb.AppendLine("- \"... > Try \\\"how do I...\\\"   ? for shortcuts   bypass permissions on (shift+tab to cycle)\" -> {\"state\":\"waiting_for_input\",\"reason\":\"empty input box; the bypass-permissions line is the mode footer, not a prompt\"}");
-        sb.AppendLine("- \"... Do you want to make this edit to app.ts?  1. Yes  2. Yes, and don't ask again  3. No  bypass permissions on (shift+tab to cycle)\" -> {\"state\":\"waiting_for_permission\",\"reason\":\"parked on a numbered confirmation box for an edit\"}");
-        sb.AppendLine("- \"... Brewed for 8s (esc to interrupt)\" -> {\"state\":\"working\",\"reason\":\"elapsed-time counter and esc-to-interrupt footer\"}");
+        sb.AppendLine("- \"... > Try \\\"how do I...\\\"   ? for shortcuts   bypass permissions on (shift+tab to cycle)\" -> {\"state\":\"waiting_for_input\",\"reason\":\"empty input box; the bypass-permissions line is the mode footer, not a prompt\",\"awaiting\":\"\"}");
+        sb.AppendLine("- \"... I can refactor the config loader. Want me to go ahead?   bypass permissions on (shift+tab to cycle)\" -> {\"state\":\"waiting_for_input\",\"reason\":\"finished with a question; empty input box below it\",\"awaiting\":\"Want me to go ahead?\"}");
+        sb.AppendLine("- \"... Do you want to make this edit to app.ts?  1. Yes  2. Yes, and don't ask again  3. No  bypass permissions on (shift+tab to cycle)\" -> {\"state\":\"waiting_for_permission\",\"reason\":\"parked on a numbered confirmation box for an edit\",\"awaiting\":\"Do you want to make this edit to app.ts?\"}");
+        sb.AppendLine("- \"... Brewed for 8s (esc to interrupt)\" -> {\"state\":\"working\",\"reason\":\"elapsed-time counter and esc-to-interrupt footer\",\"awaiting\":\"\"}");
         sb.AppendLine();
         sb.AppendLine("TERMINAL TAIL (ANSI stripped; the end is the most recent):");
         sb.AppendLine(TruncateKeepEnd(terminalTail, 4000));
         return sb.ToString();
     }
 
-    internal static (string state, string reason) ParseTerminalStateJson(string raw)
+    internal static (string state, string reason, string awaiting) ParseTerminalStateJson(string raw)
     {
         var valid = new[] { "working", "waiting_for_input", "waiting_for_permission", "idle", "cancelled", "unknown" };
-        if (string.IsNullOrWhiteSpace(raw)) return ("unknown", "classifier returned empty output");
+        if (string.IsNullOrWhiteSpace(raw)) return ("unknown", "classifier returned empty output", "");
 
         var s = raw.Trim();
         if (s.StartsWith("```"))
@@ -244,13 +249,19 @@ public static class WingmanService
             var root = doc.RootElement;
             var state = root.TryGetProperty("state", out var st) ? (st.GetString() ?? "").Trim().ToLowerInvariant() : "";
             var reason = root.TryGetProperty("reason", out var r) ? (r.GetString() ?? "").Trim() : "";
-            if (!valid.Contains(state)) return ("unknown", $"classifier returned invalid state '{state}'");
-            return (state, reason);
+            // "awaiting" (optional): the verbatim question / decision the agent is waiting
+            // on, when it asked the user something. Empty when nothing is pending. This is
+            // what lets the detector -- the single state authority in terminal-driven mode
+            // -- produce red-for-a-question itself instead of the turn summary (#137 item 3).
+            var awaiting = root.TryGetProperty("awaiting", out var a) ? (a.GetString() ?? "").Trim() : "";
+            if (awaiting.Length > 500) awaiting = awaiting[..497] + "...";
+            if (!valid.Contains(state)) return ("unknown", $"classifier returned invalid state '{state}'", "");
+            return (state, reason, awaiting);
         }
         catch (JsonException ex)
         {
             FileLog.Write($"[WingmanService] terminal-state JSON parse failed: {ex.Message}, raw='{Truncate(raw, 200)}'");
-            return ("unknown", "classifier JSON parse failed");
+            return ("unknown", "classifier JSON parse failed", "");
         }
     }
 

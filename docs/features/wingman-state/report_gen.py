@@ -78,9 +78,9 @@ sitting idle at its prompt would flash red ("NEEDS YOU") while the summary under
 same idle scenario now resolving to a stable green "READY".</p>""" % datetime.now().strftime("%Y-%m-%d"))
 
     P.append("""<div class="card" style="margin-top:16px"><div class="kpi">
-  <div><div class="big">168</div><div class="cap">Wingman unit tests passing</div></div>
+  <div><div class="big">179</div><div class="cap">Wingman unit tests passing</div></div>
   <div><div class="big">0</div><div class="cap">red events in the fixed idle run</div></div>
-  <div><div class="big">7</div><div class="cap">distinct fixes implemented</div></div>
+  <div><div class="big">8</div><div class="cap">distinct fixes implemented</div></div>
   <div style="align-self:center"><span class="pill pass">CORE FIXED + PUSHED</span></div>
 </div></div>""")
 
@@ -114,16 +114,18 @@ classifier misread the screen. The original report:</p>""")
   <tr><td><strong>4. Generation threading</strong></td><td>The turn summary now carries the generation it was computed for; if the session moved on during the ~10s LLM call, the stale verdict is dropped.</td><td><span class="tag todo">implemented, uncommitted</span></td></tr>
   <tr><td><strong>5. Interrupted surfaced</strong></td><td>The "cancelled" verdict and the "What should Claude do instead?" footer now surface as red positive-evidence ("interrupted - waiting for redirection") instead of a silent green.</td><td><span class="tag todo">implemented, uncommitted</span></td></tr>
   <tr><td><strong>6. Permission = positive evidence</strong></td><td>The WaitingForPerm red is tagged PositiveEvidence so a byte burst or re-evaluated mapping cannot repaint over an authoritative permission gate.</td><td><span class="tag todo">implemented, uncommitted</span></td></tr>
+  <tr><td><strong>3. One color authority</strong></td><td>The deeper fix: there used to be TWO LLM calls reading the same screen (the state classifier and the turn-summary "needs_user"), and either could drive the color, so they could disagree. Now the state detector is the single color authority in terminal-driven mode - its verdict carries the verbatim pending question ("awaiting"), so it produces red-for-a-question itself - and the turn summary no longer votes on color (it still feeds the Agent view, voice, and goals). Each mode has exactly one color authority, never two.</td><td><span class="tag todo">implemented, uncommitted</span></td></tr>
 </table>
 <p class="cap">A, B, C are committed and pushed to main (issue #136). Items 1+2, 4, 5, 6 are from the
 consolidated backlog (issue #137), implemented and unit-tested this session, not yet committed.</p>""")
 
     # Verification
     P.append("<h2>Verification</h2>")
-    P.append("""<p>All 168 Wingman unit tests pass, including new tests for: positive-evidence stickiness and
+    P.append("""<p>All 179 Wingman unit tests pass, including new tests for: positive-evidence stickiness and
 release, the idle-corroboration gate, the stale-generation drop, the permission source mapping,
-the interrupted footer marker, and the on-screen-grid snapshot the trigger fix relies on.</p>
-<div class="note">Passed!  - Failed: 0, Passed: 168, Skipped: 0, Total: 168 - CcDirector.Core.Tests.dll (net10.0)</div>""")
+the interrupted footer marker, the on-screen-grid snapshot the trigger fix relies on, and the
+single-authority verdict-to-color mapping (state + verbatim pending question -> color).</p>
+<div class="note">Passed!  - Failed: 0, Passed: 179, Skipped: 0, Total: 179 - CcDirector.Core.Tests.dll (net10.0)</div>""")
 
     P.append("""<h3>Live: the same idle scenario, now stable green</h3>
 <p>On a fresh slot-5 build I reran the exact trigger: a turn that ends with a conversational
@@ -149,7 +151,7 @@ flip-flopped against the green fast path. It no longer does.</p>""")
     P.append("""<ul class="tight">
   <li><span class="tag done">DONE</span> The reported flip-flop is fixed and the core (A/B/C) is on main. The remaining state-detection hardening (items 1+2, 4, 5, 6) is implemented and unit-tested, awaiting commit.</li>
   <li><span class="tag todo">WATCH</span> The trigger fix keys "still working" off the ASCII "esc to interrupt" footer plus upper-screen content change, read from the resolved grid. A genuinely-running global hook (e.g. a "stop hook") legitimately shows that footer, so the detector correctly reports Working while it runs - that is not starvation. Worth confirming on a long real session that the gate releases to idle once the hook finishes.</li>
-  <li><span class="tag todo">OPEN (#137)</span> Item 3: the terminal-state classifier and the turn-summary classifier are still two separate LLM calls that could disagree; consolidating to one authoritative verdict both consume is the larger follow-up. Item 7: turn the #131 misclassification reports into regression fixtures.</li>
+  <li><span class="tag todo">OPEN (#137)</span> Item 7: turn the #131 misclassification reports into a regression-fixture corpus so classifier changes are measured, not vibes. This is the last remaining backlog item; the substantive state/color logic (items 1-6 + the item-3 single-authority consolidation) is now done.</li>
 </ul>
 <p class="cap">Tracking: #136 (flip-flop, A/B/C shipped) and #137 (consolidated state-detection backlog).</p>""")
 

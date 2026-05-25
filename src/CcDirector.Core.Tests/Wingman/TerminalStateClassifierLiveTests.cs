@@ -69,14 +69,14 @@ public sealed class TerminalStateClassifierLiveTests
             var text = File.ReadAllText(Path.Combine(fixturesDir, c.File));
 
             // Judge 1: tail-paste one-shot.
-            var (v1, r1) = await WingmanService.ClassifyTerminalStateAsync(text, "Claude Code", claude!);
+            var (v1, r1, _) = await WingmanService.ClassifyTerminalStateAsync(text, "Claude Code", claude!);
             rows.Add(MakeRow(c, "tail-paste", v1, r1));
 
             // Judge 2: full-power read-only session (Phase 2). Opt-in within the opt-in,
             // because it is slower (spins a real session per fixture).
             if (runFull)
             {
-                var (v2, r2) = await WingmanService.ClassifyTerminalStateViaSessionAsync(text, "Claude Code", repoRoot, claude!);
+                var (v2, r2, _) = await WingmanService.ClassifyTerminalStateViaSessionAsync(text, "Claude Code", repoRoot, claude!);
                 rows.Add(MakeRow(c, "full-session", v2, r2));
             }
         }

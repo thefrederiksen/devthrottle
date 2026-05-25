@@ -672,6 +672,35 @@ public sealed class SessionStatusWingmanTests
         finally { manager.Dispose(); }
     }
 
+    // ---------- ColorFromVerdict (issue #137 item 3: detector is the single colour authority) ----------
+
+    [Theory]
+    [InlineData("working", "spinner", "", StatusColor.Blue, StatusColorSource.ActivityState)]
+    [InlineData("waiting_for_permission", "numbered box", "", StatusColor.Red, StatusColorSource.PositiveEvidence)]
+    [InlineData("waiting_for_input", "empty box", "", StatusColor.Green, StatusColorSource.ActivityState)]
+    [InlineData("idle", "settled", "", StatusColor.Green, StatusColorSource.ActivityState)]
+    [InlineData("cancelled", "interrupted notice", "", StatusColor.Red, StatusColorSource.PositiveEvidence)]
+    [InlineData("unknown", "garbled", "", StatusColor.Unknown, StatusColorSource.ActivityState)]
+    // A pending question turns an otherwise-idle prompt into a "needs you" red.
+    [InlineData("waiting_for_input", "finished with a question", "Want me to proceed?", StatusColor.Red, StatusColorSource.PositiveEvidence)]
+    [InlineData("idle", "done", "Approve the commit?", StatusColor.Red, StatusColorSource.PositiveEvidence)]
+    public void ColorFromVerdict_maps_state_and_awaiting(string state, string reason, string awaiting, string expectedColor, StatusColorSource expectedSource)
+    {
+        var (color, _, source) = SessionStatusWingman.ColorFromVerdict(state, reason, awaiting);
+        Assert.Equal(expectedColor, color);
+        Assert.Equal(expectedSource, source);
+    }
+
+    [Fact]
+    public void ColorFromVerdict_uses_the_verbatim_question_as_the_reason()
+    {
+        var (color, reason, source) = SessionStatusWingman.ColorFromVerdict(
+            "waiting_for_input", "finished with a question", "Should I delete the old build artifacts?");
+        Assert.Equal(StatusColor.Red, color);
+        Assert.Equal("Should I delete the old build artifacts?", reason);
+        Assert.Equal(StatusColorSource.PositiveEvidence, source);
+    }
+
     // ---------- Wingman lifecycle ----------
 
     [Fact]

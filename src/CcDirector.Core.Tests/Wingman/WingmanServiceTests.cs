@@ -287,7 +287,7 @@ public sealed class WingmanServiceTests
     [Fact]
     public async Task ClassifyTerminalStateAsync_no_claude_path_is_unknown()
     {
-        var (state, reason) = await WingmanService.ClassifyTerminalStateAsync(
+        var (state, reason, _) = await WingmanService.ClassifyTerminalStateAsync(
             "some terminal text", "ClaudeCode", claudeExePath: "");
 
         Assert.Equal("unknown", state);
@@ -302,7 +302,7 @@ public sealed class WingmanServiceTests
     [InlineData("cancelled")]
     public void ParseTerminalStateJson_accepts_valid_states(string state)
     {
-        var (parsed, _) = WingmanService.ParseTerminalStateJson(
+        var (parsed, _, _) = WingmanService.ParseTerminalStateJson(
             $"{{\"state\":\"{state}\",\"reason\":\"because\"}}");
 
         Assert.Equal(state, parsed);
@@ -311,14 +311,14 @@ public sealed class WingmanServiceTests
     [Fact]
     public void ParseTerminalStateJson_invalid_state_falls_back_to_unknown()
     {
-        var (state, _) = WingmanService.ParseTerminalStateJson("{\"state\":\"banana\",\"reason\":\"x\"}");
+        var (state, _, _) = WingmanService.ParseTerminalStateJson("{\"state\":\"banana\",\"reason\":\"x\"}");
         Assert.Equal("unknown", state);
     }
 
     [Fact]
     public void ParseTerminalStateJson_fenced_json_is_tolerated()
     {
-        var (state, reason) = WingmanService.ParseTerminalStateJson(
+        var (state, reason, _) = WingmanService.ParseTerminalStateJson(
             "```json\n{\"state\":\"working\",\"reason\":\"spinner is animating\"}\n```");
 
         Assert.Equal("working", state);
@@ -328,8 +328,27 @@ public sealed class WingmanServiceTests
     [Fact]
     public void ParseTerminalStateJson_garbage_is_unknown()
     {
-        var (state, _) = WingmanService.ParseTerminalStateJson("not json at all");
+        var (state, _, _) = WingmanService.ParseTerminalStateJson("not json at all");
         Assert.Equal("unknown", state);
+    }
+
+    [Fact]
+    public void ParseTerminalStateJson_extracts_awaiting_question()
+    {
+        // #137 item 3: the verdict can carry the verbatim pending request so the detector
+        // can produce red-for-a-question itself.
+        var (state, _, awaiting) = WingmanService.ParseTerminalStateJson(
+            "{\"state\":\"waiting_for_input\",\"reason\":\"asked a question\",\"awaiting\":\"Want me to proceed?\"}");
+        Assert.Equal("waiting_for_input", state);
+        Assert.Equal("Want me to proceed?", awaiting);
+    }
+
+    [Fact]
+    public void ParseTerminalStateJson_missing_awaiting_is_empty()
+    {
+        var (_, _, awaiting) = WingmanService.ParseTerminalStateJson(
+            "{\"state\":\"idle\",\"reason\":\"settled\"}");
+        Assert.Equal("", awaiting);
     }
 
     // ====================================================================

@@ -203,6 +203,48 @@ public sealed class SessionStatusWingman : IDisposable
             : StatusColorSource.ActivityState;
 
     /// <summary>
+    /// Map a terminal-state LLM verdict (issue #137 item 3: the detector is the single
+    /// colour authority in terminal-driven mode) to a colour + reason + source. This is
+    /// where "red for a pending question" now comes from: when the agent is waiting and
+    /// the verdict carries an <paramref name="awaiting"/> request, the colour is red
+    /// positive-evidence with that verbatim request as the reason. The turn summary no
+    /// longer votes on colour in this mode.
+    /// </summary>
+    /// <param name="verdictState">The LLM state string: working | waiting_for_input |
+    /// waiting_for_permission | idle | cancelled | unknown.</param>
+    /// <param name="reason">The LLM's one-line reason.</param>
+    /// <param name="awaiting">Verbatim question/decision the agent is waiting on, or empty.</param>
+    internal static (string color, string reason, StatusColorSource source) ColorFromVerdict(
+        string verdictState, string reason, string awaiting)
+    {
+        var s = (verdictState ?? "").Trim().ToLowerInvariant();
+        var ask = (awaiting ?? "").Trim();
+        var why = (reason ?? "").Trim();
+        switch (s)
+        {
+            case "working":
+                return (StatusColor.Blue, string.IsNullOrEmpty(why) ? "working" : why, StatusColorSource.ActivityState);
+            case "waiting_for_permission":
+                return (StatusColor.Red, string.IsNullOrEmpty(ask) ? (string.IsNullOrEmpty(why) ? "waiting for permission" : why) : ask,
+                        StatusColorSource.PositiveEvidence);
+            case "cancelled":
+                // Interrupted: the user pressed Esc and the agent is parked asking what to
+                // do instead -- a real "needs you" situation.
+                return (StatusColor.Red,
+                        !string.IsNullOrEmpty(ask) ? ask : (string.IsNullOrEmpty(why) ? "interrupted - waiting for redirection" : why),
+                        StatusColorSource.PositiveEvidence);
+            case "waiting_for_input":
+            case "idle":
+                // A pending question makes an otherwise-idle prompt a "needs you".
+                if (!string.IsNullOrEmpty(ask))
+                    return (StatusColor.Red, ask, StatusColorSource.PositiveEvidence);
+                return (StatusColor.Green, string.IsNullOrEmpty(why) ? "ready, awaiting next prompt" : why, StatusColorSource.ActivityState);
+            default:
+                return (StatusColor.Unknown, string.IsNullOrEmpty(why) ? "unknown" : why, StatusColorSource.ActivityState);
+        }
+    }
+
+    /// <summary>
     /// Buffer markers that indicate a Claude Code session is actively waiting for the
     /// user to answer a question (not just sitting at the idle prompt). Case-insensitive
     /// substring match against the tail of the terminal buffer.
@@ -308,6 +350,19 @@ public sealed class SessionStatusWingman : IDisposable
     public void ApplyTurnSummary(Session session, Gateway.Contracts.TurnSummary summary, bool gitDirty = false, bool hasWarnings = false, long? expectedGeneration = null)
     {
         if (session is null || summary is null) return;
+
+        // Issue #137 item 3: in terminal-driven mode the TerminalStateDetector is the
+        // SINGLE colour authority (it now extracts the pending question itself via the
+        // verdict's "awaiting" field). The turn summary must NOT also vote on colour, or
+        // the two classifiers can disagree and the badge flip-flops. The summary is still
+        // cached/persisted by the caller for the Agent view, voice, and goals -- it just
+        // no longer touches the colour here. In hook-driven mode (non-default) the
+        // detector is shadow-only, so the summary remains the colour authority below.
+        if (Session.TerminalDrivenState)
+        {
+            FileLog.Write($"[SessionStatusWingman] ApplyTurnSummary {session.Id} colour skipped: terminal-driven mode (detector owns colour)");
+            return;
+        }
 
         // Issue #137 item 4: a turn summary is computed for the turn that ended at a
         // specific activity-state generation. If the state has moved on by the time
