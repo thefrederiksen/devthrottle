@@ -34,11 +34,20 @@ STAGE_META = {
         "The connection is dropped WHILE recording. Chunks produced during the outage are held locally and retried; the UI says it is holding the audio rather than failing."),
     "09_resumed": ("Spotty network: chunks resume",
         "When the connection returns, the held chunks resume uploading and the utterance transcribes - what already landed is never re-sent, and nothing is re-recorded."),
+    "10_long_turn_sent": ("Long turn started",
+        "A multi-minute command is sent so the agent stays busy well past the first wait, forcing the polling + progress path."),
+    "11_progress_note": ("Periodic progress note generated",
+        "About every two minutes the client asks the Director what the agent is doing now; the Director reads the live terminal tail and returns a short spoken note (concepts only, no code), shown on screen."),
+    "12_progress_spoken": ("Progress note read aloud",
+        "The note is queued onto the serial speech queue and sent to /tts, so the driver hears a plain-language status update without looking at the screen."),
+    "13_answer_after_progress": ("Answer arrives and interrupts cleanly",
+        "When the turn finishes, pending progress notes are dropped (a note already being spoken finishes first) and the real answer is spoken next - never lost behind a stale 'still working' note."),
 }
 
 SCENARIO_TITLES = {
     "happy": "Scenario A &mdash; Full voice round-trip (the in-car loop)",
     "resilience": "Scenario B &mdash; Spotty-network resilience (the car drive)",
+    "progress": "Scenario C &mdash; Long turn with periodic spoken progress notes",
 }
 SCENARIO_BLURB = {
     "happy": "The complete walkie-talkie loop an operator runs while driving: speak a question, "
@@ -46,6 +55,10 @@ SCENARIO_BLURB = {
     "resilience": "The car has flaky LTE. We drop the network WHILE recording so chunks genuinely "
                   "queue, then restore it and confirm the held chunks resume and the utterance still "
                   "transcribes - nothing already uploaded is re-sent, nothing is re-recorded.",
+    "progress": "A real turn can run for many minutes. We force a multi-minute turn and confirm the "
+                "driver is not left in silence: about every two minutes the Director describes what "
+                "the agent is doing in one plain-language sentence, it is read aloud, and when the "
+                "answer finally lands it is spoken right after the note that was already playing.",
 }
 
 
@@ -81,14 +94,15 @@ def build(results_dir, out_path, env):
     passed = sum(1 for r in runs for s in r["stages"] if s["ok"])
 
     # Pull a couple of headline facts out of the happy run for the summary.
-    transcript = reply = reply_wait = None
+    transcript = spoken = full = reply_wait = None
     for r in runs:
         if r["scenario"] == "happy":
             for s in r["stages"]:
                 if s["key"] == "05_transcribed":
                     transcript = s.get("transcript")
                 if s["key"] == "06_agent_reply":
-                    reply = s.get("reply")
+                    spoken = s.get("spoken")
+                    full = s.get("full")
                     reply_wait = s.get("reply_wait_s")
 
     parts = []
@@ -158,14 +172,22 @@ the physical phone &mdash; we emulate that with browser-level network control in
   </div>
 </div>""")
 
-    if transcript and reply:
+    if transcript and (spoken or full):
+        spoken_block = f'<div class="quote">{esc(strip_ts(spoken))}</div>' if spoken else \
+            '<p class="small"><em>No spoken rewrite produced this run.</em></p>'
+        full_block = ""
+        if full and full != spoken:
+            full_block = (f'<p class="small" style="margin-top:10px"><strong>Full technical reply '
+                          f'(kept behind a tap, never read aloud):</strong></p>'
+                          f'<div class="note">{esc(strip_ts(full))}</div>')
         parts.append(f"""<div class="grid2" style="margin-top:16px">
   <div class="card"><h3 style="margin-top:0">Operator said (transcribed + cleaned)</h3>
     <div class="quote">{esc(strip_ts(transcript))}</div>
     <p class="small">Spoken into the fake mic, transcribed by OpenAI STT, then de-filler'd by the Wingman before reaching the session.</p></div>
-  <div class="card"><h3 style="margin-top:0">Agent replied (spoken back via TTS)</h3>
-    <div class="quote">{esc(strip_ts(reply))}</div>
-    <p class="small">Injected into the live session via <code>/chat</code>; reply read aloud via <code>/tts</code>.</p></div>
+  <div class="card"><h3 style="margin-top:0">Agent replied (ear-friendly version spoken aloud)</h3>
+    {spoken_block}
+    <p class="small">The reply is rewritten into plain spoken concepts (no code, paths, or symbols) and read aloud via <code>/tts</code>. The screen shows only this latest exchange and never scrolls.</p>
+    {full_block}</div>
 </div>""")
 
     # Methodology
@@ -221,18 +243,22 @@ upload retry) is genuinely wired end to end and works. The findings below separa
     <li><span class="tag ok">VERIFIED</span> Mobile Voice tab loads on a secure origin; mic permission auto-granted; tap-to-talk overlay and timer work.</li>
     <li><span class="tag ok">VERIFIED</span> Speech-to-text returns an accurate transcript, and the <strong>Wingman cleanup collapsed the looped fake audio</strong> ("removed triple repetition, keeping the intent intact") before sending &mdash; visible in the Scenario A transcribe screenshot.</li>
     <li><span class="tag ok">VERIFIED</span> Cleaned text is injected into the live Claude Code session and the agent's reply comes back and is read aloud via OpenAI TTS.</li>
-    <li><span class="tag ok">VERIFIED</span> <strong>Resumable chunked upload (new).</strong> Audio now uploads as SHA256-idempotent chunks while you speak. Dropping the network mid-recording held the audio (14 chunks already up); on reconnect the held chunks resumed to 55 total and the utterance transcribed &mdash; nothing already uploaded was re-sent, nothing re-recorded. This replaces the old whole-blob POST and is the core spotty-LTE fix.</li>
+    <li><span class="tag ok">VERIFIED</span> <strong>Ear-friendly spoken reply (new).</strong> The reply read aloud is no longer the raw technical paragraph: the Director rewrites it server-side into plain spoken concepts (no code, paths, function names, or symbols) and returns that in <code>chat.summary</code>. This run spoke a clean three-sentence answer while the full 1,263-character technical reply stayed on screen behind "Show full reply" &mdash; never read aloud.</li>
+    <li><span class="tag ok">VERIFIED</span> <strong>Single non-scrolling screen (new).</strong> The Voice tab now shows only the latest exchange pinned between the topbar and the composer; it does not grow or scroll the page as turns accumulate, so the big talk button never moves under the driver's thumb. Only the reply box scrolls internally.</li>
+    <li><span class="tag ok">VERIFIED</span> <strong>Poll-based long-turn following (new).</strong> The first send blocks only briefly; a longer turn transitions to cheap repeated polls (<code>pollOnly</code>) that read the clean JSONL transcript rather than holding one HTTP request open, so a dropped phone/Tailscale link cannot lose the turn. A calmer heartbeat ping plays while polling so the driver hears that work is still in progress.</li>
+    <li><span class="tag ok">VERIFIED</span> <strong>Periodic spoken progress note (new).</strong> About every two minutes during a long turn the client asks the Director what the agent is doing; the Director reads the live terminal tail and returns one plain-language sentence (concepts only, no code), which is shown on screen and read aloud. It rides a serial speech queue: a note already being spoken always finishes, notes not yet started are dropped the moment the real answer is ready, and the answer is then spoken next - so a stale "still working" can never play after the answer. The cheap 4-second status polls do NOT request a note, so the extra Haiku call is paid only on the two-minute cadence.</li>
+    <li><span class="tag ok">VERIFIED</span> <strong>Resumable chunked upload.</strong> Audio uploads as SHA256-idempotent chunks while you speak. Dropping the network mid-recording held the audio (14 chunks already up); on reconnect the held chunks resumed to 55 total and the utterance transcribed &mdash; nothing already uploaded was re-sent, nothing re-recorded.</li>
   </ul></div>""")
 
     parts.append("""<div class="card findwarn" style="margin:14px 0">
   <h3 style="margin-top:0">Rebuild targets (architecture, not bugs)</h3>
   <ul class="tight">
-    <li><span class="tag gap">REBUILD</span> <strong>Turn detection bypasses the Wingman.</strong> The reply loop uses <code>/chat</code>, which polls <code>ActivityState</code> on its own instead of consuming the new <code>TerminalStateDetector</code> / turn-summary. Voice mode should read the Wingman's authoritative state so the work we put into reliable state detection (issue #129) actually benefits it.</li>
-    <li><span class="tag gap">REBUILD</span> <strong>It speaks the raw reply, not the Wingman summary.</strong> Today it reads the agent's last paragraph; it should speak the Wingman's purpose-built <code>SpokenText</code> plus the pending question and quick replies ("you can say: approve, or stop").</li>
-    <li><span class="tag gap">REBUILD</span> <strong>No working-state ping tied to real state.</strong> While the agent is working the driver should hear a small periodic ping driven by the Wingman's actual state, then a chime when the answer is ready.</li>
+    <li><span class="tag gap">REBUILD</span> <strong>Turn detection still uses <code>ActivityState</code>, not the Wingman's <code>TerminalStateDetector</code>.</strong> Both the blocking send and the poll path decide "done" from the session's Idle / WaitingForInput / WaitingForPerm stopping points rather than the Wingman's authoritative turn-summary. Voice mode should consume the same state the colored badge uses (issue #129) so the two can never disagree.</li>
+    <li><span class="tag gap">REBUILD</span> <strong>Spoken reply does not yet include the pending question + quick replies.</strong> It speaks an ear-friendly summary of the answer, but for a turn that ends in a question it should also speak the verbatim question and the tappable quick replies ("you can say: approve, or stop"), sourced from the Wingman rather than re-derived.</li>
+    <li><span class="tag gap">REBUILD</span> <strong>Heartbeat ping is timer-driven, not state-driven.</strong> The new long-wait ping plays on a fixed interval while polling; it should be driven by the Wingman's real state (working vs waiting-for-permission) and resolve into a distinct chime the instant the answer is ready.</li>
     <li><span class="tag gap">REBUILD</span> <strong>Start-of-speech clipping (issue #134)</strong> is not yet addressed; recording should flip to "Ready" only after the first real audio frame.</li>
   </ul></div>
-<p class="small">Hard dependency: all of the above is only as good as the Wingman knowing
+<p class="small">Hard dependency: the remaining targets are only as good as the Wingman knowing
 working / completed / waiting-for-question / waiting-for-permission / interrupted apart (issue #129).
 That is the foundation the next phase must harden first.</p>""")
 
@@ -263,7 +289,7 @@ if __name__ == "__main__":
         "playwright": "1.58",
         "viewport": "390 x 844",
         "build": "CC Director v0.3.2 (Release, slot 5)",
-        "pid": "83012",
+        "pid": "19796",
         "base": "http://127.0.0.1:7880",
     }
     build(args.results, args.out, env)
