@@ -41,6 +41,17 @@ public sealed class ChatTurnResult
     public bool ShouldKeepPolling => Status is "working" or "timeout";
 
     /// <summary>
+    /// True when a poll reports the session is still mid-turn. The client must not
+    /// inject a new question while this is true: the prompt would interleave with
+    /// the running turn and the reply read back would be that turn's output, not
+    /// an answer. Used by the pre-send readiness gate.
+    /// </summary>
+    public bool IsWorking => string.Equals(Status, "working", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>True when the session is gone and the round-trip cannot proceed.</summary>
+    public bool IsGone => string.Equals(Status, "session_not_found", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// The text to read aloud for a finished turn: the ear-friendly Summary when
     /// the server produced one, otherwise the cleaned reply itself. This is a
     /// content preference, not an error fallback - the Summary is the preferred

@@ -28,6 +28,10 @@ public partial class TalkPage : ContentPage
     private SessionInfo? _selected;
     private bool _busy;
 
+    // Cancels the in-flight turn (including a wait for a busy session to finish)
+    // so Back can abandon it instead of trapping the user behind a long turn.
+    private CancellationTokenSource? _turnCts;
+
     // Conductor mode: rotate only through sessions that need the user, one at a
     // time, waiting after each (push-to-talk reply or Next). Nothing auto-advances.
     private readonly ConductorState _conductor = new();
@@ -155,7 +159,15 @@ public partial class TalkPage : ContentPage
 
     private void OnBackClicked(object? sender, EventArgs e)
     {
-        if (_busy) return; // do not abandon a turn mid-flight
+        // Abandon any in-flight turn (e.g. a wait for a busy session to finish)
+        // rather than trapping the user; the turn runners swallow the resulting
+        // cancellation quietly.
+        _turnCts?.Cancel();
+        if (_recorder.IsRecording)
+        {
+            try { _ = _recorder.StopAsync(); } catch { /* discarding a half-captured clip on leave */ }
+        }
+        _tts.Stop();
         _selected = null;
         _conductorMode = false;
         NextButton.IsVisible = false;
@@ -244,11 +256,17 @@ public partial class TalkPage : ContentPage
         SetTalkButton(recording: false, busy: true);
         TurnStatusLabel.Text = "Reading...";
 
+        _turnCts?.Cancel();
+        _turnCts = new CancellationTokenSource();
         var convo = new VoiceConversation(new DirectorVoiceClient(TokenEntry.Text ?? ""), _tts);
         try
         {
-            await convo.SpeakConductorItemAsync(session, OnTurnUpdate);
+            await convo.SpeakConductorItemAsync(session, OnTurnUpdate, _turnCts.Token);
             TurnStatusLabel.Text = "Push Talk to reply, or Next.";
+        }
+        catch (OperationCanceledException)
+        {
+            // User left the conductor; nothing to report.
         }
         catch (Exception ex)
         {
@@ -290,6 +308,10 @@ public partial class TalkPage : ContentPage
             var audio = await _recorder.StopAsync();
             await RunTurnAsync(_selected, audio);
         }
+        catch (OperationCanceledException)
+        {
+            // User pressed Back to abandon the turn; nothing to report.
+        }
         catch (Exception ex)
         {
             TurnStatusLabel.Text = "";
@@ -301,11 +323,13 @@ public partial class TalkPage : ContentPage
     private async Task RunTurnAsync(SessionInfo session, UtteranceAudio audio)
     {
         SetTalkButton(recording: false, busy: true);
+        _turnCts?.Cancel();
+        _turnCts = new CancellationTokenSource();
         var convo = new VoiceConversation(
             new DirectorVoiceClient(TokenEntry.Text ?? ""), _tts);
         try
         {
-            await convo.SpeakTurnAsync(session, audio, OnTurnUpdate);
+            await convo.SpeakTurnAsync(session, audio, OnTurnUpdate, _turnCts.Token);
         }
         finally
         {
@@ -322,6 +346,7 @@ public partial class TalkPage : ContentPage
             case "answer": ReplyLabel.Text = u.Text; TurnStatusLabel.Text = ""; break;
             case "recap": TranscriptLabel.Text = u.Text; break;       // conductor context
             case "name": TurnStatusLabel.Text = $"Reading: {u.Text}"; break;
+            case "waiting": TurnStatusLabel.Text = u.Text; break;     // session busy; holding the question
             case "progress": TurnStatusLabel.Text = u.Text; break;
             default: TurnStatusLabel.Text = u.Text; break;            // transcribing / thinking
         }

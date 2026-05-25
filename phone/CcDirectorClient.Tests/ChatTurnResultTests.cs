@@ -37,4 +37,26 @@ public class ChatTurnResultTests
     {
         Assert.Equal("", new ChatTurnResult().SpokenText());
     }
+
+    [Theory]
+    [InlineData("working", true)]
+    [InlineData("WORKING", true)]
+    [InlineData("ok", false)]
+    [InlineData("timeout", false)]
+    [InlineData("session_not_found", false)]
+    public void IsWorking_OnlyTrueWhileMidTurn(string status, bool expected)
+    {
+        // The readiness gate must hold a question only while the session is
+        // genuinely mid-turn; a stopping point (ok) must read as ready.
+        Assert.Equal(expected, new ChatTurnResult { Status = status }.IsWorking);
+    }
+
+    [Theory]
+    [InlineData("session_not_found", true)]
+    [InlineData("ok", false)]
+    [InlineData("working", false)]
+    public void IsGone_OnlyTrueWhenSessionExited(string status, bool expected)
+    {
+        Assert.Equal(expected, new ChatTurnResult { Status = status }.IsGone);
+    }
 }

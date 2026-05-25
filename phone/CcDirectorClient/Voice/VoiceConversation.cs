@@ -18,6 +18,7 @@ public sealed class VoiceConversation
     private const int PollSeconds = 3;
     private const int ProgressEverySeconds = 120;
     private const int InitialTurnTimeoutMs = 45_000;
+    private const int ReadyPollSeconds = 4;
 
     private readonly DirectorVoiceClient _client;
     private readonly IReplySpeaker _tts;
@@ -49,6 +50,13 @@ public sealed class VoiceConversation
         if (string.IsNullOrWhiteSpace(transcript))
             throw new InvalidOperationException("nothing was transcribed from the recording");
         onUpdate?.Invoke(new TurnUpdate("transcript", transcript));
+
+        // Only deliver the question to a session that has FINISHED its current
+        // turn. If it is still working, the prompt would interleave with the
+        // in-progress turn and the reply we read back would be that turn's
+        // output, not an answer to the question. So wait for a stopping point
+        // first - the same discipline as single-session voice.
+        await WaitUntilReadyAsync(session, onUpdate, ct);
 
         onUpdate?.Invoke(new TurnUpdate("thinking", "Thinking..."));
         var result = await _client.SendChatAsync(
@@ -96,6 +104,40 @@ public sealed class VoiceConversation
             await _tts.SpeakAsync(answer, ct);
         }
         return answer;
+    }
+
+    /// <summary>
+    /// Block until the session has finished its current turn (is at a stopping
+    /// point: Idle / WaitingForInput / WaitingForPerm, which the server reports as
+    /// poll status "ok"). If it is still working, announce it once and poll until
+    /// it finishes. Throws if the session has exited. Honors cancellation so the
+    /// user can leave instead of waiting on a long turn.
+    /// </summary>
+    private async Task WaitUntilReadyAsync(SessionInfo session, Action<TurnUpdate>? onUpdate, CancellationToken ct)
+    {
+        var poll = await _client.PollChatAsync(session.TailnetEndpoint, session.SessionId, wantProgress: false, ct);
+        if (poll.IsGone)
+            throw new InvalidOperationException("that session has exited");
+        if (!poll.IsWorking)
+            return; // already finished its turn - safe to ask now
+
+        ClientLog.Write($"[VoiceConversation] WaitUntilReady: session={session.DisplayName} is working; holding the question");
+        onUpdate?.Invoke(new TurnUpdate("waiting", "That session is still working. I will ask when it finishes."));
+        await _tts.SpeakAsync("That session is still working. I'll ask when it finishes.", ct);
+
+        while (!ct.IsCancellationRequested)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(ReadyPollSeconds), ct);
+            poll = await _client.PollChatAsync(session.TailnetEndpoint, session.SessionId, wantProgress: false, ct);
+            if (poll.IsGone)
+                throw new InvalidOperationException("that session has exited");
+            if (!poll.IsWorking)
+            {
+                ClientLog.Write($"[VoiceConversation] WaitUntilReady: session={session.DisplayName} now ready");
+                return;
+            }
+        }
+        ct.ThrowIfCancellationRequested();
     }
 
     private async Task<ChatTurnResult> FollowTurnAsync(
