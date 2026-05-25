@@ -2,7 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="CcDirector.Avalonia.Voice.SpeakDialog"
         Title="Dictate"
-        Width="540" Height="320"
+        Width="540" Height="380"
         WindowStartupLocation="CenterOwner"
         CanResize="False"
         ShowInTaskbar="False"
@@ -26,29 +26,64 @@
                        VerticalAlignment="Center" />
         </Grid>
 
-        <!-- Center stage: equalizer + transcript area -->
-        <Grid Grid.Row="1" RowDefinitions="Auto,*">
-            <!-- 9-bar equalizer -->
+        <!-- Center stage: equalizer + low-level hint + transcript area -->
+        <Grid Grid.Row="1" RowDefinitions="Auto,Auto,*">
+            <!-- 9-bar equalizer. Each red bar sits inside a fixed-height gray
+                 "track well" so the full range (floor to ceiling) is always
+                 visible; the red bar fills the well from the bottom. The well
+                 height (92) matches the maxH used in OnAudioBands. -->
             <StackPanel Grid.Row="0" Orientation="Horizontal"
                         HorizontalAlignment="Center"
                         VerticalAlignment="Center"
                         Spacing="6"
-                        Height="64"
-                        Margin="0,0,0,12">
-                <Border x:Name="Bar0" Width="10" Height="6" Background="#F44747" CornerRadius="3" VerticalAlignment="Bottom" />
-                <Border x:Name="Bar1" Width="10" Height="6" Background="#F44747" CornerRadius="3" VerticalAlignment="Bottom" />
-                <Border x:Name="Bar2" Width="10" Height="6" Background="#F44747" CornerRadius="3" VerticalAlignment="Bottom" />
-                <Border x:Name="Bar3" Width="10" Height="6" Background="#F44747" CornerRadius="3" VerticalAlignment="Bottom" />
-                <Border x:Name="Bar4" Width="10" Height="6" Background="#F44747" CornerRadius="3" VerticalAlignment="Bottom" />
-                <Border x:Name="Bar5" Width="10" Height="6" Background="#F44747" CornerRadius="3" VerticalAlignment="Bottom" />
-                <Border x:Name="Bar6" Width="10" Height="6" Background="#F44747" CornerRadius="3" VerticalAlignment="Bottom" />
-                <Border x:Name="Bar7" Width="10" Height="6" Background="#F44747" CornerRadius="3" VerticalAlignment="Bottom" />
-                <Border x:Name="Bar8" Width="10" Height="6" Background="#F44747" CornerRadius="3" VerticalAlignment="Bottom" />
+                        Height="100"
+                        Margin="0,0,0,4">
+                <Border Width="12" Height="92" Background="#33333A" CornerRadius="3" VerticalAlignment="Center">
+                    <Border x:Name="Bar0" Height="8" Background="#F44747" CornerRadius="3" VerticalAlignment="Bottom" />
+                </Border>
+                <Border Width="12" Height="92" Background="#33333A" CornerRadius="3" VerticalAlignment="Center">
+                    <Border x:Name="Bar1" Height="8" Background="#F44747" CornerRadius="3" VerticalAlignment="Bottom" />
+                </Border>
+                <Border Width="12" Height="92" Background="#33333A" CornerRadius="3" VerticalAlignment="Center">
+                    <Border x:Name="Bar2" Height="8" Background="#F44747" CornerRadius="3" VerticalAlignment="Bottom" />
+                </Border>
+                <Border Width="12" Height="92" Background="#33333A" CornerRadius="3" VerticalAlignment="Center">
+                    <Border x:Name="Bar3" Height="8" Background="#F44747" CornerRadius="3" VerticalAlignment="Bottom" />
+                </Border>
+                <Border Width="12" Height="92" Background="#33333A" CornerRadius="3" VerticalAlignment="Center">
+                    <Border x:Name="Bar4" Height="8" Background="#F44747" CornerRadius="3" VerticalAlignment="Bottom" />
+                </Border>
+                <Border Width="12" Height="92" Background="#33333A" CornerRadius="3" VerticalAlignment="Center">
+                    <Border x:Name="Bar5" Height="8" Background="#F44747" CornerRadius="3" VerticalAlignment="Bottom" />
+                </Border>
+                <Border Width="12" Height="92" Background="#33333A" CornerRadius="3" VerticalAlignment="Center">
+                    <Border x:Name="Bar6" Height="8" Background="#F44747" CornerRadius="3" VerticalAlignment="Bottom" />
+                </Border>
+                <Border Width="12" Height="92" Background="#33333A" CornerRadius="3" VerticalAlignment="Center">
+                    <Border x:Name="Bar7" Height="8" Background="#F44747" CornerRadius="3" VerticalAlignment="Bottom" />
+                </Border>
+                <Border Width="12" Height="92" Background="#33333A" CornerRadius="3" VerticalAlignment="Center">
+                    <Border x:Name="Bar8" Height="8" Background="#F44747" CornerRadius="3" VerticalAlignment="Bottom" />
+                </Border>
             </StackPanel>
+
+            <!-- Low-level hint. Shown (amber) only while recording when the
+                 input is voice-present but too quiet for clean capture. The
+                 row keeps a reserved height (empty text when healthy) so the
+                 layout does not jump when it toggles. -->
+            <TextBlock x:Name="LevelHint" Grid.Row="1"
+                       Text=""
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center"
+                       Foreground="#DCDCAA"
+                       FontFamily="Cascadia Mono,Consolas,monospace"
+                       FontSize="12"
+                       MinHeight="18"
+                       Margin="0,0,0,8" />
 
             <!-- Transcript area (used both for live partials during recording AND
                  final cleaned text after stop). -->
-            <Border Grid.Row="1"
+            <Border Grid.Row="2"
                     Background="#252526"
                     BorderBrush="#3C3C3C" BorderThickness="1"
                     CornerRadius="6"

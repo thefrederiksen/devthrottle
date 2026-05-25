@@ -37,6 +37,13 @@ public partial class SpeakDialog : Window
     private readonly AgentOptions _options;
     private readonly Border[] _bars;
     private readonly double[] _barTargets = new double[9];
+
+    // Decaying peak of the raw int16 input RMS, used to decide whether the
+    // "speak up" hint should show. Decays per chunk so the hint reacts to
+    // recent speech rather than flickering on every 50 ms buffer.
+    private double _recentPeakRms;
+    private const double VoicePresentRms = 20.0;   // below this = silence, don't nag
+    private const double HealthyRms = 600.0;        // at/above this = loud enough, hide hint
     private readonly DispatcherTimer _timer;
     private readonly DispatcherTimer _eqTimer;
 
@@ -73,7 +80,7 @@ public partial class SpeakDialog : Window
         _timer.Tick += (_, _) => UpdateTimer();
 
         // Decay the equalizer bars at a steady rate so they fall smoothly.
-        // OnAudioLevel sets target heights; this timer animates toward them.
+        // OnAudioBands sets per-bar target heights; this timer animates toward them.
         _eqTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(33) };
         _eqTimer.Tick += (_, _) => StepEqualizer();
 
@@ -147,7 +154,8 @@ public partial class SpeakDialog : Window
         var svc = new SpeakService(_options);
         svc.OnPartial += OnPartial;
         svc.OnStateChanged += OnStateChanged;
-        svc.OnAudioLevel += OnAudioLevel;
+        svc.OnAudioBands += OnAudioBands;
+        svc.OnInputRms += OnInputRms;
         await svc.StartAsync("default");
         _service = svc;
     }
@@ -170,25 +178,47 @@ public partial class SpeakDialog : Window
         TimerLabel.Text = $"{s / 60}:{(s % 60):D2}.{tenths}";
     }
 
-    private void OnAudioLevel(double level)
+    private void OnAudioBands(double[] bands)
     {
-        // Driven from NAudio's worker thread. Update target heights on the UI
-        // thread; the eqTimer animates from current to target.
+        // Driven from NAudio's worker thread. Each band drives its own bar so
+        // the bars move independently (real spectrum) rather than as one hill.
+        // Update targets on the UI thread; the eqTimer animates toward them.
         Dispatcher.UIThread.Post(() =>
         {
-            // Symmetric wave: center bar gets full level, edges get a fraction.
-            const double maxH = 48.0;
-            const double minH = 6.0;
-            int n = _barTargets.Length;
-            int center = n / 2;
+            const double maxH = 92.0;
+            const double minH = 8.0;
+            int n = Math.Min(_barTargets.Length, bands.Length);
             for (int i = 0; i < n; i++)
             {
-                double distFromCenter = Math.Abs(i - center);
-                double t = 1.0 - (distFromCenter / center) * 0.6;
-                double h = minH + (maxH - minH) * level * t;
-                _barTargets[i] = h;
+                double level = Math.Clamp(bands[i], 0.0, 1.0);
+                _barTargets[i] = minH + (maxH - minH) * level;
             }
         });
+    }
+
+    private void OnInputRms(double rms)
+    {
+        // From NAudio's worker thread. Track a decaying peak on the UI thread
+        // and re-evaluate the hint.
+        Dispatcher.UIThread.Post(() =>
+        {
+            _recentPeakRms = Math.Max(rms, _recentPeakRms * 0.97);
+            UpdateLevelHint();
+        });
+    }
+
+    private void UpdateLevelHint()
+    {
+        // Only nag while actually recording, and only when there is voice
+        // present (so we don't badger during silent pauses) but it is
+        // consistently too quiet for clean capture. The meter itself is
+        // calibrated to a healthy level, so a short bar plus this hint together
+        // tell the user to speak up rather than us scaling the meter to flatter
+        // a faint signal.
+        bool tooQuiet = _stage == Stage.Recording
+                        && _recentPeakRms >= VoicePresentRms
+                        && _recentPeakRms < HealthyRms;
+        LevelHint.Text = tooQuiet ? "Speak a little louder or move closer to the mic" : "";
     }
 
     private void StepEqualizer()
@@ -200,9 +230,9 @@ public partial class SpeakDialog : Window
             var current = _bars[i].Height;
             var target = _barTargets[i];
             var diff = target - current;
-            double step = diff >= 0 ? diff * 0.7 : diff * 0.20;
+            double step = diff >= 0 ? diff * 0.7 : diff * 0.32;
             var next = current + step;
-            if (next < 6.0) next = 6.0;
+            if (next < 8.0) next = 8.0;
             _bars[i].Height = next;
         }
     }
@@ -407,8 +437,9 @@ public partial class SpeakDialog : Window
         TimerLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xDC, 0xDC, 0xAA));
         PrimaryButton.IsEnabled = false;
         StopButton.IsEnabled = false;
-        for (int i = 0; i < _barTargets.Length; i++) _barTargets[i] = 18.0;
+        for (int i = 0; i < _barTargets.Length; i++) _barTargets[i] = 34.0;
         foreach (var bar in _bars) bar.Background = new SolidColorBrush(Color.FromRgb(0xDC, 0xDC, 0xAA));
+        LevelHint.Text = "";
     }
 
     private void SwitchToPaused()
@@ -422,8 +453,9 @@ public partial class SpeakDialog : Window
         StopButton.IsEnabled = true;
         PrimaryButton.IsEnabled = true;
         // Park the equalizer bars at a low resting height while paused.
-        for (int i = 0; i < _barTargets.Length; i++) _barTargets[i] = 6.0;
+        for (int i = 0; i < _barTargets.Length; i++) _barTargets[i] = 8.0;
         foreach (var bar in _bars) bar.Background = new SolidColorBrush(Color.FromRgb(0x6A, 0x6A, 0x6A));
+        LevelHint.Text = "";
         RenderTranscript();
     }
 
@@ -438,6 +470,9 @@ public partial class SpeakDialog : Window
         StopButton.IsEnabled = true;
         PrimaryButton.IsEnabled = true;
         foreach (var bar in _bars) bar.Background = new SolidColorBrush(Color.FromRgb(0xF4, 0x47, 0x47));
+        // Fresh segment: re-evaluate loudness from scratch.
+        _recentPeakRms = 0.0;
+        LevelHint.Text = "";
     }
 
     /// <summary>

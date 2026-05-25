@@ -12,7 +12,7 @@ namespace CcDirector.Avalonia.Voice;
 /// caller (the SpeakDialog) drives lifecycle:
 ///
 ///   var svc = new SpeakService(options);
-///   svc.OnAudioLevel    += level => /* drive equalizer */ ;
+///   svc.OnAudioBands    += bands => /* drive equalizer */ ;
 ///   svc.OnPartial       += text  => /* live preview */ ;
 ///   svc.OnStateChanged  += s     => /* recording / buffering / transcribing */ ;
 ///   await svc.StartAsync(profile, ct);
@@ -38,7 +38,8 @@ public sealed class SpeakService : IAsyncDisposable
     private bool _stopped;
     private bool _disposed;
 
-    public event Action<double>? OnAudioLevel;
+    public event Action<double[]>? OnAudioBands;
+    public event Action<double>? OnInputRms;
     public event Action<string>? OnPartial;
     public event Action<ConnectionState>? OnStateChanged;
 
@@ -76,7 +77,8 @@ public sealed class SpeakService : IAsyncDisposable
             // through DictationSession's existing error handling.
             _ = _session.PushAudioAsync(chunk);
         };
-        _mic.OnAudioLevel += level => OnAudioLevel?.Invoke(level);
+        _mic.OnAudioBands += bands => OnAudioBands?.Invoke(bands);
+        _mic.OnInputRms += rms => OnInputRms?.Invoke(rms);
         _mic.Start();
         _started = true;
     }
