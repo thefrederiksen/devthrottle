@@ -75,6 +75,31 @@ public sealed class TerminalStateDetector : IDisposable
         _ => ActivityState.WaitingForInput,
     };
 
+    /// <summary>The canonical "I am working" footer Claude Code shows while a turn
+    /// or tool is running. ASCII, very specific to Claude Code, so it is a reliable
+    /// working signal and is unlikely to appear in an idle status line.</summary>
+    internal const string WorkingFooterMarker = "esc to interrupt";
+
+    /// <summary>
+    /// True when any row of the resolved on-screen grid carries the working footer
+    /// (<see cref="WorkingFooterMarker"/>). This is positive evidence the agent is
+    /// mid-turn even when no bytes are flowing -- a quiet tool / network wait leaves
+    /// the footer statically on screen. The quiet gate consults this before declaring
+    /// a turn over so it never repaints a working session green. An empty grid
+    /// (Embedded backend, no resolved screen) is treated as "still working" so we never
+    /// fabricate a turn-end we cannot see.
+    /// </summary>
+    internal static bool ScreenShowsWorkingFooter(string[] rows)
+    {
+        if (rows is null || rows.Length == 0) return true;
+        foreach (var row in rows)
+        {
+            if (row.IndexOf(WorkingFooterMarker, StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+        }
+        return false;
+    }
+
     public void Start()
     {
         if (_started) return;
@@ -134,11 +159,6 @@ public sealed class TerminalStateDetector : IDisposable
         /// cosmetically; the agent's actual output appears above them.
         /// </summary>
         private const int CosmeticBottomRows = 6;
-
-        /// <summary>The canonical "I am working" footer Claude Code shows while a turn
-        /// or tool is running. ASCII, very specific to Claude Code, so it is a reliable
-        /// working signal and is unlikely to appear in an idle status line.</summary>
-        private const string WorkingFooterMarker = "esc to interrupt";
 
         public Watcher(Session session, string claudePath, bool useLlm, bool driveState, bool useFullSession)
         {
@@ -207,15 +227,13 @@ public sealed class TerminalStateDetector : IDisposable
             var rows = _session.SnapshotScreenRows();
             if (rows.Length == 0) return (true, "");
 
-            bool working = false;
+            bool working = ScreenShowsWorkingFooter(rows);
             var sb = new StringBuilder(rows.Length * 16);
             int upperCount = Math.Max(0, rows.Length - CosmeticBottomRows);
-            for (int i = 0; i < rows.Length; i++)
+            for (int i = 0; i < upperCount; i++)
             {
                 var row = rows[i];
-                if (!working && row.IndexOf(WorkingFooterMarker, StringComparison.OrdinalIgnoreCase) >= 0)
-                    working = true;
-                if (i < upperCount && row.Length > 0)
+                if (row.Length > 0)
                 {
                     sb.Append(row);
                     sb.Append('\n');
@@ -238,6 +256,21 @@ public sealed class TerminalStateDetector : IDisposable
             }
 
             if (!_active) return; // already reported quiet; nothing changed
+
+            // The byte stream went silent, but silence alone is not a turn-end. A working
+            // agent blocked on a quiet tool (a long Bash, a network wait, a sub-agent)
+            // stops emitting bytes while Claude Code keeps its "esc to interrupt" footer
+            // statically on screen. Declaring "quiet" here would flip the session to
+            // WaitingForInput -> green ("ready for anyone") mid-turn -- the observed bug.
+            // Re-check the RESOLVED screen: if the working footer is still up, the agent is
+            // still working. Stay ACTIVE/blue and keep waiting for it to truly finish.
+            var (workingNow, _) = InspectScreen();
+            if (workingNow)
+            {
+                ArmQuietTimer();
+                return;
+            }
+
             _active = false;
             FileLog.Write($"[TerminalStateDetector] {_session.Id} terminal=QUIET ({idleMs / 1000.0:F1}s no output) | hook={_session.ActivityState} color={_session.StatusColor}");
 
