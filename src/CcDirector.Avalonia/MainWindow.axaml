@@ -995,6 +995,15 @@
                                                                 FontSize="9" Cursor="Hand"
                                                                 Padding="3,1"
                                                                 ToolTip.Tip="Move down" />
+                                                        <Button Content="Edit"
+                                                                Tag="{Binding Id}"
+                                                                Click="QueueItemEdit_Click"
+                                                                Background="Transparent"
+                                                                Foreground="#3B82F6"
+                                                                BorderThickness="0"
+                                                                FontSize="10" Cursor="Hand"
+                                                                Padding="4,2"
+                                                                ToolTip.Tip="Open in the review editor (text + image preview)" />
                                                         <Button Content="Pop"
                                                                 Tag="{Binding Id}"
                                                                 Click="QueueItemPop_Click"

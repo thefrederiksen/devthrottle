@@ -72,7 +72,8 @@ public partial class ExpandedEditorDialog : Window
     }
 
     /// <summary>Queue mode: browse and edit a session's queued prompts.</summary>
-    public ExpandedEditorDialog(string title, PromptQueue queue)
+    /// <param name="initialItemId">If set, the rail selects this item on open.</param>
+    public ExpandedEditorDialog(string title, PromptQueue queue, Guid? initialItemId = null)
     {
         _mode = EditorMode.Queue;
         _queue = queue;
@@ -88,8 +89,18 @@ public partial class ExpandedEditorDialog : Window
 
         Loaded += (_, _) => Dispatcher.UIThread.Post(() =>
         {
-            if (_railItems.Count > 0)
-                QueueRailList.SelectedIndex = 0;
+            if (_railItems.Count == 0)
+                return;
+
+            var index = 0;
+            if (initialItemId is Guid wanted)
+            {
+                var found = _railItems.ToList().FindIndex(r => r.Id == wanted);
+                if (found >= 0)
+                    index = found;
+            }
+
+            QueueRailList.SelectedIndex = index;
         });
     }
 

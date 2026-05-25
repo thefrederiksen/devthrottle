@@ -2601,6 +2601,32 @@ public partial class MainWindow : Window
         RefreshQueuePanel();
     }
 
+    private async void QueueItemEdit_Click(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Button btn || btn.Tag is not Guid itemId)
+            return;
+
+        FileLog.Write($"[MainWindow] QueueItemEdit_Click: {itemId}");
+        try
+        {
+            var queue = _activeSession?.Session.PromptQueue;
+            if (queue == null || queue.Count == 0)
+                return;
+
+            var title = _activeSession != null ? $"Queue - {_activeSession.DisplayName}" : "Queue";
+            var dialog = new ExpandedEditorDialog(title, queue, itemId);
+            await dialog.ShowDialog<bool?>(this);
+
+            // Edits mutate the queue in memory; persist and refresh the visible panel.
+            PersistSessionState();
+            RefreshQueuePanel();
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] QueueItemEdit_Click FAILED: {ex.Message}");
+        }
+    }
+
     private void QueueItemMoveUp_Click(object? sender, RoutedEventArgs e)
     {
         if (sender is not Button btn || btn.Tag is not Guid itemId)
