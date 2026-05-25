@@ -1,0 +1,132 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="CcDirector.Avalonia.ExpandedEditorDialog"
+        Title="Editor"
+        Width="1100" Height="760"
+        MinWidth="640" MinHeight="400"
+        CanResize="True"
+        WindowStartupLocation="CenterOwner"
+        Background="#1E1E1E">
+
+    <Grid RowDefinitions="Auto,*,Auto">
+
+        <!-- Header -->
+        <Border Grid.Row="0" Background="#2D2D30" Padding="14,10"
+                BorderBrush="#3C3C3C" BorderThickness="0,0,0,1">
+            <TextBlock x:Name="HeaderText"
+                       Text="Editor"
+                       Foreground="#FFFFFF"
+                       FontSize="14" FontWeight="SemiBold"
+                       VerticalAlignment="Center" />
+        </Border>
+
+        <!-- Body: optional queue rail | editor | splitter | preview -->
+        <Grid Grid.Row="1" x:Name="BodyGrid" ColumnDefinitions="Auto,*,4,*">
+
+            <!-- Queue rail (queue mode only) -->
+            <Border x:Name="QueueRail" Grid.Column="0" Width="240"
+                    IsVisible="False"
+                    Background="#252526"
+                    BorderBrush="#3C3C3C" BorderThickness="0,0,1,0">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top"
+                               Text="Queued prompts"
+                               Foreground="#888888" FontSize="11" FontWeight="SemiBold"
+                               Margin="10,10,10,6" />
+                    <ListBox x:Name="QueueRailList"
+                             Background="Transparent"
+                             Padding="4"
+                             SelectionChanged="QueueRailList_SelectionChanged">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Border Padding="6,4" Margin="0,1"
+                                        Background="#2A2A2A" CornerRadius="2">
+                                    <Grid ColumnDefinitions="24,*">
+                                        <TextBlock Grid.Column="0"
+                                                   Text="{Binding Index}"
+                                                   Foreground="#666666" FontSize="11"
+                                                   VerticalAlignment="Top" />
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{Binding Snippet}"
+                                                   Foreground="#CCCCCC" FontSize="11"
+                                                   TextWrapping="Wrap" MaxHeight="60"
+                                                   TextTrimming="CharacterEllipsis" />
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </DockPanel>
+            </Border>
+
+            <!-- Editor -->
+            <DockPanel Grid.Column="1" Margin="10,8,4,8">
+                <TextBlock DockPanel.Dock="Top"
+                           Text="Edit"
+                           Foreground="#888888" FontSize="11" FontWeight="SemiBold"
+                           Margin="2,0,0,6" />
+                <TextBox x:Name="EditorBox"
+                         AcceptsReturn="True"
+                         TextWrapping="Wrap"
+                         AcceptsTab="True"
+                         Background="#1E1E1E"
+                         Foreground="#DDDDDD"
+                         CaretBrush="#DDDDDD"
+                         BorderBrush="#3C3C3C"
+                         BorderThickness="1"
+                         Padding="10,8"
+                         FontFamily="Cascadia Mono,Consolas,monospace"
+                         FontSize="13"
+                         VerticalContentAlignment="Top" />
+            </DockPanel>
+
+            <GridSplitter Grid.Column="2"
+                          Background="#3C3C3C"
+                          ResizeDirection="Columns" />
+
+            <!-- Preview -->
+            <DockPanel Grid.Column="3" Margin="4,8,10,8">
+                <TextBlock DockPanel.Dock="Top"
+                           Text="Preview"
+                           Foreground="#888888" FontSize="11" FontWeight="SemiBold"
+                           Margin="2,0,0,6" />
+                <Border Background="#1A1A1A"
+                        BorderBrush="#3C3C3C" BorderThickness="1">
+                    <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                                  VerticalScrollBarVisibility="Auto">
+                        <StackPanel x:Name="PreviewPanel" Spacing="8" Margin="12" />
+                    </ScrollViewer>
+                </Border>
+            </DockPanel>
+        </Grid>
+
+        <!-- Footer buttons -->
+        <Border Grid.Row="2" Background="#2D2D30" Padding="14,10"
+                BorderBrush="#3C3C3C" BorderThickness="0,1,0,0">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                <Button x:Name="SaveButton"
+                        Content="Save"
+                        Click="SaveButton_Click"
+                        IsVisible="False"
+                        Width="90" Height="30"
+                        Background="#16A34A" Foreground="White"
+                        BorderThickness="0" Cursor="Hand"
+                        HorizontalContentAlignment="Center" />
+                <Button x:Name="PrimaryButton"
+                        Content="Apply"
+                        Click="PrimaryButton_Click"
+                        Width="90" Height="30"
+                        Background="#007ACC" Foreground="White"
+                        BorderThickness="0" Cursor="Hand"
+                        HorizontalContentAlignment="Center" />
+                <Button x:Name="CloseButton"
+                        Content="Cancel"
+                        Click="CloseButton_Click"
+                        Width="90" Height="30"
+                        Background="#3C3C3C" Foreground="#CCCCCC"
+                        BorderThickness="0" Cursor="Hand"
+                        HorizontalContentAlignment="Center" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

@@ -66,6 +66,19 @@ public sealed class PromptQueue
         return true;
     }
 
+    /// <summary>Replace the text of an existing item. No-op if not found or unchanged.</summary>
+    public bool UpdateText(Guid id, string text)
+    {
+        var item = _items.FirstOrDefault(i => i.Id == id);
+        if (item == null) return false;
+        if (item.Text == text) return false;
+
+        FileLog.Write($"[PromptQueue] UpdateText: id={id}, length={text.Length}");
+        item.Text = text;
+        OnQueueChanged?.Invoke();
+        return true;
+    }
+
     /// <summary>Remove all items from the queue.</summary>
     public void Clear()
     {

@@ -2333,6 +2333,55 @@ public partial class MainWindow : Window
         QueueCurrentPrompt();
     }
 
+    private async void PromptExpand_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write("[MainWindow] PromptExpand_Click");
+        try
+        {
+            var dialog = new ExpandedEditorDialog("Edit prompt", PromptInput.Text ?? "");
+            var applied = await dialog.ShowDialog<bool?>(this);
+            if (applied == true)
+            {
+                PromptInput.Text = dialog.EditedText;
+                PromptInput.CaretIndex = PromptInput.Text.Length;
+                PromptInput.Focus();
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] PromptExpand_Click FAILED: {ex.Message}");
+        }
+    }
+
+    private async void QueuePreview_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write("[MainWindow] QueuePreview_Click");
+        try
+        {
+            if (sender is not Control control || control.DataContext is not SessionViewModel vm)
+            {
+                FileLog.Write("[MainWindow] QueuePreview_Click: no session view model");
+                return;
+            }
+
+            var queue = vm.Session.PromptQueue;
+            if (queue == null || queue.Count == 0)
+                return;
+
+            var dialog = new ExpandedEditorDialog($"Queue - {vm.DisplayName}", queue);
+            await dialog.ShowDialog<bool?>(this);
+
+            // Edits mutate the queue in memory; persist and refresh the visible panel.
+            PersistSessionState();
+            if (_activeSession?.Session.Id == vm.Session.Id)
+                RefreshQueuePanel();
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] QueuePreview_Click FAILED: {ex.Message}");
+        }
+    }
+
     private void QueueCurrentPrompt()
     {
         if (_activeSession == null || string.IsNullOrWhiteSpace(PromptInput.Text))

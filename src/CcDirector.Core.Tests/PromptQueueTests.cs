@@ -62,6 +62,43 @@ public class PromptQueueTests
     }
 
     [Fact]
+    public void UpdateText_ExistingItem_ChangesTextAndFiresEvent()
+    {
+        var queue = new PromptQueue();
+        var item = queue.Enqueue("original");
+        var fired = false;
+        queue.OnQueueChanged += () => fired = true;
+
+        var updated = queue.UpdateText(item.Id, "edited");
+
+        Assert.True(updated);
+        Assert.True(fired);
+        Assert.Equal("edited", queue.Items[0].Text);
+    }
+
+    [Fact]
+    public void UpdateText_UnchangedText_NoOp()
+    {
+        var queue = new PromptQueue();
+        var item = queue.Enqueue("same");
+
+        var updated = queue.UpdateText(item.Id, "same");
+
+        Assert.False(updated);
+    }
+
+    [Fact]
+    public void UpdateText_NonExistentGuid_NoOp()
+    {
+        var queue = new PromptQueue();
+        queue.Enqueue("something");
+
+        var updated = queue.UpdateText(Guid.NewGuid(), "x");
+
+        Assert.False(updated);
+    }
+
+    [Fact]
     public void MoveUp_ReordersCorrectly()
     {
         var queue = new PromptQueue();
