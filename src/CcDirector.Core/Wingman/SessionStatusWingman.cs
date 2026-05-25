@@ -110,7 +110,7 @@ public sealed class SessionStatusWingman : IDisposable
         // Initialize color from current activity state. New sessions start green
         // (greenfield); restored sessions get their truthful current-state color.
         var (color, reason) = ColorFromActivityState(session.ActivityState, isNew);
-        session.SetStatusColor(color, reason);
+        session.SetStatusColor(color, reason, source: SourceForState(session.ActivityState));
         FileLog.Write($"[SessionStatusWingman] init {session.Id} -> {color} ({reason})");
 
         Action<ActivityState, ActivityState> handler = (oldState, newState) =>
@@ -118,7 +118,7 @@ public sealed class SessionStatusWingman : IDisposable
             try
             {
                 var (c, r) = ColorFromActivityState(newState, isNew: false);
-                session.SetStatusColor(c, r);
+                session.SetStatusColor(c, r, source: SourceForState(newState));
                 FileLog.Write($"[SessionStatusWingman] {session.Id} activity {oldState}->{newState} => {c} ({r})");
 
                 // Phase 4a: WaitingForInput is green by default; promote to red only
@@ -190,6 +190,17 @@ public sealed class SessionStatusWingman : IDisposable
             _                             => (StatusColor.Unknown, "unknown activity state"),
         };
     }
+
+    /// <summary>
+    /// Colour-source for a fast-path activity-state write (issue #136 option C).
+    /// WaitingForPerm is an authoritative on-screen gate the user must clear, so it
+    /// is positive evidence -- a byte-burst guess or a re-evaluated mapping must not
+    /// repaint over it. Every other state is the ordinary ActivityState baseline.
+    /// </summary>
+    internal static StatusColorSource SourceForState(ActivityState state)
+        => state == ActivityState.WaitingForPerm
+            ? StatusColorSource.PositiveEvidence
+            : StatusColorSource.ActivityState;
 
     /// <summary>
     /// Buffer markers that indicate a Claude Code session is actively waiting for the
@@ -294,9 +305,22 @@ public sealed class SessionStatusWingman : IDisposable
     /// (today: <see cref="TurnSummaryCache"/>'s background completion handler) invoke
     /// this once Haiku returns. The wingman does not generate summaries itself.
     /// </summary>
-    public void ApplyTurnSummary(Session session, Gateway.Contracts.TurnSummary summary, bool gitDirty = false, bool hasWarnings = false)
+    public void ApplyTurnSummary(Session session, Gateway.Contracts.TurnSummary summary, bool gitDirty = false, bool hasWarnings = false, long? expectedGeneration = null)
     {
         if (session is null || summary is null) return;
+
+        // Issue #137 item 4: a turn summary is computed for the turn that ended at a
+        // specific activity-state generation. If the state has moved on by the time
+        // Haiku returns (~10s later) -- the user submitted again, an interrupt, a new
+        // turn -- the summary is stale and must not write. This is the principled
+        // generalization of the state-based guard below: the caller samples the
+        // generation at turn-end and we drop the write if it no longer matches.
+        if (expectedGeneration.HasValue && session.ActivityGeneration != expectedGeneration.Value)
+        {
+            FileLog.Write($"[SessionStatusWingman] ApplyTurnSummary {session.Id} skipped: stale generation (expected {expectedGeneration.Value}, now {session.ActivityGeneration})");
+            return;
+        }
+
         // Phase 4a: WaitingForPerm is always red and authoritative - the agent will not
         // proceed until the user grants permission. Don't let a stale turn summary
         // downgrade it.

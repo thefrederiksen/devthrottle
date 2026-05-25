@@ -378,6 +378,13 @@ public sealed class Session : IDisposable
     /// </summary>
     private long _activityGeneration;
 
+    /// <summary>
+    /// Current activity-state generation (see <see cref="_activityGeneration"/>). An
+    /// async colour writer (e.g. the ~10s turn-summary) can sample this when its turn
+    /// ends and pass it back so its write is dropped if the state has since moved on.
+    /// </summary>
+    public long ActivityGeneration => Interlocked.Read(ref _activityGeneration);
+
     /// <summary>The source of the last accepted colour write, and the generation it
     /// was accepted in. Together they make a positive-evidence verdict sticky within
     /// its generation so a lower-confidence write cannot repaint over it.</summary>
@@ -644,6 +651,36 @@ public sealed class Session : IDisposable
             var (sb, grid) = AnsiToHtmlConverter.ConvertToHtmlSplit(
                 _htmlScrollback, _htmlCells, HtmlGridCols, HtmlGridRows);
             return (sb, grid, _htmlScrollback.Count);
+        }
+    }
+
+    /// <summary>
+    /// Snapshot the CURRENT visible terminal grid (not scrollback) as plain-text rows,
+    /// trailing-trimmed, top to bottom. Unlike the raw byte buffer this is the RESOLVED
+    /// on-screen state, so a spinner cell or a churning status line shows only its
+    /// current value and old frames do not linger concatenated. The
+    /// <c>TerminalStateDetector</c> uses this to tell a working spinner ("esc to
+    /// interrupt" on screen) apart from an idle status-line repaint, which the raw
+    /// byte stream cannot. Returns an empty array when there is no grid (Embedded mode).
+    /// </summary>
+    public string[] SnapshotScreenRows()
+    {
+        if (_htmlCells is null) return System.Array.Empty<string>();
+        lock (_htmlParserLock)
+        {
+            var rows = new string[HtmlGridRows];
+            var sb = new System.Text.StringBuilder(HtmlGridCols);
+            for (int r = 0; r < HtmlGridRows; r++)
+            {
+                sb.Clear();
+                for (int c = 0; c < HtmlGridCols; c++)
+                {
+                    var ch = _htmlCells[c, r].Character;
+                    sb.Append(ch == '\0' ? ' ' : ch);
+                }
+                rows[r] = sb.ToString().TrimEnd();
+            }
+            return rows;
         }
     }
 

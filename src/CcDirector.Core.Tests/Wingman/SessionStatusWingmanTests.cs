@@ -108,6 +108,7 @@ public sealed class SessionStatusWingmanTests
     [InlineData("Continue? [y/n]")]
     [InlineData("Proceed (y/N)?")]
     [InlineData("Please confirm before I push.")]
+    [InlineData("Interrupted - What should Claude do instead?")] // interrupted footer (#137 item 5)
     public void PromotePendingQuestionIfBufferShowsOne_detects_known_markers(string bufferTail)
     {
         var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
@@ -605,6 +606,68 @@ public sealed class SessionStatusWingmanTests
             // ...and another positive-evidence write (same confidence) still applies.
             session.SetStatusColor(StatusColor.Red, "second question?", source: StatusColorSource.PositiveEvidence);
             Assert.Equal("second question?", session.LastStatusReason);
+        }
+        finally { manager.Dispose(); }
+    }
+
+    [Fact]
+    public void ApplyTurnSummary_stale_generation_is_dropped()
+    {
+        // Issue #137 item 4: a turn summary is computed for the generation the turn
+        // ended in. If the session has moved to a new generation by the time the
+        // (slow) summary lands, the verdict is stale and must not write -- even if the
+        // current state would otherwise accept it.
+        var wingman = new SessionStatusWingman(new SessionManager(new AgentOptions { ClaudePath = TestShell.Path }));
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        try
+        {
+            var session = manager.CreateSession(Path.GetTempPath());  // Starting, generation 0
+            var staleGen = session.ActivityGeneration;
+            session.HandlePipeEvent(new Pipes.PipeMessage { HookEventName = "Stop" }); // -> WaitingForInput, new generation
+            Assert.NotEqual(staleGen, session.ActivityGeneration);
+
+            wingman.ApplyTurnSummary(session, new TurnSummary
+            {
+                NeedsUser = "question",
+                NeedsUserShort = "Delete the file?",
+                Headline = "asked",
+            }, expectedGeneration: staleGen);
+
+            // Dropped: the badge is not flipped by the stale summary.
+            Assert.NotEqual(StatusColor.Red, session.StatusColor);
+        }
+        finally { manager.Dispose(); wingman.Dispose(); }
+    }
+
+    [Theory]
+    [InlineData(ActivityState.WaitingForPerm, StatusColorSource.PositiveEvidence)]
+    [InlineData(ActivityState.WaitingForInput, StatusColorSource.ActivityState)]
+    [InlineData(ActivityState.Working, StatusColorSource.ActivityState)]
+    [InlineData(ActivityState.Idle, StatusColorSource.ActivityState)]
+    public void SourceForState_marks_permission_as_positive_evidence(ActivityState state, StatusColorSource expected)
+    {
+        // Issue #137 item 6: a permission gate is authoritative on-screen evidence,
+        // so the fast path tags it PositiveEvidence; everything else is the baseline.
+        Assert.Equal(expected, SessionStatusWingman.SourceForState(state));
+    }
+
+    [Fact]
+    public void SnapshotScreenRows_returns_the_rendered_grid_text()
+    {
+        // The trigger-starvation fix (#137 items 1-2) reads the RESOLVED on-screen grid
+        // rather than the raw byte buffer. Verify the grid snapshot reflects written
+        // content so the detector can tell a working spinner from an idle repaint.
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        try
+        {
+            var session = manager.CreateSession(Path.GetTempPath());
+            if (session.Buffer is null) return; // no grid (Embedded backend); skip
+            session.Buffer.Write(System.Text.Encoding.UTF8.GetBytes("HELLO_GRID_MARKER_42"));
+
+            var rows = session.SnapshotScreenRows();
+
+            Assert.NotEmpty(rows);
+            Assert.Contains(rows, r => r.Contains("HELLO_GRID_MARKER_42"));
         }
         finally { manager.Dispose(); }
     }

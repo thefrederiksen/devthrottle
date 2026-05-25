@@ -125,6 +125,20 @@ public sealed class TerminalStateDetector : IDisposable
         private bool _active;
         private int _llmInFlight;
         private int _disposed;
+        private string _lastUpperSig = "";
+
+        /// <summary>
+        /// How many rows at the BOTTOM of the screen to ignore when deciding whether
+        /// real content changed. Claude Code's input box, spinner / elapsed-time
+        /// counter, mode footer and any user status line all live here and churn
+        /// cosmetically; the agent's actual output appears above them.
+        /// </summary>
+        private const int CosmeticBottomRows = 6;
+
+        /// <summary>The canonical "I am working" footer Claude Code shows while a turn
+        /// or tool is running. ASCII, very specific to Claude Code, so it is a reliable
+        /// working signal and is unlikely to appear in an idle status line.</summary>
+        private const string WorkingFooterMarker = "esc to interrupt";
 
         public Watcher(Session session, string claudePath, bool useLlm, bool driveState, bool useFullSession)
         {
@@ -155,15 +169,59 @@ public sealed class TerminalStateDetector : IDisposable
         private void OnBytes(byte[] bytes)
         {
             if (Volatile.Read(ref _disposed) != 0) return;
+
+            // Content-aware gate (issue #137 items 1-2). The previous logic reset the
+            // quiet countdown on EVERY byte, so a continuously-repainting status line
+            // or a long-running hook kept the gate "active" forever, starved the LLM
+            // judge, and pinned a stale Working verdict. We instead reset only on REAL
+            // activity, read from the RESOLVED on-screen grid (not the raw byte buffer,
+            // where old frames linger): either the working footer is on screen, or the
+            // upper (non-cosmetic) region of the screen actually changed. A cosmetic
+            // repaint of the bottom rows alone no longer keeps the session "busy".
+            var (workingNow, upperSig) = InspectScreen();
+            bool contentChanged = !string.Equals(upperSig, _lastUpperSig, StringComparison.Ordinal);
+            if (contentChanged) _lastUpperSig = upperSig;
+            if (!(workingNow || contentChanged))
+                return; // cosmetic only -> do NOT reset the countdown; let the gate fire
+
             Volatile.Write(ref _lastByteTicks, DateTime.UtcNow.Ticks);
             if (!_active)
             {
                 _active = true;
-                FileLog.Write($"[TerminalStateDetector] {_session.Id} terminal=ACTIVE (output flowing) | hook={_session.ActivityState} color={_session.StatusColor}");
-                // Output is flowing => the agent is working. Instant, byte-based, agent-agnostic.
+                FileLog.Write($"[TerminalStateDetector] {_session.Id} terminal=ACTIVE (working={workingNow} contentChanged={contentChanged}) | hook={_session.ActivityState} color={_session.StatusColor}");
                 if (_driveState) _session.ApplyTerminalActivityState(ActivityState.Working);
             }
-            ArmQuietTimer(); // restart the countdown on every write
+            ArmQuietTimer(); // restart the countdown on real activity
+        }
+
+        /// <summary>
+        /// Read the resolved on-screen grid and report (1) whether a working footer is
+        /// currently visible, and (2) a signature of the upper (non-cosmetic) screen
+        /// region for change detection. Reading the grid -- not the raw circular byte
+        /// buffer -- is what lets us tell a working spinner ("esc to interrupt" on
+        /// screen) apart from an idle status-line repaint. When there is no grid
+        /// (Embedded backend) we fall back to the legacy "any byte is activity".
+        /// </summary>
+        private (bool workingNow, string upperSig) InspectScreen()
+        {
+            var rows = _session.SnapshotScreenRows();
+            if (rows.Length == 0) return (true, "");
+
+            bool working = false;
+            var sb = new StringBuilder(rows.Length * 16);
+            int upperCount = Math.Max(0, rows.Length - CosmeticBottomRows);
+            for (int i = 0; i < rows.Length; i++)
+            {
+                var row = rows[i];
+                if (!working && row.IndexOf(WorkingFooterMarker, StringComparison.OrdinalIgnoreCase) >= 0)
+                    working = true;
+                if (i < upperCount && row.Length > 0)
+                {
+                    sb.Append(row);
+                    sb.Append('\n');
+                }
+            }
+            return (working, sb.ToString());
         }
 
         private void OnQuiet(object? state)
@@ -241,8 +299,21 @@ public sealed class TerminalStateDetector : IDisposable
                         // tagged LLM so its token cost is visible. (When this just confirms the
                         // provisional state, ApplyTerminalActivityState was a no-op, so this is
                         // the single, informative entry for the call.)
-                        var (color, _) = SessionStatusWingman.ColorFromActivityState(actState, isNew: false);
-                        _session.SetStatusColor(color, reason, llm: true);
+                        if (st == "cancelled")
+                        {
+                            // Interrupted: the user pressed Esc and Claude is parked asking
+                            // "What should Claude do instead?". The activity state is
+                            // WaitingForInput, but this is a real "needs you" situation, so
+                            // the colour is red positive-evidence with the model's reason
+                            // (issue #137 item 5, foundational #129).
+                            var why = string.IsNullOrWhiteSpace(reason) ? "interrupted - waiting for redirection" : reason;
+                            _session.SetStatusColor(StatusColor.Red, why, llm: true, source: StatusColorSource.PositiveEvidence);
+                        }
+                        else
+                        {
+                            var (color, _) = SessionStatusWingman.ColorFromActivityState(actState, isNew: false);
+                            _session.SetStatusColor(color, reason, llm: true, source: SessionStatusWingman.SourceForState(actState));
+                        }
                     }
                 }
                 catch (Exception ex)
