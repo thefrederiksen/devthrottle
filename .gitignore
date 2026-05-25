@@ -102,3 +102,9 @@ playground/raw-view-harness/out/
 
 # Verify-run build output (dotnet build -o obj_verify/out; regenerable)
 obj_verify/
+
+# Verify-build output folders (regenerable; sometimes name-mangled by sync)
+bin-verify*/
+
+# Scratch/sandbox folders
+.tmp-*/
