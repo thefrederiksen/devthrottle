@@ -808,11 +808,19 @@ internal static class ControlEndpoints
                 return Results.BadRequest(new { error = "totalChunks (>0) is required" });
 
             var repoPath = "";
+            var sessionName = "";
             if (!string.IsNullOrEmpty(req.SessionId) && Guid.TryParse(req.SessionId, out var sg))
-                repoPath = sessionManager.GetSession(sg)?.RepoPath ?? "";
+            {
+                var s = sessionManager.GetSession(sg);
+                repoPath = s?.RepoPath ?? "";
+                sessionName = s is null ? ""
+                    : (!string.IsNullOrWhiteSpace(s.CustomName) ? s.CustomName!.Trim()
+                       : Path.GetFileName(s.RepoPath.TrimEnd('\\', '/')));
+            }
 
             var svc = new VoiceUtteranceService(sessionManager, sessionManager.Options);
-            var resp = await svc.CompleteAsync(id, req.TotalChunks, req.Mime ?? "audio/webm", repoPath, ctx.RequestAborted);
+            var resp = await svc.CompleteAsync(id, req.TotalChunks, req.Mime ?? "audio/webm", repoPath,
+                req.SessionId ?? "", sessionName, ctx.RequestAborted);
             // "incomplete" is a client-recoverable state (re-send missing chunks), so 409.
             return resp.Status == "incomplete"
                 ? Results.Json(resp, statusCode: StatusCodes.Status409Conflict)

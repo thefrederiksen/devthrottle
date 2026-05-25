@@ -97,7 +97,8 @@ public sealed class VoiceUtteranceService
     /// dir on success.
     /// </summary>
     public async Task<VoiceCommandResponse> CompleteAsync(
-        string id, int totalChunks, string mime, string repoPath, CancellationToken ct = default)
+        string id, int totalChunks, string mime, string repoPath,
+        string sessionId = "", string sessionName = "", CancellationToken ct = default)
     {
         var uid = NormalizeId(id) ?? throw new InvalidOperationException("invalid utterance id");
         var dir = DirFor(uid);
@@ -124,6 +125,7 @@ public sealed class VoiceUtteranceService
             assembled.Write(part, 0, part.Length);
         }
         assembled.Position = 0;
+        var audioBytes = assembled.ToArray();
         FileLog.Write($"[VoiceUtterance] Complete: id={uid} chunks={totalChunks} totalBytes={assembled.Length}");
 
         var fileName = mime.Contains("webm", StringComparison.OrdinalIgnoreCase) ? "utterance.webm"
@@ -133,6 +135,16 @@ public sealed class VoiceUtteranceService
 
         var voice = new VoiceService(_sessionManager, _options);
         var resp = await voice.TranscribeAndCleanAsync(assembled, fileName, repoPath, ct);
+
+        // Record the user side of this turn (audio + transcripts) so it can be
+        // compared against the wingman's spoken reply later. Best-effort: only when
+        // transcription succeeded and we know which session it belongs to.
+        if (string.Equals(resp.Status, "ok", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(sessionId))
+        {
+            VoiceTurnLog.WriteInbound(
+                sessionId, sessionName, audioBytes, fileName,
+                resp.Transcript, resp.CleanedTranscript ?? "", resp.CleanupReason ?? "");
+        }
 
         TryDelete(dir);
         return resp;

@@ -3,6 +3,7 @@ using CcDirector.Core.Claude;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Utilities;
+using CcDirector.Core.Voice;
 using CcDirector.Core.Voice.Interfaces;
 using CcDirector.Core.Voice.Services;
 using CcDirector.Gateway.Contracts;
@@ -156,6 +157,8 @@ public sealed class ChatService
             ? await BuildSpokenSummaryAsync(displayText, ct)
             : "";
 
+        LogOutboundTurn(session, displayText, summary, status);
+
         return new ChatResponse
         {
             SessionId = session.Id.ToString(),
@@ -206,6 +209,8 @@ public sealed class ChatService
         var summary = (voice && status == "ok")
             ? await BuildSpokenSummaryAsync(displayText, ct)
             : "";
+
+        LogOutboundTurn(session, displayText, summary, status);
 
         // A progress note is only meaningful while the turn is still running and
         // only when the client explicitly asked for one (it does so about every
@@ -288,6 +293,19 @@ public sealed class ChatService
         var spoken = (await _summarizer.SummarizeAsync(replyText, ct)).Trim();
         FileLog.Write($"[ChatService] Spoken summary: replyLen={replyText.Length}, spokenLen={spoken.Length}");
         return spoken;
+    }
+
+    /// <summary>
+    /// Record the wingman side of a voice turn for later comparison: the agent's
+    /// actual reply (<paramref name="displayText"/>) against the spoken reply
+    /// (<paramref name="summary"/>). Only logged when a spoken reply was produced;
+    /// the log pairs this with the matching inbound utterance by session + recency.
+    /// </summary>
+    private static void LogOutboundTurn(Session session, string displayText, string summary, string status)
+    {
+        if (string.IsNullOrWhiteSpace(summary))
+            return;
+        VoiceTurnLog.AttachOutbound(session.Id.ToString(), displayText, summary, "haiku", status);
     }
 
     private Session? ResolveConfiguredSession()

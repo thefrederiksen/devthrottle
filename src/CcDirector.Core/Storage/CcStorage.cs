@@ -59,6 +59,13 @@ public static class CcStorage
     /// <summary>All application and tool logs.</summary>
     public static string Logs() => Path.Combine(Base(), "logs");
 
+    /// <summary>
+    /// Per-turn voice comparison logs (short retention, auto-purged): base/voice-turn-logs/.
+    /// Holds the audio, user transcript, agent reply, and wingman spoken reply for
+    /// each voice turn so a meaning divergence can be flagged and compared later.
+    /// </summary>
+    public static string VoiceTurnLogs() => Ensure(Path.Combine(Base(), "voice-turn-logs"));
+
     /// <summary>Installed executables (tool binaries).</summary>
     public static string Bin()
     {

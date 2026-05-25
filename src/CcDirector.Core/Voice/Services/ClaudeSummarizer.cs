@@ -22,11 +22,20 @@ public class ClaudeSummarizer : IResponseSummarizer
     /// </summary>
     private const string SummarizationPrompt = """
         You are turning a coding agent's written reply into words a person will
-        hear out loud, probably while driving. Rewrite it as two to four short,
-        casual sentences, like telling a friend what happened or what the answer
-        is. Speak in concepts only. Do not read code, commands, file paths,
-        function names, or symbols out loud. If code matters, say in plain words
-        what it does or would do. Output ONLY the spoken version, nothing else.
+        hear out loud, probably while driving. Your job is FIDELITY, not brevity:
+        the listener must hear the agent's actual answer, not a looser version of
+        it. Rules:
+        - Preserve the actual answer and every concrete fact: names, numbers,
+          yes/no, the decision or result. Never drop the facts that ARE the answer.
+        - Do not add, embellish, reframe, or change the topic. If the agent did
+          not actually answer the question, say that plainly; never invent an answer.
+        - Make it sound natural to hear, but completeness wins over shortness.
+          Use as many sentences as the answer needs; do not force it into a
+          fixed length.
+        - Speak for the ear: do not read code, commands, file paths, function
+          names, or symbols out loud. When code matters, say in plain words what
+          it does or would do.
+        Output ONLY the spoken version, nothing else.
         """;
 
     /// <summary>
@@ -99,9 +108,13 @@ public class ClaudeSummarizer : IResponseSummarizer
         }
         catch (Exception ex)
         {
+            // No fallback paraphrase: a silently truncated original would change
+            // the meaning, which is exactly the fidelity bug we are fixing. Return
+            // empty so ChatService leaves Summary empty and the client speaks the
+            // genuine, complete reply (ChatTurnResult.SpokenText falls back to
+            // DisplayText). The failure is logged, not hidden.
             FileLog.Write($"[ClaudeSummarizer] SummarizeAsync FAILED: {ex.Message}");
-            // Fallback: return truncated original
-            return TruncateForSpeech(response);
+            return "";
         }
     }
 
@@ -145,8 +158,10 @@ public class ClaudeSummarizer : IResponseSummarizer
         var summary = await RunClaudeAsync(SummarizationPrompt, response, cancellationToken);
         if (string.IsNullOrEmpty(summary))
         {
+            // Empty output: return empty (caller speaks the genuine reply) rather
+            // than a truncated paraphrase that would change the meaning.
             FileLog.Write("[ClaudeSummarizer] Empty output from Claude");
-            return TruncateForSpeech(response);
+            return "";
         }
         return CleanupForSpeech(summary);
     }
@@ -276,25 +291,5 @@ public class ClaudeSummarizer : IResponseSummarizer
         text = System.Text.RegularExpressions.Regex.Replace(text, @"[ ]{2,}", " ");
 
         return text.Trim();
-    }
-
-    /// <summary>
-    /// Truncate text for speech when summarization fails.
-    /// </summary>
-    private static string TruncateForSpeech(string text)
-    {
-        text = CleanupForSpeech(text);
-
-        if (text.Length <= 300)
-            return text;
-
-        // Find a sentence break near the cutoff
-        var cutoff = 300;
-        var sentenceEnd = text.LastIndexOf('.', cutoff);
-        if (sentenceEnd > 100)
-            return text[..(sentenceEnd + 1)];
-
-        // No good sentence break, just truncate
-        return text[..cutoff] + "...";
     }
 }
