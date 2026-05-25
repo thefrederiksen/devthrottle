@@ -147,14 +147,58 @@ PASS: HKCU\...\Run\CcDirectorGateway =
 
 ---
 
+## Follow-up hardening
+
+Three rough edges from the first cut were closed in the same session.
+
+### 1. Always-running is now actually wired
+
+`scripts/install-gateway-tray.ps1` publishes a Release build to a stable per-user location,
+`%LOCALAPPDATA%\cc-director\gateway-tray\`, and (with `-Launch`) starts it once. Because the
+app self-registers the Run key at its own path on startup, installing from a fixed location
+makes login-autostart correct and durable across rebuilds.
+
+Verified: after `install-gateway-tray.ps1 -Launch`, the installed instance answered
+`/healthz` 200, and the autostart Run key pointed at the installed exe:
+
+```
+HKCU\...\Run\CcDirectorGateway =
+  "C:\Users\soren\AppData\Local\cc-director\gateway-tray\cc-director-gateway-tray.exe"
+```
+
+### 2. Port conflicts are surfaced, not silently fatal
+
+A new gateway can't bind a port another process already owns. Previously that showed a bare
+"FAILED" on a tray icon Windows hides by default - a silent dead-end. Now, on a bind
+failure, the app probes the port and reports what is actually there, and stays alive so
+**Restart** can retry. Verified live by launching against the in-use port 7878:
+
+```
+[GatewayTrayController] StartHostAsync FAILED: Failed to bind to address http://0.0.0.0:7878: address already in use.
+[GatewayTrayController] DiagnoseStartFailure: probe=OurGateway, status="Another gateway already on :7878"
+```
+
+The process stayed alive (no crash). Status distinguishes three cases: another CC Director
+gateway on the port, some other app on the port, or a different failure entirely.
+
+### 3. Distinct gateway icon
+
+The tray previously reused CC Director's "CC" icon, making the two indistinguishable. It now
+has a dedicated emerald glyph with routing chevrons:
+
+![Gateway icon](screenshots/06_new_icon.png)
+
+---
+
 ## Scope notes and what is deferred
 
 - **v1 is tray-menu-only**, as agreed. A double-click status window (port, token, Tailscale
   state, log tail, Director count) was deliberately deferred.
-- **Autostart points at the installed exe, set by the installer.** During verification the
-  Run key was created pointing at the dev *Release* build, then removed so nothing stale is
-  left behind. Wiring the installer (or the setup tool) to register the *installed* exe path
-  is the remaining production step - it was intentionally not pointed at a repo build.
+- **Console gateway vs tray on port 7878.** The single-instance mutex guards tray-vs-tray,
+  not tray-vs-console. If the old console `cc-director-gateway` is also running on 7878, the
+  tray app now reports "Another gateway already on :7878" rather than failing silently - but
+  the operational decision to retire the always-on console in favour of the tray is the
+  user's to make.
 - **Tailscale front-door on a non-default test port:** "Open Dashboard" resolves the tailnet
   front door (port 443), which maps to the default gateway port. On the standard
   port-7878 deployment this is correct; it only looks off when running a test instance on an

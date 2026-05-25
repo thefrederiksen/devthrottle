@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Net.Http;
+using System.Net.Sockets;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -19,6 +21,7 @@ namespace CcDirector.GatewayApp;
 public sealed class GatewayTrayController : IDisposable
 {
     private enum HostState { Starting, Running, Stopped, Failed }
+    private enum PortProbe { Nothing, OurGateway, OtherListener }
 
     private readonly IClassicDesktopStyleApplicationLifetime _desktop;
     private readonly int _port;
@@ -101,8 +104,64 @@ public sealed class GatewayTrayController : IDisposable
         }
         catch (Exception ex)
         {
-            SetState(HostState.Failed);
             FileLog.Write($"[GatewayTrayController] StartHostAsync FAILED: {ex.Message}");
+            await DiagnoseStartFailureAsync();
+        }
+    }
+
+    // A bare "FAILED" on a tray icon Windows hides by default is a silent dead-end.
+    // The overwhelmingly common cause is the port already being taken, so probe it and
+    // say what is actually there. The app stays alive either way, so Restart can retry.
+    private async Task DiagnoseStartFailureAsync()
+    {
+        var probe = await ProbePortAsync();
+        var (status, tip) = probe switch
+        {
+            PortProbe.OurGateway => ($"Another gateway already on :{_port}",
+                                     $"CC Director Gateway - another instance is already serving :{_port}"),
+            PortProbe.OtherListener => ($"Port {_port} in use by another app",
+                                        $"CC Director Gateway - port {_port} is occupied by another app"),
+            _ => ("Gateway FAILED - see logs", "CC Director Gateway - failed to start"),
+        };
+        FileLog.Write($"[GatewayTrayController] DiagnoseStartFailure: probe={probe}, status=\"{status}\"");
+        _state = HostState.Failed;
+        ApplyStatus(status, tip);
+    }
+
+    // Distinguish "our own gateway is already there" (a benign double-start) from
+    // "some other app holds the port" (a real conflict) from "nothing listening"
+    // (the bind failed for another reason entirely).
+    private async Task<PortProbe> ProbePortAsync()
+    {
+        try
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
+            var resp = await http.GetAsync($"http://127.0.0.1:{_port}/healthz");
+            var body = await resp.Content.ReadAsStringAsync();
+            if (body.Contains("\"status\":\"ok\"") || body.Contains("\"directors\""))
+                return PortProbe.OurGateway;
+            return PortProbe.OtherListener; // answered HTTP, but not our gateway shape
+        }
+        catch
+        {
+            // Not HTTP (or refused). A raw TCP connect tells us whether anything is
+            // listening at all.
+            return await CanConnectAsync() ? PortProbe.OtherListener : PortProbe.Nothing;
+        }
+    }
+
+    private async Task<bool> CanConnectAsync()
+    {
+        try
+        {
+            using var tcp = new TcpClient();
+            var connect = tcp.ConnectAsync("127.0.0.1", _port);
+            var done = await Task.WhenAny(connect, Task.Delay(TimeSpan.FromSeconds(1)));
+            return done == connect && tcp.Connected;
+        }
+        catch
+        {
+            return false;
         }
     }
 
@@ -226,7 +285,11 @@ public sealed class GatewayTrayController : IDisposable
             HostState.Failed => ("Gateway FAILED - see logs", "CC Director Gateway - failed to start"),
             _ => ("Gateway", "CC Director Gateway"),
         };
+        ApplyStatus(status, tip);
+    }
 
+    private void ApplyStatus(string status, string tip)
+    {
         Dispatcher.UIThread.Post(() =>
         {
             if (_statusItem is not null) _statusItem.Header = status;

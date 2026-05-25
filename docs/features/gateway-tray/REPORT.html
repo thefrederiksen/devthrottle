@@ -430,14 +430,42 @@
         [GatewayTrayController] Gateway running on :7888
         </code></pre>
 <hr/>
+<h2>Follow-up hardening</h2>
+<p>Three rough edges from the first cut were closed in the same session.</p>
+<h3>1. Always-running is now actually wired</h3>
+<p><code>scripts/install-gateway-tray.ps1</code> publishes a Release build to a stable per-user location,
+        <code>%LOCALAPPDATA%\cc-director\gateway-tray\</code>, and (with <code>-Launch</code>) starts it once. Because the
+        app self-registers the Run key at its own path on startup, installing from a fixed location
+        makes login-autostart correct and durable across rebuilds.</p>
+<p>Verified: after <code>install-gateway-tray.ps1 -Launch</code>, the installed instance answered
+        <code>/healthz</code> 200, and the autostart Run key pointed at the installed exe:</p>
+<pre><code>HKCU\...\Run\CcDirectorGateway =
+          "C:\Users\soren\AppData\Local\cc-director\gateway-tray\cc-director-gateway-tray.exe"
+        </code></pre>
+<h3>2. Port conflicts are surfaced, not silently fatal</h3>
+<p>A new gateway can't bind a port another process already owns. Previously that showed a bare
+        "FAILED" on a tray icon Windows hides by default - a silent dead-end. Now, on a bind
+        failure, the app probes the port and reports what is actually there, and stays alive so
+        <strong>Restart</strong> can retry. Verified live by launching against the in-use port 7878:</p>
+<pre><code>[GatewayTrayController] StartHostAsync FAILED: Failed to bind to address http://0.0.0.0:7878: address already in use.
+        [GatewayTrayController] DiagnoseStartFailure: probe=OurGateway, status="Another gateway already on :7878"
+        </code></pre>
+<p>The process stayed alive (no crash). Status distinguishes three cases: another CC Director
+        gateway on the port, some other app on the port, or a different failure entirely.</p>
+<h3>3. Distinct gateway icon</h3>
+<p>The tray previously reused CC Director's "CC" icon, making the two indistinguishable. It now
+        has a dedicated emerald glyph with routing chevrons:</p>
+<p><img alt="Gateway icon" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGAAAABgCAYAAADimHc4AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAUcSURBVHhe7Z0/iFRHHMct7XbPIElnKrEKNgGbgIWFhUUgjWAjVpLq7JJqfAfBWMhhEUOKRCzkEBQtjux7ajhRiYIJp1FyohL/hHCIBMUETxB58n23T9bfvH07/8757c3vC5/q3v127vt9OzM7c/tmzRqRSCQSiUQiUSB1eurjTk9tnSjUzk6R7R97emo3/p5OoTbTv5WN0Dg0tltkC90iK1cx97vF1DQCoR5E0bqf1ZZukc01NDQFFjq5+px68l6EbqZbZKcbGpUiV3AjUo9WTNVdn2dPGxqSLnm2hLGCehVcGFjxYloDhD5TB6hnwVSZr72goDM1Tb3zFkZ9ufPNmeipvdRDZ1UDrvT5diyPCWGmqjLbcWZxw5xaS/20UtX16IUFQzq5mqSeWqmbZ/O0qGCF+7tA7v4wOA/ImNPSYoITc9RbIy0vPGnFBFswI5pTXepvqz7I1SatkOCM9TIFVvloEcEdLNVTj1uFgYMWETw4mx2lHreqv7miFxJc6VGPW4XEGooI7tjNhCSA4EgAkeETwMYLh8rZxwvlnf+flNClf++X+++c165r48Nz35RHHlwtrz37u6rxx/PF8qdHv5UbfjmoXcsEHgHsmj9RPnu1VJlGBTNNDPz08ndvw6N6/PK/cse1Y9rvMCB+AJ9cPFy+fP2KevaOcCe3hYA7H9e0Ca/xxe/Htd+NTPwAjv9znXrVqLYQvrx5hl7eKIYhxA9gWLfRpGEhoJ83FbMQ4gcwqvuhagrh/JO79LJWMQohfgD1jMVGNITpvy7TS0aKSQjxA/j6dk69MdJgCJ/9+gP9sZEYhBA/AODyLoAGQ3B5F0CRQ+ARAKaiD188pd4YqQ4BU1HbsaBWxBB4BAASDYFPACDBEHgFABILgV8AIKEQeAYAEgmBbwAggRB4BwBWeQj8AwA+IWBjBzV8QsB+AjaMaLsCMB4BAJ8Q9v05W9XwCeHU4i2tTQEYnwCAawgwva7hGgK6ItqeAIxXAABbj7ZL2AhtsIbJDlqTcAPQ9ngyXgG43r1Y7BusY7qDRoXXp23yZHwCcDUfwkppXcfVfBpiIMYjAB/zMYOpl6xdzYe2Xf1Ra1cA+AfgYz7GivrfUXzMt/3/JAt4B+Brfv0Bysf8b+9d0NoVEL4BJGA+4BlAIuYDfgEkZD7gFUBi5gM+ASRoPuARQKLmAx4BmP6DLtWg+XtunKQ/NlYk80H8AGCgiwbNx1r9sO8XjFJE80H8AFy6HrpLhU+qLopsPogfANZqbETNB9gssRUD88F4BdBkPrANgIn5IH4Apl3QMPOBTRfEyHwQPwCTQbjNfGA6CDMzH8QPALR9xWiU+TWjpqEMzQc8AgD4EEXvYuxCYQ+YXjsMbJrQ75xhjDEJMBJ8AqjBt12wiUK/B2YDNs9RYwU20UPDL4DEkAAiYxmAPLAvNHYBTOTqq4YigivWT8zqqd1aEcEDy8fa948maSgkuGD9CGM8bleemB4OPIGeejxS3TyboYUEJxaot0aSEzNCYdn/16q6oSJb1AsKNngdAIfBgxYUbPA8T6b/LpCHeLuQZ0vrZ9VH1FNrTeRqu1ZcGIn186LbJJ+MLcmzGeqht2RaaswV52NL2tT/cCYhtJFn89aHNdhKVkqHkGczK3LnN6larJOlimVwREnIAddUeKtV74aUjzg8mx11WucJKcx1+93Saj9Nuwanan/v9Ql3pVSdJ5+ryf4JHDhpe5UwNY2pOEvTRSKRSCQS2esNS1F4EdeTeDYAAAAASUVORK5CYII="/></p>
+<hr/>
 <h2>Scope notes and what is deferred</h2>
 <ul>
 <li><strong>v1 is tray-menu-only</strong>, as agreed. A double-click status window (port, token, Tailscale
         state, log tail, Director count) was deliberately deferred.</li>
-<li><strong>Autostart points at the installed exe, set by the installer.</strong> During verification the
-        Run key was created pointing at the dev <em>Release</em> build, then removed so nothing stale is
-        left behind. Wiring the installer (or the setup tool) to register the <em>installed</em> exe path
-        is the remaining production step - it was intentionally not pointed at a repo build.</li>
+<li><strong>Console gateway vs tray on port 7878.</strong> The single-instance mutex guards tray-vs-tray,
+        not tray-vs-console. If the old console <code>cc-director-gateway</code> is also running on 7878, the
+        tray app now reports "Another gateway already on :7878" rather than failing silently - but
+        the operational decision to retire the always-on console in favour of the tray is the
+        user's to make.</li>
 <li><strong>Tailscale front-door on a non-default test port:</strong> "Open Dashboard" resolves the tailnet
         front door (port 443), which maps to the default gateway port. On the standard
         port-7878 deployment this is correct; it only looks off when running a test instance on an
