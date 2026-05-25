@@ -1,4 +1,5 @@
 using CcRecorder.Recording;
+using Microsoft.Maui.Controls.Shapes;
 using Microsoft.Maui.Networking;
 
 namespace CcRecorder;
@@ -7,6 +8,11 @@ public partial class MainPage : ContentPage
 {
     private const string PrefServer = "gateway_url";
     private const string PrefToken = "gateway_token";
+
+    // Status-badge colors for the per-row upload/transcription checkmarks.
+    private static readonly Brush CheckDone = new SolidColorBrush(Color.FromArgb("#5FD08A"));   // green
+    private static readonly Brush CheckPending = new SolidColorBrush(Color.FromArgb("#3A4358")); // faint gray
+    private static readonly Brush CheckFailed = new SolidColorBrush(Color.FromArgb("#E5484D"));  // red
 
     private readonly IAudioRecorder _recorder;
     private readonly IDispatcherTimer _uiTimer;
@@ -20,7 +26,6 @@ public partial class MainPage : ContentPage
         {
             RefreshUi();
             RefreshLibrary();
-            UpdateQueueBanner();
         });
 
         _uiTimer = Dispatcher.CreateTimer();
@@ -31,7 +36,19 @@ public partial class MainPage : ContentPage
         // background WorkManager worker (a separate instance) show up live.
         _queueRefreshTimer = Dispatcher.CreateTimer();
         _queueRefreshTimer.Interval = TimeSpan.FromSeconds(2);
-        _queueRefreshTimer.Tick += (_, _) => { RefreshLibrary(); UpdateQueueBanner(); };
+        _queueRefreshTimer.Tick += (_, _) =>
+        {
+            RefreshLibrary();
+            // Guarantee a freshly-queued recording starts uploading promptly
+            // instead of waiting on the OS background scheduler. Only fires for
+            // brand-new "Queued" work with nothing already in flight; failed
+            // ("Retry") items are left to WorkManager's backoff so we never
+            // hammer the server. ProcessUploadQueueAsync is gated, so a repeat
+            // call while one is running is a harmless no-op.
+            var recs = _recorder.ListRecordings();
+            if (recs.Any(r => r.State == "Queued") && recs.All(r => r.State != "Uploading"))
+                _ = ProcessQueueAsync();
+        };
 
         // Seed the gateway URL on first run (or after a reinstall that wiped
         // preferences) so recordings upload without manual setup. Editable.
@@ -54,7 +71,6 @@ public partial class MainPage : ContentPage
         base.OnAppearing();
         RefreshUi();
         RefreshLibrary();
-        UpdateQueueBanner();
         _queueRefreshTimer.Start();
         // Foreground pass for instant feedback, plus the WorkManager path which
         // runs under a wakelock so anything still pending drains even if the OS
@@ -83,9 +99,9 @@ public partial class MainPage : ContentPage
                 _uiTimer.Stop();
                 RefreshUi();
                 RefreshLibrary();
-                // Explicit confirmation that it's saved + queued, then the
-                // upload runs in the background and the banner tracks it.
-                SetBanner("Saved - added to upload queue", "Uploading now in the background...", "#16324A");
+                // The new recording drops into the list below and shows its own
+                // upload progress there; the recording area stays focused on
+                // capture, not uploads.
                 _ = ProcessQueueAsync();
                 return;
             }
@@ -130,9 +146,6 @@ public partial class MainPage : ContentPage
         _ = ProcessQueueAsync();
     }
 
-    // Tapping the status banner forces a sync now.
-    private void OnBannerTapped(object? sender, EventArgs e) => _ = ProcessQueueAsync();
-
     // Tapping a recording shows its transcript (if uploaded) or explains state.
     private async void OnRecordingSelected(object? sender, SelectionChangedEventArgs e)
     {
@@ -144,6 +157,7 @@ public partial class MainPage : ContentPage
         if (!string.IsNullOrWhiteSpace(row.Transcript)) options.Add("Read transcript");
         if (row.State is "Queued" or "Retry") options.Add("Upload now");
         if (!string.IsNullOrWhiteSpace(row.UploadError)) options.Add("Why did upload fail?");
+        if (!string.IsNullOrWhiteSpace(row.TranscriptError)) options.Add("Why did transcription fail?");
 
         var choice = await DisplayActionSheet(row.Title, "Cancel", null, options.ToArray());
         switch (choice)
@@ -153,6 +167,7 @@ public partial class MainPage : ContentPage
             case "Read transcript": await DisplayAlert(row.Title, row.Transcript, "Close"); break;
             case "Upload now": await ProcessQueueAsync(); break;
             case "Why did upload fail?": await DisplayAlert("Upload error", row.UploadError ?? "", "OK"); break;
+            case "Why did transcription fail?": await DisplayAlert("Transcription error", row.TranscriptError ?? "", "OK"); break;
         }
     }
 
@@ -162,10 +177,9 @@ public partial class MainPage : ContentPage
     {
         // The recorder owns the queue logic (shared with the background
         // WorkManager worker) and raises Changed per item, which refreshes the
-        // UI. We just kick it and update the banner.
+        // per-row progress in the list. We just kick it.
         SaveCreds();
         await _recorder.ProcessUploadQueueAsync();
-        UpdateQueueBanner();
     }
 
     private static bool IsOnline()
@@ -218,55 +232,62 @@ public partial class MainPage : ContentPage
     {
         var playingId = _recorder.PlayingRecordingId;
         LibraryList.ItemsSource = _recorder.ListRecordings()
-            .Select(r => new LibraryRow(
-                r.RecordingId, r.Title, BuildSubtitle(r, r.RecordingId == playingId),
-                r.Transcript, r.State, r.UploadError))
+            .Select(r =>
+            {
+                // A determinate bar appears on the row while work is in flight:
+                // sending segments (the upload) or, afterwards, server-side
+                // transcription. UploadPhase is set during both and cleared when
+                // each finishes; the fraction is that phase's count over total.
+                var working = !string.IsNullOrEmpty(r.UploadPhase);
+                var total = r.UploadTotal > 0 ? r.UploadTotal : r.SegmentCount;
+                var progress = working && total > 0
+                    ? Math.Clamp((double)r.UploadCurrent / total, 0, 1)
+                    : 0;
+
+                // Two status checkmarks per row: upload (bytes on server) and
+                // transcription (text produced). Green check = done, faint =
+                // pending, red X = failed. They are independent on purpose.
+                var uploadStroke = r.State == "Uploaded" ? CheckDone : CheckPending;
+                var transFailed = r.TranscriptionState == "Failed";
+                var transStroke = r.TranscriptionState == "Transcribed" ? CheckDone : CheckPending;
+
+                return new LibraryRow(
+                    r.RecordingId, r.Title, BuildSubtitle(r, r.RecordingId == playingId),
+                    r.Transcript, r.State, r.UploadError, r.TranscriptError, progress, working,
+                    uploadStroke, transStroke, !transFailed, transFailed);
+            })
             .ToList();
-    }
-
-    // The only status that matters to the user: is it on the server yet.
-    private void UpdateQueueBanner()
-    {
-        var all = _recorder.ListRecordings().Where(r => r.State != "Recording").ToList();
-        if (all.Count == 0) { StatusBanner.IsVisible = false; return; }
-
-        int pending = all.Count(r => r.State is "Queued" or "Uploading" or "Retry");
-
-        if (pending == 0)
-        {
-            SetBanner("All recordings uploaded", "Everything is safe on your server.", "#1C4A2E");
-            return;
-        }
-        if (Connectivity.Current.NetworkAccess == NetworkAccess.None)
-        {
-            SetBanner($"{pending} waiting to upload", "No network yet. Kept safe on your phone; will upload automatically.", "#4A3A16");
-            return;
-        }
-        SetBanner($"Uploading in the background ({pending} left)", "You can keep recording.", "#16324A");
     }
 
     private static string BuildSubtitle(RecordingSummary r, bool playing)
     {
         var dur = TimeSpan.FromMilliseconds(r.DurationMs).ToString(@"hh\:mm\:ss");
+        // Upload status first (the bytes-on-server fact). Once uploaded, the
+        // transcription sub-status is shown separately so a transcription
+        // problem never reads as an upload failure.
         var stateText = r.State switch
         {
-            "Uploaded" => "Uploaded to server",
-            "Uploading" => "Uploading...",
-            "Retry" => "Upload failed - tap for details / retry",
             "Recording" => "Recording...",
-            _ => "Queued for upload",
+            "Queued" => "Queued for upload",
+            "Uploading" => string.IsNullOrWhiteSpace(r.UploadProgress) ? "Uploading..." : r.UploadProgress,
+            "Retry" => "Upload failed - tap to retry",
+            "Uploaded" => r.TranscriptionState switch
+            {
+                "Transcribing" => string.IsNullOrWhiteSpace(r.UploadProgress)
+                    ? "Uploaded - transcribing..."
+                    : "Uploaded - " + r.UploadProgress,
+                "Transcribed" => "Uploaded - transcribed",
+                "Failed" => "Uploaded - transcription failed (tap for details)",
+                _ => "Uploaded to server",
+            },
+            _ => r.State,
         };
         var prefix = playing ? "Playing now  -  " : "";
         return $"{prefix}{dur}  -  {stateText}  -  tap to play";
     }
 
-    private void SetBanner(string title, string detail, string bgColor)
-    {
-        StatusBanner.IsVisible = true;
-        StatusBanner.BackgroundColor = Color.FromArgb(bgColor);
-        BannerTitle.Text = title;
-        BannerDetail.Text = detail;
-    }
-
-    private sealed record LibraryRow(string RecordingId, string Title, string Subtitle, string? Transcript, string State, string? UploadError);
+    private sealed record LibraryRow(
+        string RecordingId, string Title, string Subtitle, string? Transcript,
+        string State, string? UploadError, string? TranscriptError, double Progress, bool IsUploading,
+        Brush UploadStroke, Brush TransCheckStroke, bool TransShowCheck, bool TransShowX);
 }

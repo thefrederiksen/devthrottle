@@ -5,17 +5,30 @@ using System.Text.Json;
 namespace CcRecorder.Recording;
 
 /// <summary>
-/// Uploads a finished recording to the CC Director Gateway ingest API over
-/// HTTPS (Tailscale). Resumable and idempotent: it registers the recording,
-/// PUTs each not-yet-uploaded segment (the server no-ops a re-PUT of the same
-/// index + hash), then POSTs complete to trigger transcription. Transcripts are
-/// stored locally on the server and promoted to the vault only by the user.
+/// Talks to the CC Director Gateway ingest API over HTTPS (Tailscale). Two
+/// deliberately separate operations, because they are two separate things:
+///
+///   1. <see cref="UploadSegmentsAsync"/> - the UPLOAD. Moves the audio bytes
+///      from the phone to the server. Resumable and idempotent. Succeeds the
+///      moment every segment is on the server. Nothing to do with OpenAI.
+///
+///   2. <see cref="TranscribeAsync"/> - the TRANSCRIPTION. A separate server
+///      job (POST complete) that turns the already-uploaded audio into text.
+///      Slow, optional, and allowed to fail without ever affecting the upload.
+///
+/// The caller keeps upload state and transcription state apart so a
+/// transcription problem can never make a successfully-uploaded recording look
+/// like a failed upload.
 /// </summary>
 public sealed class IngestUploader
 {
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
         PropertyNamingPolicy = null, // server is case-insensitive; keep PascalCase
+    };
+    private static readonly JsonSerializerOptions CaseInsensitive = new()
+    {
+        PropertyNameCaseInsensitive = true,
     };
 
     private readonly string _baseUrl;
@@ -27,43 +40,55 @@ public sealed class IngestUploader
         _token = token;
     }
 
-    /// <summary>Parsed result of a completed upload (from the server status).</summary>
-    public sealed record UploadResult(string State, string? VaultDocId, string? Transcript);
+    /// <summary>Result of the transcription step (server status after complete).</summary>
+    public sealed record TranscriptionResult(string State, string? VaultDocId, string? Transcript);
 
-    /// <param name="onProgress">
-    /// Invoked after each progress update. The latest message is written onto
-    /// <paramref name="manifest"/>'s <see cref="LocalManifest.UploadProgress"/>
-    /// and per-segment <see cref="ChunkInfo.Uploaded"/> flags are set on it
-    /// before the call, so the caller's only job is to persist the manifest and
-    /// refresh the UI. The same callback fires after each confirmed segment so
-    /// the resume point survives a crash mid-upload.
-    /// </param>
-    public async Task<UploadResult> UploadAsync(
+    private HttpClient NewClient()
+    {
+        // 10 minutes: the byte transfer of a long recording can take a while on
+        // a slow link. This is the phone's patience, independent of any
+        // server-side transcription timeout.
+        var http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
+        if (!string.IsNullOrWhiteSpace(_token))
+            http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _token);
+        return http;
+    }
+
+    // ===== 1. UPLOAD =======================================================
+
+    /// <summary>
+    /// Transfers every not-yet-uploaded segment to the server, then returns.
+    /// This is the whole upload. Segments already confirmed on a prior attempt
+    /// are skipped (resume), so a dropped connection picks up where it left off.
+    /// On return, all bytes are safely on the server. Does NOT trigger or wait
+    /// on transcription.
+    /// </summary>
+    /// <param name="onProgress">Fired after each step; the latest sending
+    /// progress is written onto the manifest first, so the caller just persists
+    /// + refreshes. Also fired after each confirmed segment so the resume point
+    /// survives a crash.</param>
+    public async Task UploadSegmentsAsync(
         LocalManifest manifest,
         string recordingFolder,
         Action? onProgress = null,
         CancellationToken ct = default)
     {
-        // Push one structured progress update onto the manifest and let the
-        // caller persist + refresh the UI. Phase drives the determinate bar.
-        void Report(string label, string phase, int current, int total)
+        void Report(string label, int current, int total)
         {
             manifest.UploadProgress = label;
-            manifest.UploadPhase = phase;
+            manifest.UploadPhase = "sending";
             manifest.UploadCurrent = current;
             manifest.UploadTotal = total;
             onProgress?.Invoke();
         }
 
         var ordered = manifest.Chunks.OrderBy(c => c.Index).ToList();
-        int segTotal = ordered.Count;
+        int total = ordered.Count;
 
-        using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
-        if (!string.IsNullOrWhiteSpace(_token))
-            http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _token);
+        using var http = NewClient();
 
-        // 1. Register.
-        Report("Preparing upload", "sending", 0, segTotal);
+        // Register (idempotent).
+        Report("Preparing upload", manifest.Chunks.Count(c => c.Uploaded), total);
         var register = new
         {
             manifest.RecordingId,
@@ -74,17 +99,12 @@ public sealed class IngestUploader
             manifest.SampleRateHz,
             manifest.Channels,
         };
-        var regResp = await http.PostAsync(
-            $"{_baseUrl}/ingest/recording",
-            JsonBody(register), ct);
+        var regResp = await http.PostAsync($"{_baseUrl}/ingest/recording", JsonBody(register), ct);
         regResp.EnsureSuccessStatusCode();
 
-        // 2. Upload each segment (idempotent by index + hash). Segments already
-        //    confirmed on a previous attempt are skipped, so a connection drop
-        //    resumes from the first unsent segment instead of re-sending bytes.
         int sent = ordered.Count(c => c.Uploaded);
-        Report($"Sending {sent}/{segTotal}", "sending", sent, segTotal);
-        for (int i = 0; i < segTotal; i++)
+        Report($"Sending {sent}/{total}", sent, total);
+        for (int i = 0; i < total; i++)
         {
             var chunk = ordered[i];
             var path = Path.Combine(recordingFolder, chunk.File);
@@ -103,19 +123,41 @@ public sealed class IngestUploader
             var putResp = await http.SendAsync(req, ct);
             putResp.EnsureSuccessStatusCode();
 
-            // Persist the win right away so a later failure resumes after it.
+            // Persist the win immediately so a later failure resumes after it.
             chunk.Uploaded = true;
             sent++;
-            Report($"Sending {sent}/{segTotal}", "sending", sent, segTotal);
+            Report($"Sending {sent}/{total}", sent, total);
+        }
+    }
+
+    // ===== 2. TRANSCRIPTION ================================================
+
+    /// <summary>
+    /// Asks the server to transcribe the already-uploaded audio (POST complete)
+    /// and reports progress by polling status alongside the blocking call.
+    /// Throws if the server fails or times out transcription - the caller
+    /// treats that as a transcription failure only, never as an upload failure.
+    /// </summary>
+    public async Task<TranscriptionResult> TranscribeAsync(
+        LocalManifest manifest,
+        Action? onProgress = null,
+        CancellationToken ct = default)
+    {
+        void Report(string label, int current, int total)
+        {
+            manifest.UploadProgress = label;
+            manifest.UploadPhase = "transcribing";
+            manifest.UploadCurrent = current;
+            manifest.UploadTotal = total;
+            onProgress?.Invoke();
         }
 
-        // 3. Complete -> server transcribes + cleans into the local transcripts
-        //    area. This call blocks until every segment is transcribed, so we
-        //    poll the status endpoint alongside it to keep the bar moving (it
-        //    reports transcribed-segment count) instead of freezing on one line.
-        Report("Transcribing 0/" + segTotal, "transcribing", 0, segTotal);
+        int total = manifest.Chunks.Count;
+        using var http = NewClient();
+
+        Report($"Transcribing 0/{total}", 0, total);
         using var pollCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        var pollTask = PollTranscribeAsync(http, manifest.RecordingId, segTotal, Report, pollCts.Token);
+        var pollTask = PollTranscribeAsync(http, manifest.RecordingId, total, Report, pollCts.Token);
 
         HttpResponseMessage compResp;
         try
@@ -132,54 +174,41 @@ public sealed class IngestUploader
 
         var body = await compResp.Content.ReadAsStringAsync(ct);
         if (!compResp.IsSuccessStatusCode)
-            throw new HttpRequestException($"complete failed: {(int)compResp.StatusCode} {body}");
+            throw new HttpRequestException($"transcription failed: {(int)compResp.StatusCode} {body}");
 
-        Report("Transcribed", "transcribing", segTotal, segTotal);
+        Report($"Transcribing {total}/{total}", total, total);
 
-        try
-        {
-            // The server (ASP.NET Core) serializes camelCase, so parse
-            // case-insensitively. This is what previously made the transcript
-            // look "pending" when it was actually present.
-            var status = JsonSerializer.Deserialize<CompleteStatus>(
-                body, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-            return new UploadResult(
-                State: string.IsNullOrWhiteSpace(status?.State) ? "uploaded" : status!.State!,
-                VaultDocId: NullIfEmpty(status?.VaultDocId),
-                Transcript: NullIfEmpty(status?.Transcript));
-        }
-        catch (JsonException)
-        {
-            return new UploadResult("uploaded", null, null);
-        }
+        var status = JsonSerializer.Deserialize<CompleteStatus>(body, CaseInsensitive);
+        return new TranscriptionResult(
+            State: string.IsNullOrWhiteSpace(status?.State) ? "transcribed" : status!.State!,
+            VaultDocId: NullIfEmpty(status?.VaultDocId),
+            Transcript: NullIfEmpty(status?.Transcript));
     }
 
     /// <summary>
-    /// Polls <c>GET /status</c> while the (blocking) complete call runs, pushing
-    /// the server's transcribed-segment count onto the progress bar. Best-effort
-    /// and self-contained: it never throws (the authoritative success/failure is
-    /// the complete response), so the caller can simply await it after cancel.
+    /// Polls GET status while the blocking complete call runs, pushing the
+    /// server's transcribed-segment count onto the progress bar. Best-effort:
+    /// never throws (the complete response is the authoritative outcome), so the
+    /// caller can simply await it after cancelling.
     /// </summary>
     private async Task PollTranscribeAsync(
         HttpClient http, string recordingId, int fallbackTotal,
-        Action<string, string, int, int> report, CancellationToken ct)
+        Action<string, int, int> report, CancellationToken ct)
     {
-        var caseInsensitive = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
         while (!ct.IsCancellationRequested)
         {
             try
             {
                 await Task.Delay(1500, ct);
-                var resp = await http.GetAsync(
-                    $"{_baseUrl}/ingest/recording/{recordingId}/status", ct);
+                var resp = await http.GetAsync($"{_baseUrl}/ingest/recording/{recordingId}/status", ct);
                 if (!resp.IsSuccessStatusCode) continue;
                 var json = await resp.Content.ReadAsStringAsync(ct);
-                var st = JsonSerializer.Deserialize<CompleteStatus>(json, caseInsensitive);
+                var st = JsonSerializer.Deserialize<CompleteStatus>(json, CaseInsensitive);
                 if (st is null) continue;
                 var done = st.ChunksTranscribed;
                 var total = st.ChunksTotal > 0 ? st.ChunksTotal : fallbackTotal;
                 if (done > total) done = total;
-                report($"Transcribing {done}/{total}", "transcribing", done, total);
+                report($"Transcribing {done}/{total}", done, total);
             }
             catch (OperationCanceledException)
             {
@@ -187,11 +216,44 @@ public sealed class IngestUploader
             }
             catch (Exception)
             {
-                // A dropped/garbled status poll is not an upload failure; the
-                // complete call decides the outcome. Keep polling.
+                // A dropped/garbled status poll is not a failure; the complete
+                // call decides the outcome. Keep polling.
             }
         }
     }
+
+    // ===== deletion sync ===================================================
+
+    /// <summary>
+    /// Returns the set of recording ids the server currently has, or null if the
+    /// server could not be reached/parsed. Null means "unknown" - the caller
+    /// must NOT treat it as "server has nothing" and must not delete anything.
+    /// </summary>
+    public async Task<HashSet<string>?> ListServerRecordingIdsAsync(CancellationToken ct = default)
+    {
+        using var http = NewClient();
+        try
+        {
+            var resp = await http.GetAsync($"{_baseUrl}/ingest/recordings", ct);
+            if (!resp.IsSuccessStatusCode) return null;
+            var json = await resp.Content.ReadAsStringAsync(ct);
+            var items = JsonSerializer.Deserialize<List<ServerRecording>>(json, CaseInsensitive);
+            if (items is null) return null;
+            return items
+                .Where(i => !string.IsNullOrWhiteSpace(i.RecordingId))
+                .Select(i => i.RecordingId!)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            // Network/parse failure -> "unknown", which the caller treats as
+            // "do not delete". Not a silent fallback: it deliberately prevents
+            // a destructive action when the server state can't be confirmed.
+            return null;
+        }
+    }
+
+    private sealed record ServerRecording(string? RecordingId);
 
     private sealed record CompleteStatus(
         string? State, string? VaultDocId, string? Transcript,

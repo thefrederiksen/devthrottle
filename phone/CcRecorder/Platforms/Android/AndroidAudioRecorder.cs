@@ -227,8 +227,44 @@ public sealed class AndroidAudioRecorder : IAudioRecorder
                 if (Connectivity.Current.NetworkAccess == NetworkAccess.None) break;
                 await UploadOneAsync(summary.RecordingId, server, token);
             }
+
+            // Sync deletions: the computer is the master record. A recording
+            // that was confirmed on the server and has since been removed there
+            // is removed from the phone too.
+            await ReconcileServerDeletionsAsync(server, token);
         }
         finally { _uploadGate.Release(); }
+    }
+
+    /// <summary>
+    /// One-way deletion sync, server -> phone. The server is authoritative:
+    /// any recording that this phone already uploaded (State == "Uploaded") but
+    /// that no longer exists on the server is deleted locally. Recordings that
+    /// have NOT been confirmed on the server (Queued/Uploading/Retry/Recording)
+    /// are never touched - we never lose audio that isn't safely uploaded yet.
+    /// If the server list cannot be fetched, nothing is deleted (uncertainty
+    /// must not destroy local data).
+    /// </summary>
+    private async Task ReconcileServerDeletionsAsync(string server, string token)
+    {
+        var uploader = new IngestUploader(server, token);
+        var serverIds = await uploader.ListServerRecordingIdsAsync();
+        if (serverIds is null) return; // server state unknown -> never delete
+
+        foreach (var summary in ListRecordings())
+        {
+            if (summary.State != "Uploaded") continue;          // only confirmed-uploaded
+            if (serverIds.Contains(summary.RecordingId)) continue; // still on the server
+            DeleteLocalRecording(summary.RecordingId);
+        }
+    }
+
+    /// <summary>Permanently delete a recording's local folder (audio + manifest).</summary>
+    private void DeleteLocalRecording(string recordingId)
+    {
+        var dir = RecordingFolder(recordingId);
+        if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
+        RaiseChanged();
     }
 
     private async Task UploadOneAsync(string recordingId, string server, string token)
@@ -237,17 +273,78 @@ public sealed class AndroidAudioRecorder : IAudioRecorder
         if (m is null || m.Chunks.Count == 0) return;
         if (NormalizeState(m.State) == "Uploaded") return;
 
-        ApplyUploadResult(recordingId, "Uploading", m.VaultDocId, m.Transcript, null);
+        // One owner of manifest.json for the whole pass: the uploader mutates
+        // this same object (per-segment Uploaded flags + progress text) and we
+        // persist it here, so the terminal-state writes can never race the
+        // uploader's progress writes on the same file.
+        void Persist()
+        {
+            WriteManifest(recordingId, m);
+            RaiseChanged();
+        }
+
+        void ClearProgress()
+        {
+            m.UploadProgress = null;
+            m.UploadPhase = null;
+            m.UploadCurrent = 0;
+            m.UploadTotal = 0;
+        }
+
+        var uploader = new IngestUploader(server, token);
+
+        // ---- Step 1: UPLOAD. Just move the bytes to the server. ----
+        m.State = "Uploading";
+        m.UploadError = null;
+        m.UploadProgress = "Starting...";
+        m.UploadPhase = "sending";
+        m.UploadCurrent = 0;
+        m.UploadTotal = m.Chunks.Count;
+        Persist();
         try
         {
-            var uploader = new IngestUploader(server, token);
-            var result = await uploader.UploadAsync(m, RecordingFolder(recordingId));
-            ApplyUploadResult(recordingId, "Uploaded", result.VaultDocId, result.Transcript, null);
+            await uploader.UploadSegmentsAsync(m, RecordingFolder(recordingId), Persist);
+            // Every segment is on the server. The upload is DONE - regardless of
+            // whatever transcription does next.
+            m.State = "Uploaded";
+            m.UploadError = null;
+            ClearProgress();
+            Persist();
         }
         catch (Exception ex)
         {
-            // Stays on the phone and in the queue; WorkManager / next open retries.
-            ApplyUploadResult(recordingId, "Retry", null, null, ex.Message);
+            // Only a byte-transfer failure lands here. Stays queued; WorkManager
+            // / next open retries, resuming from the first unsent segment.
+            m.State = "Retry";
+            m.UploadError = ex.Message;
+            ClearProgress();
+            Persist();
+            return;
+        }
+
+        // ---- Step 2: TRANSCRIPTION. A separate server job. Its failure must
+        // never revert the upload above - the audio is already safe. ----
+        m.TranscriptionState = "Transcribing";
+        m.TranscriptError = null;
+        Persist();
+        try
+        {
+            var result = await uploader.TranscribeAsync(m, Persist);
+            m.TranscriptionState = "Transcribed";
+            m.VaultDocId = result.VaultDocId;
+            m.Transcript = result.Transcript;
+            m.TranscriptError = null;
+            ClearProgress();
+            Persist();
+        }
+        catch (Exception ex)
+        {
+            // Transcription only. State stays "Uploaded"; the file is on the
+            // server and can be transcribed again later.
+            m.TranscriptionState = "Failed";
+            m.TranscriptError = ex.Message;
+            ClearProgress();
+            Persist();
         }
     }
 
@@ -355,7 +452,9 @@ public sealed class AndroidAudioRecorder : IAudioRecorder
                 var state = m.EndedAt is null ? "Recording" : NormalizeState(m.State);
                 list.Add(new RecordingSummary(
                     m.RecordingId, m.Title, m.StartedAt, m.Chunks.Count,
-                    m.Chunks.Sum(c => c.DurationMs), state, m.VaultDocId, m.Transcript, m.UploadError));
+                    m.Chunks.Sum(c => c.DurationMs), state, m.VaultDocId, m.Transcript,
+                    m.UploadError, m.UploadProgress, m.UploadPhase, m.UploadCurrent, m.UploadTotal,
+                    m.TranscriptionState, m.TranscriptError));
             }
             catch { /* skip unreadable manifest */ }
         }
@@ -439,18 +538,13 @@ public sealed class AndroidAudioRecorder : IAudioRecorder
         catch { return null; }
     }
 
-    public void ApplyUploadResult(string recordingId, string state, string? vaultDocId, string? transcript, string? error)
+    private static readonly JsonSerializerOptions _manifestJson = new() { WriteIndented = true };
+
+    /// <summary>Persist a recording's manifest to disk (the upload pass's single writer).</summary>
+    private void WriteManifest(string recordingId, LocalManifest m)
     {
         var path = Path.Combine(RecordingFolder(recordingId), "manifest.json");
-        if (!File.Exists(path)) return;
-        var m = LoadManifest(recordingId);
-        if (m is null) return;
-        m.State = state;
-        m.VaultDocId = vaultDocId;
-        m.Transcript = transcript;
-        m.UploadError = error;
-        File.WriteAllText(path, JsonSerializer.Serialize(m, new JsonSerializerOptions { WriteIndented = true }));
-        RaiseChanged();
+        File.WriteAllText(path, JsonSerializer.Serialize(m, _manifestJson));
     }
 
     // ===== helpers ==========================================================

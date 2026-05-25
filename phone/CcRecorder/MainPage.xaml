@@ -42,18 +42,6 @@
                     BackgroundColor="#2B6CB0" TextColor="White" HeightRequest="50"
                     CornerRadius="12" Clicked="OnPauseClicked" />
 
-            <!-- Prominent upload/transcription status, always under the button -->
-            <Border x:Name="StatusBanner" IsVisible="False"
-                    BackgroundColor="#16324A" StrokeShape="RoundRectangle 12" Padding="16,12">
-                <Border.GestureRecognizers>
-                    <TapGestureRecognizer Tapped="OnBannerTapped" />
-                </Border.GestureRecognizers>
-                <VerticalStackLayout Spacing="2">
-                    <Label x:Name="BannerTitle" Text="" FontSize="15" FontAttributes="Bold" TextColor="#E6EAF2" />
-                    <Label x:Name="BannerDetail" Text="" FontSize="13" TextColor="#A9C7E8" />
-                </VerticalStackLayout>
-            </Border>
-
             <!-- Notes -->
             <Label Text="Notes while recording" FontSize="15" FontAttributes="Bold" TextColor="#E6EAF2" />
             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
@@ -70,18 +58,41 @@
                 </CollectionView.ItemTemplate>
             </CollectionView>
 
-            <!-- Uploads queue -->
-            <Label Text="Uploads" FontSize="15" FontAttributes="Bold" TextColor="#E6EAF2" />
-            <Label Text="Every recording is kept on your phone and uploads automatically in the background. Nothing is ever deleted."
+            <!-- Recordings list: per-row upload progress lives here, out of the
+                 way of the recording controls above. -->
+            <Label Text="Recordings" FontSize="15" FontAttributes="Bold" TextColor="#E6EAF2" />
+            <Label Text="Kept on your phone and uploaded automatically. Each row shows its own upload progress."
                    FontSize="12" TextColor="#8A93A6" />
-            <CollectionView x:Name="LibraryList" HeightRequest="240"
+            <CollectionView x:Name="LibraryList" HeightRequest="320"
                             SelectionMode="Single" SelectionChanged="OnRecordingSelected">
                 <CollectionView.ItemTemplate>
                     <DataTemplate>
                         <Border BackgroundColor="#141B2E" StrokeShape="RoundRectangle 8" Padding="10" Margin="0,3">
-                            <VerticalStackLayout>
+                            <VerticalStackLayout Spacing="4">
                                 <Label Text="{Binding Title}" TextColor="#E6EAF2" FontAttributes="Bold" />
                                 <Label Text="{Binding Subtitle}" TextColor="#8A93A6" FontSize="12" />
+                                <ProgressBar Progress="{Binding Progress}" ProgressColor="#5FD08A"
+                                             HeightRequest="6" IsVisible="{Binding IsUploading}" />
+                                <!-- Two independent status checkmarks: upload + transcription -->
+                                <HorizontalStackLayout Spacing="18" Margin="0,2,0,0">
+                                    <HorizontalStackLayout Spacing="5" VerticalOptions="Center">
+                                        <Path Data="M0,5 L4,9 L11,0"
+                                              Stroke="{Binding UploadStroke}" StrokeThickness="2.5"
+                                              WidthRequest="13" HeightRequest="11" VerticalOptions="Center" />
+                                        <Label Text="Uploaded" FontSize="11" TextColor="#8A93A6" VerticalOptions="Center" />
+                                    </HorizontalStackLayout>
+                                    <HorizontalStackLayout Spacing="5" VerticalOptions="Center">
+                                        <Path Data="M0,5 L4,9 L11,0"
+                                              Stroke="{Binding TransCheckStroke}" StrokeThickness="2.5"
+                                              WidthRequest="13" HeightRequest="11" VerticalOptions="Center"
+                                              IsVisible="{Binding TransShowCheck}" />
+                                        <Path Data="M0,0 L10,10 M10,0 L0,10"
+                                              Stroke="#E5484D" StrokeThickness="2.5"
+                                              WidthRequest="11" HeightRequest="11" VerticalOptions="Center"
+                                              IsVisible="{Binding TransShowX}" />
+                                        <Label Text="Transcribed" FontSize="11" TextColor="#8A93A6" VerticalOptions="Center" />
+                                    </HorizontalStackLayout>
+                                </HorizontalStackLayout>
                             </VerticalStackLayout>
                         </Border>
                     </DataTemplate>

@@ -70,12 +70,6 @@ public interface IAudioRecorder
     LocalManifest? LoadManifest(string recordingId);
 
     /// <summary>
-    /// Persist the outcome of an upload onto a recording's manifest so the
-    /// library can show it as a transcript (and survive app restarts).
-    /// </summary>
-    void ApplyUploadResult(string recordingId, string state, string? vaultDocId, string? transcript, string? error);
-
-    /// <summary>
     /// Upload every queued/failed recording to the Gateway, one at a time,
     /// updating each manifest's state. Safe to call from anywhere (app or a
     /// background worker); serialized internally and idempotent. No-ops when
