@@ -83,6 +83,29 @@ public static class WingmanService
         4. ACTIVE / WORKING indicators: a spinner or animated glyph, an elapsed-time
            counter (e.g. "Brewed for 12s"), an "esc to interrupt" footer, or text still
            streaming in. Any of these at the bottom => working.
+
+        5. DECIDING THE STATE (apply in this order; this overrides the descriptions above):
+           a. WORKING check FIRST, mechanically: find the LAST non-empty line on screen -
+              the bottom-most footer line (it carries the mode indicator). Read it
+              carefully. If that line literally contains "esc to interrupt", the state is
+              WORKING - stop here. An empty input box, a "Read ... file" result line, or a
+              finished-looking layout ABOVE it does NOT change this: while working the agent
+              shows an empty box AND "esc to interrupt" at the same time. A stale "esc to
+              interrupt" higher up in the scrollback (left over from a finished step) does
+              NOT count - only the bottom-most footer line decides working.
+           b. If that bottom footer has NO "esc to interrupt", the turn is OVER:
+              - waiting_for_permission ONLY if parked on a real blocking gate: a bordered
+                NUMBERED-choice box ("1. Yes  2. No ..."), a "[y/n]" prompt, or an
+                interactive menu showing "Enter to select ... Esc to cancel". The mode
+                footer alone is NOT a gate.
+              - otherwise waiting_for_input - INCLUDING when the agent's last message is a
+                prose question or offer ("OK to proceed?", "Want me to ...?", "Which do you
+                prefer?") with no numbered box. A prose question at an empty input box is
+                waiting_for_input, not permission.
+           c. cancelled: an "Interrupted"/"Cancelled" notice with the agent back at the prompt.
+           d. unknown: the screen is blank, garbled, or only a startup banner with no input
+              box, no spinner, and no footer. When you cannot positively identify the state,
+              say unknown - NEVER fabricate "working" from garbage with no active indicator.
         """;
 
     // ====================================================================
@@ -208,8 +231,7 @@ public static class WingmanService
         sb.AppendLine();
         sb.AppendLine("awaiting: if the agent's last message asks the user a QUESTION or requests a DECISION it is now waiting on (a prose question ending in '?', a 'Want me to ...?', or a confirmation it is parked on), copy that request VERBATIM here. If the agent simply finished with nothing pending, or it is still working, leave \"awaiting\" as an empty string.");
         sb.AppendLine();
-        sb.AppendLine("How to decide (read the BOTTOM of the output - that is the most recent):");
-        sb.AppendLine("STEP 0 (do this FIRST, mechanically): find the LAST non-empty line on the screen - the bottom-most status/footer line (it carries the mode indicator, e.g. \"bypass permissions on (shift+tab to cycle)\"). Read that one line carefully, character by character. If that line literally contains the substring \"esc to interrupt\", the state is WORKING - output that and STOP. Do NOT let an empty input box, a \"Read ... file\" result line, or a \"done-looking\" layout above it talk you out of this: while working, Claude Code shows an empty box AND the \"esc to interrupt\" footer together. If that last footer line does NOT contain \"esc to interrupt\", the turn is OVER - do NOT report working; a stale \"esc to interrupt\" higher up in the scrollback (from a finished step) does NOT count. Only the bottom-most footer line decides this.");
+        sb.AppendLine("How to decide (follow the ordered rules in point 5 above; read the BOTTOM of the output - that is the most recent):");
         sb.AppendLine("- working: an ACTIVE indicator is present (see point 4 above) - \"esc to interrupt\", a spinner glyph with an elapsed-time counter (e.g. \"Brewed for 8s\", \"Concocting... (2s)\"), or text still streaming. DECISIVE TIE-BREAK: if \"esc to interrupt\" appears ANYWHERE in the footer, the state is working - EVEN IF an empty input box ('>' or the chevron) is also visible. While the agent works, Claude Code shows BOTH an empty input box AND the \"esc to interrupt\" footer at the same time, so an empty box does NOT mean finished when that footer is present. Only when \"esc to interrupt\" is GONE is the turn over.");
         sb.AppendLine("- waiting_for_permission: ONLY when the agent is parked on a real blocking gate it cannot pass on its own - a bordered NUMBERED-choice box (\"1. Yes  2. No ...\", point 2 above), a \"[y/n]\" prompt, or an interactive menu showing \"Enter to select ... Esc to cancel\". The persistent mode footer from point 1 does NOT count.");
         sb.AppendLine("- waiting_for_input: the agent has finished (NO \"esc to interrupt\", no spinner) and is sitting at an EMPTY input box. This INCLUDES the case where the agent's last message is a prose question or offer (\"OK to proceed?\", \"Want me to ...?\", \"Which do you prefer?\") with NO numbered box and NO [y/n] - a prose question at an empty input box is waiting_for_input, not permission.");

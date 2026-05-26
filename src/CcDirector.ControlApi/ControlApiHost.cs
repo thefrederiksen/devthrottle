@@ -177,11 +177,12 @@ public sealed class ControlApiHost : IAsyncDisposable
         // set CC_DIRECTOR_TERMSTATE_LLM=0 to run the free byte-activity gate alone.
         var terminalDriven = Environment.GetEnvironmentVariable("CC_DIRECTOR_TERMINAL_STATE") != "0";
         var termStateLlm = Environment.GetEnvironmentVariable("CC_DIRECTOR_TERMSTATE_LLM") != "0";
-        // Phase 2: the LLM judge is a full-power read-only Claude Code session that reads
-        // the terminal snapshot via its own tools (Read/Grep/Glob), instead of the lighter
-        // one-shot call with a pasted tail. On by default; set
-        // CC_DIRECTOR_TERMSTATE_FULLSESSION=0 to fall back to the tail-paste judge.
-        var termStateFullSession = Environment.GetEnvironmentVariable("CC_DIRECTOR_TERMSTATE_FULLSESSION") != "0";
+        // The LLM judge is the lighter one-shot "tail-paste" call (ClassifyTerminalStateAsync):
+        // it reads the terminal tail directly and is the judge PROVEN at 100/100 against the
+        // synthetic state suite, and it is faster (no read-only session spawn => less badge lag).
+        // The heavier full-power-session judge is opt-in via CC_DIRECTOR_TERMSTATE_FULLSESSION=1
+        // (it now shares the same decisive rules via ClaudeCodeScreenReference).
+        var termStateFullSession = Environment.GetEnvironmentVariable("CC_DIRECTOR_TERMSTATE_FULLSESSION") == "1";
         Core.Sessions.Session.TerminalDrivenState = terminalDriven;
         _terminalStateDetector = new TerminalStateDetector(
             _sessionManager, _sessionManager.Options.ClaudePath, useLlm: termStateLlm, driveState: terminalDriven, useFullSession: termStateFullSession);

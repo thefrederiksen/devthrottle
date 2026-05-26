@@ -1,4 +1,4 @@
-﻿<!doctype html><html><head><meta charset='utf-8'><title>Terminal-State Judge Report</title><style>body{font-family:system-ui,Segoe UI,Arial;margin:24px;background:#0e1116;color:#e6eaf2}h1{margin:0 0 4px}.sum{font-size:20px;margin:8px 0 16px}.ok{color:#5fd08a}.bad{color:#e5484d}table{border-collapse:collapse;width:100%}th,td{border:1px solid #2a3140;padding:6px 8px;text-align:left;vertical-align:top;font-size:13px}th{background:#161b22}tr.f{background:#2a1416}pre{margin:0;white-space:pre-wrap;font-family:Consolas,monospace;font-size:11px;color:#9aa4b2;max-height:160px;overflow:auto}</style></head><body><h1>Wingman terminal-state judge - 100 synthetic states</h1><div class='sum'>Detected correctly: <span class='ok'>100/100</span> &nbsp; <small>W: 31/31 &nbsp; I: 30/30 &nbsp; P: 21/21 &nbsp; C: 8/8 &nbsp; U: 10/10</small></div><div><small>Generated 2026-05-26 03:14:31Z . judge=WingmanService.ClassifyTerminalStateAsync (one LLM call, no regex)</small></div><br><table><tr><th>#</th><th>cat</th><th>expected</th><th>got</th><th>result</th><th>judge reason</th><th>screen</th></tr><tr><td>W01</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>the bottom-most footer line contains &#39;esc to interrupt&#39;, so the agent is actively working despite the empty input box</td><td><pre> ##  Claude Code v2.1.150
+﻿<!doctype html><html><head><meta charset='utf-8'><title>Terminal-State Judge Report</title><style>body{font-family:system-ui,Segoe UI,Arial;margin:24px;background:#0e1116;color:#e6eaf2}h1{margin:0 0 4px}.sum{font-size:20px;margin:8px 0 16px}.ok{color:#5fd08a}.bad{color:#e5484d}table{border-collapse:collapse;width:100%}th,td{border:1px solid #2a3140;padding:6px 8px;text-align:left;vertical-align:top;font-size:13px}th{background:#161b22}tr.f{background:#2a1416}pre{margin:0;white-space:pre-wrap;font-family:Consolas,monospace;font-size:11px;color:#9aa4b2;max-height:160px;overflow:auto}</style></head><body><h1>Wingman terminal-state judge - 100 synthetic states</h1><div class='sum'>Detected correctly: <span class='ok'>100/100</span> &nbsp; <small>W: 31/31 &nbsp; I: 30/30 &nbsp; P: 21/21 &nbsp; C: 8/8 &nbsp; U: 10/10</small></div><div><small>Generated 2026-05-26 03:39:15Z . judge=WingmanService.ClassifyTerminalStateAsync (one LLM call, no regex)</small></div><br><table><tr><th>#</th><th>cat</th><th>expected</th><th>got</th><th>result</th><th>judge reason</th><th>screen</th></tr><tr><td>W01</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>bottom footer contains esc to interrupt with a live elapsed-time counter (Brewed for 8s)</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -9,7 +9,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ bypass permissions on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W02</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>the bottom footer line contains &#39;esc to interrupt&#39;, indicating the agent is actively reading a file</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ bypass permissions on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W02</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>bottom footer contains &#39;esc to interrupt&#39; alongside the accept-edits mode line, so the agent is actively reading a file</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -19,7 +19,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ accept edits on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W03</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>the bottom footer line contains &#39;esc to interrupt&#39;, indicating an active test run</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ accept edits on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W03</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>bottom footer shows a live spinner with elapsed-time counter and esc-to-interrupt for the test run</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -29,7 +29,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ plan mode on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W04</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>bottom footer line contains &#39;esc to interrupt&#39; and a live &#39;Determining... (2s)&#39; spinner with token counter</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ plan mode on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W04</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>bottom footer shows &#39;Determining... (2s)&#39; spinner with esc to interrupt</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -38,7 +38,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ bypass permissions on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W05</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>bottom footer shows spinner &#39;Mulling... (6s)&#39; and &#39;esc to interrupt&#39;</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ bypass permissions on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W05</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>bottom footer shows &#39;esc to interrupt&#39; with a live spinner &#39;Mulling... (6s)&#39;</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -47,7 +47,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ accept edits on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W06</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>bottom footer shows an active spinner with elapsed time and &#39;esc to interrupt&#39; for the build task</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ accept edits on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W06</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>bottom footer shows an active spinner with elapsed-time counter and esc-to-interrupt (&#39;Building and verifying... (1m 31s)&#39;)</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -56,7 +56,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ plan mode on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W07</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>the bottom-most footer line contains &#39;esc to interrupt&#39; alongside a live &#39;Searching... (4s)&#39; spinner</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ plan mode on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W07</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>bottom footer contains esc to interrupt and a live Searching spinner with elapsed counter</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -66,7 +66,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ bypass permissions on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W08</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>bottom footer line contains &#39;esc to interrupt&#39; alongside &#39;Concocting... (16s)&#39; spinner with elapsed time</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ bypass permissions on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W08</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>bottom footer shows &#39;Concocting... (16s)&#39; spinner with esc to interrupt</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -76,7 +76,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ accept edits on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W09</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>bottom footer contains esc to interrupt with an active Exploring spinner and elapsed counter running a subagent</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ accept edits on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W09</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>bottom footer shows &#39;esc to interrupt&#39; with an active &#39;Exploring... (22s)&#39; spinner running a subagent</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -85,7 +85,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ plan mode on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W10</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>bottom footer contains esc to interrupt with an active spinner &#39;Tinkering... (9s)&#39;</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ plan mode on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W10</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>bottom footer shows &#39;Tinkering... (9s)&#39; spinner and &#39;esc to interrupt&#39;, with Update FinishDetector.cs in progress</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -95,7 +95,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ bypass permissions on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W11</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>bottom footer line contains &#39;esc to interrupt&#39; alongside the accept-edits mode indicator, and a Bash git status command is running with a &#39;Computing...&#39; spinner</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ bypass permissions on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W11</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>bottom footer shows &#39;esc to interrupt&#39; with a &#39;Computing...&#39; spinner running &#39;Bash git status&#39;</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -105,7 +105,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ accept edits on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W12</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>bottom footer line contains &#39;esc to interrupt&#39; alongside the plan-mode indicator, and a spinner with elapsed time (&#39;Pondering... 33s&#39;) is shown</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ accept edits on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W12</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>bottom footer shows &#39;esc to interrupt&#39; with a live &#39;Pondering... (33s)&#39; spinner</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -114,7 +114,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ plan mode on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W13</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>bottom footer shows &#39;Concocting... (3s)&#39; spinner and &#39;esc to interrupt&#39; is present</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ plan mode on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W13</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>bottom footer shows &#39;Concocting... (3s)&#39; spinner and the esc-to-interrupt footer is present</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -123,7 +123,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ bypass permissions on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W14</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>bottom footer shows &#39;esc to interrupt&#39; alongside the Mulling spinner with elapsed time counter</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ bypass permissions on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W14</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>bottom footer shows &#39;esc to interrupt&#39; with an active spinner &#39;Mulling... (4s)&#39;</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -132,7 +132,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ accept edits on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W15</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>bottom footer shows the spinner with elapsed-time counter and esc-to-interrupt (&#39;Determining... (5s . v 130 tokens)&#39; with &#39;esc to interrupt&#39; footer)</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ accept edits on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W15</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>bottom footer shows &#39;esc to interrupt&#39; with a live elapsed-time spinner &#39;Determining... (5s)&#39;</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -141,7 +141,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ plan mode on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W16</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>bottom footer shows &#39;esc to interrupt&#39; with an active spinner &#39;Tinkering... (6s)&#39;</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ plan mode on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W16</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>bottom footer contains esc to interrupt with an active spinner Tinkering (6s)</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -150,7 +150,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ bypass permissions on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W17</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>bottom footer contains esc to interrupt with an active Brewing spinner and elapsed-time counter</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ bypass permissions on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W17</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>bottom footer shows &#39;Brewing... (7s)&#39; spinner with esc-to-interrupt present</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -159,7 +159,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ accept edits on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W18</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>bottom footer shows the Sauteing spinner with elapsed time and the esc-to-interrupt indicator</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ accept edits on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W18</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>bottom footer shows spinner &#39;Sauteing... (8s)&#39; and &#39;esc to interrupt&#39;</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -168,7 +168,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ plan mode on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W19</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>the bottom-most footer line contains &#39;esc to interrupt&#39;, indicating an active build</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ plan mode on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W19</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>the bottom-most footer line contains &#39;esc to interrupt&#39;, so the session is working even though an empty input box is shown above it</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -180,7 +180,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ bypass permissions on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W20</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>bottom footer line contains &#39;esc to interrupt&#39; alongside the accept-edits mode indicator</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ bypass permissions on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W20</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>the bottom-most footer line contains &#39;esc to interrupt&#39;, so the session is working even though an empty input box is shown above it</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -192,7 +192,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ accept edits on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W21</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>the bottom-most footer line contains &#39;esc to interrupt&#39;, indicating active work despite the empty input box shown above it</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ accept edits on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W21</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>the bottom-most footer line contains &#39;esc to interrupt&#39; alongside the plan mode indicator, so the session is actively working</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -204,7 +204,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ plan mode on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W22</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>the bottom-most footer line contains &#39;esc to interrupt&#39;, indicating an active build</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ plan mode on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W22</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>bottom footer line contains &#39;esc to interrupt&#39; with a live elapsed-time counter &#39;Building... (5s)&#39;</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -216,7 +216,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ bypass permissions on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W23</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>the bottom footer line contains &#39;esc to interrupt&#39;, indicating active work despite the empty input box above it</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ bypass permissions on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W23</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>bottom footer line contains &#39;esc to interrupt&#39; alongside the Building spinner with elapsed time</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -228,7 +228,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ accept edits on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W24</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>bottom footer contains esc to interrupt alongside the plan-mode indicator</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ accept edits on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W24</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>the bottom-most footer line contains &#39;esc to interrupt&#39; beneath the plan mode indicator</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -240,7 +240,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ plan mode on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W25</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>the bottom-most footer line contains &#39;esc to interrupt&#39; alongside the Concocting spinner</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ plan mode on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>W25</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>bottom footer contains esc-to-interrupt with a live &#39;Concocting... (4s)&#39; spinner</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -248,7 +248,7 @@
 ✴ Concocting... (4s . v 120 tokens)
 ✳-⏵⏵-bypconc...(2s tokens)-on-(shift+tab-to-cycle)-&#183;-esc-to-interrupt---------------------------------------------------
 &gt;
-✳-⏵⏵-bypconc...(2s tokens)-on-(shift+tab-to-cycle)-&#183;-esc-to-interrupt---------------------------------------------------</pre></td></tr><tr><td>W26</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>the bottom-most footer line contains &#39;esc to interrupt&#39; with a live &#39;mull...&#39; spinner</td><td><pre> ##  Claude Code v2.1.150
+✳-⏵⏵-bypconc...(2s tokens)-on-(shift+tab-to-cycle)-&#183;-esc-to-interrupt---------------------------------------------------</pre></td></tr><tr><td>W26</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>the bottom-most footer line contains &#39;esc to interrupt&#39; alongside a mull spinner, so the agent is actively working despite the empty input box shown</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -256,7 +256,7 @@
 ✴ Mulling... (5s . v 150 tokens)
 ✳-⏵⏵-bypmull...(3s tokens)-on-(shift+tab-to-cycle)-&#183;-esc-to-interrupt---------------------------------------------------
 &gt;
-✳-⏵⏵-bypmull...(3s tokens)-on-(shift+tab-to-cycle)-&#183;-esc-to-interrupt---------------------------------------------------</pre></td></tr><tr><td>W27</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>the bottom-most footer line contains &#39;esc to interrupt&#39; alongside a live elapsed counter (4s tokens)</td><td><pre> ##  Claude Code v2.1.150
+✳-⏵⏵-bypmull...(3s tokens)-on-(shift+tab-to-cycle)-&#183;-esc-to-interrupt---------------------------------------------------</pre></td></tr><tr><td>W27</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>bottom footer shows &#39;esc to interrupt&#39; with an active &#39;Determining...&#39; spinner and elapsed-time counter</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -264,7 +264,7 @@
 ✴ Determining... (6s . v 180 tokens)
 ✳-⏵⏵-bypdete...(4s tokens)-on-(shift+tab-to-cycle)-&#183;-esc-to-interrupt---------------------------------------------------
 &gt;
-✳-⏵⏵-bypdete...(4s tokens)-on-(shift+tab-to-cycle)-&#183;-esc-to-interrupt---------------------------------------------------</pre></td></tr><tr><td>W28</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>the bottom-most footer line contains &#39;esc to interrupt&#39; along with a Tinkering spinner and elapsed-time counter</td><td><pre> ##  Claude Code v2.1.150
+✳-⏵⏵-bypdete...(4s tokens)-on-(shift+tab-to-cycle)-&#183;-esc-to-interrupt---------------------------------------------------</pre></td></tr><tr><td>W28</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>the bottom-most footer line contains &#39;esc to interrupt&#39; with a live elapsed-time spinner (Tinkering... 7s)</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -272,7 +272,7 @@
 ✴ Tinkering... (7s . v 210 tokens)
 ✳-⏵⏵-byptink...(5s tokens)-on-(shift+tab-to-cycle)-&#183;-esc-to-interrupt---------------------------------------------------
 &gt;
-✳-⏵⏵-byptink...(5s tokens)-on-(shift+tab-to-cycle)-&#183;-esc-to-interrupt---------------------------------------------------</pre></td></tr><tr><td>W29</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>the bottom-most footer line contains &#39;esc to interrupt&#39; alongside a Brewing spinner</td><td><pre> ##  Claude Code v2.1.150
+✳-⏵⏵-byptink...(5s tokens)-on-(shift+tab-to-cycle)-&#183;-esc-to-interrupt---------------------------------------------------</pre></td></tr><tr><td>W29</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>bottom footer contains esc-to-interrupt with a Brewing spinner and elapsed-time counter</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -280,7 +280,7 @@
 ✴ Brewing... (8s . v 240 tokens)
 ✳-⏵⏵-bypbrew...(6s tokens)-on-(shift+tab-to-cycle)-&#183;-esc-to-interrupt---------------------------------------------------
 &gt;
-✳-⏵⏵-bypbrew...(6s tokens)-on-(shift+tab-to-cycle)-&#183;-esc-to-interrupt---------------------------------------------------</pre></td></tr><tr><td>W30</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>the bottom-most footer line contains &#39;esc to interrupt&#39; alongside the Sauteing spinner with elapsed-time counter</td><td><pre> ##  Claude Code v2.1.150
+✳-⏵⏵-bypbrew...(6s tokens)-on-(shift+tab-to-cycle)-&#183;-esc-to-interrupt---------------------------------------------------</pre></td></tr><tr><td>W30</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>bottom footer contains esc-to-interrupt with an active Sauteing spinner and elapsed-time counter</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -288,7 +288,7 @@
 ✴ Sauteing... (9s . v 270 tokens)
 ✳-⏵⏵-bypsaut...(7s tokens)-on-(shift+tab-to-cycle)-&#183;-esc-to-interrupt---------------------------------------------------
 &gt;
-✳-⏵⏵-bypsaut...(7s tokens)-on-(shift+tab-to-cycle)-&#183;-esc-to-interrupt---------------------------------------------------</pre></td></tr><tr><td>I01</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>the bottom footer has no esc-to-interrupt; agent finished with a &#39;Done.&#39; message and an empty input box is shown</td><td><pre> ##  Claude Code v2.1.150
+✳-⏵⏵-bypsaut...(7s tokens)-on-(shift+tab-to-cycle)-&#183;-esc-to-interrupt---------------------------------------------------</pre></td></tr><tr><td>I01</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>agent reported done updating the loader and adding a test, sitting at an empty input box with no esc-to-interrupt footer</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -296,7 +296,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ bypass permissions on (shift+tab to cycle)</pre></td></tr><tr><td>I02</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>completion message about login bug fix sits above an empty input box with no esc-to-interrupt footer; bottom line is the accept-edits mode footer</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ bypass permissions on (shift+tab to cycle)</pre></td></tr><tr><td>I02</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>completion message about login bug fix above an empty input box with no esc-to-interrupt footer</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -304,7 +304,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ accept edits on (shift+tab to cycle)</pre></td></tr><tr><td>I03</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>the bottom footer is the plan-mode status line with no esc-to-interrupt or spinner, and an empty input box is shown above it</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ accept edits on (shift+tab to cycle)</pre></td></tr><tr><td>I03</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>empty input box with plan-mode footer and no esc-to-interrupt; agent finished a summary line</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -312,7 +312,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ plan mode on (shift+tab to cycle)</pre></td></tr><tr><td>I04</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>empty input box with the bypass-permissions mode footer below it, no esc-to-interrupt or spinner present</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ plan mode on (shift+tab to cycle)</pre></td></tr><tr><td>I04</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>empty input box with the bypass-permissions mode footer below it and no esc-to-interrupt or spinner; last output was a completed answer</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -320,7 +320,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ bypass permissions on (shift+tab to cycle)</pre></td></tr><tr><td>I05</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>bottom footer shows &#39;accept edits on&#39; mode line with no esc-to-interrupt; empty input box after a completed message about reading README.md</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ bypass permissions on (shift+tab to cycle)</pre></td></tr><tr><td>I05</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>the bottom footer is the &#39;accept edits on&#39; mode line with no esc-to-interrupt; empty input box above it after the agent reported reading README.md</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -328,7 +328,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ accept edits on (shift+tab to cycle)</pre></td></tr><tr><td>I06</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>bottom footer shows &#39;plan mode on&#39; with no esc-to-interrupt; empty input box after a completed push message</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ accept edits on (shift+tab to cycle)</pre></td></tr><tr><td>I06</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>empty input box with no esc-to-interrupt footer; the plan-mode line is the mode footer and the last message reports a finished git push</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -336,7 +336,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ plan mode on (shift+tab to cycle)</pre></td></tr><tr><td>I07</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>bottom footer is the bypass-permissions mode line with no esc-to-interrupt; agent finished with a completion message and sits at an empty input box</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ plan mode on (shift+tab to cycle)</pre></td></tr><tr><td>I07</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>bottom footer is the mode line with no esc-to-interrupt; agent finished with a completion message and sits at an empty input box</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -344,7 +344,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ bypass permissions on (shift+tab to cycle)</pre></td></tr><tr><td>I08</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>bottom footer is the mode line with no esc-to-interrupt; empty input box with &#39;Done.&#39; above shows the turn finished</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ bypass permissions on (shift+tab to cycle)</pre></td></tr><tr><td>I08</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>bottom footer is the bypass-permissions mode line with no esc-to-interrupt; empty input box after a &#39;Done.&#39; message</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -352,7 +352,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt; Try &quot;fix the lint errors&quot;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ bypass permissions on (shift+tab to cycle)</pre></td></tr><tr><td>I09</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>bottom footer is the &#39;accept edits on&#39; mode line with no esc-to-interrupt; empty input box with placeholder shown after &#39;Done.&#39;</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ bypass permissions on (shift+tab to cycle)</pre></td></tr><tr><td>I09</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>bottom footer shows &#39;accept edits on&#39; mode line with empty input box and &#39;Done.&#39; above; no esc-to-interrupt present</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -360,7 +360,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt; Try &quot;how do I log an error?&quot;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ accept edits on (shift+tab to cycle)</pre></td></tr><tr><td>I10</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>bottom footer reads &#39;plan mode on (shift+tab to cycle)&#39; with no esc-to-interrupt and an empty prompt showing a placeholder command</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ accept edits on (shift+tab to cycle)</pre></td></tr><tr><td>I10</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>bottom footer shows &#39;plan mode on&#39; with no esc-to-interrupt and an empty layout; agent finished and is awaiting input</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -368,7 +368,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt; edit &lt;filepath&gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ plan mode on (shift+tab to cycle)</pre></td></tr><tr><td>I11</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>bottom footer is the bypass-permissions mode line with no esc-to-interrupt; &#39;Done.&#39; above and an empty input box indicate the turn finished</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ plan mode on (shift+tab to cycle)</pre></td></tr><tr><td>I11</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>bottom footer is the bypass-permissions mode line with no esc-to-interrupt; &#39;Done.&#39; shown above an empty input box</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -376,7 +376,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt; Try &quot;fix the lint errors&quot;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ bypass permissions on (shift+tab to cycle)</pre></td></tr><tr><td>I12</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>bottom footer is the &#39;accept edits on&#39; mode line with no esc-to-interrupt; empty input box with placeholder text shown</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ bypass permissions on (shift+tab to cycle)</pre></td></tr><tr><td>I12</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>bottom footer is the &#39;accept edits on&#39; mode line with no esc-to-interrupt; empty input box above shows &#39;Done.&#39; finished</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -384,7 +384,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt; Try &quot;how do I log an error?&quot;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ accept edits on (shift+tab to cycle)</pre></td></tr><tr><td>I13</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>bottom footer is &#39;plan mode on (shift+tab to cycle)&#39; with no esc-to-interrupt and an empty input box showing &#39;edit &lt;filepath&gt;&#39; placeholder</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ accept edits on (shift+tab to cycle)</pre></td></tr><tr><td>I13</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>the bottom footer is the plan-mode status line with no esc-to-interrupt; &#39;Done.&#39; precedes an empty input box showing an example hint</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -392,7 +392,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt; edit &lt;filepath&gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ plan mode on (shift+tab to cycle)</pre></td></tr><tr><td>I14</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>empty input box with the &#39;bypass permissions on&#39; mode footer and no esc-to-interrupt; last message says config updated and builds</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ plan mode on (shift+tab to cycle)</pre></td></tr><tr><td>I14</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>bottom footer is the bypass-permissions mode line with no esc-to-interrupt; empty input box after a completion message</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -400,7 +400,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ? for shortcuts                                   ⏵⏵ bypass permissions on (shift+tab to cycle)</pre></td></tr><tr><td>I15</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>bottom footer is the &#39;accept edits on&#39; mode line with no esc-to-interrupt; empty input box above it after a completion message</td><td><pre> ##  Claude Code v2.1.150
+  ? for shortcuts                                   ⏵⏵ bypass permissions on (shift+tab to cycle)</pre></td></tr><tr><td>I15</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>empty input box with the accept-edits mode footer and no esc-to-interrupt; last message reports work finished</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -408,7 +408,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ? for shortcuts                                   ⏵⏵ accept edits on (shift+tab to cycle)</pre></td></tr><tr><td>I16</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>empty input box with &#39;plan mode on&#39; footer and no esc-to-interrupt; agent finished with a status message</td><td><pre> ##  Claude Code v2.1.150
+  ? for shortcuts                                   ⏵⏵ accept edits on (shift+tab to cycle)</pre></td></tr><tr><td>I16</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>empty input box with no esc-to-interrupt footer; the plan mode line is the mode footer, and the agent finished with a status message above</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -416,7 +416,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ? for shortcuts                                   ⏵⏵ plan mode on (shift+tab to cycle)</pre></td></tr><tr><td>I17</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>bottom footer is the bypass-permissions mode line with no esc-to-interrupt; empty input box after a completed message</td><td><pre> ##  Claude Code v2.1.150
+  ? for shortcuts                                   ⏵⏵ plan mode on (shift+tab to cycle)</pre></td></tr><tr><td>I17</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>agent finished with a confirmation message and an empty input box; bottom footer is the mode line with no esc-to-interrupt</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -424,7 +424,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ? for shortcuts                                   ⏵⏵ bypass permissions on (shift+tab to cycle)</pre></td></tr><tr><td>I18</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>bottom footer reads &#39;accept edits on&#39; mode with no esc-to-interrupt; empty input box and a completed message above</td><td><pre> ##  Claude Code v2.1.150
+  ? for shortcuts                                   ⏵⏵ bypass permissions on (shift+tab to cycle)</pre></td></tr><tr><td>I18</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>bottom footer shows the accept-edits mode line with no esc-to-interrupt; empty input box after a completion message</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -432,7 +432,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ? for shortcuts                                   ⏵⏵ accept edits on (shift+tab to cycle)</pre></td></tr><tr><td>I19</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>finished with a question at an empty input box; bottom footer is the mode line with no esc-to-interrupt</td><td><pre> ##  Claude Code v2.1.150
+  ? for shortcuts                                   ⏵⏵ accept edits on (shift+tab to cycle)</pre></td></tr><tr><td>I19</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>finished with a prose question at an empty input box; bottom footer is the mode line with no esc-to-interrupt</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -441,7 +441,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ bypass permissions on (shift+tab to cycle)</pre></td></tr><tr><td>I20</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>prose question &#39;Should I commit these changes now?&#39; above an empty input box with no numbered box; bottom footer is the accept-edits mode line with no esc-to-interrupt</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ bypass permissions on (shift+tab to cycle)</pre></td></tr><tr><td>I20</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>agent finished with a prose question at an empty input box; bottom footer is the accept-edits mode line with no esc-to-interrupt</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -450,7 +450,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ accept edits on (shift+tab to cycle)</pre></td></tr><tr><td>I21</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>agent finished with a prose question and sits at an empty input box; the bottom footer is the plan-mode status line with no esc-to-interrupt</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ accept edits on (shift+tab to cycle)</pre></td></tr><tr><td>I21</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>agent finished with a prose question at an empty input box, no numbered choice box present</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -459,7 +459,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ plan mode on (shift+tab to cycle)</pre></td></tr><tr><td>I22</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>prose question at an empty input box with no numbered box or [y/n]; bottom footer is the mode line with no esc-to-interrupt</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ plan mode on (shift+tab to cycle)</pre></td></tr><tr><td>I22</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>prose question &#39;OK to proceed?&#39; at an empty input box with no numbered box or [y/n], and no esc-to-interrupt in the footer</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -468,7 +468,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ bypass permissions on (shift+tab to cycle)</pre></td></tr><tr><td>I23</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>finished with a prose question at an empty input box; the accept-edits line is the mode footer and no esc-to-interrupt is present</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ bypass permissions on (shift+tab to cycle)</pre></td></tr><tr><td>I23</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>agent finished with a prose question at an empty input box, no numbered choice box or esc-to-interrupt footer</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -477,7 +477,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ accept edits on (shift+tab to cycle)</pre></td></tr><tr><td>I24</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>the bottom footer has NO esc-to-interrupt; the one higher up is stale scrollback from the finished test run, and an empty input box is shown</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ accept edits on (shift+tab to cycle)</pre></td></tr><tr><td>I24</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>bottom footer has no esc-to-interrupt; the esc-to-interrupt higher up is stale scrollback from the finished test run, now at an empty input box</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 * Running tests... (esc to interrupt)
@@ -487,7 +487,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ bypass permissions on (shift+tab to cycle)</pre></td></tr><tr><td>I25</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>the bottom footer is the &#39;accept edits on&#39; mode line with no esc-to-interrupt; the &#39;Running tests... esc to interrupt&#39; is stale scrollback above the finished result and empty input box</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ bypass permissions on (shift+tab to cycle)</pre></td></tr><tr><td>I25</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>bottom footer is the &#39;accept edits on&#39; mode line with no esc-to-interrupt; the test run and empty input box indicate the turn is over</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 * Running tests... (esc to interrupt)
@@ -497,7 +497,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ accept edits on (shift+tab to cycle)</pre></td></tr><tr><td>I26</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>the bottom footer is the plan-mode status line with no esc-to-interrupt; the &#39;Running tests&#39; spinner higher up is stale scrollback and the input box is empty below the completed test output</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ accept edits on (shift+tab to cycle)</pre></td></tr><tr><td>I26</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>bottom footer shows &#39;plan mode on&#39; with no esc-to-interrupt; the test run and esc-to-interrupt higher up are stale scrollback, agent sits at empty input box</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 * Running tests... (esc to interrupt)
@@ -507,7 +507,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ plan mode on (shift+tab to cycle)</pre></td></tr><tr><td>I27</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>the bottom footer has no esc-to-interrupt; the one higher up is stale scrollback from the finished test run, empty input box below &#39;All 42 tests pass&#39;</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ plan mode on (shift+tab to cycle)</pre></td></tr><tr><td>I27</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>bottom footer has no esc-to-interrupt; the one higher up is stale scrollback from the finished test run, empty input box below &#39;All 42 tests pass.&#39;</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 * Running tests... (esc to interrupt)
@@ -517,7 +517,7 @@
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ bypass permissions on (shift+tab to cycle)</pre></td></tr><tr><td>I28</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>the bottom footer is the &#39;accept edits on&#39; mode line with no esc-to-interrupt; the &#39;Running tests&#39; spinner higher up is stale scrollback and an empty input box is shown</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ bypass permissions on (shift+tab to cycle)</pre></td></tr><tr><td>I28</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>bottom footer is the &#39;accept edits on&#39; mode line with no esc-to-interrupt; the test run and its esc-to-interrupt are stale scrollback above an empty input box</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 * Running tests... (esc to interrupt)
@@ -541,7 +541,7 @@
     2. Yes, and don&#39;t ask again this session
     3. No, and tell Claude what to do differently (esc)
 
-⏵⏵ bypass permissions on (shift+tab to cycle)</pre></td></tr><tr><td>P02</td><td>P</td><td>waiting_for_permission</td><td>waiting_for_permission</td><td><span class='ok'>PASS</span></td><td>parked on a numbered choice box asking to run &#39;rm -rf build/&#39; with options 1. Yes 2. Yes, and don&#39;t ask again 3. No</td><td><pre> ##  Claude Code v2.1.150
+⏵⏵ bypass permissions on (shift+tab to cycle)</pre></td></tr><tr><td>P02</td><td>P</td><td>waiting_for_permission</td><td>waiting_for_permission</td><td><span class='ok'>PASS</span></td><td>parked on a numbered choice box asking &#39;Do you want to run this command? rm -rf build/&#39; with options 1. Yes 2. Yes, and don&#39;t ask again 3. No</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -555,7 +555,7 @@
     2. Yes, and don&#39;t ask again
     3. No (esc)
 
-⏵⏵ accept edits on (shift+tab to cycle)</pre></td></tr><tr><td>P03</td><td>P</td><td>waiting_for_permission</td><td>waiting_for_permission</td><td><span class='ok'>PASS</span></td><td>parked on a numbered-choice box asking to create README-new.md with options 1. Yes / 2. No</td><td><pre> ##  Claude Code v2.1.150
+⏵⏵ accept edits on (shift+tab to cycle)</pre></td></tr><tr><td>P03</td><td>P</td><td>waiting_for_permission</td><td>waiting_for_permission</td><td><span class='ok'>PASS</span></td><td>parked on a numbered-choice confirmation box asking to create README-new.md with options 1. Yes / 2. No</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -582,7 +582,7 @@
     2. Yes, for this session
     3. No (esc)
 
-⏵⏵ bypass permissions on (shift+tab to cycle)</pre></td></tr><tr><td>P05</td><td>P</td><td>waiting_for_permission</td><td>waiting_for_permission</td><td><span class='ok'>PASS</span></td><td>parked on a numbered confirmation box asking to make an edit to Program.cs</td><td><pre> ##  Claude Code v2.1.150
+⏵⏵ bypass permissions on (shift+tab to cycle)</pre></td></tr><tr><td>P05</td><td>P</td><td>waiting_for_permission</td><td>waiting_for_permission</td><td><span class='ok'>PASS</span></td><td>parked on a numbered-choice edit confirmation box with options 1. Yes / 2. Yes, and don&#39;t ask again / 3. No</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -603,21 +603,21 @@
   Proceed with the migration step 0? [y/n]
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
-⏵⏵ bypass permissions on (shift+tab to cycle)</pre></td></tr><tr><td>P07</td><td>P</td><td>waiting_for_permission</td><td>waiting_for_permission</td><td><span class='ok'>PASS</span></td><td>parked on a [y/n] prompt asking to proceed with migration step 1</td><td><pre> ##  Claude Code v2.1.150
+⏵⏵ bypass permissions on (shift+tab to cycle)</pre></td></tr><tr><td>P07</td><td>P</td><td>waiting_for_permission</td><td>waiting_for_permission</td><td><span class='ok'>PASS</span></td><td>parked on a [y/n] prompt asking to proceed with the migration step</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
   Proceed with the migration step 1? [y/n]
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
-⏵⏵ accept edits on (shift+tab to cycle)</pre></td></tr><tr><td>P08</td><td>P</td><td>waiting_for_permission</td><td>waiting_for_permission</td><td><span class='ok'>PASS</span></td><td>parked on a [y/n] prompt asking to proceed with the migration step</td><td><pre> ##  Claude Code v2.1.150
+⏵⏵ accept edits on (shift+tab to cycle)</pre></td></tr><tr><td>P08</td><td>P</td><td>waiting_for_permission</td><td>waiting_for_permission</td><td><span class='ok'>PASS</span></td><td>parked on a [y/n] prompt asking to proceed with migration step 2</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
   Proceed with the migration step 2? [y/n]
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
-⏵⏵ plan mode on (shift+tab to cycle)</pre></td></tr><tr><td>P09</td><td>P</td><td>waiting_for_permission</td><td>waiting_for_permission</td><td><span class='ok'>PASS</span></td><td>parked on a [y/n] prompt asking to proceed with the migration step</td><td><pre> ##  Claude Code v2.1.150
+⏵⏵ plan mode on (shift+tab to cycle)</pre></td></tr><tr><td>P09</td><td>P</td><td>waiting_for_permission</td><td>waiting_for_permission</td><td><span class='ok'>PASS</span></td><td>parked on a [y/n] prompt asking to proceed with migration step 3</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -631,7 +631,7 @@
   Proceed with the migration step 4? [y/n]
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
-⏵⏵ accept edits on (shift+tab to cycle)</pre></td></tr><tr><td>P11</td><td>P</td><td>waiting_for_permission</td><td>waiting_for_permission</td><td><span class='ok'>PASS</span></td><td>parked on an interactive Enter-to-select choice menu titled &#39;Pick a joke&#39;</td><td><pre> ##  Claude Code v2.1.150
+⏵⏵ accept edits on (shift+tab to cycle)</pre></td></tr><tr><td>P11</td><td>P</td><td>waiting_for_permission</td><td>waiting_for_permission</td><td><span class='ok'>PASS</span></td><td>parked on an interactive Enter-to-select choice menu listing numbered joke options</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -646,7 +646,7 @@ Which joke do you want to hear?
     4. Type something.
     5. Chat about this
 ------------------------------------------------------------------------------------------------------------------------
-Enter to select . up/down to navigate . Esc to cancel</pre></td></tr><tr><td>P12</td><td>P</td><td>waiting_for_permission</td><td>waiting_for_permission</td><td><span class='ok'>PASS</span></td><td>parked on an interactive Enter-to-select choice menu titled &#39;Choose an approach&#39;</td><td><pre> ##  Claude Code v2.1.150
+Enter to select . up/down to navigate . Esc to cancel</pre></td></tr><tr><td>P12</td><td>P</td><td>waiting_for_permission</td><td>waiting_for_permission</td><td><span class='ok'>PASS</span></td><td>parked on an interactive Enter-to-select choice menu with numbered options</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -660,7 +660,7 @@ How should I implement this?
     3. Leave it as is
     4. Type something.
 ------------------------------------------------------------------------------------------------------------------------
-Enter to select . up/down to navigate . Esc to cancel</pre></td></tr><tr><td>P13</td><td>P</td><td>waiting_for_permission</td><td>waiting_for_permission</td><td><span class='ok'>PASS</span></td><td>parked on an interactive Enter-to-select file choice menu with numbered options</td><td><pre> ##  Claude Code v2.1.150
+Enter to select . up/down to navigate . Esc to cancel</pre></td></tr><tr><td>P13</td><td>P</td><td>waiting_for_permission</td><td>waiting_for_permission</td><td><span class='ok'>PASS</span></td><td>parked on an interactive Enter-to-select file-choice menu with numbered options</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -689,7 +689,7 @@ Which joke do you want to hear?
     4. Type something.
 ------------------------------------------------------------------------------------------------------------------------
     5. Chat about this
-Enter to select . up/down to navigate . Esc to cancel</pre></td></tr><tr><td>P15</td><td>P</td><td>waiting_for_permission</td><td>waiting_for_permission</td><td><span class='ok'>PASS</span></td><td>parked on a numbered-choice plan-mode box asking to proceed with options 1/2/3</td><td><pre> ##  Claude Code v2.1.150
+Enter to select . up/down to navigate . Esc to cancel</pre></td></tr><tr><td>P15</td><td>P</td><td>waiting_for_permission</td><td>waiting_for_permission</td><td><span class='ok'>PASS</span></td><td>parked on a numbered plan-mode choice box asking &#39;Would you like to proceed?&#39;</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -703,7 +703,7 @@ Enter to select . up/down to navigate . Esc to cancel</pre></td></tr><tr><td>P15
     2. Yes, and manually approve edits
     3. No, keep planning
 
-  plan mode on (shift+tab to cycle)</pre></td></tr><tr><td>P16</td><td>P</td><td>waiting_for_permission</td><td>waiting_for_permission</td><td><span class='ok'>PASS</span></td><td>parked on a numbered-choice plan-mode box asking to proceed with the plan</td><td><pre> ##  Claude Code v2.1.150
+  plan mode on (shift+tab to cycle)</pre></td></tr><tr><td>P16</td><td>P</td><td>waiting_for_permission</td><td>waiting_for_permission</td><td><span class='ok'>PASS</span></td><td>parked on a numbered plan-mode choice box asking &#39;Would you like to proceed?&#39;</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -717,7 +717,7 @@ Enter to select . up/down to navigate . Esc to cancel</pre></td></tr><tr><td>P15
     2. Yes, and manually approve edits
     3. No, keep planning
 
-  plan mode on (shift+tab to cycle)</pre></td></tr><tr><td>P17</td><td>P</td><td>waiting_for_permission</td><td>waiting_for_permission</td><td><span class='ok'>PASS</span></td><td>parked on a numbered-choice plan-mode confirmation box with options 1-3</td><td><pre> ##  Claude Code v2.1.150
+  plan mode on (shift+tab to cycle)</pre></td></tr><tr><td>P17</td><td>P</td><td>waiting_for_permission</td><td>waiting_for_permission</td><td><span class='ok'>PASS</span></td><td>parked on a numbered plan-mode choice box asking &#39;Would you like to proceed?&#39;</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -731,7 +731,7 @@ Enter to select . up/down to navigate . Esc to cancel</pre></td></tr><tr><td>P15
     2. Yes, and manually approve edits
     3. No, keep planning
 
-  plan mode on (shift+tab to cycle)</pre></td></tr><tr><td>P18</td><td>P</td><td>waiting_for_permission</td><td>waiting_for_permission</td><td><span class='ok'>PASS</span></td><td>parked on a numbered ExitPlanMode choice box in plan mode</td><td><pre> ##  Claude Code v2.1.150
+  plan mode on (shift+tab to cycle)</pre></td></tr><tr><td>P18</td><td>P</td><td>waiting_for_permission</td><td>waiting_for_permission</td><td><span class='ok'>PASS</span></td><td>parked on a numbered-choice plan-approval box with &#39;Would you like to proceed?&#39;</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -745,7 +745,7 @@ Enter to select . up/down to navigate . Esc to cancel</pre></td></tr><tr><td>P15
     2. Yes, and manually approve edits
     3. No, keep planning
 
-  plan mode on (shift+tab to cycle)</pre></td></tr><tr><td>P19</td><td>P</td><td>waiting_for_permission</td><td>waiting_for_permission</td><td><span class='ok'>PASS</span></td><td>parked on a numbered plan-mode choice box asking to proceed</td><td><pre> ##  Claude Code v2.1.150
+  plan mode on (shift+tab to cycle)</pre></td></tr><tr><td>P19</td><td>P</td><td>waiting_for_permission</td><td>waiting_for_permission</td><td><span class='ok'>PASS</span></td><td>parked on a numbered plan-mode confirmation box with &#39;Would you like to proceed?&#39;</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -759,7 +759,7 @@ Enter to select . up/down to navigate . Esc to cancel</pre></td></tr><tr><td>P15
     2. Yes, and manually approve edits
     3. No, keep planning
 
-  plan mode on (shift+tab to cycle)</pre></td></tr><tr><td>C01</td><td>C</td><td>cancelled</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>previous action was interrupted by user and the bottom footer is the mode line with no esc-to-interrupt, leaving an empty input box</td><td><pre> ##  Claude Code v2.1.150
+  plan mode on (shift+tab to cycle)</pre></td></tr><tr><td>C01</td><td>C</td><td>cancelled</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>an interrupt notice is shown and the agent is back at an empty input box with no esc-to-interrupt footer</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 * Concocting... (esc to interrupt)
@@ -768,7 +768,7 @@ Enter to select . up/down to navigate . Esc to cancel</pre></td></tr><tr><td>P15
 
 &gt; _
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ bypass permissions on (shift+tab to cycle)</pre></td></tr><tr><td>C02</td><td>C</td><td>cancelled</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>the bottom footer is the accept-edits mode line with no esc-to-interrupt; a prior request was interrupted and the agent sits at an empty input box</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ bypass permissions on (shift+tab to cycle)</pre></td></tr><tr><td>C02</td><td>C</td><td>cancelled</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>a previous request was interrupted by the user and the agent is now back at an empty input box with no esc-to-interrupt footer</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 * Mulling... (esc to interrupt)
@@ -777,7 +777,7 @@ Enter to select . up/down to navigate . Esc to cancel</pre></td></tr><tr><td>P15
 
 &gt; _
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ accept edits on (shift+tab to cycle)</pre></td></tr><tr><td>C03</td><td>C</td><td>cancelled</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>previous action was interrupted by user and the bottom footer shows plan mode on with an empty input box, no esc-to-interrupt</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ accept edits on (shift+tab to cycle)</pre></td></tr><tr><td>C03</td><td>C</td><td>cancelled</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>a user interrupt notice is shown and the agent is back at an empty input box with no esc-to-interrupt footer</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 * Determining... (esc to interrupt)
@@ -786,7 +786,7 @@ Enter to select . up/down to navigate . Esc to cancel</pre></td></tr><tr><td>P15
 
 &gt; _
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ plan mode on (shift+tab to cycle)</pre></td></tr><tr><td>C04</td><td>C</td><td>cancelled</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>a prior action was interrupted by the user and the session is now at an empty input box with no esc-to-interrupt footer</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ plan mode on (shift+tab to cycle)</pre></td></tr><tr><td>C04</td><td>C</td><td>cancelled</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>previous action was interrupted by user and the agent is now back at an empty input box with no esc-to-interrupt footer</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 * Tinkering... (esc to interrupt)
@@ -795,7 +795,7 @@ Enter to select . up/down to navigate . Esc to cancel</pre></td></tr><tr><td>P15
 
 &gt; _
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ bypass permissions on (shift+tab to cycle)</pre></td></tr><tr><td>C05</td><td>C</td><td>cancelled</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>the bottom footer is the &#39;accept edits on&#39; mode line with no esc-to-interrupt; a prior request was interrupted and the cursor sits at an empty input box</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ bypass permissions on (shift+tab to cycle)</pre></td></tr><tr><td>C05</td><td>C</td><td>cancelled</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>previous request was interrupted by user and the agent is now back at an empty input box with no esc-to-interrupt footer</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 * Brewing... (esc to interrupt)
@@ -804,7 +804,7 @@ Enter to select . up/down to navigate . Esc to cancel</pre></td></tr><tr><td>P15
 
 &gt; _
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ accept edits on (shift+tab to cycle)</pre></td></tr><tr><td>C06</td><td>C</td><td>cancelled</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>last action was interrupted by user and now sits at an empty input box with no esc-to-interrupt footer</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ accept edits on (shift+tab to cycle)</pre></td></tr><tr><td>C06</td><td>C</td><td>cancelled</td><td>cancelled</td><td><span class='ok'>PASS</span></td><td>shows &#39;[Request interrupted by user]&#39; notice with the agent back at an empty prompt</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 * Sauteing... (esc to interrupt)
@@ -813,7 +813,7 @@ Enter to select . up/down to navigate . Esc to cancel</pre></td></tr><tr><td>P15
 
 &gt; _
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ plan mode on (shift+tab to cycle)</pre></td></tr><tr><td>C07</td><td>C</td><td>cancelled</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>previous action was interrupted by user and now sits at an empty input box with no esc-to-interrupt footer</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ plan mode on (shift+tab to cycle)</pre></td></tr><tr><td>C07</td><td>C</td><td>cancelled</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>shows &#39;[Request interrupted by user]&#39; and is now back at an empty input box with no esc-to-interrupt footer</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 * Churning... (esc to interrupt)
@@ -822,7 +822,7 @@ Enter to select . up/down to navigate . Esc to cancel</pre></td></tr><tr><td>P15
 
 &gt; _
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ bypass permissions on (shift+tab to cycle)</pre></td></tr><tr><td>C08</td><td>C</td><td>cancelled</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>previous action was interrupted by user and the bottom footer shows &#39;accept edits on&#39; mode with an empty input box, no esc-to-interrupt</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ bypass permissions on (shift+tab to cycle)</pre></td></tr><tr><td>C08</td><td>C</td><td>cancelled</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>the request was interrupted by the user and the agent is now back at an empty input box with no esc-to-interrupt footer</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 * Pondering... (esc to interrupt)
@@ -835,15 +835,15 @@ Enter to select . up/down to navigate . Esc to cancel</pre></td></tr><tr><td>P15
 
 </pre></td></tr><tr><td>U02</td><td>U</td><td>unknown</td><td>unknown</td><td><span class='ok'>PASS</span></td><td>empty terminal</td><td><pre>   </pre></td></tr><tr><td>U03</td><td>U</td><td>unknown</td><td>unknown</td><td><span class='ok'>PASS</span></td><td>screen shows only garbled box-drawing characters and random text with no input box, spinner, or footer</td><td><pre>█▀█▀ garbled ▀█
 x9x9x9
-....</pre></td></tr><tr><td>U04</td><td>U</td><td>unknown</td><td>unknown</td><td><span class='ok'>PASS</span></td><td>screen shows only the word &#39;loading&#39; with no input box, spinner, footer, or active indicator</td><td><pre>loading
+....</pre></td></tr><tr><td>U04</td><td>U</td><td>unknown</td><td>unknown</td><td><span class='ok'>PASS</span></td><td>screen shows only &#39;loading&#39; with no input box, spinner, or footer</td><td><pre>loading
 </pre></td></tr><tr><td>U05</td><td>U</td><td>unknown</td><td>unknown</td><td><span class='ok'>PASS</span></td><td>empty terminal</td><td><pre>  
   
-  </pre></td></tr><tr><td>U06</td><td>U</td><td>unknown</td><td>unknown</td><td><span class='ok'>PASS</span></td><td>screen shows only raw escape residue with no input box, spinner, or footer</td><td><pre>[2J[H some raw escape residue [0m</pre></td></tr><tr><td>U07</td><td>U</td><td>unknown</td><td>unknown</td><td><span class='ok'>PASS</span></td><td>screen shows only &#39;???&#39; placeholder lines with no input box, spinner, or footer</td><td><pre>???
-???</pre></td></tr><tr><td>U08</td><td>U</td><td>unknown</td><td>unknown</td><td><span class='ok'>PASS</span></td><td>a single ambiguous line of text with no input box, spinner, or footer present</td><td><pre>  a single ambiguous line of text with no footer at all</pre></td></tr><tr><td>U09</td><td>U</td><td>unknown</td><td>unknown</td><td><span class='ok'>PASS</span></td><td>screen shows only blank box-drawing blocks with no input box, spinner, or footer</td><td><pre>████
+  </pre></td></tr><tr><td>U06</td><td>U</td><td>unknown</td><td>unknown</td><td><span class='ok'>PASS</span></td><td>screen shows only raw escape residue with no input box, spinner, or footer</td><td><pre>[2J[H some raw escape residue [0m</pre></td></tr><tr><td>U07</td><td>U</td><td>unknown</td><td>unknown</td><td><span class='ok'>PASS</span></td><td>terminal tail shows only &#39;???&#39; placeholder characters with no input box, spinner, or footer</td><td><pre>???
+???</pre></td></tr><tr><td>U08</td><td>U</td><td>unknown</td><td>unknown</td><td><span class='ok'>PASS</span></td><td>a single ambiguous line of text with no input box, spinner, or footer present</td><td><pre>  a single ambiguous line of text with no footer at all</pre></td></tr><tr><td>U09</td><td>U</td><td>unknown</td><td>unknown</td><td><span class='ok'>PASS</span></td><td>screen shows only solid block characters with no input box, spinner, or footer</td><td><pre>████
 ████
-████</pre></td></tr><tr><td>U10</td><td>U</td><td>unknown</td><td>unknown</td><td><span class='ok'>PASS</span></td><td>screen shows only &#39;partial frame&#39;, &#39;no footer&#39;, &#39;no prompt&#39; with no input box, spinner, or footer present</td><td><pre>partial frame
+████</pre></td></tr><tr><td>U10</td><td>U</td><td>unknown</td><td>unknown</td><td><span class='ok'>PASS</span></td><td>partial frame with no footer, no input box, and no spinner visible</td><td><pre>partial frame
 no footer
-no prompt</pre></td></tr><tr><td>P20</td><td>P</td><td>waiting_for_permission</td><td>waiting_for_permission</td><td><span class='ok'>PASS</span></td><td>parked on a numbered-choice box asking to allow the mindzie_list_projects MCP tool</td><td><pre> ##  Claude Code v2.1.150
+no prompt</pre></td></tr><tr><td>P20</td><td>P</td><td>waiting_for_permission</td><td>waiting_for_permission</td><td><span class='ok'>PASS</span></td><td>parked on a numbered-choice box asking to use mindzie_list_projects (MCP) with options 1. Allow once, 2. Allow for this session, 3. Deny</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -866,7 +866,7 @@ no prompt</pre></td></tr><tr><td>P20</td><td>P</td><td>waiting_for_permission</t
     2. Yes, and don&#39;t ask again this session
     3. No (esc)
 
-⏵⏵ accept edits on (shift+tab to cycle)</pre></td></tr><tr><td>W31</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>bottom footer contains &#39;esc to interrupt&#39; and shows &#39;Compacting conversation...&#39; active indicator</td><td><pre> ##  Claude Code v2.1.150
+⏵⏵ accept edits on (shift+tab to cycle)</pre></td></tr><tr><td>W31</td><td>W</td><td>working</td><td>working</td><td><span class='ok'>PASS</span></td><td>bottom footer shows &#39;Compacting conversation... (esc to interrupt)&#39;</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
@@ -874,13 +874,13 @@ no prompt</pre></td></tr><tr><td>P20</td><td>P</td><td>waiting_for_permission</t
 ------------------------------------------------------------------------------------------------------------------------
 &gt;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ bypass permissions on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>I29</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>empty input box with shortcuts hint; the bypass-permissions line is the mode footer, not a prompt</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ bypass permissions on (shift+tab to cycle) &#183; esc to interrupt</pre></td></tr><tr><td>I29</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>empty input box with shortcut hint; the bypass-permissions line is the mode footer, not a prompt</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------
 &gt; Try &quot;edit &lt;filepath&gt;&quot; or &quot;how do I ...?&quot;
 ------------------------------------------------------------------------------------------------------------------------
-  ⏵⏵ bypass permissions on (shift+tab to cycle)</pre></td></tr><tr><td>I30</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>bottom footer shows &#39;plan mode on&#39; with no esc-to-interrupt; empty input box after a compaction notice</td><td><pre> ##  Claude Code v2.1.150
+  ⏵⏵ bypass permissions on (shift+tab to cycle)</pre></td></tr><tr><td>I30</td><td>I</td><td>waiting_for_input</td><td>waiting_for_input</td><td><span class='ok'>PASS</span></td><td>the bottom footer shows only the plan-mode status line with no esc-to-interrupt or spinner; an empty input box sits after a compaction notice</td><td><pre> ##  Claude Code v2.1.150
  ##  Opus 4.7 (1M context) . Claude Max
      D:\ReposFred\cc-director
 ------------------------------------------------------------------------------------------------------------------------

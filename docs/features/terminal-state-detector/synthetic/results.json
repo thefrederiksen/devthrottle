@@ -1,5 +1,5 @@
 {
-  "generatedUtc": "2026-05-26 03:14:31Z",
+  "generatedUtc": "2026-05-26 03:39:15Z",
   "passed": 100,
   "total": 100,
   "results": [
@@ -8,7 +8,7 @@
       "Category": "W",
       "Expected": "working",
       "Got": "working",
-      "Reason": "the bottom-most footer line contains \u0027esc to interrupt\u0027, so the agent is actively working despite the empty input box",
+      "Reason": "bottom footer contains esc to interrupt with a live elapsed-time counter (Brewed for 8s)",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n\u003E refactor the config loader\n* Searching the codebase... (Brewed for 8s, esc to interrupt)\n  Read DictionaryLoader.cs\n  Read CleanupOrchestrator.cs\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 bypass permissions on (shift\u002Btab to cycle) \u00B7 esc to interrupt"
     },
@@ -17,7 +17,7 @@
       "Category": "W",
       "Expected": "working",
       "Got": "working",
-      "Reason": "the bottom footer line contains \u0027esc to interrupt\u0027, indicating the agent is actively reading a file",
+      "Reason": "bottom footer contains \u0027esc to interrupt\u0027 alongside the accept-edits mode line, so the agent is actively reading a file",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n\u003E add a regression test\n\u2734 Reading 1 file... (ctrl\u002Bo to expand)\n  |_ src\\CcDirector.Core\\Wingman\\WingmanService.cs\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 accept edits on (shift\u002Btab to cycle) \u00B7 esc to interrupt"
     },
@@ -26,7 +26,7 @@
       "Category": "W",
       "Expected": "working",
       "Got": "working",
-      "Reason": "the bottom footer line contains \u0027esc to interrupt\u0027, indicating an active test run",
+      "Reason": "bottom footer shows a live spinner with elapsed-time counter and esc-to-interrupt for the test run",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n\u003E run the tests\n* Running tests... (12s . v 240 tokens)\n  dotnet test\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 plan mode on (shift\u002Btab to cycle) \u00B7 esc to interrupt"
     },
@@ -35,7 +35,7 @@
       "Category": "W",
       "Expected": "working",
       "Got": "working",
-      "Reason": "bottom footer line contains \u0027esc to interrupt\u0027 and a live \u0027Determining... (2s)\u0027 spinner with token counter",
+      "Reason": "bottom footer shows \u0027Determining... (2s)\u0027 spinner with esc to interrupt",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n\u003E fix the lint errors\n\u273D Determining... (2s . v 61 tokens . thinking)\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 bypass permissions on (shift\u002Btab to cycle) \u00B7 esc to interrupt"
     },
@@ -44,7 +44,7 @@
       "Category": "W",
       "Expected": "working",
       "Got": "working",
-      "Reason": "bottom footer shows spinner \u0027Mulling... (6s)\u0027 and \u0027esc to interrupt\u0027",
+      "Reason": "bottom footer shows \u0027esc to interrupt\u0027 with a live spinner \u0027Mulling... (6s)\u0027",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n\u003E summarize the readme\n\u2736 Mulling... (6s . v 237 tokens)\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 accept edits on (shift\u002Btab to cycle) \u00B7 esc to interrupt"
     },
@@ -53,7 +53,7 @@
       "Category": "W",
       "Expected": "working",
       "Got": "working",
-      "Reason": "bottom footer shows an active spinner with elapsed time and \u0027esc to interrupt\u0027 for the build task",
+      "Reason": "bottom footer shows an active spinner with elapsed-time counter and esc-to-interrupt (\u0027Building and verifying... (1m 31s)\u0027)",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n\u003E build the project\n* Building and verifying... (1m 31s . v 1.2k tokens)\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 plan mode on (shift\u002Btab to cycle) \u00B7 esc to interrupt"
     },
@@ -62,7 +62,7 @@
       "Category": "W",
       "Expected": "working",
       "Got": "working",
-      "Reason": "the bottom-most footer line contains \u0027esc to interrupt\u0027 alongside a live \u0027Searching... (4s)\u0027 spinner",
+      "Reason": "bottom footer contains esc to interrupt and a live Searching spinner with elapsed counter",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n\u003E grep for the handler\n\u00B7 Searching... (4s . ^ 88 tokens)\n  Grep \u0022HandlePipeEvent\u0022\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 bypass permissions on (shift\u002Btab to cycle) \u00B7 esc to interrupt"
     },
@@ -71,7 +71,7 @@
       "Category": "W",
       "Expected": "working",
       "Got": "working",
-      "Reason": "bottom footer line contains \u0027esc to interrupt\u0027 alongside \u0027Concocting... (16s)\u0027 spinner with elapsed time",
+      "Reason": "bottom footer shows \u0027Concocting... (16s)\u0027 spinner with esc to interrupt",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n\u003E read three files\n  Read 1 file (ctrl\u002Bo to expand)\n\u2734 Concocting... (16s . v 833 tokens)\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 accept edits on (shift\u002Btab to cycle) \u00B7 esc to interrupt"
     },
@@ -80,7 +80,7 @@
       "Category": "W",
       "Expected": "working",
       "Got": "working",
-      "Reason": "bottom footer contains esc to interrupt with an active Exploring spinner and elapsed counter running a subagent",
+      "Reason": "bottom footer shows \u0027esc to interrupt\u0027 with an active \u0027Exploring... (22s)\u0027 spinner running a subagent",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n\u003E launch a subagent to investigate\n* Exploring... (22s . v 2.1k tokens . running 1 subagent)\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 plan mode on (shift\u002Btab to cycle) \u00B7 esc to interrupt"
     },
@@ -89,7 +89,7 @@
       "Category": "W",
       "Expected": "working",
       "Got": "working",
-      "Reason": "bottom footer contains esc to interrupt with an active spinner \u0027Tinkering... (9s)\u0027",
+      "Reason": "bottom footer shows \u0027Tinkering... (9s)\u0027 spinner and \u0027esc to interrupt\u0027, with Update FinishDetector.cs in progress",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n\u003E write the new class\n\u273D Tinkering... (9s . v 410 tokens)\n  Update FinishDetector.cs\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 bypass permissions on (shift\u002Btab to cycle) \u00B7 esc to interrupt"
     },
@@ -98,7 +98,7 @@
       "Category": "W",
       "Expected": "working",
       "Got": "working",
-      "Reason": "bottom footer line contains \u0027esc to interrupt\u0027 alongside the accept-edits mode indicator, and a Bash git status command is running with a \u0027Computing...\u0027 spinner",
+      "Reason": "bottom footer shows \u0027esc to interrupt\u0027 with a \u0027Computing...\u0027 spinner running \u0027Bash git status\u0027",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n\u003E check the git status\n\u00B7 Computing... (1s)\n  Bash git status\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 accept edits on (shift\u002Btab to cycle) \u00B7 esc to interrupt"
     },
@@ -107,7 +107,7 @@
       "Category": "W",
       "Expected": "working",
       "Got": "working",
-      "Reason": "bottom footer line contains \u0027esc to interrupt\u0027 alongside the plan-mode indicator, and a spinner with elapsed time (\u0027Pondering... 33s\u0027) is shown",
+      "Reason": "bottom footer shows \u0027esc to interrupt\u0027 with a live \u0027Pondering... (33s)\u0027 spinner",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n\u003E analyze the diff\n\u2736 Pondering... (33s . v 1.8k tokens . thinking)\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 plan mode on (shift\u002Btab to cycle) \u00B7 esc to interrupt"
     },
@@ -116,7 +116,7 @@
       "Category": "W",
       "Expected": "working",
       "Got": "working",
-      "Reason": "bottom footer shows \u0027Concocting... (3s)\u0027 spinner and \u0027esc to interrupt\u0027 is present",
+      "Reason": "bottom footer shows \u0027Concocting... (3s)\u0027 spinner and the esc-to-interrupt footer is present",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n\u003E task 0\n* Concocting... (3s . v 50 tokens)\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 bypass permissions on (shift\u002Btab to cycle) \u00B7 esc to interrupt"
     },
@@ -125,7 +125,7 @@
       "Category": "W",
       "Expected": "working",
       "Got": "working",
-      "Reason": "bottom footer shows \u0027esc to interrupt\u0027 alongside the Mulling spinner with elapsed time counter",
+      "Reason": "bottom footer shows \u0027esc to interrupt\u0027 with an active spinner \u0027Mulling... (4s)\u0027",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n\u003E task 1\n\u00B7 Mulling... (4s . v 90 tokens)\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 accept edits on (shift\u002Btab to cycle) \u00B7 esc to interrupt"
     },
@@ -134,7 +134,7 @@
       "Category": "W",
       "Expected": "working",
       "Got": "working",
-      "Reason": "bottom footer shows the spinner with elapsed-time counter and esc-to-interrupt (\u0027Determining... (5s . v 130 tokens)\u0027 with \u0027esc to interrupt\u0027 footer)",
+      "Reason": "bottom footer shows \u0027esc to interrupt\u0027 with a live elapsed-time spinner \u0027Determining... (5s)\u0027",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n\u003E task 2\n\u2734 Determining... (5s . v 130 tokens)\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 plan mode on (shift\u002Btab to cycle) \u00B7 esc to interrupt"
     },
@@ -143,7 +143,7 @@
       "Category": "W",
       "Expected": "working",
       "Got": "working",
-      "Reason": "bottom footer shows \u0027esc to interrupt\u0027 with an active spinner \u0027Tinkering... (6s)\u0027",
+      "Reason": "bottom footer contains esc to interrupt with an active spinner Tinkering (6s)",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n\u003E task 3\n\u273D Tinkering... (6s . v 170 tokens)\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 bypass permissions on (shift\u002Btab to cycle) \u00B7 esc to interrupt"
     },
@@ -152,7 +152,7 @@
       "Category": "W",
       "Expected": "working",
       "Got": "working",
-      "Reason": "bottom footer contains esc to interrupt with an active Brewing spinner and elapsed-time counter",
+      "Reason": "bottom footer shows \u0027Brewing... (7s)\u0027 spinner with esc-to-interrupt present",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n\u003E task 4\n\u2736 Brewing... (7s . v 210 tokens)\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 accept edits on (shift\u002Btab to cycle) \u00B7 esc to interrupt"
     },
@@ -161,7 +161,7 @@
       "Category": "W",
       "Expected": "working",
       "Got": "working",
-      "Reason": "bottom footer shows the Sauteing spinner with elapsed time and the esc-to-interrupt indicator",
+      "Reason": "bottom footer shows spinner \u0027Sauteing... (8s)\u0027 and \u0027esc to interrupt\u0027",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n\u003E task 5\n\u2722 Sauteing... (8s . v 250 tokens)\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 plan mode on (shift\u002Btab to cycle) \u00B7 esc to interrupt"
     },
@@ -170,7 +170,7 @@
       "Category": "W",
       "Expected": "working",
       "Got": "working",
-      "Reason": "the bottom-most footer line contains \u0027esc to interrupt\u0027, indicating an active build",
+      "Reason": "the bottom-most footer line contains \u0027esc to interrupt\u0027, so the session is working even though an empty input box is shown above it",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n\u003E do thing 0\n  Bash npm run build\n  \u003E tsc -p .\n  compiled 0 files\n* Building... (2s \u00B7 esc to interrupt)\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 bypass permissions on (shift\u002Btab to cycle) \u00B7 esc to interrupt"
     },
@@ -179,7 +179,7 @@
       "Category": "W",
       "Expected": "working",
       "Got": "working",
-      "Reason": "bottom footer line contains \u0027esc to interrupt\u0027 alongside the accept-edits mode indicator",
+      "Reason": "the bottom-most footer line contains \u0027esc to interrupt\u0027, so the session is working even though an empty input box is shown above it",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n\u003E do thing 1\n  Bash npm run build\n  \u003E tsc -p .\n  compiled 3 files\n* Building... (3s \u00B7 esc to interrupt)\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 accept edits on (shift\u002Btab to cycle) \u00B7 esc to interrupt"
     },
@@ -188,7 +188,7 @@
       "Category": "W",
       "Expected": "working",
       "Got": "working",
-      "Reason": "the bottom-most footer line contains \u0027esc to interrupt\u0027, indicating active work despite the empty input box shown above it",
+      "Reason": "the bottom-most footer line contains \u0027esc to interrupt\u0027 alongside the plan mode indicator, so the session is actively working",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n\u003E do thing 2\n  Bash npm run build\n  \u003E tsc -p .\n  compiled 6 files\n* Building... (4s \u00B7 esc to interrupt)\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 plan mode on (shift\u002Btab to cycle) \u00B7 esc to interrupt"
     },
@@ -197,7 +197,7 @@
       "Category": "W",
       "Expected": "working",
       "Got": "working",
-      "Reason": "the bottom-most footer line contains \u0027esc to interrupt\u0027, indicating an active build",
+      "Reason": "bottom footer line contains \u0027esc to interrupt\u0027 with a live elapsed-time counter \u0027Building... (5s)\u0027",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n\u003E do thing 3\n  Bash npm run build\n  \u003E tsc -p .\n  compiled 9 files\n* Building... (5s \u00B7 esc to interrupt)\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 bypass permissions on (shift\u002Btab to cycle) \u00B7 esc to interrupt"
     },
@@ -206,7 +206,7 @@
       "Category": "W",
       "Expected": "working",
       "Got": "working",
-      "Reason": "the bottom footer line contains \u0027esc to interrupt\u0027, indicating active work despite the empty input box above it",
+      "Reason": "bottom footer line contains \u0027esc to interrupt\u0027 alongside the Building spinner with elapsed time",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n\u003E do thing 4\n  Bash npm run build\n  \u003E tsc -p .\n  compiled 12 files\n* Building... (6s \u00B7 esc to interrupt)\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 accept edits on (shift\u002Btab to cycle) \u00B7 esc to interrupt"
     },
@@ -215,7 +215,7 @@
       "Category": "W",
       "Expected": "working",
       "Got": "working",
-      "Reason": "bottom footer contains esc to interrupt alongside the plan-mode indicator",
+      "Reason": "the bottom-most footer line contains \u0027esc to interrupt\u0027 beneath the plan mode indicator",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n\u003E do thing 5\n  Bash npm run build\n  \u003E tsc -p .\n  compiled 15 files\n* Building... (7s \u00B7 esc to interrupt)\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 plan mode on (shift\u002Btab to cycle) \u00B7 esc to interrupt"
     },
@@ -224,7 +224,7 @@
       "Category": "W",
       "Expected": "working",
       "Got": "working",
-      "Reason": "the bottom-most footer line contains \u0027esc to interrupt\u0027 alongside the Concocting spinner",
+      "Reason": "bottom footer contains esc-to-interrupt with a live \u0027Concocting... (4s)\u0027 spinner",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n\u003E torn frame 0\n\u2734 Concocting... (4s . v 120 tokens)\n\u2733-\u23F5\u23F5-bypconc...(2s tokens)-on-(shift\u002Btab-to-cycle)-\u00B7-esc-to-interrupt---------------------------------------------------\n\u003E\n\u2733-\u23F5\u23F5-bypconc...(2s tokens)-on-(shift\u002Btab-to-cycle)-\u00B7-esc-to-interrupt---------------------------------------------------"
     },
@@ -233,7 +233,7 @@
       "Category": "W",
       "Expected": "working",
       "Got": "working",
-      "Reason": "the bottom-most footer line contains \u0027esc to interrupt\u0027 with a live \u0027mull...\u0027 spinner",
+      "Reason": "the bottom-most footer line contains \u0027esc to interrupt\u0027 alongside a mull spinner, so the agent is actively working despite the empty input box shown",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n\u003E torn frame 1\n\u2734 Mulling... (5s . v 150 tokens)\n\u2733-\u23F5\u23F5-bypmull...(3s tokens)-on-(shift\u002Btab-to-cycle)-\u00B7-esc-to-interrupt---------------------------------------------------\n\u003E\n\u2733-\u23F5\u23F5-bypmull...(3s tokens)-on-(shift\u002Btab-to-cycle)-\u00B7-esc-to-interrupt---------------------------------------------------"
     },
@@ -242,7 +242,7 @@
       "Category": "W",
       "Expected": "working",
       "Got": "working",
-      "Reason": "the bottom-most footer line contains \u0027esc to interrupt\u0027 alongside a live elapsed counter (4s tokens)",
+      "Reason": "bottom footer shows \u0027esc to interrupt\u0027 with an active \u0027Determining...\u0027 spinner and elapsed-time counter",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n\u003E torn frame 2\n\u2734 Determining... (6s . v 180 tokens)\n\u2733-\u23F5\u23F5-bypdete...(4s tokens)-on-(shift\u002Btab-to-cycle)-\u00B7-esc-to-interrupt---------------------------------------------------\n\u003E\n\u2733-\u23F5\u23F5-bypdete...(4s tokens)-on-(shift\u002Btab-to-cycle)-\u00B7-esc-to-interrupt---------------------------------------------------"
     },
@@ -251,7 +251,7 @@
       "Category": "W",
       "Expected": "working",
       "Got": "working",
-      "Reason": "the bottom-most footer line contains \u0027esc to interrupt\u0027 along with a Tinkering spinner and elapsed-time counter",
+      "Reason": "the bottom-most footer line contains \u0027esc to interrupt\u0027 with a live elapsed-time spinner (Tinkering... 7s)",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n\u003E torn frame 3\n\u2734 Tinkering... (7s . v 210 tokens)\n\u2733-\u23F5\u23F5-byptink...(5s tokens)-on-(shift\u002Btab-to-cycle)-\u00B7-esc-to-interrupt---------------------------------------------------\n\u003E\n\u2733-\u23F5\u23F5-byptink...(5s tokens)-on-(shift\u002Btab-to-cycle)-\u00B7-esc-to-interrupt---------------------------------------------------"
     },
@@ -260,7 +260,7 @@
       "Category": "W",
       "Expected": "working",
       "Got": "working",
-      "Reason": "the bottom-most footer line contains \u0027esc to interrupt\u0027 alongside a Brewing spinner",
+      "Reason": "bottom footer contains esc-to-interrupt with a Brewing spinner and elapsed-time counter",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n\u003E torn frame 4\n\u2734 Brewing... (8s . v 240 tokens)\n\u2733-\u23F5\u23F5-bypbrew...(6s tokens)-on-(shift\u002Btab-to-cycle)-\u00B7-esc-to-interrupt---------------------------------------------------\n\u003E\n\u2733-\u23F5\u23F5-bypbrew...(6s tokens)-on-(shift\u002Btab-to-cycle)-\u00B7-esc-to-interrupt---------------------------------------------------"
     },
@@ -269,7 +269,7 @@
       "Category": "W",
       "Expected": "working",
       "Got": "working",
-      "Reason": "the bottom-most footer line contains \u0027esc to interrupt\u0027 alongside the Sauteing spinner with elapsed-time counter",
+      "Reason": "bottom footer contains esc-to-interrupt with an active Sauteing spinner and elapsed-time counter",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n\u003E torn frame 5\n\u2734 Sauteing... (9s . v 270 tokens)\n\u2733-\u23F5\u23F5-bypsaut...(7s tokens)-on-(shift\u002Btab-to-cycle)-\u00B7-esc-to-interrupt---------------------------------------------------\n\u003E\n\u2733-\u23F5\u23F5-bypsaut...(7s tokens)-on-(shift\u002Btab-to-cycle)-\u00B7-esc-to-interrupt---------------------------------------------------"
     },
@@ -278,7 +278,7 @@
       "Category": "I",
       "Expected": "waiting_for_input",
       "Got": "waiting_for_input",
-      "Reason": "the bottom footer has no esc-to-interrupt; agent finished with a \u0027Done.\u0027 message and an empty input box is shown",
+      "Reason": "agent reported done updating the loader and adding a test, sitting at an empty input box with no esc-to-interrupt footer",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n  Done. I updated the loader and added a regression test. Both build clean.\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 bypass permissions on (shift\u002Btab to cycle)"
     },
@@ -287,7 +287,7 @@
       "Category": "I",
       "Expected": "waiting_for_input",
       "Got": "waiting_for_input",
-      "Reason": "completion message about login bug fix sits above an empty input box with no esc-to-interrupt footer; bottom line is the accept-edits mode footer",
+      "Reason": "completion message about login bug fix above an empty input box with no esc-to-interrupt footer",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n  The login bug is fixed. Three files were changed and the tests pass.\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 accept edits on (shift\u002Btab to cycle)"
     },
@@ -296,7 +296,7 @@
       "Category": "I",
       "Expected": "waiting_for_input",
       "Got": "waiting_for_input",
-      "Reason": "the bottom footer is the plan-mode status line with no esc-to-interrupt or spinner, and an empty input box is shown above it",
+      "Reason": "empty input box with plan-mode footer and no esc-to-interrupt; agent finished a summary line",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n  Here is a one-line summary: it parses the manifest and validates each entry.\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 plan mode on (shift\u002Btab to cycle)"
     },
@@ -305,7 +305,7 @@
       "Category": "I",
       "Expected": "waiting_for_input",
       "Got": "waiting_for_input",
-      "Reason": "empty input box with the bypass-permissions mode footer below it, no esc-to-interrupt or spinner present",
+      "Reason": "empty input box with the bypass-permissions mode footer below it and no esc-to-interrupt or spinner; last output was a completed answer",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n  17 times 23 is 391.\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 bypass permissions on (shift\u002Btab to cycle)"
     },
@@ -314,7 +314,7 @@
       "Category": "I",
       "Expected": "waiting_for_input",
       "Got": "waiting_for_input",
-      "Reason": "bottom footer shows \u0027accept edits on\u0027 mode line with no esc-to-interrupt; empty input box after a completed message about reading README.md",
+      "Reason": "the bottom footer is the \u0027accept edits on\u0027 mode line with no esc-to-interrupt; empty input box above it after the agent reported reading README.md",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n  I read README.md. It documents the build, the tools, and the Control API.\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 accept edits on (shift\u002Btab to cycle)"
     },
@@ -323,7 +323,7 @@
       "Category": "I",
       "Expected": "waiting_for_input",
       "Got": "waiting_for_input",
-      "Reason": "bottom footer shows \u0027plan mode on\u0027 with no esc-to-interrupt; empty input box after a completed push message",
+      "Reason": "empty input box with no esc-to-interrupt footer; the plan-mode line is the mode footer and the last message reports a finished git push",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n  Pushed to main. The commit is on origin now.\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 plan mode on (shift\u002Btab to cycle)"
     },
@@ -332,7 +332,7 @@
       "Category": "I",
       "Expected": "waiting_for_input",
       "Got": "waiting_for_input",
-      "Reason": "bottom footer is the bypass-permissions mode line with no esc-to-interrupt; agent finished with a completion message and sits at an empty input box",
+      "Reason": "bottom footer is the mode line with no esc-to-interrupt; agent finished with a completion message and sits at an empty input box",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n  Nothing further needed; the refactor is complete and verified.\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 bypass permissions on (shift\u002Btab to cycle)"
     },
@@ -341,7 +341,7 @@
       "Category": "I",
       "Expected": "waiting_for_input",
       "Got": "waiting_for_input",
-      "Reason": "bottom footer is the mode line with no esc-to-interrupt; empty input box with \u0027Done.\u0027 above shows the turn finished",
+      "Reason": "bottom footer is the bypass-permissions mode line with no esc-to-interrupt; empty input box after a \u0027Done.\u0027 message",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n  Done.\n------------------------------------------------------------------------------------------------------------------------\n\u003E Try \u0022fix the lint errors\u0022\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 bypass permissions on (shift\u002Btab to cycle)"
     },
@@ -350,7 +350,7 @@
       "Category": "I",
       "Expected": "waiting_for_input",
       "Got": "waiting_for_input",
-      "Reason": "bottom footer is the \u0027accept edits on\u0027 mode line with no esc-to-interrupt; empty input box with placeholder shown after \u0027Done.\u0027",
+      "Reason": "bottom footer shows \u0027accept edits on\u0027 mode line with empty input box and \u0027Done.\u0027 above; no esc-to-interrupt present",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n  Done.\n------------------------------------------------------------------------------------------------------------------------\n\u003E Try \u0022how do I log an error?\u0022\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 accept edits on (shift\u002Btab to cycle)"
     },
@@ -359,7 +359,7 @@
       "Category": "I",
       "Expected": "waiting_for_input",
       "Got": "waiting_for_input",
-      "Reason": "bottom footer reads \u0027plan mode on (shift\u002Btab to cycle)\u0027 with no esc-to-interrupt and an empty prompt showing a placeholder command",
+      "Reason": "bottom footer shows \u0027plan mode on\u0027 with no esc-to-interrupt and an empty layout; agent finished and is awaiting input",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n  Done.\n------------------------------------------------------------------------------------------------------------------------\n\u003E edit \u003Cfilepath\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 plan mode on (shift\u002Btab to cycle)"
     },
@@ -368,7 +368,7 @@
       "Category": "I",
       "Expected": "waiting_for_input",
       "Got": "waiting_for_input",
-      "Reason": "bottom footer is the bypass-permissions mode line with no esc-to-interrupt; \u0027Done.\u0027 above and an empty input box indicate the turn finished",
+      "Reason": "bottom footer is the bypass-permissions mode line with no esc-to-interrupt; \u0027Done.\u0027 shown above an empty input box",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n  Done.\n------------------------------------------------------------------------------------------------------------------------\n\u003E Try \u0022fix the lint errors\u0022\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 bypass permissions on (shift\u002Btab to cycle)"
     },
@@ -377,7 +377,7 @@
       "Category": "I",
       "Expected": "waiting_for_input",
       "Got": "waiting_for_input",
-      "Reason": "bottom footer is the \u0027accept edits on\u0027 mode line with no esc-to-interrupt; empty input box with placeholder text shown",
+      "Reason": "bottom footer is the \u0027accept edits on\u0027 mode line with no esc-to-interrupt; empty input box above shows \u0027Done.\u0027 finished",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n  Done.\n------------------------------------------------------------------------------------------------------------------------\n\u003E Try \u0022how do I log an error?\u0022\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 accept edits on (shift\u002Btab to cycle)"
     },
@@ -386,7 +386,7 @@
       "Category": "I",
       "Expected": "waiting_for_input",
       "Got": "waiting_for_input",
-      "Reason": "bottom footer is \u0027plan mode on (shift\u002Btab to cycle)\u0027 with no esc-to-interrupt and an empty input box showing \u0027edit \u003Cfilepath\u003E\u0027 placeholder",
+      "Reason": "the bottom footer is the plan-mode status line with no esc-to-interrupt; \u0027Done.\u0027 precedes an empty input box showing an example hint",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n  Done.\n------------------------------------------------------------------------------------------------------------------------\n\u003E edit \u003Cfilepath\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 plan mode on (shift\u002Btab to cycle)"
     },
@@ -395,7 +395,7 @@
       "Category": "I",
       "Expected": "waiting_for_input",
       "Got": "waiting_for_input",
-      "Reason": "empty input box with the \u0027bypass permissions on\u0027 mode footer and no esc-to-interrupt; last message says config updated and builds",
+      "Reason": "bottom footer is the bypass-permissions mode line with no esc-to-interrupt; empty input box after a completion message",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n  Updated the config and verified it builds.\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  ? for shortcuts                                   \u23F5\u23F5 bypass permissions on (shift\u002Btab to cycle)"
     },
@@ -404,7 +404,7 @@
       "Category": "I",
       "Expected": "waiting_for_input",
       "Got": "waiting_for_input",
-      "Reason": "bottom footer is the \u0027accept edits on\u0027 mode line with no esc-to-interrupt; empty input box above it after a completion message",
+      "Reason": "empty input box with the accept-edits mode footer and no esc-to-interrupt; last message reports work finished",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n  Updated the config and verified it builds.\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  ? for shortcuts                                   \u23F5\u23F5 accept edits on (shift\u002Btab to cycle)"
     },
@@ -413,7 +413,7 @@
       "Category": "I",
       "Expected": "waiting_for_input",
       "Got": "waiting_for_input",
-      "Reason": "empty input box with \u0027plan mode on\u0027 footer and no esc-to-interrupt; agent finished with a status message",
+      "Reason": "empty input box with no esc-to-interrupt footer; the plan mode line is the mode footer, and the agent finished with a status message above",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n  Updated the config and verified it builds.\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  ? for shortcuts                                   \u23F5\u23F5 plan mode on (shift\u002Btab to cycle)"
     },
@@ -422,7 +422,7 @@
       "Category": "I",
       "Expected": "waiting_for_input",
       "Got": "waiting_for_input",
-      "Reason": "bottom footer is the bypass-permissions mode line with no esc-to-interrupt; empty input box after a completed message",
+      "Reason": "agent finished with a confirmation message and an empty input box; bottom footer is the mode line with no esc-to-interrupt",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n  Updated the config and verified it builds.\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  ? for shortcuts                                   \u23F5\u23F5 bypass permissions on (shift\u002Btab to cycle)"
     },
@@ -431,7 +431,7 @@
       "Category": "I",
       "Expected": "waiting_for_input",
       "Got": "waiting_for_input",
-      "Reason": "bottom footer reads \u0027accept edits on\u0027 mode with no esc-to-interrupt; empty input box and a completed message above",
+      "Reason": "bottom footer shows the accept-edits mode line with no esc-to-interrupt; empty input box after a completion message",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n  Updated the config and verified it builds.\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  ? for shortcuts                                   \u23F5\u23F5 accept edits on (shift\u002Btab to cycle)"
     },
@@ -440,7 +440,7 @@
       "Category": "I",
       "Expected": "waiting_for_input",
       "Got": "waiting_for_input",
-      "Reason": "finished with a question at an empty input box; bottom footer is the mode line with no esc-to-interrupt",
+      "Reason": "finished with a prose question at an empty input box; bottom footer is the mode line with no esc-to-interrupt",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n  I analyzed the loader.\n  I can refactor the config loader. Want me to go ahead?\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 bypass permissions on (shift\u002Btab to cycle)"
     },
@@ -449,7 +449,7 @@
       "Category": "I",
       "Expected": "waiting_for_input",
       "Got": "waiting_for_input",
-      "Reason": "prose question \u0027Should I commit these changes now?\u0027 above an empty input box with no numbered box; bottom footer is the accept-edits mode line with no esc-to-interrupt",
+      "Reason": "agent finished with a prose question at an empty input box; bottom footer is the accept-edits mode line with no esc-to-interrupt",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n  I analyzed the loader.\n  Should I commit these changes now?\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 accept edits on (shift\u002Btab to cycle)"
     },
@@ -458,7 +458,7 @@
       "Category": "I",
       "Expected": "waiting_for_input",
       "Got": "waiting_for_input",
-      "Reason": "agent finished with a prose question and sits at an empty input box; the bottom footer is the plan-mode status line with no esc-to-interrupt",
+      "Reason": "agent finished with a prose question at an empty input box, no numbered choice box present",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n  I analyzed the loader.\n  Would you like me to add tests for the edge cases too?\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 plan mode on (shift\u002Btab to cycle)"
     },
@@ -467,7 +467,7 @@
       "Category": "I",
       "Expected": "waiting_for_input",
       "Got": "waiting_for_input",
-      "Reason": "prose question at an empty input box with no numbered box or [y/n]; bottom footer is the mode line with no esc-to-interrupt",
+      "Reason": "prose question \u0027OK to proceed?\u0027 at an empty input box with no numbered box or [y/n], and no esc-to-interrupt in the footer",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n  I analyzed the loader.\n  That will delete the old file. OK to proceed?\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 bypass permissions on (shift\u002Btab to cycle)"
     },
@@ -476,7 +476,7 @@
       "Category": "I",
       "Expected": "waiting_for_input",
       "Got": "waiting_for_input",
-      "Reason": "finished with a prose question at an empty input box; the accept-edits line is the mode footer and no esc-to-interrupt is present",
+      "Reason": "agent finished with a prose question at an empty input box, no numbered choice box or esc-to-interrupt footer",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n  I analyzed the loader.\n  I found two approaches. Which do you prefer - the cache or the rewrite?\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 accept edits on (shift\u002Btab to cycle)"
     },
@@ -485,7 +485,7 @@
       "Category": "I",
       "Expected": "waiting_for_input",
       "Got": "waiting_for_input",
-      "Reason": "the bottom footer has NO esc-to-interrupt; the one higher up is stale scrollback from the finished test run, and an empty input box is shown",
+      "Reason": "bottom footer has no esc-to-interrupt; the esc-to-interrupt higher up is stale scrollback from the finished test run, now at an empty input box",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n* Running tests... (esc to interrupt)\n  [tests passed]\n------------------------------------------------------------------------------------------------------------------------\n  All 42 tests pass.\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 bypass permissions on (shift\u002Btab to cycle)"
     },
@@ -494,7 +494,7 @@
       "Category": "I",
       "Expected": "waiting_for_input",
       "Got": "waiting_for_input",
-      "Reason": "the bottom footer is the \u0027accept edits on\u0027 mode line with no esc-to-interrupt; the \u0027Running tests... esc to interrupt\u0027 is stale scrollback above the finished result and empty input box",
+      "Reason": "bottom footer is the \u0027accept edits on\u0027 mode line with no esc-to-interrupt; the test run and empty input box indicate the turn is over",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n* Running tests... (esc to interrupt)\n  [tests passed]\n------------------------------------------------------------------------------------------------------------------------\n  All 42 tests pass.\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 accept edits on (shift\u002Btab to cycle)"
     },
@@ -503,7 +503,7 @@
       "Category": "I",
       "Expected": "waiting_for_input",
       "Got": "waiting_for_input",
-      "Reason": "the bottom footer is the plan-mode status line with no esc-to-interrupt; the \u0027Running tests\u0027 spinner higher up is stale scrollback and the input box is empty below the completed test output",
+      "Reason": "bottom footer shows \u0027plan mode on\u0027 with no esc-to-interrupt; the test run and esc-to-interrupt higher up are stale scrollback, agent sits at empty input box",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n* Running tests... (esc to interrupt)\n  [tests passed]\n------------------------------------------------------------------------------------------------------------------------\n  All 42 tests pass.\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 plan mode on (shift\u002Btab to cycle)"
     },
@@ -512,7 +512,7 @@
       "Category": "I",
       "Expected": "waiting_for_input",
       "Got": "waiting_for_input",
-      "Reason": "the bottom footer has no esc-to-interrupt; the one higher up is stale scrollback from the finished test run, empty input box below \u0027All 42 tests pass\u0027",
+      "Reason": "bottom footer has no esc-to-interrupt; the one higher up is stale scrollback from the finished test run, empty input box below \u0027All 42 tests pass.\u0027",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n* Running tests... (esc to interrupt)\n  [tests passed]\n------------------------------------------------------------------------------------------------------------------------\n  All 42 tests pass.\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 bypass permissions on (shift\u002Btab to cycle)"
     },
@@ -521,7 +521,7 @@
       "Category": "I",
       "Expected": "waiting_for_input",
       "Got": "waiting_for_input",
-      "Reason": "the bottom footer is the \u0027accept edits on\u0027 mode line with no esc-to-interrupt; the \u0027Running tests\u0027 spinner higher up is stale scrollback and an empty input box is shown",
+      "Reason": "bottom footer is the \u0027accept edits on\u0027 mode line with no esc-to-interrupt; the test run and its esc-to-interrupt are stale scrollback above an empty input box",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n* Running tests... (esc to interrupt)\n  [tests passed]\n------------------------------------------------------------------------------------------------------------------------\n  All 42 tests pass.\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 accept edits on (shift\u002Btab to cycle)"
     },
@@ -539,7 +539,7 @@
       "Category": "P",
       "Expected": "waiting_for_permission",
       "Got": "waiting_for_permission",
-      "Reason": "parked on a numbered choice box asking to run \u0027rm -rf build/\u0027 with options 1. Yes 2. Yes, and don\u0027t ask again 3. No",
+      "Reason": "parked on a numbered choice box asking \u0027Do you want to run this command? rm -rf build/\u0027 with options 1. Yes 2. Yes, and don\u0027t ask again 3. No",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n  Edit file\n  config/app-settings.json\n    - old line\n    \u002B new line\n\n  Do you want to run this command?  rm -rf build/\n  \u003E 1. Yes\n    2. Yes, and don\u0027t ask again\n    3. No (esc)\n\n\u23F5\u23F5 accept edits on (shift\u002Btab to cycle)"
     },
@@ -548,7 +548,7 @@
       "Category": "P",
       "Expected": "waiting_for_permission",
       "Got": "waiting_for_permission",
-      "Reason": "parked on a numbered-choice box asking to create README-new.md with options 1. Yes / 2. No",
+      "Reason": "parked on a numbered-choice confirmation box asking to create README-new.md with options 1. Yes / 2. No",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n  Edit file\n  config/app-settings.json\n    - old line\n    \u002B new line\n\n  Do you want to create README-new.md?\n  \u003E 1. Yes\n    2. No, and tell Claude what to do differently (esc)\n\n\u23F5\u23F5 plan mode on (shift\u002Btab to cycle)"
     },
@@ -566,7 +566,7 @@
       "Category": "P",
       "Expected": "waiting_for_permission",
       "Got": "waiting_for_permission",
-      "Reason": "parked on a numbered confirmation box asking to make an edit to Program.cs",
+      "Reason": "parked on a numbered-choice edit confirmation box with options 1. Yes / 2. Yes, and don\u0027t ask again / 3. No",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n  Edit file\n  config/app-settings.json\n    - old line\n    \u002B new line\n\n  Do you want to make this edit to Program.cs?\n    1. Yes\n  \u003E 2. Yes, and don\u0027t ask again this session\n    3. No (esc)\n\n\u23F5\u23F5 accept edits on (shift\u002Btab to cycle)"
     },
@@ -584,7 +584,7 @@
       "Category": "P",
       "Expected": "waiting_for_permission",
       "Got": "waiting_for_permission",
-      "Reason": "parked on a [y/n] prompt asking to proceed with migration step 1",
+      "Reason": "parked on a [y/n] prompt asking to proceed with the migration step",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n  Proceed with the migration step 1? [y/n]\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n\u23F5\u23F5 accept edits on (shift\u002Btab to cycle)"
     },
@@ -593,7 +593,7 @@
       "Category": "P",
       "Expected": "waiting_for_permission",
       "Got": "waiting_for_permission",
-      "Reason": "parked on a [y/n] prompt asking to proceed with the migration step",
+      "Reason": "parked on a [y/n] prompt asking to proceed with migration step 2",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n  Proceed with the migration step 2? [y/n]\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n\u23F5\u23F5 plan mode on (shift\u002Btab to cycle)"
     },
@@ -602,7 +602,7 @@
       "Category": "P",
       "Expected": "waiting_for_permission",
       "Got": "waiting_for_permission",
-      "Reason": "parked on a [y/n] prompt asking to proceed with the migration step",
+      "Reason": "parked on a [y/n] prompt asking to proceed with migration step 3",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n  Proceed with the migration step 3? [y/n]\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n\u23F5\u23F5 bypass permissions on (shift\u002Btab to cycle)"
     },
@@ -620,7 +620,7 @@
       "Category": "P",
       "Expected": "waiting_for_permission",
       "Got": "waiting_for_permission",
-      "Reason": "parked on an interactive Enter-to-select choice menu titled \u0027Pick a joke\u0027",
+      "Reason": "parked on an interactive Enter-to-select choice menu listing numbered joke options",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n  I created a question for you.\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------ [ ] Pick a joke\nWhich joke do you want to hear?\n  \u003E 1. Option 1\n    2. A dad joke / pun that will make you groan.\n    3. A short joke about coffee and Mondays.\n    4. Type something.\n    5. Chat about this\n------------------------------------------------------------------------------------------------------------------------\nEnter to select . up/down to navigate . Esc to cancel"
     },
@@ -629,7 +629,7 @@
       "Category": "P",
       "Expected": "waiting_for_permission",
       "Got": "waiting_for_permission",
-      "Reason": "parked on an interactive Enter-to-select choice menu titled \u0027Choose an approach\u0027",
+      "Reason": "parked on an interactive Enter-to-select choice menu with numbered options",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n  I created a question for you.\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------ [ ] Choose an approach\nHow should I implement this?\n  \u003E 1. Use a cache\n    2. Rewrite the loader\n    3. Leave it as is\n    4. Type something.\n------------------------------------------------------------------------------------------------------------------------\nEnter to select . up/down to navigate . Esc to cancel"
     },
@@ -638,7 +638,7 @@
       "Category": "P",
       "Expected": "waiting_for_permission",
       "Got": "waiting_for_permission",
-      "Reason": "parked on an interactive Enter-to-select file choice menu with numbered options",
+      "Reason": "parked on an interactive Enter-to-select file-choice menu with numbered options",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n  I created a question for you.\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------ [ ] Pick a file\nWhich file should I edit?\n  \u003E 1. Program.cs\n    2. Startup.cs\n    3. Config.cs\n------------------------------------------------------------------------------------------------------------------------\nEnter to select . up/down to navigate . Esc to cancel"
     },
@@ -656,7 +656,7 @@
       "Category": "P",
       "Expected": "waiting_for_permission",
       "Got": "waiting_for_permission",
-      "Reason": "parked on a numbered-choice plan-mode box asking to proceed with options 1/2/3",
+      "Reason": "parked on a numbered plan-mode choice box asking \u0027Would you like to proceed?\u0027",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n  Here is the plan:\n  1. Move the dictionary to the shared path.\n  2. Update the loader.\n  3. Add a regression test.\n\n  Would you like to proceed?\n  \u003E 1. Yes, and auto-accept edits\n    2. Yes, and manually approve edits\n    3. No, keep planning\n\n  plan mode on (shift\u002Btab to cycle)"
     },
@@ -665,7 +665,7 @@
       "Category": "P",
       "Expected": "waiting_for_permission",
       "Got": "waiting_for_permission",
-      "Reason": "parked on a numbered-choice plan-mode box asking to proceed with the plan",
+      "Reason": "parked on a numbered plan-mode choice box asking \u0027Would you like to proceed?\u0027",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n  Here is the plan:\n  1. Move the dictionary to the shared path.\n  2. Update the loader.\n  3. Add a regression test.\n\n  Would you like to proceed?\n  \u003E 1. Yes, and auto-accept edits\n    2. Yes, and manually approve edits\n    3. No, keep planning\n\n  plan mode on (shift\u002Btab to cycle)"
     },
@@ -674,7 +674,7 @@
       "Category": "P",
       "Expected": "waiting_for_permission",
       "Got": "waiting_for_permission",
-      "Reason": "parked on a numbered-choice plan-mode confirmation box with options 1-3",
+      "Reason": "parked on a numbered plan-mode choice box asking \u0027Would you like to proceed?\u0027",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n  Here is the plan:\n  1. Move the dictionary to the shared path.\n  2. Update the loader.\n  3. Add a regression test.\n\n  Would you like to proceed?\n  \u003E 1. Yes, and auto-accept edits\n    2. Yes, and manually approve edits\n    3. No, keep planning\n\n  plan mode on (shift\u002Btab to cycle)"
     },
@@ -683,7 +683,7 @@
       "Category": "P",
       "Expected": "waiting_for_permission",
       "Got": "waiting_for_permission",
-      "Reason": "parked on a numbered ExitPlanMode choice box in plan mode",
+      "Reason": "parked on a numbered-choice plan-approval box with \u0027Would you like to proceed?\u0027",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n  Here is the plan:\n  1. Move the dictionary to the shared path.\n  2. Update the loader.\n  3. Add a regression test.\n\n  Would you like to proceed?\n  \u003E 1. Yes, and auto-accept edits\n    2. Yes, and manually approve edits\n    3. No, keep planning\n\n  plan mode on (shift\u002Btab to cycle)"
     },
@@ -692,7 +692,7 @@
       "Category": "P",
       "Expected": "waiting_for_permission",
       "Got": "waiting_for_permission",
-      "Reason": "parked on a numbered plan-mode choice box asking to proceed",
+      "Reason": "parked on a numbered plan-mode confirmation box with \u0027Would you like to proceed?\u0027",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n  Here is the plan:\n  1. Move the dictionary to the shared path.\n  2. Update the loader.\n  3. Add a regression test.\n\n  Would you like to proceed?\n  \u003E 1. Yes, and auto-accept edits\n    2. Yes, and manually approve edits\n    3. No, keep planning\n\n  plan mode on (shift\u002Btab to cycle)"
     },
@@ -701,7 +701,7 @@
       "Category": "C",
       "Expected": "cancelled",
       "Got": "waiting_for_input",
-      "Reason": "previous action was interrupted by user and the bottom footer is the mode line with no esc-to-interrupt, leaving an empty input box",
+      "Reason": "an interrupt notice is shown and the agent is back at an empty input box with no esc-to-interrupt footer",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n* Concocting... (esc to interrupt)\n\n  [Request interrupted by user]\n\n\u003E _\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 bypass permissions on (shift\u002Btab to cycle)"
     },
@@ -710,7 +710,7 @@
       "Category": "C",
       "Expected": "cancelled",
       "Got": "waiting_for_input",
-      "Reason": "the bottom footer is the accept-edits mode line with no esc-to-interrupt; a prior request was interrupted and the agent sits at an empty input box",
+      "Reason": "a previous request was interrupted by the user and the agent is now back at an empty input box with no esc-to-interrupt footer",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n* Mulling... (esc to interrupt)\n\n  [Request interrupted by user]\n\n\u003E _\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 accept edits on (shift\u002Btab to cycle)"
     },
@@ -719,7 +719,7 @@
       "Category": "C",
       "Expected": "cancelled",
       "Got": "waiting_for_input",
-      "Reason": "previous action was interrupted by user and the bottom footer shows plan mode on with an empty input box, no esc-to-interrupt",
+      "Reason": "a user interrupt notice is shown and the agent is back at an empty input box with no esc-to-interrupt footer",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n* Determining... (esc to interrupt)\n\n  [Request interrupted by user]\n\n\u003E _\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 plan mode on (shift\u002Btab to cycle)"
     },
@@ -728,7 +728,7 @@
       "Category": "C",
       "Expected": "cancelled",
       "Got": "waiting_for_input",
-      "Reason": "a prior action was interrupted by the user and the session is now at an empty input box with no esc-to-interrupt footer",
+      "Reason": "previous action was interrupted by user and the agent is now back at an empty input box with no esc-to-interrupt footer",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n* Tinkering... (esc to interrupt)\n\n  [Request interrupted by user]\n\n\u003E _\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 bypass permissions on (shift\u002Btab to cycle)"
     },
@@ -737,7 +737,7 @@
       "Category": "C",
       "Expected": "cancelled",
       "Got": "waiting_for_input",
-      "Reason": "the bottom footer is the \u0027accept edits on\u0027 mode line with no esc-to-interrupt; a prior request was interrupted and the cursor sits at an empty input box",
+      "Reason": "previous request was interrupted by user and the agent is now back at an empty input box with no esc-to-interrupt footer",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n* Brewing... (esc to interrupt)\n\n  [Request interrupted by user]\n\n\u003E _\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 accept edits on (shift\u002Btab to cycle)"
     },
@@ -745,8 +745,8 @@
       "Id": "C06",
       "Category": "C",
       "Expected": "cancelled",
-      "Got": "waiting_for_input",
-      "Reason": "last action was interrupted by user and now sits at an empty input box with no esc-to-interrupt footer",
+      "Got": "cancelled",
+      "Reason": "shows \u0027[Request interrupted by user]\u0027 notice with the agent back at an empty prompt",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n* Sauteing... (esc to interrupt)\n\n  [Request interrupted by user]\n\n\u003E _\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 plan mode on (shift\u002Btab to cycle)"
     },
@@ -755,7 +755,7 @@
       "Category": "C",
       "Expected": "cancelled",
       "Got": "waiting_for_input",
-      "Reason": "previous action was interrupted by user and now sits at an empty input box with no esc-to-interrupt footer",
+      "Reason": "shows \u0027[Request interrupted by user]\u0027 and is now back at an empty input box with no esc-to-interrupt footer",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n* Churning... (esc to interrupt)\n\n  [Request interrupted by user]\n\n\u003E _\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 bypass permissions on (shift\u002Btab to cycle)"
     },
@@ -764,7 +764,7 @@
       "Category": "C",
       "Expected": "cancelled",
       "Got": "waiting_for_input",
-      "Reason": "previous action was interrupted by user and the bottom footer shows \u0027accept edits on\u0027 mode with an empty input box, no esc-to-interrupt",
+      "Reason": "the request was interrupted by the user and the agent is now back at an empty input box with no esc-to-interrupt footer",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n* Pondering... (esc to interrupt)\n\n  [Request interrupted by user]\n\n\u003E _\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 accept edits on (shift\u002Btab to cycle)"
     },
@@ -800,7 +800,7 @@
       "Category": "U",
       "Expected": "unknown",
       "Got": "unknown",
-      "Reason": "screen shows only the word \u0027loading\u0027 with no input box, spinner, footer, or active indicator",
+      "Reason": "screen shows only \u0027loading\u0027 with no input box, spinner, or footer",
       "Pass": true,
       "ScreenText": "loading\n"
     },
@@ -827,7 +827,7 @@
       "Category": "U",
       "Expected": "unknown",
       "Got": "unknown",
-      "Reason": "screen shows only \u0027???\u0027 placeholder lines with no input box, spinner, or footer",
+      "Reason": "terminal tail shows only \u0027???\u0027 placeholder characters with no input box, spinner, or footer",
       "Pass": true,
       "ScreenText": "???\n???"
     },
@@ -845,7 +845,7 @@
       "Category": "U",
       "Expected": "unknown",
       "Got": "unknown",
-      "Reason": "screen shows only blank box-drawing blocks with no input box, spinner, or footer",
+      "Reason": "screen shows only solid block characters with no input box, spinner, or footer",
       "Pass": true,
       "ScreenText": "\u2588\u2588\u2588\u2588\n\u2588\u2588\u2588\u2588\n\u2588\u2588\u2588\u2588"
     },
@@ -854,7 +854,7 @@
       "Category": "U",
       "Expected": "unknown",
       "Got": "unknown",
-      "Reason": "screen shows only \u0027partial frame\u0027, \u0027no footer\u0027, \u0027no prompt\u0027 with no input box, spinner, or footer present",
+      "Reason": "partial frame with no footer, no input box, and no spinner visible",
       "Pass": true,
       "ScreenText": "partial frame\nno footer\nno prompt"
     },
@@ -863,7 +863,7 @@
       "Category": "P",
       "Expected": "waiting_for_permission",
       "Got": "waiting_for_permission",
-      "Reason": "parked on a numbered-choice box asking to allow the mindzie_list_projects MCP tool",
+      "Reason": "parked on a numbered-choice box asking to use mindzie_list_projects (MCP) with options 1. Allow once, 2. Allow for this session, 3. Deny",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n  Claude wants to use mindzie_list_projects (MCP).\n  \u003E 1. Allow once\n    2. Allow for this session\n    3. Deny (esc)\n\n\u23F5\u23F5 bypass permissions on (shift\u002Btab to cycle)"
     },
@@ -881,7 +881,7 @@
       "Category": "W",
       "Expected": "working",
       "Got": "working",
-      "Reason": "bottom footer contains \u0027esc to interrupt\u0027 and shows \u0027Compacting conversation...\u0027 active indicator",
+      "Reason": "bottom footer shows \u0027Compacting conversation... (esc to interrupt)\u0027",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n  Compacting conversation... (esc to interrupt)\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 bypass permissions on (shift\u002Btab to cycle) \u00B7 esc to interrupt"
     },
@@ -890,7 +890,7 @@
       "Category": "I",
       "Expected": "waiting_for_input",
       "Got": "waiting_for_input",
-      "Reason": "empty input box with shortcuts hint; the bypass-permissions line is the mode footer, not a prompt",
+      "Reason": "empty input box with shortcut hint; the bypass-permissions line is the mode footer, not a prompt",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n\u003E Try \u0022edit \u003Cfilepath\u003E\u0022 or \u0022how do I ...?\u0022\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 bypass permissions on (shift\u002Btab to cycle)"
     },
@@ -899,7 +899,7 @@
       "Category": "I",
       "Expected": "waiting_for_input",
       "Got": "waiting_for_input",
-      "Reason": "bottom footer shows \u0027plan mode on\u0027 with no esc-to-interrupt; empty input box after a compaction notice",
+      "Reason": "the bottom footer shows only the plan-mode status line with no esc-to-interrupt or spinner; an empty input box sits after a compaction notice",
       "Pass": true,
       "ScreenText": " ##  Claude Code v2.1.150\n ##  Opus 4.7 (1M context) . Claude Max\n     D:\\ReposFred\\cc-director\n------------------------------------------------------------------------------------------------------------------------\n  Compacted. Conversation summary saved.\n------------------------------------------------------------------------------------------------------------------------\n\u003E\n------------------------------------------------------------------------------------------------------------------------\n  \u23F5\u23F5 plan mode on (shift\u002Btab to cycle)"
     }
