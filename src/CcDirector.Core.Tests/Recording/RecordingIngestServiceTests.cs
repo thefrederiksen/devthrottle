@@ -266,6 +266,39 @@ public sealed class RecordingIngestServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Process_AfterTranscribed_DeletesPerSegmentTempFiles()
+    {
+        var svc = NewService(new FakeTranscriber(), new FakeFiler());
+        await TranscribeOneChunk(svc, "rec1");
+
+        var dir = Path.Combine(_tmp, "recordings", "rec1");
+        // The per-segment audio chunk and raw text cache are temporary scratch
+        // and must be gone once the recording is transcribed.
+        Assert.False(File.Exists(Path.Combine(dir, "0000.mp3")), "segment audio chunk should be deleted");
+        Assert.False(File.Exists(Path.Combine(dir, "0000.txt")), "per-segment text cache should be deleted");
+        // The durable artifacts must remain.
+        Assert.True(File.Exists(Path.Combine(dir, "transcript.md")), "transcript.md must be kept");
+        Assert.True(File.Exists(Path.Combine(dir, "status.json")), "status.json must be kept");
+        Assert.True(File.Exists(Path.Combine(dir, "manifest.json")), "manifest.json must be kept");
+    }
+
+    [Fact]
+    public async Task GetStatus_AfterSegmentCleanup_ReportsCompletedCountsFromTotal()
+    {
+        var svc = NewService(new FakeTranscriber(), new FakeFiler());
+        await TranscribeOneChunk(svc, "rec1");
+
+        // The per-segment files are deleted on completion, so the received/
+        // transcribed counts cannot be derived from disk (that would report 0);
+        // they must reflect the authoritative ChunksTotal.
+        var status = svc.GetStatus("rec1");
+        Assert.Equal("transcribed", status.State);
+        Assert.Equal(1, status.ChunksTotal);
+        Assert.Equal(1, status.ChunksReceived);
+        Assert.Equal(1, status.ChunksTranscribed);
+    }
+
+    [Fact]
     public async Task Worker_TranscribesQueuedRecording_EndToEnd()
     {
         // The real background worker (runWorker: true) must drain the queue with

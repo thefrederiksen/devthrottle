@@ -29,6 +29,13 @@ namespace CcDirector.Core.Recording;
 ///     0000.txt 0001.txt  per-segment raw transcript (idempotent cache)
 ///     transcript.md      final assembled + cleaned transcript
 /// </code>
+/// The numbered per-segment files (<c>NNNN.m4a</c> and <c>NNNN.txt</c>) are
+/// temporary scratch that exists only to drive transcription and resume. Once a
+/// recording reaches the <c>transcribed</c> state they are deleted (see
+/// <c>CleanupSegmentFiles</c>); only <c>status.json</c>, <c>manifest.json</c>,
+/// and <c>transcript.md</c> are kept. As a result the cleaned transcript is the
+/// durable artifact, but per-segment audio playback and promoting audio into the
+/// vault are no longer possible after transcription completes.
 ///
 /// All operations are idempotent so the phone can retry safely: re-registering
 /// is a no-op, re-uploading a segment with the same hash is a no-op,
@@ -279,6 +286,7 @@ public sealed class RecordingIngestService : IDisposable
                 status.Error = null;
                 status.NextAttemptAtUtc = null;
                 SaveStatus(status);
+                CleanupSegmentFiles(recordingId);
                 FileLog.Write($"[RecordingIngestService] Transcribe done: id={recordingId} (local transcript, not filed)");
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -310,6 +318,39 @@ public sealed class RecordingIngestService : IDisposable
         {
             gate.Release();
         }
+    }
+
+    /// <summary>
+    /// Deletes the per-segment temp files (audio chunks + raw per-segment text)
+    /// once the final transcript.md has been written. These exist only to drive
+    /// transcription and resume, and are fully redundant afterward. status.json,
+    /// manifest.json, and transcript.md are kept. Best-effort: a delete that
+    /// fails (e.g. a file briefly locked) is logged but never fails the job,
+    /// which has already succeeded.
+    /// </summary>
+    private void CleanupSegmentFiles(string recordingId)
+    {
+        var dir = RecordingDir(recordingId);
+        if (!Directory.Exists(dir)) return;
+
+        int removed = 0;
+        foreach (var file in Directory.GetFiles(dir))
+        {
+            var name = Path.GetFileNameWithoutExtension(file);
+            // Segment files are 4-digit indexed (0000.m4a, 0000.txt). Never
+            // touch the named files (status.json, manifest.json, transcript.md).
+            if (name.Length != 4 || !name.All(char.IsDigit)) continue;
+            try
+            {
+                File.Delete(file);
+                removed++;
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[RecordingIngestService] CleanupSegmentFiles: id={recordingId} could not delete {Path.GetFileName(file)}: {ex.Message}");
+            }
+        }
+        FileLog.Write($"[RecordingIngestService] CleanupSegmentFiles: id={recordingId} removed={removed} segment files");
     }
 
     /// <summary>
@@ -724,12 +765,24 @@ public sealed class RecordingIngestService : IDisposable
     private RecordingStatusDto ToDto(StatusModel s)
     {
         var dir = RecordingDir(s.RecordingId);
-        var received = Directory.Exists(dir)
-            ? Directory.GetFiles(dir).Count(f => IsAudio(f))
-            : 0;
-        var transcribed = Directory.Exists(dir)
-            ? Directory.GetFiles(dir, "*.txt").Length
-            : 0;
+        int received, transcribed;
+        if (s.State == StateTranscribed)
+        {
+            // The per-segment audio/text files are deleted once transcription
+            // finishes (see CleanupSegmentFiles), so counting them on disk would
+            // report 0 for a completed job. ChunksTotal is the authoritative
+            // count of segments that were received and transcribed.
+            received = transcribed = s.ChunksTotal;
+        }
+        else
+        {
+            received = Directory.Exists(dir)
+                ? Directory.GetFiles(dir).Count(f => IsAudio(f))
+                : 0;
+            transcribed = Directory.Exists(dir)
+                ? Directory.GetFiles(dir, "*.txt").Length
+                : 0;
+        }
         return new RecordingStatusDto(
             s.RecordingId, s.Title, s.State, received, s.ChunksTotal, transcribed, s.VaultDocId, s.Error, s.Transcript,
             s.Attempts, s.NextAttemptAtUtc);
