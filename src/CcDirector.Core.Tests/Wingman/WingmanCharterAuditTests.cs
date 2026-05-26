@@ -6,7 +6,7 @@ using Xunit.Abstractions;
 namespace CcDirector.Core.Tests.Wingman;
 
 /// <summary>
-/// The Wingman Charter audit gate (docs/wingman/CHARTER.md). The Wingman is a
+/// The Wingman invariants audit gate (docs/wingman/WINGMAN.md, section 2). The Wingman is a
 /// cross-cutting component used in many places and growing, so its invariants are
 /// enforced CONTINUOUSLY here rather than fixed once: this runs in the normal test suite
 /// and FAILS THE BUILD if any file under src/CcDirector.Core/Wingman/ violates them.
@@ -29,7 +29,7 @@ public sealed class WingmanCharterAuditTests
     private readonly ITestOutputHelper _out;
     public WingmanCharterAuditTests(ITestOutputHelper output) => _out = output;
 
-    private const string CharterRef = "see docs/wingman/CHARTER.md";
+    private const string CharterRef = "see docs/wingman/WINGMAN.md";
 
     // Quoted cheap-model names that must never appear in Wingman source. A real cheap
     // call requires the literal here, so forbidding the quoted literal is the precise gate.

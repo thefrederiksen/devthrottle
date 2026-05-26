@@ -10,7 +10,7 @@ namespace CcDirector.Core.Wingman;
 
 /// <summary>
 /// Records EVERY session's resolved terminal grid over time to build the ground-truth
-/// corpus for OFFLINE analysis and learning (docs/wingman/REDESIGN.md). We stopped trusting
+/// corpus for OFFLINE analysis and learning (docs/wingman/WINGMAN.md, section 6). We stopped trusting
 /// idealized fixtures and one-off driven runs; instead the Director quietly logs what real
 /// sessions actually look like - across Claude Code versions and real workflows - so we can
 /// later replay it, find where finish detection / the Wingman get it wrong, and build

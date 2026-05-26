@@ -27,7 +27,7 @@ public static class WingmanService
     /// The Wingman's whole job is to genuinely help the user across every session; a
     /// weak model cannot read a screen faithfully, answer without summarizing, or judge
     /// state reliably, so the Wingman does not get a cheap tier. This is a hard invariant
-    /// of the Wingman Charter (docs/wingman/CHARTER.md) and is enforced by the charter
+    /// of the Wingman invariants (docs/wingman/WINGMAN.md) and is enforced by the charter
     /// audit (WingmanCharterAuditTests), which fails the build if a cheap-model call ever
     /// reappears in Wingman code.
     /// </summary>

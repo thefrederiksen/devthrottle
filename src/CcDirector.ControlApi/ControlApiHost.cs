@@ -193,7 +193,7 @@ public sealed class ControlApiHost : IAsyncDisposable
         // activity state) to build the ground-truth corpus for offline analysis/learning.
         // Turn detection itself is the trigger + LLM judge in TerminalStateDetector above - no
         // regex screen parsing. Observe-only, capped per session. On by default; set
-        // CC_DIRECTOR_RECORD_SESSIONS=0 to disable. See docs/wingman/REDESIGN.md.
+        // CC_DIRECTOR_RECORD_SESSIONS=0 to disable. See docs/wingman/WINGMAN.md.
         if (Environment.GetEnvironmentVariable("CC_DIRECTOR_RECORD_SESSIONS") != "0")
         {
             _sessionRecorder = new TerminalSessionRecorder(_sessionManager);
