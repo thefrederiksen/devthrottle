@@ -18,9 +18,10 @@ namespace CcDirector.Core.Wingman;
 ///
 /// One append-only JSONL per session at
 /// <c>%LOCALAPPDATA%/cc-director/session-recordings/&lt;sessionId&gt;/grid.jsonl</c>. A frame is
-/// written only when the resolved grid actually CHANGES (deduped), and each frame is labeled
-/// with the deterministic <see cref="ClaudeScreenReader"/> classification and the session's
-/// activity state, so the corpus is self-labeled for accuracy analysis.
+/// written only when the resolved grid actually CHANGES (deduped); each frame carries the raw
+/// screen rows plus the session's activity state at capture (driven by the trigger + LLM judge
+/// in TerminalStateDetector). Offline analysis can replay the raw rows through whatever judge
+/// we want to evaluate.
 ///
 /// OBSERVE-ONLY: it never changes session behavior. Capped per session so it cannot grow
 /// unbounded; once the cap is hit, recording for that session stops (the early/most-varied
@@ -124,7 +125,6 @@ public sealed class TerminalSessionRecorder : IDisposable
 
                 var frame = new Frame(
                     DateTime.UtcNow.ToString("o"),
-                    ClaudeScreenReader.Read(rows).ToString(),
                     _session.ActivityState.ToString(),
                     rows);
                 var line = JsonSerializer.Serialize(frame, Json);
@@ -157,9 +157,9 @@ public sealed class TerminalSessionRecorder : IDisposable
             _buffer.OnBytesWritten -= _onBytes;
         }
 
-        /// <summary>One recorded grid frame. <paramref name="Screen"/> is the deterministic
-        /// <see cref="ClaudeScreenReader"/> verdict and <paramref name="Activity"/> is the
-        /// session's activity state at capture, so the corpus is self-labeled.</summary>
-        private sealed record Frame(string T, string Screen, string Activity, string[] Rows);
+        /// <summary>One recorded grid frame: timestamp, the session's activity state at capture
+        /// (driven by the LLM judge), and the resolved screen rows. The raw rows are the corpus;
+        /// offline analysis can replay them through whatever judge we want to evaluate.</summary>
+        private sealed record Frame(string T, string Activity, string[] Rows);
     }
 }

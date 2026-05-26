@@ -1,0 +1,1795 @@
+{
+ "count": 100,
+ "states": [
+  {
+   "id": "W01",
+   "category": "W",
+   "expected": "working",
+   "note": "active spinner + esc to interrupt footer",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "> refactor the config loader",
+    "* Searching the codebase... (Brewed for 8s, esc to interrupt)",
+    "  Read DictionaryLoader.cs",
+    "  Read CleanupOrchestrator.cs",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt"
+   ]
+  },
+  {
+   "id": "W02",
+   "category": "W",
+   "expected": "working",
+   "note": "active spinner + esc to interrupt footer",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "> add a regression test",
+    "✴ Reading 1 file... (ctrl+o to expand)",
+    "  |_ src\\CcDirector.Core\\Wingman\\WingmanService.cs",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ accept edits on (shift+tab to cycle) · esc to interrupt"
+   ]
+  },
+  {
+   "id": "W03",
+   "category": "W",
+   "expected": "working",
+   "note": "active spinner + esc to interrupt footer",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "> run the tests",
+    "* Running tests... (12s . v 240 tokens)",
+    "  dotnet test",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ plan mode on (shift+tab to cycle) · esc to interrupt"
+   ]
+  },
+  {
+   "id": "W04",
+   "category": "W",
+   "expected": "working",
+   "note": "active spinner + esc to interrupt footer",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "> fix the lint errors",
+    "✽ Determining... (2s . v 61 tokens . thinking)",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt"
+   ]
+  },
+  {
+   "id": "W05",
+   "category": "W",
+   "expected": "working",
+   "note": "active spinner + esc to interrupt footer",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "> summarize the readme",
+    "✶ Mulling... (6s . v 237 tokens)",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ accept edits on (shift+tab to cycle) · esc to interrupt"
+   ]
+  },
+  {
+   "id": "W06",
+   "category": "W",
+   "expected": "working",
+   "note": "active spinner + esc to interrupt footer",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "> build the project",
+    "* Building and verifying... (1m 31s . v 1.2k tokens)",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ plan mode on (shift+tab to cycle) · esc to interrupt"
+   ]
+  },
+  {
+   "id": "W07",
+   "category": "W",
+   "expected": "working",
+   "note": "active spinner + esc to interrupt footer",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "> grep for the handler",
+    "· Searching... (4s . ^ 88 tokens)",
+    "  Grep \"HandlePipeEvent\"",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt"
+   ]
+  },
+  {
+   "id": "W08",
+   "category": "W",
+   "expected": "working",
+   "note": "active spinner + esc to interrupt footer",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "> read three files",
+    "  Read 1 file (ctrl+o to expand)",
+    "✴ Concocting... (16s . v 833 tokens)",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ accept edits on (shift+tab to cycle) · esc to interrupt"
+   ]
+  },
+  {
+   "id": "W09",
+   "category": "W",
+   "expected": "working",
+   "note": "active spinner + esc to interrupt footer",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "> launch a subagent to investigate",
+    "* Exploring... (22s . v 2.1k tokens . running 1 subagent)",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ plan mode on (shift+tab to cycle) · esc to interrupt"
+   ]
+  },
+  {
+   "id": "W10",
+   "category": "W",
+   "expected": "working",
+   "note": "active spinner + esc to interrupt footer",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "> write the new class",
+    "✽ Tinkering... (9s . v 410 tokens)",
+    "  Update FinishDetector.cs",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt"
+   ]
+  },
+  {
+   "id": "W11",
+   "category": "W",
+   "expected": "working",
+   "note": "active spinner + esc to interrupt footer",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "> check the git status",
+    "· Computing... (1s)",
+    "  Bash git status",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ accept edits on (shift+tab to cycle) · esc to interrupt"
+   ]
+  },
+  {
+   "id": "W12",
+   "category": "W",
+   "expected": "working",
+   "note": "active spinner + esc to interrupt footer",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "> analyze the diff",
+    "✶ Pondering... (33s . v 1.8k tokens . thinking)",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ plan mode on (shift+tab to cycle) · esc to interrupt"
+   ]
+  },
+  {
+   "id": "W13",
+   "category": "W",
+   "expected": "working",
+   "note": "spinner with elapsed counter",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "> task 0",
+    "* Concocting... (3s . v 50 tokens)",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt"
+   ]
+  },
+  {
+   "id": "W14",
+   "category": "W",
+   "expected": "working",
+   "note": "spinner with elapsed counter",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "> task 1",
+    "· Mulling... (4s . v 90 tokens)",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ accept edits on (shift+tab to cycle) · esc to interrupt"
+   ]
+  },
+  {
+   "id": "W15",
+   "category": "W",
+   "expected": "working",
+   "note": "spinner with elapsed counter",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "> task 2",
+    "✴ Determining... (5s . v 130 tokens)",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ plan mode on (shift+tab to cycle) · esc to interrupt"
+   ]
+  },
+  {
+   "id": "W16",
+   "category": "W",
+   "expected": "working",
+   "note": "spinner with elapsed counter",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "> task 3",
+    "✽ Tinkering... (6s . v 170 tokens)",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt"
+   ]
+  },
+  {
+   "id": "W17",
+   "category": "W",
+   "expected": "working",
+   "note": "spinner with elapsed counter",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "> task 4",
+    "✶ Brewing... (7s . v 210 tokens)",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ accept edits on (shift+tab to cycle) · esc to interrupt"
+   ]
+  },
+  {
+   "id": "W18",
+   "category": "W",
+   "expected": "working",
+   "note": "spinner with elapsed counter",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "> task 5",
+    "✢ Sauteing... (8s . v 250 tokens)",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ plan mode on (shift+tab to cycle) · esc to interrupt"
+   ]
+  },
+  {
+   "id": "W19",
+   "category": "W",
+   "expected": "working",
+   "note": "tool output streaming",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "> do thing 0",
+    "  Bash npm run build",
+    "  > tsc -p .",
+    "  compiled 0 files",
+    "* Building... (2s · esc to interrupt)",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt"
+   ]
+  },
+  {
+   "id": "W20",
+   "category": "W",
+   "expected": "working",
+   "note": "tool output streaming",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "> do thing 1",
+    "  Bash npm run build",
+    "  > tsc -p .",
+    "  compiled 3 files",
+    "* Building... (3s · esc to interrupt)",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ accept edits on (shift+tab to cycle) · esc to interrupt"
+   ]
+  },
+  {
+   "id": "W21",
+   "category": "W",
+   "expected": "working",
+   "note": "tool output streaming",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "> do thing 2",
+    "  Bash npm run build",
+    "  > tsc -p .",
+    "  compiled 6 files",
+    "* Building... (4s · esc to interrupt)",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ plan mode on (shift+tab to cycle) · esc to interrupt"
+   ]
+  },
+  {
+   "id": "W22",
+   "category": "W",
+   "expected": "working",
+   "note": "tool output streaming",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "> do thing 3",
+    "  Bash npm run build",
+    "  > tsc -p .",
+    "  compiled 9 files",
+    "* Building... (5s · esc to interrupt)",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt"
+   ]
+  },
+  {
+   "id": "W23",
+   "category": "W",
+   "expected": "working",
+   "note": "tool output streaming",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "> do thing 4",
+    "  Bash npm run build",
+    "  > tsc -p .",
+    "  compiled 12 files",
+    "* Building... (6s · esc to interrupt)",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ accept edits on (shift+tab to cycle) · esc to interrupt"
+   ]
+  },
+  {
+   "id": "W24",
+   "category": "W",
+   "expected": "working",
+   "note": "tool output streaming",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "> do thing 5",
+    "  Bash npm run build",
+    "  > tsc -p .",
+    "  compiled 15 files",
+    "* Building... (7s · esc to interrupt)",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ plan mode on (shift+tab to cycle) · esc to interrupt"
+   ]
+  },
+  {
+   "id": "W25",
+   "category": "W",
+   "expected": "working",
+   "note": "TORN footer: box-dashes replace spaces in 'esc to interrupt'",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "> torn frame 0",
+    "✴ Concocting... (4s . v 120 tokens)",
+    "✳-⏵⏵-bypconc...(2s tokens)-on-(shift+tab-to-cycle)-·-esc-to-interrupt---------------------------------------------------",
+    ">",
+    "✳-⏵⏵-bypconc...(2s tokens)-on-(shift+tab-to-cycle)-·-esc-to-interrupt---------------------------------------------------"
+   ]
+  },
+  {
+   "id": "W26",
+   "category": "W",
+   "expected": "working",
+   "note": "TORN footer: box-dashes replace spaces in 'esc to interrupt'",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "> torn frame 1",
+    "✴ Mulling... (5s . v 150 tokens)",
+    "✳-⏵⏵-bypmull...(3s tokens)-on-(shift+tab-to-cycle)-·-esc-to-interrupt---------------------------------------------------",
+    ">",
+    "✳-⏵⏵-bypmull...(3s tokens)-on-(shift+tab-to-cycle)-·-esc-to-interrupt---------------------------------------------------"
+   ]
+  },
+  {
+   "id": "W27",
+   "category": "W",
+   "expected": "working",
+   "note": "TORN footer: box-dashes replace spaces in 'esc to interrupt'",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "> torn frame 2",
+    "✴ Determining... (6s . v 180 tokens)",
+    "✳-⏵⏵-bypdete...(4s tokens)-on-(shift+tab-to-cycle)-·-esc-to-interrupt---------------------------------------------------",
+    ">",
+    "✳-⏵⏵-bypdete...(4s tokens)-on-(shift+tab-to-cycle)-·-esc-to-interrupt---------------------------------------------------"
+   ]
+  },
+  {
+   "id": "W28",
+   "category": "W",
+   "expected": "working",
+   "note": "TORN footer: box-dashes replace spaces in 'esc to interrupt'",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "> torn frame 3",
+    "✴ Tinkering... (7s . v 210 tokens)",
+    "✳-⏵⏵-byptink...(5s tokens)-on-(shift+tab-to-cycle)-·-esc-to-interrupt---------------------------------------------------",
+    ">",
+    "✳-⏵⏵-byptink...(5s tokens)-on-(shift+tab-to-cycle)-·-esc-to-interrupt---------------------------------------------------"
+   ]
+  },
+  {
+   "id": "W29",
+   "category": "W",
+   "expected": "working",
+   "note": "TORN footer: box-dashes replace spaces in 'esc to interrupt'",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "> torn frame 4",
+    "✴ Brewing... (8s . v 240 tokens)",
+    "✳-⏵⏵-bypbrew...(6s tokens)-on-(shift+tab-to-cycle)-·-esc-to-interrupt---------------------------------------------------",
+    ">",
+    "✳-⏵⏵-bypbrew...(6s tokens)-on-(shift+tab-to-cycle)-·-esc-to-interrupt---------------------------------------------------"
+   ]
+  },
+  {
+   "id": "W30",
+   "category": "W",
+   "expected": "working",
+   "note": "TORN footer: box-dashes replace spaces in 'esc to interrupt'",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "> torn frame 5",
+    "✴ Sauteing... (9s . v 270 tokens)",
+    "✳-⏵⏵-bypsaut...(7s tokens)-on-(shift+tab-to-cycle)-·-esc-to-interrupt---------------------------------------------------",
+    ">",
+    "✳-⏵⏵-bypsaut...(7s tokens)-on-(shift+tab-to-cycle)-·-esc-to-interrupt---------------------------------------------------"
+   ]
+  },
+  {
+   "id": "I01",
+   "category": "I",
+   "expected": "waiting_for_input",
+   "note": "finished answer, empty prompt, mode footer, NO esc-to-interrupt",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  Done. I updated the loader and added a regression test. Both build clean.",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ bypass permissions on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "I02",
+   "category": "I",
+   "expected": "waiting_for_input",
+   "note": "finished answer, empty prompt, mode footer, NO esc-to-interrupt",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  The login bug is fixed. Three files were changed and the tests pass.",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ accept edits on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "I03",
+   "category": "I",
+   "expected": "waiting_for_input",
+   "note": "finished answer, empty prompt, mode footer, NO esc-to-interrupt",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  Here is a one-line summary: it parses the manifest and validates each entry.",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ plan mode on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "I04",
+   "category": "I",
+   "expected": "waiting_for_input",
+   "note": "finished answer, empty prompt, mode footer, NO esc-to-interrupt",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  17 times 23 is 391.",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ bypass permissions on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "I05",
+   "category": "I",
+   "expected": "waiting_for_input",
+   "note": "finished answer, empty prompt, mode footer, NO esc-to-interrupt",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  I read README.md. It documents the build, the tools, and the Control API.",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ accept edits on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "I06",
+   "category": "I",
+   "expected": "waiting_for_input",
+   "note": "finished answer, empty prompt, mode footer, NO esc-to-interrupt",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  Pushed to main. The commit is on origin now.",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ plan mode on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "I07",
+   "category": "I",
+   "expected": "waiting_for_input",
+   "note": "finished answer, empty prompt, mode footer, NO esc-to-interrupt",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  Nothing further needed; the refactor is complete and verified.",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ bypass permissions on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "I08",
+   "category": "I",
+   "expected": "waiting_for_input",
+   "note": "idle input box with faint placeholder text (not user activity)",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  Done.",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "> Try \"fix the lint errors\"",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ bypass permissions on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "I09",
+   "category": "I",
+   "expected": "waiting_for_input",
+   "note": "idle input box with faint placeholder text (not user activity)",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  Done.",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "> Try \"how do I log an error?\"",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ accept edits on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "I10",
+   "category": "I",
+   "expected": "waiting_for_input",
+   "note": "idle input box with faint placeholder text (not user activity)",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  Done.",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "> edit <filepath>",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ plan mode on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "I11",
+   "category": "I",
+   "expected": "waiting_for_input",
+   "note": "idle input box with faint placeholder text (not user activity)",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  Done.",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "> Try \"fix the lint errors\"",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ bypass permissions on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "I12",
+   "category": "I",
+   "expected": "waiting_for_input",
+   "note": "idle input box with faint placeholder text (not user activity)",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  Done.",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "> Try \"how do I log an error?\"",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ accept edits on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "I13",
+   "category": "I",
+   "expected": "waiting_for_input",
+   "note": "idle input box with faint placeholder text (not user activity)",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  Done.",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "> edit <filepath>",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ plan mode on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "I14",
+   "category": "I",
+   "expected": "waiting_for_input",
+   "note": "REGRESSION: mode footer + '? for shortcuts' is idle, not permission",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  Updated the config and verified it builds.",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ? for shortcuts                                   ⏵⏵ bypass permissions on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "I15",
+   "category": "I",
+   "expected": "waiting_for_input",
+   "note": "REGRESSION: mode footer + '? for shortcuts' is idle, not permission",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  Updated the config and verified it builds.",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ? for shortcuts                                   ⏵⏵ accept edits on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "I16",
+   "category": "I",
+   "expected": "waiting_for_input",
+   "note": "REGRESSION: mode footer + '? for shortcuts' is idle, not permission",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  Updated the config and verified it builds.",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ? for shortcuts                                   ⏵⏵ plan mode on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "I17",
+   "category": "I",
+   "expected": "waiting_for_input",
+   "note": "REGRESSION: mode footer + '? for shortcuts' is idle, not permission",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  Updated the config and verified it builds.",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ? for shortcuts                                   ⏵⏵ bypass permissions on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "I18",
+   "category": "I",
+   "expected": "waiting_for_input",
+   "note": "REGRESSION: mode footer + '? for shortcuts' is idle, not permission",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  Updated the config and verified it builds.",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ? for shortcuts                                   ⏵⏵ accept edits on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "I19",
+   "category": "I",
+   "expected": "waiting_for_input",
+   "note": "agent finished with a prose question; empty box; turn is over",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  I analyzed the loader.",
+    "  I can refactor the config loader. Want me to go ahead?",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ bypass permissions on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "I20",
+   "category": "I",
+   "expected": "waiting_for_input",
+   "note": "agent finished with a prose question; empty box; turn is over",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  I analyzed the loader.",
+    "  Should I commit these changes now?",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ accept edits on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "I21",
+   "category": "I",
+   "expected": "waiting_for_input",
+   "note": "agent finished with a prose question; empty box; turn is over",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  I analyzed the loader.",
+    "  Would you like me to add tests for the edge cases too?",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ plan mode on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "I22",
+   "category": "I",
+   "expected": "waiting_for_input",
+   "note": "agent finished with a prose question; empty box; turn is over",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  I analyzed the loader.",
+    "  That will delete the old file. OK to proceed?",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ bypass permissions on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "I23",
+   "category": "I",
+   "expected": "waiting_for_input",
+   "note": "agent finished with a prose question; empty box; turn is over",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  I analyzed the loader.",
+    "  I found two approaches. Which do you prefer - the cache or the rewrite?",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ accept edits on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "I24",
+   "category": "I",
+   "expected": "waiting_for_input",
+   "note": "stale working footer in scrollback ABOVE a now-idle prompt",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "* Running tests... (esc to interrupt)",
+    "  [tests passed]",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  All 42 tests pass.",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ bypass permissions on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "I25",
+   "category": "I",
+   "expected": "waiting_for_input",
+   "note": "stale working footer in scrollback ABOVE a now-idle prompt",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "* Running tests... (esc to interrupt)",
+    "  [tests passed]",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  All 42 tests pass.",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ accept edits on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "I26",
+   "category": "I",
+   "expected": "waiting_for_input",
+   "note": "stale working footer in scrollback ABOVE a now-idle prompt",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "* Running tests... (esc to interrupt)",
+    "  [tests passed]",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  All 42 tests pass.",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ plan mode on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "I27",
+   "category": "I",
+   "expected": "waiting_for_input",
+   "note": "stale working footer in scrollback ABOVE a now-idle prompt",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "* Running tests... (esc to interrupt)",
+    "  [tests passed]",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  All 42 tests pass.",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ bypass permissions on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "I28",
+   "category": "I",
+   "expected": "waiting_for_input",
+   "note": "stale working footer in scrollback ABOVE a now-idle prompt",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "* Running tests... (esc to interrupt)",
+    "  [tests passed]",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  All 42 tests pass.",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ accept edits on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "P01",
+   "category": "P",
+   "expected": "waiting_for_permission",
+   "note": "real bordered numbered-choice confirmation box",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  Edit file",
+    "  config/app-settings.json",
+    "    - old line",
+    "    + new line",
+    "",
+    "  Do you want to make this edit to app-settings.json?",
+    "  > 1. Yes",
+    "    2. Yes, and don't ask again this session",
+    "    3. No, and tell Claude what to do differently (esc)",
+    "",
+    "⏵⏵ bypass permissions on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "P02",
+   "category": "P",
+   "expected": "waiting_for_permission",
+   "note": "real bordered numbered-choice confirmation box",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  Edit file",
+    "  config/app-settings.json",
+    "    - old line",
+    "    + new line",
+    "",
+    "  Do you want to run this command?  rm -rf build/",
+    "  > 1. Yes",
+    "    2. Yes, and don't ask again",
+    "    3. No (esc)",
+    "",
+    "⏵⏵ accept edits on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "P03",
+   "category": "P",
+   "expected": "waiting_for_permission",
+   "note": "real bordered numbered-choice confirmation box",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  Edit file",
+    "  config/app-settings.json",
+    "    - old line",
+    "    + new line",
+    "",
+    "  Do you want to create README-new.md?",
+    "  > 1. Yes",
+    "    2. No, and tell Claude what to do differently (esc)",
+    "",
+    "⏵⏵ plan mode on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "P04",
+   "category": "P",
+   "expected": "waiting_for_permission",
+   "note": "real bordered numbered-choice confirmation box",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  Edit file",
+    "  config/app-settings.json",
+    "    - old line",
+    "    + new line",
+    "",
+    "  Allow Claude to use the WebFetch tool?",
+    "  > 1. Yes",
+    "    2. Yes, for this session",
+    "    3. No (esc)",
+    "",
+    "⏵⏵ bypass permissions on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "P05",
+   "category": "P",
+   "expected": "waiting_for_permission",
+   "note": "real bordered numbered-choice confirmation box",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  Edit file",
+    "  config/app-settings.json",
+    "    - old line",
+    "    + new line",
+    "",
+    "  Do you want to make this edit to Program.cs?",
+    "    1. Yes",
+    "  > 2. Yes, and don't ask again this session",
+    "    3. No (esc)",
+    "",
+    "⏵⏵ accept edits on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "P06",
+   "category": "P",
+   "expected": "waiting_for_permission",
+   "note": "[y/n] inline gate",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  Proceed with the migration step 0? [y/n]",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "⏵⏵ bypass permissions on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "P07",
+   "category": "P",
+   "expected": "waiting_for_permission",
+   "note": "[y/n] inline gate",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  Proceed with the migration step 1? [y/n]",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "⏵⏵ accept edits on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "P08",
+   "category": "P",
+   "expected": "waiting_for_permission",
+   "note": "[y/n] inline gate",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  Proceed with the migration step 2? [y/n]",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "⏵⏵ plan mode on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "P09",
+   "category": "P",
+   "expected": "waiting_for_permission",
+   "note": "[y/n] inline gate",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  Proceed with the migration step 3? [y/n]",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "⏵⏵ bypass permissions on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "P10",
+   "category": "P",
+   "expected": "waiting_for_permission",
+   "note": "[y/n] inline gate",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  Proceed with the migration step 4? [y/n]",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "⏵⏵ accept edits on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "P11",
+   "category": "P",
+   "expected": "waiting_for_permission",
+   "note": "cc-director picker menu: 'Enter to select ... Esc to cancel'",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  I created a question for you.",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------ [ ] Pick a joke",
+    "Which joke do you want to hear?",
+    "  > 1. Option 1",
+    "    2. A dad joke / pun that will make you groan.",
+    "    3. A short joke about coffee and Mondays.",
+    "    4. Type something.",
+    "    5. Chat about this",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "Enter to select . up/down to navigate . Esc to cancel"
+   ]
+  },
+  {
+   "id": "P12",
+   "category": "P",
+   "expected": "waiting_for_permission",
+   "note": "cc-director picker menu: 'Enter to select ... Esc to cancel'",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  I created a question for you.",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------ [ ] Choose an approach",
+    "How should I implement this?",
+    "  > 1. Use a cache",
+    "    2. Rewrite the loader",
+    "    3. Leave it as is",
+    "    4. Type something.",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "Enter to select . up/down to navigate . Esc to cancel"
+   ]
+  },
+  {
+   "id": "P13",
+   "category": "P",
+   "expected": "waiting_for_permission",
+   "note": "cc-director picker menu: 'Enter to select ... Esc to cancel'",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  I created a question for you.",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------ [ ] Pick a file",
+    "Which file should I edit?",
+    "  > 1. Program.cs",
+    "    2. Startup.cs",
+    "    3. Config.cs",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "Enter to select . up/down to navigate . Esc to cancel"
+   ]
+  },
+  {
+   "id": "P14",
+   "category": "P",
+   "expected": "waiting_for_permission",
+   "note": "REAL torn 'Pick a joke' picker (stale spinner verb present)",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "> create a question with numbered choices",
+    "✶ Tinkering...",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------ [ ] Pick a joke",
+    "Which joke do you want to hear?",
+    "  > 1. Option 1",
+    "    3. Optionj3ke / pun that will make you groan.",
+    "       A short joke about coffee and Mondays.",
+    "    4. Type something.",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "    5. Chat about this",
+    "Enter to select . up/down to navigate . Esc to cancel"
+   ]
+  },
+  {
+   "id": "P15",
+   "category": "P",
+   "expected": "waiting_for_permission",
+   "note": "ExitPlanMode approval box",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  Here is the plan:",
+    "  1. Move the dictionary to the shared path.",
+    "  2. Update the loader.",
+    "  3. Add a regression test.",
+    "",
+    "  Would you like to proceed?",
+    "  > 1. Yes, and auto-accept edits",
+    "    2. Yes, and manually approve edits",
+    "    3. No, keep planning",
+    "",
+    "  plan mode on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "P16",
+   "category": "P",
+   "expected": "waiting_for_permission",
+   "note": "ExitPlanMode approval box",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  Here is the plan:",
+    "  1. Move the dictionary to the shared path.",
+    "  2. Update the loader.",
+    "  3. Add a regression test.",
+    "",
+    "  Would you like to proceed?",
+    "  > 1. Yes, and auto-accept edits",
+    "    2. Yes, and manually approve edits",
+    "    3. No, keep planning",
+    "",
+    "  plan mode on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "P17",
+   "category": "P",
+   "expected": "waiting_for_permission",
+   "note": "ExitPlanMode approval box",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  Here is the plan:",
+    "  1. Move the dictionary to the shared path.",
+    "  2. Update the loader.",
+    "  3. Add a regression test.",
+    "",
+    "  Would you like to proceed?",
+    "  > 1. Yes, and auto-accept edits",
+    "    2. Yes, and manually approve edits",
+    "    3. No, keep planning",
+    "",
+    "  plan mode on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "P18",
+   "category": "P",
+   "expected": "waiting_for_permission",
+   "note": "ExitPlanMode approval box",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  Here is the plan:",
+    "  1. Move the dictionary to the shared path.",
+    "  2. Update the loader.",
+    "  3. Add a regression test.",
+    "",
+    "  Would you like to proceed?",
+    "  > 1. Yes, and auto-accept edits",
+    "    2. Yes, and manually approve edits",
+    "    3. No, keep planning",
+    "",
+    "  plan mode on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "P19",
+   "category": "P",
+   "expected": "waiting_for_permission",
+   "note": "ExitPlanMode approval box",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  Here is the plan:",
+    "  1. Move the dictionary to the shared path.",
+    "  2. Update the loader.",
+    "  3. Add a regression test.",
+    "",
+    "  Would you like to proceed?",
+    "  > 1. Yes, and auto-accept edits",
+    "    2. Yes, and manually approve edits",
+    "    3. No, keep planning",
+    "",
+    "  plan mode on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "C01",
+   "category": "C",
+   "expected": "cancelled",
+   "note": "interrupted by user, back at the prompt",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "* Concocting... (esc to interrupt)",
+    "",
+    "  [Request interrupted by user]",
+    "",
+    "> _",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ bypass permissions on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "C02",
+   "category": "C",
+   "expected": "cancelled",
+   "note": "interrupted by user, back at the prompt",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "* Mulling... (esc to interrupt)",
+    "",
+    "  [Request interrupted by user]",
+    "",
+    "> _",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ accept edits on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "C03",
+   "category": "C",
+   "expected": "cancelled",
+   "note": "interrupted by user, back at the prompt",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "* Determining... (esc to interrupt)",
+    "",
+    "  [Request interrupted by user]",
+    "",
+    "> _",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ plan mode on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "C04",
+   "category": "C",
+   "expected": "cancelled",
+   "note": "interrupted by user, back at the prompt",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "* Tinkering... (esc to interrupt)",
+    "",
+    "  [Request interrupted by user]",
+    "",
+    "> _",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ bypass permissions on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "C05",
+   "category": "C",
+   "expected": "cancelled",
+   "note": "interrupted by user, back at the prompt",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "* Brewing... (esc to interrupt)",
+    "",
+    "  [Request interrupted by user]",
+    "",
+    "> _",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ accept edits on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "C06",
+   "category": "C",
+   "expected": "cancelled",
+   "note": "interrupted by user, back at the prompt",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "* Sauteing... (esc to interrupt)",
+    "",
+    "  [Request interrupted by user]",
+    "",
+    "> _",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ plan mode on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "C07",
+   "category": "C",
+   "expected": "cancelled",
+   "note": "interrupted by user, back at the prompt",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "* Churning... (esc to interrupt)",
+    "",
+    "  [Request interrupted by user]",
+    "",
+    "> _",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ bypass permissions on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "C08",
+   "category": "C",
+   "expected": "cancelled",
+   "note": "interrupted by user, back at the prompt",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "* Pondering... (esc to interrupt)",
+    "",
+    "  [Request interrupted by user]",
+    "",
+    "> _",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ accept edits on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "U01",
+   "category": "U",
+   "expected": "unknown",
+   "note": "too sparse/garbled to classify (no banner, no box, no footer)",
+   "screen": [
+    "",
+    "",
+    ""
+   ]
+  },
+  {
+   "id": "U02",
+   "category": "U",
+   "expected": "unknown",
+   "note": "too sparse/garbled to classify (no banner, no box, no footer)",
+   "screen": [
+    "   "
+   ]
+  },
+  {
+   "id": "U03",
+   "category": "U",
+   "expected": "unknown",
+   "note": "too sparse/garbled to classify (no banner, no box, no footer)",
+   "screen": [
+    "█▀█▀ garbled ▀█",
+    "x9x9x9",
+    "...."
+   ]
+  },
+  {
+   "id": "U04",
+   "category": "U",
+   "expected": "unknown",
+   "note": "too sparse/garbled to classify (no banner, no box, no footer)",
+   "screen": [
+    "loading",
+    ""
+   ]
+  },
+  {
+   "id": "U05",
+   "category": "U",
+   "expected": "unknown",
+   "note": "too sparse/garbled to classify (no banner, no box, no footer)",
+   "screen": [
+    "  ",
+    "  ",
+    "  "
+   ]
+  },
+  {
+   "id": "U06",
+   "category": "U",
+   "expected": "unknown",
+   "note": "too sparse/garbled to classify (no banner, no box, no footer)",
+   "screen": [
+    "[2J[H some raw escape residue [0m"
+   ]
+  },
+  {
+   "id": "U07",
+   "category": "U",
+   "expected": "unknown",
+   "note": "too sparse/garbled to classify (no banner, no box, no footer)",
+   "screen": [
+    "???",
+    "???"
+   ]
+  },
+  {
+   "id": "U08",
+   "category": "U",
+   "expected": "unknown",
+   "note": "too sparse/garbled to classify (no banner, no box, no footer)",
+   "screen": [
+    "  a single ambiguous line of text with no footer at all"
+   ]
+  },
+  {
+   "id": "U09",
+   "category": "U",
+   "expected": "unknown",
+   "note": "too sparse/garbled to classify (no banner, no box, no footer)",
+   "screen": [
+    "████",
+    "████",
+    "████"
+   ]
+  },
+  {
+   "id": "U10",
+   "category": "U",
+   "expected": "unknown",
+   "note": "too sparse/garbled to classify (no banner, no box, no footer)",
+   "screen": [
+    "partial frame",
+    "no footer",
+    "no prompt"
+   ]
+  },
+  {
+   "id": "P20",
+   "category": "P",
+   "expected": "waiting_for_permission",
+   "note": "MCP tool permission box",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  Claude wants to use mindzie_list_projects (MCP).",
+    "  > 1. Allow once",
+    "    2. Allow for this session",
+    "    3. Deny (esc)",
+    "",
+    "⏵⏵ bypass permissions on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "P21",
+   "category": "P",
+   "expected": "waiting_for_permission",
+   "note": "edit confirmation with multi-line diff",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  Edit file  src/Program.cs",
+    "    -   var x = 1;",
+    "    +   var x = 2;",
+    "    +   var y = 3;",
+    "",
+    "  Do you want to make this edit to Program.cs?",
+    "  > 1. Yes",
+    "    2. Yes, and don't ask again this session",
+    "    3. No (esc)",
+    "",
+    "⏵⏵ accept edits on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "W31",
+   "category": "W",
+   "expected": "working",
+   "note": "compaction in progress",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  Compacting conversation... (esc to interrupt)",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt"
+   ]
+  },
+  {
+   "id": "I29",
+   "category": "I",
+   "expected": "waiting_for_input",
+   "note": "fresh session idle, ready for first instruction",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "> Try \"edit <filepath>\" or \"how do I ...?\"",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ bypass permissions on (shift+tab to cycle)"
+   ]
+  },
+  {
+   "id": "I30",
+   "category": "I",
+   "expected": "waiting_for_input",
+   "note": "idle immediately after compaction completed",
+   "screen": [
+    " ##  Claude Code v2.1.150",
+    " ##  Opus 4.7 (1M context) . Claude Max",
+    "     D:\\ReposFred\\cc-director",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  Compacted. Conversation summary saved.",
+    "------------------------------------------------------------------------------------------------------------------------",
+    ">",
+    "------------------------------------------------------------------------------------------------------------------------",
+    "  ⏵⏵ plan mode on (shift+tab to cycle)"
+   ]
+  }
+ ]
+}
