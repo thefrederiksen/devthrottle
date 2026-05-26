@@ -3,17 +3,15 @@ using CcDirector.Core.Configuration;
 using CcDirector.Core.Memory;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Wingman;
-using CcDirector.Gateway.Contracts;
 using Xunit;
 
 namespace CcDirector.Core.Tests.Wingman;
 
 /// <summary>
 /// In-process stub backend that provides a real CircularTerminalBuffer but never
-/// spawns a process and never auto-exits. Used by the OutputActivityWatcher
-/// tests so the session stays alive long enough for assertions to run -- the
-/// real ConPty backend (cmd.exe) terminates almost immediately, which puts the
-/// session into ActivityState.Exited and short-circuits the watcher.
+/// spawns a process and never auto-exits. Used where a session must stay alive long
+/// enough for assertions to run -- the real ConPty backend (cmd.exe) terminates almost
+/// immediately, which puts the session into ActivityState.Exited.
 /// </summary>
 internal sealed class BufferOnlyBackend : ISessionBackend
 {
@@ -38,19 +36,21 @@ internal sealed class BufferOnlyBackend : ISessionBackend
 }
 
 /// <summary>
-/// Phase 3 tests for <see cref="SessionStatusWingman"/>. The wingman is the
-/// sole writer of <see cref="Session.StatusColor"/> on the Director. The UI renders
-/// what it writes; nothing else may invent colors.
+/// Tests for <see cref="SessionStatusWingman"/>, the sole writer of
+/// <see cref="Session.StatusColor"/>. The badge is a direct mapping from ActivityState:
+/// Working/Starting -> blue, anything that means "your turn" -> red, gone -> gray. There
+/// is no other colour algorithm (no buffer scan, no byte-burst heuristic, no turn-summary
+/// voting) - those were removed.
 /// </summary>
 public sealed class SessionStatusWingmanTests
 {
-    // ---------- Pure mapping (fast path) ----------
+    // ---------- The one state -> colour mapping ----------
 
     [Fact]
-    public void New_session_maps_to_green_session_created()
+    public void New_session_maps_to_blue_session_created()
     {
         var (color, reason) = SessionStatusWingman.ColorFromActivityState(ActivityState.Starting, isNew: true);
-        Assert.Equal(StatusColor.Green, color);
+        Assert.Equal(StatusColor.Blue, color);
         Assert.Equal("session created", reason);
     }
 
@@ -63,146 +63,82 @@ public sealed class SessionStatusWingmanTests
     }
 
     [Fact]
-    public void Idle_maps_to_green_ready()
+    public void WaitingForInput_maps_to_red_needs_you()
     {
-        var (color, reason) = SessionStatusWingman.ColorFromActivityState(ActivityState.Idle, isNew: false);
-        Assert.Equal(StatusColor.Green, color);
-        Assert.Equal("idle, ready for next task", reason);
-    }
-
-    [Fact]
-    public void WaitingForInput_maps_to_green_by_default()
-    {
-        // Phase 4a: WaitingForInput is no longer red by default. Red is promoted only
-        // when the wingman has positive evidence (buffer scan or turn summary).
+        // The timer's only "not working" state: silence past QuietThreshold -> needs you.
         var (color, reason) = SessionStatusWingman.ColorFromActivityState(ActivityState.WaitingForInput, isNew: false);
-        Assert.Equal(StatusColor.Green, color);
-        Assert.Equal("ready, awaiting next prompt", reason);
+        Assert.Equal(StatusColor.Red, color);
+        Assert.Equal("needs you", reason);
     }
 
     [Fact]
-    public void PromotePendingQuestion_sets_red_with_detail()
-    {
-        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
-        var wingman = new SessionStatusWingman(manager);
-        try
-        {
-            var session = manager.CreateSession(Path.GetTempPath());
-            wingman.PromotePendingQuestion(session, "delete users.db?");
-            Assert.Equal(StatusColor.Red, session.StatusColor);
-            Assert.Equal("delete users.db?", session.LastStatusReason);
-        }
-        finally { wingman.Dispose(); manager.Dispose(); }
-    }
-
-    [Theory]
-    [InlineData("Do you want to continue?")]
-    [InlineData("DO YOU WANT TO continue?")]                  // case-insensitive
-    [InlineData("Would you like me to proceed?")]              // new marker
-    [InlineData("Want me to turn this into a spec?")]          // new marker - the screenshot case
-    [InlineData("Should I create the file?")]
-    [InlineData("Should we ship this?")]                       // new marker
-    [InlineData("Shall I run the migration now?")]             // new marker
-    [InlineData("OK to delete this?")]                         // new marker
-    [InlineData("Okay to proceed?")]                           // new marker
-    [InlineData("Continue? [y/n]")]
-    [InlineData("Proceed (y/N)?")]
-    [InlineData("Please confirm before I push.")]
-    [InlineData("Interrupted - What should Claude do instead?")] // interrupted footer (#137 item 5)
-    public void PromotePendingQuestionIfBufferShowsOne_detects_known_markers(string bufferTail)
-    {
-        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
-        var wingman = new SessionStatusWingman(manager);
-        try
-        {
-            var session = manager.CreateSession(Path.GetTempPath());
-            if (session.Buffer is null) return; // Embedded backend has no buffer; skip
-            session.Buffer.Write(System.Text.Encoding.UTF8.GetBytes(bufferTail));
-
-            wingman.PromotePendingQuestionIfBufferShowsOne(session);
-
-            Assert.Equal(StatusColor.Red, session.StatusColor);
-            Assert.Equal("pending question", session.LastStatusReason);
-        }
-        finally { wingman.Dispose(); manager.Dispose(); }
-    }
-
-    [Fact]
-    public void PromotePendingQuestionIfBufferShowsOne_no_marker_does_not_change_color()
-    {
-        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
-        var wingman = new SessionStatusWingman(manager);
-        try
-        {
-            var session = manager.CreateSession(Path.GetTempPath());
-            if (session.Buffer is null) return;
-            session.Buffer.Write(System.Text.Encoding.UTF8.GetBytes(
-                "Compiled successfully. 0 errors, 0 warnings."));
-
-            var colorBefore = session.StatusColor;
-            wingman.PromotePendingQuestionIfBufferShowsOne(session);
-            Assert.Equal(colorBefore, session.StatusColor);
-        }
-        finally { wingman.Dispose(); manager.Dispose(); }
-    }
-
-    [Fact]
-    public void PromotePendingQuestion_truncates_long_detail()
-    {
-        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
-        var wingman = new SessionStatusWingman(manager);
-        try
-        {
-            var session = manager.CreateSession(Path.GetTempPath());
-            var huge = new string('q', 800);
-            wingman.PromotePendingQuestion(session, huge);
-            Assert.Equal(StatusColor.Red, session.StatusColor);
-            Assert.True(session.LastStatusReason.Length <= 500, $"reason length {session.LastStatusReason.Length} exceeds cap");
-            Assert.EndsWith("...", session.LastStatusReason);
-        }
-        finally { wingman.Dispose(); manager.Dispose(); }
-    }
-
-    [Fact]
-    public void WaitingForPerm_maps_to_red()
+    public void WaitingForPerm_maps_to_red_needs_you()
     {
         var (color, reason) = SessionStatusWingman.ColorFromActivityState(ActivityState.WaitingForPerm, isNew: false);
         Assert.Equal(StatusColor.Red, color);
-        Assert.Equal("waiting for permission", reason);
+        Assert.Equal("needs you", reason);
+    }
+
+    [Fact]
+    public void Idle_maps_to_red_needs_you()
+    {
+        var (color, reason) = SessionStatusWingman.ColorFromActivityState(ActivityState.Idle, isNew: false);
+        Assert.Equal(StatusColor.Red, color);
+        Assert.Equal("needs you", reason);
     }
 
     [Fact]
     public void Exited_maps_to_unknown_with_reason()
     {
         var (color, reason) = SessionStatusWingman.ColorFromActivityState(ActivityState.Exited, isNew: false);
-        // Exited sessions never appear on the directory (the /sessions endpoint hides
-        // them). But debug tooling that does ask for them gets a truthful "exited"
-        // reason - NOT a gray-as-fallback.
         Assert.Equal(StatusColor.Unknown, color);
         Assert.Equal("exited", reason);
     }
 
     [Fact]
-    public void Restored_session_starting_uses_plain_starting_reason()
+    public void Restored_session_starting_is_blue()
     {
         var (color, reason) = SessionStatusWingman.ColorFromActivityState(ActivityState.Starting, isNew: false);
-        Assert.Equal(StatusColor.Green, color);
+        Assert.Equal(StatusColor.Blue, color);
         Assert.Equal("starting", reason);
+    }
+
+    // ---------- End-to-end: the timer flip drives the badge ----------
+
+    [Fact]
+    public void Wingman_paints_blue_on_working_and_red_on_waiting_for_input()
+    {
+        // The whole detection algorithm, exercised through the public state writer the
+        // TerminalStateDetector uses: bytes -> Working -> blue; QuietThreshold of silence
+        // -> WaitingForInput -> red ("needs you").
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        var wingman = new SessionStatusWingman(manager);
+        try
+        {
+            wingman.Start();
+            var session = manager.CreateSession(Path.GetTempPath());
+
+            session.ApplyTerminalActivityState(ActivityState.Working);
+            Assert.Equal(StatusColor.Blue, session.StatusColor);
+            Assert.Equal("working", session.LastStatusReason);
+
+            session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
+            Assert.Equal(StatusColor.Red, session.StatusColor);
+            Assert.Equal("needs you", session.LastStatusReason);
+        }
+        finally { wingman.Dispose(); manager.Dispose(); }
     }
 
     // ---------- Session model writes ----------
 
     [Fact]
-    public void Session_starts_green_at_construction()
+    public void Session_starts_blue_at_construction()
     {
-        // Even without a wingman wired up, the Session model defaults to green
-        // ("session created") so any consumer reads a meaningful color before the
-        // wingman's Start() runs. The wingman's job is to keep this current.
         var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
         try
         {
             var session = manager.CreateSession(Path.GetTempPath());
-            Assert.Equal(StatusColor.Green, session.StatusColor);
+            Assert.Equal(StatusColor.Blue, session.StatusColor);
             Assert.Equal("session created", session.LastStatusReason);
         }
         finally { manager.Dispose(); }
@@ -222,10 +158,10 @@ public sealed class SessionStatusWingmanTests
                 captured = $"{oldC}->{newC}:{reason}";
             };
 
-            session.SetStatusColor(StatusColor.Red, "waiting for input");
-            Assert.Equal("green->red:waiting for input", captured);
+            session.SetStatusColor(StatusColor.Red, "needs you");
+            Assert.Equal("blue->red:needs you", captured);
             Assert.Equal(StatusColor.Red, session.StatusColor);
-            Assert.Equal("waiting for input", session.LastStatusReason);
+            Assert.Equal("needs you", session.LastStatusReason);
         }
         finally { manager.Dispose(); }
     }
@@ -238,16 +174,13 @@ public sealed class SessionStatusWingmanTests
         {
             var session = manager.CreateSession(Path.GetTempPath());
             session.SetStatusColor(StatusColor.Blue, "working");
-            session.SetStatusColor(StatusColor.Red, "waiting for input");
-            session.SetStatusColor(StatusColor.Green, "clean turn");
+            session.SetStatusColor(StatusColor.Red, "needs you");
+            session.SetStatusColor(StatusColor.Blue, "working again");
 
             var events = session.RecentWingmanEvents;
-            // 3 events plus there may be one from CreateSession's default-already-green
-            // path being a no-op. The most-recent-first order is what we care about.
             Assert.NotEmpty(events);
-            Assert.Equal("green", events[0].NewColor);
+            Assert.Equal("blue", events[0].NewColor);
             Assert.Equal("red", events[1].NewColor);
-            Assert.Equal("blue", events[2].NewColor);
         }
         finally { manager.Dispose(); }
     }
@@ -255,14 +188,11 @@ public sealed class SessionStatusWingmanTests
     [Fact]
     public void ClearWingmanContext_clears_status_events_and_replay_buffer()
     {
-        // After a /clear the conversation no longer exists, so ClearWingmanContext
-        // must empty both the status-event log and the terminal replay buffer that
-        // the Wingman feeds on.
         var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
         try
         {
             var (session, _) = CreateBufferSession(manager);
-            session.SetStatusColor(StatusColor.Red, "needs user before /clear");
+            session.SetStatusColor(StatusColor.Red, "needs you before /clear");
             session.Buffer!.Write(new byte[] { 1, 2, 3, 4 });
             Assert.NotEmpty(session.RecentWingmanEvents);
             Assert.NotEmpty(session.Buffer!.DumpAll());
@@ -284,12 +214,10 @@ public sealed class SessionStatusWingmanTests
             var session = manager.CreateSession(Path.GetTempPath());
             for (int i = 0; i < 80; i++)
             {
-                // Alternate colors so each call actually changes state.
-                var c = (i % 2 == 0) ? StatusColor.Blue : StatusColor.Green;
+                var c = (i % 2 == 0) ? StatusColor.Blue : StatusColor.Red;
                 session.SetStatusColor(c, $"tick {i}");
             }
             Assert.Equal(50, session.RecentWingmanEvents.Count);
-            // Newest first - last call was i=79, color=Green, reason="tick 79"
             Assert.Equal("tick 79", session.RecentWingmanEvents[0].Reason);
         }
         finally { manager.Dispose(); }
@@ -306,357 +234,19 @@ public sealed class SessionStatusWingmanTests
             session.OnStatusColorChanged += (_, _, _) => fires++;
 
             // Same color and same reason as the constructor default - no-op.
-            session.SetStatusColor(StatusColor.Green, "session created");
+            session.SetStatusColor(StatusColor.Blue, "session created");
             Assert.Equal(0, fires);
 
             // Different reason fires even if the color is the same.
-            session.SetStatusColor(StatusColor.Green, "idle, ready for next task");
+            session.SetStatusColor(StatusColor.Blue, "working");
             Assert.Equal(1, fires);
         }
         finally { manager.Dispose(); }
     }
 
-    // ---------- ApplyTurnSummary (slow path) ----------
-
-    [Fact]
-    public void ApplyTurnSummary_question_goes_red_with_detail()
-    {
-        var wingman = new SessionStatusWingman(new SessionManager(new AgentOptions { ClaudePath = TestShell.Path }));
-        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
-        try
-        {
-            var session = manager.CreateSession(Path.GetTempPath());
-            wingman.ApplyTurnSummary(session, new TurnSummary
-            {
-                NeedsUser = "question",
-                NeedsUserDetail = "should I delete the file?",
-                Headline = "asked about deletion",
-            });
-            Assert.Equal(StatusColor.Red, session.StatusColor);
-            Assert.Equal("should I delete the file?", session.LastStatusReason);
-        }
-        finally { manager.Dispose(); wingman.Dispose(); }
-    }
-
-    [Fact]
-    public void ApplyTurnSummary_prefers_needs_user_short_over_detail()
-    {
-        // Phase 4e: when the wingman produces a crisp NeedsUserShort, that becomes
-        // the LastStatusReason. NeedsUserDetail (which can be a paragraph) is ignored
-        // for the reason field; the merged Session View renders detail separately.
-        var wingman = new SessionStatusWingman(new SessionManager(new AgentOptions { ClaudePath = TestShell.Path }));
-        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
-        try
-        {
-            var session = manager.CreateSession(Path.GetTempPath());
-            wingman.ApplyTurnSummary(session, new TurnSummary
-            {
-                NeedsUser = "question",
-                NeedsUserShort = "Delete users.db?",
-                NeedsUserDetail = "I noticed users.db is no longer referenced from any code. Removing it would save 4 MB on disk but is irreversible without a backup. Should I proceed with the delete?",
-                Headline = "deletion check",
-            });
-            Assert.Equal(StatusColor.Red, session.StatusColor);
-            Assert.Equal("Delete users.db?", session.LastStatusReason);
-        }
-        finally { manager.Dispose(); wingman.Dispose(); }
-    }
-
-    [Fact]
-    public void ApplyTurnSummary_clean_turn_goes_green_with_headline()
-    {
-        var wingman = new SessionStatusWingman(new SessionManager(new AgentOptions { ClaudePath = TestShell.Path }));
-        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
-        try
-        {
-            var session = manager.CreateSession(Path.GetTempPath());
-            session.SetStatusColor(StatusColor.Blue, "working");
-            wingman.ApplyTurnSummary(session, new TurnSummary
-            {
-                NeedsUser = "no",
-                Headline = "fixed the login bug",
-            });
-            Assert.Equal(StatusColor.Green, session.StatusColor);
-            Assert.Equal("fixed the login bug", session.LastStatusReason);
-        }
-        finally { manager.Dispose(); wingman.Dispose(); }
-    }
-
-    [Fact]
-    public void ApplyTurnSummary_warnings_go_yellow()
-    {
-        var wingman = new SessionStatusWingman(new SessionManager(new AgentOptions { ClaudePath = TestShell.Path }));
-        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
-        try
-        {
-            var session = manager.CreateSession(Path.GetTempPath());
-            wingman.ApplyTurnSummary(session, new TurnSummary
-            {
-                NeedsUser = "no",
-                Headline = "ran a thing",
-            }, hasWarnings: true);
-            Assert.Equal(StatusColor.Yellow, session.StatusColor);
-        }
-        finally { manager.Dispose(); wingman.Dispose(); }
-    }
-
-    [Fact]
-    public void ApplyTurnSummary_does_not_repaint_red_when_session_is_already_Working()
-    {
-        // Phase 4g regression: a Haiku turn summary takes ~10s to compute. In that
-        // window the user often submits the next prompt, putting the session into
-        // Working/blue. When the (now-stale) summary lands carrying needs_user=
-        // "question", it must NOT overwrite blue with red - the question described
-        // by the summary has already been answered by definition (we're Working).
-        // Observed live as the banner flickering back to red mid-turn.
-        var wingman = new SessionStatusWingman(new SessionManager(new AgentOptions { ClaudePath = TestShell.Path }));
-        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
-        try
-        {
-            var session = manager.CreateSession(Path.GetTempPath());
-
-            // Drive the session into Working by simulating a UserPromptSubmit hook.
-            session.HandlePipeEvent(new Pipes.PipeMessage { HookEventName = "UserPromptSubmit", Prompt = "next prompt" });
-            Assert.Equal(ActivityState.Working, session.ActivityState);
-
-            // Simulate the fast path having written blue when the state changed.
-            session.SetStatusColor(StatusColor.Blue, "working");
-
-            // Stale summary lands carrying a question. With the Working guard in
-            // place, ApplyTurnSummary must early-return without touching color.
-            wingman.ApplyTurnSummary(session, new TurnSummary
-            {
-                NeedsUser = "question",
-                NeedsUserShort = "Want me to proceed with deletion?",
-                Headline = "stale prior turn",
-            });
-
-            Assert.Equal(StatusColor.Blue, session.StatusColor);
-            Assert.Equal("working", session.LastStatusReason);
-        }
-        finally { manager.Dispose(); wingman.Dispose(); }
-    }
-
-    [Fact]
-    public void ApplyTurnSummary_does_not_downgrade_an_active_red_activity_state()
-    {
-        // Race scenario: turn summary arrives reporting "no" / clean, but the
-        // session has since moved to WaitingForInput. The fast path already wrote
-        // red. The slow path must NOT overwrite that with green just because Haiku
-        // didn't see the new question yet.
-        // We can't drive ActivityState directly from the test (private setter), so
-        // this test exercises the guard with a session whose default state is
-        // Starting (not WaitingFor*) and then asserts the inverse: clean summary
-        // does write through when not blocked. The guard logic is straight-line.
-        var wingman = new SessionStatusWingman(new SessionManager(new AgentOptions { ClaudePath = TestShell.Path }));
-        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
-        try
-        {
-            var session = manager.CreateSession(Path.GetTempPath());
-            // Session is in Starting state by default - guard does not block.
-            wingman.ApplyTurnSummary(session, new TurnSummary
-            {
-                NeedsUser = "no",
-                Headline = "clean",
-            });
-            Assert.Equal(StatusColor.Green, session.StatusColor);
-        }
-        finally { manager.Dispose(); wingman.Dispose(); }
-    }
-
-    [Fact]
-    public void ApplyTurnSummary_uncorroborated_needs_user_at_idle_prompt_stays_green()
-    {
-        // Issue #136: a session sitting at its prompt (WaitingForInput) whose buffer
-        // shows only the persistent mode footer + a conversational offer must NOT be
-        // flipped red by a turn summary that misread that footer ("bypass permissions
-        // on ...") or the agent's "say the word when you want it" as a pending gate.
-        // This is the exact live bug: red NEEDS-YOU banner contradicting the idle
-        // state and flip-flopping against the green fast path.
-        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
-        var wingman = new SessionStatusWingman(manager);
-        try
-        {
-            var (session, _) = CreateBufferSession(manager);
-            session.HandlePipeEvent(new Pipes.PipeMessage { HookEventName = "Stop" });
-            Assert.Equal(ActivityState.WaitingForInput, session.ActivityState);
-            Assert.Equal(StatusColor.Green, session.StatusColor);
-
-            // Only the mode footer + a conversational offer on screen -- no real gate.
-            session.Buffer!.Write(System.Text.Encoding.UTF8.GetBytes(
-                "Nothing committed. Say the word when you want it on main.\n" +
-                "  bypass permissions on (shift+tab to cycle)\n"));
-
-            wingman.ApplyTurnSummary(session, new TurnSummary
-            {
-                NeedsUser = "permission",
-                NeedsUserShort = "bypass permissions on (shift+tab to cycle)",
-                Headline = "awaits permission to commit",
-            });
-
-            // Suppressed -> treated as idle/clean. Must NOT be red.
-            Assert.NotEqual(StatusColor.Red, session.StatusColor);
-            Assert.Equal(StatusColor.Green, session.StatusColor);
-        }
-        finally { wingman.Dispose(); manager.Dispose(); }
-    }
-
-    [Fact]
-    public void ApplyTurnSummary_corroborated_question_at_idle_prompt_goes_red()
-    {
-        // The other side of issue #136: when a REAL question is on screen (a known
-        // marker), the idle-corroboration gate lets the turn summary paint red as
-        // before. The fix suppresses only uncorroborated verdicts.
-        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
-        var wingman = new SessionStatusWingman(manager);
-        try
-        {
-            var (session, _) = CreateBufferSession(manager);
-            session.HandlePipeEvent(new Pipes.PipeMessage { HookEventName = "Stop" });
-            Assert.Equal(ActivityState.WaitingForInput, session.ActivityState);
-
-            session.Buffer!.Write(System.Text.Encoding.UTF8.GetBytes(
-                "Do you want to delete the old build artifacts?\n" +
-                "  bypass permissions on (shift+tab to cycle)\n"));
-
-            wingman.ApplyTurnSummary(session, new TurnSummary
-            {
-                NeedsUser = "question",
-                NeedsUserShort = "Do you want to delete the old build artifacts?",
-                Headline = "asked about cleanup",
-            });
-
-            Assert.Equal(StatusColor.Red, session.StatusColor);
-            Assert.Equal("Do you want to delete the old build artifacts?", session.LastStatusReason);
-        }
-        finally { wingman.Dispose(); manager.Dispose(); }
-    }
-
-    // ---------- Source precedence (issue #136 option C) ----------
-
-    [Fact]
-    public void StatusColor_positive_evidence_is_sticky_within_a_generation()
-    {
-        // A red set by positive evidence (a real on-screen question) must NOT be
-        // repainted by a lower-confidence write (the activity-state mapping or a
-        // byte-stream guess) while the session stays in the same state. This is the
-        // core of replacing last-writer-wins: a guess can't clobber evidence.
-        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
-        try
-        {
-            var session = manager.CreateSession(Path.GetTempPath());
-            session.HandlePipeEvent(new Pipes.PipeMessage { HookEventName = "Stop" }); // -> WaitingForInput (new gen)
-
-            session.SetStatusColor(StatusColor.Red, "delete users.db?", source: StatusColorSource.PositiveEvidence);
-            Assert.Equal(StatusColor.Red, session.StatusColor);
-
-            // Lower-confidence writes in the same generation are dropped.
-            session.SetStatusColor(StatusColor.Blue, "streaming output", source: StatusColorSource.Inferred);
-            Assert.Equal(StatusColor.Red, session.StatusColor);
-            session.SetStatusColor(StatusColor.Green, "ready, awaiting next prompt", source: StatusColorSource.ActivityState);
-            Assert.Equal(StatusColor.Red, session.StatusColor);
-            Assert.Equal("delete users.db?", session.LastStatusReason);
-        }
-        finally { manager.Dispose(); }
-    }
-
-    [Fact]
-    public void StatusColor_state_change_releases_sticky_positive_evidence()
-    {
-        // The stickiness is scoped to one activity-state generation. When the user
-        // actually acts (the session moves to Working), the badge is free to go blue
-        // again -- otherwise a resolved question would stay red forever.
-        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
-        try
-        {
-            var session = manager.CreateSession(Path.GetTempPath());
-            session.HandlePipeEvent(new Pipes.PipeMessage { HookEventName = "Stop" }); // WaitingForInput
-            session.SetStatusColor(StatusColor.Red, "approve the commit?", source: StatusColorSource.PositiveEvidence);
-            Assert.Equal(StatusColor.Red, session.StatusColor);
-
-            // User answers -> Working: new generation releases the sticky red.
-            session.HandlePipeEvent(new Pipes.PipeMessage { HookEventName = "UserPromptSubmit" });
-            session.SetStatusColor(StatusColor.Blue, "working", source: StatusColorSource.ActivityState);
-            Assert.Equal(StatusColor.Blue, session.StatusColor);
-            Assert.Equal("working", session.LastStatusReason);
-        }
-        finally { manager.Dispose(); }
-    }
-
-    [Fact]
-    public void StatusColor_equal_or_higher_confidence_still_writes()
-    {
-        // Precedence only blocks LOWER confidence than a sticky positive-evidence
-        // verdict. Same-or-higher confidence writes go through normally, and when no
-        // positive evidence is sticky, writes behave as before (last-writer-wins).
-        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
-        try
-        {
-            var session = manager.CreateSession(Path.GetTempPath());
-            session.HandlePipeEvent(new Pipes.PipeMessage { HookEventName = "Stop" });
-
-            // No sticky evidence yet: an activity-state green writes fine.
-            session.SetStatusColor(StatusColor.Green, "ready", source: StatusColorSource.ActivityState);
-            Assert.Equal(StatusColor.Green, session.StatusColor);
-
-            // Positive evidence upgrades to red...
-            session.SetStatusColor(StatusColor.Red, "first question?", source: StatusColorSource.PositiveEvidence);
-            Assert.Equal(StatusColor.Red, session.StatusColor);
-
-            // ...and another positive-evidence write (same confidence) still applies.
-            session.SetStatusColor(StatusColor.Red, "second question?", source: StatusColorSource.PositiveEvidence);
-            Assert.Equal("second question?", session.LastStatusReason);
-        }
-        finally { manager.Dispose(); }
-    }
-
-    [Fact]
-    public void ApplyTurnSummary_stale_generation_is_dropped()
-    {
-        // Issue #137 item 4: a turn summary is computed for the generation the turn
-        // ended in. If the session has moved to a new generation by the time the
-        // (slow) summary lands, the verdict is stale and must not write -- even if the
-        // current state would otherwise accept it.
-        var wingman = new SessionStatusWingman(new SessionManager(new AgentOptions { ClaudePath = TestShell.Path }));
-        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
-        try
-        {
-            var session = manager.CreateSession(Path.GetTempPath());  // Starting, generation 0
-            var staleGen = session.ActivityGeneration;
-            session.HandlePipeEvent(new Pipes.PipeMessage { HookEventName = "Stop" }); // -> WaitingForInput, new generation
-            Assert.NotEqual(staleGen, session.ActivityGeneration);
-
-            wingman.ApplyTurnSummary(session, new TurnSummary
-            {
-                NeedsUser = "question",
-                NeedsUserShort = "Delete the file?",
-                Headline = "asked",
-            }, expectedGeneration: staleGen);
-
-            // Dropped: the badge is not flipped by the stale summary.
-            Assert.NotEqual(StatusColor.Red, session.StatusColor);
-        }
-        finally { manager.Dispose(); wingman.Dispose(); }
-    }
-
-    [Theory]
-    [InlineData(ActivityState.WaitingForPerm, StatusColorSource.PositiveEvidence)]
-    [InlineData(ActivityState.WaitingForInput, StatusColorSource.ActivityState)]
-    [InlineData(ActivityState.Working, StatusColorSource.ActivityState)]
-    [InlineData(ActivityState.Idle, StatusColorSource.ActivityState)]
-    public void SourceForState_marks_permission_as_positive_evidence(ActivityState state, StatusColorSource expected)
-    {
-        // Issue #137 item 6: a permission gate is authoritative on-screen evidence,
-        // so the fast path tags it PositiveEvidence; everything else is the baseline.
-        Assert.Equal(expected, SessionStatusWingman.SourceForState(state));
-    }
-
     [Fact]
     public void SnapshotScreenRows_returns_the_rendered_grid_text()
     {
-        // The trigger-starvation fix (#137 items 1-2) reads the RESOLVED on-screen grid
-        // rather than the raw byte buffer. Verify the grid snapshot reflects written
-        // content so the detector can tell a working spinner from an idle repaint.
         var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
         try
         {
@@ -670,35 +260,6 @@ public sealed class SessionStatusWingmanTests
             Assert.Contains(rows, r => r.Contains("HELLO_GRID_MARKER_42"));
         }
         finally { manager.Dispose(); }
-    }
-
-    // ---------- ColorFromVerdict (issue #137 item 3: detector is the single colour authority) ----------
-
-    [Theory]
-    [InlineData("working", "spinner", "", StatusColor.Blue, StatusColorSource.ActivityState)]
-    [InlineData("waiting_for_permission", "numbered box", "", StatusColor.Red, StatusColorSource.PositiveEvidence)]
-    [InlineData("waiting_for_input", "empty box", "", StatusColor.Green, StatusColorSource.ActivityState)]
-    [InlineData("idle", "settled", "", StatusColor.Green, StatusColorSource.ActivityState)]
-    [InlineData("cancelled", "interrupted notice", "", StatusColor.Red, StatusColorSource.PositiveEvidence)]
-    [InlineData("unknown", "garbled", "", StatusColor.Unknown, StatusColorSource.ActivityState)]
-    // A pending question turns an otherwise-idle prompt into a "needs you" red.
-    [InlineData("waiting_for_input", "finished with a question", "Want me to proceed?", StatusColor.Red, StatusColorSource.PositiveEvidence)]
-    [InlineData("idle", "done", "Approve the commit?", StatusColor.Red, StatusColorSource.PositiveEvidence)]
-    public void ColorFromVerdict_maps_state_and_awaiting(string state, string reason, string awaiting, string expectedColor, StatusColorSource expectedSource)
-    {
-        var (color, _, source) = SessionStatusWingman.ColorFromVerdict(state, reason, awaiting);
-        Assert.Equal(expectedColor, color);
-        Assert.Equal(expectedSource, source);
-    }
-
-    [Fact]
-    public void ColorFromVerdict_uses_the_verbatim_question_as_the_reason()
-    {
-        var (color, reason, source) = SessionStatusWingman.ColorFromVerdict(
-            "waiting_for_input", "finished with a question", "Should I delete the old build artifacts?");
-        Assert.Equal(StatusColor.Red, color);
-        Assert.Equal("Should I delete the old build artifacts?", reason);
-        Assert.Equal(StatusColorSource.PositiveEvidence, source);
     }
 
     // ---------- Wingman lifecycle ----------
@@ -715,13 +276,8 @@ public sealed class SessionStatusWingmanTests
             wingman.Start();
             try
             {
-                // The session was just created in Starting state; wingman on Start()
-                // re-stamps each pre-existing session's color from its current activity
-                // state. isNew=false at that point, so reason is "starting", not
-                // "session created" (which is reserved for the OnSessionCreated path).
-                Assert.True(session.StatusColor == StatusColor.Green ||
-                            session.StatusColor == StatusColor.Blue,
-                    $"expected green or blue post-start, got {session.StatusColor}");
+                // Starting maps to blue.
+                Assert.Equal(StatusColor.Blue, session.StatusColor);
             }
             finally { wingman.Dispose(); }
         }
@@ -729,12 +285,9 @@ public sealed class SessionStatusWingmanTests
     }
 
     [Fact]
-    public void Wingman_pill_stays_green_across_clear_rotation()
+    public void Wingman_pill_survives_clear_rotation_without_going_gray()
     {
-        // End-to-end Phase 1: SessionEnd(reason=clear) must NOT flip the pill gray.
-        // The session holds whatever color it had (typically green = ready), and the
-        // EventRouter test covers that the subsequent SessionStart(source=clear) relinks
-        // the orphan so events resume routing.
+        // /clear (SessionEnd reason="clear") must NOT flip the session to Exited/gray.
         var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
         var wingman = new SessionStatusWingman(manager);
         try
@@ -742,15 +295,13 @@ public sealed class SessionStatusWingmanTests
             wingman.Start();
             var session = manager.CreateSession(Path.GetTempPath());
 
-            // Drive into Idle → green (typical pre-/clear state after a finished turn).
             session.HandlePipeEvent(new Pipes.PipeMessage { HookEventName = "SessionStart" });
             session.HandlePipeEvent(new Pipes.PipeMessage { HookEventName = "Stop" });
-            // After Stop: WaitingForInput → wingman paints green ("ready, awaiting next prompt").
-            Assert.Equal(StatusColor.Green, session.StatusColor);
+            // After Stop -> WaitingForInput -> red ("needs you").
+            Assert.Equal(StatusColor.Red, session.StatusColor);
 
-            // /clear: SessionEnd with reason="clear" must NOT transition to Exited.
             session.HandlePipeEvent(new Pipes.PipeMessage { HookEventName = "SessionEnd", Reason = "clear" });
-            Assert.Equal(StatusColor.Green, session.StatusColor);
+            Assert.NotEqual(StatusColor.Unknown, session.StatusColor);
             Assert.NotEqual(ActivityState.Exited, session.ActivityState);
         }
         finally { wingman.Dispose(); manager.Dispose(); }
@@ -759,8 +310,6 @@ public sealed class SessionStatusWingmanTests
     [Fact]
     public void Wingman_pill_goes_gray_on_real_session_end()
     {
-        // The other side: reason=logout (or unset) IS a real termination -- pill goes
-        // unknown ("exited") which renders as gray. Documents the intended boundary.
         var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
         var wingman = new SessionStatusWingman(manager);
         try
@@ -775,7 +324,7 @@ public sealed class SessionStatusWingmanTests
     }
 
     [Fact]
-    public void Wingman_OnSessionCreated_writes_green_session_created()
+    public void Wingman_OnSessionCreated_writes_blue_session_created()
     {
         var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
         try
@@ -785,9 +334,7 @@ public sealed class SessionStatusWingmanTests
             try
             {
                 var session = manager.CreateSession(Path.GetTempPath());
-                Assert.Equal(StatusColor.Green, session.StatusColor);
-                // The wingman's OnSessionCreated path uses isNew=true so the reason
-                // is the friendlier "session created".
+                Assert.Equal(StatusColor.Blue, session.StatusColor);
                 Assert.Equal("session created", session.LastStatusReason);
             }
             finally { wingman.Dispose(); }
@@ -797,12 +344,13 @@ public sealed class SessionStatusWingmanTests
 
     // ---------- Prompt-injection watcher (end-to-end via real buffer) ----------
 
-    /// <summary>
-    /// End-to-end smoke: when the wingman is wired and bytes representing a
-    /// Claude Code TUI frame land in a session's buffer, the watcher must
-    /// extract the injected text and fire OnPendingPromptTextChanged with
-    /// source="wingman".
-    /// </summary>
+    private static (Session session, BufferOnlyBackend backend) CreateBufferSession(SessionManager manager)
+    {
+        var backend = new BufferOnlyBackend();
+        var session = manager.CreateEmbeddedSession(Path.GetTempPath(), null, backend);
+        return (session, backend);
+    }
+
     [Fact]
     public async Task PromptInjectionWatcher_pushes_extracted_text_via_wingman_source()
     {
@@ -812,9 +360,6 @@ public sealed class SessionStatusWingmanTests
         {
             wingman.Start();
             var session = manager.CreateSession(Path.GetTempPath());
-
-            // Watcher only wires when the session has a real buffer. TestShell
-            // spawns cmd.exe via ConPty, which gives us one.
             if (session.Buffer is null) return; // no buffer (e.g. Embedded backend); skip
 
             string? captured = null;
@@ -828,15 +373,12 @@ public sealed class SessionStatusWingmanTests
                 }
             };
 
-            // Synthesize a Claude Code Ink frame at the end of the buffer.
             var frame =
                 "\n\n" +
                 "> commit the cc-playwright changes too\n" +
                 "  >> bypass permissions on (shift+tab to cycle)\n";
             session.Buffer.Write(System.Text.Encoding.UTF8.GetBytes(frame));
 
-            // Wait > debounce window (500ms) for the watcher's timer to fire.
-            // Use a generous margin so the test isn't timing-flaky.
             await Task.Delay(TimeSpan.FromMilliseconds(1500));
 
             Assert.Equal("wingman", capturedSource);
@@ -846,294 +388,6 @@ public sealed class SessionStatusWingmanTests
         finally { wingman.Dispose(); manager.Dispose(); }
     }
 
-    // ---------- Output-activity watcher (Phase 2: fallback signal) ----------
-
-    /// <summary>
-    /// Create a session backed by an in-process <see cref="BufferOnlyBackend"/>.
-    /// Required for OutputActivityWatcher tests: the real ConPty backend
-    /// (cmd.exe) exits almost immediately, which transitions ActivityState to
-    /// Exited and short-circuits the watcher. The buffer-only backend stays
-    /// "alive" for the duration of the test.
-    /// </summary>
-    private static (Session session, BufferOnlyBackend backend) CreateBufferSession(SessionManager manager)
-    {
-        var backend = new BufferOnlyBackend();
-        var session = manager.CreateEmbeddedSession(Path.GetTempPath(), null, backend);
-        return (session, backend);
-    }
-
-    [Fact]
-    public async Task OutputActivityWatcher_promotes_to_blue_on_byte_burst()
-    {
-        // Phase 2: when bytes stream into the session buffer and the wingman's
-        // color isn't already blue, promote to blue ("streaming output"). This
-        // catches any case where the hook event path failed to deliver Working.
-        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
-        var wingman = new SessionStatusWingman(manager);
-        try
-        {
-            wingman.Start();
-            var (session, _) = CreateBufferSession(manager);
-            Assert.NotNull(session.Buffer);
-
-            // Defaults to green ("session created") from the wingman's init path.
-            Assert.Equal(StatusColor.Green, session.StatusColor);
-
-            // Write more than the minimum-burst threshold so the watcher promotes.
-            var payload = new byte[SessionStatusWingman.OutputActivityMinBurstBytes * 2];
-            new Random(42).NextBytes(payload);
-            session.Buffer!.Write(payload);
-
-            // Wait > debounce (250ms) for the tick.
-            await Task.Delay(TimeSpan.FromMilliseconds(750));
-
-            Assert.Equal(StatusColor.Blue, session.StatusColor);
-            Assert.Equal("streaming output", session.LastStatusReason);
-        }
-        finally { wingman.Dispose(); manager.Dispose(); }
-    }
-
-    [Fact]
-    public async Task OutputActivityWatcher_ignores_tiny_burst()
-    {
-        // Single-byte spinner ticks must not promote to blue or every TUI redraw
-        // would thrash the dot.
-        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
-        var wingman = new SessionStatusWingman(manager);
-        try
-        {
-            wingman.Start();
-            var (session, _) = CreateBufferSession(manager);
-            Assert.NotNull(session.Buffer);
-
-            var colorBefore = session.StatusColor;
-            session.Buffer!.Write(new byte[] { (byte)'.' }); // 1 byte -- well under threshold
-
-            await Task.Delay(TimeSpan.FromMilliseconds(500));
-
-            Assert.Equal(colorBefore, session.StatusColor);
-        }
-        finally { wingman.Dispose(); manager.Dispose(); }
-    }
-
-    [Fact]
-    public async Task OutputActivityWatcher_does_not_override_waiting_for_perm()
-    {
-        // Permission prompts are authoritative red. Output bytes while a permission
-        // prompt is up (e.g. the prompt itself rendering) must not flip blue.
-        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
-        var wingman = new SessionStatusWingman(manager);
-        try
-        {
-            wingman.Start();
-            var (session, _) = CreateBufferSession(manager);
-            Assert.NotNull(session.Buffer);
-
-            // Drive into WaitingForPerm via the hook path. Wingman paints red.
-            session.HandlePipeEvent(new Pipes.PipeMessage { HookEventName = "PermissionRequest" });
-            Assert.Equal(ActivityState.WaitingForPerm, session.ActivityState);
-            Assert.Equal(StatusColor.Red, session.StatusColor);
-
-            var payload = new byte[SessionStatusWingman.OutputActivityMinBurstBytes * 4];
-            session.Buffer!.Write(payload);
-            await Task.Delay(TimeSpan.FromMilliseconds(500));
-
-            Assert.Equal(StatusColor.Red, session.StatusColor);
-        }
-        finally { wingman.Dispose(); manager.Dispose(); }
-    }
-
-    [Fact]
-    public async Task OutputActivityWatcher_no_op_when_already_blue()
-    {
-        // If the color is already blue, the watcher must not emit a duplicate
-        // SetStatusColor event (it would spam the wingman event log).
-        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
-        var wingman = new SessionStatusWingman(manager);
-        try
-        {
-            wingman.Start();
-            var (session, _) = CreateBufferSession(manager);
-            Assert.NotNull(session.Buffer);
-
-            // Drive into Working through the activity path so color is blue, reason "working".
-            session.HandlePipeEvent(new Pipes.PipeMessage { HookEventName = "UserPromptSubmit" });
-            Assert.Equal(StatusColor.Blue, session.StatusColor);
-            Assert.Equal("working", session.LastStatusReason);
-
-            var payload = new byte[SessionStatusWingman.OutputActivityMinBurstBytes * 4];
-            session.Buffer!.Write(payload);
-            await Task.Delay(TimeSpan.FromMilliseconds(500));
-
-            // Still blue, reason still "working" -- the watcher didn't rewrite it to "streaming output".
-            Assert.Equal(StatusColor.Blue, session.StatusColor);
-            Assert.Equal("working", session.LastStatusReason);
-        }
-        finally { wingman.Dispose(); manager.Dispose(); }
-    }
-
-    [Fact]
-    public async Task OutputActivityWatcher_does_not_override_red_set_by_apply_turn_summary()
-    {
-        // Regression: Haiku turn summary correctly identified a pending question
-        // and painted red; then "Brewed for X" status-line redraws produced a 32+
-        // byte burst and the OutputActivityWatcher overwrote red with blue
-        // ("streaming output") ~0.3s later. Reproduced by the wingman event
-        // log for session deb8ac5e: red ("Delete or gitignore...") -> blue
-        // ("streaming output") in 0.27s. The watcher must NOT overwrite red.
-        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
-        var wingman = new SessionStatusWingman(manager);
-        try
-        {
-            wingman.Start();
-            var (session, _) = CreateBufferSession(manager);
-            Assert.NotNull(session.Buffer);
-
-            // Drive into WaitingForInput so ApplyTurnSummary's stale-state guard
-            // (which blocks Working / WaitingForPerm) does not block the write.
-            session.HandlePipeEvent(new Pipes.PipeMessage { HookEventName = "Stop" });
-            Assert.Equal(ActivityState.WaitingForInput, session.ActivityState);
-
-            // Issue #136: at the idle prompt the turn summary now needs deterministic
-            // corroboration before it may paint red. Put a real question on screen.
-            session.Buffer!.Write(System.Text.Encoding.UTF8.GetBytes(
-                "Do you want to delete or gitignore the harness output?\n" +
-                "  bypass permissions on (shift+tab to cycle)\n"));
-
-            wingman.ApplyTurnSummary(session, new TurnSummary
-            {
-                NeedsUser = "question",
-                NeedsUserShort = "Delete or gitignore the harness output?",
-                Headline = "asked about cleanup",
-            });
-            Assert.Equal(StatusColor.Red, session.StatusColor);
-            Assert.Equal("Delete or gitignore the harness output?", session.LastStatusReason);
-
-            // Now simulate the "Brewed for Xs" status-line redraw: a real burst
-            // of bytes lands in the buffer while Claude is sitting at its prompt.
-            var payload = new byte[SessionStatusWingman.OutputActivityMinBurstBytes * 4];
-            session.Buffer!.Write(payload);
-            await Task.Delay(TimeSpan.FromMilliseconds(500));
-
-            Assert.Equal(StatusColor.Red, session.StatusColor);
-            Assert.Equal("Delete or gitignore the harness output?", session.LastStatusReason);
-        }
-        finally { wingman.Dispose(); manager.Dispose(); }
-    }
-
-    [Fact]
-    public async Task OutputActivityWatcher_does_not_override_red_set_by_promote_pending_question()
-    {
-        // Companion regression: red set by the fast-path buffer-marker scan
-        // (PromotePendingQuestion) must also survive byte bursts.
-        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
-        var wingman = new SessionStatusWingman(manager);
-        try
-        {
-            wingman.Start();
-            var (session, _) = CreateBufferSession(manager);
-            Assert.NotNull(session.Buffer);
-
-            wingman.PromotePendingQuestion(session, "delete users.db?");
-            Assert.Equal(StatusColor.Red, session.StatusColor);
-
-            var payload = new byte[SessionStatusWingman.OutputActivityMinBurstBytes * 4];
-            session.Buffer!.Write(payload);
-            await Task.Delay(TimeSpan.FromMilliseconds(500));
-
-            Assert.Equal(StatusColor.Red, session.StatusColor);
-            Assert.Equal("delete users.db?", session.LastStatusReason);
-        }
-        finally { wingman.Dispose(); manager.Dispose(); }
-    }
-
-    [Fact]
-    public async Task OutputActivityWatcher_does_not_promote_blue_during_waiting_for_input()
-    {
-        // When Claude has reported WaitingForInput via the Stop hook, cosmetic
-        // TUI bytes (cursor blink, "Brewed for Xs" timer redraws) must not flip
-        // the dot back to blue. The hook is authoritative for "Claude is done".
-        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
-        var wingman = new SessionStatusWingman(manager);
-        try
-        {
-            wingman.Start();
-            var (session, _) = CreateBufferSession(manager);
-            Assert.NotNull(session.Buffer);
-
-            session.HandlePipeEvent(new Pipes.PipeMessage { HookEventName = "Stop" });
-            Assert.Equal(ActivityState.WaitingForInput, session.ActivityState);
-            // Wingman fast path paints green ("ready, awaiting next prompt")
-            // since no question marker matched.
-            Assert.Equal(StatusColor.Green, session.StatusColor);
-
-            var payload = new byte[SessionStatusWingman.OutputActivityMinBurstBytes * 4];
-            session.Buffer!.Write(payload);
-            await Task.Delay(TimeSpan.FromMilliseconds(500));
-
-            Assert.Equal(StatusColor.Green, session.StatusColor);
-            Assert.Equal("ready, awaiting next prompt", session.LastStatusReason);
-        }
-        finally { wingman.Dispose(); manager.Dispose(); }
-    }
-
-    [Fact]
-    public async Task OutputActivityWatcher_does_not_promote_blue_during_idle()
-    {
-        // Idle (post-SessionStart, between turns) is also a "Claude is waiting"
-        // state. Welcome-message redraws or status-line ticks must not flicker
-        // the dot to blue here either.
-        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
-        var wingman = new SessionStatusWingman(manager);
-        try
-        {
-            wingman.Start();
-            var (session, _) = CreateBufferSession(manager);
-            Assert.NotNull(session.Buffer);
-
-            session.HandlePipeEvent(new Pipes.PipeMessage { HookEventName = "SessionStart" });
-            Assert.Equal(ActivityState.Idle, session.ActivityState);
-            Assert.Equal(StatusColor.Green, session.StatusColor);
-
-            var payload = new byte[SessionStatusWingman.OutputActivityMinBurstBytes * 4];
-            session.Buffer!.Write(payload);
-            await Task.Delay(TimeSpan.FromMilliseconds(500));
-
-            Assert.Equal(StatusColor.Green, session.StatusColor);
-            Assert.Equal("idle, ready for next task", session.LastStatusReason);
-        }
-        finally { wingman.Dispose(); manager.Dispose(); }
-    }
-
-    [Fact]
-    public async Task OutputActivityWatcher_does_not_resurrect_exited_session()
-    {
-        // Late bytes draining into a dead session's buffer must not paint blue.
-        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
-        var wingman = new SessionStatusWingman(manager);
-        try
-        {
-            wingman.Start();
-            var (session, _) = CreateBufferSession(manager);
-            Assert.NotNull(session.Buffer);
-
-            session.HandlePipeEvent(new Pipes.PipeMessage { HookEventName = "SessionEnd", Reason = "logout" });
-            Assert.Equal(ActivityState.Exited, session.ActivityState);
-            Assert.Equal(StatusColor.Unknown, session.StatusColor);
-
-            var payload = new byte[SessionStatusWingman.OutputActivityMinBurstBytes * 4];
-            session.Buffer!.Write(payload);
-            await Task.Delay(TimeSpan.FromMilliseconds(500));
-
-            Assert.Equal(StatusColor.Unknown, session.StatusColor);
-        }
-        finally { wingman.Dispose(); manager.Dispose(); }
-    }
-
-    /// <summary>
-    /// The watcher remembers what it last pushed; if Claude Code's input stays
-    /// stable (same bytes, more output flowing) we don't re-fire the event.
-    /// </summary>
     [Fact]
     public async Task PromptInjectionWatcher_does_not_double_push_same_text()
     {

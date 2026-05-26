@@ -1,7 +1,0 @@
-* Running tests... (esc to interrupt)
-
-  [Request interrupted by user]
-
-> _
-
-  ? for shortcuts                                   bypass permissions on (shift+tab to cycle)

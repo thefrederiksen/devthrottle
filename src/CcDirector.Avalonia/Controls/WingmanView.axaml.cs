@@ -1,222 +1,164 @@
 using System.Collections.ObjectModel;
-using System.Net.Http;
-using System.Net.Http.Json;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using Avalonia.Controls;
-using Avalonia.Input;
-using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Utilities;
-using CcDirector.Gateway.Contracts;
+using CcDirector.Core.Wingman;
 
 namespace CcDirector.Avalonia.Controls;
 
 /// <summary>
-/// Phase 5 desktop tab: ask the SessionStatusWingman questions about the
-/// currently-bound session. Each ask is one fresh, stateless Haiku call.
-/// Conversation history shown here is for the user's benefit only; the wingman
-/// itself never has memory between calls.
+/// Right-panel observability tab for the Wingman. Renders, for the attached session:
+///  - the current colour the wingman has written (what the badge reflects),
+///  - a live "how long ago did the terminal move" clock + the current activity state.
+///    This is the silence clock the whole detector runs on: bytes -> Working (blue),
+///    and once the terminal has been silent past
+///    <see cref="TerminalStateDetector.QuietThreshold"/> the session flips to
+///    WaitingForInput (red, "needs you"), and
+///  - the state-change timeline (newest first) from
+///    <see cref="Session.RecentStateChanges"/> - each blue&lt;-&gt;red transition.
+///
+/// Follows the Attach/Detach pattern used by the other right-panel views. Read-only:
+/// it observes the session, never writes to it.
 /// </summary>
 public partial class WingmanView : UserControl
 {
-    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(50) };
-    private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
-
     private static readonly Dictionary<string, IBrush> StatusBrushes = new(StringComparer.OrdinalIgnoreCase)
     {
         ["green"]   = new SolidColorBrush(Color.FromRgb(0x22, 0xC5, 0x5E)),
         ["blue"]    = new SolidColorBrush(Color.FromRgb(0x3B, 0x82, 0xF6)),
-        ["yellow"]  = new SolidColorBrush(Color.FromRgb(0xEA, 0xB3, 0x08)),
+        ["yellow"]  = new SolidColorBrush(Color.FromRgb(0xF5, 0x9E, 0x0B)),
         ["red"]     = new SolidColorBrush(Color.FromRgb(0xEF, 0x44, 0x44)),
-        ["unknown"] = new SolidColorBrush(Color.FromRgb(0x6A, 0x6A, 0x6A)),
+        ["unknown"] = new SolidColorBrush(Color.FromRgb(0x88, 0x88, 0x88)),
     };
+    private static readonly IBrush MutedBrush = new SolidColorBrush(Color.FromRgb(0x88, 0x88, 0x88));
 
     private Session? _session;
-    private string? _directorBaseUrl;
-    private readonly ObservableCollection<AskEntry> _history = new();
+    private DispatcherTimer? _clockTimer;
+    private readonly ObservableCollection<ChangeRow> _rows = new();
 
     public WingmanView()
     {
         InitializeComponent();
-        HistoryList.ItemsSource = _history;
+        ChangeItems.ItemsSource = _rows;
     }
 
-    /// <summary>
-    /// Wire to a session + the local Director base URL. The base URL is
-    /// <c>http://127.0.0.1:&lt;port&gt;</c> where port is the live Director's Control API
-    /// port. Caller (MainWindow) supplies it.
-    /// </summary>
-    public void Bind(Session? session, string? directorBaseUrl)
+    /// <summary>Attach to a session: render its current state and transition history, and
+    /// start the 1s liveness clock. Idempotent via <see cref="Detach"/>.</summary>
+    public void Attach(Session session)
     {
-        UnbindCurrent();
+        Detach();
         _session = session;
-        _directorBaseUrl = directorBaseUrl?.TrimEnd('/');
-        _history.Clear();
-        UpdateEmptyHint();
+        FileLog.Write($"[WingmanView] Attach: session={session.Id}");
 
-        if (session is not null)
-        {
-            session.OnStatusColorChanged += OnStatusColorChanged;
-            RefreshBanner();
-            QuestionBox.IsEnabled = true;
-            AskButton.IsEnabled = true;
-        }
-        else
-        {
-            SupReason.Text = "no session selected";
-            SupSubtitle.Text = "open a session in the sidebar to use the wingman";
-            SupDot.Fill = StatusBrushes["unknown"];
-            QuestionBox.IsEnabled = false;
-            AskButton.IsEnabled = false;
-        }
+        session.OnStatusColorChanged += OnStatusColorChanged;
+        session.OnStateChangeRecorded += OnStateChangeRecorded;
+
+        RebuildRows();
+        RefreshCurrent();
+
+        _clockTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        _clockTimer.Tick += (_, _) => RefreshLiveness();
+        _clockTimer.Start();
+        RefreshLiveness();
     }
 
-    private void UpdateEmptyHint()
+    /// <summary>Detach from the current session and stop the clock. Safe to call when
+    /// not attached.</summary>
+    public void Detach()
     {
-        EmptyHint.IsVisible = _history.Count == 0;
-    }
-
-    private void UnbindCurrent()
-    {
+        if (_clockTimer is not null)
+        {
+            _clockTimer.Stop();
+            _clockTimer = null;
+        }
         if (_session is not null)
+        {
             _session.OnStatusColorChanged -= OnStatusColorChanged;
+            _session.OnStateChangeRecorded -= OnStateChangeRecorded;
+            _session = null;
+        }
+        _rows.Clear();
+        CurrentStateText.Text = "no session selected";
+        CurrentReasonText.Text = "";
+        CurrentSwatch.Background = StatusBrushes["unknown"];
+        MovedAgoText.Text = "Terminal moved: --";
+        MovedAgoText.Foreground = MutedBrush;
+        GateText.Text = "--";
+        EmptyText.IsVisible = false;
     }
 
     private void OnStatusColorChanged(string oldColor, string newColor, string reason)
-    {
-        Dispatcher.UIThread.Post(RefreshBanner);
-    }
+        => Dispatcher.UIThread.Post(RefreshCurrent);
 
-    private void RefreshBanner()
+    private void OnStateChangeRecorded()
+        => Dispatcher.UIThread.Post(RebuildRows);
+
+    /// <summary>The colour/reason the wingman has written -- i.e. what the badge shows.</summary>
+    private void RefreshCurrent()
     {
         if (_session is null) return;
-        SupDot.Fill = StatusBrushes.TryGetValue(_session.StatusColor ?? "", out var b) ? b : StatusBrushes["unknown"];
-        SupReason.Text = string.IsNullOrEmpty(_session.LastStatusReason) ? "(no reason set)" : _session.LastStatusReason;
-        SupSubtitle.Text = $"session {_session.Id.ToString().Substring(0, 8)} - {_session.RepoPath}";
+        var color = _session.StatusColor ?? "unknown";
+        CurrentSwatch.Background = StatusBrushes.TryGetValue(color, out var b) ? b : StatusBrushes["unknown"];
+        CurrentStateText.Text = color;
+        CurrentReasonText.Text = string.IsNullOrEmpty(_session.LastStatusReason) ? "" : _session.LastStatusReason;
     }
 
-    private void RefreshButton_Click(object? sender, RoutedEventArgs e) => RefreshBanner();
-
-    private void QuestionBox_KeyDown(object? sender, KeyEventArgs e)
+    /// <summary>The raw, interpretation-free liveness signal: seconds since the terminal
+    /// last produced any bytes, plus the current activity state. Updated once a second.
+    /// This is exactly the silence the 10s timeout rule counts.</summary>
+    private void RefreshLiveness()
     {
-        if (e.Key == Key.Enter && !(e.KeyModifiers.HasFlag(KeyModifiers.Shift)))
-        {
-            e.Handled = true;
-            _ = AskAsync();
-        }
+        if (_session is null) return;
+        var movedAgo = DateTime.UtcNow - _session.LastOutputAtUtc;
+        MovedAgoText.Text = $"Terminal moved: {FormatAgo(movedAgo)} ago";
+        MovedAgoText.Foreground = MutedBrush;
+        GateText.Text = _session.ActivityState.ToString();
     }
 
-    private void AskButton_Click(object? sender, RoutedEventArgs e) => _ = AskAsync();
-
-    private async Task AskAsync()
+    private void RebuildRows()
     {
-        var question = QuestionBox.Text?.Trim() ?? "";
-        if (string.IsNullOrEmpty(question)) return;
-        if (_session is null || string.IsNullOrEmpty(_directorBaseUrl))
-        {
-            AppendEntry(question, "(wingman is not connected; no session/Director URL)", "");
-            return;
-        }
-
-        QuestionBox.Text = "";
-        AskButton.IsEnabled = false;
-        var pending = new AskEntry
-        {
-            Question = question,
-            Answer = "thinking...",
-            Footer = "",
-            AskedAt = DateTime.UtcNow,
-        };
-        _history.Add(pending);
-        UpdateEmptyHint();
-        ScrollToBottom();
-
-        try
-        {
-            var url = $"{_directorBaseUrl}/sessions/{_session.Id}/wingman/ask";
-            var body = new WingmanAskRequest { Question = question };
-            using var resp = await Http.PostAsJsonAsync(url, body, JsonOpts);
-            if (!resp.IsSuccessStatusCode)
-            {
-                pending.Answer = $"wingman HTTP {(int)resp.StatusCode}";
-                pending.Footer = await resp.Content.ReadAsStringAsync();
-            }
-            else
-            {
-                var result = await resp.Content.ReadFromJsonAsync<WingmanAskResult>(JsonOpts);
-                if (result is null)
-                {
-                    pending.Answer = "(empty response)";
-                }
-                else
-                {
-                    pending.Answer = string.IsNullOrEmpty(result.Answer) ? "(no answer)" : result.Answer;
-                    pending.Footer = $"{result.Model}  -  {result.LatencyMs} ms  -  {result.ContextDigest}";
-                    ContextDigestText.Text = string.IsNullOrEmpty(result.ContextDigest) ? "(no answers yet)" : result.ContextDigest;
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            pending.Answer = "ask failed: " + ex.Message;
-            FileLog.Write($"[WingmanView] ask FAILED: {ex.Message}");
-        }
-        finally
-        {
-            // Force the items control to redraw the changed pending entry.
-            var idx = _history.IndexOf(pending);
-            if (idx >= 0)
-            {
-                _history.RemoveAt(idx);
-                _history.Insert(idx, pending);
-            }
-            AskButton.IsEnabled = true;
-            ScrollToBottom();
-        }
+        if (_session is null) return;
+        _rows.Clear();
+        foreach (var c in _session.RecentStateChanges)   // already newest-first
+            _rows.Add(new ChangeRow(c));
+        EmptyText.IsVisible = _rows.Count == 0;
     }
 
-    private void AppendEntry(string question, string answer, string footer)
+    private static string FormatAgo(TimeSpan span)
     {
-        _history.Add(new AskEntry { Question = question, Answer = answer, Footer = footer });
-        ScrollToBottom();
+        var s = span.TotalSeconds;
+        if (s < 0) s = 0;
+        if (s < 60) return $"{s:F0}s";
+        if (s < 3600) return $"{(int)(s / 60)}m {(int)(s % 60)}s";
+        return $"{(int)(s / 3600)}h {(int)((s % 3600) / 60)}m";
     }
 
-    private void ScrollToBottom()
+    /// <summary>The badge colour for an activity state. Mirrors the one mapping in
+    /// <c>SessionStatusWingman</c> (Working/Starting = blue, anything that needs the user
+    /// = red, gone = gray) for the history swatches.</summary>
+    private static string ColorForState(ActivityState state) => state switch
     {
-        // Post twice: first to let the ItemsControl realise the new item; second to
-        // perform the actual scroll after layout has measured. Single-Post races the
-        // measure pass on the first add and ends up scrolling to where the list WAS,
-        // not where it IS.
-        Dispatcher.UIThread.Post(() =>
-        {
-            Dispatcher.UIThread.Post(() => HistoryScroller.ScrollToEnd());
-        });
-    }
+        ActivityState.Working or ActivityState.Starting => "blue",
+        ActivityState.WaitingForInput or ActivityState.WaitingForPerm or ActivityState.Idle => "red",
+        ActivityState.Exited => "unknown",
+        _ => "unknown",
+    };
 
-    public sealed class AskEntry
+    /// <summary>One row in the transition timeline, projected from a
+    /// <see cref="Session.StateChange"/>.</summary>
+    public sealed class ChangeRow
     {
-        public string Question { get; set; } = "";
-        public string Answer { get; set; } = "";
-        public string Footer { get; set; } = "";
-        public DateTime AskedAt { get; set; } = DateTime.UtcNow;
-
-        /// <summary>Bound to the per-entry "5s ago" / "2m ago" timestamp label.</summary>
-        public string TimestampDisplay
+        public ChangeRow(Session.StateChange c)
         {
-            get
-            {
-                var seconds = (DateTime.UtcNow - AskedAt).TotalSeconds;
-                if (seconds < 5) return "just now";
-                if (seconds < 60) return $"{(int)seconds}s ago";
-                var minutes = seconds / 60;
-                if (minutes < 60) return $"{(int)minutes}m ago";
-                var hours = minutes / 60;
-                if (hours < 24) return $"{(int)hours}h ago";
-                return AskedAt.ToLocalTime().ToString("HH:mm");
-            }
+            TimeLabel = c.At.ToLocalTime().ToString("HH:mm:ss");
+            TransitionLabel = $"{c.From} -> {c.To}";
+            Swatch = StatusBrushes.TryGetValue(ColorForState(c.To), out var b) ? b : StatusBrushes["unknown"];
         }
+
+        public string TimeLabel { get; }
+        public string TransitionLabel { get; }
+        public IBrush Swatch { get; }
     }
 }

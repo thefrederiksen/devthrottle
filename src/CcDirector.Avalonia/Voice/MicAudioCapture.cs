@@ -1,3 +1,4 @@
+using CcDirector.Core.Dictation;
 using CcDirector.Core.Utilities;
 using NAudio.Dsp;
 using NAudio.Wave;
@@ -16,7 +17,7 @@ namespace CcDirector.Avalonia.Voice;
 /// move independently the way a real frequency analyzer does, rather than all
 /// rising and falling together off a single energy number.
 /// </summary>
-public sealed class MicAudioCapture : IDisposable
+public sealed class MicAudioCapture : IAudioSource, IDisposable
 {
     public const int SampleRate = 24_000;
     public const int BitsPerSample = 16;

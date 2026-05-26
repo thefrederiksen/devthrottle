@@ -161,7 +161,7 @@ public sealed class ControlApiHost : IAsyncDisposable
         // /sessions/{sid}/turn-summaries returns whatever is already cached.  Hooks
         // OnSessionCreated + per-session OnTurnCompleted.  See Phase 2 of
         // docs/goals/GOAL_CC_DIRECTOR_SUPERVISOR.md.
-        _turnSummaryCache = new TurnSummaryCache(_sessionManager, _sessionManager.Options, _statusWingman, _sessionLogManager);
+        _turnSummaryCache = new TurnSummaryCache(_sessionManager, _sessionManager.Options, _sessionLogManager);
         _turnSummaryCache.Start();
 
         // Proactive explain: for mobile-mode sessions, regenerate + cache the Opus briefing
@@ -169,25 +169,16 @@ public sealed class ControlApiHost : IAsyncDisposable
         _proactiveExplain = new ProactiveExplainService(_sessionManager, _sessionManager.Options.ClaudePath, _turnSummaryCache);
         _proactiveExplain.Start();
 
-        // Terminal-driven state: the detector derives ActivityState + turn boundaries from
-        // the terminal stream (agent-agnostic, no hooks). On by default; set
-        // CC_DIRECTOR_TERMINAL_STATE=0 to fall back to the Claude-Code hook path without a
-        // rebuild. When off, the detector still runs in shadow mode (logs only).
-        // The LLM judge stage (nuanced states: waiting vs permission) is on by default;
-        // set CC_DIRECTOR_TERMSTATE_LLM=0 to run the free byte-activity gate alone.
+        // Terminal-driven state (CLEAN SLATE): the detector's only rule is byte -> working,
+        // plus the idle clock (time since the last ConPTY character). No footer/grid/LLM
+        // determination -- that guesswork was removed. On by default; set
+        // CC_DIRECTOR_TERMINAL_STATE=0 to run the detector in observe-only mode (logs, writes
+        // nothing) and fall back to the Claude-Code hook path.
         var terminalDriven = Environment.GetEnvironmentVariable("CC_DIRECTOR_TERMINAL_STATE") != "0";
-        var termStateLlm = Environment.GetEnvironmentVariable("CC_DIRECTOR_TERMSTATE_LLM") != "0";
-        // The LLM judge is the lighter one-shot "tail-paste" call (ClassifyTerminalStateAsync):
-        // it reads the terminal tail directly and is the judge PROVEN at 100/100 against the
-        // synthetic state suite, and it is faster (no read-only session spawn => less badge lag).
-        // The heavier full-power-session judge is opt-in via CC_DIRECTOR_TERMSTATE_FULLSESSION=1
-        // (it now shares the same decisive rules via ClaudeCodeScreenReference).
-        var termStateFullSession = Environment.GetEnvironmentVariable("CC_DIRECTOR_TERMSTATE_FULLSESSION") == "1";
         Core.Sessions.Session.TerminalDrivenState = terminalDriven;
-        _terminalStateDetector = new TerminalStateDetector(
-            _sessionManager, _sessionManager.Options.ClaudePath, useLlm: termStateLlm, driveState: terminalDriven, useFullSession: termStateFullSession);
+        _terminalStateDetector = new TerminalStateDetector(_sessionManager, driveState: terminalDriven);
         _terminalStateDetector.Start();
-        FileLog.Write($"[ControlApiHost] Session state source: {(terminalDriven ? "terminal" : "hooks")} (llm judge={termStateLlm}, full-session judge={termStateFullSession})");
+        FileLog.Write($"[ControlApiHost] Session state source: {(terminalDriven ? "terminal (byte->working)" : "hooks")}");
 
         // Always-on terminal recorder: logs every session's resolved grid (on change, with the
         // activity state) to build the ground-truth corpus for offline analysis/learning.

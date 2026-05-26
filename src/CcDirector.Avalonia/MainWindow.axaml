@@ -921,6 +921,11 @@
                         </DockPanel>
                     </TabItem>
 
+                    <!-- ===== Wingman Tab (per-session state observability) ===== -->
+                    <TabItem Header="Wingman">
+                        <controls:WingmanView x:Name="WingmanView" />
+                    </TabItem>
+
                     <!-- ===== Queue Tab ===== -->
                     <TabItem x:Name="QueueTab" Header="Queue">
                         <DockPanel>

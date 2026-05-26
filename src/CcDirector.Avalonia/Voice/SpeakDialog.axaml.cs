@@ -156,6 +156,7 @@ public partial class SpeakDialog : Window
         svc.OnStateChanged += OnStateChanged;
         svc.OnAudioBands += OnAudioBands;
         svc.OnInputRms += OnInputRms;
+        svc.OnCaptureStarted += OnServiceCaptureStarted;
         await svc.StartAsync("default");
         _service = svc;
     }
@@ -274,6 +275,26 @@ public partial class SpeakDialog : Window
     private void OnStateChanged(ConnectionState state)
     {
         FileLog.Write($"[SpeakDialog] state -> {state}");
+    }
+
+    /// <summary>
+    /// Fired by the service the instant the microphone actually starts
+    /// capturing (before the transcription backend has finished connecting).
+    /// We re-anchor the elapsed-time origin here so the displayed timer tracks
+    /// REAL capture, not the dialog-open-to-capture setup. With the capture-
+    /// first pipeline that gap is only a couple of milliseconds, but anchoring
+    /// to the true start keeps the timer honest and guards against any future
+    /// setup cost creeping back in front of capture.
+    /// </summary>
+    private void OnServiceCaptureStarted()
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            // Only anchor the very first segment's origin. Pause/Resume manage
+            // _t0 themselves via _elapsedBeforeSegment.
+            if (_stage == Stage.Recording && _elapsedBeforeSegment == TimeSpan.Zero)
+                _t0 = DateTime.UtcNow;
+        });
     }
 
     private async void PrimaryButton_Click(object? sender, RoutedEventArgs e)

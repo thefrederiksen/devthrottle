@@ -324,11 +324,12 @@ public sealed class Session : IDisposable
 
     /// <summary>
     /// Aggregate at-a-glance color for this session. Owned by the
-    /// SessionStatusWingman on the Director; the rest of the system reads it
-    /// but never writes it. Defaults to "green" at construction ("greenfield").
-    /// Values: "green" | "blue" | "yellow" | "red" | "unknown".
+    /// SessionStatusWingman on the Director; the rest of the system reads it but never
+    /// writes it. Defaults to "blue" ("working/starting") at construction, which the
+    /// wingman immediately confirms. The detector only ever drives blue (working) and
+    /// red (needs you); "unknown" is used for an exited session.
     /// </summary>
-    public string StatusColor { get; private set; } = "green";
+    public string StatusColor { get; private set; } = "blue";
 
     /// <summary>
     /// Short human-readable reason for the current StatusColor, e.g.
@@ -370,6 +371,98 @@ public sealed class Session : IDisposable
     private const int WingmanEventLogCapacity = 50;
     private readonly LinkedList<WingmanEvent> _wingmanEvents = new();
     private readonly object _wingmanEventsLock = new();
+
+    /// <summary>
+    /// One activity-state transition for this session: when it happened and the state it
+    /// moved from -&gt; to. The detector's only rule produces Working (bytes) and
+    /// WaitingForInput (silence), so in practice this is the blue&lt;-&gt;red history the
+    /// Wingman tab renders. Distinct from <see cref="WingmanEvent"/>, which records the
+    /// resulting colour change rather than the underlying state.
+    /// </summary>
+    public sealed record StateChange(
+        DateTime At,
+        ActivityState From,
+        ActivityState To);
+
+    private const int StateChangeLogCapacity = 100;
+    private readonly LinkedList<StateChange> _stateChanges = new();
+    private readonly object _stateChangesLock = new();
+
+    /// <summary>
+    /// UTC time the terminal buffer last received ANY bytes (raw "characters moved",
+    /// before the detector's cosmetic-vs-content filtering). The Wingman tab shows
+    /// "how long ago the terminal moved" off this; a large value next to a "working"
+    /// badge is the tell that the quiet gate has stalled. Updated on every buffer write.
+    /// </summary>
+    public DateTime LastOutputAtUtc => new(Volatile.Read(ref _lastOutputTicks), DateTimeKind.Utc);
+    private long _lastOutputTicks = DateTime.UtcNow.Ticks;
+
+    /// <summary>
+    /// UTC instant until which terminal byte activity must NOT be counted as agent work by
+    /// the <c>TerminalStateDetector</c>. Set whenever the Director itself issues a PTY resize
+    /// (on attaching/switching to a session, force-refresh, or a layout change): a resize is a
+    /// SIGWINCH-equivalent that makes Claude Code repaint its whole screen, emitting a burst of
+    /// real bytes that are OUR doing, not the agent producing output. Without this guard the
+    /// detector flips an idle session to "Working" the instant you switch to it. The window is
+    /// short (well under the detector's quiet threshold), so a genuine work-start that happens
+    /// to land inside it is only delayed until the next byte after the window. Read by the
+    /// detector; written via <see cref="SuppressActivityFor"/>.
+    /// </summary>
+    public DateTime SuppressActivityUntilUtc => new(Volatile.Read(ref _suppressActivityUntilTicks), DateTimeKind.Utc);
+    private long _suppressActivityUntilTicks = DateTime.MinValue.Ticks;
+
+    /// <summary>
+    /// Mark the next <paramref name="window"/> of terminal byte activity as a Director-induced
+    /// repaint that the <c>TerminalStateDetector</c> must ignore. Called right before a PTY
+    /// resize. Always extends (never shortens) the current suppression window.
+    /// </summary>
+    public void SuppressActivityFor(TimeSpan window)
+    {
+        if (_disposed) return;
+        var until = DateTime.UtcNow.Add(window).Ticks;
+        long current;
+        do
+        {
+            current = Volatile.Read(ref _suppressActivityUntilTicks);
+            if (until <= current) return;
+        }
+        while (Interlocked.CompareExchange(ref _suppressActivityUntilTicks, until, current) != current);
+    }
+
+    /// <summary>
+    /// Most recent activity-state transitions for this session, newest first. Ring-buffered
+    /// at <see cref="StateChangeLogCapacity"/>. Populated by <see cref="RecordStateChange"/>
+    /// (from <see cref="SetActivityState"/>) and rendered live by the Wingman tab.
+    /// </summary>
+    public IReadOnlyList<StateChange> RecentStateChanges
+    {
+        get
+        {
+            lock (_stateChangesLock)
+                return _stateChanges.ToList();
+        }
+    }
+
+    /// <summary>Fires when a new state transition is recorded, so the Wingman tab can
+    /// refresh without polling. No args; the listener re-reads
+    /// <see cref="RecentStateChanges"/>.</summary>
+    public event Action? OnStateChangeRecorded;
+
+    /// <summary>
+    /// Record an activity-state transition into the in-memory ring (for the live Wingman
+    /// tab) and notify listeners. Durable persistence is the caller's concern (see
+    /// <c>StateChangeLog</c>), keeping this type free of file I/O.
+    /// </summary>
+    private void RecordStateChange(ActivityState from, ActivityState to)
+    {
+        lock (_stateChangesLock)
+        {
+            _stateChanges.AddFirst(new StateChange(DateTime.UtcNow, from, to));
+            while (_stateChanges.Count > StateChangeLogCapacity)
+                _stateChanges.RemoveLast();
+        }
+        OnStateChangeRecorded?.Invoke();
+    }
 
     /// <summary>
     /// Monotonic counter bumped on every <see cref="ActivityState"/> change. Used by
@@ -609,6 +702,9 @@ public sealed class Session : IDisposable
         _htmlParser = new AnsiParser(_htmlCells, HtmlGridCols, HtmlGridRows, _htmlScrollback, HtmlMaxScrollback);
         _htmlParserFeed = data =>
         {
+            // Raw "the terminal moved" timestamp -- every byte, no cosmetic filtering.
+            // The Wingman tab reads this to show how long ago output last appeared.
+            Volatile.Write(ref _lastOutputTicks, DateTime.UtcNow.Ticks);
             lock (_htmlParserLock)
             {
                 _htmlParser?.Parse(data);
@@ -821,6 +917,8 @@ public sealed class Session : IDisposable
         // idle, but the moment the user answers (-> Working) the badge is free to go
         // blue again.
         Interlocked.Increment(ref _activityGeneration);
+        // Log the transition (blue<->red) to the in-memory ring the Wingman tab renders.
+        RecordStateChange(old, newState);
         OnActivityStateChanged?.Invoke(old, newState);
     }
 

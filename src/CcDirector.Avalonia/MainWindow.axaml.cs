@@ -488,6 +488,7 @@ public partial class MainWindow : Window
             TerminalHost.Detach();
             GitChangesView.Detach();
             CleanView.Detach();
+            WingmanView.Detach();
         }
 
         _activeSession = vm;
@@ -503,6 +504,7 @@ public partial class MainWindow : Window
             TabBarOpenWingmanButton.IsVisible = false;
             GitChangesView.Detach();
             CleanView.Detach();
+            WingmanView.Detach();
             return;
         }
 
@@ -531,6 +533,9 @@ public partial class MainWindow : Window
 
         // Attach clean view (legacy Agent tab)
         CleanView.Attach(vm.Session);
+
+        // Attach the Wingman observability tab (right panel) to the new session.
+        WingmanView.Attach(vm.Session);
 
         // Show prompt bar and header buttons
         PromptBarBorder.IsVisible = true;
@@ -628,6 +633,7 @@ public partial class MainWindow : Window
         TerminalHost.Detach();
         GitChangesView.Detach();
         CleanView.Detach();
+        WingmanView.Detach();
         _activeSession = null;
 
         var snapshots = _sessions.ToList();
@@ -822,6 +828,7 @@ public partial class MainWindow : Window
             TerminalHost.Detach();
             GitChangesView.Detach();
             CleanView.Detach();
+            WingmanView.Detach();
             _activeSession = null;
 
             SessionHeaderBanner.IsVisible = false;

@@ -23,6 +23,41 @@
 (function () {
   if (window.ccDictate) return;
 
+  /*
+   * Capture-first frame router - the browser twin of the desktop
+   * DictationPipeline's no-loss guarantee. Captured PCM frames are routed so
+   * that anything recorded BEFORE the server's transcription session is ready
+   * is buffered and flushed IN ORDER the moment it becomes ready; after that,
+   * frames stream straight through. This means the user can start talking the
+   * instant the mic is live, even while the WebSocket/OpenAI link is still
+   * coming up, and nothing they say is dropped.
+   *
+   * Pure and synchronous (no mic, no socket, no timers) so it is unit-testable
+   * on its own - see dictate-capture-first.test.html.
+   */
+  function createCaptureBuffer() {
+    let ready = false;
+    const pending = [];
+    return {
+      get ready() { return ready; },
+      get pendingCount() { return pending.length; },
+      // Route one captured frame. send(frame) is called now if the server is
+      // ready, otherwise the frame is buffered and sent on markReady - either
+      // way in capture order.
+      push: function (frame, send) {
+        if (ready) send(frame);
+        else pending.push(frame);
+      },
+      // Server signalled 'started': flush everything captured during the
+      // connect, in order, then go live so future frames stream directly.
+      markReady: function (send) {
+        for (let i = 0; i < pending.length; i++) send(pending[i]);
+        pending.length = 0;
+        ready = true;
+      },
+    };
+  }
+
   function injectStyles() {
     if (document.getElementById('cc-dictate-styles')) return;
     const css = `
@@ -138,7 +173,7 @@
         </div>
         <div class="ccd-transcript" data-empty="(your words will appear here)">(your words will appear here)</div>
         <div class="ccd-foot">
-          <div class="ccd-hint">Setting up the microphone. Do not speak yet...</div>
+          <div class="ccd-hint">Starting microphone...</div>
           <button type="button" class="ccd-btn ccd-btn-cancel">Cancel</button>
           <button type="button" class="ccd-btn ccd-btn-pause" disabled><span class="ccd-pause-glyph"><i></i><i></i></span></button>
           <button type="button" class="ccd-btn ccd-btn-stop" disabled>Stop</button>
@@ -188,6 +223,13 @@
     let levelAnalyser = null;
     let levelData = null;
     let levelRaf = null;
+    let capture = null;                   // capture-first frame router for this segment
+
+    // Send one PCM frame over the live socket (no-op if it is not open). Passed
+    // to the capture buffer so buffered and live frames take the exact same path.
+    function sendFrame(frame) {
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send(frame);
+    }
 
     // Persistent across segments.
     let timerHandle = null;
@@ -215,6 +257,7 @@
       try { if (ws && ws.readyState === WebSocket.OPEN) ws.close(); } catch (_) {}
       ws = null; audioContext = null; sourceNode = null; workletNode = null;
       levelAudioContext = null; levelAnalyser = null; levelData = null; mediaStream = null;
+      capture = null;
     }
 
     function teardown() {
@@ -312,7 +355,7 @@
         stopBtn.textContent = 'Stop';
         pauseBtn.disabled = false;
         setPauseGlyph();
-        hintEl.textContent = 'Pause to take a break, Stop when done. Esc to cancel.';
+        setRecordingHint();
       } else if (s === 'paused') {
         labelEl.textContent = 'paused';
         labelEl.classList.add('paused');
@@ -340,6 +383,16 @@
         pauseBtn.style.display = 'none';
         cancelBtn.textContent = 'Close';
       }
+    }
+
+    // While recording: if the transcriber link is already up, show the normal
+    // controls hint; if it is still connecting, say so - but the user can talk
+    // anyway (frames are buffered), so this is a non-blocking note, NOT a
+    // "do not speak" gate.
+    function setRecordingHint() {
+      hintEl.textContent = (capture && capture.ready)
+        ? 'Pause to take a break, Stop when done. Esc to cancel.'
+        : 'Recording. Connecting transcriber...';
     }
 
     function startTimer() {
@@ -414,17 +467,18 @@
         workletNode = new AudioWorkletNode(audioContext, 'pcm16-writer');
         let firstFrame = false;
         workletNode.port.onmessage = (e) => {
-          // First PCM frame = capture is genuinely live. Only now flip to
-          // 'recording', invite the user to speak, and start the timer; this
-          // closes the window where the UI said "recording" but no audio was
-          // streaming yet (the source of the clipped first word).
+          // First PCM frame = capture is genuinely live. Flip to 'recording'
+          // and start the timer NOW, even if the server link is not up yet -
+          // the capture buffer holds these early frames so they are not lost.
           if (!firstFrame) {
             firstFrame = true;
             t0 = performance.now();
             setStage('recording');
             startTimer();
           }
-          if (ws && ws.readyState === WebSocket.OPEN) ws.send(e.data);
+          // Capture-first: stream live if the server is ready, otherwise buffer
+          // in order until 'started' flushes it. Never dropped.
+          if (capture) capture.push(e.data, sendFrame);
         };
         sourceNode.connect(workletNode);
       } catch (e) {
@@ -435,7 +489,13 @@
     }
 
     function startSegment() {
+      capture = createCaptureBuffer();
       setStage('initializing');
+      // Capture-first: bring the mic up immediately AND open the socket in
+      // parallel. Frames captured before the server is ready are buffered by
+      // `capture` and flushed in order on 'started', so connection latency can
+      // never clip the opening of the recording.
+      bootCapture();
       openWebSocket();
     }
 
@@ -451,11 +511,12 @@
             ws.send(JSON.stringify({ type: 'start', profile: profile }));
             break;
           case 'started':
-            // Start the worklet capture once the server is ready. The overlay
-            // stays in 'initializing' and the timer does not run until the
-            // worklet actually emits its first PCM frame (see bootCapture), so
-            // we never invite the user to speak into a dead pipeline.
-            bootCapture();
+            // Server transcription session is connected. Flush everything the
+            // mic captured during the connect, in order, then stream live.
+            // Capture was already started in startSegment, so the opening words
+            // are sitting in the buffer waiting for exactly this moment.
+            if (capture) capture.markReady(sendFrame);
+            if (stage === 'recording') setRecordingHint();
             break;
           case 'partial':
             currentPartial = msg.text || '';
@@ -510,5 +571,7 @@
     startSegment();
   }
 
-  window.ccDictate = { start: start };
+  // _createCaptureBuffer is exposed for unit testing the no-loss routing in
+  // isolation (see dictate-capture-first.test.html). Underscore = internal.
+  window.ccDictate = { start: start, _createCaptureBuffer: createCaptureBuffer };
 })();

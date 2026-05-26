@@ -62,6 +62,20 @@ public sealed class SessionDto
     public DateTime? LastActivityAt { get; set; }
 
     /// <summary>
+    /// Seconds since the most recent terminal-buffer write -- the raw "time since the last
+    /// ConPTY character" idle clock, computed server-side so external callers (e.g. the test
+    /// harness) need no clock math. 0 when the session has produced no output yet.
+    /// </summary>
+    public double IdleSeconds { get; set; }
+
+    /// <summary>
+    /// The terminal-state detector's quiet threshold in seconds: how long the terminal must be
+    /// COMPLETELY byte-silent before the turn is even a candidate for being over. Paired with
+    /// <see cref="IdleSeconds"/> so a test can assert against the live threshold directly.
+    /// </summary>
+    public double QuietThresholdSeconds { get; set; }
+
+    /// <summary>
     /// Machine name of the Director that owns this session. Populated by the
     /// Gateway aggregator. Empty in Director-local responses.
     /// </summary>

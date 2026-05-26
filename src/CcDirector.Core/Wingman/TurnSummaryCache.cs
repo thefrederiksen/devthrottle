@@ -23,7 +23,6 @@ public sealed class TurnSummaryCache : IDisposable
 {
     private readonly SessionManager _sessionManager;
     private readonly AgentOptions _options;
-    private readonly SessionStatusWingman? _statusWingman;
     private readonly Core.Storage.SessionLogManager? _logManager;
     private readonly ConcurrentDictionary<Guid, List<TurnSummary>> _cache = new();
     private readonly ConcurrentDictionary<Guid, Action<Session, TurnData>> _handlers = new();
@@ -37,11 +36,10 @@ public sealed class TurnSummaryCache : IDisposable
     /// <summary>Max summaries kept per session.  Older ones are evicted.</summary>
     public int MaxSummariesPerSession { get; set; } = 100;
 
-    public TurnSummaryCache(SessionManager sessionManager, AgentOptions options, SessionStatusWingman? statusWingman = null, Core.Storage.SessionLogManager? logManager = null)
+    public TurnSummaryCache(SessionManager sessionManager, AgentOptions options, Core.Storage.SessionLogManager? logManager = null)
     {
         _sessionManager = sessionManager;
         _options = options;
-        _statusWingman = statusWingman;
         _logManager = logManager;
     }
 
@@ -147,12 +145,6 @@ public sealed class TurnSummaryCache : IDisposable
 
         Action<Session, TurnData> handler = (s, t) =>
         {
-            // Capture the activity-state generation at the moment the turn ended.
-            // If the session moves to a new generation (user submits again, interrupt,
-            // new turn) before this summary's LLM call returns ~10s later, the verdict
-            // is stale and ApplyTurnSummary will drop it (issue #137 item 4).
-            var genAtTurnEnd = s.ActivityGeneration;
-
             // The turn-completed event is only a TIMING pulse (when a turn ends).
             // The summary CONTENT comes solely from this session's own terminal
             // buffer below - never from the event's hook-derived TurnData, and never
@@ -184,10 +176,10 @@ public sealed class TurnSummaryCache : IDisposable
                     var summary = await WingmanService.SummarizeTurnAsync(
                         transcript, t.Timestamp.UtcDateTime, s.RepoPath, _options.ClaudePath);
                     AddToCache(s.Id, summary);
-                    // Hand the fresh summary to the status wingman (slow path),
-                    // tagged with the generation it was computed for so a stale verdict
-                    // (state moved on during the LLM call) is dropped.
-                    _statusWingman?.ApplyTurnSummary(s, summary, expectedGeneration: genAtTurnEnd);
+                    // The badge colour is owned solely by the TerminalStateDetector's
+                    // state machine (bytes -> blue, silence -> red); the turn summary no
+                    // longer votes on colour. It is still cached and persisted below for
+                    // the Agent view, voice, and goal tracking.
                     // Phase 5: persist the summary to disk so the wingman's history
                     // survives Director restart and is replayable for "ask" queries.
                     _logManager?.WriteTurnSummary(s.Id, summary);

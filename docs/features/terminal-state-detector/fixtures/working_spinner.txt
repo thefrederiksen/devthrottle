@@ -1,7 +1,0 @@
-  I'll search the codebase for everywhere the dictionary path is referenced
-  so I can update them all consistently.
-
-* Searching the codebase... (Brewed for 8s, esc to interrupt)
-
-  Read DictionaryLoader.cs
-  Read CleanupOrchestrator.cs

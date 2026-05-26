@@ -30,6 +30,15 @@ public class TerminalControl : Control
     private const int ScrollbackLines = 1000;
     private const double PollIntervalMs = 50;
 
+    /// <summary>
+    /// How long after a Director-issued PTY resize the terminal-state detector should ignore
+    /// byte activity. A resize makes Claude Code repaint its whole screen; that burst is our
+    /// doing, not the agent working, so we tell the session to suppress it. Kept well under the
+    /// detector's 10s quiet threshold so a genuine work-start that lands inside the window is at
+    /// most delayed until the next byte after it.
+    /// </summary>
+    private static readonly TimeSpan RepaintSuppressionWindow = TimeSpan.FromMilliseconds(1500);
+
     // Cached typefaces - avoid creating new Typeface per character (4 variants for normal/bold/italic combinations)
     private static readonly FontFamily _fontFamily = new("Cascadia Mono, Consolas, Courier New");
     private static readonly Typeface _typefaceNormal = new(_fontFamily, FontStyle.Normal, FontWeight.Normal);
@@ -261,6 +270,18 @@ public class TerminalControl : Control
         }
     }
 
+    /// <summary>
+    /// Issue a PTY resize that the Director caused (attach/switch, force-refresh, layout change).
+    /// Marks the resulting repaint burst as Director-induced first, so the terminal-state detector
+    /// does not mistake it for the agent producing output and flip an idle session to "Working".
+    /// </summary>
+    private void ResizeSession(short cols, short rows)
+    {
+        if (_session is null) return;
+        _session.SuppressActivityFor(RepaintSuppressionWindow);
+        _session.Resize(cols, rows);
+    }
+
     public void Attach(Session session)
     {
         FileLog.Write($"[TerminalControl] Attach: sessionId={session.Id}");
@@ -301,7 +322,7 @@ public class TerminalControl : Control
         // Send resize so Claude Code redraws for current terminal dimensions.
         // Without this, if the window was resized while on another session,
         // Claude Code keeps rendering at the old width.
-        _session.Resize((short)_cols, (short)_rows);
+        ResizeSession((short)_cols, (short)_rows);
 
         InvalidateVisual();
         ScrollChanged?.Invoke(this, EventArgs.Empty);
@@ -382,7 +403,7 @@ public class TerminalControl : Control
 
         RebuildFromBuffer();
 
-        _session.Resize((short)_cols, (short)_rows);
+        ResizeSession((short)_cols, (short)_rows);
 
         InvalidateVisual();
         ScrollChanged?.Invoke(this, EventArgs.Empty);
@@ -783,7 +804,7 @@ public class TerminalControl : Control
             _pollTimer.Tick += PollTimer_Tick;
             _pollTimer.Start();
 
-            _session?.Resize((short)_cols, (short)_rows);
+            ResizeSession((short)_cols, (short)_rows);
 
             InvalidateVisual();
             // Fire after Bounds (and therefore ViewportRows) have a real value
@@ -807,7 +828,7 @@ public class TerminalControl : Control
                     _cells[c, r] = oldCells[c, r];
 
             _parser?.UpdateGrid(_cells, _cols, _rows);
-            _session?.Resize((short)_cols, (short)_rows);
+            ResizeSession((short)_cols, (short)_rows);
             InvalidateVisual();
             ScrollChanged?.Invoke(this, EventArgs.Empty);
         }

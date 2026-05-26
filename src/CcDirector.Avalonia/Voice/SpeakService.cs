@@ -33,6 +33,7 @@ public sealed class SpeakService : IAsyncDisposable
     private CleanupOrchestrator? _cleanup;
     private AudioBuffer? _audioBuffer;
     private DictationSession? _session;
+    private DictationPipeline? _pipeline;
 
     private bool _started;
     private bool _stopped;
@@ -42,6 +43,12 @@ public sealed class SpeakService : IAsyncDisposable
     public event Action<double>? OnInputRms;
     public event Action<string>? OnPartial;
     public event Action<ConnectionState>? OnStateChanged;
+
+    /// <summary>Fires the instant the microphone starts capturing, before the transcription connection completes. The UI anchors its recording timer to this so the displayed time tracks real capture, not the pre-connect setup.</summary>
+    public event Action? OnCaptureStarted;
+
+    /// <summary>Fires once the transcription backend is connected and buffered audio is streaming.</summary>
+    public event Action? OnConnected;
 
     public SpeakService(AgentOptions options)
     {
@@ -64,22 +71,25 @@ public sealed class SpeakService : IAsyncDisposable
         _audioBuffer = new AudioBuffer(spillDirectory: ResolveBufferSpillDir());
         _session = new DictationSession(_dictionary, _provider, _cleanup, _audioBuffer);
 
-        _session.OnPartial += partial => OnPartial?.Invoke(partial);
-        _session.OnStateChanged += state => OnStateChanged?.Invoke(state);
-
-        await _session.StartAsync(profile, ct);
-
+        // Build the mic and wire the UI meters BEFORE handing it to the pipeline.
+        // The equalizer/level meters are driven straight off NAudio and do not
+        // depend on the transcription connection, so the bars move from the
+        // first captured frame - honest visual confirmation that we are
+        // recording even while the backend is still connecting.
         _mic = new MicAudioCapture();
-        _mic.OnAudioChunk += chunk =>
-        {
-            // PushAudio is async but we are inside NAudio's worker thread. Fire-and-forget
-            // is fine; if the provider's WebSocket isn't keeping up we'll buffer or fail
-            // through DictationSession's existing error handling.
-            _ = _session.PushAudioAsync(chunk);
-        };
         _mic.OnAudioBands += bands => OnAudioBands?.Invoke(bands);
         _mic.OnInputRms += rms => OnInputRms?.Invoke(rms);
-        _mic.Start();
+
+        // The pipeline is the load-bearing fix: it starts mic capture FIRST and
+        // buffers everything captured during the (slow) connect, then drains it
+        // in order. No audio is lost to connection latency. See DictationPipeline.
+        _pipeline = new DictationPipeline(_mic, _session);
+        _pipeline.OnPartial += partial => OnPartial?.Invoke(partial);
+        _pipeline.OnStateChanged += state => OnStateChanged?.Invoke(state);
+        _pipeline.OnCaptureStarted += () => OnCaptureStarted?.Invoke();
+        _pipeline.OnConnected += () => OnConnected?.Invoke();
+
+        await _pipeline.StartAsync(profile, ct);
         _started = true;
     }
 
@@ -93,18 +103,20 @@ public sealed class SpeakService : IAsyncDisposable
 
         FileLog.Write("[SpeakService] StopAsync");
 
-        try { _mic?.Stop(); } catch { /* tolerate */ }
+        if (_pipeline is null)
+            throw new InvalidOperationException("Pipeline is null after Start - should be unreachable");
 
-        if (_session is null)
-            throw new InvalidOperationException("Session is null after Start - should be unreachable");
-
-        return await _session.StopAsync(ct);
+        // The pipeline stops capture, drains every captured chunk to the
+        // provider, then commits. It owns mic stop; we do not stop the mic
+        // separately or we would race the drain.
+        return await _pipeline.StopAsync(ct);
     }
 
     public async ValueTask DisposeAsync()
     {
         if (_disposed) return;
         _disposed = true;
+        if (_pipeline is not null) await _pipeline.DisposeAsync();
         try { _mic?.Dispose(); } catch { }
         if (_session is not null) await _session.DisposeAsync();
         _cleanup?.Dispose();

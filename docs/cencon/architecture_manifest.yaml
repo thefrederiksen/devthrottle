@@ -727,13 +727,12 @@ data_flows:
 
   - id: wingman_state_flow
     name: Wingman Terminal-State Flow
-    description: Read-only derivation of session status from the terminal
+    description: Read-only derivation of session status from the terminal (timer only, no LLM)
     path:
       - Session terminal bytes (CircularTerminalBuffer)
-      - "TerminalStateDetector quiet gate (content-aware)"
-      - "WingmanLlmThrottle (<= 1 LLM call / 5s / session)"
-      - "WingmanService.ClassifyTerminalStateAsync (claude --print)"
-      - "SessionStatusWingman writes Session.StatusColor"
+      - "TerminalStateDetector: byte -> Working; 10s silence -> WaitingForInput"
+      - "Session.SetActivityState records the transition + raises the change event"
+      - "SessionStatusWingman maps state -> colour (blue=working, red=needs you)"
 
   - id: comm_queue_scheduling_flow
     name: Comm-Queue Scheduling Flow

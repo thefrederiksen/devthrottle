@@ -1502,6 +1502,7 @@ internal static class ControlEndpoints
         // other endpoints that surface raw summaries; it is not consulted for color.
         var lastWrite = s.Buffer?.LastWriteAtUtc ?? DateTime.MinValue;
         var lastActivity = lastWrite == DateTime.MinValue ? s.CreatedAt.UtcDateTime : lastWrite;
+        var idleSeconds = Math.Max(0, (DateTime.UtcNow - lastActivity).TotalSeconds);
         return new()
         {
             SessionId = s.Id.ToString(),
@@ -1517,6 +1518,8 @@ internal static class ControlEndpoints
             StatusColor = s.StatusColor,
             LastStatusReason = s.LastStatusReason,
             LastActivityAt = lastActivity,
+            IdleSeconds = idleSeconds,
+            QuietThresholdSeconds = CcDirector.Core.Wingman.TerminalStateDetector.QuietThreshold.TotalSeconds,
             VoiceMode = s.VoiceMode,
         };
     }
