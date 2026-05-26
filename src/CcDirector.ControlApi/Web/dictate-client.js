@@ -292,6 +292,14 @@
     }
 
     function cancel() {
+      // Tell the server this is a deliberate cancel (not a dropped recording)
+      // BEFORE teardown closes the socket. The browser flushes queued frames
+      // ahead of the close handshake, so the abort arrives first. This keeps
+      // the server's audio-recovery path (close-with-audio = finalize) from
+      // firing on an intentional cancel.
+      try {
+        if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'abort' }));
+      } catch (_) {}
       teardown();
       onCancel();
     }

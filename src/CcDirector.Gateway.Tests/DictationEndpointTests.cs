@@ -200,6 +200,158 @@ public sealed class DictationEndpointTests : IAsyncLifetime
             "cleaned transcript missing all expected terms: " + cleaned);
     }
 
+    [Fact]
+    public async Task ClientCloseWithoutStop_recovers_transcript_instead_of_discarding()
+    {
+        // Regression for the dominant "half my transcriptions don't come
+        // through" failure: the browser kills the socket mid-recording (mobile
+        // backgrounding, tab blur, network blip) without sending a 'stop'
+        // frame. The server used to log "client closed before stop" and throw
+        // the captured audio away. It must now finalize and record the
+        // recovered transcript instead.
+        var audioPath = FindClip2Mp3();
+        if (audioPath is null) return;
+        if (!HasOpenAiKey()) return;
+        var ffmpeg = FindFfmpeg();
+        if (ffmpeg is null) return;
+
+        var pcm = DecodeMp3ToPcm16At24k(audioPath, ffmpeg);
+        if (pcm is null || pcm.Length == 0) return;
+
+        var startedUtc = DateTime.UtcNow;
+
+        using (var ws = new ClientWebSocket())
+        {
+            await ws.ConnectAsync(new Uri($"ws://127.0.0.1:{_port}/dictate"), CancellationToken.None);
+
+            var ready = await ReceiveJsonAsync(ws);
+            Assert.Equal("ready", ready.GetProperty("type").GetString());
+
+            await SendJsonAsync(ws, new { type = "start", profile = "default" });
+
+            bool started = false;
+            for (int i = 0; i < 5 && !started; i++)
+            {
+                var frame = await ReceiveJsonAsync(ws);
+                if (frame.GetProperty("type").GetString() == "started") started = true;
+            }
+            Assert.True(started, "did not receive 'started' frame");
+
+            const int chunkSize = 4096;
+            for (int offset = 0; offset < pcm.Length; offset += chunkSize)
+            {
+                var len = Math.Min(chunkSize, pcm.Length - offset);
+                await ws.SendAsync(pcm.AsMemory(offset, len), WebSocketMessageType.Binary, endOfMessage: true, CancellationToken.None);
+            }
+
+            // Simulate the browser dropping the socket: a one-way close with NO
+            // 'stop' frame, exactly what a backgrounded mobile tab does. The
+            // streamed audio frames are queued ahead of this close frame on the
+            // same connection, so the server reads all of them, then the close.
+            await ws.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "dropped", CancellationToken.None);
+
+            // Keep the connection alive until the server finishes recovering and
+            // closes from its side. Without this the `using` dispose would ABORT
+            // the TCP connection and discard the still-buffered audio frames -
+            // which a real browser does not do.
+            using var drainDeadline = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+            try
+            {
+                var buf = new byte[4096];
+                while (ws.State == WebSocketState.Open || ws.State == WebSocketState.CloseSent)
+                {
+                    var r = await ws.ReceiveAsync(buf, drainDeadline.Token);
+                    if (r.MessageType == WebSocketMessageType.Close) break;
+                }
+            }
+            catch { /* server-side close races are fine; recovery is what we assert */ }
+        }
+
+        // The server recovers off the dead connection, so the only observable
+        // is the session log. Poll for a "recovered" record written after we
+        // started (an abnormal drop can interrupt mid-stream, so the recovered
+        // byte count may be less than what we sent - match on the marker, not
+        // an exact byte count).
+        var record = await WaitForRecoveredRecordAsync(
+            sinceUtc: startedUtc,
+            timeout: TimeSpan.FromSeconds(90));
+
+        Assert.NotNull(record);
+        var raw = record.Value.GetProperty("RawTranscript").GetString() ?? "";
+        Assert.False(string.IsNullOrWhiteSpace(raw), "recovered transcript was empty - audio was discarded");
+
+        // Delivery path: the recovered transcript must be fetchable by a
+        // reconnecting browser via GET /dictate/recovered, then dismissable.
+        using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_port}/") };
+
+        var listJson = await http.GetStringAsync("dictate/recovered");
+        using var listDoc = JsonDocument.Parse(listJson);
+        var items = listDoc.RootElement.GetProperty("recovered");
+        Assert.True(items.GetArrayLength() >= 1, "recovered transcript was not offered for pickup");
+
+        var entry = items[items.GetArrayLength() - 1];
+        var id = entry.GetProperty("id").GetString();
+        Assert.NotNull(id);
+        var text = entry.GetProperty("text").GetString() ?? "";
+        Assert.False(string.IsNullOrWhiteSpace(text), "offered recovered transcript was empty");
+
+        var dismissResp = await http.PostAsync($"dictate/recovered/{id}/dismiss", content: null);
+        Assert.True(dismissResp.IsSuccessStatusCode);
+
+        // After dismissal that id must be gone.
+        var afterJson = await http.GetStringAsync("dictate/recovered");
+        using var afterDoc = JsonDocument.Parse(afterJson);
+        foreach (var e in afterDoc.RootElement.GetProperty("recovered").EnumerateArray())
+            Assert.NotEqual(id, e.GetProperty("id").GetString());
+    }
+
+    /// <summary>
+    /// Poll the daily dictation session JSONL for a "recovered:" record written
+    /// after <paramref name="sinceUtc"/>. Returns null if none appears within
+    /// the timeout.
+    /// </summary>
+    private static async Task<JsonElement?> WaitForRecoveredRecordAsync(DateTime sinceUtc, TimeSpan timeout)
+    {
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var dir = Path.Combine(localAppData, "cc-director", "dictation", "sessions");
+        var deadline = DateTime.UtcNow + timeout;
+
+        while (DateTime.UtcNow < deadline)
+        {
+            // The record's day file is keyed off the server's UtcNow at session
+            // start; check today's and (across midnight) the start day's file.
+            foreach (var day in new[] { DateTime.UtcNow, sinceUtc })
+            {
+                var path = Path.Combine(dir, day.ToString("yyyy-MM-dd") + ".jsonl");
+                if (!File.Exists(path)) continue;
+
+                string[] lines;
+                try { lines = await File.ReadAllLinesAsync(path); }
+                catch (IOException) { continue; } // mid-append; retry
+
+                for (int i = lines.Length - 1; i >= 0; i--)
+                {
+                    if (string.IsNullOrWhiteSpace(lines[i])) continue;
+                    JsonElement el;
+                    try { using var doc = JsonDocument.Parse(lines[i]); el = doc.RootElement.Clone(); }
+                    catch (JsonException) { continue; }
+
+                    var err = el.TryGetProperty("ClientError", out var ce) ? ce.GetString() : null;
+                    if (err is null || !err.Contains("recovered", StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    if (el.TryGetProperty("TimestampUtc", out var ts)
+                        && DateTime.TryParse(ts.GetString(), null, System.Globalization.DateTimeStyles.RoundtripKind, out var when)
+                        && when.ToUniversalTime() >= sinceUtc.AddSeconds(-2))
+                    {
+                        return el;
+                    }
+                }
+            }
+            await Task.Delay(500);
+        }
+        return null;
+    }
+
     // ===== helpers =========================================================
 
     private static string? FindFfmpeg()

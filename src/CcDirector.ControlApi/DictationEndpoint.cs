@@ -52,6 +52,12 @@ internal static class DictationEndpoint
 {
     private const string BufferRootName = "buffer";
 
+    // 24 kHz mono PCM16 = 48000 bytes/sec, so half a second is 24000 bytes.
+    // This is the floor below which a close-without-stop is treated as a
+    // genuine cancel (nothing worth saying was captured) rather than a dropped
+    // recording whose audio we should recover.
+    private const int MinRecoverableAudioBytes = 24_000;
+
     public static void Map(IEndpointRouteBuilder app, AgentOptions options)
     {
         app.MapGet("/dictate.html", () =>
@@ -70,6 +76,28 @@ internal static class DictationEndpoint
         {
             var js = EmbeddedResources.Load("dictate-client.js");
             return Results.Content(js, "application/javascript; charset=utf-8");
+        });
+
+        // Recovered-dictation pickup: the browser polls this on load and on
+        // tab-visible to see if a dropped recording was transcribed server-side
+        // while it was gone, then offers to insert it.
+        app.MapGet("/dictate/recovered", () =>
+        {
+            var items = RecoveredDictationStore.GetFresh()
+                .Select(e => new
+                {
+                    id = e.Id,
+                    text = e.Text,
+                    ageSeconds = (int)(DateTime.UtcNow - e.CreatedUtc).TotalSeconds,
+                })
+                .ToArray();
+            return Results.Json(new { recovered = items });
+        });
+
+        app.MapPost("/dictate/recovered/{id}/dismiss", (string id) =>
+        {
+            var removed = RecoveredDictationStore.Remove(id);
+            return Results.Json(new { dismissed = removed });
         });
 
         app.MapGet("/dictate", async (HttpContext ctx) =>
@@ -163,53 +191,107 @@ internal static class DictationEndpoint
                       + $"dict={dictPath} spillDir={bufferSpillDir}");
 
         var rxBuffer = new byte[16 * 1024];
-        while (true)
+        var recoveredFromEarlyClose = false;
+        try
         {
-            var result = await ws.ReceiveAsync(rxBuffer, ct);
-            if (result.MessageType == WebSocketMessageType.Close)
+            while (true)
             {
-                FileLog.Write($"[DictationEndpoint] sid={sessionId} client closed before stop frame");
-                LogSessionRecord(sessionId, sessionStartUtc, profile, dict, recordingStart, 0, 0,
-                    audioBytesReceived, transcript: null, options, remoteIp,
-                    clientError: "client closed before stop");
-                return;
-            }
-            if (result.MessageType == WebSocketMessageType.Binary)
-            {
-                var audio = await ReadFullBinaryAsync(ws, rxBuffer, result, ct);
-                if (audio.Length > 0)
+                var result = await ws.ReceiveAsync(rxBuffer, ct);
+                if (result.MessageType == WebSocketMessageType.Close)
                 {
-                    audioBytesReceived += audio.Length;
-                    await session.PushAudioAsync(audio, ct);
-                }
-                continue;
-            }
-            var textMsg = await ReadFullTextAsync(ws, rxBuffer, result, ct);
-            using var doc = TryParseJson(textMsg);
-            if (doc is null) continue;
-            if (TryReadString(doc.RootElement, "type", out var t))
-            {
-                if (t == "stop") break;
-                if (t == "abort")
-                {
-                    FileLog.Write($"[DictationEndpoint] sid={sessionId} client aborted");
-                    LogSessionRecord(sessionId, sessionStartUtc, profile, dict, recordingStart, 0, 0,
-                        audioBytesReceived, transcript: null, options, remoteIp,
-                        clientError: "client aborted");
-                    await TryCloseAsync(ws, WebSocketCloseStatus.NormalClosure, "aborted");
+                    // A clean close handshake without a 'stop' frame. If a
+                    // meaningful amount of audio was captured, treat it as an
+                    // implicit stop and recover (see RecoverOrDiscard).
+                    if (TryRecoverOrDiscard("client closed before stop", out clientError))
+                    {
+                        recoveredFromEarlyClose = true;
+                        break;
+                    }
                     return;
                 }
+                if (result.MessageType == WebSocketMessageType.Binary)
+                {
+                    var audio = await ReadFullBinaryAsync(ws, rxBuffer, result, ct);
+                    if (audio.Length > 0)
+                    {
+                        audioBytesReceived += audio.Length;
+                        await session.PushAudioAsync(audio, ct);
+                    }
+                    continue;
+                }
+                var textMsg = await ReadFullTextAsync(ws, rxBuffer, result, ct);
+                using var doc = TryParseJson(textMsg);
+                if (doc is null) continue;
+                if (TryReadString(doc.RootElement, "type", out var t))
+                {
+                    if (t == "stop") break;
+                    if (t == "abort")
+                    {
+                        FileLog.Write($"[DictationEndpoint] sid={sessionId} client aborted");
+                        LogSessionRecord(sessionId, sessionStartUtc, profile, dict, recordingStart, 0, 0,
+                            audioBytesReceived, transcript: null, options, remoteIp,
+                            clientError: "client aborted");
+                        await TryCloseAsync(ws, WebSocketCloseStatus.NormalClosure, "aborted");
+                        return;
+                    }
+                }
             }
+        }
+        catch (Exception ex)
+        {
+            // The connection ended WITHOUT a clean close handshake - the common
+            // real-world case when a mobile browser is backgrounded or the
+            // network blips. ReceiveAsync throws (cancellation via
+            // RequestAborted, a transport-level WebSocketException, or an
+            // IOException) instead of returning a Close message, and it can
+            // interrupt mid-stream so fewer bytes were received than the client
+            // sent. Whatever the cause, if we captured real audio it is the same
+            // "lost recording" situation as a clean early close: recover it
+            // rather than letting the outer handler discard everything.
+            FileLog.Write($"[DictationEndpoint] sid={sessionId} receive loop ended abnormally: "
+                          + $"{ex.GetType().Name}: {ex.Message}");
+            if (!TryRecoverOrDiscard("connection dropped before stop", out clientError))
+                return;
+            recoveredFromEarlyClose = true;
+        }
+
+        // Local helper: decide whether an early/abnormal end-of-stream carried
+        // enough audio to be worth finalizing. Returns true (with a "recovered:"
+        // clientError) to fall through to the finalize block, or false (after
+        // logging a discard record) to bail out.
+        bool TryRecoverOrDiscard(string what, out string? error)
+        {
+            if (audioBytesReceived >= MinRecoverableAudioBytes)
+            {
+                FileLog.Write($"[DictationEndpoint] sid={sessionId} {what} with "
+                              + $"{audioBytesReceived} bytes captured; recovering transcript");
+                error = "recovered: " + what + " frame";
+                return true;
+            }
+            FileLog.Write($"[DictationEndpoint] sid={sessionId} {what} "
+                          + $"({audioBytesReceived} bytes, below recovery threshold)");
+            LogSessionRecord(sessionId, sessionStartUtc, profile, dict, recordingStart, 0, 0,
+                audioBytesReceived, transcript: null, options, remoteIp,
+                clientError: "client closed before stop");
+            error = null;
+            return false;
         }
 
         recordingStart.Stop();
         var stopWatch = System.Diagnostics.Stopwatch.StartNew();
         await SendJsonAsync(ws, new { type = "transcribing" }, ct);
 
+        // On the recovery path the client connection is already gone, so its
+        // cancellation token (RequestAborted) may already be firing. Finalizing
+        // the transcription talks to OpenAI over a SEPARATE socket and must not
+        // be cancelled just because the client vanished - the provider's own
+        // 30s StopTimeout still bounds it. Use an independent token there.
+        var finalizeCt = recoveredFromEarlyClose ? CancellationToken.None : ct;
+
         TranscriptResult? transcript = null;
         try
         {
-            transcript = await session.StopAsync(ct);
+            transcript = await session.StopAsync(finalizeCt);
             transcribedElapsedMs = stopWatch.ElapsedMilliseconds;
         }
         catch (Exception ex)
@@ -236,6 +318,20 @@ internal static class DictationEndpoint
             FileLog.Write($"[DictationEndpoint] sid={sessionId} done in {stopElapsedMs}ms: "
                           + $"raw_len={transcript.RawTranscript.Length} cleaned_len={transcript.CleanedTranscript.Length} "
                           + $"applied={transcript.CleanupApplied}");
+
+            // The 'final' frame above could not reach a client that already
+            // dropped the socket, so park the recovered transcript for the
+            // browser to pick up on reconnect. Only on the recovery path - a
+            // normal stop already delivered the text live.
+            if (recoveredFromEarlyClose)
+            {
+                var recoveredText = string.IsNullOrWhiteSpace(transcript.CleanedTranscript)
+                    ? transcript.RawTranscript
+                    : transcript.CleanedTranscript;
+                RecoveredDictationStore.Add(recoveredText);
+                FileLog.Write($"[DictationEndpoint] sid={sessionId} parked recovered transcript "
+                              + $"({recoveredText?.Length ?? 0} chars) for browser pickup");
+            }
         }
 
         LogSessionRecord(sessionId, sessionStartUtc, profile, dict, recordingStart,
