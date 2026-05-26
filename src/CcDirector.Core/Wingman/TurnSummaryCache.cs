@@ -51,10 +51,22 @@ public sealed class TurnSummaryCache : IDisposable
 
         _sessionManager.OnSessionCreated += OnSessionCreated;
         _sessionManager.OnSessionContextReset += OnSessionContextReset;
+        _sessionManager.OnSessionRemoved += OnSessionRemoved;
 
         // Wire up existing sessions too (restored on startup).
         foreach (var s in _sessionManager.ListSessions())
             WireSession(s);
+    }
+
+    /// <summary>Unhook the turn-completed handler and drop all per-session state
+    /// when a session is removed, so closed sessions do not leak handlers, cached
+    /// summaries, or buffer cursors.</summary>
+    private void OnSessionRemoved(Session session)
+    {
+        if (_handlers.TryRemove(session.Id, out var h))
+            session.OnTurnCompleted -= h;
+        _cache.TryRemove(session.Id, out _);
+        _bufferCursors.TryRemove(session.Id, out _);
     }
 
     private void OnSessionContextReset(Session session)
@@ -251,6 +263,7 @@ public sealed class TurnSummaryCache : IDisposable
         _disposed = true;
         _sessionManager.OnSessionCreated -= OnSessionCreated;
         _sessionManager.OnSessionContextReset -= OnSessionContextReset;
+        _sessionManager.OnSessionRemoved -= OnSessionRemoved;
         foreach (var s in _sessionManager.ListSessions())
         {
             if (_handlers.TryRemove(s.Id, out var h))

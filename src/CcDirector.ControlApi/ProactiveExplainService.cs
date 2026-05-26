@@ -52,11 +52,21 @@ public sealed class ProactiveExplainService : IDisposable
         FileLog.Write("[ProactiveExplainService] Start");
 
         _sessionManager.OnSessionCreated += OnSessionCreated;
+        _sessionManager.OnSessionRemoved += OnSessionRemoved;
         foreach (var s in _sessionManager.ListSessions())
             WireSession(s);
     }
 
     private void OnSessionCreated(Session session) => WireSession(session);
+
+    /// <summary>Unhook the activity-state handler and clear the in-flight guard
+    /// when a session is removed, so closed sessions do not leak handlers.</summary>
+    private void OnSessionRemoved(Session session)
+    {
+        if (_handlers.TryRemove(session.Id, out var h))
+            session.OnActivityStateChanged -= h;
+        _inFlight.TryRemove(session.Id, out _);
+    }
 
     private void WireSession(Session session)
     {
@@ -121,6 +131,7 @@ public sealed class ProactiveExplainService : IDisposable
         try { _cts.Cancel(); } catch { }
 
         _sessionManager.OnSessionCreated -= OnSessionCreated;
+        _sessionManager.OnSessionRemoved -= OnSessionRemoved;
         foreach (var s in _sessionManager.ListSessions())
         {
             if (_handlers.TryRemove(s.Id, out var h))

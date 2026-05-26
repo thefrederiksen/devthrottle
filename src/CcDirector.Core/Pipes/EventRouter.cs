@@ -136,13 +136,22 @@ public sealed class EventRouter : IDisposable
 
     private void CleanupDedupeCache(object? state)
     {
-        var cutoff = DateTimeOffset.UtcNow.AddSeconds(-10);
-        foreach (var kvp in _recentMessages)
+        // Runs on a System.Threading.Timer thread; an escaped exception would
+        // terminate the process. Log and swallow.
+        try
         {
-            if (kvp.Value < cutoff)
+            var cutoff = DateTimeOffset.UtcNow.AddSeconds(-10);
+            foreach (var kvp in _recentMessages)
             {
-                _recentMessages.TryRemove(kvp.Key, out _);
+                if (kvp.Value < cutoff)
+                {
+                    _recentMessages.TryRemove(kvp.Key, out _);
+                }
             }
+        }
+        catch (Exception ex)
+        {
+            _log?.Invoke($"[EventRouter] CleanupDedupeCache failed: {ex.Message}");
         }
     }
 }

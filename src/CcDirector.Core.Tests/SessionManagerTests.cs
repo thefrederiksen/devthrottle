@@ -264,6 +264,76 @@ public class SessionManagerTests : IDisposable
         }
     }
 
+    [Fact]
+    public void RemoveSession_FiresOnSessionRemoved_Once_WithThatSession()
+    {
+        var session = _manager.CreateSession(Path.GetTempPath());
+
+        var fired = new List<Guid>();
+        _manager.OnSessionRemoved += s => fired.Add(s.Id);
+
+        _manager.RemoveSession(session.Id);
+
+        Assert.Single(fired);
+        Assert.Equal(session.Id, fired[0]);
+    }
+
+    [Fact]
+    public void RemoveSession_FiresOnSessionRemoved_BeforeBufferIsDisposed()
+    {
+        // The whole crash fix hinges on this ordering: subscribers (TerminalStateDetector
+        // et al.) must be able to stop background timers that read the session's terminal
+        // buffer BEFORE that buffer is disposed. So at the moment OnSessionRemoved fires,
+        // the buffer must still be readable (not yet disposed).
+        var session = _manager.CreateSession(Path.GetTempPath());
+
+        Exception? bufferReadError = null;
+        bool bufferWasReadable = false;
+        _manager.OnSessionRemoved += s =>
+        {
+            try
+            {
+                // Reading the buffer here must not throw - it is still alive.
+                _ = s.Buffer?.LastWriteAtUtc;
+                bufferWasReadable = s.Buffer is not null;
+            }
+            catch (Exception ex)
+            {
+                bufferReadError = ex;
+            }
+        };
+
+        _manager.RemoveSession(session.Id);
+
+        Assert.Null(bufferReadError);
+        Assert.True(bufferWasReadable);
+    }
+
+    [Fact]
+    public void RemoveSession_UnknownId_DoesNotFireOnSessionRemoved()
+    {
+        var fired = false;
+        _manager.OnSessionRemoved += _ => fired = true;
+
+        _manager.RemoveSession(Guid.NewGuid());
+
+        Assert.False(fired);
+    }
+
+    [Fact]
+    public void RemoveSession_OnSessionRemovedHandlerThrows_DoesNotPropagate()
+    {
+        // A faulting subscriber must never break session removal (or, worse, escape
+        // to crash the app). SessionManager swallows and logs handler exceptions.
+        var session = _manager.CreateSession(Path.GetTempPath());
+        _manager.OnSessionRemoved += _ => throw new InvalidOperationException("boom");
+
+        var ex = Record.Exception(() => _manager.RemoveSession(session.Id));
+
+        Assert.Null(ex);
+        Assert.Null(_manager.GetSession(session.Id)); // removal still completed
+    }
+
     public void Dispose()
     {
         _manager.Dispose();

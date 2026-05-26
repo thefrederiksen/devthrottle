@@ -75,6 +75,22 @@ public sealed class MutexLeaderElection : IDisposable
 
     private void Loop()
     {
+        // This is a raw background thread; any exception that escapes it would be
+        // unhandled and terminate the process. The inner loop already guards its
+        // body, but this outer guard ensures even the loop condition or teardown
+        // (e.g. a raced ObjectDisposedException) cannot crash the app.
+        try
+        {
+            LoopCore();
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[LeaderElection] Loop terminated by unexpected error: {ex.Message}");
+        }
+    }
+
+    private void LoopCore()
+    {
         var pid = Environment.ProcessId;
         FileLog.Write($"[LeaderElection] Started pid={pid} mutex={_name}");
 

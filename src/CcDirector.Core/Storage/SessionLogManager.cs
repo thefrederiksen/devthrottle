@@ -40,6 +40,7 @@ public sealed class SessionLogManager : IDisposable
         FileLog.Write("[SessionLogManager] Start");
 
         _sessionManager.OnSessionCreated += OnSessionCreated;
+        _sessionManager.OnSessionRemoved += OnSessionRemoved;
 
         // Wire any sessions that already exist (restored on Director boot).
         foreach (var s in _sessionManager.ListSessions())
@@ -47,6 +48,18 @@ public sealed class SessionLogManager : IDisposable
     }
 
     private void OnSessionCreated(Session session) => EnsureWriter(session);
+
+    /// <summary>Close and release the session's log writer when the session is
+    /// removed (the teardown this manager's doc comment always promised).</summary>
+    private void OnSessionRemoved(Session session)
+    {
+        if (_writers.TryRemove(session.Id, out var writer))
+        {
+            try { writer.Dispose(); }
+            catch (Exception ex) { FileLog.Write($"[SessionLogManager] writer dispose failed for {session.Id}: {ex.Message}"); }
+            FileLog.Write($"[SessionLogManager] writer closed for {session.Id}");
+        }
+    }
 
     private void EnsureWriter(Session session)
     {
@@ -90,6 +103,7 @@ public sealed class SessionLogManager : IDisposable
         _disposed = true;
 
         _sessionManager.OnSessionCreated -= OnSessionCreated;
+        _sessionManager.OnSessionRemoved -= OnSessionRemoved;
 
         foreach (var w in _writers.Values)
         {

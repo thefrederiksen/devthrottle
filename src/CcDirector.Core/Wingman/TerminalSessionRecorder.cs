@@ -52,11 +52,20 @@ public sealed class TerminalSessionRecorder : IDisposable
         try { Directory.CreateDirectory(_root); } catch (Exception ex) { FileLog.Write($"[TerminalSessionRecorder] cannot create {_root}: {ex.Message}"); }
         FileLog.Write($"[TerminalSessionRecorder] Start (root={_root}, capPerSession={_maxBytesPerSession / (1024 * 1024)}MB)");
         _sessionManager.OnSessionCreated += OnSessionCreated;
+        _sessionManager.OnSessionRemoved += OnSessionRemoved;
         foreach (var s in _sessionManager.ListSessions())
             Wire(s);
     }
 
     private void OnSessionCreated(Session session) => Wire(session);
+
+    /// <summary>Stop recording and release the buffer subscription when a session
+    /// is removed, so closed sessions do not leak per-session recorders.</summary>
+    private void OnSessionRemoved(Session session)
+    {
+        if (_recorders.TryRemove(session.Id, out var r))
+            r.Dispose();
+    }
 
     private void Wire(Session session)
     {
@@ -74,6 +83,7 @@ public sealed class TerminalSessionRecorder : IDisposable
         if (_disposed) return;
         _disposed = true;
         _sessionManager.OnSessionCreated -= OnSessionCreated;
+        _sessionManager.OnSessionRemoved -= OnSessionRemoved;
         foreach (var r in _recorders.Values)
             r.Dispose();
         _recorders.Clear();

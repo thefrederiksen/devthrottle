@@ -29,6 +29,18 @@ public sealed class SessionManager : IDisposable
     /// </summary>
     public event Action<Session>? OnSessionCreated;
 
+    /// <summary>
+    /// Fired immediately BEFORE a session is disposed and removed from tracking
+    /// (via <see cref="RemoveSession"/>). Subscribers that wired per-session
+    /// resources in response to <see cref="OnSessionCreated"/> -- timers, buffer
+    /// event handlers, caches -- MUST tear them down here. Firing before disposal
+    /// is critical: it lets a subscriber stop a background timer that touches the
+    /// session's <see cref="CircularTerminalBuffer"/> before that buffer is
+    /// disposed, which otherwise faults on a timer thread and crashes the process.
+    /// Handlers must be idempotent and must not throw.
+    /// </summary>
+    public event Action<Session>? OnSessionRemoved;
+
     public SessionManager(AgentOptions options, Action<string>? log = null)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
@@ -258,6 +270,13 @@ public sealed class SessionManager : IDisposable
             // Remove any Claude session mapping
             if (session.ClaudeSessionId != null)
                 _claudeSessionMap.TryRemove(session.ClaudeSessionId, out _);
+
+            // Tell per-session subscribers to tear down BEFORE we dispose the
+            // session (and its terminal buffer). A subscriber holding a background
+            // timer that reads the buffer must stop it now; otherwise that timer
+            // faults on a disposed buffer and crashes the process.
+            try { OnSessionRemoved?.Invoke(session); }
+            catch (Exception ex) { _log?.Invoke($"OnSessionRemoved handler threw: {ex.Message}"); }
 
             session.Dispose();
             _log?.Invoke($"Session {id} removed.");

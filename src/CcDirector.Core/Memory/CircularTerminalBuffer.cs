@@ -15,7 +15,7 @@ public sealed class CircularTerminalBuffer : IDisposable
     private int _writeHead;       // Next write position in the circular buffer
     private long _totalWritten;   // Monotonic counter - never wraps
     private DateTime _lastWriteAtUtc = DateTime.MinValue;
-    private bool _disposed;
+    private volatile bool _disposed;
 
     // Lock contention tracking
     private int _writeLockWaitCount;
@@ -36,7 +36,7 @@ public sealed class CircularTerminalBuffer : IDisposable
     {
         get
         {
-            _lock.EnterReadLock();
+            if (!TryEnterReadLock()) return Interlocked.Read(ref _totalWritten);
             try { return _totalWritten; }
             finally { _lock.ExitReadLock(); }
         }
@@ -51,7 +51,12 @@ public sealed class CircularTerminalBuffer : IDisposable
     {
         get
         {
-            _lock.EnterReadLock();
+            // A disposed buffer means the session was torn down. Return the last
+            // known timestamp without touching the (possibly disposed) lock rather
+            // than throwing ObjectDisposedException on a caller's thread -- a throw
+            // here from a background timer (TerminalStateDetector) would terminate
+            // the whole process.
+            if (!TryEnterReadLock()) return _lastWriteAtUtc;
             try { return _lastWriteAtUtc; }
             finally { _lock.ExitReadLock(); }
         }
@@ -71,9 +76,12 @@ public sealed class CircularTerminalBuffer : IDisposable
     public void Write(ReadOnlySpan<byte> data)
     {
         if (data.IsEmpty) return;
+        if (_disposed) return; // buffer torn down; nothing more is written
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        bool acquired = _lock.TryEnterWriteLock(TimeSpan.FromMilliseconds(100));
+        bool acquired;
+        try { acquired = _lock.TryEnterWriteLock(TimeSpan.FromMilliseconds(100)); }
+        catch (ObjectDisposedException) { return; } // raced with Dispose
         sw.Stop();
 
         if (!acquired)
@@ -81,7 +89,8 @@ public sealed class CircularTerminalBuffer : IDisposable
             _writeLockWaitCount++;
             FileLog.Write($"[CircularTerminalBuffer] Write lock timeout after 100ms, waitCount={_writeLockWaitCount}, dataLen={data.Length}");
             // Force acquire (blocking) - we need to log if this happens
-            _lock.EnterWriteLock();
+            try { _lock.EnterWriteLock(); }
+            catch (ObjectDisposedException) { return; } // raced with Dispose
             FileLog.Write($"[CircularTerminalBuffer] Write lock finally acquired after blocking");
         }
         else if (sw.ElapsedMilliseconds > 10)
@@ -135,7 +144,7 @@ public sealed class CircularTerminalBuffer : IDisposable
     /// <summary>Return all valid bytes in chronological order.</summary>
     public byte[] DumpAll()
     {
-        _lock.EnterReadLock();
+        if (!TryEnterReadLock()) return Array.Empty<byte>();
         try
         {
             if (_totalWritten == 0)
@@ -178,8 +187,12 @@ public sealed class CircularTerminalBuffer : IDisposable
     /// </summary>
     public (byte[] Data, long NewPosition) GetWrittenSince(long position)
     {
+        if (_disposed) return (Array.Empty<byte>(), Interlocked.Read(ref _totalWritten));
+
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        bool acquired = _lock.TryEnterReadLock(TimeSpan.FromMilliseconds(100));
+        bool acquired;
+        try { acquired = _lock.TryEnterReadLock(TimeSpan.FromMilliseconds(100)); }
+        catch (ObjectDisposedException) { return (Array.Empty<byte>(), Interlocked.Read(ref _totalWritten)); }
         sw.Stop();
 
         if (!acquired)
@@ -187,7 +200,8 @@ public sealed class CircularTerminalBuffer : IDisposable
             _readLockWaitCount++;
             FileLog.Write($"[CircularTerminalBuffer] Read lock timeout after 100ms, waitCount={_readLockWaitCount}, pos={position}");
             // Force acquire (blocking)
-            _lock.EnterReadLock();
+            try { _lock.EnterReadLock(); }
+            catch (ObjectDisposedException) { return (Array.Empty<byte>(), Interlocked.Read(ref _totalWritten)); }
             FileLog.Write($"[CircularTerminalBuffer] Read lock finally acquired after blocking");
         }
         else if (sw.ElapsedMilliseconds > 10)
@@ -239,7 +253,9 @@ public sealed class CircularTerminalBuffer : IDisposable
     /// <summary>Reset the buffer.</summary>
     public void Clear()
     {
-        _lock.EnterWriteLock();
+        if (_disposed) return;
+        try { _lock.EnterWriteLock(); }
+        catch (ObjectDisposedException) { return; } // raced with Dispose
         try
         {
             Array.Clear(_buffer);
@@ -249,6 +265,27 @@ public sealed class CircularTerminalBuffer : IDisposable
         finally
         {
             _lock.ExitWriteLock();
+        }
+    }
+
+    /// <summary>
+    /// Acquire the read lock unless the buffer is being/has been disposed. Returns
+    /// false (caller must NOT call ExitReadLock) when the buffer is torn down, so
+    /// readers can return a safe default instead of throwing ObjectDisposedException.
+    /// This is the last-resort guard for the inherent race between a reader on a
+    /// background thread and Dispose() on the teardown path.
+    /// </summary>
+    private bool TryEnterReadLock()
+    {
+        if (_disposed) return false;
+        try
+        {
+            _lock.EnterReadLock();
+            return true;
+        }
+        catch (ObjectDisposedException)
+        {
+            return false; // Dispose() raced us between the _disposed check and EnterReadLock
         }
     }
 
@@ -282,7 +319,33 @@ public sealed class CircularTerminalBuffer : IDisposable
     public void Dispose()
     {
         if (_disposed) return;
-        _disposed = true;
+
+        // Drain any in-flight readers/writers before disposing the lock: take the
+        // write lock (which waits for current lock holders to exit), flip _disposed
+        // while holding it so no new reader proceeds past TryEnterReadLock, then
+        // release and dispose. Without this drain, a reader sitting inside the lock
+        // when we disposed it would fault. The volatile _disposed plus the ODE
+        // guards in the accessors cover the narrow check-then-acquire race.
+        bool taken = false;
+        try
+        {
+            _lock.EnterWriteLock();
+            taken = true;
+        }
+        catch (ObjectDisposedException)
+        {
+            return; // already disposed by a concurrent caller
+        }
+
+        try
+        {
+            _disposed = true;
+        }
+        finally
+        {
+            if (taken) _lock.ExitWriteLock();
+        }
+
         _lock.Dispose();
     }
 }

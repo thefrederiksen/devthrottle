@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Text;
 using CcDirector.Core.Memory;
+using CcDirector.Core.Utilities;
 using Microsoft.Win32.SafeHandles;
 using static CcDirector.Core.ConPty.NativeMethods;
 
@@ -218,9 +219,18 @@ public sealed class ProcessHost : IDisposable
     {
         _exitMonitorTask = Task.Run(() =>
         {
-            WaitForSingleObject(_processInfo.hProcess, INFINITE);
-            GetExitCodeProcess(_processInfo.hProcess, out uint exitCode);
-            OnExited?.Invoke((int)exitCode);
+            try
+            {
+                WaitForSingleObject(_processInfo.hProcess, INFINITE);
+                GetExitCodeProcess(_processInfo.hProcess, out uint exitCode);
+                OnExited?.Invoke((int)exitCode);
+            }
+            catch (Exception ex)
+            {
+                // OnExited runs subscriber code that may throw. Isolate it so a
+                // faulting subscriber cannot fault this background task.
+                FileLog.Write($"[ProcessHost] StartExitMonitor failed: {ex.Message}");
+            }
         });
     }
 

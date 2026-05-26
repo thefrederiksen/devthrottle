@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text;
 using CcDirector.Core.Memory;
+using CcDirector.Core.Utilities;
 using static CcDirector.Core.UnixPty.UnixNativeMethods;
 
 namespace CcDirector.Core.UnixPty;
@@ -149,6 +150,11 @@ public sealed class UnixProcessHost : IDisposable
             catch (OperationCanceledException)
             {
                 // Expected during shutdown
+            }
+            catch (Exception ex)
+            {
+                // OnExited runs subscriber code that may throw. Isolate it.
+                FileLog.Write($"[UnixProcessHost] StartExitMonitor failed: {ex.Message}");
             }
         });
     }

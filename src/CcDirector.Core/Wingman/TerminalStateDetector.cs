@@ -52,11 +52,23 @@ public sealed class TerminalStateDetector : IDisposable
         FileLog.Write($"[TerminalStateDetector] Start (mode={(_driveState ? "authoritative" : "observe")}, rule=byte->working, quiet={QuietThreshold.TotalSeconds}s)");
 
         _sessionManager.OnSessionCreated += OnSessionCreated;
+        _sessionManager.OnSessionRemoved += OnSessionRemoved;
         foreach (var s in _sessionManager.ListSessions())
             Wire(s);
     }
 
     private void OnSessionCreated(Session session) => Wire(session);
+
+    /// <summary>
+    /// Tear down the per-session watcher (and its idle timer) BEFORE the session's
+    /// terminal buffer is disposed. Required: an armed timer firing after the buffer
+    /// is gone would fault on a disposed lock and crash the process.
+    /// </summary>
+    private void OnSessionRemoved(Session session)
+    {
+        if (_watchers.TryRemove(session.Id, out var w))
+            w.Dispose();
+    }
 
     private void Wire(Session session)
     {
@@ -74,6 +86,7 @@ public sealed class TerminalStateDetector : IDisposable
         if (_disposed) return;
         _disposed = true;
         _sessionManager.OnSessionCreated -= OnSessionCreated;
+        _sessionManager.OnSessionRemoved -= OnSessionRemoved;
         foreach (var w in _watchers.Values)
             w.Dispose();
         _watchers.Clear();
@@ -116,7 +129,17 @@ public sealed class TerminalStateDetector : IDisposable
         private void OnBytes(byte[] bytes)
         {
             if (Volatile.Read(ref _disposed) != 0) return;
+            try { OnBytesCore(bytes); }
+            catch (Exception ex)
+            {
+                // This runs on the PTY producer thread. An escaped exception would be
+                // unhandled and terminate the whole process. Log and swallow.
+                FileLog.Write($"[TerminalStateDetector] OnBytes failed session={_session.Id}: {ex.Message}");
+            }
+        }
 
+        private void OnBytesCore(byte[] bytes)
+        {
             // Director-induced repaint guard: when the Director issues a PTY resize (on switching
             // to a session, force-refresh, or a layout change), Claude Code repaints its whole
             // screen and emits a burst of bytes. Those bytes are OUR doing, not the agent working.
@@ -144,6 +167,18 @@ public sealed class TerminalStateDetector : IDisposable
         private void OnQuiet(object? state)
         {
             if (Volatile.Read(ref _disposed) != 0) return;
+            try { OnQuietCore(); }
+            catch (Exception ex)
+            {
+                // This runs on a System.Threading.Timer thread. An escaped exception
+                // would be unhandled and terminate the whole process (this was the
+                // ObjectDisposedException-on-disposed-buffer crash). Log and swallow.
+                FileLog.Write($"[TerminalStateDetector] OnQuiet failed session={_session.Id}: {ex.Message}");
+            }
+        }
+
+        private void OnQuietCore()
+        {
             if (!_active) return;
 
             // Confirm the silence is real (guard a raced timer fire).

@@ -5,6 +5,82 @@ namespace CcDirector.Core.Tests;
 
 public class CircularTerminalBufferTests
 {
+    // Regression: a background timer (TerminalStateDetector) read LastWriteAtUtc while
+    // the session's buffer was being disposed on the teardown path. EnterReadLock on the
+    // disposed ReaderWriterLockSlim threw ObjectDisposedException on the timer thread,
+    // which is unhandled and terminated the whole process. Reads/writes must NEVER throw
+    // because the buffer was (or is being) disposed.
+    [Fact]
+    public void Reads_AfterDispose_DoNotThrow()
+    {
+        var buffer = new CircularTerminalBuffer(64);
+        buffer.Write("Hello"u8.ToArray());
+        buffer.Dispose();
+
+        // None of these may throw ObjectDisposedException.
+        var exReadStamp = Record.Exception(() => _ = buffer.LastWriteAtUtc);
+        var exTotal = Record.Exception(() => _ = buffer.TotalBytesWritten);
+        var exDump = Record.Exception(() => _ = buffer.DumpAll());
+        var exSince = Record.Exception(() => _ = buffer.GetWrittenSince(0));
+        var exWrite = Record.Exception(() => buffer.Write("more"u8.ToArray()));
+        var exClear = Record.Exception(() => buffer.Clear());
+
+        Assert.Null(exReadStamp);
+        Assert.Null(exTotal);
+        Assert.Null(exDump);
+        Assert.Null(exSince);
+        Assert.Null(exWrite);
+        Assert.Null(exClear);
+        Assert.Empty(buffer.DumpAll());
+    }
+
+    [Fact]
+    public void DisposeIsIdempotent()
+    {
+        var buffer = new CircularTerminalBuffer(64);
+        buffer.Dispose();
+        var ex = Record.Exception(() => buffer.Dispose());
+        Assert.Null(ex);
+    }
+
+    // Reproduces the crash shape: one thread hammers the read accessor (as the idle timer
+    // did) while another disposes the buffer. Before the fix this raced into
+    // ObjectDisposedException; after the fix the readers must complete without throwing.
+    [Fact]
+    public void ConcurrentReads_DuringDispose_NeverThrow()
+    {
+        for (int attempt = 0; attempt < 50; attempt++)
+        {
+            var buffer = new CircularTerminalBuffer(4096);
+            buffer.Write("seed"u8.ToArray());
+
+            Exception? readerError = null;
+            var reader = new Thread(() =>
+            {
+                try
+                {
+                    for (int i = 0; i < 2000; i++)
+                    {
+                        _ = buffer.LastWriteAtUtc;
+                        _ = buffer.TotalBytesWritten;
+                        _ = buffer.GetWrittenSince(0);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    readerError = ex;
+                }
+            });
+
+            reader.Start();
+            Thread.Sleep(1);
+            buffer.Dispose();
+            reader.Join();
+
+            Assert.Null(readerError);
+        }
+    }
+
     [Fact]
     public void WriteSmall_DumpAll_ReturnsWrittenBytes()
     {
