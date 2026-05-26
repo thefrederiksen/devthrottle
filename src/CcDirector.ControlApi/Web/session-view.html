@@ -768,6 +768,72 @@
   }
   form.send button:disabled { opacity: 0.5; cursor: not-allowed; }
 
+  /* ===== TERMINAL KEYPAD =====
+     A compact, menu-control keypad that slides up directly above the fixed
+     composer. The "Keys" button in the composer toggles it. Every key writes
+     raw bytes to the PTY (arrows/Tab/Enter via /prompt appendEnter=false, Esc
+     via /escape) and the status strip reports three stages: pressed (button
+     flashes via :active), SENT (HTTP ok from the endpoint), and works (the
+     terminal buffer actually changed within ~700ms). It is NOT inside the
+     form, so a key tap never submits the prompt. */
+  #keypad {
+    position: fixed;
+    left: 0; right: 0;
+    bottom: var(--composerH, 150px);
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+    box-shadow: 0 -6px 18px rgba(0,0,0,0.35);
+    z-index: 21;                 /* above the composer (z-index:20) */
+    padding: 10px 12px;
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
+    display: none;
+  }
+  #keypad.open { display: block; }
+  #keypad .keypad-head {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 10px;
+  }
+  #keypad .keypad-title { color: var(--muted); font-size: 12px; font-weight: 600; letter-spacing: 0.3px; }
+  #keypad .keypad-close {
+    background: transparent; color: var(--muted); border: 1px solid var(--border);
+    border-radius: 8px; min-width: 36px; min-height: 36px; font-size: 14px;
+    font-weight: 700; cursor: pointer; padding: 0;
+  }
+  #keypad .keypad-body { display: flex; gap: 16px; align-items: flex-start; }
+  #keypad .keypad-mods {
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; align-content: start;
+    flex: 0 0 auto;
+  }
+  #keypad .keypad-mods .key-enter { grid-column: 1 / span 1; }
+  #keypad .keypad-dpad {
+    margin-left: auto;
+    display: grid; grid-template-columns: repeat(3, 56px); gap: 8px;
+  }
+  #keypad .keypad-dpad .key-up    { grid-column: 2; grid-row: 1; }
+  #keypad .keypad-dpad .key-left  { grid-column: 1; grid-row: 2; }
+  #keypad .keypad-dpad .key-down  { grid-column: 2; grid-row: 2; }
+  #keypad .keypad-dpad .key-right { grid-column: 3; grid-row: 2; }
+  #keypad .key {
+    background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 10px;
+    min-height: 48px; min-width: 56px; padding: 0 10px;
+    font-family: inherit; font-size: 15px; font-weight: 600;
+    cursor: pointer; user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 0.06s ease, transform 0.06s ease;
+  }
+  #keypad .key:active { background: var(--accent); border-color: var(--accent); transform: scale(0.96); }
+  #keypad .keypad-status {
+    margin-top: 10px; font-size: 12px; color: var(--muted);
+    min-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #keypad .keypad-status.sent   { color: #4ade80; }   /* green: reached the PTY */
+  #keypad .keypad-status.works  { color: var(--idle); } /* teal: screen changed */
+  #keypad .keypad-status.failed { color: var(--failed); }
+  /* When the keypad is open, mark the composer's Keys button as active. */
+  #keysBtn.active { background: var(--accent-hover) !important; }
+
   @media (max-width: 600px) {
     form.send {
       flex-direction: column;
@@ -1239,6 +1305,29 @@
   <div class="rec-hint" id="recHint">Speak naturally. When done, tap "Tap to send".</div>
 </div>
 
+<!-- Terminal control keypad. Lives just outside the composer form so a key tap
+     never submits the prompt. Toggled by the "Keys" button in the composer. -->
+<div id="keypad" aria-hidden="true">
+  <div class="keypad-head">
+    <span class="keypad-title">Terminal keys</span>
+    <button type="button" id="keypadCloseBtn" class="keypad-close" title="Close keypad">X</button>
+  </div>
+  <div class="keypad-body">
+    <div class="keypad-mods">
+      <button type="button" class="key" data-key="esc">Esc</button>
+      <button type="button" class="key" data-key="tab">Tab</button>
+      <button type="button" class="key key-enter" data-key="enter">Enter</button>
+    </div>
+    <div class="keypad-dpad">
+      <button type="button" class="key key-up"    data-key="up">Up</button>
+      <button type="button" class="key key-left"  data-key="left">Left</button>
+      <button type="button" class="key key-down"  data-key="down">Down</button>
+      <button type="button" class="key key-right" data-key="right">Right</button>
+    </div>
+  </div>
+  <div class="keypad-status" id="keypadStatus">Ready.</div>
+</div>
+
 <form class="send" onsubmit="return send(event)">
   <textarea id="prompt" rows="1" placeholder="Type or paste... (Enter adds a newline; tap Send to submit)" autocomplete="off"></textarea>
   <div class="button-row">
@@ -1246,10 +1335,10 @@
          phones offer the full picker (photo library AND camera) rather than forcing the
          camera. Accepted types mirror the Director's allow-list. -->
     <input type="file" id="imageInput" accept="image/*" style="display:none" />
-    <button type="button" id="escBtn"
+    <button type="button" id="keysBtn"
             style="background:#c0392b;color:white;"
-            title="Send Escape to the terminal to stop Claude Code">
-      Esc
+            title="Open the terminal keypad: Esc, Tab, Enter and arrow keys to control menus">
+      Keys
     </button>
     <button type="button" id="uploadBtn"
             style="background:#7c3aed;color:white;"
@@ -2280,23 +2369,123 @@
     });
   });
 
-  // Esc button: send a single Escape to the PTY to interrupt Claude's current turn.
-  // Same /escape endpoint as the header Stop button; this just keeps it within thumb
-  // reach next to Send on the phone. Brief disable flashes so the tap registers.
-  document.getElementById('escBtn')?.addEventListener('click', async (ev) => {
-    if (_killed) return;
-    const btn = ev.currentTarget;
-    btn.disabled = true;
-    const orig = btn.textContent;
-    btn.textContent = 'Sent';
+  // ===== TERMINAL KEYPAD =====
+  // The composer's "Keys" button toggles a small keypad of menu-control keys.
+  // Each key writes raw bytes straight to the PTY: arrows / Tab / Enter via
+  // /prompt with appendEnter=false, and Esc via the dedicated /escape endpoint
+  // (identical to the header Stop button). Three-stage feedback per press:
+  //   1. PRESSED  -- the .key button flashes (CSS :active) the instant it's tapped.
+  //   2. SENT     -- the endpoint returns HTTP ok, so the byte reached the PTY.
+  //   3. WORKS    -- the terminal buffer's live grid actually changed within
+  //                  ~700ms, proving the key did something on screen.
+  // Sends are serialized through a promise chain so rapid menu taps (Down Down
+  // Down) reach the PTY in order; the works-check runs after, non-blocking.
+  const KEY_BYTES = {
+    esc:   null,        // null => use the /escape endpoint
+    tab:   '\t',
+    enter: '\r',
+    up:    '\x1b[A',
+    down:  '\x1b[B',
+    left:  '\x1b[D',
+    right: '\x1b[C',
+  };
+  const KEY_LABEL = { esc: 'Esc', tab: 'Tab', enter: 'Enter', up: 'Up', down: 'Down', left: 'Left', right: 'Right' };
+
+  const keypadEl = document.getElementById('keypad');
+  const keysBtn = document.getElementById('keysBtn');
+  const keypadStatusEl = document.getElementById('keypadStatus');
+  let _keypadGrid = null;     // last-known live grid HTML, baseline for works-detection
+  let _keySendChain = Promise.resolve();
+
+  function setKeypadStatus(text, cls) {
+    if (!keypadStatusEl) return;
+    keypadStatusEl.className = 'keypad-status' + (cls ? ' ' + cls : '');
+    keypadStatusEl.textContent = text;
+  }
+
+  async function fetchLiveGrid() {
     try {
-      const resp = await fetch('/sessions/' + SID + '/escape', { method: 'POST', credentials: 'same-origin' });
+      const r = await fetch('/sessions/' + SID + '/buffer/html', { credentials: 'same-origin' });
+      if (!r.ok) return null;
+      const body = await r.json();
+      return body.gridHtml || '';
+    } catch { return null; }
+  }
+
+  function openKeypad() {
+    keypadEl?.classList.add('open');
+    keypadEl?.setAttribute('aria-hidden', 'false');
+    keysBtn?.classList.add('active');
+    syncRawViewBottom();   // refresh --composerH so the keypad sits flush above the composer
+    setKeypadStatus('Ready.', '');
+    // Seed the works-detection baseline so the first key has something to diff against.
+    fetchLiveGrid().then((g) => { if (g !== null) _keypadGrid = g; });
+  }
+  function closeKeypad() {
+    keypadEl?.classList.remove('open');
+    keypadEl?.setAttribute('aria-hidden', 'true');
+    keysBtn?.classList.remove('active');
+  }
+  keysBtn?.addEventListener('click', () => {
+    if (_killed) return;
+    if (keypadEl?.classList.contains('open')) closeKeypad(); else openKeypad();
+  });
+  document.getElementById('keypadCloseBtn')?.addEventListener('click', closeKeypad);
+
+  async function sendKey(name) {
+    const label = KEY_LABEL[name] || name;
+    const bytes = KEY_BYTES[name];
+    const before = _keypadGrid;   // baseline captured synchronously, send stays ordered
+    setKeypadStatus(label + '  --  sending...', '');
+    try {
+      let resp;
+      if (name === 'esc') {
+        resp = await fetch('/sessions/' + SID + '/escape', { method: 'POST', credentials: 'same-origin' });
+      } else {
+        resp = await fetch('/sessions/' + SID + '/prompt', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: bytes, appendEnter: false, waitForIdle: false }),
+        });
+      }
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
     } catch (e) {
-      alert('Failed to send Escape: ' + (e && e.message ? e.message : e));
-    } finally {
-      setTimeout(() => { btn.disabled = false; btn.textContent = orig; }, 600);
+      setKeypadStatus(label + '  --  FAILED: ' + (e && e.message ? e.message : e), 'failed');
+      return;
     }
+    setKeypadStatus(label + '  --  SENT OK', 'sent');
+
+    // Stage 3: did the screen react? Poll the live grid a few times and diff it
+    // against the baseline. Honest about "no change" -- some keys legitimately
+    // do nothing visible, and we never fake a "works".
+    let changed = false;
+    let latest = before;
+    for (let i = 0; i < 3 && !changed; i++) {
+      await new Promise((r) => setTimeout(r, 220));
+      const g = await fetchLiveGrid();
+      if (g === null) continue;
+      latest = g;
+      if (before !== null && g !== before) changed = true;
+    }
+    if (latest !== null) _keypadGrid = latest;   // refresh baseline for the next key
+    if (before === null) {
+      setKeypadStatus(label + '  --  SENT OK', 'sent');   // no baseline -> can't claim works
+    } else if (changed) {
+      setKeypadStatus(label + '  --  SENT OK  --  screen updated', 'works');
+    } else {
+      setKeypadStatus(label + '  --  SENT OK  --  no visible change', 'sent');
+    }
+  }
+
+  keypadEl?.querySelectorAll('.key').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (_killed) return;
+      const name = btn.getAttribute('data-key');
+      if (!name) return;
+      // Serialize the send portion so rapid taps stay in PTY order.
+      _keySendChain = _keySendChain.then(() => sendKey(name)).catch(() => {});
+    });
   });
 
   // Upload button: pick an image (camera or library on a phone), POST it to the owning
