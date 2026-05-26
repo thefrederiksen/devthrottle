@@ -129,7 +129,7 @@
       renderMistrans(); markDirty();
     });
     bindAdd('add-profile', name => {
-      if (!dict.profiles[name]) dict.profiles[name] = { cleanupEnabled: true, stylePrompt: null };
+      if (!dict.profiles[name]) dict.profiles[name] = { cleanupEnabled: true };
       renderProfiles(); markDirty();
     });
   }
@@ -242,14 +242,13 @@
       const cb = document.createElement('input');
       cb.type = 'checkbox'; cb.checked = !!p.cleanupEnabled;
       cb.addEventListener('change', () => { p.cleanupEnabled = cb.checked; markDirty(); });
-      lbl.append(cb, document.createTextNode('cleanup enabled'));
+      lbl.append(cb, document.createTextNode('apply dictionary corrections'));
 
-      const ta = document.createElement('textarea');
-      ta.placeholder = 'style prompt (optional)';
-      ta.value = p.stylePrompt || '';
-      ta.addEventListener('input', () => { p.stylePrompt = ta.value.trim() ? ta.value : null; markDirty(); });
+      const note = document.createElement('p');
+      note.className = 'empty';
+      note.textContent = 'When enabled, only dictionary terms are corrected. Your words are never reworded, summarized, or edited.';
 
-      card.append(head, lbl, ta);
+      card.append(head, lbl, note);
       host.appendChild(card);
     }
   }

@@ -9,25 +9,23 @@ using CcDirector.Core.Utilities;
 namespace CcDirector.Core.Dictation;
 
 /// <summary>
-/// Runs a final transcript through an OpenAI chat-completion model to repair
-/// mistranscriptions and apply per-profile style. The vocabulary and known
-/// mistranscription patterns from the dictionary are passed as the system
-/// prompt so the model can both fix listed cases and generalize to near
-/// misses.
+/// Runs a final transcript through an OpenAI chat-completion model that does
+/// ONE thing: correct the dictionary terms the speech-to-text engine misheard.
+/// The vocabulary and known mistranscription patterns from the dictionary are
+/// passed in the system prompt, and the prompt forbids the model from doing
+/// anything else - no rewording, no summarizing, no grammar fixes, no filler
+/// removal, no near-miss guessing. The speaker's exact words, order, and
+/// punctuation are preserved verbatim except for the listed dictionary
+/// corrections. This is a deliberate, hard constraint: dictation must never
+/// change what the user said.
 ///
-/// Defaults to <c>gpt-4o-mini</c> (cheap, fast, plenty smart for this task);
-/// callers can specify any chat-completion-capable OpenAI model. The
-/// <c>nano</c> tier (<c>gpt-4.1-nano</c>, etc.) typically gives ~1 second
-/// latency at fractional-cent cost per call.
+/// Defaults to <c>gpt-4o-mini</c>; callers specify the model
+/// (<c>gpt-4.1-nano</c> in production - ~1 second latency, fractional-cent
+/// cost). temperature is 0 so the correction is as faithful as the model can be.
 ///
 /// Fails open: on any error (network failure, bad response, etc.) the
 /// returned <see cref="CleanupOutcome"/> carries the raw transcript verbatim
 /// and a failure reason. Callers should ship the raw text rather than block.
-///
-/// History: an earlier version of this class shelled out to
-/// <c>claude --print --model haiku</c>, which carried ~10-20 seconds of
-/// process-spawn and CLI bootstrap overhead per call. The HTTP variant is
-/// 5-10x faster and uses the same API key we already have for transcription.
 /// </summary>
 public sealed class CleanupOrchestrator : IDisposable
 {
@@ -84,7 +82,16 @@ public sealed class CleanupOrchestrator : IDisposable
             return new CleanupOutcome(rawTranscript, Applied: false, Reason: $"profile '{profile.Name}' has cleanup disabled");
         }
 
-        var systemPrompt = BuildSystemPrompt(dictionary, profile);
+        // No dictionary knowledge at all means there is nothing to correct.
+        // Returning verbatim avoids a needless model round-trip that could only
+        // introduce drift.
+        if (dictionary.Vocabulary.Count == 0 && dictionary.CommonMistranscriptions.Count == 0)
+        {
+            FileLog.Write("[CleanupOrchestrator] CleanAsync: empty dictionary, returning verbatim");
+            return new CleanupOutcome(rawTranscript, Applied: false, Reason: "no dictionary terms to correct");
+        }
+
+        var systemPrompt = BuildSystemPrompt(dictionary);
 
         var sw = Stopwatch.StartNew();
         try
@@ -119,21 +126,33 @@ public sealed class CleanupOrchestrator : IDisposable
     /// <summary>
     /// Build the system prompt. Exposed internally so tests can inspect it
     /// without invoking the model.
+    ///
+    /// The prompt makes the model a strict find-and-replace for dictionary
+    /// terms only. It is deliberately blunt and repetitive about the one rule
+    /// that matters: do not change the speaker's words. Everything that used to
+    /// live here - filler-word removal, near-miss guessing, per-profile style
+    /// rewriting - has been removed, because dictation must return what the
+    /// user said, not a reworded version of it.
     /// </summary>
-    internal static string BuildSystemPrompt(
-        DictationDictionary dictionary,
-        DictationProfile profile)
+    internal static string BuildSystemPrompt(DictationDictionary dictionary)
     {
         var sb = new StringBuilder();
 
-        sb.AppendLine("You are cleaning up a voice dictation transcript from a software engineer.");
+        sb.AppendLine(
+            "You are a strict find-and-replace tool for a voice dictation transcript. "
+            + "You are NOT an editor. Your ONLY job is to correct specific dictionary "
+            + "terms that the speech-to-text engine misheard. You must reproduce the "
+            + "speaker's transcript exactly, word for word, in the same order, changing "
+            + "ONLY the dictionary terms listed below.");
         sb.AppendLine();
 
         if (dictionary.Vocabulary.Count > 0)
         {
             sb.AppendLine(
-                "The speaker uses these technical terms and proper nouns, which MUST appear "
-                + "correctly in the output (exact capitalization and punctuation):");
+                "CANONICAL TERMS - these are the exact spellings and capitalizations the "
+                + "speaker uses. If the transcript contains one of these terms spelled or "
+                + "capitalized differently, fix it to match exactly. Do not touch any "
+                + "other word:");
             foreach (var term in dictionary.Vocabulary)
                 sb.AppendLine($"  - {term}");
             sb.AppendLine();
@@ -142,35 +161,34 @@ public sealed class CleanupOrchestrator : IDisposable
         if (dictionary.CommonMistranscriptions.Count > 0)
         {
             sb.AppendLine(
-                "Speech-to-text often mishears these terms. Here are mistranscription "
-                + "patterns observed in real use. When you see one of these in the "
-                + "transcript, replace it with the canonical term on the left:");
+                "KNOWN MISTRANSCRIPTIONS - each line below is a replacement rule in the form "
+                + "\"wrong form\" -> correct term. The quoted text on the LEFT is what the "
+                + "speech-to-text engine wrongly wrote; the term on the RIGHT is what the "
+                + "speaker actually said. These wrong forms often look like ordinary words or "
+                + "names, but they are errors. You MUST replace EVERY occurrence of a left-side "
+                + "wrong form (case-insensitive) with its right-side term. Fix every one, even "
+                + "when several appear in the same sentence. Never output a left-side wrong "
+                + "form, and never replace a word with anything other than the listed term on "
+                + "the right:");
             foreach (var kv in dictionary.CommonMistranscriptions)
             {
-                var quoted = string.Join(", ", kv.Value.Select(v => $"\"{v}\""));
-                sb.AppendLine($"  - {kv.Key} : {quoted}");
+                foreach (var wrong in kv.Value)
+                    sb.AppendLine($"  - \"{wrong}\" -> {kv.Key}");
             }
             sb.AppendLine();
         }
 
-        sb.AppendLine(
-            "This list is not exhaustive. If you see a word that is not a standard "
-            + "English word AND is a plausible near-miss for one of the listed terms, "
-            + "also replace it. When unsure between two possible matches, pick the one "
-            + "that fits the sentence context. If a word is truly ambiguous and you "
-            + "have no way to decide, leave it alone rather than guessing.");
+        sb.AppendLine("ABSOLUTE RULES - follow every one:");
+        sb.AppendLine("  - Change NOTHING except the dictionary corrections listed above.");
+        sb.AppendLine("  - Do NOT remove or alter filler words (um, uh, like, you know, so, right). Keep every one exactly as transcribed.");
+        sb.AppendLine("  - Do NOT fix grammar, spelling, punctuation, or capitalization of any word that is not a listed dictionary term.");
+        sb.AppendLine("  - Do NOT reword, rephrase, shorten, summarize, expand, or translate anything.");
+        sb.AppendLine("  - Do NOT add or delete words. Do NOT reorder words.");
+        sb.AppendLine("  - Do NOT guess. If a word is not an exact match for a listed dictionary term, leave it completely alone.");
+        sb.AppendLine("  - If no dictionary term appears in the transcript, return the transcript completely unchanged, character for character.");
         sb.AppendLine();
 
-        sb.AppendLine("Also fix obvious filler words (uh, um, like). Preserve all other words exactly as they appear.");
-        sb.AppendLine();
-
-        if (!string.IsNullOrWhiteSpace(profile.StylePrompt))
-        {
-            sb.AppendLine($"Style guidance for this profile: {profile.StylePrompt}");
-            sb.AppendLine();
-        }
-
-        sb.Append("Return ONLY the cleaned transcript text on a single line. No commentary, no quotes, no preamble.");
+        sb.Append("Return ONLY the corrected transcript text. No commentary, no quotes, no preamble, no explanation.");
 
         return sb.ToString();
     }
@@ -182,7 +200,7 @@ public sealed class CleanupOrchestrator : IDisposable
             return found;
         if (dictionary.Profiles.TryGetValue("default", out var def))
             return def;
-        return new DictationProfile("default", CleanupEnabled: true, StylePrompt: null);
+        return new DictationProfile("default", CleanupEnabled: true);
     }
 
     private async Task<string> CallOpenAiAsync(string systemPrompt, string userText, CancellationToken ct)

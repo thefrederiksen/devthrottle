@@ -78,10 +78,13 @@ public sealed class DictationSessionTests
     }
 
     [Fact]
-    public async Task StartStop_RoundTrip_ReturnsRawTranscript()
+    public async Task StartStop_RoundTrip_ReturnsSpokenWordsVerbatim()
     {
+        // The core guarantee: what the speaker said comes back unchanged. With
+        // an empty dictionary there is nothing to correct, so the session must
+        // return the transcript verbatim without touching it.
         using var dict = BuildLoader();
-        var provider = new FakeProvider { CannedTranscript = "hi there" };
+        var provider = new FakeProvider { CannedTranscript = "um so hi there you know" };
         using var cleanup = NewFailingCleanup();
 
         await using var session = new DictationSession(dict, provider, cleanup);
@@ -92,9 +95,9 @@ public sealed class DictationSessionTests
         Assert.True(provider.StartCalled);
         Assert.True(provider.StopCalled);
         Assert.Equal(3, provider.PushedBytes);
-        Assert.Equal("hi there", result.RawTranscript);
-        // Cleanup will have failed (bogus claude path) so cleaned == raw
-        Assert.Equal("hi there", result.CleanedTranscript);
+        Assert.Equal("um so hi there you know", result.RawTranscript);
+        // Fillers and wording are preserved exactly: cleaned == raw.
+        Assert.Equal("um so hi there you know", result.CleanedTranscript);
         Assert.False(result.CleanupApplied);
     }
 

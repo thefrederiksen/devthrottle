@@ -205,6 +205,5 @@ internal static class Program
             cleanup_enabled: false
           email:
             cleanup_enabled: true
-            style_prompt: "tighten to professional prose"
         """;
 }

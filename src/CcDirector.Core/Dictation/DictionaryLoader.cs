@@ -24,7 +24,6 @@ namespace CcDirector.Core.Dictation;
 ///   profiles:
 ///     default:
 ///       cleanup_enabled: true
-///       style_prompt: "tighten to professional prose"
 ///     code:
 ///       cleanup_enabled: false
 /// </summary>
@@ -133,7 +132,6 @@ public sealed class DictionaryLoader : IDisposable
                 kv => new YamlProfile
                 {
                     CleanupEnabled = kv.Value.CleanupEnabled,
-                    StylePrompt = kv.Value.StylePrompt,
                 }),
         };
 
@@ -213,10 +211,7 @@ public sealed class DictionaryLoader : IDisposable
                     continue;
                 profiles[kv.Key.Trim()] = new DictationProfile(
                     Name: kv.Key.Trim(),
-                    CleanupEnabled: kv.Value.CleanupEnabled,
-                    StylePrompt: string.IsNullOrWhiteSpace(kv.Value.StylePrompt)
-                        ? null
-                        : kv.Value.StylePrompt.Trim());
+                    CleanupEnabled: kv.Value.CleanupEnabled);
             }
         }
 
@@ -226,8 +221,7 @@ public sealed class DictionaryLoader : IDisposable
         {
             profiles["default"] = new DictationProfile(
                 Name: "default",
-                CleanupEnabled: true,
-                StylePrompt: null);
+                CleanupEnabled: true);
         }
 
         return new DictationDictionary(vocab, patterns, profiles);
@@ -256,6 +250,5 @@ public sealed class DictionaryLoader : IDisposable
     public sealed class YamlProfile
     {
         public bool CleanupEnabled { get; set; } = true;
-        public string? StylePrompt { get; set; }
     }
 }

@@ -423,7 +423,7 @@ internal static class RecordingEndpoints
             .ToDictionary(kv => kv.Key, kv => kv.Value.ToList()),
         Profiles: dict.Profiles.ToDictionary(
             kv => kv.Key,
-            kv => new DictionaryProfileDto(kv.Value.CleanupEnabled, kv.Value.StylePrompt)));
+            kv => new DictionaryProfileDto(kv.Value.CleanupEnabled)));
 
     private static DictationDictionary FromDto(DictionaryDto dto)
     {
@@ -453,8 +453,7 @@ internal static class RecordingEndpoints
             var name = kv.Key.Trim();
             profiles[name] = new DictationProfile(
                 Name: name,
-                CleanupEnabled: kv.Value.CleanupEnabled,
-                StylePrompt: string.IsNullOrWhiteSpace(kv.Value.StylePrompt) ? null : kv.Value.StylePrompt.Trim());
+                CleanupEnabled: kv.Value.CleanupEnabled);
         }
 
         return new DictationDictionary(vocab, patterns, profiles);
@@ -467,7 +466,7 @@ internal sealed record DictionaryDto(
     Dictionary<string, List<string>> CommonMistranscriptions,
     Dictionary<string, DictionaryProfileDto> Profiles);
 
-internal sealed record DictionaryProfileDto(bool CleanupEnabled, string? StylePrompt);
+internal sealed record DictionaryProfileDto(bool CleanupEnabled);
 
 /// <summary>Additive request for POST /ingest/dictionary/terms.</summary>
 internal sealed record DictionaryAddRequest(

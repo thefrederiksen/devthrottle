@@ -58,12 +58,26 @@ public sealed class DictionaryLoaderTests
                 cleanup_enabled: false
               email:
                 cleanup_enabled: true
-                style_prompt: "tighten to professional prose"
             """;
         var dict = DictionaryLoader.Parse(yaml);
         Assert.True(dict.Profiles.ContainsKey("CODE"));
         Assert.False(dict.Profiles["code"].CleanupEnabled);
-        Assert.Equal("tighten to professional prose", dict.Profiles["email"].StylePrompt);
+        Assert.True(dict.Profiles["email"].CleanupEnabled);
+    }
+
+    [Fact]
+    public void Parse_IgnoresLegacyStylePromptField()
+    {
+        // Older dictionaries on disk may still carry style_prompt. It must be
+        // ignored, not error, and must not resurrect any rewriting behavior.
+        var yaml = """
+            profiles:
+              email:
+                cleanup_enabled: true
+                style_prompt: "tighten to professional prose"
+            """;
+        var dict = DictionaryLoader.Parse(yaml);
+        Assert.True(dict.Profiles["email"].CleanupEnabled);
     }
 
     [Fact]
@@ -146,9 +160,9 @@ public sealed class DictionaryLoaderTests
             },
             new Dictionary<string, DictationProfile>(StringComparer.OrdinalIgnoreCase)
             {
-                ["default"] = new DictationProfile("default", CleanupEnabled: true, StylePrompt: null),
-                ["email"] = new DictationProfile("email", CleanupEnabled: true, StylePrompt: "tighten to professional prose"),
-                ["code"] = new DictationProfile("code", CleanupEnabled: false, StylePrompt: null),
+                ["default"] = new DictationProfile("default", CleanupEnabled: true),
+                ["email"] = new DictationProfile("email", CleanupEnabled: true),
+                ["code"] = new DictationProfile("code", CleanupEnabled: false),
             });
 
         var reparsed = DictionaryLoader.Parse(DictionaryLoader.Serialize(original));
@@ -157,8 +171,8 @@ public sealed class DictionaryLoaderTests
         Assert.Equal(new[] { "Contui", "ContUI" }, reparsed.CommonMistranscriptions["ConPTY"]);
         Assert.Equal(new[] { "Minzy" }, reparsed.CommonMistranscriptions["mindzie"]);
         Assert.False(reparsed.Profiles["code"].CleanupEnabled);
-        Assert.Equal("tighten to professional prose", reparsed.Profiles["email"].StylePrompt);
-        Assert.Null(reparsed.Profiles["default"].StylePrompt);
+        Assert.True(reparsed.Profiles["email"].CleanupEnabled);
+        Assert.True(reparsed.Profiles["default"].CleanupEnabled);
     }
 
     [Fact]
@@ -185,7 +199,7 @@ public sealed class DictionaryLoaderTests
                 },
                 new Dictionary<string, DictationProfile>(StringComparer.OrdinalIgnoreCase)
                 {
-                    ["default"] = new DictationProfile("default", CleanupEnabled: true, StylePrompt: null),
+                    ["default"] = new DictationProfile("default", CleanupEnabled: true),
                 });
 
             DictionaryLoader.WriteToDisk(path, original);

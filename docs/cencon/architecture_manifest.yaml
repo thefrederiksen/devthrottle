@@ -10,7 +10,7 @@ project:
   framework: ".NET 10"
   platform: "Windows 10/11 (Avalonia primary; WPF archived), Mac/Linux (experimental backend)"
 
-last_updated: "2026-05-25"
+last_updated: "2026-05-26"
 
 # C4 Level 1: System Context
 context:
@@ -702,8 +702,8 @@ data_flows:
       - "MicAudioCapture (NAudio WaveIn, 24kHz/16-bit mono)"
       - "OnAudioBands -> SpeakDialog equalizer; OnInputRms -> level hint"
       - "OpenAiRealtimeProvider (streaming STT)"
-      - "CleanupOrchestrator (transcript cleanup)"
-      - SpeakDialog inserts/sends cleaned text into the prompt
+      - "CleanupOrchestrator (dictionary-only term correction via gpt-4.1-nano; strict prompt, never rewords/summarizes/removes fillers)"
+      - SpeakDialog inserts/sends the verbatim text (only dictionary terms corrected) into the prompt
 
   - id: recording_ingest_flow
     name: Phone Recording Ingest Flow
