@@ -586,6 +586,19 @@ public partial class MainWindow : Window
     private void OnActiveSessionActivityChanged(ActivityState oldState, ActivityState newState)
     {
         Dispatcher.UIThread.Post(UpdateSessionHeader);
+
+        // When a turn just finished (Working -> a stopping state) and the Wingman tab
+        // is the one showing, refresh the plain-language note so it tracks the session
+        // without the user having to ask.
+        if (oldState == ActivityState.Working
+            && newState is ActivityState.Idle or ActivityState.WaitingForInput or ActivityState.WaitingForPerm)
+        {
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (_activeLeftTab == "Wingman")
+                    _ = RefreshWingmanAnnotationAsync();
+            });
+        }
     }
 
     /// <summary>
@@ -1720,6 +1733,262 @@ public partial class MainWindow : Window
         SwitchLeftTab("SourceControl");
     }
 
+    private void VoiceTabButton_Click(object? sender, RoutedEventArgs e)
+    {
+        SwitchLeftTab("Voice");
+    }
+
+    private void WingmanTabButton_Click(object? sender, RoutedEventArgs e)
+    {
+        SwitchLeftTab("Wingman");
+    }
+
+    // The wingman annotation banner shows a plain-language read of the active session.
+    // Track which session the current note describes so we only auto-regenerate when
+    // the session actually changed (a fresh Opus call is not free).
+    private Guid? _wingmanNoteSessionId;
+    private CancellationTokenSource? _wingmanNoteCts;
+
+    private async void WingmanRefreshButton_Click(object? sender, RoutedEventArgs e)
+        => await RefreshWingmanAnnotationAsync();
+
+    // Generate the wingman's plain-language note for the active session over its full
+    // cleaned terminal, using the same read-only in-process path as Ask Wingman. The
+    // latest call wins (an in-flight note is cancelled when a newer one starts).
+    private async Task RefreshWingmanAnnotationAsync()
+    {
+        var vm = _activeSession;
+        if (vm is null)
+        {
+            WingmanNoteText.Text = "No session selected.";
+            return;
+        }
+        var options = (global::Avalonia.Application.Current as App)?.SessionManager?.Options;
+        if (options is null) return;
+
+        _wingmanNoteCts?.Cancel();
+        _wingmanNoteCts = new CancellationTokenSource();
+        var ct = _wingmanNoteCts.Token;
+        _wingmanNoteSessionId = vm.Session.Id;
+
+        try
+        {
+            WingmanNoteText.Text = "Reading the session...";
+            var session = vm.Session;
+            var bytes = session.Buffer?.DumpAll() ?? Array.Empty<byte>();
+            var fullTerminal = global::CcDirector.ControlApi.AnsiCleaner.Clean(bytes);
+            const string q = "In two or three sentences, plainly summarize what just happened in this session "
+                + "and what, if anything, you are waiting on me to do. Keep specifics like file names and the "
+                + "actual question; do not summarize them away.";
+            var result = await global::CcDirector.Core.Wingman.WingmanService.AnswerViaSessionAsync(
+                q, fullTerminal, session.AgentKind.ToString(), session.RepoPath, options.ClaudePath, ct);
+            if (ct.IsCancellationRequested) return;
+            WingmanNoteText.Text = string.IsNullOrWhiteSpace(result.Answer)
+                ? "Nothing to report yet."
+                : result.Answer;
+        }
+        catch (OperationCanceledException)
+        {
+            // Superseded by a newer refresh; leave the newer one to update the text.
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] RefreshWingmanAnnotation FAILED: {ex.Message}");
+            WingmanNoteText.Text = "Wingman error: " + ex.Message;
+        }
+    }
+
+    // Wingman tab "Send": route the typed/dictated text to the agent through the
+    // normal send path so the prompt + reply render in the Clean view that the
+    // Wingman tab hosts.
+    private void WingmanSendButton_Click(object? sender, RoutedEventArgs e) => WingmanSend();
+
+    private void WingmanSend()
+    {
+        if (_activeSession is null || string.IsNullOrWhiteSpace(WingmanInput.Text)) return;
+        PromptInput.Text = WingmanInput.Text;
+        WingmanInput.Text = "";
+        SendPrompt();
+    }
+
+    // Wingman tab "Speak": dictate into the Wingman input box via the same in-process
+    // SpeakDialog the Terminal tab's Speak button uses. If the user finishes with Send
+    // in the dialog, fire the send immediately.
+    private async void WingmanSpeakButton_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var options = (global::Avalonia.Application.Current as App)?.SessionManager?.Options;
+            if (options is null || string.IsNullOrWhiteSpace(options.ResolveOpenAiKey()))
+            {
+                ShowNotification("Dictation needs an OPENAI_API_KEY env var or Voice.OpenAiKey in appsettings.json.");
+                return;
+            }
+            var dlg = new global::CcDirector.Avalonia.Voice.SpeakDialog(options);
+            await dlg.ShowDialog(this);
+            var transcript = dlg.ResultText;
+            if (string.IsNullOrWhiteSpace(transcript)) return;
+            var existing = WingmanInput.Text ?? "";
+            WingmanInput.Text = string.IsNullOrEmpty(existing) ? transcript! : existing + " " + transcript!;
+            if (dlg.ShouldSubmit) WingmanSend();
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] WingmanSpeakButton FAILED: {ex.Message}");
+            ShowNotification($"Dictation failed: {ex.Message}");
+        }
+    }
+
+    // Lazily wire the Voice tab the first time it is shown: it needs AgentOptions
+    // (for the in-process dictation engine), which are not available until the
+    // SessionManager is constructed.
+    private bool _voiceInitialized;
+    private global::CcDirector.Avalonia.Voice.DesktopTtsPlayer? _ttsPlayer;
+
+    private void EnsureVoiceInitialized()
+    {
+        if (_voiceInitialized) return;
+        var options = (global::Avalonia.Application.Current as App)?.SessionManager?.Options;
+        if (options is null) return;
+        VoiceView.Initialize(options);
+        VoiceView.AskAgentRequested += OnVoiceAskAgent;
+        VoiceView.AskWingmanRequested += OnVoiceAskWingman;
+        _ttsPlayer = new global::CcDirector.Avalonia.Voice.DesktopTtsPlayer(options);
+        _voiceInitialized = true;
+        FileLog.Write("[MainWindow] Voice tab initialized");
+    }
+
+    // Ask Agent: the dictated transcript goes to the working agent via the same
+    // send path the prompt bar uses (slash-command handling, Clean-view inject,
+    // Enter-retry). Then we follow the agent's turn to completion and speak its
+    // reply aloud, reusing the shared ChatService spoken-summary path the phone uses.
+    private async void OnVoiceAskAgent(string transcript)
+    {
+        var vm = _activeSession;
+        if (vm is null)
+        {
+            VoiceView.SetStatus("No session selected.", "#F44747");
+            return;
+        }
+        FileLog.Write($"[MainWindow] OnVoiceAskAgent: {transcript.Length} chars to {vm.Session.Id}");
+        PromptInput.Text = transcript;
+        SendPrompt();
+        try
+        {
+            await FollowAgentTurnAndSpeakAsync(vm);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] OnVoiceAskAgent follow FAILED: {ex.Message}");
+            VoiceView.SetStatus("Voice follow error: " + ex.Message, "#F44747");
+        }
+    }
+
+    // Wait for the agent to finish the turn it just started, then read its reply +
+    // ear-friendly spoken summary via the shared ChatService poll path and speak it.
+    // We watch the session's ActivityState directly (in-process, no double-send): we
+    // first wait for it to ENTER Working so a fast poll cannot read the PREVIOUS
+    // reply, then wait for it to leave Working into a stopping state.
+    private async Task FollowAgentTurnAndSpeakAsync(SessionViewModel vm)
+    {
+        var app = global::Avalonia.Application.Current as App;
+        var options = app?.SessionManager?.Options;
+        var sm = app?.SessionManager;
+        if (options is null || sm is null) return;
+        var session = vm.Session;
+
+        VoiceView.SetStatus("Agent working...", "#DCDCAA");
+
+        // Phase 1: wait briefly for the turn to actually start.
+        var startBy = DateTime.UtcNow.AddSeconds(6);
+        while (session.ActivityState != ActivityState.Working
+               && session.Status is not (SessionStatus.Exited or SessionStatus.Failed)
+               && DateTime.UtcNow < startBy)
+        {
+            await Task.Delay(250);
+        }
+
+        // Phase 2: wait for the turn to finish (cap at 10 minutes).
+        var finishBy = DateTime.UtcNow.AddMinutes(10);
+        while (session.ActivityState == ActivityState.Working
+               && session.Status is not (SessionStatus.Exited or SessionStatus.Failed)
+               && DateTime.UtcNow < finishBy)
+        {
+            await Task.Delay(750);
+        }
+
+        if (session.Status is SessionStatus.Exited or SessionStatus.Failed)
+        {
+            VoiceView.SetStatus("Session exited.", "#F44747");
+            return;
+        }
+
+        var chat = new global::CcDirector.ControlApi.Chat.ChatService(sm, options);
+        var resp = await chat.HandleAsync(new global::CcDirector.Gateway.Contracts.ChatRequest
+        {
+            SessionId = session.Id.ToString(),
+            PollOnly = true,
+            Voice = true,
+        });
+
+        var display = !string.IsNullOrWhiteSpace(resp.DisplayText) ? resp.DisplayText : (resp.Reply ?? "");
+        if (!string.IsNullOrWhiteSpace(display))
+            VoiceView.ShowReply(display);
+
+        var spoken = !string.IsNullOrWhiteSpace(resp.Summary) ? resp.Summary : display;
+        if (!string.IsNullOrWhiteSpace(spoken) && _ttsPlayer is not null)
+        {
+            VoiceView.SetStatus("Speaking...", "#2B6CB0");
+            await _ttsPlayer.SpeakAsync(spoken);
+        }
+        VoiceView.SetStatus("Ready", "#5FD08A");
+    }
+
+    // Ask Wingman: answer the spoken question with the in-process WingmanService over
+    // the session's full cleaned terminal (read-only, verbatim - the same path the
+    // /sessions/{sid}/wingman/ask endpoint uses), show the answer as text, and speak
+    // it aloud. No turn-following: the wingman answers immediately.
+    private async void OnVoiceAskWingman(string transcript)
+    {
+        var vm = _activeSession;
+        if (vm is null)
+        {
+            VoiceView.SetStatus("No session selected.", "#F44747");
+            return;
+        }
+        var options = (global::Avalonia.Application.Current as App)?.SessionManager?.Options;
+        if (options is null)
+        {
+            VoiceView.SetStatus("Wingman not available: options not loaded.", "#F44747");
+            return;
+        }
+        try
+        {
+            FileLog.Write($"[MainWindow] OnVoiceAskWingman: {transcript.Length} chars for {vm.Session.Id}");
+            VoiceView.SetStatus("Asking the wingman...", "#2B6CB0");
+            var session = vm.Session;
+            var bytes = session.Buffer?.DumpAll() ?? Array.Empty<byte>();
+            var fullTerminal = global::CcDirector.ControlApi.AnsiCleaner.Clean(bytes);
+            var result = await global::CcDirector.Core.Wingman.WingmanService.AnswerViaSessionAsync(
+                transcript, fullTerminal, session.AgentKind.ToString(), session.RepoPath, options.ClaudePath);
+            var answer = string.IsNullOrWhiteSpace(result.Answer)
+                ? "The wingman had nothing to report."
+                : result.Answer;
+            VoiceView.ShowReply(answer);
+            if (_ttsPlayer is not null)
+            {
+                VoiceView.SetStatus("Speaking...", "#2B6CB0");
+                await _ttsPlayer.SpeakAsync(answer);
+            }
+            VoiceView.SetStatus("Ready", "#5FD08A");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] OnVoiceAskWingman FAILED: {ex.Message}");
+            VoiceView.SetStatus("Wingman error: " + ex.Message, "#F44747");
+        }
+    }
+
     private bool _commsInitialized;
 
     private async void BtnComms_Click(object? sender, RoutedEventArgs e)
@@ -1847,6 +2116,10 @@ public partial class MainWindow : Window
         TerminalTabButton.Foreground = tab == "Terminal" ? whiteBrush : InactiveTextBrush;
         SourceControlTabButton.Background = tab == "SourceControl" ? accentBrush : TransparentBrush;
         SourceControlTabButton.Foreground = tab == "SourceControl" ? whiteBrush : InactiveTextBrush;
+        VoiceTabButton.Background = tab == "Voice" ? accentBrush : TransparentBrush;
+        VoiceTabButton.Foreground = tab == "Voice" ? whiteBrush : InactiveTextBrush;
+        WingmanTabButton.Background = tab == "Wingman" ? accentBrush : TransparentBrush;
+        WingmanTabButton.Foreground = tab == "Wingman" ? whiteBrush : InactiveTextBrush;
         // Update document tab button styles
         foreach (var docTab in _documentTabs)
         {
@@ -1859,7 +2132,35 @@ public partial class MainWindow : Window
         AgentPanel.IsVisible = tab == "Agent";
         TerminalPanel.IsVisible = tab == "Terminal";
         SourceControlPanel.IsVisible = tab == "SourceControl";
+        VoicePanel.IsVisible = tab == "Voice";
+        WingmanPanel.IsVisible = tab == "Wingman";
         DocumentPanel.IsVisible = isDocTab;
+
+        // The shared prompt bar belongs to the terminal-style tabs. The Voice and
+        // Wingman tabs have their own input affordances (push-to-talk buttons / a
+        // Speak+Send bar), so hide the shared bar there to avoid a duplicate input.
+        if (_activeSession != null)
+            PromptBarBorder.IsVisible = tab != "Voice" && tab != "Wingman";
+
+        if (tab == "Voice")
+        {
+            EnsureVoiceInitialized();
+            VoiceView.SetSession(_activeSession?.DisplayName);
+        }
+        else
+        {
+            // Leaving the Voice tab: cut off any reply still being spoken.
+            _ttsPlayer?.Stop();
+        }
+
+        // Opening the Wingman tab on a different session than the current note
+        // describes: generate a fresh note (skip when it already matches, so toggling
+        // tabs doesn't fire repeated Opus calls).
+        if (tab == "Wingman" && _activeSession is not null
+            && _wingmanNoteSessionId != _activeSession.Session.Id)
+        {
+            _ = RefreshWingmanAnnotationAsync();
+        }
 
         // Show refresh button only when Terminal tab is active and a session exists
         TabBarRefreshButton.IsVisible = tab == "Terminal" && _activeSession != null;

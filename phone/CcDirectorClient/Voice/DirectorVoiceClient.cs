@@ -13,6 +13,13 @@ namespace CcDirectorClient.Voice;
 public sealed record TranscribeResult(string Text, string Target);
 
 /// <summary>
+/// One incremental slice of the raw terminal buffer: the new <paramref name="Text"/>
+/// since the previous cursor and the <paramref name="NewCursor"/> to pass on the next
+/// poll of the Terminal mirror.
+/// </summary>
+public sealed record BufferSlice(string Text, long NewCursor);
+
+/// <summary>
 /// Drives the per-session voice round-trip directly against the owning Director's
 /// Control API (the same endpoints the web voice page uses), using the Director's
 /// Tailnet base URL taken from the roster. Three concerns, kept apart:
@@ -231,6 +238,157 @@ public sealed class DirectorVoiceClient
         }
     }
 
+    // ===== TERMINAL MIRROR + CONTROLS ======================================
+
+    /// <summary>
+    /// One incremental read of the session's raw terminal buffer for the read-only
+    /// Terminal mirror. Calls GET /sessions/{sid}/buffer?raw=true&amp;since=&lt;cursor&gt; and
+    /// returns the new raw text plus the cursor to pass on the next poll. Pass
+    /// <paramref name="sinceCursor"/> &lt; 0 on the first call to dump the whole buffer.
+    /// Throws on HTTP failure so the caller can show the real reason in the status line.
+    /// </summary>
+    public async Task<BufferSlice> GetBufferAsync(
+        string directorBase, string sessionId, long sinceCursor, CancellationToken ct = default)
+    {
+        var b = directorBase.TrimEnd('/');
+        using var http = NewClient();
+        // raw=false so the server returns ANSI-cleaned text (escape codes stripped),
+        // not raw control bytes. A bounded line count keeps a full-snapshot poll cheap.
+        var url = sinceCursor >= 0
+            ? $"{b}/sessions/{sessionId}/buffer?raw=false&since={sinceCursor}"
+            : $"{b}/sessions/{sessionId}/buffer?raw=false&lines=300";
+        var resp = await http.GetAsync(url, ct);
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode)
+            throw new HttpRequestException($"buffer fetch failed: {(int)resp.StatusCode} {body}");
+        var r = JsonSerializer.Deserialize<BufferResp>(body, Json)
+                ?? throw new InvalidOperationException("/buffer returned unparseable body");
+        return new BufferSlice(r.Text ?? "", r.NewCursor);
+    }
+
+    /// <summary>
+    /// Send raw text (or a key escape sequence) to the session's PTY via
+    /// POST /sessions/{sid}/prompt. With <paramref name="appendEnter"/> false the bytes
+    /// are written verbatim (used for arrow keys ESC[A/B/C/D, Tab, a bare Enter "\r");
+    /// with it true the server appends the submit newline (used for a typed line).
+    /// Throws on HTTP failure so the caller surfaces it. The Terminal mirror stays
+    /// read-only by construction; this is the only write path and it is user-driven.
+    /// </summary>
+    public async Task SendKeysAsync(
+        string directorBase, string sessionId, string text, bool appendEnter, CancellationToken ct = default)
+    {
+        var b = directorBase.TrimEnd('/');
+        ClientLog.Write($"[DirectorVoiceClient] SendKeys: base={b}, sid={sessionId}, chars={text?.Length ?? 0}, appendEnter={appendEnter}");
+        using var http = NewClient();
+        var resp = await http.PostAsync($"{b}/sessions/{sessionId}/prompt",
+            JsonBody(new { Text = text ?? "", AppendEnter = appendEnter }), ct);
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode)
+            throw new HttpRequestException($"prompt failed: {(int)resp.StatusCode} {body}");
+    }
+
+    /// <summary>Send a single Escape (0x1b) to the session (POST /sessions/{sid}/escape).</summary>
+    public async Task SendEscapeAsync(string directorBase, string sessionId, CancellationToken ct = default)
+    {
+        var b = directorBase.TrimEnd('/');
+        ClientLog.Write($"[DirectorVoiceClient] SendEscape: base={b}, sid={sessionId}");
+        using var http = NewClient();
+        var resp = await http.PostAsync($"{b}/sessions/{sessionId}/escape", JsonBody(new { }), ct);
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode)
+            throw new HttpRequestException($"escape failed: {(int)resp.StatusCode} {body}");
+    }
+
+    /// <summary>Send Ctrl+C (0x03, the Stop) to the session (POST /sessions/{sid}/interrupt).</summary>
+    public async Task SendInterruptAsync(string directorBase, string sessionId, CancellationToken ct = default)
+    {
+        var b = directorBase.TrimEnd('/');
+        ClientLog.Write($"[DirectorVoiceClient] SendInterrupt: base={b}, sid={sessionId}");
+        using var http = NewClient();
+        var resp = await http.PostAsync($"{b}/sessions/{sessionId}/interrupt", JsonBody(new { }), ct);
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode)
+            throw new HttpRequestException($"interrupt failed: {(int)resp.StatusCode} {body}");
+    }
+
+    // ===== WINGMAN CLEAN OUTPUT (parsed turns) =============================
+
+    /// <summary>
+    /// Fetch the session's parsed conversation (GET /sessions/{sid}/turns) and render
+    /// it as clean, readable text for the Wingman tab: each widget as a short labelled
+    /// block (user messages, the agent's replies, and what each tool did), de-noised
+    /// from the raw terminal. Returns an empty string when there is nothing yet. Throws
+    /// on HTTP failure so the caller can show the real reason.
+    /// </summary>
+    public async Task<string> GetTurnsTextAsync(string directorBase, string sessionId, CancellationToken ct = default)
+    {
+        var b = directorBase.TrimEnd('/');
+        ClientLog.Write($"[DirectorVoiceClient] GetTurnsText: base={b}, sid={sessionId}");
+        using var http = NewClient();
+        var resp = await http.GetAsync($"{b}/sessions/{sessionId}/turns", ct);
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode)
+            throw new HttpRequestException($"turns fetch failed: {(int)resp.StatusCode} {body}");
+        var r = JsonSerializer.Deserialize<TurnsResp>(body, Json)
+                ?? throw new InvalidOperationException("/turns returned unparseable body");
+        if (!string.Equals(r.Status, "ok", StringComparison.OrdinalIgnoreCase))
+        {
+            // Not an error to surface as a throw: the session may simply not be linked
+            // to a Claude session id yet. Report it as a plain note so the tab shows
+            // a truthful "nothing yet" rather than pretending to have content.
+            ClientLog.Write($"[DirectorVoiceClient] GetTurnsText: status={r.Status}");
+            return "";
+        }
+        var text = RenderTurns(r.Widgets);
+        ClientLog.Write($"[DirectorVoiceClient] GetTurnsText OK: widgets={r.Widgets?.Count ?? 0}, chars={text.Length}");
+        return text;
+    }
+
+    private static string RenderTurns(List<TurnWidget>? widgets)
+    {
+        if (widgets is null || widgets.Count == 0) return "";
+        var sb = new StringBuilder();
+        foreach (var w in widgets)
+        {
+            var kind = w.Kind ?? "";
+            if (string.Equals(kind, "UserMessage", StringComparison.OrdinalIgnoreCase))
+            {
+                AppendLine(sb, "You:", w.Content);
+            }
+            else if (string.Equals(kind, "Text", StringComparison.OrdinalIgnoreCase))
+            {
+                AppendLine(sb, "Agent:", w.Content);
+            }
+            else if (string.Equals(kind, "Thinking", StringComparison.OrdinalIgnoreCase))
+            {
+                AppendLine(sb, "(thinking)", w.Content);
+            }
+            else
+            {
+                // A tool action: show a one-line "[Kind] header - subheader" plus the
+                // body/result trimmed so the clean view reads like a narrative, not a dump.
+                var head = string.IsNullOrWhiteSpace(w.Header) ? kind : w.Header;
+                var sub = string.IsNullOrWhiteSpace(w.Subheader) ? "" : $" - {w.Subheader}";
+                var label = $"[{kind}] {head}{sub}".Trim();
+                var detail = !string.IsNullOrWhiteSpace(w.Content) ? w.Content : w.Result;
+                if (w.IsError) label = "[ERROR] " + label;
+                AppendLine(sb, label, detail);
+            }
+        }
+        return sb.ToString().TrimEnd();
+    }
+
+    private static void AppendLine(StringBuilder sb, string label, string? body)
+    {
+        var trimmed = (body ?? "").Trim();
+        if (trimmed.Length > 600) trimmed = trimmed.Substring(0, 600) + " ...";
+        if (string.IsNullOrWhiteSpace(trimmed))
+            sb.AppendLine(label);
+        else
+            sb.AppendLine($"{label} {trimmed}");
+        sb.AppendLine();
+    }
+
     // ===== 3. RECAP =========================================================
 
     /// <summary>
@@ -278,6 +436,28 @@ public sealed class DirectorVoiceClient
     private static string Sha256Hex(byte[] bytes)
         => Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
 
+    private sealed class BufferResp
+    {
+        public string? Text { get; set; }
+        public long NewCursor { get; set; }
+        public long TotalBytes { get; set; }
+    }
+    private sealed class TurnsResp
+    {
+        public string? Status { get; set; }
+        public string? Error { get; set; }
+        public List<TurnWidget>? Widgets { get; set; }
+    }
+    private sealed class TurnWidget
+    {
+        public string? Kind { get; set; }
+        public string? Header { get; set; }
+        public string? Subheader { get; set; }
+        public string? Content { get; set; }
+        public string? Result { get; set; }
+        public bool IsError { get; set; }
+        public bool IsPending { get; set; }
+    }
     private sealed class RegisterResp { public string? UtteranceId { get; set; } }
     private sealed class CompleteResp
     {

@@ -53,6 +53,22 @@ public partial class TalkPage : ContentPage
     // read when it stops. Saying "Hey wingman ..." routes server-side regardless.
     private bool _wingmanTurn;
 
+    // Which of the three single-session tabs is showing: "voice" | "wingman" | "terminal".
+    private string _activeTab = "voice";
+
+    // Terminal mirror: polls the raw PTY buffer while the Terminal tab is visible.
+    // The cursor advances each poll so we only fetch newly written bytes; the
+    // accumulated text is the on-screen scrollback. -1 means "dump the whole buffer
+    // on the next poll" (first open or session switch).
+    private readonly IDispatcherTimer _terminalTimer;
+    private long _terminalCursor = -1;
+    private readonly System.Text.StringBuilder _terminalText = new();
+    private bool _terminalPolling;
+
+    // True while a Wingman tab refresh/send is running, so the tab does not fire
+    // overlapping calls.
+    private bool _wingmanBusy;
+
     public TalkPage(IUtteranceRecorder recorder, IReplySpeaker tts, IVoiceForeground foreground)
     {
         InitializeComponent();
@@ -68,6 +84,12 @@ public partial class TalkPage : ContentPage
             var secs = (int)(DateTime.UtcNow - _recStart).TotalSeconds;
             RecElapsedLabel.Text = TimeSpan.FromSeconds(secs).ToString(@"mm\:ss");
         };
+
+        // Terminal mirror poll: ~1s while the Terminal tab is visible. Read-only;
+        // it only fetches newly written PTY bytes and appends them on screen.
+        _terminalTimer = Dispatcher.CreateTimer();
+        _terminalTimer.Interval = TimeSpan.FromMilliseconds(1000);
+        _terminalTimer.Tick += async (_, _) => await PollTerminalAsync();
 
         var savedServer = Preferences.Get(PrefServer, "");
         if (string.IsNullOrWhiteSpace(savedServer))
@@ -94,6 +116,7 @@ public partial class TalkPage : ContentPage
         base.OnDisappearing();
         DeviceDisplay.Current.KeepScreenOn = false;
         _levelTimer.Stop();
+        _terminalTimer.Stop();
         _tts.Stop();
         _foreground.Stop();
     }
@@ -191,8 +214,86 @@ public partial class TalkPage : ContentPage
         SetVoiceStatus("Ready", StatusGreen);
         SetTalkButton(recording: false, busy: false);
 
+        // Reset the three-tab content for the new session: start on Voice, clear the
+        // Wingman + Terminal panes so stale content from a previous session is gone.
+        _terminalTimer.Stop();
+        _terminalCursor = -1;
+        _terminalText.Clear();
+        TerminalOutputLabel.Text = "Connecting to terminal...";
+        TerminalStatusLabel.Text = "";
+        WingmanOutputLabel.Text = "Loading clean output...";
+        WingmanNoteLabel.Text = "Tap Refresh for a read on this session.";
+        WingmanStatusLabel.Text = "";
+        if (WingmanInput is not null) WingmanInput.Text = "";
+        if (TerminalInput is not null) TerminalInput.Text = "";
+        ShowTab("voice");
+
         ListPanel.IsVisible = false;
         TalkPanel.IsVisible = true;
+    }
+
+    // ===== three-tab switcher (Voice / Wingman / Terminal) =================
+
+    private void OnVoiceTabClicked(object? sender, EventArgs e) => ShowTab("voice");
+    private void OnWingmanTabClicked(object? sender, EventArgs e) => ShowTab("wingman");
+    private void OnTerminalTabClicked(object? sender, EventArgs e) => ShowTab("terminal");
+
+    /// <summary>
+    /// Swap the visible single-session section and update the segmented control's
+    /// highlight. Starts the Terminal poll when entering Terminal and stops it when
+    /// leaving; lazily loads the Wingman clean output the first time the tab is shown
+    /// for a session. Voice is the eyes-free default. Immediate visual feedback first,
+    /// then any async load runs in the background.
+    /// </summary>
+    private void ShowTab(string tab)
+    {
+        _activeTab = tab;
+
+        VoiceSection.IsVisible = tab == "voice";
+        WingmanSection.IsVisible = tab == "wingman";
+        TerminalSection.IsVisible = tab == "terminal";
+
+        SetTabButton(VoiceTabButton, tab == "voice");
+        SetTabButton(WingmanTabButton, tab == "wingman");
+        SetTabButton(TerminalTabButton, tab == "terminal");
+
+        // Terminal poll only runs while its tab is visible (read-only mirror).
+        if (tab == "terminal")
+        {
+            if (_selected is not null)
+            {
+                TerminalStatusLabel.Text = "Live mirror (read-only)";
+                _terminalTimer.Start();
+            }
+        }
+        else
+        {
+            _terminalTimer.Stop();
+        }
+
+        // Lazily load the Wingman clean output the first time the tab is opened for
+        // this session (when it still shows the placeholder).
+        if (tab == "wingman" && _selected is not null
+            && WingmanOutputLabel.Text == "Loading clean output...")
+        {
+            _ = RefreshWingmanOutputAsync();
+        }
+    }
+
+    private void SetTabButton(Button button, bool selected)
+    {
+        if (selected)
+        {
+            button.BackgroundColor = Color.FromArgb("#2B6CB0");
+            button.TextColor = Colors.White;
+            button.FontAttributes = FontAttributes.Bold;
+        }
+        else
+        {
+            button.BackgroundColor = Color.FromArgb("#1A2236");
+            button.TextColor = Color.FromArgb("#8A93A6");
+            button.FontAttributes = FontAttributes.None;
+        }
     }
 
     private void OnBackClicked(object? sender, EventArgs e)
@@ -202,6 +303,7 @@ public partial class TalkPage : ContentPage
         // cancellation quietly.
         _turnCts?.Cancel();
         _levelTimer.Stop();
+        _terminalTimer.Stop();
         RecordingCard.IsVisible = false;
         LevelMeter.Progress = 0;
         if (_recorder.IsRecording)
@@ -434,45 +536,264 @@ public partial class TalkPage : ContentPage
         VoiceStatusLabel.TextColor = Color.FromArgb(colorHex);
     }
 
-    // On-demand "what's happening": ask the wingman for a fresh briefing of what the
-    // session is doing right now and read it aloud, so you can confirm where things
-    // stand without sending a chat turn. Uses the SAME /wingman/ask explain endpoint
-    // the web voice view's "What's happening?" button uses - one backend, two thin
-    // clients - rather than a second, separate implementation.
-    private async void OnWhatsHappeningClicked(object? sender, EventArgs e)
+    // ===== WINGMAN tab: clean text output + annotation + Speak/Send -> agent =====
+
+    private async void OnWingmanRefreshClicked(object? sender, EventArgs e)
     {
-        if (_selected is null || _busy) return;
+        if (_selected is null) return;
+        await RefreshWingmanNoteAsync();
+        await RefreshWingmanOutputAsync();
+    }
+
+    /// <summary>
+    /// Fetch the wingman's plain-language note (what just happened / what it is
+    /// waiting on) for the selected session and show it atop the clean output. Uses
+    /// the SAME mode=explain path the Voice tab's "What's happening?" uses.
+    /// </summary>
+    private async Task RefreshWingmanNoteAsync()
+    {
+        if (_selected is null || _wingmanBusy) return;
+        var session = _selected;
         try
         {
-            SetTalkButton(recording: false, busy: true);
-            SetVoiceStatus("Checking...", StatusBlue);
-            _turnCts?.Cancel();
-            _turnCts = new CancellationTokenSource();
-            var ct = _turnCts.Token;
+            _wingmanBusy = true;
+            WingmanStatusLabel.Text = "Reading the session...";
             var client = new DirectorVoiceClient(TokenEntry.Text ?? "");
-            var briefing = await client.ExplainAsync(_selected.TailnetEndpoint, _selected.SessionId, ct);
-            if (string.IsNullOrWhiteSpace(briefing))
-            {
-                SetVoiceStatus("Nothing to report yet", StatusGreen);
-                return;
-            }
-            ReplyLabel.Text = briefing;
-            SetVoiceStatus("Speaking...", StatusBlue);
-            await _tts.SpeakAsync(briefing, ct);
-            SetVoiceStatus("Ready", StatusGreen);
-        }
-        catch (OperationCanceledException)
-        {
-            // User left; nothing to report.
+            var note = await client.ExplainAsync(session.TailnetEndpoint, session.SessionId);
+            WingmanNoteLabel.Text = string.IsNullOrWhiteSpace(note)
+                ? "Nothing to report yet." : note;
+            WingmanStatusLabel.Text = "";
         }
         catch (Exception ex)
         {
-            SetVoiceStatus("Something went wrong", StatusRed);
-            await DisplayAlert("Voice error", ex.Message, "OK");
+            WingmanStatusLabel.Text = $"Wingman note failed: {ex.Message}";
         }
         finally
         {
-            SetTalkButton(recording: false, busy: false);
+            _wingmanBusy = false;
+        }
+    }
+
+    /// <summary>
+    /// Fetch the clean, de-noised conversation (parsed /turns) and render it as
+    /// readable text. No TTS on this tab - replies are text only.
+    /// </summary>
+    private async Task RefreshWingmanOutputAsync()
+    {
+        if (_selected is null) return;
+        var session = _selected;
+        try
+        {
+            var client = new DirectorVoiceClient(TokenEntry.Text ?? "");
+            var text = await client.GetTurnsTextAsync(session.TailnetEndpoint, session.SessionId);
+            WingmanOutputLabel.Text = string.IsNullOrWhiteSpace(text)
+                ? "No clean output yet for this session." : text;
+        }
+        catch (Exception ex)
+        {
+            WingmanOutputLabel.Text = $"Could not load clean output: {ex.Message}";
+        }
+    }
+
+    // Speak = dictate into the textbox. Reuses the same record + transcribe path the
+    // Voice tab uses, but instead of sending it puts the transcript in the input so
+    // the user can review/edit before tapping Send.
+    private async void OnWingmanSpeakClicked(object? sender, EventArgs e)
+    {
+        if (_selected is null) return;
+        try
+        {
+            if (!_recorder.IsRecording)
+            {
+                var status = await Permissions.RequestAsync<Permissions.Microphone>();
+                if (status != PermissionStatus.Granted)
+                {
+                    await DisplayAlert("Microphone needed",
+                        "CC Director Client needs microphone access to dictate.", "OK");
+                    return;
+                }
+                await _recorder.StartAsync();
+                WingmanSpeakButton.Text = "Stop";
+                WingmanSpeakButton.BackgroundColor = Color.FromArgb("#E5484D");
+                WingmanStatusLabel.Text = "Listening...";
+                return;
+            }
+
+            // Second press: stop, transcribe, drop the text into the input box.
+            WingmanSpeakButton.Text = "Speak";
+            WingmanSpeakButton.BackgroundColor = Color.FromArgb("#0E7C6B");
+            WingmanStatusLabel.Text = "Transcribing...";
+            var audio = await _recorder.StopAsync();
+            var client = new DirectorVoiceClient(TokenEntry.Text ?? "");
+            var t = await client.TranscribeUtteranceAsync(
+                _selected.TailnetEndpoint, _selected.SessionId, audio.Bytes, audio.Mime);
+            var existing = WingmanInput.Text ?? "";
+            WingmanInput.Text = string.IsNullOrWhiteSpace(existing)
+                ? t.Text : (existing.TrimEnd() + " " + t.Text);
+            WingmanStatusLabel.Text = "";
+        }
+        catch (Exception ex)
+        {
+            WingmanSpeakButton.Text = "Speak";
+            WingmanSpeakButton.BackgroundColor = Color.FromArgb("#0E7C6B");
+            WingmanStatusLabel.Text = "";
+            await DisplayAlert("Dictation error", ex.Message, "OK");
+        }
+    }
+
+    // Send -> the working agent. The reply renders as TEXT in the clean output (no TTS).
+    private async void OnWingmanSendClicked(object? sender, EventArgs e)
+    {
+        if (_selected is null || _wingmanBusy) return;
+        var text = (WingmanInput.Text ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(text)) return;
+        var session = _selected;
+        try
+        {
+            _wingmanBusy = true;
+            WingmanSendButton.IsEnabled = false;
+            WingmanStatusLabel.Text = "Sending to agent...";
+            var client = new DirectorVoiceClient(TokenEntry.Text ?? "");
+            var result = await client.SendChatAsync(session.TailnetEndpoint, session.SessionId, text);
+
+            // Follow the turn with cheap polls (no TTS, no progress notes) until the
+            // agent finishes, then refresh the clean output so the reply shows as text.
+            while (result.ShouldKeepPolling)
+            {
+                WingmanStatusLabel.Text = "Agent working...";
+                await Task.Delay(TimeSpan.FromSeconds(3));
+                result = await client.PollChatAsync(session.TailnetEndpoint, session.SessionId, wantProgress: false);
+            }
+
+            WingmanInput.Text = "";
+            WingmanStatusLabel.Text = string.Equals(result.Status, "ok", StringComparison.OrdinalIgnoreCase)
+                ? "" : $"Turn ended: {result.Status}";
+            await RefreshWingmanOutputAsync();
+            await RefreshWingmanNoteAsync();
+        }
+        catch (Exception ex)
+        {
+            WingmanStatusLabel.Text = "";
+            await DisplayAlert("Send error", ex.Message, "OK");
+        }
+        finally
+        {
+            _wingmanBusy = false;
+            WingmanSendButton.IsEnabled = true;
+        }
+    }
+
+    // ===== TERMINAL tab: read-only raw mirror + control buttons ============
+
+    /// <summary>
+    /// One poll of the raw PTY buffer. Appends only the newly written bytes (cursor
+    /// advances each call), keeps the on-screen scrollback bounded, and scrolls to
+    /// the bottom. Read-only: this never writes to the PTY.
+    /// </summary>
+    private async Task PollTerminalAsync()
+    {
+        if (_selected is null || _terminalPolling || _activeTab != "terminal") return;
+        var session = _selected;
+        try
+        {
+            _terminalPolling = true;
+            var client = new DirectorVoiceClient(TokenEntry.Text ?? "");
+            // Read a fresh cleaned snapshot (last N lines) each poll and REPLACE the
+            // view. Cleaned text + replace avoids both raw escape-code noise and the
+            // ghost-stacking you get from appending a TUI's repeated repaints.
+            var slice = await client.GetBufferAsync(session.TailnetEndpoint, session.SessionId, -1);
+            _terminalCursor = slice.NewCursor;
+            if (!string.IsNullOrEmpty(slice.Text))
+            {
+                TerminalOutputLabel.Text = slice.Text;
+                await TerminalScroll.ScrollToAsync(0, TerminalOutputLabel.Height, false);
+            }
+            else if (TerminalOutputLabel.Text == "Connecting to terminal...")
+            {
+                TerminalOutputLabel.Text = "(no terminal output yet)";
+            }
+        }
+        catch (Exception ex)
+        {
+            TerminalStatusLabel.Text = $"Mirror error: {ex.Message}";
+            _terminalTimer.Stop();
+        }
+        finally
+        {
+            _terminalPolling = false;
+        }
+    }
+
+    // Send a typed line to the PTY (AppendEnter so it submits).
+    private async void OnTerminalSendClicked(object? sender, EventArgs e)
+    {
+        var text = (TerminalInput.Text ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(text)) return;
+        TerminalInput.Text = "";
+        await SendTerminalKeysAsync(text, appendEnter: true);
+    }
+
+    private async void OnTerminalEnterClicked(object? sender, EventArgs e)
+        => await SendTerminalKeysAsync("\r", appendEnter: false);
+
+    // Arrow keys: the standard cursor escape sequences ESC[A / ESC[B / ESC[C / ESC[D.
+    // The leading byte is the real Escape control (decimal 27, 0x1b); built from
+    // (char)27 so the source stays plain ASCII with no embedded control char.
+    private static readonly string EscPrefix = ((char)27).ToString() + "[";
+    private async void OnTerminalUpClicked(object? sender, EventArgs e)
+        => await SendTerminalKeysAsync(EscPrefix + "A", appendEnter: false);
+    private async void OnTerminalDownClicked(object? sender, EventArgs e)
+        => await SendTerminalKeysAsync(EscPrefix + "B", appendEnter: false);
+    private async void OnTerminalRightClicked(object? sender, EventArgs e)
+        => await SendTerminalKeysAsync(EscPrefix + "C", appendEnter: false);
+    private async void OnTerminalLeftClicked(object? sender, EventArgs e)
+        => await SendTerminalKeysAsync(EscPrefix + "D", appendEnter: false);
+
+    private async void OnTerminalEscClicked(object? sender, EventArgs e)
+    {
+        if (_selected is null) return;
+        var session = _selected;
+        try
+        {
+            TerminalStatusLabel.Text = "Sent Esc";
+            await new DirectorVoiceClient(TokenEntry.Text ?? "")
+                .SendEscapeAsync(session.TailnetEndpoint, session.SessionId);
+        }
+        catch (Exception ex)
+        {
+            await DisplayAlert("Terminal error", ex.Message, "OK");
+        }
+    }
+
+    private async void OnTerminalStopClicked(object? sender, EventArgs e)
+    {
+        if (_selected is null) return;
+        var session = _selected;
+        try
+        {
+            TerminalStatusLabel.Text = "Sent Stop (Ctrl+C)";
+            await new DirectorVoiceClient(TokenEntry.Text ?? "")
+                .SendInterruptAsync(session.TailnetEndpoint, session.SessionId);
+        }
+        catch (Exception ex)
+        {
+            await DisplayAlert("Terminal error", ex.Message, "OK");
+        }
+    }
+
+    private async Task SendTerminalKeysAsync(string text, bool appendEnter)
+    {
+        if (_selected is null) return;
+        var session = _selected;
+        try
+        {
+            TerminalStatusLabel.Text = "Sent";
+            await new DirectorVoiceClient(TokenEntry.Text ?? "")
+                .SendKeysAsync(session.TailnetEndpoint, session.SessionId, text, appendEnter);
+        }
+        catch (Exception ex)
+        {
+            await DisplayAlert("Terminal error", ex.Message, "OK");
         }
     }
 
@@ -494,7 +815,7 @@ public partial class TalkPage : ContentPage
         }
         else
         {
-            TalkButton.Text = "Talk";
+            TalkButton.Text = "Ask Agent";
             TalkButton.BackgroundColor = Color.FromArgb("#5FD08A");
             TalkButton.TextColor = Color.FromArgb("#06210F");
         }

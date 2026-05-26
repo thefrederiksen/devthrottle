@@ -525,6 +525,20 @@
                                     Padding="12,4"
                                     FontSize="12"
                                     Click="SourceControlTabButton_Click" />
+                            <Button x:Name="VoiceTabButton"
+                                    Content="Voice"
+                                    Background="Transparent"
+                                    Foreground="#888888"
+                                    Padding="12,4"
+                                    FontSize="12"
+                                    Click="VoiceTabButton_Click" />
+                            <Button x:Name="WingmanTabButton"
+                                    Content="Wingman"
+                                    Background="Transparent"
+                                    Foreground="#888888"
+                                    Padding="12,4"
+                                    FontSize="12"
+                                    Click="WingmanTabButton_Click" />
                             <Button x:Name="AgentTabButton"
                                     Content="Agent (legacy)"
                                     Background="Transparent"
@@ -567,10 +581,10 @@
                 <!-- Left tab content area -->
                 <Panel Grid.Row="1" Background="#1E1E1E">
 
-                    <!-- Agent panel (Clean view) -->
-                    <Panel x:Name="AgentPanel" IsVisible="False">
-                        <controls:CleanView x:Name="CleanView" />
-                    </Panel>
+                    <!-- Agent panel (legacy, retired - the Clean view moved to the
+                         Wingman tab below). Kept as an empty hidden panel because the
+                         legacy Agent tab button is hidden but still referenced. -->
+                    <Panel x:Name="AgentPanel" IsVisible="False" />
 
 
                     <!-- Terminal panel -->
@@ -606,6 +620,75 @@
                     <!-- Source Control panel -->
                     <Panel x:Name="SourceControlPanel" IsVisible="False">
                         <controls:GitChangesView x:Name="GitChangesView" />
+                    </Panel>
+
+                    <!-- Voice panel (eyes-free: Ask Agent / Ask Wingman) -->
+                    <Panel x:Name="VoicePanel" IsVisible="False">
+                        <controls:VoiceView x:Name="VoiceView" />
+                    </Panel>
+
+                    <!-- Wingman panel: the clean output of the session (the agent's
+                         replies render here, de-noised) plus a Speak/Send bar that
+                         talks to the agent. Plain-language wingman annotations layer
+                         on top in a later slice. -->
+                    <Panel x:Name="WingmanPanel" IsVisible="False">
+                        <DockPanel>
+                            <!-- Wingman annotation banner: a plain-language read of what
+                                 the session is doing, refreshed automatically when a turn
+                                 ends while this tab is open (and on demand). -->
+                            <Border DockPanel.Dock="Top"
+                                    Background="#16241B"
+                                    BorderBrush="#2D7D46" BorderThickness="0,0,0,1"
+                                    Padding="12,8">
+                                <DockPanel>
+                                    <Button x:Name="WingmanRefreshButton" DockPanel.Dock="Right"
+                                            Content="Refresh"
+                                            Click="WingmanRefreshButton_Click"
+                                            Background="Transparent" Foreground="#7FD0A0"
+                                            BorderThickness="0" Cursor="Hand"
+                                            Padding="6,2" FontSize="11"
+                                            VerticalAlignment="Top" />
+                                    <StackPanel>
+                                        <TextBlock Text="WINGMAN"
+                                                   Foreground="#5FD08A" FontSize="11" FontWeight="Bold" />
+                                        <TextBlock x:Name="WingmanNoteText"
+                                                   Text="Open this tab or hit Refresh for a plain-language read of what the session is doing."
+                                                   Foreground="#B7C0D4" FontSize="13"
+                                                   TextWrapping="Wrap" Margin="0,3,0,0" />
+                                    </StackPanel>
+                                </DockPanel>
+                            </Border>
+
+                            <Border DockPanel.Dock="Bottom"
+                                    Background="{DynamicResource SidebarBackground}"
+                                    BorderBrush="#3C3C3C" BorderThickness="0,1,0,0"
+                                    Padding="8,6">
+                                <Grid ColumnDefinitions="*,Auto,Auto">
+                                    <TextBox x:Name="WingmanInput" Grid.Column="0"
+                                             Watermark="Type or Speak to the agent..."
+                                             AcceptsReturn="True" TextWrapping="Wrap"
+                                             MinHeight="48" MaxHeight="120"
+                                             Background="#1E1E1E"
+                                             Foreground="{DynamicResource TextForeground}"
+                                             BorderBrush="#3C3C3C" Padding="8,6"
+                                             FontFamily="Cascadia Mono,Consolas,monospace"
+                                             FontSize="13" />
+                                    <Button x:Name="WingmanSpeakButton" Grid.Column="1"
+                                            Content="Speak" Width="80" Height="32"
+                                            Margin="8,0,4,0" VerticalAlignment="Bottom"
+                                            Background="#16A34A" Foreground="White"
+                                            HorizontalContentAlignment="Center" FontSize="13"
+                                            Click="WingmanSpeakButton_Click" />
+                                    <Button x:Name="WingmanSendButton" Grid.Column="2"
+                                            Content="Send" Width="80" Height="32"
+                                            VerticalAlignment="Bottom"
+                                            Background="{DynamicResource AccentBrush}" Foreground="White"
+                                            HorizontalContentAlignment="Center" FontSize="13"
+                                            Click="WingmanSendButton_Click" />
+                                </Grid>
+                            </Border>
+                            <controls:CleanView x:Name="CleanView" />
+                        </DockPanel>
                     </Panel>
 
                     <!-- Document viewer panel (dynamic content swapped per tab) -->

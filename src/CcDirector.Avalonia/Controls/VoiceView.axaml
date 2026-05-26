@@ -1,0 +1,60 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="CcDirector.Avalonia.Controls.VoiceView"
+             Background="#1E1E1E">
+
+    <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="24">
+
+        <!-- Header: session + status -->
+        <StackPanel Grid.Row="0" Spacing="4">
+            <TextBlock x:Name="SessionNameText"
+                       Text="No session selected"
+                       Foreground="{DynamicResource TextForeground}"
+                       FontSize="20" FontWeight="Bold" />
+            <TextBlock x:Name="StatusText"
+                       Text="Ready"
+                       Foreground="#5FD08A"
+                       FontSize="14" />
+        </StackPanel>
+
+        <!-- The two voice actions, paired. Ask Agent is the primary action
+             (talk TO the working agent) so it is a bit bigger; Ask Wingman
+             (ask the read-only observer) sits beneath it. Click once to start
+             capturing; the button becomes "Stop & Send"; click again to send. -->
+        <StackPanel Grid.Row="1" Spacing="14" Margin="0,28,0,0"
+                    HorizontalAlignment="Center">
+            <Button x:Name="AskAgentButton"
+                    Content="Ask Agent"
+                    Width="340" Height="96"
+                    Background="#16A34A" Foreground="White"
+                    FontSize="23" FontWeight="SemiBold"
+                    HorizontalContentAlignment="Center"
+                    CornerRadius="14"
+                    Click="AskAgentButton_Click" />
+            <Button x:Name="AskWingmanButton"
+                    Content="Ask Wingman"
+                    Width="272" Height="70"
+                    Background="#0E7C6B" Foreground="White"
+                    FontSize="18" FontWeight="SemiBold"
+                    HorizontalContentAlignment="Center"
+                    CornerRadius="12"
+                    Click="AskWingmanButton_Click" />
+        </StackPanel>
+
+        <!-- Transcript + reply -->
+        <Border Grid.Row="3" Background="#252526" CornerRadius="8"
+                Padding="14" Margin="0,28,0,0">
+            <StackPanel Spacing="8">
+                <TextBlock Text="You said" Foreground="#5A6378"
+                           FontSize="12" FontWeight="Bold" />
+                <TextBlock x:Name="TranscriptText" Text="-"
+                           Foreground="#B7C0D4" FontSize="14" TextWrapping="Wrap" />
+                <TextBlock Text="Reply" Foreground="#5A6378"
+                           FontSize="12" FontWeight="Bold" Margin="0,8,0,0" />
+                <TextBlock x:Name="ReplyText" Text="-"
+                           Foreground="{DynamicResource TextForeground}"
+                           FontSize="14" TextWrapping="Wrap" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

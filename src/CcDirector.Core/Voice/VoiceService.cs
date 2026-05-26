@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using CcDirector.Core.Configuration;
+using CcDirector.Core.Dictation;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Wingman;
 using CcDirector.Core.Utilities;
@@ -80,11 +81,10 @@ public sealed class VoiceService
 
         FileLog.Write($"[VoiceService] Transcript: \"{Truncate(transcript, 200)}\"");
 
-        // Phase 1 of the SessionWingman goal: clean the raw transcript via a Haiku
-        // side-call BEFORE we hand it off to the agent.  Cheap (~$0.0001), fast (~1 s),
-        // saves the main agent from parsing filler words like "um like uh you know".
-        // Fails open: on any error, CleanedTranscript == raw and the user sees the
-        // failure reason.  See docs/goals/GOAL_CC_DIRECTOR_SUPERVISOR.md section 3.
+        // Decide who the utterance is addressed to (agent vs wingman) and strip any
+        // wingman wake phrase, returning the user's words VERBATIM otherwise. Known
+        // mistranscribed terms are fixed by the shared dictionary corrector below,
+        // not here. Fails open: on any error, Cleaned == raw and the user sees why.
         VoiceCleanupResult cleanup;
         try
         {
@@ -107,7 +107,7 @@ public sealed class VoiceService
         try
         {
             var response = Execute(transcript, command);
-            response.CleanedTranscript = cleanup.Cleaned;
+            response.CleanedTranscript = await ApplyDictionaryCorrectionAsync(cleanup.Cleaned, ct);
             response.CleanupReason = cleanup.Reason;
             response.RouteTarget = cleanup.Target;
             return response;
@@ -129,11 +129,13 @@ public sealed class VoiceService
     }
 
     /// <summary>
-    /// Transcribe an already-assembled audio blob and run the Wingman filler-word
-    /// cleanup, returning both raw and cleaned text. Used by the resumable
-    /// /voice/utterance path, which reassembles the chunked upload into one blob and
-    /// then needs exactly the transcribe+clean half of <see cref="HandleAsync"/>
-    /// WITHOUT the command intent parsing. Fails open on cleanup (cleaned == raw).
+    /// Transcribe an already-assembled audio blob, decide its route target
+    /// (agent vs wingman) verbatim, then correct known dictionary terms with the
+    /// shared dictation cleanup engine - returning both the raw transcript and the
+    /// final corrected text. Used by the resumable /voice/utterance path, which
+    /// reassembles the chunked upload into one blob and then needs exactly the
+    /// transcribe+route+correct half of <see cref="HandleAsync"/> WITHOUT the
+    /// command intent parsing. Fails open (cleaned == raw) at each step.
     /// </summary>
     public async Task<VoiceCommandResponse> TranscribeAndCleanAsync(
         Stream audio, string fileName, string repoPath, CancellationToken ct = default)
@@ -174,14 +176,57 @@ public sealed class VoiceService
             cleanup = new VoiceCleanupResult(transcript, "cleanup wrapper failed: " + ex.Message);
         }
 
+        // Apply the SHARED dictionary corrector (verbatim + the live dictation
+        // dictionary) - the same engine desktop dictation uses - to the routed,
+        // wake-phrase-stripped transcript. cleanup.Cleaned is already verbatim
+        // (routing only); this pass fixes known mistranscribed terms and nothing
+        // else. Fails open: ships the routed transcript unchanged on any problem.
+        var corrected = await ApplyDictionaryCorrectionAsync(cleanup.Cleaned, ct);
+
         return new VoiceCommandResponse
         {
             Transcript = transcript,
-            CleanedTranscript = cleanup.Cleaned,
+            CleanedTranscript = corrected,
             CleanupReason = cleanup.Reason,
             RouteTarget = cleanup.Target,
             Status = "ok",
         };
+    }
+
+    /// <summary>
+    /// Correct known dictionary terms in <paramref name="text"/> with the SAME
+    /// shared <see cref="CleanupOrchestrator"/> the desktop dictation path uses:
+    /// verbatim, dictionary-only, reading the live dictionary from disk on each
+    /// call. This service is constructed per request, so an edit to the dictionary
+    /// takes effect on the very next utterance - there is no frozen startup
+    /// snapshot. Fails open: returns the input text unchanged on an empty
+    /// dictionary, a missing key, or any error, so a dictionary problem never costs
+    /// the user their words.
+    /// </summary>
+    private async Task<string> ApplyDictionaryCorrectionAsync(string text, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return text;
+        var key = _options.ResolveOpenAiKey();
+        if (string.IsNullOrWhiteSpace(key))
+            return text;
+        try
+        {
+            using var loader = new DictionaryLoader(_options.ResolveDictationDictionaryPath(), watch: false);
+            using var cleanup = new CleanupOrchestrator(apiKey: key, model: _options.DictationCleanupModel);
+            var outcome = await cleanup.CleanAsync(text, loader.Current, "default", ct);
+            FileLog.Write($"[VoiceService] dictionary correction: applied={outcome.Applied} reason=\"{outcome.Reason}\"");
+            return outcome.Text;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[VoiceService] dictionary correction FAILED (shipping verbatim): {ex.Message}");
+            return text;
+        }
     }
 
     // ====== Whisper transcription ======================================================
