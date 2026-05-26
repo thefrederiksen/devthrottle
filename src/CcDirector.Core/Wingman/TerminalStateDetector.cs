@@ -274,18 +274,25 @@ public sealed class TerminalStateDetector : IDisposable
             _active = false;
             FileLog.Write($"[TerminalStateDetector] {_session.Id} terminal=QUIET ({idleMs / 1000.0:F1}s no output) | hook={_session.ActivityState} color={_session.StatusColor}");
 
-            if (_driveState)
+            if (_useLlm)
             {
-                // The output went quiet: the turn is over. Provisionally "waiting for you"
-                // (never assume working without evidence); the LLM may refine to
-                // waiting_for_permission below. Then raise the turn-ended pulse so the
-                // Wingman summarises this turn from the terminal.
+                // Byte-silence with the "esc to interrupt" footer gone is NOT proof the turn
+                // ended: Claude Code keeps a live spinner ("Building and verifying... (1m 31s
+                // ... tokens)") on screen WITHOUT that footer while a tool / build / sub-agent
+                // runs, so the footer check alone would flip such a session green mid-turn.
+                // When the judge is available it is the SOLE authority for declaring the turn
+                // over. The silence gate only decides WHEN to ask; MaybeClassify drives both
+                // the colour and the turn-ended pulse from the verdict (see below). We do NOT
+                // paint green or raise turn-ended here.
+                MaybeClassify();
+            }
+            else if (_driveState)
+            {
+                // No LLM judge available: the footer heuristic is the only signal we have, so
+                // sustained silence with the working footer gone is treated as the turn end.
                 _session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
                 _session.NotifyTurnEndedFromTerminal();
             }
-
-            if (_useLlm)
-                MaybeClassify();
         }
 
         private void MaybeClassify()
@@ -322,19 +329,41 @@ public sealed class TerminalStateDetector : IDisposable
                     }
                     FileLog.Write($"[TerminalStateDetector] {_session.Id} LLM verdict={st} (\"{reason}\") awaiting=\"{(awaiting.Length > 60 ? awaiting[..60] + "..." : awaiting)}\" judge={(_useFullSession ? "full-session" : "tail-paste")} | hook={_session.ActivityState} color={_session.StatusColor}");
 
-                    // Only refine state if the terminal is still quiet (no new turn started
-                    // while the model was thinking). If bytes resumed, OnBytes already set Working.
-                    if (_driveState && !_active && st != "unknown")
+                    // The judge is the single state + colour authority in terminal-driven mode
+                    // (issue #137 item 3). ColorFromVerdict maps the state + the verbatim pending
+                    // request ("awaiting") to colour: red positive-evidence for a pending
+                    // question / permission / interrupt, green when idle, blue when working. The
+                    // model's OWN reason is the wingman-log entry (tagged LLM).
+                    if (_driveState && st != "unknown")
                     {
-                        var actState = MapVerdictToActivityState(st);
-                        _session.ApplyTerminalActivityState(actState);
-                        // Issue #137 item 3: the detector is the single colour authority in
-                        // terminal-driven mode. ColorFromVerdict maps the state + the verbatim
-                        // pending request ("awaiting") to colour: red positive-evidence for a
-                        // pending question / permission / interrupt, green when idle, blue when
-                        // working. The model's OWN reason is the wingman-log entry (tagged LLM).
-                        var (color, cReason, csource) = SessionStatusWingman.ColorFromVerdict(st, reason, awaiting);
-                        _session.SetStatusColor(color, cReason, llm: true, source: csource);
+                        if (st == "working")
+                        {
+                            // The judge confirms the turn is NOT over (a tool / build / sub-agent
+                            // is still running even though the byte stream went quiet). Stay
+                            // working/blue and do NOT raise turn-ended. Mark active so the gate
+                            // re-triggers on the next real activity (OnBytes re-arms the timer);
+                            // a silent-but-working session simply stays blue until it produces
+                            // output or genuinely finishes.
+                            _active = true;
+                            var actState = MapVerdictToActivityState(st);
+                            _session.ApplyTerminalActivityState(actState);
+                            var (color, cReason, csource) = SessionStatusWingman.ColorFromVerdict(st, reason, awaiting);
+                            _session.SetStatusColor(color, cReason, llm: true, source: csource);
+                        }
+                        else if (!_active)
+                        {
+                            // A non-working terminal state (waiting_for_input / _permission) is
+                            // confirmed and the terminal is still quiet (no new turn started while
+                            // the model was thinking). Only NOW is the turn genuinely over: set the
+                            // state + colour and raise the turn-ended pulse so the Wingman
+                            // summarises this turn from the terminal. If bytes had resumed, _active
+                            // is true and we skip - a new turn is already under way.
+                            var actState = MapVerdictToActivityState(st);
+                            _session.ApplyTerminalActivityState(actState);
+                            var (color, cReason, csource) = SessionStatusWingman.ColorFromVerdict(st, reason, awaiting);
+                            _session.SetStatusColor(color, cReason, llm: true, source: csource);
+                            _session.NotifyTurnEndedFromTerminal();
+                        }
                     }
                 }
                 catch (Exception ex)

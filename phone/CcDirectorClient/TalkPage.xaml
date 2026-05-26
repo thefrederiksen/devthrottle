@@ -104,6 +104,13 @@
                         BackgroundColor="#2B6CB0" TextColor="White" HeightRequest="48"
                         CornerRadius="12" Clicked="OnWhatsHappeningClicked" />
 
+                <!-- Ask the wingman a question by voice (reads content back verbatim,
+                     does not summarize). Saying "Hey wingman ..." into Talk does the
+                     same; this button is for when you would rather not say the phrase. -->
+                <Button x:Name="AskWingmanButton" Text="Ask Wingman"
+                        BackgroundColor="#0E7C6B" TextColor="White" HeightRequest="48"
+                        CornerRadius="12" Clicked="OnAskWingmanClicked" />
+
                 <Button x:Name="NextButton" Text="Next session" IsVisible="False"
                         BackgroundColor="#6B46C1" TextColor="White" HeightRequest="54"
                         CornerRadius="12" Clicked="OnNextClicked" />

@@ -832,6 +832,26 @@
     box-shadow: 0 4px 16px rgba(192,57,43,0.35);
   }
   .voice-cta .big-button.stop:hover:not(:disabled) { background: #d04839; }
+  /* Secondary "What's happening?" action: clearly subordinate to the hero talk
+     button (outline, not filled) so the screen reads as one primary action plus
+     one quiet helper, not a wall of buttons. */
+  .voice-cta .secondary-button {
+    width: 100%;
+    max-width: 480px;
+    min-height: 52px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: transparent;
+    color: var(--text);
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: manipulation;
+  }
+  .voice-cta .secondary-button:hover:not(:disabled) { background: rgba(255,255,255,0.06); }
+  .voice-cta .secondary-button:disabled { opacity: 0.4; cursor: not-allowed; }
   .voice-cta .voice-hint { color: var(--muted); font-size: 13px; text-align: center; }
   .voice-cta .voice-state {
     font-size: 13px;
@@ -930,48 +950,71 @@
     text-align: center;
   }
   .recording-overlay.show { display: flex; }
-  .recording-overlay .pulse-ring {
-    width: 220px; height: 220px;
-    border-radius: 50%;
-    background: #c0392b;
+  /* Live mic-level bars. Each bar's height is set inline from the analyser in
+     the rAF loop (scaleY transform); these are the resting/idle styles. */
+  .recording-overlay .rec-bars {
     display: flex; align-items: center; justify-content: center;
-    color: white;
-    font-size: 28px;
-    font-weight: 800;
-    letter-spacing: 1px;
-    box-shadow: 0 0 0 0 rgba(192,57,43,0.7);
-    animation: recPulse 1.4s ease-out infinite;
+    gap: 8px;
+    height: 120px;
   }
-  @keyframes recPulse {
-    0%   { box-shadow: 0 0 0 0   rgba(192,57,43,0.55); }
-    70%  { box-shadow: 0 0 0 50px rgba(192,57,43,0); }
-    100% { box-shadow: 0 0 0 0   rgba(192,57,43,0); }
+  .recording-overlay .rec-bars span {
+    display: block;
+    width: 14px;
+    height: 100%;
+    border-radius: 7px;
+    background: #c0392b;
+    transform: scaleY(0.12);
+    transform-origin: center;
+    transition: transform 80ms linear;
+  }
+  .recording-overlay .rec-status {
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: 2px;
+    color: #e74c3c;
   }
   .recording-overlay .rec-elapsed {
     font-size: 36px;
     font-weight: 700;
     font-variant-numeric: tabular-nums;
   }
+  .recording-overlay .rec-actions {
+    display: flex; flex-direction: column; align-items: stretch;
+    gap: 12px;
+    width: 100%;
+    max-width: 360px;
+  }
   .recording-overlay .stop-btn {
     background: #c0392b;
     color: white; border: 0;
-    padding: 22px 36px;
-    border-radius: 14px;
-    font-size: 20px;
-    font-weight: 700;
+    padding: 26px 36px;
+    border-radius: 16px;
+    font-size: 24px;
+    font-weight: 800;
     cursor: pointer;
-    min-width: 220px;
-    min-height: 72px;
+    min-height: 96px;
     box-shadow: 0 6px 18px rgba(192,57,43,0.4);
   }
+  .recording-overlay .cancel-btn {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid rgba(255,255,255,0.22);
+    padding: 14px 24px;
+    border-radius: 14px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    min-height: 52px;
+  }
+  .recording-overlay .cancel-btn:active { background: rgba(255,255,255,0.06); }
   .recording-overlay .rec-hint { color: var(--muted); font-size: 13px; max-width: 320px; }
   /* Initializing state: shown immediately on tap, before capture is live.
-     The user is told NOT to speak yet, so we mute the pulse and disable Stop. */
-  .recording-overlay.initializing .pulse-ring {
+     The user is told NOT to speak yet, so we mute the bars and disable Send. */
+  .recording-overlay.initializing .rec-bars span {
     background: #b8860b;
-    animation: none;
-    box-shadow: none;
+    transform: scaleY(0.12) !important;
   }
+  .recording-overlay.initializing .rec-status { color: #b8860b; }
   .recording-overlay.initializing .stop-btn {
     opacity: 0.55;
     pointer-events: none;
@@ -1158,10 +1201,10 @@
 <div id="voiceView">
   <div class="voice-cta">
     <button id="voiceMainBtn" class="big-button">Tap to talk</button>
-    <div id="voiceState" class="voice-state">Ready. Tap the big button, speak, tap again to send.</div>
-    <div class="voice-hint">Walkie-talkie: one tap starts recording, another tap sends. Designed for driving.</div>
+    <button id="voiceWhatsHappeningBtn" class="secondary-button" type="button">What's happening?</button>
+    <div id="voiceState" class="voice-state">Ready. Tap to talk.</div>
     <div class="voice-controls">
-      <label><input type="checkbox" id="voiceSpeakToggle" checked /> Speak replies aloud</label>
+      <label><input type="checkbox" id="voiceSpeakToggle" checked /> Speak replies</label>
       <button id="voiceStopSpeakBtn" class="btn-stop-speak" type="button">Stop speaking</button>
     </div>
   </div>
@@ -1182,9 +1225,17 @@
 
 <!-- Full-screen recording overlay (hidden until recording starts) -->
 <div id="recordingOverlay" class="recording-overlay" aria-hidden="true">
-  <div class="pulse-ring" id="recPulseRing">REC</div>
+  <!-- Live mic-level bars: heights are driven from a Web Audio AnalyserNode tap
+       on the same getUserMedia stream, so bouncing bars == audio is being heard. -->
+  <div class="rec-bars" id="recBars" aria-hidden="true">
+    <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+  </div>
+  <div class="rec-status" id="recPulseRing">REC</div>
   <div class="rec-elapsed" id="recElapsed">0.0s</div>
-  <button id="recStopBtn" class="stop-btn" type="button">Tap to send</button>
+  <div class="rec-actions">
+    <button id="recStopBtn" class="stop-btn" type="button">Tap to send</button>
+    <button id="recCancelBtn" class="cancel-btn" type="button">Cancel</button>
+  </div>
   <div class="rec-hint" id="recHint">Speak naturally. When done, tap "Tap to send".</div>
 </div>
 
@@ -2355,6 +2406,7 @@
   // =====================================================================
 
   const voiceMainBtn       = document.getElementById('voiceMainBtn');
+  const whatsHappeningBtn  = document.getElementById('voiceWhatsHappeningBtn');
   const voiceState         = document.getElementById('voiceState');
   const voiceLatestUser    = document.getElementById('voiceLatestUser');
   const voiceLatestSys     = document.getElementById('voiceLatestSys');
@@ -2366,8 +2418,11 @@
   const recordingOverlay   = document.getElementById('recordingOverlay');
   const recElapsedEl       = document.getElementById('recElapsed');
   const recStopBtn         = document.getElementById('recStopBtn');
+  const recCancelBtn       = document.getElementById('recCancelBtn');
   const recPulseRingEl     = document.getElementById('recPulseRing');
   const recHintEl          = document.getElementById('recHint');
+  const recBarsEl          = document.getElementById('recBars');
+  const recBarSpans        = recBarsEl ? Array.from(recBarsEl.querySelectorAll('span')) : [];
 
   function showRecordingOverlay(mode) {
     recordingOverlay.classList.add('show');
@@ -2395,6 +2450,55 @@
   let recordedChunks = [];
   let recordStartedAt = 0;
   let recordTimer = null;
+  // Live mic-level visualiser state. The analyser taps the same mic stream the
+  // recorder uses; the rAF loop maps frequency energy onto the bar heights.
+  let micStream = null;
+  let levelCtx = null;
+  let levelAnalyser = null;
+  let levelRaf = 0;
+
+  // Drive the overlay bars from the live mic level. Bars idle near the floor
+  // when silent and jump toward the top as you speak, so a flat row of bars is
+  // an honest "the mic is not hearing you" signal.
+  function startLevelMeter(stream) {
+    if (!recBarSpans.length) return;
+    try {
+      levelCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const src = levelCtx.createMediaStreamSource(stream);
+      levelAnalyser = levelCtx.createAnalyser();
+      levelAnalyser.fftSize = 256;
+      levelAnalyser.smoothingTimeConstant = 0.7;
+      src.connect(levelAnalyser);
+    } catch (e) {
+      // No meter is fine; recording still works. Leave bars at rest.
+      return;
+    }
+    const bins = levelAnalyser.frequencyBinCount;
+    const data = new Uint8Array(bins);
+    const n = recBarSpans.length;
+    const tick = () => {
+      levelRaf = requestAnimationFrame(tick);
+      levelAnalyser.getByteFrequencyData(data);
+      // Spread the bars across the spectrum so they move independently.
+      for (let i = 0; i < n; i++) {
+        const start = Math.floor((i / n) * bins);
+        const end = Math.floor(((i + 1) / n) * bins);
+        let sum = 0;
+        for (let j = start; j < end; j++) sum += data[j];
+        const avg = sum / Math.max(1, end - start);   // 0..255
+        const scale = 0.12 + (avg / 255) * 0.88;       // keep a small resting nub
+        recBarSpans[i].style.transform = 'scaleY(' + scale.toFixed(3) + ')';
+      }
+    };
+    tick();
+  }
+
+  function stopLevelMeter() {
+    if (levelRaf) { cancelAnimationFrame(levelRaf); levelRaf = 0; }
+    levelAnalyser = null;
+    if (levelCtx) { try { levelCtx.close(); } catch {} levelCtx = null; }
+    recBarSpans.forEach(b => { b.style.transform = 'scaleY(0.12)'; });
+  }
   let voiceBusy = false;
   let cueTimer = null;
   let cueOsc = null;
@@ -2871,6 +2975,7 @@
       return;
     }
 
+    micStream = stream;
     recordedChunks = [];
     // Fresh utterance for this recording; reset the chunk-upload state and
     // register up front so chunks can start flowing the instant they are emitted.
@@ -2909,6 +3014,7 @@
       if (!liveConfirmed) {
         liveConfirmed = true;
         showRecordingOverlay('recording');
+        startLevelMeter(stream);
         voiceMainBtn.classList.add('stop');
         voiceMainBtn.textContent = 'Tap to send';
         recordStartedAt = Date.now();
@@ -2930,12 +3036,14 @@
   async function stopAndSend() {
     if (!mediaRecorder) return;
     if (recordTimer) { clearInterval(recordTimer); recordTimer = null; }
+    stopLevelMeter();
     voiceMainBtn.classList.remove('stop');
     voiceMainBtn.textContent = 'Tap to talk';
     hideRecordingOverlay();
 
     const rec = mediaRecorder;
     mediaRecorder = null;
+    micStream = null;
     if (rec.state !== 'inactive') {
       await new Promise(resolve => {
         rec.addEventListener('stop', resolve, { once: true });
@@ -2954,6 +3062,26 @@
     }
 
     await finishUtteranceAndConverse(chunkIndex, mimeType);
+  }
+
+  // Abort the current recording WITHOUT sending anything. Stops the recorder and
+  // mic, tears down the meter, aborts the in-flight chunk uploader so nothing
+  // reaches the agent, and returns to the idle voice screen. This is the escape
+  // hatch: once recording starts, Cancel is the only way out that does not send.
+  function cancelRecording() {
+    if (recordTimer) { clearInterval(recordTimer); recordTimer = null; }
+    stopLevelMeter();
+    uploadAborted = true;               // stop the background chunk uploader
+    voiceMainBtn.classList.remove('stop');
+    voiceMainBtn.textContent = 'Tap to talk';
+    hideRecordingOverlay();
+
+    const rec = mediaRecorder;
+    mediaRecorder = null;
+    if (rec && rec.state !== 'inactive') { try { rec.stop(); } catch {} }
+    if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+    recordedChunks = [];
+    setVoiceState('Cancelled.');
   }
 
   // The agent's turn can run anywhere from a couple of seconds to 20-30
@@ -3208,11 +3336,63 @@
     }
   });
   recStopBtn.addEventListener('click', stopAndSend);
+  recCancelBtn.addEventListener('click', cancelRecording);
 
-  // Tapping the overlay background (but NOT the stop button itself) also stops.
-  recordingOverlay.addEventListener('click', (e) => {
-    if (e.target === recordingOverlay) stopAndSend();
-  });
+  // "What's happening?" - on-demand spoken status. You walk up to a session (or
+  // come back to it after a while) and want to know what the agent is doing
+  // without reading the terminal. One tap fetches a fresh wingman briefing
+  // (POST /wingman/ask mode=explain - same path the Session tab's Refresh uses)
+  // and reads it aloud, then shows it in the latest-exchange panel. No mic needed.
+  async function whatsHappening() {
+    if (voiceBusy) return;
+    voiceBusy = true;
+    voiceMainBtn.disabled = true;
+    whatsHappeningBtn.disabled = true;
+    answerArrived = false;
+    setVoiceUser("What's happening right now?");
+    setVoiceState('Checking what the agent is doing...');
+    startCue(CUE.working.freq, CUE.working.interval);
+    try {
+      const resp = await fetch('/sessions/' + SID + '/wingman/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ question: '', mode: 'explain' }),
+      });
+      stopCue();
+      if (!resp.ok) {
+        setVoiceState('Could not check status: HTTP ' + resp.status, 'error');
+        appendVoiceBubble('system', 'Could not check status: HTTP ' + resp.status);
+        return;
+      }
+      const result = await resp.json();
+      const answer = (result.answer || '').trim();
+      if (!answer) {
+        setVoiceState('No status available yet.', 'error');
+        appendVoiceBubble('system', 'The wingman had nothing to report yet.');
+        return;
+      }
+      answerArrived = true;
+      setVoiceReply(answer, answer);
+      playChime();
+      enqueueSpeech(answer, 'reply');
+      setVoiceState('Ready. Tap to talk.', 'ok');
+    } catch (e) {
+      stopCue();
+      setVoiceState('Could not check status: ' + (e && e.message ? e.message : e), 'error');
+      appendVoiceBubble('system', 'Could not check status: ' + (e && e.message ? e.message : e));
+    } finally {
+      stopCue();
+      voiceBusy = false;
+      voiceMainBtn.disabled = false;
+      whatsHappeningBtn.disabled = false;
+    }
+  }
+  whatsHappeningBtn.addEventListener('click', whatsHappening);
+
+  // Background taps deliberately do nothing: with both Send and Cancel present,
+  // a stray tap on the overlay must never send or discard by accident. The two
+  // explicit buttons are the only ways out.
 
   // Proactively surface the insecure-origin problem on page load so the user
   // does not have to tap the big button only to see a cryptic error.  The

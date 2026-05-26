@@ -47,6 +47,7 @@ public static class RosterParser
                 LastStatusReason = d.LastStatusReason ?? "",
                 TailnetEndpoint = (d.TailnetEndpoint ?? "").TrimEnd('/'),
                 MachineName = d.MachineName ?? "",
+                VoiceMode = d.VoiceMode,
             });
         }
         return result;
@@ -64,5 +65,6 @@ public static class RosterParser
         public string? LastStatusReason { get; set; }
         public string? TailnetEndpoint { get; set; }
         public string? MachineName { get; set; }
+        public bool VoiceMode { get; set; }
     }
 }

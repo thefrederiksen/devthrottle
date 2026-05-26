@@ -48,6 +48,11 @@ public partial class TalkPage : ContentPage
     private readonly ConductorState _conductor = new();
     private bool _conductorMode;
 
+    // True when the current push-to-talk recording should be routed to the wingman
+    // (the user tapped "Ask Wingman" rather than "Talk"). Set when recording starts,
+    // read when it stops. Saying "Hey wingman ..." routes server-side regardless.
+    private bool _wingmanTurn;
+
     public TalkPage(IUtteranceRecorder recorder, IReplySpeaker tts, IVoiceForeground foreground)
     {
         InitializeComponent();
@@ -123,6 +128,9 @@ public partial class TalkPage : ContentPage
         var subtitle = string.IsNullOrWhiteSpace(s.LastStatusReason)
             ? (string.IsNullOrWhiteSpace(s.MachineName) ? s.ActivityState : $"{s.MachineName} - {s.ActivityState}")
             : s.LastStatusReason;
+        // Show that a session is currently being talked to (voice mode) so the roster
+        // agrees with the desktop tile and the web view.
+        if (s.VoiceMode) subtitle = "[voice] " + subtitle;
         return new SessionRow(s, s.DisplayName, subtitle, DotFor(s.StatusColor));
     }
 
@@ -161,6 +169,11 @@ public partial class TalkPage : ContentPage
         _conductorMode = false;
         NextButton.IsVisible = false;
         ShowTalkPanelFor(session);
+        // Mark the session as in walkie-talkie voice mode so the desktop tile, the web
+        // view, and the roster all show it is being talked to. Best-effort and
+        // fire-and-forget: it must never block the user from talking.
+        _ = new DirectorVoiceClient(TokenEntry.Text ?? "")
+            .SetVoiceModeAsync(session.TailnetEndpoint, session.SessionId, true);
     }
 
     private void ShowTalkPanelFor(SessionInfo session)
@@ -196,6 +209,11 @@ public partial class TalkPage : ContentPage
             try { _ = _recorder.StopAsync(); } catch { /* discarding a half-captured clip on leave */ }
         }
         _tts.Stop();
+        // Leaving the session: clear its voice-mode flag so other clients stop showing
+        // it as being talked to. Best-effort, fire-and-forget.
+        if (_selected is not null)
+            _ = new DirectorVoiceClient(TokenEntry.Text ?? "")
+                .SetVoiceModeAsync(_selected.TailnetEndpoint, _selected.SessionId, false);
         _selected = null;
         _conductorMode = false;
         NextButton.IsVisible = false;
@@ -309,7 +327,14 @@ public partial class TalkPage : ContentPage
         }
     }
 
-    private async void OnTalkClicked(object? sender, EventArgs e)
+    // "Talk" -> route to the agent (unless the user says "Hey wingman ...").
+    private async void OnTalkClicked(object? sender, EventArgs e) => await HandleTalkButtonAsync(wingman: false);
+
+    // "Ask Wingman" -> force this push-to-talk turn to the read-only wingman, no wake
+    // phrase needed. Same record/stop mechanics as Talk.
+    private async void OnAskWingmanClicked(object? sender, EventArgs e) => await HandleTalkButtonAsync(wingman: true);
+
+    private async Task HandleTalkButtonAsync(bool wingman)
     {
         if (_selected is null || _busy) return;
         try
@@ -327,6 +352,7 @@ public partial class TalkPage : ContentPage
                 // granted, so the round-trip and the spoken reply survive the app
                 // being backgrounded or the screen going off (fixes "problem
                 // fetching"). Required order on Android 14+: permission first.
+                _wingmanTurn = wingman;
                 _foreground.Start();
                 await _recorder.StartAsync();
                 SetTalkButton(recording: true, busy: false);
@@ -336,15 +362,16 @@ public partial class TalkPage : ContentPage
                 LevelMeter.Progress = 0;
                 RecordingCard.IsVisible = true;
                 _levelTimer.Start();
-                SetVoiceStatus("Recording", StatusRed);
+                SetVoiceStatus(wingman ? "Recording for wingman" : "Recording", StatusRed);
                 return;
             }
 
-            // Second press: stop capturing and run the round-trip.
+            // Second press (either button): stop capturing and run the round-trip in
+            // whichever mode the recording was started in.
             _levelTimer.Stop();
             RecordingCard.IsVisible = false;
             LevelMeter.Progress = 0;
-            SetVoiceStatus("Sending", StatusYellow);
+            SetVoiceStatus(_wingmanTurn ? "Asking wingman" : "Sending", StatusYellow);
             var audio = await _recorder.StopAsync();
             await RunTurnAsync(_selected, audio);
         }
@@ -373,7 +400,7 @@ public partial class TalkPage : ContentPage
             new DirectorVoiceClient(TokenEntry.Text ?? ""), _tts);
         try
         {
-            await convo.SpeakTurnAsync(session, audio, OnTurnUpdate, _turnCts.Token);
+            await convo.SpeakTurnAsync(session, audio, OnTurnUpdate, _turnCts.Token, forceWingman: _wingmanTurn);
             TurnStatusLabel.Text = "";
             SetVoiceStatus("Ready", StatusGreen);
         }
@@ -393,6 +420,7 @@ public partial class TalkPage : ContentPage
             case "progress": SetVoiceStatus("Agent working...", StatusYellow); TurnStatusLabel.Text = u.Text; break;
             case "waiting": SetVoiceStatus("Session busy - holding your question", StatusYellow); TurnStatusLabel.Text = u.Text; break;
             case "reply": ReplyLabel.Text = u.Text; TurnStatusLabel.Text = ""; SetVoiceStatus("Speaking...", StatusBlue); break;
+            case "wingman": SetVoiceStatus("Asking the wingman...", StatusBlue); TurnStatusLabel.Text = ""; break;
             case "name": SetVoiceStatus($"Reading: {u.Text}", StatusBlue); break;       // conductor
             case "recap": TranscriptLabel.Text = u.Text; SetVoiceStatus("Speaking...", StatusBlue); break;
             case "answer": ReplyLabel.Text = u.Text; TurnStatusLabel.Text = ""; SetVoiceStatus("Speaking...", StatusBlue); break;
@@ -406,9 +434,11 @@ public partial class TalkPage : ContentPage
         VoiceStatusLabel.TextColor = Color.FromArgb(colorHex);
     }
 
-    // On-demand "where are we": speak the selected session's name, recap, and
-    // latest answer (the same intro the conductor reads), so you can ask what is
-    // happening without sending a chat turn.
+    // On-demand "what's happening": ask the wingman for a fresh briefing of what the
+    // session is doing right now and read it aloud, so you can confirm where things
+    // stand without sending a chat turn. Uses the SAME /wingman/ask explain endpoint
+    // the web voice view's "What's happening?" button uses - one backend, two thin
+    // clients - rather than a second, separate implementation.
     private async void OnWhatsHappeningClicked(object? sender, EventArgs e)
     {
         if (_selected is null || _busy) return;
@@ -418,8 +448,17 @@ public partial class TalkPage : ContentPage
             SetVoiceStatus("Checking...", StatusBlue);
             _turnCts?.Cancel();
             _turnCts = new CancellationTokenSource();
-            var convo = new VoiceConversation(new DirectorVoiceClient(TokenEntry.Text ?? ""), _tts);
-            await convo.SpeakConductorItemAsync(_selected, OnTurnUpdate, _turnCts.Token);
+            var ct = _turnCts.Token;
+            var client = new DirectorVoiceClient(TokenEntry.Text ?? "");
+            var briefing = await client.ExplainAsync(_selected.TailnetEndpoint, _selected.SessionId, ct);
+            if (string.IsNullOrWhiteSpace(briefing))
+            {
+                SetVoiceStatus("Nothing to report yet", StatusGreen);
+                return;
+            }
+            ReplyLabel.Text = briefing;
+            SetVoiceStatus("Speaking...", StatusBlue);
+            await _tts.SpeakAsync(briefing, ct);
             SetVoiceStatus("Ready", StatusGreen);
         }
         catch (OperationCanceledException)

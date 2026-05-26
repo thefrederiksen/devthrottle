@@ -54,6 +54,8 @@ public sealed class ControlApiHost : IAsyncDisposable
     private SessionStatusWingman? _statusWingman;
     private ProactiveExplainService? _proactiveExplain;
     private TerminalStateDetector? _terminalStateDetector;
+    private FinishDetector? _finishDetector;
+    private TerminalSessionRecorder? _sessionRecorder;
     private Core.Storage.SessionLogManager? _sessionLogManager;
     private bool _stopped;
 
@@ -187,6 +189,27 @@ public sealed class ControlApiHost : IAsyncDisposable
         _terminalStateDetector.Start();
         FileLog.Write($"[ControlApiHost] Session state source: {(terminalDriven ? "terminal" : "hooks")} (llm judge={termStateLlm}, full-session judge={termStateFullSession})");
 
+        // Wingman redesign keystone: the fused FinishDetector (Stop hook + positive terminal
+        // idle-check, no LLM). Runs in SHADOW by default - it logs when it WOULD declare a
+        // turn finished, so we can validate it against real sessions before cutting the
+        // authoritative path over from the legacy LLM-classify detector. Set
+        // CC_DIRECTOR_FINISH_DETECTOR=drive to make it authoritative (do NOT also leave the
+        // legacy detector driving state). See docs/wingman/REDESIGN.md section 2.
+        var finishDrive = Environment.GetEnvironmentVariable("CC_DIRECTOR_FINISH_DETECTOR") == "drive";
+        _finishDetector = new FinishDetector(_sessionManager, driveState: finishDrive);
+        _finishDetector.Start();
+        FileLog.Write($"[ControlApiHost] FinishDetector started (mode={(finishDrive ? "drive" : "shadow")})");
+
+        // Always-on terminal recorder: logs every session's resolved grid (on change, labeled
+        // with the screen classification + activity state) to build the ground-truth corpus
+        // for offline analysis/learning. Observe-only, capped per session. On by default; set
+        // CC_DIRECTOR_RECORD_SESSIONS=0 to disable. See docs/wingman/REDESIGN.md.
+        if (Environment.GetEnvironmentVariable("CC_DIRECTOR_RECORD_SESSIONS") != "0")
+        {
+            _sessionRecorder = new TerminalSessionRecorder(_sessionManager);
+            _sessionRecorder.Start();
+        }
+
         // Load the gateway config up front so the served HTML can render a "Gateway"
         // nav button pointing at it. Reused below for the GatewayClient registration.
         var gatewayConfig = Core.Configuration.GatewayConfig.Load();
@@ -244,6 +267,10 @@ public sealed class ControlApiHost : IAsyncDisposable
 
         _terminalStateDetector?.Dispose();
         _terminalStateDetector = null;
+        _finishDetector?.Dispose();
+        _finishDetector = null;
+        _sessionRecorder?.Dispose();
+        _sessionRecorder = null;
         _proactiveExplain?.Dispose();
         _proactiveExplain = null;
         _turnSummaryCache?.Dispose();

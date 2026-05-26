@@ -29,12 +29,19 @@ public sealed class RecordingIngestServiceTests : IDisposable
         try { Directory.Delete(_tmp, recursive: true); } catch { }
     }
 
-    private RecordingIngestService NewService(IRecordingTranscriber transcriber, FakeFiler filer)
+    private RecordingIngestService NewService(
+        IRecordingTranscriber transcriber, FakeFiler filer,
+        bool runWorker = false, int maxChunkAttempts = 3, int maxJobAttempts = 5)
         => new(
             recordingsRoot: Path.Combine(_tmp, "recordings"),
             transcriber: transcriber,
             vaultFiler: filer,
-            collectionDir: Path.Combine(_tmp, "collection"));
+            collectionDir: Path.Combine(_tmp, "collection"),
+            runWorker: runWorker,
+            maxChunkAttempts: maxChunkAttempts,
+            maxJobAttempts: maxJobAttempts,
+            chunkRetryDelay: TimeSpan.FromMilliseconds(1),
+            workerTick: TimeSpan.FromMilliseconds(50));
 
     private static RecordingRegisterRequest Reg(string id, string codec = "mp3")
         => new(RecordingId: id, Title: "Test Call", DeviceId: "dev-1",
@@ -42,8 +49,8 @@ public sealed class RecordingIngestServiceTests : IDisposable
 
     private static string Sha(byte[] b) => Convert.ToHexString(SHA256.HashData(b)).ToLowerInvariant();
 
-    /// <summary>Register, store one chunk, and complete so the recording reaches
-    /// the "transcribed" state with a local transcript.md on disk.</summary>
+    /// <summary>Register, store one chunk, and complete + process so the recording
+    /// reaches the "transcribed" state with a local transcript.md on disk.</summary>
     private static async Task TranscribeOneChunk(RecordingIngestService svc, string id)
     {
         svc.Register(Reg(id));
@@ -53,7 +60,8 @@ public sealed class RecordingIngestServiceTests : IDisposable
             "2026-05-23T09:00:00Z", null, 16000, 1, "mp3",
             new() { new RecordingChunkInfo(0, "0000.mp3", 0, 60000, c0.Length, Sha(c0)) },
             new());
-        await svc.CompleteAsync(id, manifest);
+        await svc.CompleteAsync(id, manifest);   // enqueue
+        await svc.ProcessRecordingAsync(id);     // run the queued job synchronously
     }
 
     [Fact]
@@ -144,7 +152,14 @@ public sealed class RecordingIngestServiceTests : IDisposable
             },
             Notes: new() { new RecordingNote(65000, "Discussed pricing") });
 
-        var status = await svc.CompleteAsync("rec1", manifest);
+        // Complete only enqueues now and returns immediately.
+        var queued = await svc.CompleteAsync("rec1", manifest);
+        Assert.Equal("queued", queued.State);
+        Assert.Equal(0, queued.ChunksTranscribed);
+
+        // The worker (driven synchronously here) does the transcription.
+        await svc.ProcessRecordingAsync("rec1");
+        var status = svc.GetStatus("rec1");
 
         Assert.Equal("transcribed", status.State);
         Assert.Equal(2, status.ChunksTranscribed);
@@ -158,6 +173,110 @@ public sealed class RecordingIngestServiceTests : IDisposable
         Assert.Contains("CLEANED", md);          // FakeTranscriber stamps cleanup
         Assert.Contains("Discussed pricing", md); // note rendered
         Assert.Contains("[01:05]", md);           // note timestamp offset
+    }
+
+    // ===== queue + background-worker behaviour ==============================
+
+    [Fact]
+    public async Task Complete_OnlyEnqueues_DoesNotTranscribeInline()
+    {
+        var svc = NewService(new FakeTranscriber(), new FakeFiler());
+        var status = await EnqueueOneChunk(svc, "rec1");
+
+        Assert.Equal("queued", status.State);
+        Assert.Equal(0, status.ChunksTranscribed);
+        Assert.Null(svc.LocalTranscriptPath("rec1")); // no transcript yet
+    }
+
+    [Fact]
+    public async Task Complete_IsIdempotent_DoesNotRequeueInFlight()
+    {
+        var svc = NewService(new FakeTranscriber(), new FakeFiler());
+        await EnqueueOneChunk(svc, "rec1");
+        // A duplicate complete on a queued recording must keep it queued, not reset it.
+        var again = await EnqueueOneChunk(svc, "rec1");
+        Assert.Equal("queued", again.State);
+    }
+
+    [Fact]
+    public async Task Process_RetriesFlakyChunk_ThenSucceeds()
+    {
+        // Fails the first two transcribe calls, succeeds on the third (within the
+        // 3-attempt budget for the single chunk).
+        var scripted = new ScriptedTranscriber(failFirst: 2);
+        var svc = NewService(scripted, new FakeFiler(), maxChunkAttempts: 3);
+        await EnqueueOneChunk(svc, "rec1");
+
+        await svc.ProcessRecordingAsync("rec1");
+
+        var status = svc.GetStatus("rec1");
+        Assert.Equal("transcribed", status.State);
+        Assert.Equal(3, scripted.Calls); // 2 failures + 1 success
+    }
+
+    [Fact]
+    public async Task Process_ChunkExhaustsRetries_RecordsErrorAndSchedulesRetry()
+    {
+        var svc = NewService(new ScriptedTranscriber(failFirst: int.MaxValue), new FakeFiler(),
+            maxChunkAttempts: 2, maxJobAttempts: 5);
+        await EnqueueOneChunk(svc, "rec1");
+
+        await svc.ProcessRecordingAsync("rec1");
+
+        var status = svc.GetStatus("rec1");
+        Assert.Equal("error", status.State);
+        Assert.Equal(1, status.Attempts);               // one whole-job attempt burned
+        Assert.NotNull(status.NextRetryAtUtc);          // retry scheduled (budget remains)
+    }
+
+    [Fact]
+    public async Task Process_ExhaustsJobAttempts_LeavesErrorWithNoRetryScheduled()
+    {
+        var svc = NewService(new ScriptedTranscriber(failFirst: int.MaxValue), new FakeFiler(),
+            maxChunkAttempts: 1, maxJobAttempts: 2);
+        await EnqueueOneChunk(svc, "rec1");
+
+        await svc.ProcessRecordingAsync("rec1"); // attempt 1 -> retry scheduled
+        Assert.NotNull(svc.GetStatus("rec1").NextRetryAtUtc);
+
+        await svc.ProcessRecordingAsync("rec1"); // attempt 2 -> budget exhausted
+
+        var status = svc.GetStatus("rec1");
+        Assert.Equal("error", status.State);
+        Assert.Equal(2, status.Attempts);
+        Assert.Null(status.NextRetryAtUtc); // no further retry will be scheduled
+    }
+
+    [Fact]
+    public async Task Process_ResumesWithoutRetranscribingDoneChunks()
+    {
+        // Pre-seed the per-segment text as if a prior run had transcribed it.
+        // The transcriber would throw if called, proving the chunk is skipped.
+        var scripted = new ScriptedTranscriber(failFirst: int.MaxValue);
+        var svc = NewService(scripted, new FakeFiler());
+        await EnqueueOneChunk(svc, "rec1");
+        var txt = Path.Combine(_tmp, "recordings", "rec1", "0000.txt");
+        await File.WriteAllTextAsync(txt, "already done");
+
+        await svc.ProcessRecordingAsync("rec1");
+
+        var status = svc.GetStatus("rec1");
+        Assert.Equal("transcribed", status.State);
+        Assert.Equal(0, scripted.Calls); // the done chunk was not re-transcribed
+    }
+
+    [Fact]
+    public async Task Worker_TranscribesQueuedRecording_EndToEnd()
+    {
+        // The real background worker (runWorker: true) must drain the queue with
+        // no further calls - this is the "upload and let go" path.
+        using var svc = NewService(new FakeTranscriber(), new FakeFiler(), runWorker: true);
+        await EnqueueOneChunk(svc, "rec1");
+
+        var transcribed = await WaitForStateAsync(svc, "rec1", "transcribed", TimeSpan.FromSeconds(10));
+
+        Assert.True(transcribed, "worker did not transcribe the queued recording in time");
+        Assert.NotNull(svc.LocalTranscriptPath("rec1"));
     }
 
     [Fact]
@@ -353,7 +472,9 @@ public sealed class RecordingIngestServiceTests : IDisposable
             "2026-05-23T09:00:00Z", "2026-05-23T09:03:00Z", 16000, 1, "mp3",
             chunkInfos, new() { new RecordingNote(1000, "injected audio test") });
 
-        var status = await svc.CompleteAsync("e2e", manifest);
+        await svc.CompleteAsync("e2e", manifest);  // enqueue
+        await svc.ProcessRecordingAsync("e2e");     // run the queued job
+        var status = svc.GetStatus("e2e");
 
         Assert.Equal("transcribed", status.State);
         Assert.Equal(clips.Count, status.ChunksTranscribed);
@@ -370,6 +491,33 @@ public sealed class RecordingIngestServiceTests : IDisposable
     }
 
     // ===== test helpers =====================================================
+
+    /// <summary>Register, store one chunk, and enqueue (complete) WITHOUT
+    /// processing, so a test can drive <see cref="RecordingIngestService.ProcessRecordingAsync"/>
+    /// itself. Returns the queued status.</summary>
+    private static async Task<RecordingStatusDto> EnqueueOneChunk(RecordingIngestService svc, string id)
+    {
+        svc.Register(Reg(id));
+        var c0 = Encoding.UTF8.GetBytes("audio-0");
+        await svc.StoreChunkAsync(id, 0, c0, Sha(c0));
+        var manifest = new RecordingManifest(id, "Test Call", "dev-1",
+            "2026-05-23T09:00:00Z", null, 16000, 1, "mp3",
+            new() { new RecordingChunkInfo(0, "0000.mp3", 0, 60000, c0.Length, Sha(c0)) },
+            new());
+        return await svc.CompleteAsync(id, manifest);
+    }
+
+    private static async Task<bool> WaitForStateAsync(
+        RecordingIngestService svc, string id, string state, TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            if (svc.GetStatus(id).State == state) return true;
+            await Task.Delay(25);
+        }
+        return svc.GetStatus(id).State == state;
+    }
 
     private string WriteTestDictionary()
     {
@@ -405,6 +553,30 @@ public sealed class RecordingIngestServiceTests : IDisposable
         private int _n;
         public Task<string> TranscribeChunkAsync(byte[] audio, string contentType, string fileName, CancellationToken ct = default)
             => Task.FromResult($"segment {_n++} text");
+
+        public Task<CleanupOutcome> CleanupAsync(string rawTranscript, CancellationToken ct = default)
+            => Task.FromResult(new CleanupOutcome("CLEANED: " + rawTranscript.Replace("\n", " "), Applied: true, Reason: null));
+    }
+
+    /// <summary>
+    /// A transcriber that fails its first <c>failFirst</c> segment calls and then
+    /// succeeds, for exercising per-chunk retry and whole-job retry. Counts calls
+    /// so a test can assert how many transcribe attempts actually happened.
+    /// </summary>
+    private sealed class ScriptedTranscriber : IRecordingTranscriber
+    {
+        private readonly int _failFirst;
+        private int _calls;
+        public int Calls => _calls;
+        public ScriptedTranscriber(int failFirst) => _failFirst = failFirst;
+
+        public Task<string> TranscribeChunkAsync(byte[] audio, string contentType, string fileName, CancellationToken ct = default)
+        {
+            var n = Interlocked.Increment(ref _calls);
+            if (n <= _failFirst)
+                throw new InvalidOperationException($"simulated STT failure #{n}");
+            return Task.FromResult($"segment {n} text");
+        }
 
         public Task<CleanupOutcome> CleanupAsync(string rawTranscript, CancellationToken ct = default)
             => Task.FromResult(new CleanupOutcome("CLEANED: " + rawTranscript.Replace("\n", " "), Applied: true, Reason: null));

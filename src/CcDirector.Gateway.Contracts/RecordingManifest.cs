@@ -54,10 +54,6 @@ public sealed record RecordingRegisterRequest(
     int Channels);
 
 /// <summary>
-/// Response of <c>GET /ingest/recording/{id}/status</c>. <see cref="State"/>
-/// is one of: receiving, transcribing, cleaning, filed, error.
-/// </summary>
-/// <summary>
 /// One row in the Gateway transcripts list: enough to render the list and
 /// link to the transcript text + audio segments.
 /// </summary>
@@ -86,6 +82,14 @@ public sealed record RecordingMetaUpdate(
     string? Subtitle,
     string? Summary);
 
+/// <summary>
+/// Response of <c>GET /ingest/recording/{id}/status</c>. <see cref="State"/>
+/// is one of: receiving, queued, transcribing, cleaning, transcribed, error.
+/// Transcription runs in a background worker, so <c>complete</c> returns
+/// "queued" immediately. <see cref="Attempts"/> is the number of full-job
+/// attempts made; when a job fails with attempts remaining,
+/// <see cref="NextRetryAtUtc"/> is the ISO-8601 UTC time the worker will retry.
+/// </summary>
 public sealed record RecordingStatusDto(
     string RecordingId,
     string Title,
@@ -95,4 +99,6 @@ public sealed record RecordingStatusDto(
     int ChunksTranscribed,
     string? VaultDocId,
     string? Error,
-    string? Transcript = null);
+    string? Transcript = null,
+    int Attempts = 0,
+    string? NextRetryAtUtc = null);

@@ -87,4 +87,12 @@ public sealed class SessionDto
     /// Populated by the Gateway aggregator. Empty in Director-local responses.
     /// </summary>
     public string ViewUrl { get; set; } = "";
+
+    /// <summary>
+    /// True when this session is currently in walkie-talkie voice mode (a client is
+    /// driving it by voice). The authoritative flag every client reads so the desktop
+    /// tile, the HTML view, and the Android roster all agree the session is spoken-to
+    /// rather than typed-at. Mirrors <c>Session.VoiceMode</c> on the owning Director.
+    /// </summary>
+    public bool VoiceMode { get; set; }
 }

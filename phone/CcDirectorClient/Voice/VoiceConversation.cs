@@ -40,16 +40,33 @@ public sealed class VoiceConversation
     /// </summary>
     public async Task<string> SpeakTurnAsync(
         SessionInfo session, UtteranceAudio audio,
-        Action<TurnUpdate>? onUpdate = null, CancellationToken ct = default)
+        Action<TurnUpdate>? onUpdate = null, CancellationToken ct = default, bool forceWingman = false)
     {
-        ClientLog.Write($"[VoiceConversation] SpeakTurn: session={session.DisplayName}");
+        ClientLog.Write($"[VoiceConversation] SpeakTurn: session={session.DisplayName}, forceWingman={forceWingman}");
         onUpdate?.Invoke(new TurnUpdate("transcribing", "Transcribing..."));
 
-        var transcript = await _client.TranscribeUtteranceAsync(
+        var t = await _client.TranscribeUtteranceAsync(
             session.TailnetEndpoint, session.SessionId, audio.Bytes, audio.Mime, ct);
-        if (string.IsNullOrWhiteSpace(transcript))
+        if (string.IsNullOrWhiteSpace(t.Text))
             throw new InvalidOperationException("nothing was transcribed from the recording");
+        var transcript = t.Text;
         onUpdate?.Invoke(new TurnUpdate("transcript", transcript));
+
+        // Route to the wingman when the user said "Hey wingman ..." (server-decided
+        // target) or tapped the explicit Ask-Wingman button (forceWingman). The wingman
+        // is read-only and answers immediately from the session - no waiting for the
+        // agent's turn, no /chat - and reads content verbatim instead of summarizing.
+        if (forceWingman || string.Equals(t.Target, "wingman", StringComparison.OrdinalIgnoreCase))
+        {
+            ClientLog.Write($"[VoiceConversation] SpeakTurn: routing to wingman for session={session.DisplayName}");
+            onUpdate?.Invoke(new TurnUpdate("wingman", "Asking the wingman..."));
+            var answer = await _client.AskWingmanAsync(session.TailnetEndpoint, session.SessionId, transcript, ct);
+            if (string.IsNullOrWhiteSpace(answer))
+                answer = "The wingman had nothing to report.";
+            onUpdate?.Invoke(new TurnUpdate("answer", answer));
+            await _tts.SpeakAsync(answer, ct);
+            return answer;
+        }
 
         // Only deliver the question to a session that has FINISHED its current
         // turn. If it is still working, the prompt would interleave with the

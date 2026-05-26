@@ -11,8 +11,8 @@ namespace CcDirector.Core.Wingman;
 /// <summary>
 /// Generalised Session-Wingman for cc-director.
 ///
-/// Every method on this class is a one-shot side-call to `claude --print --bare
-/// --model haiku --tools ""` carrying a focused prompt - exactly the pattern
+/// Every method on this class is a one-shot side-call to `claude --print` on the
+/// Wingman's strong <see cref="Model"/> carrying a focused prompt - exactly the pattern
 /// <see cref="RecapGenerator"/> uses for the existing recap feature. The
 /// "Session Wingman" from the PRD is the conceptual sum of these short
 /// fresh-context calls; we do NOT spawn a long-running shadow process per
@@ -22,15 +22,21 @@ namespace CcDirector.Core.Wingman;
 /// </summary>
 public static class WingmanService
 {
-    /// <summary>Cheap fast model we run the Wingman on. Haiku family.</summary>
-    public const string DefaultModel = "haiku";
-
     /// <summary>
-    /// Strong model used for on-demand, user-facing wingman work (the "Explain"
-    /// briefing) where answer quality matters more than latency/cost. Matches the
-    /// best model a real session would run on.
+    /// The single model the Wingman runs on - ALWAYS a strong model, NEVER a cheap one.
+    /// The Wingman's whole job is to genuinely help the user across every session; a
+    /// weak model cannot read a screen faithfully, answer without summarizing, or judge
+    /// state reliably, so the Wingman does not get a cheap tier. This is a hard invariant
+    /// of the Wingman Charter (docs/wingman/CHARTER.md) and is enforced by the charter
+    /// audit (WingmanCharterAuditTests), which fails the build if a cheap-model call ever
+    /// reappears in Wingman code.
     /// </summary>
-    public const string StrongModel = "opus";
+    public const string Model = "opus";
+
+    /// <summary>Back-compat aliases. Both now resolve to the single strong <see cref="Model"/>;
+    /// new code should reference <see cref="Model"/>. Kept so existing call sites compile.</summary>
+    public const string DefaultModel = Model;
+    public const string StrongModel = Model;
 
     /// <summary>Hard timeout per Wingman call.</summary>
     public static readonly TimeSpan ProcessTimeout = TimeSpan.FromSeconds(60);
@@ -88,7 +94,7 @@ public static class WingmanService
     /// terminal, with no hooks and no agent-specific rules - the model reads the
     /// rendered screen the way a person would. Returns one of:
     /// working | waiting_for_input | waiting_for_permission | idle | cancelled | unknown,
-    /// plus a one-line reason. Stateless: one fresh Haiku call, nothing persisted.
+    /// plus a one-line reason. Stateless: one fresh strong-model call, nothing persisted.
     ///
     /// This is the "judge" stage of the terminal state detector - invoked when the
     /// cheap byte-activity gate notices the terminal has gone quiet. Fails closed to
@@ -293,7 +299,9 @@ public static class WingmanService
 
         try
         {
-            var stdout = await RunSideClaudeAsync(prompt, claudeExePath, ct);
+            // Runs on the Wingman's strong Model like everything else; this call also
+            // decides agent-vs-wingman routing, which a cheap model could not do reliably.
+            var stdout = await RunSideClaudeAsync(prompt, claudeExePath, ct, Model);
             return ParseVoiceCleanupJson(stdout, rawTranscript);
         }
         catch (Exception ex)
@@ -312,9 +320,9 @@ public static class WingmanService
         sb.Append("The text is a request, question, or instruction the user wants sent to the Claude Code agent that is working in ");
         sb.AppendLine(string.IsNullOrEmpty(repoPath) ? "their repository." : $"the `{repoPath}` repository.");
         sb.AppendLine();
-        sb.AppendLine("Your job: produce the CLEANED version of the user's message, ready to send to the agent.");
+        sb.AppendLine("Your job: produce the CLEANED version of the user's message, AND decide who it is addressed to.");
         sb.AppendLine();
-        sb.AppendLine("Rules:");
+        sb.AppendLine("Cleanup rules:");
         sb.AppendLine("- Remove filler words (um, uh, like, you know, kind of, basically, sort of).");
         sb.AppendLine("- Fix obvious mis-transcriptions where the meaning is clear.");
         sb.AppendLine("- Keep the user's intent and tone.  Do NOT paraphrase or improve beyond cleanup.");
@@ -323,8 +331,14 @@ public static class WingmanService
         sb.AppendLine("- If the message is so unclear you cannot confidently clean it, output it verbatim.");
         sb.AppendLine("- One paragraph.  No bullet lists, no headings, no quotation marks around the result.");
         sb.AppendLine();
+        sb.AppendLine("Routing (the \"target\" field):");
+        sb.AppendLine("- There are two recipients. The AGENT is the Claude Code agent doing the work. The WINGMAN is a separate read-only assistant that can read the session and answer questions or read content aloud, but does no work.");
+        sb.AppendLine("- Set target to \"wingman\" ONLY when the user addresses the wingman explicitly: the message starts with or contains a wake phrase like \"hey wingman\", \"wingman\", \"ok wingman\", or \"ask the wingman\". Whisper may mis-spell it (\"wing man\", \"wingmen\", \"hey wing man\"); treat those as the wake phrase too.");
+        sb.AppendLine("- When target is \"wingman\", STRIP the wake phrase from \"cleaned\" so only the actual question/request remains. Example: \"Hey wingman, read me the whole article\" -> cleaned: \"read me the whole article\", target: \"wingman\".");
+        sb.AppendLine("- Otherwise set target to \"agent\" and leave the message intact. When unsure, choose \"agent\" (the safe default).");
+        sb.AppendLine();
         sb.AppendLine("Output JSON only, no markdown fence, no other text, this exact shape:");
-        sb.AppendLine("{\"cleaned\": \"<the cleaned prompt>\", \"reason\": \"<one short sentence explaining what you changed, or 'no changes needed' if minimal>\"}");
+        sb.AppendLine("{\"cleaned\": \"<the cleaned prompt>\", \"reason\": \"<one short sentence explaining what you changed, or 'no changes needed' if minimal>\", \"target\": \"agent|wingman\"}");
         sb.AppendLine();
         sb.AppendLine("RAW TRANSCRIPT:");
         sb.Append(raw);
@@ -359,9 +373,14 @@ public static class WingmanService
             var root = doc.RootElement;
             var cleaned = root.TryGetProperty("cleaned", out var c) ? (c.GetString() ?? "") : "";
             var reason = root.TryGetProperty("reason", out var r) ? (r.GetString() ?? "") : "";
+            // target: "wingman" routes to the read-only Ask-the-Wingman channel; anything
+            // else (or absent) is the safe default "agent".
+            var target = root.TryGetProperty("target", out var t)
+                && string.Equals((t.GetString() ?? "").Trim(), "wingman", StringComparison.OrdinalIgnoreCase)
+                    ? "wingman" : "agent";
             if (string.IsNullOrWhiteSpace(cleaned))
                 return new VoiceCleanupResult(fallbackRaw, "wingman returned empty 'cleaned' field");
-            return new VoiceCleanupResult(cleaned.Trim(), string.IsNullOrEmpty(reason) ? "no changes needed" : reason.Trim());
+            return new VoiceCleanupResult(cleaned.Trim(), string.IsNullOrEmpty(reason) ? "no changes needed" : reason.Trim(), target);
         }
         catch (JsonException ex)
         {
@@ -732,7 +751,7 @@ public static class WingmanService
     }
 
     // ====================================================================
-    // Phase 6: Git awareness (no Haiku - run git locally)
+    // Phase 6: Git awareness (no LLM - run git locally)
     // ====================================================================
 
     public static async Task<GitSnapshot> GitSnapshotAsync(string repoPath, CancellationToken ct = default)
@@ -947,7 +966,7 @@ public static class WingmanService
 
     /// <summary>
     /// Ask the wingman a question about a specific session. One fresh
-    /// <c>claude --print --model haiku</c> call with no session persistence.
+    /// <c>claude --print</c> call (strong <see cref="Model"/>) with no session persistence.
     /// The session's recent state (wingman decisions, turn summaries, buffer
     /// tail, metadata) is piped in as context. No conversation memory between
     /// calls - each ask is independent.
@@ -969,7 +988,9 @@ public static class WingmanService
         if (!explain && string.IsNullOrWhiteSpace(question))
             return new WingmanAskResult { Status = "bad_request", Error = "empty question" };
 
-        var model = explain ? StrongModel : DefaultModel;
+        // One strong model for the whole Wingman (charter invariant); explain and the
+        // free-text ask both run on it.
+        var model = Model;
 
         if (string.IsNullOrWhiteSpace(claudeExePath))
         {
@@ -1056,6 +1077,103 @@ public static class WingmanService
         }
         if (replies.Count > 4) replies = replies.GetRange(0, 4);
         return (cleaned, replies);
+    }
+
+    /// <summary>
+    /// Faithful, full-access answer to a free-text question about a session - the
+    /// "Ask the Wingman" voice channel. Unlike <see cref="AskAboutSessionAsync"/> (a
+    /// one-shot over a truncated, pre-built context), this runs a read-only FULL-POWER
+    /// session (Read/Grep/Glob, MCP off, no writes, no PTY access) on the strong model,
+    /// handed the WHOLE terminal as a snapshot file plus the session's repo as the
+    /// working directory. It reads as much as it needs to answer, and when asked to read
+    /// content (an article, a file, the agent's reply) it reproduces that content
+    /// VERBATIM rather than summarizing. No length cap on the answer; the caller's TTS
+    /// can be interrupted.
+    ///
+    /// Read-only by construction: the allowed tools cannot write, and no Send path to the
+    /// partner PTY exists outside the Director process, so it can neither inject into nor
+    /// resize the terminal it is reading. Stateless (fresh --no-session-persistence per
+    /// call). Fails closed to a wingman_failed result.
+    /// </summary>
+    public static async Task<WingmanAskResult> AnswerViaSessionAsync(
+        string question, string fullTerminalText, string agentName, string repoPath,
+        string claudeExePath, CancellationToken ct = default)
+    {
+        var sw = Stopwatch.StartNew();
+        if (string.IsNullOrWhiteSpace(question))
+            return new WingmanAskResult { Status = "bad_request", Error = "empty question" };
+        if (string.IsNullOrWhiteSpace(claudeExePath))
+        {
+            sw.Stop();
+            return new WingmanAskResult
+            {
+                Status = "no_claude",
+                Error = "no claude CLI configured",
+                Answer = "Wingman is not configured (no claude CLI path). Set agents.claudePath in config.json.",
+                LatencyMs = sw.ElapsedMilliseconds,
+            };
+        }
+
+        // Materialise the whole terminal as a snapshot the read-only session can Read on
+        // its own (the same approach ClassifyTerminalStateViaSessionAsync uses), so the
+        // answer is not limited to a fixed paste.
+        var snapshotPath = Path.Combine(Path.GetTempPath(), $"cc-wingman-answer-{Guid.NewGuid():N}.txt");
+        try
+        {
+            await File.WriteAllTextAsync(snapshotPath, fullTerminalText ?? "", ct);
+            var prompt = BuildWingmanAnswerSessionPrompt(question, snapshotPath, agentName ?? "an AI coding agent");
+            var workDir = Directory.Exists(repoPath) ? repoPath : Path.GetTempPath();
+            var stdout = await RunWingmanSessionAsync(
+                prompt, claudeExePath, workDir, allowedTools: "Read Grep Glob", maxTurns: 12, ct: ct, model: StrongModel);
+            sw.Stop();
+            // No length cap: reading a whole article is the point. The caller interrupts TTS.
+            return new WingmanAskResult
+            {
+                Answer = (stdout ?? "").Trim(),
+                Model = StrongModel,
+                LatencyMs = sw.ElapsedMilliseconds,
+                ContextDigest = $"terminal:{(fullTerminalText?.Length ?? 0)}ch, repo:{System.IO.Path.GetFileName((repoPath ?? "").TrimEnd('\\', '/'))}, read-only session",
+                Status = "ok",
+            };
+        }
+        catch (Exception ex)
+        {
+            sw.Stop();
+            FileLog.Write($"[WingmanService] AnswerViaSessionAsync FAILED: {ex.Message}");
+            return new WingmanAskResult
+            {
+                Status = "wingman_failed",
+                Error = ex.Message,
+                Answer = "Wingman call failed: " + ex.Message,
+                LatencyMs = sw.ElapsedMilliseconds,
+            };
+        }
+        finally
+        {
+            try { if (File.Exists(snapshotPath)) File.Delete(snapshotPath); } catch { /* temp cleanup best-effort */ }
+        }
+    }
+
+    internal static string BuildWingmanAnswerSessionPrompt(string question, string snapshotPath, string agentName)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"You are the read-only Wingman for a session running {agentName} (an AI coding agent in an interactive TUI). The user is talking to you hands-free, by voice, and wants you to answer their question about THIS session. Your answer will be read aloud to them.");
+        sb.AppendLine();
+        sb.AppendLine($"The session's full terminal has been captured (ANSI stripped) to this file: {snapshotPath}");
+        sb.AppendLine("Use the Read tool to read it - the END of the file is the most recent output. Read as much as you need. Your working directory is the session's repo, so you may also Read/Grep/Glob it to find and open files the user refers to (for example an article or document the agent just wrote). When you Read a file, ignore the line-number prefixes the tool adds and use only the actual text content.");
+        sb.AppendLine("You are READ-ONLY: never write, edit, run, or send anything. Only read and answer.");
+        sb.AppendLine();
+        sb.AppendLine("How to answer:");
+        sb.AppendLine("- Answer the user's question directly and COMPLETELY from what you read. Do not drop detail the user asked for.");
+        sb.AppendLine("- CRITICAL: if the user asks you to READ something to them - an article, a file, a document, the agent's last reply, \"the whole thing\" - reproduce that text VERBATIM, word for word. Do NOT summarize, shorten, paraphrase, condense, or add commentary. Read exactly what is written. This is the entire point: the user explicitly does not want a summary.");
+        sb.AppendLine("- If the content is long, that is fine: output all of it. There is no length limit. The user can stop you.");
+        sb.AppendLine("- For an ordinary question (\"what did it decide?\", \"is it done?\", \"what files changed?\"), answer in plain spoken language, as complete as the question needs.");
+        sb.AppendLine("- Plain text only, suitable to be read aloud. No markdown fences, no headings, no bullet symbols. Do not narrate your tool use (no \"I read the file...\"); just give the answer.");
+        sb.AppendLine("- If you genuinely cannot find what the user is asking about in the terminal or the repo, say so plainly in one sentence. Do not invent content.");
+        sb.AppendLine();
+        sb.AppendLine("=== USER QUESTION ===");
+        sb.Append(Truncate(question, 2000));
+        return sb.ToString();
     }
 
     internal static string BuildAskPrompt(string question, WingmanAskContext context)
@@ -1203,7 +1321,7 @@ public static class WingmanService
 
     /// <summary>
     /// Judge whether a session is still on track toward its stated goal, has
-    /// drifted, or has completed it. One fresh Haiku call over the goal plus the
+    /// drifted, or has completed it. One fresh strong-model call over the goal plus the
     /// session's recent turn summaries.
     ///
     /// Observational only - the caller decides what to do with the verdict. On any
@@ -1315,11 +1433,11 @@ public static class WingmanService
     // ====================================================================
 
     /// <summary>
-    /// Spawn  claude --print --bare --model haiku --tools ""  with the given
-    /// prompt as a positional arg.  Returns stdout text.  Throws on non-zero
+    /// Spawn  claude --print --tools ""  on the Wingman's strong <see cref="Model"/> with
+    /// the given prompt as a positional arg.  Returns stdout text.  Throws on non-zero
     /// exit or timeout.
     /// </summary>
-    private static async Task<string> RunSideClaudeAsync(string prompt, string claudeExePath, CancellationToken ct, string model = DefaultModel)
+    private static async Task<string> RunSideClaudeAsync(string prompt, string claudeExePath, CancellationToken ct, string model = Model)
     {
         var psi = new ProcessStartInfo
         {
@@ -1334,13 +1452,13 @@ public static class WingmanService
         };
         psi.ArgumentList.Add("--print");
         psi.ArgumentList.Add("--model");
-        psi.ArgumentList.Add(string.IsNullOrWhiteSpace(model) ? DefaultModel : model);
+        psi.ArgumentList.Add(string.IsNullOrWhiteSpace(model) ? Model : model);
         // NOTE: --bare is intentionally NOT passed.  --bare disables keychain reads,
         // which prevents the side-call from picking up the user's OAuth credentials
         // from ~/.claude/.credentials.json and fails with "Not logged in".
         // --tools "" below already prevents tool use (the main safety reason for
         // --bare).  The cost of dropping --bare is some extra auto-context (CLAUDE.md
-        // auto-discovery, auto-memory) - acceptable for a Haiku call.
+        // auto-discovery, auto-memory) - acceptable for a short side-call.
         psi.ArgumentList.Add("--no-session-persistence");
         psi.ArgumentList.Add("--tools");
         psi.ArgumentList.Add("");
@@ -1402,7 +1520,7 @@ public static class WingmanService
     /// </summary>
     private static async Task<string> RunWingmanSessionAsync(
         string prompt, string claudeExePath, string workingDirectory, string allowedTools, int maxTurns,
-        CancellationToken ct, string model = DefaultModel)
+        CancellationToken ct, string model = Model)
     {
         // Empty MCP config + --strict-mcp-config => the session loads NO MCP servers
         // (not the user's globals), so cold start stays lean and the tool surface is
@@ -1425,7 +1543,7 @@ public static class WingmanService
             };
             psi.ArgumentList.Add("--print");
             psi.ArgumentList.Add("--model");
-            psi.ArgumentList.Add(string.IsNullOrWhiteSpace(model) ? DefaultModel : model);
+            psi.ArgumentList.Add(string.IsNullOrWhiteSpace(model) ? Model : model);
             psi.ArgumentList.Add("--no-session-persistence");
             psi.ArgumentList.Add("--allowedTools");
             psi.ArgumentList.Add(allowedTools);
@@ -1488,6 +1606,9 @@ public static class WingmanService
 
 /// <summary>
 /// Output of <see cref="WingmanService.CleanVoiceTranscriptAsync"/>.
-/// Always populated even on failure (Cleaned falls back to raw).
+/// Always populated even on failure (Cleaned falls back to raw, Target to "agent").
 /// </summary>
-public sealed record VoiceCleanupResult(string Cleaned, string Reason);
+/// <param name="Cleaned">The cleaned transcript, with any "Hey wingman" wake phrase stripped when <paramref name="Target"/> is "wingman".</param>
+/// <param name="Reason">One-sentence explanation of what changed (or a failure reason).</param>
+/// <param name="Target">Who the utterance is addressed to: "agent" (default, send to the session) or "wingman" (route to the read-only Ask-the-Wingman channel).</param>
+public sealed record VoiceCleanupResult(string Cleaned, string Reason, string Target = "agent");

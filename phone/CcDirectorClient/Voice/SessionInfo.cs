@@ -41,6 +41,14 @@ public sealed class SessionInfo
     public string MachineName { get; set; } = "";
 
     /// <summary>
+    /// True when this session is currently in walkie-talkie voice mode. Mirrors the
+    /// server's authoritative <c>Session.VoiceMode</c> so the roster can show that a
+    /// session is being talked to (from this phone or any other client) rather than
+    /// typed at. The client renders this verbatim and never derives it.
+    /// </summary>
+    public bool VoiceMode { get; set; }
+
+    /// <summary>
     /// Human-friendly label for the session: the server-supplied name when set,
     /// otherwise the repository folder name, otherwise a short id. Never empty.
     /// </summary>

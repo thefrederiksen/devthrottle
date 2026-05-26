@@ -1,17 +1,17 @@
 namespace CcDirector.Gateway.Contracts;
 
 /// <summary>
-/// Phase 5: response from <c>POST /sessions/{sid}/wingman/ask</c>. One Haiku
-/// round-trip; no conversation memory. The <see cref="ContextDigest"/> is a short
-/// human-readable string describing what session state was piped into the prompt,
-/// so the UI can show the user what the wingman "saw".
+/// Response from <c>POST /sessions/{sid}/wingman/ask</c>. One strong-model round-trip;
+/// no conversation memory. The <see cref="ContextDigest"/> is a short human-readable
+/// string describing what session state was piped into the prompt, so the UI can show
+/// the user what the wingman "saw".
 /// </summary>
 public sealed class WingmanAskResult
 {
-    /// <summary>Plain-text answer from Haiku. Trimmed and length-capped.</summary>
+    /// <summary>Plain-text answer from the wingman's strong model. Trimmed.</summary>
     public string Answer { get; set; } = "";
 
-    /// <summary>Model used for the answer, e.g. "haiku". Empty when wingman not configured.</summary>
+    /// <summary>Model used for the answer, e.g. "opus". Empty when wingman not configured.</summary>
     public string Model { get; set; } = "";
 
     /// <summary>Round-trip latency for the wingman call (ms).</summary>

@@ -141,10 +141,11 @@ internal static class ControlEndpoints
             return Results.Json(Map(session, directorId, turnSummaryCache));
         });
 
-        // Phase 5: ask the wingman a question about this session. One fresh
-        // claude --print --model haiku call with no session persistence. The context
-        // we pipe in comes from the session's recent events, turn summaries, buffer
-        // tail, and metadata.
+        // Ask the wingman about this session. Two behaviors, both on the strong model:
+        //   mode=explain -> terse "what's happening" briefing over pre-built context.
+        //   free-text question -> the "Ask the Wingman" channel: a read-only full-power
+        //   session (Read/Grep/Glob) over the whole terminal + repo that answers
+        //   faithfully and reads content VERBATIM when asked, never summarizing.
         app.MapPost("/sessions/{sid}/wingman/ask", async (string sid, WingmanAskRequest req, CancellationToken ct) =>
         {
             if (!Guid.TryParse(sid, out var guid))
@@ -159,9 +160,24 @@ internal static class ControlEndpoints
             if (session is null)
                 return Results.NotFound(new { error = "session not found" });
 
-            var ctx = await WingmanContextBuilder.BuildAsync(session, turnSummaryCache, ct);
-            var result = await Core.Wingman.WingmanService.AskAboutSessionAsync(
-                req.Question, ctx, sessionManager.Options.ClaudePath, ct, explain);
+            // Explain = the terse "what's happening" briefing (Opus over pre-built,
+            // length-capped context). Unchanged.
+            if (explain)
+            {
+                var explainCtx = await WingmanContextBuilder.BuildAsync(session, turnSummaryCache, ct);
+                var explainResult = await Core.Wingman.WingmanService.AskAboutSessionAsync(
+                    req.Question, explainCtx, sessionManager.Options.ClaudePath, ct, explain: true);
+                return Results.Json(explainResult);
+            }
+
+            // Any free-text question = the faithful "Ask the Wingman" channel: a
+            // read-only full-power session over the WHOLE terminal + repo, on the strong
+            // model, that reads content VERBATIM instead of summarizing. This replaces the
+            // old terse one-shot ask (no more 1-3 sentence cap, no Haiku, no 4000-char tail).
+            var fullTerminal = ReadFullCleanedBuffer(session);
+            var result = await Core.Wingman.WingmanService.AnswerViaSessionAsync(
+                req.Question, fullTerminal, session.AgentKind.ToString(), session.RepoPath,
+                sessionManager.Options.ClaudePath, ct);
             return Results.Json(result);
         });
 
@@ -1456,6 +1472,28 @@ internal static class ControlEndpoints
         });
     }
 
+    /// <summary>
+    /// The session's ENTIRE terminal buffer, ANSI stripped, for the "Ask the Wingman"
+    /// answer path. Unlike WingmanContextBuilder's tail (capped at 4000 chars for a
+    /// one-shot prompt), this returns everything: the read-only session writes it to a
+    /// snapshot file and reads only as much as it needs, so "read me the whole article"
+    /// can reach content that scrolled past a tail. Read-only inspection; never mutates.
+    /// </summary>
+    private static string ReadFullCleanedBuffer(Session session)
+    {
+        try
+        {
+            var bytes = session.Buffer?.DumpAll();
+            if (bytes is null || bytes.Length == 0) return "";
+            return AnsiCleaner.Clean(Encoding.UTF8.GetString(bytes));
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[ControlEndpoints] ReadFullCleanedBuffer FAILED: {ex.Message}");
+            return "";
+        }
+    }
+
     private static SessionDto Map(Session s, string directorId, TurnSummaryCache? cache = null)
     {
         // Phase 3: StatusColor and LastStatusReason are owned by the SessionStatusWingman
@@ -1479,6 +1517,7 @@ internal static class ControlEndpoints
             StatusColor = s.StatusColor,
             LastStatusReason = s.LastStatusReason,
             LastActivityAt = lastActivity,
+            VoiceMode = s.VoiceMode,
         };
     }
 

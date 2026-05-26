@@ -108,3 +108,8 @@ bin-verify*/
 
 # Scratch/sandbox folders
 .tmp-*/
+
+# Voice-mode-fidelity test evidence: raw voice recordings and transcripts that
+# can contain real names and personal speech. Keep the REPORT.md/.html (clean
+# summary) but never commit the evidence captures to this public repo.
+docs/features/voice-mode-fidelity/evidence/

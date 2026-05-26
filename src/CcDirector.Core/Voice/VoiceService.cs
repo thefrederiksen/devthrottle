@@ -109,6 +109,7 @@ public sealed class VoiceService
             var response = Execute(transcript, command);
             response.CleanedTranscript = cleanup.Cleaned;
             response.CleanupReason = cleanup.Reason;
+            response.RouteTarget = cleanup.Target;
             return response;
         }
         catch (Exception ex)
@@ -178,6 +179,7 @@ public sealed class VoiceService
             Transcript = transcript,
             CleanedTranscript = cleanup.Cleaned,
             CleanupReason = cleanup.Reason,
+            RouteTarget = cleanup.Target,
             Status = "ok",
         };
     }

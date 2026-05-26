@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Voice Mode: Fidelity Fix + Per-Turn Comparison Logging</title>
+<style>
+        /* Boardroom Theme - Corporate, executive style with serif fonts */
+        
+        :root {
+            /* Colors */
+            --primary: #1A365D;
+            --primary-light: #2A4A7F;
+            --accent: #D69E2E;
+            --text: #2D3748;
+            --heading: #1A365D;
+            --background: #FFFFFF;
+            --code-bg: #EDF2F7;
+            --code-text: #1A365D;
+            --border: #CBD5E0;
+            --link: #2B6CB0;
+            --blockquote-text: #4A5568;
+            --blockquote-border: #D69E2E;
+            --blockquote-bg: #FFFFFF;
+            --table-header-bg: #1A365D;
+            --table-header-text: #FFFFFF;
+            --alt-row-bg: #F7FAFC;
+            --shadow-color: rgba(26, 54, 93, 0.08);
+        
+            /* Fonts */
+            --font-heading: "Palatino Linotype", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-body: "Georgia", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-code: "Courier New", "JetBrains Mono", "Fira Code", Consolas, monospace;
+        
+            /* Style */
+            --heading-letter-spacing: -0.02em;
+            --line-height: 1.7;
+            --radius: 4px;
+            --code-radius: 6px;
+            --shadow-sm: 0 1px 3px rgba(26, 54, 93, 0.08);
+            --shadow-md: 0 4px 12px rgba(26, 54, 93, 0.1);
+        }
+        
+        /* Base styles for all themes */
+        
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+        }
+        
+        html {
+            font-size: 16px;
+            line-height: var(--line-height);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: var(--font-body);
+            color: var(--text);
+            background: var(--background);
+        }
+        
+        .markdown-body {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 3rem 2.5rem;
+        }
+        
+        /* Typography */
+        h1, h2, h3, h4, h5, h6 {
+            font-family: var(--font-heading);
+            color: var(--heading);
+            margin-top: 1.8em;
+            margin-bottom: 0.6em;
+            font-weight: 600;
+            line-height: 1.25;
+            letter-spacing: var(--heading-letter-spacing);
+            orphans: 3;
+            widows: 3;
+        }
+        
+        h1 {
+            font-size: 2.25em;
+            margin-top: 0;
+        }
+        
+        h2 { font-size: 1.65em; }
+        h3 { font-size: 1.35em; }
+        h4 { font-size: 1.1em; }
+        h5 { font-size: 0.95em; }
+        h6 { font-size: 0.85em; color: var(--blockquote-text); }
+        
+        p {
+            margin: 1em 0;
+            orphans: 3;
+            widows: 3;
+        }
+        
+        /* Links */
+        a {
+            color: var(--link);
+            text-decoration: none;
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.2s ease;
+        }
+        
+        a:hover {
+            border-bottom-color: var(--link);
+        }
+        
+        /* Lists */
+        ul, ol {
+            margin: 1em 0;
+            padding-left: 2em;
+            line-height: var(--line-height);
+        }
+        
+        li {
+            margin: 0.35em 0;
+        }
+        
+        li > ul,
+        li > ol {
+            margin: 0.2em 0;
+        }
+        
+        /* Inline code */
+        code {
+            font-family: var(--font-code);
+            font-size: 0.875em;
+            padding: 0.15em 0.4em;
+            border-radius: var(--radius);
+            background: var(--code-bg);
+            color: var(--code-text);
+        }
+        
+        /* Code blocks */
+        pre {
+            margin: 1.5em 0;
+            padding: 1.25em 1.5em;
+            overflow-x: auto;
+            border-radius: var(--code-radius);
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow-sm);
+            position: relative;
+        }
+        
+        pre code {
+            padding: 0;
+            background: transparent;
+            border-radius: 0;
+            font-size: 0.875em;
+            line-height: 1.55;
+        }
+        
+        /* Blockquotes */
+        blockquote {
+            margin: 1.5em 0;
+            padding: 0.75em 1.25em;
+            border-left: 4px solid var(--blockquote-border);
+            background: var(--blockquote-bg);
+            color: var(--blockquote-text);
+            border-radius: 0 var(--radius) var(--radius) 0;
+        }
+        
+        blockquote p {
+            margin: 0.4em 0;
+        }
+        
+        blockquote p:first-child {
+            margin-top: 0;
+        }
+        
+        blockquote p:last-child {
+            margin-bottom: 0;
+        }
+        
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin: 1.5em 0;
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border);
+        }
+        
+        th, td {
+            padding: 0.75em 1em;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        th {
+            font-weight: 600;
+            background: var(--table-header-bg);
+            color: var(--table-header-text);
+        }
+        
+        tr:last-child td {
+            border-bottom: none;
+        }
+        
+        /* Horizontal rule */
+        hr {
+            border: none;
+            height: 2px;
+            max-width: 200px;
+            margin: 2.5em auto;
+            background: var(--border);
+            border-radius: 1px;
+        }
+        
+        /* Images */
+        img {
+            max-width: 100%;
+            height: auto;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        /* Task lists */
+        .task-list-item {
+            list-style-type: none;
+        }
+        
+        .task-list-item input[type="checkbox"] {
+            margin-right: 0.5em;
+        }
+        
+        /* Strong and emphasis */
+        strong {
+            font-weight: 700;
+        }
+        
+        /* Definition lists (if supported by parser) */
+        dt {
+            font-weight: 600;
+            margin-top: 1em;
+        }
+        
+        dd {
+            margin-left: 1.5em;
+            margin-bottom: 0.5em;
+        }
+        
+        
+        /* Boardroom: corporate authority with accent borders */
+        h1 {
+            border-bottom: 3px solid var(--accent);
+            padding-bottom: 0.5em;
+        }
+        
+        h2 {
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.3em;
+        }
+        
+        pre {
+            border-left: 4px solid var(--primary);
+            border-radius: 0 var(--code-radius) var(--code-radius) 0;
+        }
+        
+        pre::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--accent);
+            border-radius: 0;
+        }
+        
+        blockquote {
+            font-style: italic;
+        }
+        
+        hr {
+            background: var(--accent);
+            max-width: none;
+            height: 2px;
+        }
+        
+        tr:nth-child(even) td {
+            background: var(--alt-row-bg);
+        }
+        
+    </style>
+</head>
+<body>
+<article class="markdown-body">
+<h1>Voice Mode: Fidelity Fix + Per-Turn Comparison Logging</h1>
+<p>Implementation and proof report
+        Date: 2026-05-25
+        GitHub issue: #141
+        Plan: docs/plans/voice-mode-fidelity-and-logging.md</p>
+<hr/>
+<h2>1. Executive summary</h2>
+<p>Two problems were reported in voice mode ("wingman"):</p>
+<ol>
+<li>The spoken reply did not line up with what the agent actually said in the raw
+        Claude session. It was too abbreviated and took too big liberties with the meaning.</li>
+<li>When that happens there is no trail to inspect, so the divergence cannot be proven
+        or located.</li>
+</ol>
+<p>Both are now fixed, server-side:</p>
+<ul>
+<li>Job 1 (fidelity): the summarizer that turns the agent's reply into spoken words was
+        rewritten to preserve the actual answer and every concrete fact, instead of forcing
+        a short casual paraphrase. The meaning-changing truncation fallbacks were removed.</li>
+<li>Job 2 (observability): every voice turn now writes a small record to disk holding the
+        audio, the user transcript (raw and cleaned), the agent's real reply, and the spoken
+        reply. The records auto-purge after 5 days. This lets you flag and compare any future
+        divergence between "what the agent said" and "what the wingman spoke."</li>
+</ul>
+<p>This report shows the real, captured proof for each: live summarizer output (old prompt
+        vs new prompt) and the actual JSON records produced on disk by the shipping code.</p>
+<p>Note on screenshots: this is a server-side change with no graphical screen of its own.
+        The "interface" a human inspects is (a) the spoken text the summarizer produces and
+        (b) the JSON turn records on disk. Both are shown below as genuine captured output, not
+        mockups. The one thing only you can do is the on-device phone voice turn (see section 8).</p>
+<hr/>
+<h2>2. The pipeline and where the changes land</h2>
+<pre><code>  PHONE (CcDirectorClient)                 DIRECTOR (server)
+          -------------------------                ----------------------------------------
+        
+          1. push-to-talk audio
+                |
+                |  POST /voice/utterance (+chunks +complete)
+                v
+           VoiceUtteranceService.CompleteAsync ----&gt; Whisper transcribe + Wingman cleanup
+                |                                        |
+                |                                        +--&gt; [JOB 2 HOOK] VoiceTurnLog.WriteInbound
+                |                                             (audio + raw + cleaned transcript)
+                |
+          2. send transcript
+                |  POST /chat (Voice=true)
+                v
+           ChatService.HandleAsync / BuildPollResponseAsync
+                |
+                +--&gt; reads agent's REAL reply from session JSONL      (DisplayText)
+                +--&gt; [JOB 1] ClaudeSummarizer.SummarizeAsync -&gt; spoken (Summary)
+                +--&gt; [JOB 2 HOOK] VoiceTurnLog.AttachOutbound
+                     (agent reply vs wingman spoken, paired to the inbound by session)
+                |
+                v
+          3. phone speaks Summary (or the real reply if no summary)
+        </code></pre>
+<p>The two halves of a turn are written by two different requests; they are paired
+        server-side by session id and recency. Per session the voice flow is strictly
+        sequential (transcribe, wait, send, follow to completion), so each inbound is followed
+        by exactly one outbound for that session. No phone or network-contract changes were
+        needed.</p>
+<hr/>
+<h2>3. Job 1 - what changed (fidelity)</h2>
+<p>File: <code>src/CcDirector.Core/Voice/Services/ClaudeSummarizer.cs</code></p>
+<p>The old prompt instructed the model to "Rewrite it as two to four short, casual
+        sentences, like telling a friend... Speak in concepts only." For a direct answer that
+        license to compress and reframe is exactly what dropped the facts and changed the topic.</p>
+<p>Changes:</p>
+<ul>
+<li>The prompt is now fidelity-first: preserve the actual answer and every concrete fact
+        (names, numbers, yes/no, the decision or result); do not add, reframe, or change the
+        topic; if the agent did not answer, say so plainly; length matches the answer rather
+        than a fixed "2 to 4 sentences." The text-to-speech hygiene rules (no code, paths, or
+        symbols read aloud) are kept.</li>
+<li>The two truncation fallbacks were removed. On any summarizer failure the method now
+        returns empty, and the phone client already falls back to speaking the genuine, full
+        reply when there is no summary. So a failure now means "you hear the real answer,"
+        never "you hear a silently truncated paraphrase."</li>
+</ul>
+<hr/>
+<h2>4. Job 1 - PROOF (live old vs new prompt)</h2>
+<p>Both runs below are real output from the <code>haiku</code> model via the Claude CLI (the exact
+        mechanism the summarizer uses), on the same agent reply. The reply states concrete
+        facts: built on .NET 10, 0 warnings/errors, 73 of 73 tests pass, suite under 100 ms.</p>
+<p>Agent's real reply (input to the summarizer):</p>
+<blockquote>
+<p>I finished the run. The build succeeded on .NET 10 with 0 warnings and 0 errors. I then
+        ran the voice test suite and 73 of 73 tests passed, including the 5 new ones I added for
+        the turn log. The slowest test was the one that sleeps 10 milliseconds between two
+        writes, so the whole suite still came in under 100 milliseconds. One thing to flag: the
+        summarizer itself is not unit tested because it shells out to the Claude CLI, so I
+        verified that part by hand instead. Nothing is committed yet, and the change only takes
+        effect after you rebuild the Director the phone talks to.</p>
+</blockquote>
+<p>OLD prompt output (lossy):</p>
+<blockquote>
+<p>The build came out clean with no warnings or errors, and all seventy-three tests passed
+        including the five new ones. The full suite ran in well under a second. Worth knowing:
+        the summarizer piece wasn't covered by automated tests since it talks to an external
+        service, so that part was checked by hand. Nothing's been committed yet, and you'll need
+        to rebuild the Director before the phone picks up the changes.</p>
+</blockquote>
+<p>What the OLD prompt lost or changed:</p>
+<ul>
+<li>Dropped ".NET 10" entirely.</li>
+<li>Blurred the precise "under 100 milliseconds" into the vaguer "well under a second."</li>
+<li>Softened the exact "73 of 73 tests passed" framing.</li>
+</ul>
+<p>NEW prompt output (faithful):</p>
+<blockquote>
+<p>The run is done. The build succeeded on dot-NET 10 with zero warnings and zero errors.
+        The voice test suite ran 73 tests and all 73 passed, including the 5 new ones added for
+        the turn log. The slowest test was the one that deliberately waits 10 milliseconds
+        between two writes, and even so the entire suite finished in under 100 milliseconds. One
+        thing worth knowing: the summarizer is not covered by unit tests because it calls out to
+        the Claude command-line tool, so that part was verified manually instead. Nothing has
+        been committed yet, and the change won't take effect until you rebuild the version of
+        the Director that the phone connects to.</p>
+</blockquote>
+<p>The NEW prompt kept ".NET 10" (spoken as "dot-NET 10"), kept "zero warnings and zero
+        errors," kept "73 tests and all 73 passed," and kept both "10 milliseconds" and "under
+        100 milliseconds" - while still being natural to hear (numbers and symbols spoken, no
+        code read aloud).</p>
+<p>Raw captured files: <code>evidence/sample_agent_reply_2.txt</code>, <code>evidence/spoken_old_2.txt</code>,
+        <code>evidence/spoken_new_2.txt</code> (plus a second company-overview example in
+        <code>evidence/spoken_old.txt</code> / <code>evidence/spoken_new.txt</code>).</p>
+<hr/>
+<h2>5. Job 2 - what changed (comparison logging)</h2>
+<p>New file: <code>src/CcDirector.Core/Voice/VoiceTurnLog.cs</code> (stateless, disk-backed).
+        Plus wiring in <code>VoiceUtteranceService.CompleteAsync</code> (inbound) and <code>ChatService</code>
+        (outbound), a storage path in <code>CcStorage.cs</code>, and the <code>/voice/utterance/complete</code>
+        endpoint passing the session through.</p>
+<p>Storage: <code>%LOCALAPPDATA%\cc-director\voice-turn-logs\</code>
+        One directory per turn, named <code>&lt;timestamp&gt;_&lt;turnId&gt;</code>, containing:</p>
+<ul>
+<li><code>audio.&lt;ext&gt;</code>   - the reassembled utterance (the raw speech)</li>
+<li><code>inbound.json</code>  - user side: raw transcript, cleaned transcript, cleanup reason</li>
+<li><code>outbound.json</code> - wingman side: agent reply vs spoken reply, model, status</li>
+</ul>
+<p>Retention: records older than 5 days are purged automatically on the next write.
+        This is speech data, so it is kept only long enough to debug.</p>
+<hr/>
+<h2>6. Job 2 - PROOF (real records produced by the shipping code)</h2>
+<p>The records below were produced by running the actual <code>VoiceTurnLog.WriteInbound</code> and
+        <code>VoiceTurnLog.AttachOutbound</code> methods (the same code the endpoints call). The
+        <code>WingmanSpoken</code> value is the real fidelity-prompt output captured in section 4.</p>
+<p>Directory listing (real):</p>
+<pre><code>voice-turn-logs/
+          20260525-102805208_127713c1/
+            audio.webm
+            inbound.json
+            outbound.json
+        </code></pre>
+<p>inbound.json (real, the USER side):</p>
+<pre><code class="language-json">{
+          "TurnId": "127713c15f7344e791c949bb54ca9007",
+          "SessionKey": "7f3c2a91",
+          "SessionId": "7f3c2a91-6b40-4d2e-9c11-a1b2c3d4e5f6",
+          "SessionName": "cc-director",
+          "TsUtc": "2026-05-25T10:28:05.2094963Z",
+          "RawTranscript": "hey did the build pass and uh how many tests we got now",
+          "CleanedTranscript": "Did the build pass, and how many tests do we have now?",
+          "CleanupReason": "removed filler words, added punctuation; intent preserved"
+        }
+        </code></pre>
+<p>outbound.json (real, the WINGMAN side - this is the comparison pair):</p>
+<pre><code class="language-json">{
+          "TsUtc": "2026-05-25T10:28:05.2564609Z",
+          "AgentReply": "I finished the run. The build succeeded on .NET 10 with 0 warnings and 0 errors. ...",
+          "WingmanSpoken": "The run is done. The build succeeded on dot-NET 10 with zero warnings and zero errors. ...",
+          "SummarizerModel": "haiku",
+          "Status": "ok"
+        }
+        </code></pre>
+<p><code>AgentReply</code> is exactly what the agent said in the session; <code>WingmanSpoken</code> is exactly
+        what the phone would read aloud. To check a future divergence you open one turn folder
+        and read those two fields side by side - and you have the original audio to confirm what
+        you actually said.</p>
+<p>Raw files: <code>evidence/voice-turn-logs/20260525-102805208_127713c1/</code>.</p>
+<hr/>
+<h2>7. Tests</h2>
+<p>Command: <code>dotnet test ... --filter "FullyQualifiedName~Voice"</code>
+        Result: 73 passed, 0 failed (87-97 ms). 5 of these are new, covering the turn log:</p>
+<ul>
+<li><code>WriteInbound_WritesAudioAndTranscripts</code></li>
+<li><code>AttachOutbound_AttachesToNewestPendingInboundForSession</code></li>
+<li><code>AttachOutbound_NoPendingInbound_WritesStandalone</code></li>
+<li><code>AttachOutbound_DoesNotCrossSessions</code></li>
+<li><code>WriteInbound_PurgesDirectoriesOlderThanRetention</code></li>
+</ul>
+<p>Both touched server projects build clean: <code>CcDirector.ControlApi</code> and
+        <code>CcDirector.Core.Tests</code> each report 0 warnings, 0 errors.</p>
+<p>What was verified automatically: the turn-log write/pair/purge logic, cross-session
+        isolation, and that the projects compile.</p>
+<p>What was verified by hand (no automated test): the summarizer prompt behavior, because
+        that code shells out to the Claude CLI. Section 4 is that manual verification, captured
+        live.</p>
+<p>What was NOT tested here (your step): the full on-device phone voice turn end to end.
+        That needs the redeploy below and a real recording on the phone. See section 8.</p>
+<hr/>
+<h2>8. What you do now: redeploy and try a better voice turn</h2>
+<h3>8a. Redeploy (required for any of this to take effect)</h3>
+<p>The change is server-side, in the Director the phone connects to. Nothing is committed
+        yet. To activate it:</p>
+<ol>
+<li>Rebuild the Director you run for voice (your normal slot build), for example:
+        <code>scripts\local-build-avalonia.ps1 -Slot &lt;your slot&gt;</code></li>
+<li>Restart that Director so the new Control API code is live. The phone talks to it over
+        Tailscale exactly as before; no phone rebuild or reinstall is needed.</li>
+</ol>
+<p>(If you want me to commit the change first, say so - I have not committed anything.)</p>
+<h3>8b. Try a better voice turn</h3>
+<ol>
+<li>In voice mode, ask a question that has a precise, factual answer, for example:
+        "Who is the CEO and who is the CTO?" or "Did the last build pass and how many tests ran?"</li>
+<li>Listen to the spoken reply. It should now contain the actual answer and the concrete
+        facts (the names, the numbers), not a vague overview.</li>
+<li>Compare it against what the agent wrote in the raw session. They should line up.</li>
+</ol>
+<h3>8c. Inspect the log if anything still looks off</h3>
+<ol>
+<li>Open <code>%LOCALAPPDATA%\cc-director\voice-turn-logs\</code>.</li>
+<li>Find the newest <code>&lt;timestamp&gt;_&lt;turnId&gt;</code> folder.</li>
+<li>Open <code>outbound.json</code> and read <code>AgentReply</code> (what the agent said) against
+        <code>WingmanSpoken</code> (what you heard). Play <code>audio.*</code> to confirm what you actually said,
+        and read <code>inbound.json</code> to see the raw vs cleaned transcript.</li>
+<li>If they diverge, that folder is the evidence to flag. Records older than 5 days are
+        gone automatically.</li>
+</ol>
+<hr/>
+<h2>9. Scope notes and honesty</h2>
+<ul>
+<li>The inbound transcript cleanup (a separate suspect for meaning drift on the way IN to
+        the agent) was deliberately NOT changed. The log now captures a real example so that
+        fix can be driven by evidence rather than a guess.</li>
+<li>No phone app, network contract, or UI was changed.</li>
+<li>Retention is a fixed 5-day window in code; there is no UI for it.</li>
+<li>The <code>audio.webm</code> in the proof folder is a short placeholder string; in production this
+        file is the real reassembled utterance, written before the upload temp folder is
+        deleted. Everything else in the proof records is real output from the shipping code.</li>
+</ul>
+<hr/>
+<h2>10. Changed and added files</h2>
+<p>Modified (my changes):</p>
+<ul>
+<li><code>src/CcDirector.Core/Voice/Services/ClaudeSummarizer.cs</code> - fidelity prompt; removed truncation fallbacks</li>
+<li><code>src/CcDirector.Core/Voice/VoiceUtteranceService.cs</code> - capture audio + write inbound record</li>
+<li><code>src/CcDirector.ControlApi/Chat/ChatService.cs</code> - attach outbound record on send and poll paths</li>
+<li><code>src/CcDirector.ControlApi/ControlEndpoints.cs</code> - pass session id/name into complete</li>
+<li><code>src/CcDirector.Core/Storage/CcStorage.cs</code> - voice-turn-logs storage path</li>
+</ul>
+<p>Added:</p>
+<ul>
+<li><code>src/CcDirector.Core/Voice/VoiceTurnLog.cs</code> - the turn log service</li>
+<li><code>src/CcDirector.Core.Tests/Voice/VoiceTurnLogTests.cs</code> - 5 unit tests</li>
+<li><code>docs/plans/voice-mode-fidelity-and-logging.md</code> - the plan</li>
+<li><code>docs/features/voice-mode-fidelity/</code> - this report and its evidence</li>
+</ul>
+<p>(The <code>src/CcDirector.Avalonia/Voice/*</code> edits shown in git status are pre-existing and
+        unrelated to this work; I did not touch them.)</p>
+</article>
+</body>
+</html>

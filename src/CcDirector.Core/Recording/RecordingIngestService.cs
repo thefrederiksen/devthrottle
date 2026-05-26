@@ -35,9 +35,17 @@ namespace CcDirector.Core.Recording;
 /// re-completing reuses already-transcribed segments, and re-promoting a
 /// recording already in the vault returns its existing result.
 /// </summary>
-public sealed class RecordingIngestService
+public sealed class RecordingIngestService : IDisposable
 {
     private static readonly JsonSerializerOptions JsonOpts = new() { WriteIndented = true };
+
+    // States that mean "this recording still has transcription work to do" and
+    // is therefore eligible for the background worker to pick up.
+    private const string StateQueued = "queued";
+    private const string StateTranscribing = "transcribing";
+    private const string StateCleaning = "cleaning";
+    private const string StateTranscribed = "transcribed";
+    private const string StateError = "error";
 
     private readonly string _root;
     private readonly IRecordingTranscriber _transcriber;
@@ -45,21 +53,49 @@ public sealed class RecordingIngestService
     private readonly string _collectionDir;
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _locks = new();
 
+    // Background worker: transcription runs here, decoupled from any HTTP request
+    // so a long recording can never be killed by a request/proxy timeout. The
+    // queue is the on-disk status.json state itself, so it survives a restart.
+    private readonly int _maxChunkAttempts;
+    private readonly int _maxJobAttempts;
+    private readonly TimeSpan _chunkRetryDelay;
+    private readonly TimeSpan _workerTick;
+    private readonly CancellationTokenSource _workerCts = new();
+    private readonly SemaphoreSlim _wake = new(0, 1);
+    private readonly Task? _workerTask;
+
     /// <param name="recordingsRoot">Root folder for received recordings.</param>
     /// <param name="transcriber">Transcription + cleanup engine.</param>
     /// <param name="vaultFiler">Vault filing back-end.</param>
     /// <param name="collectionDir">Folder where the final transcript + audio are placed for the vault.</param>
+    /// <param name="runWorker">Start the background transcription worker. Tests pass false to drive transcription deterministically via <see cref="ProcessRecordingAsync"/>.</param>
+    /// <param name="maxChunkAttempts">How many times one segment is retried before the whole job fails.</param>
+    /// <param name="maxJobAttempts">How many times a failed job is re-queued before it is left in error.</param>
+    /// <param name="chunkRetryDelay">Base delay between segment retries (doubles each attempt). Tests pass a tiny value.</param>
+    /// <param name="workerTick">How often the worker re-scans the queue for due retries.</param>
     public RecordingIngestService(
         string recordingsRoot,
         IRecordingTranscriber transcriber,
         IVaultFiler vaultFiler,
-        string collectionDir)
+        string collectionDir,
+        bool runWorker = true,
+        int maxChunkAttempts = 3,
+        int maxJobAttempts = 5,
+        TimeSpan? chunkRetryDelay = null,
+        TimeSpan? workerTick = null)
     {
         _root = recordingsRoot;
         _transcriber = transcriber;
         _vaultFiler = vaultFiler;
         _collectionDir = collectionDir;
+        _maxChunkAttempts = Math.Max(1, maxChunkAttempts);
+        _maxJobAttempts = Math.Max(1, maxJobAttempts);
+        _chunkRetryDelay = chunkRetryDelay ?? TimeSpan.FromSeconds(2);
+        _workerTick = workerTick ?? TimeSpan.FromSeconds(30);
         Directory.CreateDirectory(_root);
+
+        if (runWorker)
+            _workerTask = Task.Run(() => WorkerLoopAsync(_workerCts.Token));
     }
 
     public RecordingStatusDto Register(RecordingRegisterRequest req)
@@ -113,6 +149,18 @@ public sealed class RecordingIngestService
         FileLog.Write($"[RecordingIngestService] StoreChunk: id={recordingId} index={index} bytes={bytes.Length} sha={actual[..12]}");
     }
 
+    /// <summary>
+    /// Accepts a finished recording and queues it for transcription, returning
+    /// immediately. The actual transcription runs in the background worker, so
+    /// the caller (the phone's HTTP request) never holds a connection open for
+    /// the length of a transcription and cannot be killed by a request or proxy
+    /// timeout. The returned status reflects the queued state; the caller polls
+    /// <see cref="GetStatus"/> to watch progress.
+    ///
+    /// Idempotent: an already-transcribed recording returns its existing result;
+    /// one already queued or in flight is left alone; a previously failed one is
+    /// re-queued for a fresh set of attempts.
+    /// </summary>
     public async Task<RecordingStatusDto> CompleteAsync(string recordingId, RecordingManifest manifest, CancellationToken ct = default)
     {
         var gate = _locks.GetOrAdd(recordingId, _ => new SemaphoreSlim(1, 1));
@@ -124,9 +172,8 @@ public sealed class RecordingIngestService
                 ?? throw new InvalidOperationException($"Recording '{recordingId}' is not registered.");
 
             // Idempotent: a recording that already transcribed returns its
-            // existing result without re-transcribing. This makes it safe for
-            // the phone to complete twice (in-app path + background worker).
-            if (status.State == "transcribed")
+            // existing result without re-transcribing.
+            if (status.State == StateTranscribed)
             {
                 FileLog.Write($"[RecordingIngestService] Complete: id={recordingId} already transcribed, returning existing result");
                 return ToDto(status);
@@ -135,9 +182,65 @@ public sealed class RecordingIngestService
             SaveManifest(recordingId, manifest);
             status.ChunksTotal = manifest.Chunks.Count;
 
+            // Already queued or actively being worked: leave the in-flight job
+            // alone, just report current state. (A duplicate complete from the
+            // phone must not reset progress or attempt counters.)
+            if (status.State is StateQueued or StateTranscribing or StateCleaning)
+            {
+                FileLog.Write($"[RecordingIngestService] Complete: id={recordingId} already {status.State}, not re-queued");
+                SaveStatus(status);
+                return ToDto(status);
+            }
+
+            // Fresh enqueue (first complete, or a manual retry of a failed one):
+            // reset the attempt budget and clear any pending retry schedule.
+            status.State = StateQueued;
+            status.Error = null;
+            status.Attempts = 0;
+            status.NextAttemptAtUtc = null;
+            SaveStatus(status);
+            FileLog.Write($"[RecordingIngestService] Complete: id={recordingId} queued for background transcription");
+
+            SignalWorker();
+            return ToDto(status);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Transcribes one queued recording to completion: transcribe every segment
+    /// (each retried up to <c>maxChunkAttempts</c> times), assemble, clean, and
+    /// write the local transcript. Idempotent and resumable - already-transcribed
+    /// segments are skipped, so a job interrupted partway picks up where it left
+    /// off. On a segment failure that exhausts its retries the whole job is
+    /// recorded as failed; if attempts remain it is scheduled for a later retry.
+    /// Does not throw on a transcription failure (the failure is recorded in the
+    /// status for the worker and pollers); it only throws if the recording is
+    /// unknown or the run is cancelled by shutdown.
+    /// </summary>
+    public async Task ProcessRecordingAsync(string recordingId, CancellationToken ct = default)
+    {
+        var gate = _locks.GetOrAdd(recordingId, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct);
+        try
+        {
+            var status = LoadStatus(recordingId)
+                ?? throw new InvalidOperationException($"Recording '{recordingId}' is not registered.");
+
+            // Idempotent: nothing to do if it already finished.
+            if (status.State == StateTranscribed)
+                return;
+
+            var manifest = LoadManifest(recordingId)
+                ?? throw new InvalidOperationException($"Manifest missing for recording '{recordingId}'.");
+            status.ChunksTotal = manifest.Chunks.Count;
+
             try
             {
-                status.State = "transcribing";
+                status.State = StateTranscribing;
                 SaveStatus(status);
 
                 var ext = CodecToExt(status.Codec);
@@ -146,21 +249,21 @@ public sealed class RecordingIngestService
                 foreach (var chunk in manifest.Chunks.OrderBy(c => c.Index))
                 {
                     var txtPath = Path.Combine(RecordingDir(recordingId), $"{chunk.Index:D4}.txt");
-                    if (File.Exists(txtPath)) continue; // already transcribed (idempotent)
+                    if (File.Exists(txtPath)) continue; // already transcribed (idempotent, resumable)
 
                     var audioPath = Path.Combine(RecordingDir(recordingId), $"{chunk.Index:D4}.{ext}");
                     if (!File.Exists(audioPath))
                         throw new InvalidOperationException($"Chunk {chunk.Index} audio missing at {audioPath}.");
 
                     var audio = await File.ReadAllBytesAsync(audioPath, ct);
-                    var raw = await _transcriber.TranscribeChunkAsync(audio, contentType, fileName, ct);
+                    var raw = await TranscribeChunkWithRetryAsync(audio, contentType, fileName, chunk.Index, ct);
                     await WriteAtomicAsync(txtPath, Encoding.UTF8.GetBytes(raw), ct);
                     FileLog.Write($"[RecordingIngestService] transcribed chunk {chunk.Index}: len={raw.Length}");
                 }
 
                 var assembledRaw = AssembleRaw(recordingId, manifest);
 
-                status.State = "cleaning";
+                status.State = StateCleaning;
                 SaveStatus(status);
                 var cleanup = await _transcriber.CleanupAsync(assembledRaw, ct);
                 status.Transcript = cleanup.Text;
@@ -172,27 +275,172 @@ public sealed class RecordingIngestService
                 // Transcripts are transient: they stay local and are NOT filed
                 // into the vault here. The user promotes the ones worth keeping
                 // via PromoteToVaultAsync.
-                status.State = "transcribed";
+                status.State = StateTranscribed;
                 status.Error = null;
+                status.NextAttemptAtUtc = null;
                 SaveStatus(status);
-                FileLog.Write($"[RecordingIngestService] Complete done: id={recordingId} (local transcript, not filed)");
-                return ToDto(status);
+                FileLog.Write($"[RecordingIngestService] Transcribe done: id={recordingId} (local transcript, not filed)");
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                // Shutdown, not a failure. Leave the state as-is (transcribing):
+                // the already-written per-segment .txt files mean the next run
+                // resumes from here. Do not burn an attempt for a shutdown.
+                FileLog.Write($"[RecordingIngestService] Transcribe paused (shutdown): id={recordingId}");
+                throw;
             }
             catch (Exception ex)
             {
-                // Record the failure for status polling, then rethrow so the
-                // caller sees it. We do not swallow or substitute a result.
-                status.State = "error";
+                // A real transcription failure. Burn one job attempt and, if the
+                // budget allows, schedule a retry the worker will pick up later.
+                status.Attempts++;
+                status.State = StateError;
                 status.Error = ex.Message;
+                status.NextAttemptAtUtc = status.Attempts < _maxJobAttempts
+                    ? DateTime.UtcNow.Add(JobBackoff(status.Attempts)).ToString("O")
+                    : null;
                 SaveStatus(status);
-                FileLog.Write($"[RecordingIngestService] Complete FAILED: id={recordingId}: {ex.Message}");
-                throw;
+                FileLog.Write($"[RecordingIngestService] Transcribe FAILED: id={recordingId} attempt={status.Attempts}/{_maxJobAttempts} "
+                    + $"nextRetry={status.NextAttemptAtUtc ?? "(none - exhausted)"}: {ex.Message}");
+                // Do not rethrow: there is no caller waiting on this, and the
+                // worker must stay alive to process other recordings.
             }
         }
         finally
         {
             gate.Release();
         }
+    }
+
+    /// <summary>
+    /// Transcribes one segment, retrying a transient failure up to
+    /// <c>maxChunkAttempts</c> times with a doubling backoff. A cancellation is
+    /// never retried. If every attempt fails the last error is surfaced so the
+    /// caller fails the whole job (which then becomes eligible for a job retry).
+    /// </summary>
+    private async Task<string> TranscribeChunkWithRetryAsync(
+        byte[] audio, string contentType, string fileName, int chunkIndex, CancellationToken ct)
+    {
+        Exception? last = null;
+        for (int attempt = 1; attempt <= _maxChunkAttempts; attempt++)
+        {
+            try
+            {
+                return await _transcriber.TranscribeChunkAsync(audio, contentType, fileName, ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                last = ex;
+                FileLog.Write($"[RecordingIngestService] chunk {chunkIndex} attempt {attempt}/{_maxChunkAttempts} failed: {ex.Message}");
+                if (attempt < _maxChunkAttempts)
+                    await Task.Delay(TimeSpan.FromTicks(_chunkRetryDelay.Ticks * (1L << (attempt - 1))), ct);
+            }
+        }
+        throw new InvalidOperationException(
+            $"Chunk {chunkIndex} failed after {_maxChunkAttempts} attempts: {last?.Message}", last);
+    }
+
+    // ===== background worker (the queue) ====================================
+
+    /// <summary>
+    /// Job-retry backoff: how long to wait before re-attempting a failed job,
+    /// growing with the attempt count and capped at 30 minutes.
+    /// </summary>
+    private static TimeSpan JobBackoff(int attempts)
+        => TimeSpan.FromMinutes(Math.Min(30, attempts * 5));
+
+    private void SignalWorker()
+    {
+        // Release at most one permit (capacity 1): a pending wake already covers
+        // "there is work", so extra signals collapse into the one tick.
+        try { _wake.Release(); } catch (SemaphoreFullException) { /* already signalled */ }
+    }
+
+    /// <summary>
+    /// The transcription queue. Drains every recording that still has work, then
+    /// sleeps until signalled by a new enqueue or the periodic tick (so failed
+    /// jobs whose retry time has come are picked up without an external nudge).
+    /// </summary>
+    private async Task WorkerLoopAsync(CancellationToken ct)
+    {
+        FileLog.Write($"[RecordingIngestService] worker started: maxChunkAttempts={_maxChunkAttempts}, maxJobAttempts={_maxJobAttempts}, tick={_workerTick}");
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                foreach (var id in FindEligibleRecordings())
+                {
+                    if (ct.IsCancellationRequested) break;
+                    await ProcessRecordingAsync(id, ct);
+                }
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                // A scan/processing fault must never kill the worker.
+                FileLog.Write($"[RecordingIngestService] worker tick error: {ex.Message}");
+            }
+
+            try { await _wake.WaitAsync(_workerTick, ct); }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
+        }
+        FileLog.Write("[RecordingIngestService] worker stopped");
+    }
+
+    /// <summary>
+    /// The queue contents, read from disk so it survives a restart: every
+    /// recording that still has transcription work and is due now. That means
+    /// queued jobs, jobs interrupted mid-run (transcribing/cleaning, e.g. by a
+    /// crash), and failed jobs whose scheduled retry time has arrived and whose
+    /// attempt budget is not exhausted. Oldest first.
+    /// </summary>
+    private IEnumerable<string> FindEligibleRecordings()
+    {
+        if (!Directory.Exists(_root)) yield break;
+        var now = DateTime.UtcNow;
+        var candidates = new List<(string id, string started)>();
+        foreach (var dir in Directory.GetDirectories(_root))
+        {
+            StatusModel? s;
+            try
+            {
+                var path = Path.Combine(dir, "status.json");
+                if (!File.Exists(path)) continue;
+                s = JsonSerializer.Deserialize<StatusModel>(File.ReadAllText(path), JsonOpts);
+            }
+            catch { continue; }
+            if (s is null || string.IsNullOrEmpty(s.RecordingId)) continue;
+
+            var eligible = s.State switch
+            {
+                StateQueued => true,
+                // Interrupted mid-run (process died): resume it.
+                StateTranscribing or StateCleaning => true,
+                // Failed with attempts left and its retry time has come.
+                StateError => s.Attempts < _maxJobAttempts
+                              && DueNow(s.NextAttemptAtUtc, now),
+                _ => false,
+            };
+            if (eligible) candidates.Add((s.RecordingId, s.StartedAt));
+        }
+        foreach (var c in candidates.OrderBy(c => c.started, StringComparer.Ordinal))
+            yield return c.id;
+    }
+
+    private static bool DueNow(string? nextAttemptAtUtc, DateTime now)
+    {
+        if (string.IsNullOrWhiteSpace(nextAttemptAtUtc)) return true; // no schedule => due
+        return DateTime.TryParse(
+            nextAttemptAtUtc, null, System.Globalization.DateTimeStyles.RoundtripKind, out var at)
+            ? at <= now
+            : true;
     }
 
     public RecordingStatusDto GetStatus(string recordingId)
@@ -483,7 +731,8 @@ public sealed class RecordingIngestService
             ? Directory.GetFiles(dir, "*.txt").Length
             : 0;
         return new RecordingStatusDto(
-            s.RecordingId, s.Title, s.State, received, s.ChunksTotal, transcribed, s.VaultDocId, s.Error, s.Transcript);
+            s.RecordingId, s.Title, s.State, received, s.ChunksTotal, transcribed, s.VaultDocId, s.Error, s.Transcript,
+            s.Attempts, s.NextAttemptAtUtc);
     }
 
     private static bool IsAudio(string path)
@@ -559,5 +808,18 @@ public sealed class RecordingIngestService
         public string? Transcript { get; set; }
         public string? Subtitle { get; set; }
         public string? Summary { get; set; }
+
+        // Queue/retry bookkeeping for the background transcription worker.
+        public int Attempts { get; set; }
+        public string? NextAttemptAtUtc { get; set; }
+    }
+
+    public void Dispose()
+    {
+        _workerCts.Cancel();
+        try { _workerTask?.Wait(TimeSpan.FromSeconds(5)); }
+        catch (Exception ex) { FileLog.Write($"[RecordingIngestService] worker shutdown error: {ex.Message}"); }
+        _workerCts.Dispose();
+        _wake.Dispose();
     }
 }

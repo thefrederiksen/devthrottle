@@ -6,6 +6,13 @@ using System.Text.Json;
 namespace CcDirectorClient.Voice;
 
 /// <summary>
+/// Result of transcribing one utterance: the cleaned <paramref name="Text"/> and the
+/// <paramref name="Target"/> it should be routed to ("agent" to send to the session,
+/// "wingman" when the user addressed the wingman with a "Hey wingman" wake phrase).
+/// </summary>
+public sealed record TranscribeResult(string Text, string Target);
+
+/// <summary>
 /// Drives the per-session voice round-trip directly against the owning Director's
 /// Control API (the same endpoints the web voice page uses), using the Director's
 /// Tailnet base URL taken from the roster. Three concerns, kept apart:
@@ -48,10 +55,12 @@ public sealed class DirectorVoiceClient
 
     /// <summary>
     /// Upload the recorded utterance as a single chunk and return the cleaned
-    /// transcript. Throws on any HTTP or transcription failure so the caller can
-    /// tell the user plainly rather than silently sending an empty prompt.
+    /// transcript plus its route target ("agent" or "wingman", decided server-side
+    /// during cleanup from a "Hey wingman" wake phrase). Throws on any HTTP or
+    /// transcription failure so the caller can tell the user plainly rather than
+    /// silently sending an empty prompt.
     /// </summary>
-    public async Task<string> TranscribeUtteranceAsync(
+    public async Task<TranscribeResult> TranscribeUtteranceAsync(
         string directorBase, string sessionId, byte[] audio, string mime, CancellationToken ct = default)
     {
         var b = directorBase.TrimEnd('/');
@@ -95,8 +104,35 @@ public sealed class DirectorVoiceClient
         // The cleaned transcript is what the web voice UI forwards to /chat; fall
         // back to the raw transcript only when the cleanup step produced nothing.
         var text = !string.IsNullOrWhiteSpace(comp.CleanedTranscript) ? comp.CleanedTranscript! : comp.Transcript;
-        ClientLog.Write($"[DirectorVoiceClient] TranscribeUtterance OK: chars={text?.Length ?? 0}");
-        return (text ?? "").Trim();
+        var target = string.Equals(comp.RouteTarget, "wingman", StringComparison.OrdinalIgnoreCase) ? "wingman" : "agent";
+        ClientLog.Write($"[DirectorVoiceClient] TranscribeUtterance OK: chars={text?.Length ?? 0}, target={target}");
+        return new TranscribeResult((text ?? "").Trim(), target);
+    }
+
+    /// <summary>
+    /// Ask the wingman a free-text question about a session and return the spoken
+    /// answer (POST /sessions/{sid}/wingman/ask with the question and no mode, which the
+    /// Director routes to the read-only full-power answer path - it reads content
+    /// verbatim instead of summarizing). Throws on HTTP failure so the caller surfaces
+    /// the real error. Returns empty string when the wingman had nothing to say.
+    /// </summary>
+    public async Task<string> AskWingmanAsync(
+        string directorBase, string sessionId, string question, CancellationToken ct = default)
+    {
+        var b = directorBase.TrimEnd('/');
+        ClientLog.Write($"[DirectorVoiceClient] AskWingman: base={b}, sid={sessionId}, chars={question.Length}");
+        using var http = NewClient();
+        var resp = await http.PostAsync($"{b}/sessions/{sessionId}/wingman/ask",
+            JsonBody(new { Question = question }), ct);
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode)
+            throw new HttpRequestException($"wingman/ask failed: {(int)resp.StatusCode} {body}");
+        var r = JsonSerializer.Deserialize<ExplainResp>(body, Json);
+        if (r is not null && !string.Equals(r.Status, "ok", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(r.Error))
+            throw new InvalidOperationException($"wingman/ask status={r.Status}: {r.Error}");
+        var text = (r?.Answer ?? "").Trim();
+        ClientLog.Write($"[DirectorVoiceClient] AskWingman OK: chars={text.Length}");
+        return text;
     }
 
     // ===== 2. CHAT (send + follow) =========================================
@@ -145,6 +181,54 @@ public sealed class DirectorVoiceClient
             SessionName = c.SessionName ?? "",
             Error = c.Error,
         };
+    }
+
+    // ===== "WHAT'S HAPPENING" (on-demand briefing) =========================
+
+    /// <summary>
+    /// Ask the wingman for a fresh plain-language briefing of what the session is
+    /// doing right now (POST /sessions/{sid}/wingman/ask with mode=explain - the
+    /// SAME endpoint and prompt the web voice view's "What's happening?" button
+    /// uses, so the two clients share one backend implementation, not two). Returns
+    /// the answer text for the caller to read aloud; empty string when the wingman
+    /// had nothing to report.
+    /// </summary>
+    public async Task<string> ExplainAsync(string directorBase, string sessionId, CancellationToken ct = default)
+    {
+        var b = directorBase.TrimEnd('/');
+        ClientLog.Write($"[DirectorVoiceClient] Explain: base={b}, sid={sessionId}");
+        using var http = NewClient();
+        var resp = await http.PostAsync($"{b}/sessions/{sessionId}/wingman/ask",
+            JsonBody(new { Question = "", Mode = "explain" }), ct);
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode)
+            throw new HttpRequestException($"wingman/ask explain failed: {(int)resp.StatusCode} {body}");
+        var r = JsonSerializer.Deserialize<ExplainResp>(body, Json);
+        var text = (r?.Answer ?? "").Trim();
+        ClientLog.Write($"[DirectorVoiceClient] Explain OK: chars={text.Length}");
+        return text;
+    }
+
+    /// <summary>
+    /// Set the session's walkie-talkie voice-mode flag on the owning Director (POST
+    /// /sessions/{sid}/voice-mode) so every client - the desktop tile, the web view,
+    /// and this roster - agrees the session is being talked to. Best-effort: a
+    /// failure here must not block the user from talking, so it never throws.
+    /// </summary>
+    public async Task SetVoiceModeAsync(string directorBase, string sessionId, bool enabled, CancellationToken ct = default)
+    {
+        try
+        {
+            var b = directorBase.TrimEnd('/');
+            using var http = NewClient();
+            await http.PostAsync($"{b}/sessions/{sessionId}/voice-mode",
+                JsonBody(new { Enabled = enabled }), ct);
+            ClientLog.Write($"[DirectorVoiceClient] SetVoiceMode: sid={sessionId}, enabled={enabled}");
+        }
+        catch (Exception ex)
+        {
+            ClientLog.Write($"[DirectorVoiceClient] SetVoiceMode FAILED (non-fatal): {ex.Message}");
+        }
     }
 
     // ===== 3. RECAP =========================================================
@@ -199,6 +283,7 @@ public sealed class DirectorVoiceClient
     {
         public string? Transcript { get; set; }
         public string? CleanedTranscript { get; set; }
+        public string? RouteTarget { get; set; }
         public string? Status { get; set; }
         public string? Error { get; set; }
     }
@@ -215,6 +300,12 @@ public sealed class DirectorVoiceClient
     private sealed class RecapResp
     {
         public string? Recap { get; set; }
+        public string? Status { get; set; }
+        public string? Error { get; set; }
+    }
+    private sealed class ExplainResp
+    {
+        public string? Answer { get; set; }
         public string? Status { get; set; }
         public string? Error { get; set; }
     }

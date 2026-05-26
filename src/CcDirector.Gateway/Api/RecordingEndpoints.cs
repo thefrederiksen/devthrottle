@@ -15,10 +15,12 @@ namespace CcDirector.Gateway.Api;
 /// Maps the <c>/ingest/recording</c> REST surface the phone recorder uploads
 /// to. The phone records offline; when it has connectivity it registers a
 /// recording, PUTs each finalized audio segment (idempotent by index + hash),
-/// then POSTs <c>complete</c>, which transcribes every segment through the
+/// then POSTs <c>complete</c>, which queues the recording and returns 202
+/// immediately. A background worker transcribes every segment through the
 /// existing dictation pipeline and assembles + cleans the transcript into the
-/// local transcripts area. Transcripts stay local (transient) until the user
-/// promotes one into the vault.
+/// local transcripts area, retrying flaky segments and re-queueing a failed
+/// job for a later attempt. The phone polls <c>status</c> to watch progress.
+/// Transcripts stay local (transient) until the user promotes one into the vault.
 ///
 /// Routes (all JSON except the raw-bytes chunk PUT):
 ///   POST /ingest/recording                      register, body RecordingRegisterRequest
@@ -91,8 +93,13 @@ internal static class RecordingEndpoints
                     ctx.Request.Body, JsonOpts, ctx.RequestAborted);
                 if (manifest is null)
                     return Results.BadRequest(new { error = "manifest body required" });
+                // Enqueue and return immediately (202). Transcription runs in the
+                // background worker, so the phone never holds the request open for
+                // the length of a transcription - a long recording can no longer
+                // be killed by a request/proxy timeout. The phone polls
+                // GET .../status to watch progress.
                 var status = await service.CompleteAsync(id, manifest, ctx.RequestAborted);
-                return Results.Json(status);
+                return Results.Json(status, statusCode: StatusCodes.Status202Accepted);
             }
             catch (JsonException ex)
             {

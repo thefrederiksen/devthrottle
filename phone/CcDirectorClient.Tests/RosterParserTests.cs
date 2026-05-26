@@ -26,7 +26,8 @@ public class RosterParserTests
             "statusColor": "red",
             "lastStatusReason": "pending question",
             "tailnetEndpoint": "https://host.ts.net/",
-            "machineName": "soren-north"
+            "machineName": "soren-north",
+            "voiceMode": true
           }
         ]
         """;
@@ -40,6 +41,15 @@ public class RosterParserTests
         // Trailing slash is trimmed so endpoint concatenation is clean.
         Assert.Equal("https://host.ts.net", s.TailnetEndpoint);
         Assert.Equal("soren-north", s.MachineName);
+        Assert.True(s.VoiceMode);
+    }
+
+    [Fact]
+    public void Parse_MissingVoiceMode_DefaultsToFalse()
+    {
+        var json = """[ { "sessionId": "a", "activityState": "Idle", "status": "Running" } ]""";
+        var s = Assert.Single(RosterParser.Parse(json));
+        Assert.False(s.VoiceMode);
     }
 
     [Fact]

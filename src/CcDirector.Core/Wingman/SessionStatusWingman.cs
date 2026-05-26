@@ -35,7 +35,7 @@ namespace CcDirector.Core.Wingman;
 ///                                                       so debug tools still see a value)
 ///
 /// 2. Slow path (turn summary, async; wired via <see cref="TurnSummaryCache"/> today)
-///    - On OnTurnCompleted, when Haiku returns a TurnSummary, the wingman refines:
+///    - On OnTurnCompleted, when the turn-summary call returns a TurnSummary, the wingman refines:
 ///      * needs_user = "question" | "error" | "permission" -> red    (+ detail)
 ///      * wingman warnings (rule violations etc.)       -> yellow (+ detail)
 ///      * needs_user = "idle" with git dirty               -> yellow ("idle, uncommitted")
@@ -345,7 +345,7 @@ public sealed class SessionStatusWingman : IDisposable
     /// <summary>
     /// Slow-path: refine the color using a freshly-computed TurnSummary. Callers
     /// (today: <see cref="TurnSummaryCache"/>'s background completion handler) invoke
-    /// this once Haiku returns. The wingman does not generate summaries itself.
+    /// this once the turn-summary call returns. The wingman does not generate summaries itself.
     /// </summary>
     public void ApplyTurnSummary(Session session, Gateway.Contracts.TurnSummary summary, bool gitDirty = false, bool hasWarnings = false, long? expectedGeneration = null)
     {
@@ -366,8 +366,8 @@ public sealed class SessionStatusWingman : IDisposable
 
         // Issue #137 item 4: a turn summary is computed for the turn that ended at a
         // specific activity-state generation. If the state has moved on by the time
-        // Haiku returns (~10s later) -- the user submitted again, an interrupt, a new
-        // turn -- the summary is stale and must not write. This is the principled
+        // the summary model returns (~10s later) -- the user submitted again, an interrupt,
+        // a new turn -- the summary is stale and must not write. This is the principled
         // generalization of the state-based guard below: the caller samples the
         // generation at turn-end and we drop the write if it no longer matches.
         if (expectedGeneration.HasValue && session.ActivityGeneration != expectedGeneration.Value)
@@ -384,8 +384,8 @@ public sealed class SessionStatusWingman : IDisposable
         // that JUST ENDED. If the user has already submitted the next prompt
         // (session is now Working), the summary's needs_user=question is stale by
         // definition - the question has been answered. Don't let an in-flight blue
-        // get repainted red by Haiku finishing 10s later. Reproduced as: user
-        // submits answer at T, wingman goes blue, Haiku summary for prior turn
+        // get repainted red by the summary finishing 10s later. Reproduced as: user
+        // submits answer at T, wingman goes blue, the summary for the prior turn
         // lands at T+10s carrying needs_user=question, banner flickers back to red.
         if (session.ActivityState is ActivityState.WaitingForPerm or ActivityState.Working)
         {

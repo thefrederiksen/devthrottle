@@ -122,6 +122,68 @@ public sealed class WingmanServiceTests
         Assert.Equal("r", r.Reason);
     }
 
+    // --------------------------------------------------------------------
+    // Route target ("Hey wingman" detection folded into cleanup)
+    // --------------------------------------------------------------------
+
+    [Fact]
+    public void ParseVoiceCleanupJson_target_wingman_is_extracted()
+    {
+        const string raw = "{\"cleaned\":\"read me the whole article\",\"reason\":\"stripped wake phrase\",\"target\":\"wingman\"}";
+        var r = WingmanService.ParseVoiceCleanupJson(raw, "FALLBACK");
+        Assert.Equal("read me the whole article", r.Cleaned);
+        Assert.Equal("wingman", r.Target);
+    }
+
+    [Fact]
+    public void ParseVoiceCleanupJson_target_defaults_to_agent_when_absent()
+    {
+        const string raw = "{\"cleaned\":\"fix the login bug\",\"reason\":\"removed filler\"}";
+        var r = WingmanService.ParseVoiceCleanupJson(raw, "FALLBACK");
+        Assert.Equal("agent", r.Target);
+    }
+
+    [Fact]
+    public void ParseVoiceCleanupJson_target_agent_explicit_is_agent()
+    {
+        const string raw = "{\"cleaned\":\"do the thing\",\"reason\":\"x\",\"target\":\"agent\"}";
+        var r = WingmanService.ParseVoiceCleanupJson(raw, "FALLBACK");
+        Assert.Equal("agent", r.Target);
+    }
+
+    [Fact]
+    public void ParseVoiceCleanupJson_target_unrecognized_falls_back_to_agent()
+    {
+        const string raw = "{\"cleaned\":\"do the thing\",\"reason\":\"x\",\"target\":\"banana\"}";
+        var r = WingmanService.ParseVoiceCleanupJson(raw, "FALLBACK");
+        Assert.Equal("agent", r.Target);
+    }
+
+    [Fact]
+    public void ParseVoiceCleanupJson_target_is_case_insensitive()
+    {
+        const string raw = "{\"cleaned\":\"x\",\"reason\":\"y\",\"target\":\"WingMan\"}";
+        var r = WingmanService.ParseVoiceCleanupJson(raw, "FALLBACK");
+        Assert.Equal("wingman", r.Target);
+    }
+
+    // --------------------------------------------------------------------
+    // Ask-the-Wingman faithful answer prompt
+    // --------------------------------------------------------------------
+
+    [Fact]
+    public void BuildWingmanAnswerSessionPrompt_includes_question_snapshot_and_verbatim_rule()
+    {
+        var prompt = WingmanService.BuildWingmanAnswerSessionPrompt(
+            "read me the whole article we just wrote", "/tmp/snap.txt", "Claude Code");
+        Assert.Contains("read me the whole article we just wrote", prompt);
+        Assert.Contains("/tmp/snap.txt", prompt);
+        Assert.Contains("VERBATIM", prompt);
+        Assert.Contains("READ-ONLY", prompt);
+        // Must not push the model toward summarizing - that is the whole bug we are fixing.
+        Assert.Contains("does not want a summary", prompt, StringComparison.OrdinalIgnoreCase);
+    }
+
     // ====================================================================
     // Phase 2: turn-summary JSON parsing
     // ====================================================================

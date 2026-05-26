@@ -176,7 +176,7 @@ public sealed class TurnSummaryCache : IDisposable
                     // Global 5s LLM floor (shared with the detector's classify). If we're
                     // inside the window, skip WITHOUT advancing the cursor so this turn's
                     // output rolls into the next summary rather than being dropped. This is
-                    // what stops a flappy session from looping on Haiku and burning tokens.
+                    // what stops a flappy session from looping on the model and burning tokens.
                     if (!WingmanLlmThrottle.TryAcquire(s.Id))
                         return;
 

@@ -1,9 +1,8 @@
 namespace CcDirector.Gateway.Contracts;
 
 /// <summary>
-/// Phase 5: body for <c>POST /sessions/{sid}/wingman/ask</c>. The user's question
-/// is piped into a fresh, stateless Haiku call alongside this session's recent
-/// state. The wingman never has memory between asks.
+/// Body for <c>POST /sessions/{sid}/wingman/ask</c>. Stateless: the wingman never has
+/// memory between asks.
 /// </summary>
 public sealed class WingmanAskRequest
 {
@@ -11,9 +10,15 @@ public sealed class WingmanAskRequest
     public string Question { get; set; } = "";
 
     /// <summary>
-    /// Optional mode. When set to "explain", the wingman ignores <see cref="Question"/>
-    /// and instead produces a session briefing (what's happened + what the agent is
-    /// waiting on) using the strong model (Opus) rather than the cheap Haiku default.
+    /// Optional mode.
+    /// <list type="bullet">
+    /// <item>"explain": ignore <see cref="Question"/> and produce a terse session
+    /// briefing (what's happened + what the agent is waiting on) on the strong model.</item>
+    /// <item>null / anything else (with a <see cref="Question"/>): the faithful
+    /// "Ask the Wingman" channel - a read-only full-power session over the whole
+    /// terminal + repo, on the strong model, that answers completely and reads content
+    /// VERBATIM when asked rather than summarizing.</item>
+    /// </list>
     /// </summary>
     public string? Mode { get; set; }
 }

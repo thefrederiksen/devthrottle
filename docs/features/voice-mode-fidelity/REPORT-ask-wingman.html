@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Ask-the-Wingman - Build Report</title>
+<style>
+        /* Boardroom Theme - Corporate, executive style with serif fonts */
+        
+        :root {
+            /* Colors */
+            --primary: #1A365D;
+            --primary-light: #2A4A7F;
+            --accent: #D69E2E;
+            --text: #2D3748;
+            --heading: #1A365D;
+            --background: #FFFFFF;
+            --code-bg: #EDF2F7;
+            --code-text: #1A365D;
+            --border: #CBD5E0;
+            --link: #2B6CB0;
+            --blockquote-text: #4A5568;
+            --blockquote-border: #D69E2E;
+            --blockquote-bg: #FFFFFF;
+            --table-header-bg: #1A365D;
+            --table-header-text: #FFFFFF;
+            --alt-row-bg: #F7FAFC;
+            --shadow-color: rgba(26, 54, 93, 0.08);
+        
+            /* Fonts */
+            --font-heading: "Palatino Linotype", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-body: "Georgia", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-code: "Courier New", "JetBrains Mono", "Fira Code", Consolas, monospace;
+        
+            /* Style */
+            --heading-letter-spacing: -0.02em;
+            --line-height: 1.7;
+            --radius: 4px;
+            --code-radius: 6px;
+            --shadow-sm: 0 1px 3px rgba(26, 54, 93, 0.08);
+            --shadow-md: 0 4px 12px rgba(26, 54, 93, 0.1);
+        }
+        
+        /* Base styles for all themes */
+        
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+        }
+        
+        html {
+            font-size: 16px;
+            line-height: var(--line-height);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: var(--font-body);
+            color: var(--text);
+            background: var(--background);
+        }
+        
+        .markdown-body {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 3rem 2.5rem;
+        }
+        
+        /* Typography */
+        h1, h2, h3, h4, h5, h6 {
+            font-family: var(--font-heading);
+            color: var(--heading);
+            margin-top: 1.8em;
+            margin-bottom: 0.6em;
+            font-weight: 600;
+            line-height: 1.25;
+            letter-spacing: var(--heading-letter-spacing);
+            orphans: 3;
+            widows: 3;
+        }
+        
+        h1 {
+            font-size: 2.25em;
+            margin-top: 0;
+        }
+        
+        h2 { font-size: 1.65em; }
+        h3 { font-size: 1.35em; }
+        h4 { font-size: 1.1em; }
+        h5 { font-size: 0.95em; }
+        h6 { font-size: 0.85em; color: var(--blockquote-text); }
+        
+        p {
+            margin: 1em 0;
+            orphans: 3;
+            widows: 3;
+        }
+        
+        /* Links */
+        a {
+            color: var(--link);
+            text-decoration: none;
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.2s ease;
+        }
+        
+        a:hover {
+            border-bottom-color: var(--link);
+        }
+        
+        /* Lists */
+        ul, ol {
+            margin: 1em 0;
+            padding-left: 2em;
+            line-height: var(--line-height);
+        }
+        
+        li {
+            margin: 0.35em 0;
+        }
+        
+        li > ul,
+        li > ol {
+            margin: 0.2em 0;
+        }
+        
+        /* Inline code */
+        code {
+            font-family: var(--font-code);
+            font-size: 0.875em;
+            padding: 0.15em 0.4em;
+            border-radius: var(--radius);
+            background: var(--code-bg);
+            color: var(--code-text);
+        }
+        
+        /* Code blocks */
+        pre {
+            margin: 1.5em 0;
+            padding: 1.25em 1.5em;
+            overflow-x: auto;
+            border-radius: var(--code-radius);
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow-sm);
+            position: relative;
+        }
+        
+        pre code {
+            padding: 0;
+            background: transparent;
+            border-radius: 0;
+            font-size: 0.875em;
+            line-height: 1.55;
+        }
+        
+        /* Blockquotes */
+        blockquote {
+            margin: 1.5em 0;
+            padding: 0.75em 1.25em;
+            border-left: 4px solid var(--blockquote-border);
+            background: var(--blockquote-bg);
+            color: var(--blockquote-text);
+            border-radius: 0 var(--radius) var(--radius) 0;
+        }
+        
+        blockquote p {
+            margin: 0.4em 0;
+        }
+        
+        blockquote p:first-child {
+            margin-top: 0;
+        }
+        
+        blockquote p:last-child {
+            margin-bottom: 0;
+        }
+        
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin: 1.5em 0;
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border);
+        }
+        
+        th, td {
+            padding: 0.75em 1em;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        th {
+            font-weight: 600;
+            background: var(--table-header-bg);
+            color: var(--table-header-text);
+        }
+        
+        tr:last-child td {
+            border-bottom: none;
+        }
+        
+        /* Horizontal rule */
+        hr {
+            border: none;
+            height: 2px;
+            max-width: 200px;
+            margin: 2.5em auto;
+            background: var(--border);
+            border-radius: 1px;
+        }
+        
+        /* Images */
+        img {
+            max-width: 100%;
+            height: auto;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        /* Task lists */
+        .task-list-item {
+            list-style-type: none;
+        }
+        
+        .task-list-item input[type="checkbox"] {
+            margin-right: 0.5em;
+        }
+        
+        /* Strong and emphasis */
+        strong {
+            font-weight: 700;
+        }
+        
+        /* Definition lists (if supported by parser) */
+        dt {
+            font-weight: 600;
+            margin-top: 1em;
+        }
+        
+        dd {
+            margin-left: 1.5em;
+            margin-bottom: 0.5em;
+        }
+        
+        
+        /* Boardroom: corporate authority with accent borders */
+        h1 {
+            border-bottom: 3px solid var(--accent);
+            padding-bottom: 0.5em;
+        }
+        
+        h2 {
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.3em;
+        }
+        
+        pre {
+            border-left: 4px solid var(--primary);
+            border-radius: 0 var(--code-radius) var(--code-radius) 0;
+        }
+        
+        pre::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--accent);
+            border-radius: 0;
+        }
+        
+        blockquote {
+            font-style: italic;
+        }
+        
+        hr {
+            background: var(--accent);
+            max-width: none;
+            height: 2px;
+        }
+        
+        tr:nth-child(even) td {
+            background: var(--alt-row-bg);
+        }
+        
+    </style>
+</head>
+<body>
+<article class="markdown-body">
+<h1>Ask-the-Wingman - Build Report</h1>
+<p>Date: 2026-05-25</p>
+<h2>What this fixes</h2>
+<p>Voice mode forced everything through a summarizer: a dictated turn returned the capped
+        <code>spoken_text</code> (~280 chars, "outcome not process"), "What's happening?" was explicitly
+        terse, and the free-text ask was both capped at "1-3 short sentences" and fed only a
+        4000-char terminal tail. So "read me the whole article we just wrote" came back as a
+        3-sentence gist, and there was no way to address the wingman directly. The user ended up
+        in the raw tab.</p>
+<h2>What was built</h2>
+<p>A dedicated <strong>Ask-the-Wingman</strong> voice channel, separate from talking to the agent. You
+        say "Hey wingman, ..." (or tap an Ask-Wingman button) and the wingman answers from the
+        session - reading content back VERBATIM when asked, never summarizing. Talking to the
+        agent is unchanged.</p>
+<h3>Server</h3>
+<ul>
+<li><code>WingmanService.AnswerViaSessionAsync</code> + <code>BuildWingmanAnswerSessionPrompt</code>: a
+        read-only full-power session (Read/Grep/Glob, MCP off, no writes, no PTY access) on
+        the strong model (opus), handed the WHOLE terminal as a snapshot file plus the repo as
+        its working directory. It reads as much as it needs and reproduces content word-for-word.
+        No length cap on the answer. Reuses the proven <code>RunWingmanSessionAsync</code> mechanism from
+        the terminal-state classifier; read-only by construction.</li>
+<li><code>POST /sessions/{sid}/wingman/ask</code>: a free-text question now routes to this faithful
+        path; <code>mode=explain</code> (the terse briefing) is unchanged. The old terse one-shot ask
+        (Haiku, 1-3 sentences, 4000-char tail) is retired from the endpoint.</li>
+<li><code>CleanVoiceTranscriptAsync</code>: moved off Haiku to the strong model and now also returns a
+        routing <code>target</code> ("agent" | "wingman"). It detects a "Hey wingman" wake phrase (LLM
+        intent, not regex - tolerant of Whisper mangling), strips the phrase, and defaults to
+        "agent" when unsure. Carried on the wire as <code>VoiceCommandResponse.RouteTarget</code>.</li>
+</ul>
+<h3>Phone (MAUI Android)</h3>
+<ul>
+<li><code>DirectorVoiceClient.AskWingmanAsync</code> (POST /wingman/ask); <code>TranscribeUtteranceAsync</code>
+        now returns <code>TranscribeResult(Text, Target)</code>.</li>
+<li><code>VoiceConversation.SpeakTurnAsync</code> branches: target=wingman (or the explicit button)
+        -&gt; ask the wingman and speak the answer immediately (no waiting on the agent's turn,
+        no /chat); otherwise the existing agent flow.</li>
+<li><code>TalkPage</code>: an "Ask Wingman" button beside "What's happening?", sharing the same
+        push-to-talk record/stop mechanics as Talk.</li>
+</ul>
+<h2>Verification</h2>
+<ul>
+<li>
+<p>Build: full solution clean (0 errors); MAUI Android client clean (0 errors, only
+        pre-existing NU1608 NuGet version warnings).</p>
+</li>
+<li>
+<p>Unit tests: 64 WingmanService tests pass, including new coverage of route-target
+        parsing (wingman/agent/absent/unknown/case-insensitive) and the verbatim answer prompt.
+        Full Core suite green (one unrelated <code>SessionLogWriter</code> test is a known parallel
+        temp-dir race; passes in isolation).</p>
+</li>
+<li>
+<p>LIVE tests against real opus (<code>WingmanAnswerLiveTests</code>, opt-in via
+        <code>WINGMAN_LIVE_TESTS=1</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Test</th>
+<th>Result</th>
+<th>Evidence</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Read an article back verbatim</td>
+<td>PASS</td>
+<td>model=opus, 8.6s, 591 chars (full body); both rare planted sentences returned intact, not reworded or shortened</td>
+</tr>
+<tr>
+<td>"Hey wingman, read me the whole article"</td>
+<td>PASS</td>
+<td>target=wingman; cleaned="read me the whole article we just wrote." (wake phrase stripped)</td>
+</tr>
+<tr>
+<td>"Um, can you fix the bug in the login flow please."</td>
+<td>PASS</td>
+<td>target=agent; cleaned="Can you fix the bug in the login flow please." (filler removed, left for the agent)</td>
+</tr>
+</tbody>
+</table>
+</li>
+</ul>
+<h2>Wingman Charter + full no-Haiku conversion + audit gate</h2>
+<p>The Ask-the-Wingman work fixed one corner; the Wingman as a whole was still mostly Haiku.
+        That is now resolved across the board:</p>
+<ul>
+<li><strong>Charter:</strong> <code>docs/wingman/CHARTER.md</code> is the single source of truth for what the
+        Wingman must achieve and its hard invariants (strong-model-only / never Haiku;
+        read-only; faithful not summarizing; stateless; fail-closed; genuinely helpful). It
+        applies everywhere the Wingman is used and names the placement rule (all Wingman code
+        under <code>src/CcDirector.Core/Wingman/</code>).</li>
+<li><strong>Full conversion:</strong> the Wingman now runs on ONE strong model, <code>WingmanService.Model</code>
+        (<code>opus</code>). Every previously-Haiku path is converted: terminal-state classification, the
+        per-turn summary, rules enforcement, goal assessment, the explain briefing, the ask,
+        and transcript cleanup. The <code>DefaultModel</code>/<code>StrongModel</code> constants are now aliases of
+        the single <code>Model</code>; the only quoted cheap-model literal in the Wingman is gone.</li>
+<li><strong>Audit gate:</strong> <code>CcDirector.Core.Tests/Wingman/WingmanCharterAuditTests.cs</code> runs in the
+        normal suite and FAILS THE BUILD if any file under <code>src/CcDirector.Core/Wingman/</code>
+        reintroduces a cheap-model literal, re-points the model off a strong tier, or gives a
+        Wingman session a non-read-only tool. It scans the whole directory, so new Wingman
+        files are covered automatically as the component grows. Verified: 3/3 pass, scanning 8
+        Wingman files and validating 2 real <code>allowedTools</code> arguments.</li>
+</ul>
+<h2>Remaining</h2>
+<ul>
+<li>On-device E2E on the phone (the usual Soren step): say "Hey wingman, read me the whole
+        article" and confirm it reads the real text aloud; confirm an ordinary instruction
+        still goes to the agent.</li>
+<li>Phase 5 (an automatic spoken "done vs working" cue) was deferred: the wingman channel
+        now answers "is it done?" faithfully on request. Revisit if the automatic cue is still
+        wanted.</li>
+</ul>
+<h2>Notes</h2>
+<ul>
+<li>No Haiku anywhere in the Wingman now, enforced by the audit gate (not just promised).</li>
+<li>Cost/latency: every Wingman call is opus, including high-frequency ones (terminal-state
+        classification runs whenever a session goes quiet; transcript cleanup runs on every
+        dictated utterance). This is the explicit tradeoff for trust over cheapness. If a hot
+        path feels slow, the charter allows a second STRONG tier (e.g. sonnet) for those paths -
+        never a return to Haiku. Flag it and I will tune.</li>
+<li>Two adjacent summarizers feed the same voice experience but live outside the Wingman
+        namespace and still use a cheap model: <code>Core/Voice/Services/ClaudeSummarizer</code> (the voice
+        spoken turn summary) and <code>Core/Claude/RecapGenerator</code> (conductor recap). Decision
+        pending: bring them under the charter (and the audit), or leave them out of scope.</li>
+<li>Not committed - awaiting your go-ahead.</li>
+</ul>
+</article>
+</body>
+</html>

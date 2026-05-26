@@ -1,0 +1,169 @@
+{
+  "started": "2026-05-25T12:37:15.408373+00:00",
+  "base": "http://127.0.0.1:7879",
+  "sid": "475e4577-c3b6-4fc8-88a0-441080489202",
+  "stages": [
+    {
+      "key": "01_loaded",
+      "ok": true,
+      "note": "Session view loaded (mobile viewport)",
+      "screenshot": "01_loaded.png",
+      "at": "2026-05-25T12:37:17.778055+00:00"
+    },
+    {
+      "key": "02_voice_tab_clean",
+      "ok": true,
+      "note": "Voice tab: What's-happening button present=True, verbose hint removed=True, state='Ready. Tap to talk.'",
+      "screenshot": "02_voice_tab_clean.png",
+      "at": "2026-05-25T12:37:19.283110+00:00",
+      "has_whats_button": true,
+      "hint_removed": true
+    },
+    {
+      "key": "03_whats_happening_tapped",
+      "ok": true,
+      "note": "Tapped 'What's happening?'; briefing requested",
+      "screenshot": "03_whats_happening_tapped.png",
+      "at": "2026-05-25T12:37:20.463320+00:00"
+    },
+    {
+      "key": "04_briefing_rendered",
+      "ok": true,
+      "note": "Briefing rendered (420 chars): 'WHAT\\'S HAPPENED:\\nClaude Code is just starting up and hit a trust prompt for the workspace folder. No actual work has happened yet.\\n\\nWHAT CLAUDE WANTS:\\n\"Quick sa'; wingman/ask calls=1, tts calls=0",
+      "screenshot": "04_briefing_rendered.png",
+      "at": "2026-05-25T12:37:30.016288+00:00",
+      "briefing": "WHAT'S HAPPENED:\nClaude Code is just starting up and hit a trust prompt for the workspace folder. No actual work has happened yet.\n\nWHAT CLAUDE WANTS:\n\"Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source project, or work from your team). If not, take a moment to review what's in this folder first.\" It is offering: 1. Yes, I trust this folder / 2. No, exit.",
+      "ask_calls": 1,
+      "tts_calls": 0
+    }
+  ],
+  "network": [
+    {
+      "url": "127.0.0.1:7879/sessions/475e4577-c3b6-4fc8-88a0-441080489202/view",
+      "status": 200,
+      "method": "GET",
+      "at": "2026-05-25T12:37:16.160479+00:00"
+    },
+    {
+      "url": "127.0.0.1:7879/sessions/475e4577-c3b6-4fc8-88a0-441080489202",
+      "status": 200,
+      "method": "GET",
+      "at": "2026-05-25T12:37:16.234058+00:00"
+    },
+    {
+      "url": "127.0.0.1:7879/sessions/475e4577-c3b6-4fc8-88a0-441080489202/wingman",
+      "status": 200,
+      "method": "GET",
+      "at": "2026-05-25T12:37:16.235058+00:00"
+    },
+    {
+      "url": "127.0.0.1:7879/sessions/475e4577-c3b6-4fc8-88a0-441080489202/mobile-mode",
+      "status": 200,
+      "method": "POST",
+      "at": "2026-05-25T12:37:16.235058+00:00"
+    },
+    {
+      "url": "127.0.0.1:7879/sessions/475e4577-c3b6-4fc8-88a0-441080489202/wingman/explain",
+      "status": 200,
+      "method": "GET",
+      "at": "2026-05-25T12:37:16.236058+00:00"
+    },
+    {
+      "url": "127.0.0.1:7879/sessions/475e4577-c3b6-4fc8-88a0-441080489202",
+      "status": 200,
+      "method": "GET",
+      "at": "2026-05-25T12:37:17.776056+00:00"
+    },
+    {
+      "url": "127.0.0.1:7879/sessions/475e4577-c3b6-4fc8-88a0-441080489202/wingman/explain",
+      "status": 200,
+      "method": "GET",
+      "at": "2026-05-25T12:37:17.777055+00:00"
+    },
+    {
+      "url": "127.0.0.1:7879/sessions/475e4577-c3b6-4fc8-88a0-441080489202/wingman",
+      "status": 200,
+      "method": "GET",
+      "at": "2026-05-25T12:37:17.777055+00:00"
+    },
+    {
+      "url": "127.0.0.1:7879/sessions/475e4577-c3b6-4fc8-88a0-441080489202/voice-mode",
+      "status": 200,
+      "method": "POST",
+      "at": "2026-05-25T12:37:17.938798+00:00"
+    },
+    {
+      "url": "127.0.0.1:7879/sessions/475e4577-c3b6-4fc8-88a0-441080489202",
+      "status": 200,
+      "method": "GET",
+      "at": "2026-05-25T12:37:19.281099+00:00"
+    },
+    {
+      "url": "127.0.0.1:7879/sessions/475e4577-c3b6-4fc8-88a0-441080489202",
+      "status": 200,
+      "method": "GET",
+      "at": "2026-05-25T12:37:20.745522+00:00"
+    },
+    {
+      "url": "127.0.0.1:7879/sessions/475e4577-c3b6-4fc8-88a0-441080489202",
+      "status": 200,
+      "method": "GET",
+      "at": "2026-05-25T12:37:22.245242+00:00"
+    },
+    {
+      "url": "127.0.0.1:7879/sessions/475e4577-c3b6-4fc8-88a0-441080489202",
+      "status": 200,
+      "method": "GET",
+      "at": "2026-05-25T12:37:23.736036+00:00"
+    },
+    {
+      "url": "127.0.0.1:7879/sessions/475e4577-c3b6-4fc8-88a0-441080489202",
+      "status": 200,
+      "method": "GET",
+      "at": "2026-05-25T12:37:25.235900+00:00"
+    },
+    {
+      "url": "127.0.0.1:7879/sessions/475e4577-c3b6-4fc8-88a0-441080489202/wingman/ask",
+      "status": 200,
+      "method": "POST",
+      "at": "2026-05-25T12:37:25.552647+00:00",
+      "body": {
+        "answer": "WHAT'S HAPPENED:\nClaude Code is just starting up and hit a trust prompt for the workspace folder. No actual work has happened yet.\n\nWHAT CLAUDE WANTS:\n\"Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source project, or work from your team). If not, take a moment to review what's in this folder first.\" It is offering: 1. Yes, I trust this folder / 2. No, exit.",
+        "model": "opus",
+        "latencyMs": 6024,
+        "contextDigest": "events:3, turns:1, buffer:480ch, repo:cc-voice-test, color:red",
+        "status": "ok",
+        "error": null,
+        "quickReplies": [
+          "1",
+          "2"
+        ]
+      }
+    },
+    {
+      "url": "127.0.0.1:7879/sessions/475e4577-c3b6-4fc8-88a0-441080489202",
+      "status": 200,
+      "method": "GET",
+      "at": "2026-05-25T12:37:26.736025+00:00"
+    },
+    {
+      "url": "127.0.0.1:7879/sessions/475e4577-c3b6-4fc8-88a0-441080489202",
+      "status": 200,
+      "method": "GET",
+      "at": "2026-05-25T12:37:28.237598+00:00"
+    },
+    {
+      "url": "127.0.0.1:7879/sessions/475e4577-c3b6-4fc8-88a0-441080489202",
+      "status": 200,
+      "method": "GET",
+      "at": "2026-05-25T12:37:29.732858+00:00"
+    }
+  ],
+  "wire": {
+    "voiceMode_before": true,
+    "voiceMode_after_enable": true,
+    "voiceMode_after_disable": false,
+    "ok": true
+  },
+  "finished": "2026-05-25T12:37:30.089599+00:00"
+}
