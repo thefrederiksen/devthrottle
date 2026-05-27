@@ -20,6 +20,13 @@ public sealed record TranscribeResult(string Text, string Target);
 public sealed record BufferSlice(string Text, long NewCursor);
 
 /// <summary>
+/// A spoken FIFO command classified by the wingman: the <paramref name="Action"/> is
+/// "skip", "hold", or "answer" (the safe default - it was a question, not a queue
+/// command). <paramref name="Reason"/> is a short human explanation for logs/UI.
+/// </summary>
+public sealed record CommandResult(string Action, string Reason);
+
+/// <summary>
 /// Drives the per-session voice round-trip directly against the owning Director's
 /// Control API (the same endpoints the web voice page uses), using the Director's
 /// Tailnet base URL taken from the roster. Three concerns, kept apart:
@@ -30,8 +37,11 @@ public sealed record BufferSlice(string Text, long NewCursor);
 ///      transcript to the session and follow the turn to completion (POST /chat).
 ///   3. <see cref="GetOrCreateRecapAsync"/> - the conductor's spoken recap.
 ///
-/// The reply is read aloud by native Android TTS in the caller, not fetched as
-/// audio, so this client only ever deals in text.
+/// The reply is read aloud with the Director's OpenAI voice: the caller fetches
+/// the audio from <see cref="SynthesizeSpeechAsync"/> (POST /tts, the same
+/// endpoint and voice the web voice page uses) and plays the returned MP3, so
+/// the phone sounds identical to the web instead of falling back to a robotic
+/// on-device engine.
 /// </summary>
 public sealed class DirectorVoiceClient
 {
@@ -142,6 +152,35 @@ public sealed class DirectorVoiceClient
         return text;
     }
 
+    // ===== TEXT-TO-SPEECH (OpenAI voice, shared with the web) ==============
+
+    /// <summary>
+    /// Turn reply text into spoken audio using the Director's OpenAI TTS voice
+    /// (POST /tts). Sends only the text - no voice override - so the phone speaks
+    /// with the SAME server-configured voice as the web voice page, not a robotic
+    /// on-device engine. Returns the raw MP3 bytes for the caller to play. Throws
+    /// on any HTTP/synthesis failure so the caller surfaces the real reason rather
+    /// than silently going quiet.
+    /// </summary>
+    public async Task<byte[]> SynthesizeSpeechAsync(
+        string directorBase, string text, CancellationToken ct = default)
+    {
+        var b = directorBase.TrimEnd('/');
+        ClientLog.Write($"[DirectorVoiceClient] SynthesizeSpeech: base={b}, chars={text.Length}");
+        using var http = NewClient();
+        var resp = await http.PostAsync($"{b}/tts", JsonBody(new { Text = text }), ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            throw new HttpRequestException($"tts failed: {(int)resp.StatusCode} {body}");
+        }
+        var bytes = await resp.Content.ReadAsByteArrayAsync(ct);
+        if (bytes.Length == 0)
+            throw new InvalidOperationException("tts returned empty audio");
+        ClientLog.Write($"[DirectorVoiceClient] SynthesizeSpeech OK: bytes={bytes.Length}");
+        return bytes;
+    }
+
     // ===== 2. CHAT (send + follow) =========================================
 
     /// <summary>Send a transcript to the session and wait up to <paramref name="timeoutMs"/> for the turn.</summary>
@@ -236,6 +275,50 @@ public sealed class DirectorVoiceClient
         {
             ClientLog.Write($"[DirectorVoiceClient] SetVoiceMode FAILED (non-fatal): {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Park or un-park a session in the FIFO voice queue on the owning Director (POST
+    /// /sessions/{sid}/hold). Held sessions drop out of the FIFO rotation. Unlike
+    /// voice-mode, this is an explicit user action with a queue consequence, so it
+    /// THROWS on HTTP failure - the caller must know the hold did not take before it
+    /// advances past the session.
+    /// </summary>
+    public async Task SetHoldAsync(string directorBase, string sessionId, bool onHold, CancellationToken ct = default)
+    {
+        var b = directorBase.TrimEnd('/');
+        ClientLog.Write($"[DirectorVoiceClient] SetHold: base={b}, sid={sessionId}, onHold={onHold}");
+        using var http = NewClient();
+        var resp = await http.PostAsync($"{b}/sessions/{sessionId}/hold",
+            JsonBody(new { OnHold = onHold }), ct);
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode)
+            throw new HttpRequestException($"hold failed: {(int)resp.StatusCode} {body}");
+    }
+
+    /// <summary>
+    /// Interpret a spoken request the user addressed to the wingman in FIFO mode as a
+    /// QUEUE command (POST /sessions/{sid}/wingman/command). Returns the classified
+    /// intent: "skip", "hold", or "answer" (the safe default - it was a question). Throws
+    /// on HTTP failure so the caller can surface the real reason. The server never acts on
+    /// the command itself; the page decides what to do with the returned action.
+    /// </summary>
+    public async Task<CommandResult> InterpretCommandAsync(
+        string directorBase, string sessionId, string spokenText, CancellationToken ct = default)
+    {
+        var b = directorBase.TrimEnd('/');
+        ClientLog.Write($"[DirectorVoiceClient] InterpretCommand: base={b}, sid={sessionId}, chars={spokenText.Length}");
+        using var http = NewClient();
+        var resp = await http.PostAsync($"{b}/sessions/{sessionId}/wingman/command",
+            JsonBody(new { Text = spokenText }), ct);
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode)
+            throw new HttpRequestException($"wingman/command failed: {(int)resp.StatusCode} {body}");
+        var r = JsonSerializer.Deserialize<CommandResp>(body, Json);
+        var action = (r?.Action ?? "answer").Trim().ToLowerInvariant();
+        if (action is not ("skip" or "hold")) action = "answer";
+        ClientLog.Write($"[DirectorVoiceClient] InterpretCommand OK: action={action}");
+        return new CommandResult(action, r?.Reason ?? "");
     }
 
     // ===== TERMINAL MIRROR + CONTROLS ======================================
@@ -486,6 +569,13 @@ public sealed class DirectorVoiceClient
     private sealed class ExplainResp
     {
         public string? Answer { get; set; }
+        public string? Status { get; set; }
+        public string? Error { get; set; }
+    }
+    private sealed class CommandResp
+    {
+        public string? Action { get; set; }
+        public string? Reason { get; set; }
         public string? Status { get; set; }
         public string? Error { get; set; }
     }

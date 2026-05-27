@@ -17,6 +17,18 @@ public sealed class ConductorState
     private readonly List<SessionInfo> _queue = new();
     private int _index;
 
+    // When true (the FIFO voice mode), sessions the user has put on hold are dropped
+    // from the queue. The all-sessions conductor leaves this false so its rotation is
+    // unchanged. Set once at construction; the queue is rebuilt with it on every Update.
+    private readonly bool _excludeHeld;
+
+    /// <summary>
+    /// Create a conductor queue. Pass <paramref name="excludeHeld"/> true for FIFO voice
+    /// mode so parked (on-hold) sessions are skipped; the default false preserves the
+    /// original all-sessions conductor behavior.
+    /// </summary>
+    public ConductorState(bool excludeHeld = false) => _excludeHeld = excludeHeld;
+
     /// <summary>Number of sessions currently needing the user.</summary>
     public int Count => _queue.Count;
 
@@ -43,7 +55,7 @@ public sealed class ConductorState
         var priorId = Current?.SessionId;
 
         _queue.Clear();
-        _queue.AddRange(SessionFilter.AttentionQueue(roster));
+        _queue.AddRange(SessionFilter.AttentionQueue(roster, _excludeHeld));
 
         if (_queue.Count == 0)
         {

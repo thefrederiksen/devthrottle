@@ -74,4 +74,25 @@ public class ConductorStateTests
         var c = new ConductorState();
         Assert.Null(c.Advance());
     }
+
+    [Fact]
+    public void ExcludeHeld_DropsHeldSessionsFromTheFifoQueue()
+    {
+        var held = new SessionInfo
+        {
+            SessionId = "2", Name = "beta", StatusColor = "red",
+            TailnetEndpoint = "https://host.ts.net", OnHold = true,
+        };
+
+        // FIFO mode: the held red session never enters the queue.
+        var fifo = new ConductorState(excludeHeld: true);
+        fifo.Update(new List<SessionInfo> { Red("1", "alpha"), held, Red("3", "gamma") });
+        Assert.Equal(2, fifo.Count);
+        Assert.DoesNotContain(fifo.Queue, s => s.SessionId == "2");
+
+        // The default conductor is unchanged: it still rotates through the held session.
+        var conductor = new ConductorState();
+        conductor.Update(new List<SessionInfo> { Red("1", "alpha"), held, Red("3", "gamma") });
+        Assert.Equal(3, conductor.Count);
+    }
 }

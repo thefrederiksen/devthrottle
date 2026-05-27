@@ -13,6 +13,12 @@
     <FlyoutItem Title="Talk" Route="TalkPage">
         <ShellContent ContentTemplate="{DataTemplate local:TalkPage}" />
     </FlyoutItem>
+    <FlyoutItem Title="FIFO" Route="FifoPage">
+        <ShellContent ContentTemplate="{DataTemplate local:FifoPage}" />
+    </FlyoutItem>
+    <FlyoutItem Title="FIFO Text" Route="FifoTextPage">
+        <ShellContent ContentTemplate="{DataTemplate local:FifoTextPage}" />
+    </FlyoutItem>
     <FlyoutItem Title="Notes" Route="MainPage">
         <ShellContent ContentTemplate="{DataTemplate local:MainPage}" />
     </FlyoutItem>

@@ -20,11 +20,13 @@ public static class MauiProgram
 #if ANDROID
 		builder.Services.AddSingleton<IAudioRecorder, CcDirectorClient.Platforms.Android.AndroidAudioRecorder>();
 		builder.Services.AddSingleton<IUtteranceRecorder, CcDirectorClient.Platforms.Android.AndroidUtteranceRecorder>();
-		builder.Services.AddSingleton<IReplySpeaker, CcDirectorClient.Platforms.Android.AndroidTextToSpeech>();
+		builder.Services.AddSingleton<IReplySpeaker, CcDirectorClient.Platforms.Android.AndroidReplySpeaker>();
 		builder.Services.AddSingleton<IVoiceForeground, CcDirectorClient.Platforms.Android.AndroidVoiceForeground>();
 #endif
 		builder.Services.AddSingleton<MainPage>();
 		builder.Services.AddTransient<TalkPage>();
+		builder.Services.AddTransient<FifoPage>();
+		builder.Services.AddTransient<FifoTextPage>();
 		builder.Services.AddTransient<ExesPage>();
 		builder.Services.AddTransient<DictionaryPage>();
 		builder.Services.AddTransient<TranscriptsPage>();

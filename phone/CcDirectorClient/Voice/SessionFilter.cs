@@ -20,22 +20,31 @@ public static class SessionFilter
     /// <summary>The status color that means "this session needs the user".</summary>
     public const string NeedsAttentionColor = "red";
 
-    /// <summary>True when the conductor should speak for this session.</summary>
-    public static bool NeedsAttention(SessionInfo s)
+    /// <summary>
+    /// True when the conductor should speak for this session. With
+    /// <paramref name="excludeHeld"/> true (the FIFO mode's default), a session the user
+    /// has parked (<see cref="SessionInfo.OnHold"/>) is NOT actionable - the whole point
+    /// of hold is to drop it from the rotation until the user brings it back. The
+    /// all-sessions conductor passes false, so its behavior is unchanged.
+    /// </summary>
+    public static bool NeedsAttention(SessionInfo s, bool excludeHeld = false)
         => s is not null
            && string.Equals(s.StatusColor, NeedsAttentionColor, StringComparison.OrdinalIgnoreCase)
-           && !string.IsNullOrWhiteSpace(s.TailnetEndpoint);
+           && !string.IsNullOrWhiteSpace(s.TailnetEndpoint)
+           && !(excludeHeld && s.OnHold);
 
     /// <summary>
     /// The conductor queue: every session that needs the user, in a stable order
     /// (by display name, then id) so repeated polls keep the same rotation and a
-    /// session does not jump around in the queue between refreshes.
+    /// session does not jump around in the queue between refreshes. With
+    /// <paramref name="excludeHeld"/> true, sessions the user has put on hold are left
+    /// out (the FIFO mode); the default false preserves the all-sessions conductor.
     /// </summary>
-    public static List<SessionInfo> AttentionQueue(IEnumerable<SessionInfo> roster)
+    public static List<SessionInfo> AttentionQueue(IEnumerable<SessionInfo> roster, bool excludeHeld = false)
     {
         if (roster is null) return new List<SessionInfo>();
         return roster
-            .Where(NeedsAttention)
+            .Where(s => NeedsAttention(s, excludeHeld))
             .OrderBy(s => s.DisplayName, StringComparer.OrdinalIgnoreCase)
             .ThenBy(s => s.SessionId, StringComparer.OrdinalIgnoreCase)
             .ToList();

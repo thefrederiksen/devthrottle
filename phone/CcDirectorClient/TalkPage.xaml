@@ -190,14 +190,16 @@
                     <Label x:Name="TerminalStatusLabel" Text="" FontSize="13" TextColor="#8A93A6"
                            HorizontalOptions="Center" />
 
-                    <!-- Read-only raw mirror of the PTY, polled on a timer. Monospace,
-                         scrollable, auto-scrolls to the bottom on each new slice. -->
-                    <ScrollView x:Name="TerminalScroll" HeightRequest="360"
-                                BackgroundColor="#06090F">
-                        <Label x:Name="TerminalOutputLabel" Text="Connecting to terminal..."
-                               TextColor="#C8D2E0" FontSize="12" FontFamily="Monospace"
-                               Padding="10" />
-                    </ScrollView>
+                    <!-- Read-only raw terminal: a real xterm.js emulator hosted in a
+                         WebView, fed by the session's raw PTY byte stream over
+                         /sessions/{sid}/stream (the same path the web client uses). A
+                         byte stream applied in order renders coherently, unlike the old
+                         poll-the-grid-into-a-Label approach which stacked half-drawn
+                         repaint frames as overlapping ghost lines. -->
+                    <Border BackgroundColor="#06090F" StrokeShape="RoundRectangle 8" Padding="0">
+                        <WebView x:Name="TerminalWebView" HeightRequest="600"
+                                 BackgroundColor="#1E1E1E" />
+                    </Border>
 
                     <!-- Structured input: type a line + Send. This writes to the PTY. -->
                     <Entry x:Name="TerminalInput" Placeholder="type / send..."

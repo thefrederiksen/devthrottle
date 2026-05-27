@@ -49,6 +49,15 @@ public sealed class SessionInfo
     public bool VoiceMode { get; set; }
 
     /// <summary>
+    /// True when the user has parked this session in the FIFO voice queue ("deal with
+    /// this later"). Mirrors the server's authoritative <c>Session.OnHold</c>. A held
+    /// session is dropped from the FIFO rotation until it is taken off hold; its
+    /// underlying <see cref="StatusColor"/> and <see cref="ActivityState"/> are still
+    /// reported truthfully. The client renders and filters on this verbatim.
+    /// </summary>
+    public bool OnHold { get; set; }
+
+    /// <summary>
     /// Human-friendly label for the session: the server-supplied name when set,
     /// otherwise the repository folder name, otherwise a short id. Never empty.
     /// </summary>

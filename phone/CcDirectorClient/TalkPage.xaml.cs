@@ -6,7 +6,7 @@ namespace CcDirectorClient;
 /// <summary>
 /// The voice client's main screen. Lists the sessions from the Gateway and lets
 /// the user pick one to talk to: push Talk to start capturing, push Send to stop
-/// and run the round-trip (transcribe -> chat -> native TTS). The screen is kept
+/// and run the round-trip (transcribe -> chat -> OpenAI TTS). The screen is kept
 /// awake while it is in front (Waze-style) so a glance check does not require
 /// unlocking.
 /// </summary>
@@ -56,15 +56,6 @@ public partial class TalkPage : ContentPage
     // Which of the three single-session tabs is showing: "voice" | "wingman" | "terminal".
     private string _activeTab = "voice";
 
-    // Terminal mirror: polls the raw PTY buffer while the Terminal tab is visible.
-    // The cursor advances each poll so we only fetch newly written bytes; the
-    // accumulated text is the on-screen scrollback. -1 means "dump the whole buffer
-    // on the next poll" (first open or session switch).
-    private readonly IDispatcherTimer _terminalTimer;
-    private long _terminalCursor = -1;
-    private readonly System.Text.StringBuilder _terminalText = new();
-    private bool _terminalPolling;
-
     // True while a Wingman tab refresh/send is running, so the tab does not fire
     // overlapping calls.
     private bool _wingmanBusy;
@@ -85,12 +76,6 @@ public partial class TalkPage : ContentPage
             RecElapsedLabel.Text = TimeSpan.FromSeconds(secs).ToString(@"mm\:ss");
         };
 
-        // Terminal mirror poll: ~1s while the Terminal tab is visible. Read-only;
-        // it only fetches newly written PTY bytes and appends them on screen.
-        _terminalTimer = Dispatcher.CreateTimer();
-        _terminalTimer.Interval = TimeSpan.FromMilliseconds(1000);
-        _terminalTimer.Tick += async (_, _) => await PollTerminalAsync();
-
         var savedServer = Preferences.Get(PrefServer, "");
         if (string.IsNullOrWhiteSpace(savedServer))
         {
@@ -107,7 +92,6 @@ public partial class TalkPage : ContentPage
         // Waze-style: keep the screen on while the talk screen is in front so the
         // user can glance at state without unlocking, and audio keeps flowing.
         DeviceDisplay.Current.KeepScreenOn = true;
-        _ = _tts.InitAsync();
         _ = LoadRosterAsync();
     }
 
@@ -116,7 +100,7 @@ public partial class TalkPage : ContentPage
         base.OnDisappearing();
         DeviceDisplay.Current.KeepScreenOn = false;
         _levelTimer.Stop();
-        _terminalTimer.Stop();
+        UnloadTerminalWebView();
         _tts.Stop();
         _foreground.Stop();
     }
@@ -216,10 +200,7 @@ public partial class TalkPage : ContentPage
 
         // Reset the three-tab content for the new session: start on Voice, clear the
         // Wingman + Terminal panes so stale content from a previous session is gone.
-        _terminalTimer.Stop();
-        _terminalCursor = -1;
-        _terminalText.Clear();
-        TerminalOutputLabel.Text = "Connecting to terminal...";
+        // ShowTab("voice") below tears down any terminal WebView from the prior session.
         TerminalStatusLabel.Text = "";
         WingmanOutputLabel.Text = "Loading clean output...";
         WingmanNoteLabel.Text = "Tap Refresh for a read on this session.";
@@ -257,18 +238,16 @@ public partial class TalkPage : ContentPage
         SetTabButton(WingmanTabButton, tab == "wingman");
         SetTabButton(TerminalTabButton, tab == "terminal");
 
-        // Terminal poll only runs while its tab is visible (read-only mirror).
+        // The terminal WebView (and its PTY byte-stream WebSocket) is live only while
+        // the Terminal tab is visible. Loading it on entry connects the stream; leaving
+        // tears it down so it stops streaming in the background.
         if (tab == "terminal")
         {
-            if (_selected is not null)
-            {
-                TerminalStatusLabel.Text = "Live mirror (read-only)";
-                _terminalTimer.Start();
-            }
+            if (_selected is not null) LoadTerminalWebView();
         }
         else
         {
-            _terminalTimer.Stop();
+            UnloadTerminalWebView();
         }
 
         // Lazily load the Wingman clean output the first time the tab is opened for
@@ -303,7 +282,7 @@ public partial class TalkPage : ContentPage
         // cancellation quietly.
         _turnCts?.Cancel();
         _levelTimer.Stop();
-        _terminalTimer.Stop();
+        UnloadTerminalWebView();
         RecordingCard.IsVisible = false;
         LevelMeter.Progress = 0;
         if (_recorder.IsRecording)
@@ -686,42 +665,33 @@ public partial class TalkPage : ContentPage
     // ===== TERMINAL tab: read-only raw mirror + control buttons ============
 
     /// <summary>
-    /// One poll of the raw PTY buffer. Appends only the newly written bytes (cursor
-    /// advances each call), keeps the on-screen scrollback bounded, and scrolls to
-    /// the bottom. Read-only: this never writes to the PTY.
+    /// Point the Terminal tab's WebView at a fresh xterm.js page for the selected
+    /// session. The page connects to the Director's raw PTY byte stream
+    /// (/sessions/{sid}/stream) and renders it in a real terminal emulator, so
+    /// Claude Code's in-place repaints stay coherent instead of stacking ghost lines.
+    /// Read-only: typing still goes through the control buttons below (POST /prompt).
     /// </summary>
-    private async Task PollTerminalAsync()
+    private void LoadTerminalWebView()
     {
-        if (_selected is null || _terminalPolling || _activeTab != "terminal") return;
-        var session = _selected;
-        try
+        if (_selected is null) return;
+        TerminalStatusLabel.Text = "Live terminal (read-only)";
+        TerminalWebView.Source = new HtmlWebViewSource
         {
-            _terminalPolling = true;
-            var client = new DirectorVoiceClient(TokenEntry.Text ?? "");
-            // Read a fresh cleaned snapshot (last N lines) each poll and REPLACE the
-            // view. Cleaned text + replace avoids both raw escape-code noise and the
-            // ghost-stacking you get from appending a TUI's repeated repaints.
-            var slice = await client.GetBufferAsync(session.TailnetEndpoint, session.SessionId, -1);
-            _terminalCursor = slice.NewCursor;
-            if (!string.IsNullOrEmpty(slice.Text))
-            {
-                TerminalOutputLabel.Text = slice.Text;
-                await TerminalScroll.ScrollToAsync(0, TerminalOutputLabel.Height, false);
-            }
-            else if (TerminalOutputLabel.Text == "Connecting to terminal...")
-            {
-                TerminalOutputLabel.Text = "(no terminal output yet)";
-            }
-        }
-        catch (Exception ex)
+            Html = RawTerminalPage.BuildHtml(_selected.TailnetEndpoint, _selected.SessionId),
+        };
+    }
+
+    /// <summary>
+    /// Tear down the terminal WebView by navigating it to a blank page. That drops the
+    /// page's WebSocket to /stream, so the session stops streaming PTY bytes once the
+    /// user leaves the Terminal tab (or the session). Safe to call when nothing is loaded.
+    /// </summary>
+    private void UnloadTerminalWebView()
+    {
+        TerminalWebView.Source = new HtmlWebViewSource
         {
-            TerminalStatusLabel.Text = $"Mirror error: {ex.Message}";
-            _terminalTimer.Stop();
-        }
-        finally
-        {
-            _terminalPolling = false;
-        }
+            Html = "<html><body style=\"margin:0;background:#06090F\"></body></html>",
+        };
     }
 
     // Send a typed line to the PTY (AppendEnter so it submits).
@@ -824,11 +794,15 @@ public partial class TalkPage : ContentPage
     // Top-right burger menu: switch between the Talk, Recorder, Exes, Dictionary and Transcripts pages.
     private async void OnNavMenuClicked(object? sender, TappedEventArgs e)
     {
-        var choice = await DisplayActionSheet("Go to", "Cancel", null, "Talk", "Notes", "Exes", "Dictionary", "Transcripts");
+        var choice = await DisplayActionSheet("Go to", "Cancel", null, "Talk", "FIFO", "FIFO Text", "Notes", "Exes", "Dictionary", "Transcripts");
         if (choice == "Notes")
             await Shell.Current.GoToAsync("//MainPage");
         else if (choice == "Talk")
             await Shell.Current.GoToAsync("//TalkPage");
+        else if (choice == "FIFO")
+            await Shell.Current.GoToAsync("//FifoPage");
+        else if (choice == "FIFO Text")
+            await Shell.Current.GoToAsync("//FifoTextPage");
         else if (choice == "Exes")
             await Shell.Current.GoToAsync("//ExesPage");
         else if (choice == "Dictionary")

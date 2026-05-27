@@ -48,6 +48,7 @@ public static class RosterParser
                 TailnetEndpoint = (d.TailnetEndpoint ?? "").TrimEnd('/'),
                 MachineName = d.MachineName ?? "",
                 VoiceMode = d.VoiceMode,
+                OnHold = d.OnHold,
             });
         }
         return result;
@@ -66,5 +67,6 @@ public static class RosterParser
         public string? TailnetEndpoint { get; set; }
         public string? MachineName { get; set; }
         public bool VoiceMode { get; set; }
+        public bool OnHold { get; set; }
     }
 }
