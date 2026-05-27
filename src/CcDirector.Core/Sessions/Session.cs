@@ -108,6 +108,17 @@ public sealed class Session : IDisposable
     /// <summary>The terminal buffer from the backend. May be null for Embedded mode.</summary>
     public CircularTerminalBuffer? Buffer => _backend.Buffer;
 
+    /// <summary>
+    /// Current PTY column count. Initialized to the size the backend is started
+    /// with (120) and updated by <see cref="Resize"/> when the desktop terminal
+    /// pane drives a resize. The phone's xterm.js view reads this so it renders
+    /// the grid at the true PTY width instead of guessing.
+    /// </summary>
+    public short CurrentCols { get; private set; } = 120;
+
+    /// <summary>Current PTY row count. See <see cref="CurrentCols"/>.</summary>
+    public short CurrentRows { get; private set; } = 30;
+
     /// <summary>Process ID from the backend.</summary>
     public int ProcessId => _backend.ProcessId;
 
@@ -1196,7 +1207,10 @@ public sealed class Session : IDisposable
     public void Resize(short cols, short rows)
     {
         if (_disposed) return;
+        if (cols <= 0 || rows <= 0) return;
         _backend.Resize(cols, rows);
+        CurrentCols = cols;
+        CurrentRows = rows;
     }
 
     /// <summary>Kill the session gracefully, then force if needed.</summary>

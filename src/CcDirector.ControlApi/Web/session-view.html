@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>CC Director - Session __SID__</title>
+<link rel="stylesheet" href="/xterm.css">
 <style>
   :root {
     --bg: #1e1e1e;
@@ -186,7 +187,7 @@
      published by syncRawViewBottom(). It already includes the bar's safe-area
      padding, so we add only a small breathing gap -- never env(safe-area...) again,
      or the area gets counted twice. The fallback covers the moment before JS runs. */
-  #sessionView { padding: 14px; padding-bottom: calc(var(--composerH, 150px) + 14px); max-width: 1000px; margin: 0 auto; }
+  #sessionView { padding: 14px; padding-bottom: calc(var(--composerH, 150px) + var(--keypadH, 0px) + 14px); max-width: 1000px; margin: 0 auto; }
   .wingman-banner {
     display: flex; align-items: center; gap: 14px;
     padding: 14px 16px;
@@ -513,7 +514,7 @@
   /* ===== AGENT VIEW ===== */
   #agentView {
     padding: 10px 12px;
-    padding-bottom: calc(var(--composerH, 150px) + 14px);
+    padding-bottom: calc(var(--composerH, 150px) + var(--keypadH, 0px) + 14px);
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -661,57 +662,57 @@
   .icon-UserMessage{ background: var(--w-user); }
   .icon-GenericTool{ background: var(--w-generic); }
 
-  /* ===== RAW VIEW =====
-   * Server emits two HTML strings: scrollbackHtml (rows that have scrolled
-   * off the top of the live region) and gridHtml (the current visible 40
-   * rows). The client renders them into TWO DOM regions inside rawView,
-   * which is its own fixed-height scroll container (NOT page-level scroll):
-   *   #rawScrollback -- history, scrolls past when the user scrolls up
-   *   #rawLiveGrid   -- min-height: 100% + flex-end, so the 40 live rows
-   *                     always anchor to the bottom of liveGrid and the
-   *                     blank space above pushes scrollback fully off the
-   *                     top of the visible area when scrolled to bottom.
+  /* ===== RAW VIEW (xterm.js) =====
+   * The Raw terminal tab streams the session's raw PTY bytes over a WebSocket
+   * (GET /sessions/{sid}/stream) into a real xterm.js terminal -- the same
+   * emulator the desktop control and VS Code use. The server no longer renders
+   * an HTML grid snapshot: that approach polled Claude Code's TUI mid-repaint
+   * and stacked ghost copies of the status footer. A byte stream applied in
+   * order can't desync, so the screen stays coherent.
    *
-   * This mirrors how the desktop terminal control treats scrollback as a
-   * separate region you scroll up into rather than something stitched
-   * inline above the live area. The validation harness for this layout
-   * lives at playground/raw-view-harness/.
+   * The PTY width is whatever the desktop pane set it to (the server reports it
+   * in a size frame). xterm renders the grid at that exact width; on a narrow
+   * phone the grid is simply wider than the viewport, so #rawView scrolls
+   * horizontally -- which is the agreed behavior (scroll right to see more).
    */
   #rawView {
-    /* Fixed-height container with its OWN internal scroll. Otherwise the
-       in-place status-bar redraws Claude Code uses accumulate ghost copies
-       at the end of scrollback and render right above the live grid.
-       Zero vertical padding so liveGrid's `min-height: 100%` matches the
-       full clientHeight (vertical padding lives inside the children). */
     position: fixed;
     top: var(--rawTop, 120px);
-    bottom: calc(var(--rawBottom, 64px) + env(safe-area-inset-bottom));
+    bottom: calc(var(--rawBottom, 64px) + var(--keypadH, 0px) + env(safe-area-inset-bottom));
     left: 0; right: 0;
-    padding: 0 14px;
-    font-family: "Cascadia Code", Consolas, monospace;
-    font-size: 12.5px;
-    line-height: 1.2;
-    color: #D4D4D8;
     background: #1e1e1e;
-    overflow-x: auto;
-    overflow-y: auto;
+    /* The xterm element takes its natural width from the column count; when that
+       exceeds the viewport, scroll the whole terminal sideways. */
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
   }
-  #rawView .line {
-    white-space: pre;
-    min-height: 1.2em;
-    margin: 0;
-    padding: 0;
+  /* xterm sizes itself to cols*charWidth. Don't let fl/grid shrink it -- we want
+     the real width and a horizontal scrollbar, not a squeezed/clipped grid. */
+  #xterm {
+    padding: 8px 0 8px 10px;
+    width: max-content;
   }
-  #rawView .rv { /* reverse-video runs (status bar fragments) */
-    filter: invert(1);
+  /* Small floating font-size stepper so the user can trade width for readability
+     without us reflowing the PTY (the PTY width is owned by the desktop pane). */
+  #rawFontCtl {
+    position: fixed;
+    right: calc(10px + env(safe-area-inset-right));
+    top: calc(var(--rawTop, 120px) + 6px);
+    z-index: 5;
+    display: none;
+    gap: 6px;
   }
-  #rawScrollback { padding-top: 10px; }
-  #rawLiveGrid {
-    min-height: 100%;
-    padding-bottom: 10px;
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-end;
+  #rawView.connected ~ #rawFontCtl,
+  #rawFontCtl.show { display: flex; }
+  #rawFontCtl button {
+    width: 34px; height: 34px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: rgba(37,37,38,0.85);
+    color: var(--text);
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
   }
 
   /* ===== INPUT BAR =====
@@ -857,13 +858,13 @@
     header .counts { font-size: 10px; }
     .card.tool { margin-left: 14px; }
     .card { padding: 8px 10px; border-radius: 6px; }
-    #agentView { padding: 8px 10px; padding-bottom: calc(var(--composerH, 150px) + 14px); gap: 5px; }
+    #agentView { padding: 8px 10px; padding-bottom: calc(var(--composerH, 150px) + var(--keypadH, 0px) + 14px); gap: 5px; }
   }
 
   /* ===== VOICE VIEW ===== */
   #voiceView {
     padding: 14px;
-    padding-bottom: calc(var(--composerH, 150px) + 14px);
+    padding-bottom: calc(var(--composerH, 150px) + var(--keypadH, 0px) + 14px);
     display: none;
     flex-direction: column;
     gap: 16px;
@@ -956,7 +957,7 @@
     position: fixed;
     top: var(--rawTop, 96px);
     left: 0; right: 0;
-    bottom: var(--composerH, 150px);
+    bottom: calc(var(--composerH, 150px) + var(--keypadH, 0px));
     padding: 12px;
     gap: 12px;
     overflow: hidden;
@@ -1285,8 +1286,11 @@
   </div>
 </div>
 <div id="rawView" style="display:none">
-  <div id="rawScrollback"></div>
-  <div id="rawLiveGrid">Loading...</div>
+  <div id="xterm"></div>
+</div>
+<div id="rawFontCtl" aria-hidden="true">
+  <button type="button" id="rawFontDown" title="Smaller text">A-</button>
+  <button type="button" id="rawFontUp" title="Larger text">A+</button>
 </div>
 
 <!-- Full-screen recording overlay (hidden until recording starts) -->
@@ -1328,6 +1332,17 @@
   <div class="keypad-status" id="keypadStatus">Ready.</div>
 </div>
 
+<!-- Recovered-dictation banner. Hidden until the page finds a transcript that
+     was recovered server-side after a dropped /dictate socket. -->
+<div id="recoveryBanner" style="display:none; margin:8px 12px; padding:10px 12px; background:#2d2a1f; border:1px solid #6b5d2f; border-radius:6px; color:#e8dcae; font-size:13px;">
+  <div style="margin-bottom:6px;"><strong>Recovered dictation</strong> <span id="recoveryAge" style="color:#b8a96a;"></span></div>
+  <div id="recoveryText" style="white-space:pre-wrap; word-break:break-word; color:#ddd; margin-bottom:8px; max-height:96px; overflow:auto;"></div>
+  <div style="display:flex; gap:8px; justify-content:flex-end;">
+    <button type="button" id="recoveryDismissBtn" style="background:#2d2d30; color:#ccc; border:0; border-radius:6px; padding:6px 14px; cursor:pointer;">Dismiss</button>
+    <button type="button" id="recoveryInsertBtn" style="background:#16A34A; color:#fff; border:0; border-radius:6px; padding:6px 14px; cursor:pointer; font-weight:600;">Insert</button>
+  </div>
+</div>
+
 <form class="send" onsubmit="return send(event)">
   <textarea id="prompt" rows="1" placeholder="Type or paste... (Enter adds a newline; tap Send to submit)" autocomplete="off"></textarea>
   <div class="button-row">
@@ -1354,13 +1369,14 @@
 </form>
 
 <script src="/dictate-client.js"></script>
+<script src="/xterm.js"></script>
+<script src="/xterm-addon-canvas.js"></script>
 
 <script>
 (function () {
   const SID = "__SID__";
   const rawEl = document.getElementById('rawView');
-  const rawScrollbackEl = document.getElementById('rawScrollback');
-  const rawLiveGridEl = document.getElementById('rawLiveGrid');
+  const xtermHostEl = document.getElementById('xterm');
   const voiceEl = document.getElementById('voiceView');
   const stateDotEl = document.getElementById('stateDot');
   const tabs = document.querySelectorAll('.tab');
@@ -1437,8 +1453,11 @@
     if (voiceActive) { syncRawViewTop(); syncRawViewBottom(); }
     document.documentElement.classList.toggle('voice-active', voiceActive);
     document.body.classList.toggle('voice-active', voiceActive);
-    if (activeView === 'session') refreshSession();
-    else if (activeView === 'raw') { rawFirstLoad = true; refreshRaw(); }
+    const rawFontCtl = document.getElementById('rawFontCtl');
+    if (rawFontCtl) rawFontCtl.classList.toggle('show', activeView === 'raw');
+    if (activeView === 'session') { refreshSession(); disconnectRawStream(); }
+    else if (activeView === 'raw') connectRawStream();
+    else disconnectRawStream();
     // Tell the server which mobile mode this session is now being watched in, so the
     // wingman can key its remark style off it. Voice tab -> voice mode; any other tab
     // leaves voice mode (back to text). Fire-and-forget; the tab UI does not wait on it.
@@ -2207,14 +2226,6 @@
     }
   }
 
-  // Track scrollback growth so we only rebuild #rawScrollback when new rows
-  // arrive. The live grid changes constantly (cursor blink, spinner ticks);
-  // we replace it every poll. rawView is its own scroll container, so the
-  // page never scrolls when on the Raw tab -- we drive rawView.scrollTop
-  // directly.
-  let lastScrollbackCount = -1;
-  let rawFirstLoad = true;
-
   // Position rawView under the actual header+tabs, whatever their measured
   // height happens to be (the WaitingForInput banner can push them taller).
   // Also size rawView's bottom to the actual input bar height, which grows
@@ -2272,56 +2283,110 @@
     // phone without an accidental send firing the moment they press Enter.
   }
 
-  async function refreshRaw() {
+  // ---------- Raw terminal: xterm.js over a WebSocket byte stream ----------
+  // The server streams the session's raw PTY bytes (GET /sessions/{sid}/stream).
+  // We feed them straight into a real terminal emulator, so Claude Code's
+  // in-place repaints render coherently instead of stacking ghost frames the
+  // way the old poll-the-HTML-grid approach did. Input is NOT sent from here --
+  // the composer's POST /prompt path stays the only way to type.
+  const RAW_FONT_KEY = 'ccd.rawFontSize';
+  let term = null;
+  let rawWs = null;
+  let rawReconnectTimer = null;
+  let rawWantConnected = false;
+
+  function rawFontSize() {
+    const n = parseInt(localStorage.getItem(RAW_FONT_KEY) || '', 10);
+    return (n >= 8 && n <= 28) ? n : 13;
+  }
+
+  function ensureTerm() {
+    if (term) return term;
+    if (typeof Terminal === 'undefined') {
+      // xterm.js failed to load -- surface it plainly rather than showing a blank tab.
+      xtermHostEl.textContent = 'Terminal renderer (xterm.js) failed to load.';
+      return null;
+    }
+    term = new Terminal({
+      fontFamily: '"Cascadia Code", Consolas, "Courier New", monospace',
+      fontSize: rawFontSize(),
+      lineHeight: 1.0,
+      scrollback: 5000,
+      cursorBlink: false,
+      disableStdin: true,            // read-only: typing goes through the composer
+      convertEol: false,
+      theme: { background: '#1e1e1e', foreground: '#d4d4d8' },
+    });
+    term.open(xtermHostEl);
+    // Canvas renderer: far smoother than the DOM renderer for a busy TUI. If the
+    // addon is unavailable for any reason the DOM renderer remains in effect.
     try {
-      syncRawViewTop();
-      // Two-region snapshot: scrollbackHtml (history) + gridHtml (live 40
-      // rows). The server runs the PTY byte stream through a real xterm-
-      // compatible VT emulator (CcDirector.Terminal.Core.AnsiParser) and
-      // emits the two sections separately. Both come pre-escaped from
-      // AnsiToHtmlConverter, safe for innerHTML.
-      const r = await fetch('/sessions/' + SID + '/buffer/html', { credentials: 'same-origin' });
-      if (!r.ok) {
-        rawLiveGridEl.textContent = 'Lost connection (HTTP ' + r.status + ')';
+      if (window.CanvasAddon && window.CanvasAddon.CanvasAddon) {
+        term.loadAddon(new window.CanvasAddon.CanvasAddon());
+      }
+    } catch (e) { /* DOM renderer stays active */ }
+    return term;
+  }
+
+  function applyRawFontSize(delta) {
+    const t = ensureTerm();
+    if (!t) return;
+    const next = Math.max(8, Math.min(28, rawFontSize() + delta));
+    localStorage.setItem(RAW_FONT_KEY, String(next));
+    t.options.fontSize = next;
+  }
+  (function wireRawFontButtons() {
+    const up = document.getElementById('rawFontUp');
+    const down = document.getElementById('rawFontDown');
+    if (up) up.addEventListener('click', () => applyRawFontSize(1));
+    if (down) down.addEventListener('click', () => applyRawFontSize(-1));
+  })();
+
+  function connectRawStream() {
+    syncRawViewTop();
+    rawWantConnected = true;
+    const t = ensureTerm();
+    if (!t) return;
+    if (rawWs && (rawWs.readyState === WebSocket.OPEN || rawWs.readyState === WebSocket.CONNECTING)) return;
+
+    // Each connection replays full history first (server starts at byte 0), so
+    // clear whatever a previous connection left behind -- no duplicate scrollback.
+    t.reset();
+
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    const ws = new WebSocket(proto + '://' + location.host + '/sessions/' + SID + '/stream');
+    ws.binaryType = 'arraybuffer';
+    rawWs = ws;
+
+    ws.onmessage = (ev) => {
+      if (typeof ev.data === 'string') {
+        let msg; try { msg = JSON.parse(ev.data); } catch { return; }
+        if (msg.type === 'size' && msg.cols > 0 && msg.rows > 0) {
+          try { t.resize(msg.cols, msg.rows); } catch {}
+        } else if (msg.type === 'closed') {
+          t.write('\r\n[stream closed: ' + (msg.reason || '') + ']\r\n');
+        }
         return;
       }
-      const body = await r.json();
-
-      // Was the user reading scrollback (scrolled up), or sitting at the
-      // live grid? We honor this when deciding whether to auto-scroll after
-      // the update.
-      const nearBottom = (rawEl.scrollHeight - rawEl.scrollTop - rawEl.clientHeight) < 8;
-
-      // Always replace the live grid -- source of truth for what's on screen
-      // right now and changes every poll.
-      rawLiveGridEl.innerHTML = body.gridHtml || '';
-
-      // Only rebuild scrollback when its row count actually changed.
-      const scrollbackCount = body.scrollbackCount || 0;
-      if (scrollbackCount !== lastScrollbackCount) {
-        const prevScrollTop = rawEl.scrollTop;
-        const prevScrollHeight = rawEl.scrollHeight;
-        rawScrollbackEl.innerHTML = body.scrollbackHtml || '';
-        lastScrollbackCount = scrollbackCount;
-        if (!rawFirstLoad && !nearBottom) {
-          // User was reading scrollback -- shift scrollTop by the height that
-          // got prepended/changed so their visual reading position stays put.
-          const heightDelta = rawEl.scrollHeight - prevScrollHeight;
-          rawEl.scrollTop = prevScrollTop + heightDelta;
-        }
+      t.write(new Uint8Array(ev.data));
+    };
+    ws.onopen = () => { rawEl.classList.add('connected'); };
+    ws.onclose = () => {
+      rawEl.classList.remove('connected');
+      if (rawWs === ws) rawWs = null;
+      // Reconnect only while the user is still on the Raw tab.
+      if (rawWantConnected && !rawReconnectTimer) {
+        rawReconnectTimer = setTimeout(() => { rawReconnectTimer = null; if (rawWantConnected) connectRawStream(); }, 1200);
       }
+    };
+    ws.onerror = () => { try { ws.close(); } catch {} };
+  }
 
-      if (rawFirstLoad || nearBottom) {
-        // Initial load OR user is already at the bottom: snap to the bottom
-        // so the live grid fills the viewport, exactly like opening a real
-        // terminal. The flex-end justify inside liveGrid makes its content
-        // anchor at the bottom; scrollback is fully offscreen above.
-        rawEl.scrollTop = rawEl.scrollHeight;
-        rawFirstLoad = false;
-      }
-    } catch (e) {
-      rawLiveGridEl.textContent = '[lost connection: ' + e.message + ']';
-    }
+  function disconnectRawStream() {
+    rawWantConnected = false;
+    if (rawReconnectTimer) { clearTimeout(rawReconnectTimer); rawReconnectTimer = null; }
+    if (rawWs) { try { rawWs.close(); } catch {} rawWs = null; }
+    rawEl.classList.remove('connected');
   }
 
   async function refreshState() {
@@ -2369,6 +2434,69 @@
     });
   });
 
+  // ===== RECOVERED DICTATION PICKUP =====
+  // A /dictate socket that drops without a 'stop' (phone backgrounded, tab
+  // blur, network blip) is still transcribed server-side and parked. There was
+  // no live socket to return it on, so we fetch it here and offer to insert it
+  // - turning a lost recording into one the user just confirms. Checked on load
+  // and whenever the tab becomes visible again (the moment a phone unbackgrounds).
+  const recoveryBanner    = document.getElementById('recoveryBanner');
+  const recoveryTextEl    = document.getElementById('recoveryText');
+  const recoveryAgeEl     = document.getElementById('recoveryAge');
+  const recoveryInsertBtn = document.getElementById('recoveryInsertBtn');
+  const recoveryDismissBtn= document.getElementById('recoveryDismissBtn');
+  let _recoveryId = null;
+
+  function hideRecoveryBanner() {
+    _recoveryId = null;
+    if (recoveryBanner) recoveryBanner.style.display = 'none';
+  }
+
+  function showRecovery(item) {
+    if (!recoveryBanner) return;
+    _recoveryId = item.id;
+    recoveryTextEl.textContent = item.text;
+    const mins = Math.floor((item.ageSeconds || 0) / 60);
+    recoveryAgeEl.textContent = mins >= 1 ? '(' + mins + ' min ago)' : '(just now)';
+    recoveryBanner.style.display = 'block';
+  }
+
+  async function dismissRecovery(id) {
+    try { await fetch('/dictate/recovered/' + encodeURIComponent(id) + '/dismiss', { method: 'POST' }); } catch (_) {}
+  }
+
+  async function checkRecoveredDictation() {
+    if (_recoveryId) return;   // don't clobber a banner the user is already looking at
+    let data;
+    try {
+      const resp = await fetch('/dictate/recovered', { cache: 'no-store' });
+      if (!resp.ok) return;
+      data = await resp.json();
+    } catch (_) { return; }
+    const items = (data && data.recovered) || [];
+    if (items.length === 0) return;
+    showRecovery(items[items.length - 1]);   // most recent (list is oldest-first)
+  }
+
+  recoveryInsertBtn?.addEventListener('click', () => {
+    const id = _recoveryId;
+    const text = recoveryTextEl.textContent || '';
+    const inp = document.getElementById('prompt');
+    if (inp && text) insertAtCaret(inp, text);
+    hideRecoveryBanner();
+    if (id) dismissRecovery(id).then(checkRecoveredDictation);
+  });
+  recoveryDismissBtn?.addEventListener('click', () => {
+    const id = _recoveryId;
+    hideRecoveryBanner();
+    if (id) dismissRecovery(id).then(checkRecoveredDictation);
+  });
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') checkRecoveredDictation();
+  });
+  checkRecoveredDictation();
+
   // ===== TERMINAL KEYPAD =====
   // The composer's "Keys" button toggles a small keypad of menu-control keys.
   // Each key writes raw bytes straight to the PTY: arrows / Tab / Enter via
@@ -2412,11 +2540,20 @@
     } catch { return null; }
   }
 
+  // Publish the keypad's measured height as --keypadH so every scrollable view
+  // (Session, Agent, Voice, Raw) reserves that space on top of the composer and
+  // the keypad never draws over the bottom rows of the terminal. 0 when closed.
+  function syncKeypadHeight() {
+    const open = keypadEl?.classList.contains('open');
+    const h = open ? Math.round(keypadEl.getBoundingClientRect().height) : 0;
+    document.documentElement.style.setProperty('--keypadH', h + 'px');
+  }
   function openKeypad() {
     keypadEl?.classList.add('open');
     keypadEl?.setAttribute('aria-hidden', 'false');
     keysBtn?.classList.add('active');
     syncRawViewBottom();   // refresh --composerH so the keypad sits flush above the composer
+    syncKeypadHeight();    // shrink the content area so the keypad doesn't cover the last rows
     setKeypadStatus('Ready.', '');
     // Seed the works-detection baseline so the first key has something to diff against.
     fetchLiveGrid().then((g) => { if (g !== null) _keypadGrid = g; });
@@ -2425,12 +2562,18 @@
     keypadEl?.classList.remove('open');
     keypadEl?.setAttribute('aria-hidden', 'true');
     keysBtn?.classList.remove('active');
+    syncKeypadHeight();    // release the reserved space
   }
   keysBtn?.addEventListener('click', () => {
     if (_killed) return;
     if (keypadEl?.classList.contains('open')) closeKeypad(); else openKeypad();
   });
   document.getElementById('keypadCloseBtn')?.addEventListener('click', closeKeypad);
+  // Keep --keypadH accurate if the keypad reflows while open (status text
+  // wrapping, orientation change). Mirrors the composer's ResizeObserver.
+  if (keypadEl && 'ResizeObserver' in window) {
+    new ResizeObserver(() => { if (keypadEl.classList.contains('open')) syncKeypadHeight(); }).observe(keypadEl);
+  }
 
   async function sendKey(name) {
     const label = KEY_LABEL[name] || name;
@@ -2579,8 +2722,7 @@
   setInterval(() => {
     refreshState();
     if (activeView === 'session') { refreshSession(); loadCachedExplain(); }
-    else if (activeView === 'raw') refreshRaw();
-    // voice tab does not poll
+    // Raw tab is push-driven over a WebSocket (connectRawStream); voice tab does not poll.
   }, 1500);
 
   // =====================================================================

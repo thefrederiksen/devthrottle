@@ -27,6 +27,9 @@
     <EmbeddedResource Include="Web\dictate.html" />
     <EmbeddedResource Include="Web\dictate-worklet.js" />
     <EmbeddedResource Include="Web\dictate-client.js" />
+    <EmbeddedResource Include="Web\xterm.js" />
+    <EmbeddedResource Include="Web\xterm.css" />
+    <EmbeddedResource Include="Web\xterm-addon-canvas.js" />
   </ItemGroup>
 
 </Project>
