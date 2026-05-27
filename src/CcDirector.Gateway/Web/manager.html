@@ -565,6 +565,24 @@
     return repoFolder(s ? s.repoPath : '') || (s && s.sessionId ? s.sessionId.slice(0,8) : '');
   }
 
+  // Human-friendly badge text for an activity state. The badge CSS class still
+  // uses the raw state name (it drives the color + pulse), and the header stats
+  // count off the raw state too - only the visible text is humanized here.
+  // Both WaitingForInput and WaitingForPerm are "the agent is blocked on you"
+  // states, so both read "Needs you" (matching the mobile detail banner).
+  function stateLabel(s) {
+    switch (s) {
+      case 'WaitingForInput': return 'Needs you';
+      case 'WaitingForPerm':  return 'Needs you';
+      case 'Working':         return 'Working';
+      case 'Idle':            return 'Idle';
+      case 'Starting':        return 'Starting';
+      case 'Exited':          return 'Exited';
+      case 'Failed':          return 'Failed';
+      default:                return s || 'Unknown';
+    }
+  }
+
   function escapeHtml(s) {
     return (s || '').replace(/[&<>"']/g, c => ({
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -668,7 +686,7 @@
     card.querySelector('.name').textContent = displayName(s);
     card.querySelector('.repo').textContent = s.repoPath || '';
     const badge = card.querySelector('.badge');
-    badge.textContent = s.activityState;
+    badge.textContent = stateLabel(s.activityState);
     badge.className = 'badge ' + s.activityState;
     card.querySelector('.agent').textContent = s.agent;
     card.querySelector('.elapsed').textContent = 'started ' + fmtElapsed(s.createdAt) + ' ago';
@@ -782,7 +800,7 @@
   function paintDetailHeader(s) {
     detailHeader.className = 'header-panel state-' + (s.activityState || 'Unknown');
     nameDisplay.textContent = displayName(s);
-    detailBadge.textContent = s.activityState;
+    detailBadge.textContent = stateLabel(s.activityState);
     detailBadge.className = 'badge ' + s.activityState;
     detailAgent.textContent = s.agent;
     detailRepo.textContent = s.repoPath || '';
