@@ -241,6 +241,7 @@ public partial class FifoPage : ContentPage
             _foreground.Start();
             StartPanel.IsVisible = false;
             IdlePanel.IsVisible = false;
+            MainScroll.IsVisible = false;
             FifoPanel.IsVisible = true;
             await PresentNextAsync();
         }
@@ -289,6 +290,7 @@ public partial class FifoPage : ContentPage
         // dry spell is announced again.
         _idleAnnounced = false;
         IdlePanel.IsVisible = false;
+        MainScroll.IsVisible = false;
         FifoPanel.IsVisible = true;
         _current = next;
         _lastEndpoint = next.TailnetEndpoint;
@@ -367,6 +369,7 @@ public partial class FifoPage : ContentPage
         FifoPanel.IsVisible = false;
         StartPanel.IsVisible = false;
         IdlePanel.IsVisible = true;
+        MainScroll.IsVisible = true;
 
         // Keep the foreground service running so the dispatcher keeps ticking in the background.
         _nextCheckAt = DateTime.UtcNow + RecheckInterval;
@@ -590,6 +593,7 @@ public partial class FifoPage : ContentPage
         FifoPanel.IsVisible = false;
         IdlePanel.IsVisible = false;
         StartPanel.IsVisible = true;
+        MainScroll.IsVisible = true;
         _ = LoadQueueCountAsync();
     }
 
@@ -635,22 +639,23 @@ public partial class FifoPage : ContentPage
 
     private void SetAnswerButton(bool recording, bool busy)
     {
+        // The button's identity never changes (always "Ask Agent") so that while driving
+        // the user is never confused about which button talks to the agent. State is shown
+        // by colour only: green = ready, red = recording (tap again to send), grey = busy.
         AnswerButton.IsEnabled = !busy;
+        AnswerButton.Text = "Ask Agent";
         if (busy)
         {
-            AnswerButton.Text = "Working...";
             AnswerButton.BackgroundColor = Color.FromArgb("#6B7280");
             AnswerButton.TextColor = Colors.White;
         }
         else if (recording)
         {
-            AnswerButton.Text = "Send";
             AnswerButton.BackgroundColor = Color.FromArgb("#E5484D");
             AnswerButton.TextColor = Colors.White;
         }
         else
         {
-            AnswerButton.Text = "Answer";
             AnswerButton.BackgroundColor = Color.FromArgb("#5FD08A");
             AnswerButton.TextColor = Color.FromArgb("#06210F");
         }
