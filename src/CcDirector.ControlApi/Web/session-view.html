@@ -681,13 +681,19 @@
     bottom: calc(var(--rawBottom, 64px) + var(--keypadH, 0px) + env(safe-area-inset-bottom));
     left: 0; right: 0;
     background: #1e1e1e;
-    /* The xterm element takes its natural width from the column count; when that
-       exceeds the viewport, scroll the whole terminal sideways. */
-    overflow: auto;
+    /* Horizontal only: the xterm element takes its natural width from the column
+       count; when that exceeds the viewport, scroll the whole terminal sideways.
+       Vertical scrolling is owned by xterm's OWN viewport (its scrollback), so we
+       must NOT trap vertical scroll here -- otherwise the outer box just pans the
+       current screen and the scrollback history stays unreachable. */
+    overflow-x: auto;
+    overflow-y: hidden;
     -webkit-overflow-scrolling: touch;
   }
   /* xterm sizes itself to cols*charWidth. Don't let fl/grid shrink it -- we want
-     the real width and a horizontal scrollbar, not a squeezed/clipped grid. */
+     the real width and a horizontal scrollbar, not a squeezed/clipped grid. The
+     row count is fitted to this box's height (see fitRawTerm), so xterm's own
+     scrollback viewport scrolls the history and the live footer stays pinned. */
   #xterm {
     padding: 8px 0 8px 10px;
     width: max-content;
@@ -2294,6 +2300,40 @@
   let rawWs = null;
   let rawReconnectTimer = null;
   let rawWantConnected = false;
+  let lastRawCols = 0;   // last column count the PTY reported; rows are fitted locally
+
+  // Measure the rendered height of one terminal row. xterm sizes its .xterm
+  // element to rows*cellHeight, so dividing by the current row count gives the
+  // true per-row pixel height (font metrics included), not a fontSize guess.
+  function rawCellHeightPx(t) {
+    const el = t.element;
+    if (el && t.rows > 0) {
+      const h = el.getBoundingClientRect().height / t.rows;
+      if (h > 0) return h;
+    }
+    return 0;
+  }
+
+  // Resize xterm to the PTY's column count (so the TUI wraps exactly as the
+  // desktop pane drew it) but choose the ROW count to fit this viewport. That
+  // hands vertical scrolling to xterm's own scrollback viewport: new output
+  // auto-scrolls to the bottom (the live footer stays visible) and the user
+  // scrolls up through history. Mirroring the PTY's rows instead would make the
+  // grid taller than the phone and let the outer box pan it, which is exactly
+  // what left the scrollback unreachable.
+  function fitRawTerm() {
+    const t = term;
+    if (!t || lastRawCols <= 0) return;
+    const cellH = rawCellHeightPx(t);
+    if (cellH <= 0) return;   // not rendered yet; a later fit call will size it
+    const styles = getComputedStyle(xtermHostEl);
+    const padV = (parseFloat(styles.paddingTop) || 0) + (parseFloat(styles.paddingBottom) || 0);
+    const avail = rawEl.clientHeight - padV;
+    const rows = Math.max(1, Math.floor(avail / cellH));
+    if (t.cols !== lastRawCols || t.rows !== rows) {
+      try { t.resize(lastRawCols, rows); } catch {}
+    }
+  }
 
   function rawFontSize() {
     const n = parseInt(localStorage.getItem(RAW_FONT_KEY) || '', 10);
@@ -2334,6 +2374,8 @@
     const next = Math.max(8, Math.min(28, rawFontSize() + delta));
     localStorage.setItem(RAW_FONT_KEY, String(next));
     t.options.fontSize = next;
+    // Cell height just changed; re-fit the row count once xterm has re-rendered.
+    requestAnimationFrame(fitRawTerm);
   }
   (function wireRawFontButtons() {
     const up = document.getElementById('rawFontUp');
@@ -2341,6 +2383,19 @@
     if (up) up.addEventListener('click', () => applyRawFontSize(1));
     if (down) down.addEventListener('click', () => applyRawFontSize(-1));
   })();
+
+  // Re-fit whenever the Raw viewport box changes size -- opening the keypad,
+  // rotating the phone, the composer growing, or the mobile address bar
+  // collapsing all change rawEl's height. Debounced to one fit per frame.
+  if (window.ResizeObserver) {
+    let rawFitPending = false;
+    const rawRo = new ResizeObserver(() => {
+      if (rawFitPending) return;
+      rawFitPending = true;
+      requestAnimationFrame(() => { rawFitPending = false; fitRawTerm(); });
+    });
+    rawRo.observe(rawEl);
+  }
 
   function connectRawStream() {
     syncRawViewTop();
@@ -2361,8 +2416,10 @@
     ws.onmessage = (ev) => {
       if (typeof ev.data === 'string') {
         let msg; try { msg = JSON.parse(ev.data); } catch { return; }
-        if (msg.type === 'size' && msg.cols > 0 && msg.rows > 0) {
-          try { t.resize(msg.cols, msg.rows); } catch {}
+        if (msg.type === 'size' && msg.cols > 0) {
+          // Mirror the PTY width; fit the height to our viewport (see fitRawTerm).
+          lastRawCols = msg.cols;
+          fitRawTerm();
         } else if (msg.type === 'closed') {
           t.write('\r\n[stream closed: ' + (msg.reason || '') + ']\r\n');
         }
@@ -2836,6 +2893,65 @@
   let cueGain = null;
   let audioCtx = null;
 
+  // ===== Freeze guards =================================================
+  // Every step in the voice pipeline is bounded in time. A hung microphone, a
+  // stalled PTY poll, a server that never answers, or a TTS clip that never
+  // fires its 'ended' event must NEVER leave the tab wedged with the big button
+  // disabled (voiceBusy stuck true). Network calls go through fetchWithTimeout;
+  // non-fetch awaits (getUserMedia, recorder.stop, audio playback) go through
+  // withTimeout. On any breach the call throws or resolves, the surrounding
+  // catch/finally fires, and the tab returns to idle on its own.
+  const VOICE_TIMEOUTS = {
+    register: 15000,  // POST /voice/utterance
+    chunk:    20000,  // PUT  /voice/utterance/{id}/chunk/{i}
+    complete: 45000,  // POST /voice/utterance/{id}/complete (server reassembles + transcribes)
+    chatSend: 70000,  // POST /chat (server blocks up to CHAT_FIRST_WAIT_MS=60s; +10s margin)
+    poll:     15000,  // POST /chat pollOnly
+    tts:      20000,  // POST /tts
+    wingman:  30000,  // POST /sessions/{id}/wingman/ask
+    getMic:   20000,  // navigator.mediaDevices.getUserMedia
+    recStop:   5000,  // MediaRecorder 'stop' event
+  };
+  const UPLOAD_DRAIN_MAX_MS = 120000;  // give up draining chunks after 2 min with no progress
+  const TURN_MAX_MS         = 1800000; // 30 min hard ceiling on a single agent turn
+  const SPEAK_MAX_MS        = 120000;  // a single spoken clip can never block the queue past this
+
+  // fetch() that aborts after timeoutMs. The AbortError is rewritten to a plain
+  // "timed out" error so it surfaces through the caller's existing catch as an
+  // honest failure instead of a permanent spinner.
+  function fetchWithTimeout(url, opts, timeoutMs) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    const merged = Object.assign({}, opts || {}, { signal: ctrl.signal });
+    return fetch(url, merged)
+      .catch(err => {
+        if (err && err.name === 'AbortError') {
+          throw new Error('request timed out after ' + Math.round(timeoutMs / 1000) + 's');
+        }
+        throw err;
+      })
+      .finally(() => clearTimeout(timer));
+  }
+
+  // Race any promise against a timeout. On breach it rejects, unless onTimeout
+  // is supplied, in which case it resolves with onTimeout()'s value so the
+  // caller can carry on (used where the work is best-effort, e.g. recorder.stop).
+  function withTimeout(promise, timeoutMs, label, onTimeout) {
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        if (onTimeout) resolve(onTimeout());
+        else reject(new Error((label || 'operation') + ' timed out after ' + Math.round(timeoutMs / 1000) + 's'));
+      }, timeoutMs);
+      Promise.resolve(promise).then(
+        v => { if (!settled) { settled = true; clearTimeout(timer); resolve(v); } },
+        e => { if (!settled) { settled = true; clearTimeout(timer); reject(e); } }
+      );
+    });
+  }
+
   function setVoiceState(text, cls) {
     voiceState.textContent = text;
     voiceState.className = 'voice-state' + (cls ? ' ' + cls : '');
@@ -3061,15 +3177,27 @@
       // hum (not the pulsed cue) so there is no perceived silence during the wait.
       startContinuousHum(CUE.thinking.freq);
       let settled = false;
-      const done = () => { if (!settled) { settled = true; resolve(); } };
+      // Watchdog: if neither the audio element's 'ended'/'error' nor the speech
+      // synthesis 'onend' ever fires (codec stall, silent playback failure), one
+      // clip would otherwise hold pumpSpeech's `speaking` flag true forever and
+      // freeze the queue. Force-resolve after SPEAK_MAX_MS so the queue drains.
+      const watchdog = setTimeout(() => {
+        if (settled) return;
+        try { if (currentTtsAudio) { currentTtsAudio.pause(); currentTtsAudio = null; } } catch {}
+        try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch {}
+        stopCue();
+        settled = true;
+        resolve();
+      }, SPEAK_MAX_MS);
+      const done = () => { if (!settled) { settled = true; clearTimeout(watchdog); resolve(); } };
       (async () => {
         try {
-          const resp = await fetch('/tts', {
+          const resp = await fetchWithTimeout('/tts', {
             method: 'POST',
             credentials: 'same-origin',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ text }),
-          });
+          }, VOICE_TIMEOUTS.tts);
           if (resp.ok) {
             const blob = await resp.blob();
             if (blob && blob.size > 0) {
@@ -3172,10 +3300,10 @@
   }
 
   async function registerUtterance() {
-    const r = await fetch('/voice/utterance', {
+    const r = await fetchWithTimeout('/voice/utterance', {
       method: 'POST', credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' }, body: '{}',
-    });
+    }, VOICE_TIMEOUTS.register);
     const body = await r.json().catch(() => null);
     if (!body) throw new Error('register failed (HTTP ' + r.status + ')');
     if (body.status === 'no_key') { const e = new Error(body.error || 'no OpenAI key'); e.noKey = true; throw e; }
@@ -3190,11 +3318,11 @@
     let delay = 800;
     while (!uploadAborted) {
       try {
-        const r = await fetch('/voice/utterance/' + utteranceId + '/chunk/' + index, {
+        const r = await fetchWithTimeout('/voice/utterance/' + utteranceId + '/chunk/' + index, {
           method: 'PUT', credentials: 'same-origin',
           headers: { 'Content-Type': 'application/octet-stream', 'X-Chunk-Sha256': sha },
           body: buf,
-        });
+        }, VOICE_TIMEOUTS.chunk);
         if (!r.ok) throw new Error('HTTP ' + r.status);
         if (uploadRetryShown) { uploadRetryShown = false; stopCue(); }
         return true;
@@ -3229,10 +3357,19 @@
   }
 
   // Wait until every queued chunk has been uploaded (with retry through drops).
+  // Bounded: chunk retries are resumable and can ride out a spotty link, but if
+  // the upload makes NO progress for UPLOAD_DRAIN_MAX_MS the link is genuinely
+  // down, so we throw instead of spinning on "Uploading..." forever.
   async function waitForUploadDrain() {
+    let lastProgress = Date.now();
+    let lastUploaded = uploadedCount;
     while ((uploadQueue.length > 0 || uploaderActive) && !uploadAborted) {
       kickUploader();
       await new Promise(r => setTimeout(r, 200));
+      if (uploadedCount !== lastUploaded) { lastUploaded = uploadedCount; lastProgress = Date.now(); }
+      else if (Date.now() - lastProgress > UPLOAD_DRAIN_MAX_MS) {
+        throw new Error('upload stalled - no progress for ' + Math.round(UPLOAD_DRAIN_MAX_MS / 1000) + 's');
+      }
     }
   }
 
@@ -3240,11 +3377,11 @@
   // flight the server returns 409 with the missing indices; we re-drain and retry.
   async function completeUtterance(totalChunks, mimeType) {
     for (let attempt = 0; attempt < 6 && !uploadAborted; attempt++) {
-      const r = await fetch('/voice/utterance/' + utteranceId + '/complete', {
+      const r = await fetchWithTimeout('/voice/utterance/' + utteranceId + '/complete', {
         method: 'POST', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ totalChunks, mime: mimeType, sessionId: SID }),
-      });
+      }, VOICE_TIMEOUTS.complete);
       const body = await r.json().catch(() => null);
       if (r.ok && body) return body;
       if (r.status === 409) { await waitForUploadDrain(); await new Promise(r => setTimeout(r, 500)); continue; }
@@ -3288,10 +3425,14 @@
 
     let stream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = await withTimeout(
+        navigator.mediaDevices.getUserMedia({ audio: true }),
+        VOICE_TIMEOUTS.getMic, 'microphone');
     } catch (e) {
       let msg;
-      if (e && e.name === 'NotAllowedError') {
+      if (e && /timed out/.test(e.message || '')) {
+        msg = 'Microphone did not respond. Close any other app using the mic, then tap to talk again.';
+      } else if (e && e.name === 'NotAllowedError') {
         msg = 'Microphone permission denied. Allow microphone access for this site in the browser settings, then reload the page.';
       } else if (e && e.name === 'NotFoundError') {
         msg = 'No microphone found on this device.';
@@ -3376,10 +3517,15 @@
     mediaRecorder = null;
     micStream = null;
     if (rec.state !== 'inactive') {
-      await new Promise(resolve => {
-        rec.addEventListener('stop', resolve, { once: true });
-        rec.stop();
-      });
+      // Wait for the final dataavailable/stop, but never hang on it: chunks are
+      // uploaded live via the 250ms timeslice, so if 'stop' never fires we still
+      // have everything worth sending. Proceed on timeout rather than freeze.
+      await withTimeout(
+        new Promise(resolve => {
+          rec.addEventListener('stop', resolve, { once: true });
+          try { rec.stop(); } catch { resolve(); }
+        }),
+        VOICE_TIMEOUTS.recStop, 'recorder stop', () => null);
     }
 
     const totalBytes = recordedChunks.reduce((n, b) => n + b.size, 0);
@@ -3426,13 +3572,13 @@
   const CHAT_POLL_MAX_FAILS   = 5;    // consecutive poll failures before surfacing a connection error
   const PROGRESS_INTERVAL_MS  = 120000; // speak a "what's happening" note ~every 2 min during a long turn
 
-  async function postChatRaw(payload) {
-    const r = await fetch('/chat', {
+  async function postChatRaw(payload, timeoutMs) {
+    const r = await fetchWithTimeout('/chat', {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
-    });
+    }, timeoutMs || VOICE_TIMEOUTS.poll);
     const body = await r.json().catch(() => null);
     if (!body) throw new Error('Empty response from /chat (HTTP ' + r.status + ')');
     return body;
@@ -3442,14 +3588,14 @@
   // Director to also return an ear-friendly spoken rewrite (no code aloud) in
   // chat.summary, which is what we actually read out.
   function postChat(text) {
-    return postChatRaw({ text, sessionId: SID, timeoutMs: CHAT_FIRST_WAIT_MS, voice: true });
+    return postChatRaw({ text, sessionId: SID, timeoutMs: CHAT_FIRST_WAIT_MS, voice: true }, VOICE_TIMEOUTS.chatSend);
   }
 
   // Poll-only: read the session's current state + latest reply WITHOUT sending
   // anything. Returns immediately server-side; the client controls cadence.
   // voice:true so the terminal "ok" poll carries the spoken rewrite too.
   function pollChat() {
-    return postChatRaw({ text: '', sessionId: SID, pollOnly: true, voice: true });
+    return postChatRaw({ text: '', sessionId: SID, pollOnly: true, voice: true }, VOICE_TIMEOUTS.poll);
   }
 
   function fmtElapsed(ms) {
@@ -3474,6 +3620,13 @@
     let fails = 0;
     let nextProgressAt = startedAtMs + PROGRESS_INTERVAL_MS;
     while (true) {
+      // Hard ceiling: even a genuinely long turn cannot hold the tab hostage
+      // forever. After TURN_MAX_MS we hand control back with a clear "still
+      // running, tap to check again" message instead of polling indefinitely.
+      if (Date.now() - startedAtMs > TURN_MAX_MS) {
+        answerArrived = true;
+        return { status: 'turn_timeout' };
+      }
       setVoiceState('Agent still working... ' + fmtElapsed(Date.now() - startedAtMs)
                     + '. I will read the answer aloud when it is ready.');
       // About every two minutes, fetch a spoken "what's happening" note. Fire it
@@ -3577,8 +3730,13 @@
   // Returns true if the caller should stop (no reply to render/speak).
   function handleNonReplyStatus(chat) {
     if (chat.status === 'poll_failed') {
-      setVoiceState('Lost connection while waiting. The agent may still be running — tap to check again.', 'error');
+      setVoiceState('Lost connection while waiting. The agent may still be running. Tap to check again.', 'error');
       appendVoiceBubble('system', 'Lost connection while waiting for the agent. It may still be running; reconnect to check.');
+      return true;
+    }
+    if (chat.status === 'turn_timeout') {
+      setVoiceState('The agent has been running a long time and is still going. Tap "What\'s happening?" to check, or tap to talk.', 'error');
+      appendVoiceBubble('system', 'Stopped waiting after a long turn. The agent may still be running; tap to check what it is doing.');
       return true;
     }
     if (chat.status === 'session_not_found') {
@@ -3684,12 +3842,12 @@
     setVoiceState('Checking what the agent is doing...');
     startCue(CUE.working.freq, CUE.working.interval);
     try {
-      const resp = await fetch('/sessions/' + SID + '/wingman/ask', {
+      const resp = await fetchWithTimeout('/sessions/' + SID + '/wingman/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
         body: JSON.stringify({ question: '', mode: 'explain' }),
-      });
+      }, VOICE_TIMEOUTS.wingman);
       stopCue();
       if (!resp.ok) {
         setVoiceState('Could not check status: HTTP ' + resp.status, 'error');
