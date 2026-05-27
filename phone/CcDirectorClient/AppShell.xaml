@@ -13,7 +13,7 @@
     <FlyoutItem Title="Talk" Route="TalkPage">
         <ShellContent ContentTemplate="{DataTemplate local:TalkPage}" />
     </FlyoutItem>
-    <FlyoutItem Title="Recorder" Route="MainPage">
+    <FlyoutItem Title="Notes" Route="MainPage">
         <ShellContent ContentTemplate="{DataTemplate local:MainPage}" />
     </FlyoutItem>
     <FlyoutItem Title="Exes" Route="ExesPage">

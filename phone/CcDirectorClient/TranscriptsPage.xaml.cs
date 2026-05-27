@@ -243,10 +243,10 @@ public partial class TranscriptsPage : ContentPage
     private async void OnNavMenuClicked(object? sender, TappedEventArgs e)
     {
         var choice = await DisplayActionSheet(
-            "Go to", "Cancel", null, "Talk", "Recorder", "Exes", "Dictionary", "Transcripts");
+            "Go to", "Cancel", null, "Talk", "Notes", "Exes", "Dictionary", "Transcripts");
         if (choice == "Talk")
             await Shell.Current.GoToAsync("//TalkPage");
-        else if (choice == "Recorder")
+        else if (choice == "Notes")
             await Shell.Current.GoToAsync("//MainPage");
         else if (choice == "Exes")
             await Shell.Current.GoToAsync("//ExesPage");

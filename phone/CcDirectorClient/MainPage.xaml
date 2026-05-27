@@ -10,32 +10,16 @@
     <ScrollView>
         <VerticalStackLayout Padding="20" Spacing="16">
 
-            <Label Text="CC Director Client"
+            <Label Text="Notes"
                    FontSize="26" FontAttributes="Bold" TextColor="#E6EAF2" />
-            <Label Text="Offline recorder. Records to the phone, uploads to the Gateway to transcribe."
+            <Label Text="Quick notes, kept on your phone."
                    FontSize="13" TextColor="#8A93A6" />
 
-            <!-- Timer + state -->
-            <Border BackgroundColor="#141B2E" StrokeShape="RoundRectangle 14" Padding="20">
-                <VerticalStackLayout Spacing="6" HorizontalOptions="Center">
-                    <Label x:Name="TimerLabel" Text="00:00:00"
-                           FontSize="44" FontAttributes="Bold" TextColor="#E6EAF2"
-                           HorizontalOptions="Center" />
-                    <Label x:Name="StateLabel" Text="Idle"
-                           FontSize="14" TextColor="#5FD08A" HorizontalOptions="Center" />
-                    <Label x:Name="SegmentLabel" Text="0 segments captured"
-                           FontSize="13" TextColor="#8A93A6" HorizontalOptions="Center" />
-                    <!-- Live mic level so you can see it's hearing you -->
-                    <ProgressBar x:Name="LevelMeter" Progress="0" ProgressColor="#5FD08A"
-                                 HeightRequest="8" Margin="0,10,0,0" />
-                </VerticalStackLayout>
-            </Border>
-
-            <Entry x:Name="TitleEntry" Placeholder="Title (optional, edit anytime until you stop)"
+            <Entry x:Name="TitleEntry" Placeholder="Title (optional)"
                    TextColor="#E6EAF2" PlaceholderColor="#8A93A6" BackgroundColor="#141B2E" />
 
-            <Button x:Name="RecordButton" Text="Record"
-                    BackgroundColor="#E5484D" TextColor="White"
+            <Button x:Name="RecordButton" Text="Start"
+                    BackgroundColor="#2B6CB0" TextColor="White"
                     FontSize="18" FontAttributes="Bold" HeightRequest="64"
                     CornerRadius="12" Clicked="OnRecordClicked" />
 
@@ -43,8 +27,22 @@
                     BackgroundColor="#2B6CB0" TextColor="White" HeightRequest="50"
                     CornerRadius="12" Clicked="OnPauseClicked" />
 
+            <!-- Discreet running indicator: small + muted, shown only while active,
+                 so a glance does not reveal audio capture. No red, no "recording"
+                 wording, no live mic meter. -->
+            <HorizontalStackLayout Spacing="8" HorizontalOptions="Center" Margin="0,2,0,0">
+                <Border x:Name="StatusDot" WidthRequest="9" HeightRequest="9"
+                        StrokeShape="RoundRectangle 5" BackgroundColor="#5B8DEF"
+                        VerticalOptions="Center" IsVisible="False" />
+                <Label x:Name="TimerLabel" Text="" FontSize="13" TextColor="#5A6378" VerticalOptions="Center" />
+                <Label x:Name="StateLabel" Text="" FontSize="13" TextColor="#5A6378" IsVisible="False" />
+                <Label x:Name="SegmentLabel" Text="" FontSize="12" TextColor="#5A6378" IsVisible="False" />
+            </HorizontalStackLayout>
+            <ProgressBar x:Name="LevelMeter" Progress="0" HeightRequest="1"
+                         ProgressColor="#0B1020" IsVisible="False" />
+
             <!-- Notes -->
-            <Label Text="Notes while recording" FontSize="15" FontAttributes="Bold" TextColor="#E6EAF2" />
+            <Label Text="Notes" FontSize="15" FontAttributes="Bold" TextColor="#E6EAF2" />
             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
                 <Entry x:Name="NoteEntry" Grid.Column="0" Placeholder="Type a note, hit Add"
                        TextColor="#E6EAF2" PlaceholderColor="#5A6378" BackgroundColor="#141B2E" />
@@ -61,8 +59,8 @@
 
             <!-- Recordings list: per-row upload progress lives here, out of the
                  way of the recording controls above. -->
-            <Label Text="Recordings" FontSize="15" FontAttributes="Bold" TextColor="#E6EAF2" />
-            <Label Text="Kept on your phone and uploaded automatically. Each row shows its own upload progress."
+            <Label Text="Saved" FontSize="15" FontAttributes="Bold" TextColor="#E6EAF2" />
+            <Label Text="Kept on your phone."
                    FontSize="12" TextColor="#8A93A6" />
             <CollectionView x:Name="LibraryList" HeightRequest="320"
                             SelectionMode="Single" SelectionChanged="OnRecordingSelected">
@@ -80,7 +78,7 @@
                                         <Path Data="M0,5 L4,9 L11,0"
                                               Stroke="{Binding UploadStroke}" StrokeThickness="2.5"
                                               WidthRequest="13" HeightRequest="11" VerticalOptions="Center" />
-                                        <Label Text="Uploaded" FontSize="11" TextColor="#8A93A6" VerticalOptions="Center" />
+                                        <Label Text="Saved" FontSize="11" TextColor="#8A93A6" VerticalOptions="Center" />
                                     </HorizontalStackLayout>
                                     <HorizontalStackLayout Spacing="5" VerticalOptions="Center">
                                         <Path Data="M0,5 L4,9 L11,0"
@@ -88,10 +86,10 @@
                                               WidthRequest="13" HeightRequest="11" VerticalOptions="Center"
                                               IsVisible="{Binding TransShowCheck}" />
                                         <Path Data="M0,0 L10,10 M10,0 L0,10"
-                                              Stroke="#E5484D" StrokeThickness="2.5"
+                                              Stroke="#E8B339" StrokeThickness="2.5"
                                               WidthRequest="11" HeightRequest="11" VerticalOptions="Center"
                                               IsVisible="{Binding TransShowX}" />
-                                        <Label Text="Transcribed" FontSize="11" TextColor="#8A93A6" VerticalOptions="Center" />
+                                        <Label Text="Synced" FontSize="11" TextColor="#8A93A6" VerticalOptions="Center" />
                                     </HorizontalStackLayout>
                                 </HorizontalStackLayout>
                             </VerticalStackLayout>

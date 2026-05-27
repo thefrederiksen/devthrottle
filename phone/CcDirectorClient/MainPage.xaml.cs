@@ -153,21 +153,21 @@ public partial class MainPage : ContentPage
         if (sender is CollectionView cv) cv.SelectedItem = null;
 
         var isPlaying = _recorder.PlayingRecordingId == row.RecordingId;
-        var options = new List<string> { isPlaying ? "Stop playing" : "Play recording" };
-        if (!string.IsNullOrWhiteSpace(row.Transcript)) options.Add("Read transcript");
-        if (row.State is "Queued" or "Retry") options.Add("Upload now");
-        if (!string.IsNullOrWhiteSpace(row.UploadError)) options.Add("Why did upload fail?");
-        if (!string.IsNullOrWhiteSpace(row.TranscriptError)) options.Add("Why did transcription fail?");
+        var options = new List<string> { isPlaying ? "Stop" : "Play" };
+        if (!string.IsNullOrWhiteSpace(row.Transcript)) options.Add("Read");
+        if (row.State is "Queued" or "Retry") options.Add("Sync now");
+        if (!string.IsNullOrWhiteSpace(row.UploadError)) options.Add("Why did sync fail?");
+        if (!string.IsNullOrWhiteSpace(row.TranscriptError)) options.Add("Why did processing fail?");
 
         var choice = await DisplayActionSheet(row.Title, "Cancel", null, options.ToArray());
         switch (choice)
         {
-            case "Play recording": _recorder.Play(row.RecordingId); break;
-            case "Stop playing": _recorder.StopPlayback(); break;
-            case "Read transcript": await DisplayAlert(row.Title, row.Transcript, "Close"); break;
-            case "Upload now": await ProcessQueueAsync(); break;
-            case "Why did upload fail?": await DisplayAlert("Upload error", row.UploadError ?? "", "OK"); break;
-            case "Why did transcription fail?": await DisplayAlert("Transcription error", row.TranscriptError ?? "", "OK"); break;
+            case "Play": _recorder.Play(row.RecordingId); break;
+            case "Stop": _recorder.StopPlayback(); break;
+            case "Read": await DisplayAlert(row.Title, row.Transcript, "Close"); break;
+            case "Sync now": await ProcessQueueAsync(); break;
+            case "Why did sync fail?": await DisplayAlert("Sync error", row.UploadError ?? "", "OK"); break;
+            case "Why did processing fail?": await DisplayAlert("Processing error", row.TranscriptError ?? "", "OK"); break;
         }
     }
 
@@ -198,16 +198,17 @@ public partial class MainPage : ContentPage
         var rec = _recorder.IsRecording;
         var paused = _recorder.IsPaused;
 
-        RecordButton.Text = rec ? "Stop" : "Record";
-        RecordButton.BackgroundColor = rec ? Color.FromArgb("#6B7280") : Color.FromArgb("#E5484D");
+        RecordButton.Text = rec ? "Stop" : "Start";
+        RecordButton.BackgroundColor = rec ? Color.FromArgb("#1F4E79") : Color.FromArgb("#2B6CB0");
 
         PauseButton.IsVisible = rec;
         PauseButton.Text = paused ? "Resume" : "Pause";
         PauseButton.BackgroundColor = paused ? Color.FromArgb("#3FA66A") : Color.FromArgb("#2B6CB0");
 
-        StateLabel.Text = !rec ? "Idle" : paused ? "Paused" : "Recording";
-        StateLabel.TextColor = !rec ? Color.FromArgb("#5FD08A")
-            : paused ? Color.FromArgb("#E8B339") : Color.FromArgb("#E5484D");
+        // Discreet running cue only: a small neutral dot while active. No red and no
+        // "recording" wording, so a glance does not reveal audio capture. The hidden
+        // StateLabel is left blank.
+        StatusDot.IsVisible = rec;
 
         var segs = _recorder.Current?.Chunks.Count ?? 0;
         SegmentLabel.Text = $"{segs} segment(s) captured";
@@ -217,7 +218,9 @@ public partial class MainPage : ContentPage
     }
 
     private void RefreshTimer()
-        => TimerLabel.Text = _recorder.Elapsed.ToString(@"hh\:mm\:ss");
+        => TimerLabel.Text = _recorder.IsRecording
+            ? _recorder.Elapsed.ToString(@"hh\:mm\:ss")
+            : "";
 
     private void RefreshNotes()
     {
@@ -267,32 +270,32 @@ public partial class MainPage : ContentPage
         // problem never reads as an upload failure.
         var stateText = r.State switch
         {
-            "Recording" => "Recording...",
-            "Queued" => "Queued for upload",
-            "Uploading" => string.IsNullOrWhiteSpace(r.UploadProgress) ? "Uploading..." : r.UploadProgress,
-            "Retry" => "Upload failed - tap to retry",
+            "Recording" => "In progress...",
+            "Queued" => "Pending sync",
+            "Uploading" => string.IsNullOrWhiteSpace(r.UploadProgress) ? "Syncing..." : r.UploadProgress,
+            "Retry" => "Sync failed - tap to retry",
             "Uploaded" => r.TranscriptionState switch
             {
                 "Transcribing" => string.IsNullOrWhiteSpace(r.UploadProgress)
-                    ? "Uploaded - transcribing..."
-                    : "Uploaded - " + r.UploadProgress,
-                "Transcribed" => "Uploaded - transcribed",
-                "Failed" => "Uploaded - transcription failed (tap for details)",
-                _ => "Uploaded to server",
+                    ? "Synced - processing..."
+                    : "Synced - " + r.UploadProgress,
+                "Transcribed" => "Synced",
+                "Failed" => "Synced - processing failed (tap for details)",
+                _ => "Synced",
             },
             _ => r.State,
         };
-        var prefix = playing ? "Playing now  -  " : "";
-        return $"{prefix}{dur}  -  {stateText}  -  tap to play";
+        var prefix = playing ? "Open  -  " : "";
+        return $"{prefix}{dur}  -  {stateText}  -  tap to open";
     }
 
     // Top-right burger menu: switch between the Talk, Recorder, Exes, Dictionary and Transcripts pages.
     private async void OnNavMenuClicked(object? sender, TappedEventArgs e)
     {
-        var choice = await DisplayActionSheet("Go to", "Cancel", null, "Talk", "Recorder", "Exes", "Dictionary", "Transcripts");
+        var choice = await DisplayActionSheet("Go to", "Cancel", null, "Talk", "Notes", "Exes", "Dictionary", "Transcripts");
         if (choice == "Talk")
             await Shell.Current.GoToAsync("//TalkPage");
-        else if (choice == "Recorder")
+        else if (choice == "Notes")
             await Shell.Current.GoToAsync("//MainPage");
         else if (choice == "Exes")
             await Shell.Current.GoToAsync("//ExesPage");
