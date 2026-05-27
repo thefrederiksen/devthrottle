@@ -66,6 +66,13 @@ public static class CcStorage
     /// </summary>
     public static string VoiceTurnLogs() => Ensure(Path.Combine(Base(), "voice-turn-logs"));
 
+    /// <summary>
+    /// Per-turn review logs (7-day retention, auto-purged): base/turn-review/&lt;date&gt;/&lt;sessionId&gt;/.
+    /// One record per turn-end (Working -&gt; needs-you), holding the terminal screen + transcript
+    /// for that turn plus whatever the Wingman said/did, so any turn can be reviewed later.
+    /// </summary>
+    public static string TurnReviewLogs() => Ensure(Path.Combine(Base(), "turn-review"));
+
     /// <summary>Installed executables (tool binaries).</summary>
     public static string Bin()
     {

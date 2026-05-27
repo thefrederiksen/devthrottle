@@ -55,6 +55,7 @@ public sealed class ControlApiHost : IAsyncDisposable
     private ProactiveExplainService? _proactiveExplain;
     private TerminalStateDetector? _terminalStateDetector;
     private TerminalSessionRecorder? _sessionRecorder;
+    private Core.Storage.TurnReviewLogger? _turnReviewLogger;
     private Core.Storage.SessionLogManager? _sessionLogManager;
     private bool _stopped;
 
@@ -186,6 +187,12 @@ public sealed class ControlApiHost : IAsyncDisposable
             _sessionRecorder.Start();
         }
 
+        // Per-turn review log: one record each time a session flips Working -> needs-you
+        // (our detector's transition, no hooks). Terminal + what the Wingman said/did, 7-day
+        // retention. See CcStorage.TurnReviewLogs().
+        _turnReviewLogger = new Core.Storage.TurnReviewLogger(_sessionManager);
+        _turnReviewLogger.Start();
+
         // Load the gateway config up front so the served HTML can render a "Gateway"
         // nav button pointing at it. Reused below for the GatewayClient registration.
         var gatewayConfig = Core.Configuration.GatewayConfig.Load();
@@ -244,6 +251,8 @@ public sealed class ControlApiHost : IAsyncDisposable
 
         _terminalStateDetector?.Dispose();
         _terminalStateDetector = null;
+        _turnReviewLogger?.Dispose();
+        _turnReviewLogger = null;
         _sessionRecorder?.Dispose();
         _sessionRecorder = null;
         _proactiveExplain?.Dispose();
