@@ -195,8 +195,27 @@ public sealed class VoiceConversation
         if (string.IsNullOrWhiteSpace(briefing))
             briefing = "Nothing to report on this one yet.";
         onUpdate?.Invoke(new TurnUpdate("briefing", briefing));
-        await SpeakAsync(session.TailnetEndpoint, briefing, ct);
+
+        // Lead the spoken briefing with which session this is - the name AND the repo it
+        // lives in - so the user knows where they are before hearing what happened and what
+        // the agent wants. The on-screen briefing stays just the briefing (the name and repo
+        // are already shown in the session card above it).
+        await SpeakAsync(session.TailnetEndpoint, BuildSpokenIntro(session) + " " + briefing, ct);
         return briefing;
+    }
+
+    /// <summary>
+    /// A one-line spoken intro that names the session and the repo it lives in, e.g.
+    /// "auth-refactor, in the cc-director repo." When the session has no custom name (so its
+    /// display name IS the repo folder), the repo is not repeated.
+    /// </summary>
+    private static string BuildSpokenIntro(SessionInfo session)
+    {
+        var name = session.DisplayName;
+        var repo = session.RepoName;
+        if (!string.IsNullOrWhiteSpace(repo) && !string.Equals(repo, name, StringComparison.OrdinalIgnoreCase))
+            return $"{name}, in the {repo} repo.";
+        return $"{name}.";
     }
 
     /// <summary>

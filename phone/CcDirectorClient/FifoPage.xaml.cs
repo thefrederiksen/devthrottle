@@ -177,9 +177,10 @@ public partial class FifoPage : ContentPage
     private void OnWindowDeactivated(object? sender, EventArgs e) => _backgrounded = true;
     private void OnWindowActivated(object? sender, EventArgs e) => _backgrounded = false;
 
-    // Cancel the current voice turn and silence playback immediately when the user picks
-    // another screen, so the in-flight reply cannot arrive late and talk over the next page.
-    private void StopVoiceForNavigation()
+    // Cancel the current voice turn / briefing and silence playback immediately. Used when the
+    // user acts on a session (Skip, Hold, Answer) or leaves the screen, so a message they do
+    // not want to hear stops the instant they tap.
+    private void CancelSpeechAndTurn()
     {
         _turnCts?.Cancel();
         _tts.Stop();
@@ -253,58 +254,87 @@ public partial class FifoPage : ContentPage
 
     /// <summary>
     /// Refresh the roster, rebuild the queue, and present the next session not yet handled
-    /// this pass. When none remain, the user is caught up. Manages its own busy state while
-    /// the briefing is spoken.
+    /// this pass. When none remain, the user is caught up. The busy lock is held only while
+    /// the roster is fetched and the session is shown; the briefing is then spoken in the
+    /// background (see <see cref="SpeakBriefingAsync"/>) so the user can Answer / Skip / Hold
+    /// the instant the session appears, cutting off a message they do not want to hear.
     /// </summary>
     private async Task PresentNextAsync()
     {
         SetBusy(true);
+        SessionInfo? next;
         try
         {
             var gateway = new GatewayClient(ServerEntry.Text ?? "", TokenEntry.Text ?? "");
             var roster = await gateway.GetRosterAsync();
             _conductor.Update(roster);
-
-            var next = _conductor.Queue.FirstOrDefault(s => !_pass.Contains(s.SessionId));
-            if (next is null)
-            {
-                await EnterIdleAsync();
-                return;
-            }
-
-            // A live session to handle: leave any idle wait and reset the cue so the next
-            // dry spell is announced again.
-            _idleAnnounced = false;
-            IdlePanel.IsVisible = false;
-            FifoPanel.IsVisible = true;
-            _current = next;
-            _lastEndpoint = next.TailnetEndpoint;
-            var remaining = _conductor.Queue.Count(s => !_pass.Contains(s.SessionId));
-            ShowSessionPanel(next, remaining);
-
-            // Mark it as being talked to so the desktop tile / web view / roster agree.
-            _ = new DirectorVoiceClient(TokenEntry.Text ?? "")
-                .SetVoiceModeAsync(next.TailnetEndpoint, next.SessionId, true);
-
-            _turnCts?.Cancel();
-            _turnCts = new CancellationTokenSource();
-            var convo = new VoiceConversation(new DirectorVoiceClient(TokenEntry.Text ?? ""), _tts);
-            SetFifoStatus("Reading what's happening...", StatusBlue);
-            await convo.SpeakExplainAsync(next, OnTurnUpdate, _turnCts.Token);
-            SetFifoStatus("Answer, Skip, or Hold", StatusGreen);
-        }
-        catch (OperationCanceledException)
-        {
-            // User exited; nothing to report.
+            next = _conductor.Queue.FirstOrDefault(s => !_pass.Contains(s.SessionId));
         }
         catch (Exception ex)
         {
             SetFifoStatus("Could not read this session", StatusRed);
-            await DisplayAlert("FIFO error", ex.Message, "OK");
-        }
-        finally
-        {
             SetBusy(false);
+            await DisplayAlert("FIFO error", ex.Message, "OK");
+            return;
+        }
+
+        if (next is null)
+        {
+            await EnterIdleAsync();
+            SetBusy(false);
+            return;
+        }
+
+        // A live session to handle: leave any idle wait and reset the cue so the next
+        // dry spell is announced again.
+        _idleAnnounced = false;
+        IdlePanel.IsVisible = false;
+        FifoPanel.IsVisible = true;
+        _current = next;
+        _lastEndpoint = next.TailnetEndpoint;
+        var remaining = _conductor.Queue.Count(s => !_pass.Contains(s.SessionId));
+        ShowSessionPanel(next, remaining);
+
+        // Mark it as being talked to so the desktop tile / web view / roster agree.
+        _ = new DirectorVoiceClient(TokenEntry.Text ?? "")
+            .SetVoiceModeAsync(next.TailnetEndpoint, next.SessionId, true);
+
+        // The session is on screen: free the controls so Answer / Skip / Hold respond at once.
+        SetBusy(false);
+
+        // Speak the briefing in the background, tied to a fresh token, so Skip (or any action)
+        // can cancel it mid-sentence instead of forcing the user to sit through it.
+        _turnCts?.Cancel();
+        _turnCts = new CancellationTokenSource();
+        _ = SpeakBriefingAsync(next, _turnCts.Token);
+    }
+
+    /// <summary>
+    /// Speak the wingman's briefing for <paramref name="session"/> off the UI path so the user
+    /// can interrupt it. A cancelled token (the user skipped / held / answered) ends quietly and
+    /// must not stomp the status set by whatever they did next.
+    /// </summary>
+    private async Task SpeakBriefingAsync(SessionInfo session, CancellationToken ct)
+    {
+        try
+        {
+            var convo = new VoiceConversation(new DirectorVoiceClient(TokenEntry.Text ?? ""), _tts);
+            SetFifoStatus("Reading what's happening...", StatusBlue);
+            await convo.SpeakExplainAsync(session, OnTurnUpdate, ct);
+            if (!ct.IsCancellationRequested)
+                SetFifoStatus("Answer, Skip, or Hold", StatusGreen);
+        }
+        catch (OperationCanceledException)
+        {
+            // The user skipped, held, or answered before the briefing finished. Expected.
+        }
+        catch (Exception ex)
+        {
+            if (!ct.IsCancellationRequested)
+            {
+                SetFifoStatus("Could not read this session", StatusRed);
+                await DisplayAlert("FIFO error", ex.Message, "OK");
+            }
         }
     }
 
@@ -408,6 +438,9 @@ public partial class FifoPage : ContentPage
         {
             if (!_recorder.IsRecording)
             {
+                // Cut any briefing still playing so it is not captured by the mic or left
+                // talking over the user as they start their answer.
+                CancelSpeechAndTurn();
                 var status = await Permissions.RequestAsync<Permissions.Microphone>();
                 if (status != PermissionStatus.Granted)
                 {
@@ -494,12 +527,14 @@ public partial class FifoPage : ContentPage
     private async void OnSkipClicked(object? sender, EventArgs e)
     {
         if (_current is null || _busy) return;
+        CancelSpeechAndTurn();   // cut the briefing immediately; don't make the user wait it out
         await MarkHandledAndAdvanceAsync(_current, wasHold: false);
     }
 
     private async void OnHoldClicked(object? sender, EventArgs e)
     {
         if (_current is null || _busy) return;
+        CancelSpeechAndTurn();   // cut the briefing immediately
         await MarkHandledAndAdvanceAsync(_current, wasHold: true);
     }
 
@@ -626,7 +661,7 @@ public partial class FifoPage : ContentPage
     {
         var choice = await DisplayActionSheet("Go to", "Cancel", null, "Talk", "FIFO", "FIFO Text", "Notes", "Exes", "Dictionary", "Transcripts");
         if (string.IsNullOrEmpty(choice) || choice == "Cancel") return;
-        StopVoiceForNavigation();
+        CancelSpeechAndTurn();
         if (choice == "Talk")
             await Shell.Current.GoToAsync("//TalkPage");
         else if (choice == "FIFO")

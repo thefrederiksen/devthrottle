@@ -71,4 +71,11 @@ public sealed class SessionInfo
             return string.IsNullOrWhiteSpace(SessionId) ? "session" : SessionId;
         }
     }
+
+    /// <summary>
+    /// The repository folder name (the last path segment of <see cref="RepoPath"/>),
+    /// e.g. "cc-director" for "D:\ReposFred\cc-director". Empty when no repo path is
+    /// known. Used to spell out the repo aloud alongside the session name.
+    /// </summary>
+    public string RepoName => Path.GetFileName(RepoPath.TrimEnd('\\', '/'));
 }
