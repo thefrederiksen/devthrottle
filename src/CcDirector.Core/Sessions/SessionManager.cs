@@ -313,8 +313,7 @@ public sealed class SessionManager : IDisposable
     /// Reset everything that described the conversation before a <c>/clear</c> for a
     /// session: the Session's own Wingman context (status-event log + terminal replay
     /// buffer) and, via <see cref="OnSessionContextReset"/>, external caches keyed by
-    /// the Director session id. Invoked from the EventRouter when Claude Code rotates
-    /// its session id on <c>/clear</c>. No-op (logged) when the session is not found.
+    /// the Director session id. No-op (logged) when the session is not found.
     /// </summary>
     public void ResetSessionContextAfterClear(Guid directorSessionId)
     {
@@ -427,9 +426,8 @@ public sealed class SessionManager : IDisposable
 
     /// <summary>
     /// Find the Director session most likely to be the one whose Claude session id
-    /// was just rotated by /clear or /compact. Used by EventRouter to relink the
-    /// session to the NEW Claude session id when SessionStart(source=clear|compact)
-    /// arrives with no existing mapping.
+    /// was just rotated by /clear or /compact, so it can be relinked to the NEW
+    /// Claude session id when no existing mapping matches.
     ///
     /// Heuristic:
     ///   - RepoPath matches <paramref name="cwd"/> (case-insensitive, trim trailing slashes)

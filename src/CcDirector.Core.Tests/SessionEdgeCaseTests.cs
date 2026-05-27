@@ -1,6 +1,5 @@
 using CcDirector.Core.Backends;
 using CcDirector.Core.Configuration;
-using CcDirector.Core.Pipes;
 using CcDirector.Core.Sessions;
 using Xunit;
 
@@ -80,90 +79,6 @@ public class SessionEdgeCaseTests : IDisposable
         await session.SendEnterAsync();
     }
 
-    [Fact]
-    public void HandlePipeEvent_FullStateTransitionSequence()
-    {
-        var session = _manager.CreateSession(Path.GetTempPath());
-        var transitions = new List<(ActivityState from, ActivityState to)>();
-
-        session.OnActivityStateChanged += (old, @new) =>
-            transitions.Add((old, @new));
-
-        // Simulate a typical Claude interaction:
-        // 1. SessionStart → Idle
-        session.HandlePipeEvent(new PipeMessage { HookEventName = "SessionStart" });
-        Assert.Equal(ActivityState.Idle, session.ActivityState);
-
-        // 2. UserPromptSubmit → Working
-        session.HandlePipeEvent(new PipeMessage { HookEventName = "UserPromptSubmit" });
-        Assert.Equal(ActivityState.Working, session.ActivityState);
-
-        // 3. PreToolUse → Working (stays)
-        session.HandlePipeEvent(new PipeMessage { HookEventName = "PreToolUse", ToolName = "Bash" });
-        Assert.Equal(ActivityState.Working, session.ActivityState);
-
-        // 4. PostToolUse → Working (stays)
-        session.HandlePipeEvent(new PipeMessage { HookEventName = "PostToolUse", ToolName = "Bash" });
-        Assert.Equal(ActivityState.Working, session.ActivityState);
-
-        // 5. Stop → WaitingForInput
-        session.HandlePipeEvent(new PipeMessage { HookEventName = "Stop" });
-        Assert.Equal(ActivityState.WaitingForInput, session.ActivityState);
-
-        // 6. Late SubagentStop → Blocked (stays WaitingForInput)
-        session.HandlePipeEvent(new PipeMessage { HookEventName = "SubagentStop" });
-        Assert.Equal(ActivityState.WaitingForInput, session.ActivityState);
-
-        // 7. UserPromptSubmit → Working (allowed from WaitingForInput)
-        session.HandlePipeEvent(new PipeMessage { HookEventName = "UserPromptSubmit" });
-        Assert.Equal(ActivityState.Working, session.ActivityState);
-
-        // 8. PermissionRequest → WaitingForPerm
-        session.HandlePipeEvent(new PipeMessage { HookEventName = "PermissionRequest" });
-        Assert.Equal(ActivityState.WaitingForPerm, session.ActivityState);
-
-        // 9. Stop → WaitingForInput
-        session.HandlePipeEvent(new PipeMessage { HookEventName = "Stop" });
-        Assert.Equal(ActivityState.WaitingForInput, session.ActivityState);
-
-        // 10. SessionEnd → Exited
-        session.HandlePipeEvent(new PipeMessage { HookEventName = "SessionEnd" });
-        Assert.Equal(ActivityState.Exited, session.ActivityState);
-
-        // Verify event count (same-state transitions don't fire)
-        Assert.True(transitions.Count >= 6);
-    }
-
-    [Fact]
-    public void HandlePipeEvent_PermissionNotification_FromWaitingForInput_Allowed()
-    {
-        var session = _manager.CreateSession(Path.GetTempPath());
-        session.HandlePipeEvent(new PipeMessage { HookEventName = "Stop" }); // → WaitingForInput
-
-        session.HandlePipeEvent(new PipeMessage
-        {
-            HookEventName = "Notification",
-            NotificationType = "permission_prompt"
-        });
-
-        Assert.Equal(ActivityState.WaitingForPerm, session.ActivityState);
-    }
-
-    [Fact]
-    public void HandlePipeEvent_NonPermissionNotification_FromWaitingForInput_Blocked()
-    {
-        var session = _manager.CreateSession(Path.GetTempPath());
-        session.HandlePipeEvent(new PipeMessage { HookEventName = "Stop" }); // → WaitingForInput
-
-        session.HandlePipeEvent(new PipeMessage
-        {
-            HookEventName = "Notification",
-            NotificationType = "idle_prompt"
-        });
-
-        // Should stay WaitingForInput (non-permission notifications are blocked)
-        Assert.Equal(ActivityState.WaitingForInput, session.ActivityState);
-    }
 
     [Fact]
     public void Session_CreatedAt_IsSet()

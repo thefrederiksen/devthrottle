@@ -7,8 +7,6 @@ using Avalonia.Markup.Xaml;
 using CcDirector.ControlApi;
 using CcDirector.Core.Claude;
 using CcDirector.Core.Configuration;
-using CcDirector.Core.Hooks;
-using CcDirector.Core.Pipes;
 using CcDirector.Core.Scheduler;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Storage;
@@ -25,8 +23,6 @@ public partial class App : Application
     public List<RepositoryConfig> Repositories { get; private set; } = new();
     public RepositoryRegistry RepositoryRegistry { get; private set; } = null!;
     public RootDirectoryStore RootDirectoryStore { get; private set; } = null!;
-    public IDirectorServer DirectorServer { get; private set; } = null!;
-    public EventRouter EventRouter { get; private set; } = null!;
     public SessionStateStore SessionStateStore { get; private set; } = null!;
     public RecentSessionStore RecentSessionStore { get; private set; } = null!;
     public SessionHistoryStore SessionHistoryStore { get; private set; } = null!;
@@ -152,17 +148,6 @@ public partial class App : Application
 
         // Workspaces replace session restore -- clear persisted data
         SessionStateStore.Clear();
-
-        UpdateSplashStatus(splash, "Starting event system...");
-        EventRouter = new EventRouter(SessionManager, log);
-        DirectorServer = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
-            ? new DirectorFileEventWatcher(log)
-            : new UnixSocketServer(log);
-        DirectorServer.OnMessageReceived += EventRouter.Route;
-        DirectorServer.Start();
-        log($"Hook event server started: {DirectorServer.GetType().Name}");
-
-        _ = InstallHooksAsync(log);
 
         // NUL files are a Windows-only filesystem quirk (reserved device name).
         // On Unix, "nul" is just a regular filename and creates no problems.
@@ -356,8 +341,6 @@ public partial class App : Application
             ClaudeUsageService?.Dispose();
             BackupCleaner?.Dispose();
             NulFileWatcher?.Dispose();
-            DirectorServer?.Dispose();
-            EventRouter?.Dispose();
             SessionManager?.Dispose();
 
             FileLog.Write("[CcDirector] Exiting");
@@ -475,33 +458,6 @@ public partial class App : Application
             {
                 FileLog.Write($"[App] Failed to force-kill process {pid}: {ex.Message}");
             }
-        }
-    }
-
-    private async Task InstallHooksAsync(Action<string> log)
-    {
-        // Terminal-driven state (the default) makes the Wingman read the terminal, not
-        // Claude Code hooks. In that mode this build does NOT install hooks - they are
-        // agent-specific and brittle, and we no longer rely on them. We deliberately do
-        // NOT uninstall existing hooks here: ~/.claude/settings.json is shared, and other
-        // Directors still on the hook build would lose their state mid-session. Set
-        // CC_DIRECTOR_TERMINAL_STATE=0 to restore the hook path (and its install).
-        var terminalDriven = Environment.GetEnvironmentVariable("CC_DIRECTOR_TERMINAL_STATE") != "0";
-        if (terminalDriven)
-        {
-            log("Terminal-driven state mode: skipping Claude Code hook installation (Wingman reads the terminal).");
-            return;
-        }
-
-        try
-        {
-            HookRelayScript.EnsureWritten();
-            log($"Hook relay script written to {HookRelayScript.ScriptPath}");
-            await HookInstaller.InstallAsync(HookRelayScript.ScriptPath, log);
-        }
-        catch (Exception ex)
-        {
-            log($"Failed to install hooks: {ex.Message}");
         }
     }
 

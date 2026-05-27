@@ -53,6 +53,18 @@
                         Click="BtnNewSession_Click"
                         ToolTip.Tip="Create a new session" />
 
+                <Button x:Name="BtnFifo"
+                        DockPanel.Dock="Top"
+                        Content="Start FIFO"
+                        Background="#6B46C1"
+                        Foreground="White"
+                        FontSize="13"
+                        Height="32"
+                        Margin="8,0,8,8"
+                        HorizontalContentAlignment="Center"
+                        Click="BtnFifo_Click"
+                        ToolTip.Tip="Step through every session that needs you, one at a time (full screen)" />
+
                 <!-- Scheduler button above connections -->
                 <Grid DockPanel.Dock="Bottom" Margin="8,2,8,2">
                     <Button x:Name="BtnScheduler"
@@ -760,6 +772,26 @@
                                     Cursor="Hand"
                                     ToolTip.Tip="Open the large editor with image preview (text + pictures)" />
 
+                            <!-- Ask the Wingman to read this session and explain, in plain
+                                 language, what happened and what the agent wants. Overlaid in
+                                 the bottom-left corner of the input so it stays clear of the
+                                 Speak/Send cluster. Same read-only briefing the FIFO uses. -->
+                            <Button x:Name="BtnExplain"
+                                    Grid.Column="0"
+                                    Content="Explain"
+                                    Click="BtnExplain_Click"
+                                    HorizontalAlignment="Left"
+                                    VerticalAlignment="Bottom"
+                                    Margin="6,0,0,4"
+                                    Padding="8,2"
+                                    FontSize="10"
+                                    Background="#0E7C6B"
+                                    Foreground="White"
+                                    BorderThickness="0"
+                                    Opacity="0.9"
+                                    Cursor="Hand"
+                                    ToolTip.Tip="Have the Wingman read this session and explain what's happening" />
+
                             <!-- 2x2 button grid: top row = primary (Speak, Send),
                                  bottom row = secondary (Queue, Handover). Fixed
                                  width/height on every button so the bar can't
@@ -1131,66 +1163,6 @@
                     <!-- ===== Director Tab ===== -->
                     <TabItem Header="Director" x:Name="TabItemDirector">
                         <mgr:DirectorView x:Name="DirectorView" />
-                    </TabItem>
-
-                    <!-- ===== Hooks Tab (hidden for now) ===== -->
-                    <TabItem Header="Hooks" IsVisible="False">
-                        <DockPanel>
-                            <!-- Top bar -->
-                            <Border DockPanel.Dock="Top" Padding="8,6"
-                                    BorderBrush="#3C3C3C" BorderThickness="0,0,0,1">
-                                <DockPanel>
-                                    <Button Content="Clear" DockPanel.Dock="Right"
-                                            Click="BtnClearHookEvents_Click"
-                                            Background="Transparent" Foreground="#888888"
-                                            BorderThickness="0" FontSize="11" Cursor="Hand"
-                                            Padding="6,2" />
-                                    <TextBlock Text="HOOK EVENTS"
-                                               Foreground="#888888" FontSize="11"
-                                               FontWeight="SemiBold"
-                                               VerticalAlignment="Center" />
-                                </DockPanel>
-                            </Border>
-
-                            <!-- Empty state -->
-                            <TextBlock x:Name="HookEventsEmptyText"
-                                       Text="No hook events yet"
-                                       Foreground="#555555" FontSize="12"
-                                       FontStyle="Italic"
-                                       HorizontalAlignment="Center"
-                                       VerticalAlignment="Center" />
-
-                            <!-- Hook events list -->
-                            <ListBox x:Name="HookEventList"
-                                     Background="Transparent"
-                                     Padding="4"
-                                     IsVisible="False">
-                                <ListBox.ItemTemplate>
-                                    <DataTemplate>
-                                        <StackPanel Margin="4,3">
-                                            <DockPanel>
-                                                <TextBlock Text="{Binding Timestamp}"
-                                                           Foreground="#888888" FontSize="10"
-                                                           VerticalAlignment="Center" />
-                                                <TextBlock Text="{Binding EventName}"
-                                                           Foreground="{Binding EventBrush}"
-                                                           FontSize="11" FontWeight="SemiBold"
-                                                           Margin="8,0,0,0"
-                                                           VerticalAlignment="Center" />
-                                                <TextBlock Text="{Binding SessionIdShort}"
-                                                           Foreground="#666666" FontSize="10"
-                                                           HorizontalAlignment="Right"
-                                                           VerticalAlignment="Center" />
-                                            </DockPanel>
-                                            <TextBlock Text="{Binding Detail}"
-                                                       Foreground="#AAAAAA" FontSize="10"
-                                                       TextTrimming="CharacterEllipsis"
-                                                       Margin="0,2,0,0" />
-                                        </StackPanel>
-                                    </DataTemplate>
-                                </ListBox.ItemTemplate>
-                            </ListBox>
-                        </DockPanel>
                     </TabItem>
                 </TabControl>
             </Border>

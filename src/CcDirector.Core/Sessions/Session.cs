@@ -2,7 +2,6 @@ using CcDirector.Core.Agents;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Claude;
 using CcDirector.Core.Memory;
-using CcDirector.Core.Pipes;
 using CcDirector.Core.Utilities;
 using CcDirector.Core.Wingman;
 using CcDirector.Terminal.Core;
@@ -73,7 +72,6 @@ public sealed class Session : IDisposable
     public const int MinVerificationLength = 50;
 
     private readonly ISessionBackend _backend;
-    private readonly TurnAccumulator _turnAccumulator = new();
     private bool _disposed;
 
     // ===== HTML-view terminal emulator =====
@@ -151,9 +149,8 @@ public sealed class Session : IDisposable
 
     /// <summary>
     /// The structured question, plan, or permission ask the agent is currently
-    /// waiting on, or null when nothing is pending. Set by
-    /// <see cref="HandlePipeEvent"/> on the corresponding hook events and
-    /// cleared automatically when the activity state moves out of
+    /// waiting on, or null when nothing is pending. Cleared automatically when the
+    /// activity state moves out of
     /// <see cref="ActivityState.WaitingForInput"/> / <see cref="ActivityState.WaitingForPerm"/>.
     /// Volatile state; not persisted across Director restarts.
     /// </summary>
@@ -269,19 +266,6 @@ public sealed class Session : IDisposable
     /// <summary>Fires when ActivityState changes. Args: (oldState, newState).</summary>
     public event Action<ActivityState, ActivityState>? OnActivityStateChanged;
 
-    /// <summary>Fires when a turn completes (Stop event received after UserPromptSubmit).</summary>
-    public event Action<Session, TurnData>? OnTurnCompleted;
-
-    /// <summary>
-    /// When true, this Director derives ActivityState and turn boundaries from the
-    /// terminal stream (<c>TerminalStateDetector</c>) instead of Claude Code hooks.
-    /// Set once at startup. In this mode <see cref="HandlePipeEvent"/> is inert for
-    /// state and turns - hooks, if any still arrive, are ignored - and the detector is
-    /// the single authority. Reversible via the CC_DIRECTOR_TERMINAL_STATE env var so
-    /// we can fall back to the hook path without a rebuild.
-    /// </summary>
-    public static bool TerminalDrivenState { get; set; }
-
     // ---------- Mobile mode + proactive wingman explain (remote experience) ----------
 
     /// <summary>
@@ -363,13 +347,12 @@ public sealed class Session : IDisposable
     public string LastStatusReason { get; private set; } = "session created";
 
     /// <summary>
-    /// The verbatim text of the most recent prompt the user submitted to this
-    /// session, or null if none has been seen. Captured from the Claude Code
-    /// <c>UserPromptSubmit</c> hook in <see cref="HandlePipeEvent"/>, so it covers
-    /// every entry point (desktop terminal, phone web page, voice) - not just
-    /// prompts sent through the Control API. Surfaced via
-    /// <c>GET /sessions/{sid}/wingman</c> so the Session page can show "what I just
-    /// asked" while the turn is working.
+    /// The verbatim text of the most recent prompt the user submitted to this session,
+    /// or null if none has been seen. Its only source was the Claude Code
+    /// <c>UserPromptSubmit</c> hook, which has been removed (terminal-driven detection
+    /// does not parse user prompts), so it is currently always null. Kept because
+    /// <c>GET /sessions/{sid}/wingman</c> surfaces it; a terminal-derived source can
+    /// repopulate it later.
     /// </summary>
     public string? LastUserPrompt { get; private set; }
 
@@ -918,86 +901,6 @@ public sealed class Session : IDisposable
         await _backend.SendEnterAsync();
     }
 
-    /// <summary>Process a hook event and transition activity state accordingly.</summary>
-    public void HandlePipeEvent(PipeMessage msg)
-    {
-        // Terminal-driven mode: the TerminalStateDetector owns ActivityState and turn
-        // boundaries from the terminal stream. Hooks are inert here - we neither change
-        // state nor accumulate/raise turns from them.
-        if (TerminalDrivenState) return;
-
-        FileLog.Write($"[Session] HandlePipeEvent: session={Id}, event={msg.HookEventName}, tool={msg.ToolName ?? "n/a"}, currentState={ActivityState}");
-
-        // Accumulate turn data for session summary
-        if (msg.HookEventName == "UserPromptSubmit" && !string.IsNullOrEmpty(msg.Prompt))
-        {
-            LastUserPrompt = msg.Prompt;
-            LastUserPromptAt = DateTime.UtcNow;
-            var interrupted = _turnAccumulator.StartTurn(msg.Prompt);
-            if (interrupted != null)
-                OnTurnCompleted?.Invoke(this, interrupted);
-        }
-        else if (msg.HookEventName == "PreToolUse")
-            _turnAccumulator.AddToolUse(msg);
-        else if (msg.HookEventName == "Stop" && _turnAccumulator.IsActive)
-        {
-            var turnData = _turnAccumulator.FinishTurn();
-            OnTurnCompleted?.Invoke(this, turnData);
-        }
-
-        var newState = msg.HookEventName switch
-        {
-            "Stop" => ActivityState.WaitingForInput,
-            "UserPromptSubmit" => ActivityState.Working,
-            "PreToolUse" when IsInteractiveTool(msg.ToolName) => ActivityState.WaitingForInput,
-            "PreToolUse" => ActivityState.Working,
-            "PostToolUse" => ActivityState.Working,
-            "PostToolUseFailure" => ActivityState.Working,
-            "PermissionRequest" => ActivityState.WaitingForPerm,
-            "Notification" when msg.NotificationType == "permission_prompt" => ActivityState.WaitingForPerm,
-            "Notification" => ActivityState.WaitingForInput,
-            "SubagentStart" => ActivityState.Working,
-            "SubagentStop" => ActivityState.Working,
-            "TaskCompleted" => ActivityState.Working,
-            "SessionStart" => ActivityState.Idle,
-            // /clear and /compact rotate Claude's session id (SessionEnd-then-SessionStart
-            // for a fresh conversation). They are NOT terminations -- hold the current
-            // state and let EventRouter relink to the new id. Other reasons
-            // (logout, prompt_input_exit, other) are real terminations.
-            "SessionEnd" when msg.Reason is "clear" or "compact" => (ActivityState?)null,
-            "SessionEnd" => ActivityState.Exited,
-            "TeammateIdle" => (ActivityState?)null,
-            "PreCompact" => (ActivityState?)null,
-            _ => (ActivityState?)null
-        };
-
-        if (!newState.HasValue)
-        {
-            FileLog.Write($"[Session] HandlePipeEvent: no state change for event={msg.HookEventName}");
-            return;
-        }
-
-        // Once we're waiting for user input (green), only explicit user actions
-        // or session end can change the state. This prevents late subagent stops
-        // from incorrectly turning the indicator blue.
-        if (ActivityState == ActivityState.WaitingForInput)
-        {
-            var allowedFromWaiting = msg.HookEventName is "UserPromptSubmit" or "SessionEnd" or "PermissionRequest"
-                || (msg.HookEventName == "Notification" && msg.NotificationType == "permission_prompt");
-            if (!allowedFromWaiting)
-            {
-                FileLog.Write($"[Session] HandlePipeEvent: blocked {msg.HookEventName} while WaitingForInput");
-                return;
-            }
-        }
-
-        FileLog.Write($"[Session] HandlePipeEvent: session={Id}, {ActivityState}->{newState.Value}");
-        SetActivityState(newState.Value);
-    }
-
-    private static bool IsInteractiveTool(string? toolName) =>
-        toolName is "ExitPlanMode" or "AskUserQuestion" or "EnterPlanMode" or "EnterWorktree" or "ExitWorktree";
-
     private void SetActivityState(ActivityState newState)
     {
         var old = ActivityState;
@@ -1019,14 +922,6 @@ public sealed class Session : IDisposable
     /// The detector is the single authority for state in that mode; this is its writer.
     /// </summary>
     internal void ApplyTerminalActivityState(ActivityState newState) => SetActivityState(newState);
-
-    /// <summary>
-    /// Raise <see cref="OnTurnCompleted"/> from the terminal detector when it observes a
-    /// turn end (terminal output went quiet). Carries a minimal <see cref="TurnData"/>:
-    /// the turn summary is built from the terminal buffer, not from this payload.
-    /// </summary>
-    internal void NotifyTurnEndedFromTerminal()
-        => OnTurnCompleted?.Invoke(this, new TurnData("", new List<string>(), new List<string>(), new List<string>(), DateTimeOffset.UtcNow));
 
     /// <summary>
     /// Refresh Claude session metadata from sessions-index.json.

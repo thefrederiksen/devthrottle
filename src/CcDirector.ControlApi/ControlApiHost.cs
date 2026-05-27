@@ -158,10 +158,9 @@ public sealed class ControlApiHost : IAsyncDisposable
         _statusWingman.Start();
 
         // Start the Wingman's per-turn summary cache before mapping endpoints so
-        // /sessions/{sid}/turn-summaries returns whatever is already cached.  Hooks
-        // OnSessionCreated + per-session OnTurnCompleted.  See Phase 2 of
-        // docs/goals/GOAL_CC_DIRECTOR_SUPERVISOR.md.
-        _turnSummaryCache = new TurnSummaryCache(_sessionManager, _sessionManager.Options, _sessionLogManager);
+        // /sessions/{sid}/turn-summaries returns whatever is already cached. Summaries are
+        // generated on demand (the voice/mobile views call GenerateForLatestTurnAsync).
+        _turnSummaryCache = new TurnSummaryCache(_sessionManager, _sessionManager.Options);
         _turnSummaryCache.Start();
 
         // Proactive explain: for mobile-mode sessions, regenerate + cache the Opus briefing
@@ -169,16 +168,12 @@ public sealed class ControlApiHost : IAsyncDisposable
         _proactiveExplain = new ProactiveExplainService(_sessionManager, _sessionManager.Options.ClaudePath, _turnSummaryCache);
         _proactiveExplain.Start();
 
-        // Terminal-driven state (CLEAN SLATE): the detector's only rule is byte -> working,
-        // plus the idle clock (time since the last ConPTY character). No footer/grid/LLM
-        // determination -- that guesswork was removed. On by default; set
-        // CC_DIRECTOR_TERMINAL_STATE=0 to run the detector in observe-only mode (logs, writes
-        // nothing) and fall back to the Claude-Code hook path.
-        var terminalDriven = Environment.GetEnvironmentVariable("CC_DIRECTOR_TERMINAL_STATE") != "0";
-        Core.Sessions.Session.TerminalDrivenState = terminalDriven;
-        _terminalStateDetector = new TerminalStateDetector(_sessionManager, driveState: terminalDriven);
+        // Terminal-driven state: the detector's only rule is byte -> working, plus the idle
+        // clock (time since the last ConPTY character). No footer/grid/LLM guesswork, and no
+        // Claude Code hooks - the detector is the single authority for session state.
+        _terminalStateDetector = new TerminalStateDetector(_sessionManager, driveState: true);
         _terminalStateDetector.Start();
-        FileLog.Write($"[ControlApiHost] Session state source: {(terminalDriven ? "terminal (byte->working)" : "hooks")}");
+        FileLog.Write("[ControlApiHost] Session state source: terminal (byte->working)");
 
         // Always-on terminal recorder: logs every session's resolved grid (on change, with the
         // activity state) to build the ground-truth corpus for offline analysis/learning.

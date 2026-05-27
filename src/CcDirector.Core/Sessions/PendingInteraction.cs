@@ -51,14 +51,13 @@ public sealed class PendingInteractionOption
 /// currently waiting on. At most one of these is set per <see cref="Session"/>
 /// at any given time; the next one (if any) replaces it.
 ///
-/// Created by <see cref="Session.HandlePipeEvent"/> when an appropriate hook
-/// event arrives, and cleared by the same method when the activity state
-/// transitions back out of <c>WaitingForInput</c> / <c>WaitingForPerm</c>.
+/// Its only source was the Claude Code hook path, which has been removed; terminal-driven
+/// detection does not yet parse the structured ask off the screen, so this is currently
+/// never populated. The type is kept for the wizard-detection work that will repopulate it
+/// from the terminal grid.
 ///
 /// This object is intentionally volatile state: it is NOT persisted by
-/// <c>SessionStateStore</c>. After a Director restart the agent will fire the
-/// appropriate hook again on its next turn and the interaction will be
-/// recreated.
+/// <c>SessionStateStore</c>.
 /// </summary>
 public sealed class PendingInteraction
 {

@@ -106,7 +106,7 @@ public sealed class PipeBackend : ISessionBackend
             // Build args: -p [baseArgs] [--resume sessionId]
             var args = BuildArgs();
 
-            // Clear ClaudeSessionId so EventRouter can re-map the new session
+            // Clear ClaudeSessionId so the new session can be re-mapped
             ClaudeSessionId = null;
 
             var psi = new ProcessStartInfo

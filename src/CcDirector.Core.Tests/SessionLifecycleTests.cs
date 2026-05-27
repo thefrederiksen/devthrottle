@@ -1,6 +1,5 @@
 using CcDirector.Core.Backends;
 using CcDirector.Core.Configuration;
-using CcDirector.Core.Pipes;
 using CcDirector.Core.Sessions;
 using Xunit;
 
@@ -79,7 +78,7 @@ public class SessionLifecycleTests : IDisposable
     public async Task KillSession_SetsActivityStateToExited()
     {
         var session = _manager.CreateSession(Path.GetTempPath());
-        session.HandlePipeEvent(new PipeMessage { HookEventName = "UserPromptSubmit" });
+        session.ApplyTerminalActivityState(ActivityState.Working);
         Assert.Equal(ActivityState.Working, session.ActivityState);
 
         await _manager.KillSessionAsync(session.Id);

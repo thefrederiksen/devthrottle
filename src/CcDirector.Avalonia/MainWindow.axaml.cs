@@ -13,7 +13,6 @@ using CcDirector.Core.Agents;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Claude;
 using CcDirector.Core.Configuration;
-using CcDirector.Core.Pipes;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Skills;
 using CcDirector.Core.Utilities;
@@ -22,46 +21,6 @@ using FileViewerControls = CcDirector.Avalonia.Controls;
 namespace CcDirector.Avalonia;
 
 // ==================== VIEW MODELS ====================
-
-public class HookEventViewModel
-{
-    private static readonly Dictionary<string, ISolidColorBrush> EventBrushes = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ["Stop"] = new SolidColorBrush(Color.Parse("#22C55E")),
-        ["Notification"] = new SolidColorBrush(Color.Parse("#F59E0B")),
-    };
-    private static readonly ISolidColorBrush DefaultBrush = new SolidColorBrush(Color.Parse("#AAAAAA"));
-
-    public string Timestamp { get; }
-    public string SessionId { get; }
-    public string SessionIdShort { get; }
-    public string EventName { get; }
-    public string Detail { get; }
-    public ISolidColorBrush EventBrush { get; }
-
-    public HookEventViewModel(PipeMessage msg)
-    {
-        Timestamp = DateTime.Now.ToString("HH:mm:ss");
-        EventName = msg.HookEventName ?? "Unknown";
-        SessionId = msg.SessionId ?? "";
-        SessionIdShort = SessionId.Length > 8 ? SessionId.Substring(0, 8) : SessionId;
-        Detail = BuildDetail(msg);
-        EventBrush = EventBrushes.GetValueOrDefault(EventName, DefaultBrush);
-    }
-
-    private static string BuildDetail(PipeMessage msg)
-    {
-        if (!string.IsNullOrEmpty(msg.ToolName))
-            return msg.ToolName;
-        if (!string.IsNullOrEmpty(msg.Message))
-            return msg.Message;
-        if (!string.IsNullOrEmpty(msg.Prompt))
-            return msg.Prompt.Length > 100 ? msg.Prompt.Substring(0, 100) + "..." : msg.Prompt;
-        if (!string.IsNullOrEmpty(msg.Reason))
-            return msg.Reason;
-        return "";
-    }
-}
 
 public class QueueItemViewModel
 {
@@ -149,8 +108,6 @@ public partial class MainWindow : Window
 
     // Right panel state
     private bool _rightPanelExpanded = true;
-    private readonly ObservableCollection<HookEventViewModel> _hookEvents = new();
-    private readonly List<HookEventViewModel> _allHookEvents = new();
     private readonly ObservableCollection<QueueItemViewModel> _queueItems = new();
     private readonly ObservableCollection<ScreenshotViewModel> _screenshots = new();
     private FileSystemWatcher? _screenshotWatcher;
@@ -203,12 +160,8 @@ public partial class MainWindow : Window
         _sessionManager = app.SessionManager;
 
         SessionList.ItemsSource = _sessions;
-        HookEventList.ItemsSource = _hookEvents;
         QueueItemsList.ItemsSource = _queueItems;
         ScreenshotList.ItemsSource = _screenshots;
-
-        // Wire up hook event routing
-        app.EventRouter.OnRawMessage += OnHookEventReceived;
 
         // Subscribe to session registration for ClaudeSessionId persistence
         _sessionManager.OnClaudeSessionRegistered += OnClaudeSessionRegistered;
@@ -563,7 +516,6 @@ public partial class MainWindow : Window
         SwitchDocumentTabsToSession(vm.Session.Id);
 
         // Refresh right panel for new session
-        RefreshHookEventsPanel();
         RefreshQueuePanel();
 
         // Persist session state (debounced)
@@ -1089,6 +1041,40 @@ public partial class MainWindow : Window
             FileLog.Write("[MainWindow] Ctrl+H -> BtnSpeak_Click");
             e.Handled = true;
             BtnSpeak_Click(this, new RoutedEventArgs());
+        }
+    }
+
+    // Explain: pop a small modal that asks the Wingman to read the active session's
+    // terminal and explain, in plain language, what happened and what the agent wants.
+    // The dialog runs the same read-only briefing the FIFO conveyor uses
+    // (WingmanService.BriefingQuestion over AnswerViaSessionAsync), so honing that one
+    // briefing improves both. The dialog owns its own cancellation; it appears at once
+    // and the call resolves a few seconds later.
+    private async void BtnExplain_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var vm = _activeSession;
+            if (vm is null)
+            {
+                ShowNotification("Select a session first to explain it.");
+                return;
+            }
+            var options = (global::Avalonia.Application.Current as App)?.SessionManager?.Options;
+            if (options is null)
+            {
+                FileLog.Write("[MainWindow] BtnExplain_Click: AgentOptions not available");
+                ShowNotification("Explain not available: AgentOptions not loaded.");
+                return;
+            }
+            FileLog.Write($"[MainWindow] BtnExplain_Click: explaining session {vm.Session.Id}");
+            var dlg = new global::CcDirector.Avalonia.Controls.ExplainDialog(vm.Session, options);
+            await dlg.ShowDialog(this);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] BtnExplain_Click FAILED: {ex.Message}");
+            ShowNotification($"Explain failed: {ex.Message}");
         }
     }
 
@@ -1991,6 +1977,35 @@ public partial class MainWindow : Window
 
     private bool _commsInitialized;
 
+    // Launch the full-screen FIFO takeover: step through every session that needs the
+    // user, one at a time, with the live terminal + wingman briefing. Modal over the main
+    // window so there is nothing else to look at while stepping through.
+    private async void BtnFifo_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var sm = (global::Avalonia.Application.Current as App)?.SessionManager;
+            if (sm is null)
+            {
+                FileLog.Write("[MainWindow] BtnFifo_Click: SessionManager not available");
+                return;
+            }
+            FileLog.Write("[MainWindow] BtnFifo_Click: opening FIFO window");
+            await new FifoWindow(sm).ShowDialog(this);
+
+            // The FIFO window is full-screen, so attaching a session there resized that
+            // session's PTY to full-screen dimensions. Re-attach the main window's active
+            // session so it re-sends ITS dimensions and redraws cleanly, instead of leaving
+            // the session rendering at the FIFO window's size.
+            if (_activeSession is not null)
+                TerminalHost.Attach(_activeSession.Session);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] BtnFifo_Click FAILED: {ex.Message}");
+        }
+    }
+
     private async void BtnComms_Click(object? sender, RoutedEventArgs e)
     {
         FileLog.Write("[MainWindow] BtnComms_Click: opening Comms overlay");
@@ -2779,76 +2794,6 @@ public partial class MainWindow : Window
         }
     }
 
-    // ==================== HOOK EVENTS ====================
-
-    private void OnHookEventReceived(PipeMessage msg)
-    {
-        Dispatcher.UIThread.Post(() =>
-        {
-            var vm = new HookEventViewModel(msg);
-
-            _allHookEvents.Add(vm);
-
-            // Cap at 500 events
-            if (_allHookEvents.Count > 500)
-                _allHookEvents.RemoveAt(0);
-
-            // Show if matches active session or no session selected
-            var activeClaudeId = _activeSession?.Session.ClaudeSessionId;
-            if (activeClaudeId == null || vm.SessionId == activeClaudeId)
-            {
-                _hookEvents.Add(vm);
-                HookEventsEmptyText.IsVisible = false;
-                HookEventList.IsVisible = true;
-
-                // Auto-scroll to bottom
-                if (HookEventList.ItemCount > 0)
-                    HookEventList.ScrollIntoView(vm);
-            }
-
-            // Refresh Claude metadata on Stop events (end of turn - metadata may have updated)
-            if (msg.HookEventName == "Stop" && !string.IsNullOrEmpty(msg.SessionId))
-            {
-                var session = _sessionManager.GetSessionByClaudeId(msg.SessionId);
-                if (session != null)
-                {
-                    var sessionVm = _sessions.FirstOrDefault(s => s.Session.Id == session.Id);
-                    if (sessionVm != null)
-                    {
-                        sessionVm.RefreshClaudeMetadata();
-                        session.VerifyClaudeSession();
-                    }
-                }
-            }
-        });
-    }
-
-    private void RefreshHookEventsPanel()
-    {
-        _hookEvents.Clear();
-        var activeClaudeId = _activeSession?.Session.ClaudeSessionId;
-
-        foreach (var evt in _allHookEvents)
-        {
-            if (activeClaudeId == null || evt.SessionId == activeClaudeId)
-                _hookEvents.Add(evt);
-        }
-
-        HookEventsEmptyText.IsVisible = _hookEvents.Count == 0;
-        HookEventList.IsVisible = _hookEvents.Count > 0;
-
-        if (_hookEvents.Count > 0)
-            HookEventList.ScrollIntoView(_hookEvents[_hookEvents.Count - 1]);
-    }
-
-    private void BtnClearHookEvents_Click(object? sender, RoutedEventArgs e)
-    {
-        FileLog.Write("[MainWindow] BtnClearHookEvents_Click");
-        _hookEvents.Clear();
-        HookEventsEmptyText.IsVisible = true;
-        HookEventList.IsVisible = false;
-    }
-
     // ==================== QUEUE ====================
 
     private void RefreshQueuePanel()
@@ -3408,11 +3353,9 @@ public partial class MainWindow : Window
         _screenshotDebounceTimer?.Stop();
         _screenshotWatcher?.Dispose();
 
-        // Unwire hook events and session registration
+        // Unwire session registration
         try
         {
-            var app = (App)global::Avalonia.Application.Current!;
-            app.EventRouter.OnRawMessage -= OnHookEventReceived;
             _sessionManager.OnClaudeSessionRegistered -= OnClaudeSessionRegistered;
             _sessionManager.OnSessionCreated -= OnExternalSessionCreated;
         }

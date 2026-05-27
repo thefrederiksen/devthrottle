@@ -285,29 +285,6 @@ public sealed class SessionStatusWingmanTests
     }
 
     [Fact]
-    public void Wingman_pill_survives_clear_rotation_without_going_gray()
-    {
-        // /clear (SessionEnd reason="clear") must NOT flip the session to Exited/gray.
-        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
-        var wingman = new SessionStatusWingman(manager);
-        try
-        {
-            wingman.Start();
-            var session = manager.CreateSession(Path.GetTempPath());
-
-            session.HandlePipeEvent(new Pipes.PipeMessage { HookEventName = "SessionStart" });
-            session.HandlePipeEvent(new Pipes.PipeMessage { HookEventName = "Stop" });
-            // After Stop -> WaitingForInput -> red ("needs you").
-            Assert.Equal(StatusColor.Red, session.StatusColor);
-
-            session.HandlePipeEvent(new Pipes.PipeMessage { HookEventName = "SessionEnd", Reason = "clear" });
-            Assert.NotEqual(StatusColor.Unknown, session.StatusColor);
-            Assert.NotEqual(ActivityState.Exited, session.ActivityState);
-        }
-        finally { wingman.Dispose(); manager.Dispose(); }
-    }
-
-    [Fact]
     public void Wingman_pill_goes_gray_on_real_session_end()
     {
         var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
@@ -316,7 +293,9 @@ public sealed class SessionStatusWingmanTests
         {
             wingman.Start();
             var session = manager.CreateSession(Path.GetTempPath());
-            session.HandlePipeEvent(new Pipes.PipeMessage { HookEventName = "SessionEnd", Reason = "logout" });
+            // A real session end is surfaced by the detector as the Exited state; the
+            // wingman maps that to gray ("unknown" colour).
+            session.ApplyTerminalActivityState(ActivityState.Exited);
             Assert.Equal(StatusColor.Unknown, session.StatusColor);
             Assert.Equal(ActivityState.Exited, session.ActivityState);
         }
