@@ -1,0 +1,261 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="CcDirectorClient.DictionaryPage"
+             BackgroundColor="#0B1020"
+             Shell.NavBarIsVisible="False"
+             Title="Dictionary">
+
+    <Grid>
+    <ScrollView>
+        <VerticalStackLayout Padding="20" Spacing="16">
+
+            <Label Text="CC Director Client"
+                   FontSize="26" FontAttributes="Bold" TextColor="#E6EAF2" />
+            <Label Text="One shared glossary, used by recording + voice. Edits apply on the next recording."
+                   FontSize="13" TextColor="#8A93A6" />
+
+            <!-- Save row: button enabled only when there are unsaved edits. -->
+            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
+                <Label Grid.Column="0" x:Name="SavedLabel" Text=""
+                       FontSize="13" TextColor="#5FD08A" VerticalOptions="Center"
+                       HorizontalTextAlignment="End" />
+                <Button Grid.Column="2" x:Name="SaveButton" Text="Save"
+                        BackgroundColor="#1f7a47" TextColor="White"
+                        IsEnabled="False" Clicked="OnSaveClicked" />
+            </Grid>
+
+            <!-- Loading state (shown until the first load completes). -->
+            <Label x:Name="LoadingLabel" Text="Loading dictionary..."
+                   FontSize="14" TextColor="#8A93A6"
+                   HorizontalOptions="Center" Margin="0,40" />
+
+            <!-- Error banner: surfaced verbatim on a load/save failure. -->
+            <Border x:Name="ErrorCard" IsVisible="False"
+                    BackgroundColor="#2A1417" Stroke="#E5484D" StrokeThickness="1"
+                    StrokeShape="RoundRectangle 8" Padding="12">
+                <Label x:Name="ErrorLabel" Text="" TextColor="#E5484D" FontSize="13" />
+            </Border>
+
+            <!-- All sections are hidden until the first successful load. -->
+            <VerticalStackLayout x:Name="ContentPanel" Spacing="14" IsVisible="False">
+
+                <!-- ===== Vocabulary ===== -->
+                <Border BackgroundColor="#141B2E" Stroke="#27324d" StrokeThickness="1"
+                        StrokeShape="RoundRectangle 14" Padding="16">
+                    <VerticalStackLayout Spacing="10">
+                        <Label Text="Vocabulary" FontSize="15" FontAttributes="Bold"
+                               TextColor="#E6EAF2" />
+                        <Label Text="Terms biased into speech-to-text."
+                               FontSize="12" TextColor="#8A93A6" />
+
+                        <Label x:Name="VocabEmptyLabel" Text="No vocabulary terms yet."
+                               FontSize="13" TextColor="#8A93A6" IsVisible="False" />
+
+                        <VerticalStackLayout x:Name="VocabPanel" Spacing="6"
+                                             BindableLayout.ItemsSource="{Binding Vocabulary}">
+                            <BindableLayout.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                        <Border Grid.Column="0" BackgroundColor="#1B2540"
+                                                Stroke="#27324d" StrokeThickness="1"
+                                                StrokeShape="RoundRectangle 999" Padding="12,6">
+                                            <Label Text="{Binding Term}" TextColor="#E6EAF2"
+                                                   FontSize="13" VerticalOptions="Center" />
+                                        </Border>
+                                        <Button Grid.Column="1" Text="X"
+                                                BackgroundColor="#1B2540" TextColor="#8A93A6"
+                                                FontSize="13" Padding="0" WidthRequest="40"
+                                                HeightRequest="34" CornerRadius="8"
+                                                Clicked="OnRemoveVocabClicked"
+                                                CommandParameter="{Binding}" />
+                                    </Grid>
+                                </DataTemplate>
+                            </BindableLayout.ItemTemplate>
+                        </VerticalStackLayout>
+
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8" Margin="0,4,0,0">
+                            <Entry Grid.Column="0" x:Name="VocabAddEntry"
+                                   Placeholder="add term"
+                                   PlaceholderColor="#5A6378"
+                                   BackgroundColor="#0B1020" TextColor="#E6EAF2"
+                                   Completed="OnAddVocabClicked" />
+                            <Button Grid.Column="1" Text="Add"
+                                    BackgroundColor="#2B6CB0" TextColor="White"
+                                    Clicked="OnAddVocabClicked" />
+                        </Grid>
+                    </VerticalStackLayout>
+                </Border>
+
+                <!-- ===== Common mistranscriptions ===== -->
+                <Border BackgroundColor="#141B2E" Stroke="#27324d" StrokeThickness="1"
+                        StrokeShape="RoundRectangle 14" Padding="16">
+                    <VerticalStackLayout Spacing="10">
+                        <Label Text="Common mistranscriptions" FontSize="15"
+                               FontAttributes="Bold" TextColor="#E6EAF2" />
+                        <Label Text="Correct term &lt;- wrong spellings seen in practice. Fed to the cleanup pass."
+                               FontSize="12" TextColor="#8A93A6" />
+
+                        <Label x:Name="MistransEmptyLabel" Text="No correction patterns yet."
+                               FontSize="13" TextColor="#8A93A6" IsVisible="False" />
+
+                        <VerticalStackLayout x:Name="MistransPanel" Spacing="0"
+                                             BindableLayout.ItemsSource="{Binding Mistranscriptions}">
+                            <BindableLayout.ItemTemplate>
+                                <DataTemplate>
+                                    <VerticalStackLayout Spacing="8" Padding="0,10">
+                                        <BoxView HeightRequest="1" Color="#27324d" />
+                                        <!-- Correct term + remove control -->
+                                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                                            <Button Grid.Column="0" Text="X"
+                                                    BackgroundColor="#1B2540" TextColor="#8A93A6"
+                                                    FontSize="12" Padding="0" WidthRequest="36"
+                                                    HeightRequest="30" CornerRadius="6"
+                                                    Clicked="OnRemoveTermClicked"
+                                                    CommandParameter="{Binding}" />
+                                            <Label Grid.Column="1" Text="{Binding Term}"
+                                                   FontSize="14" FontAttributes="Bold"
+                                                   TextColor="#E6EAF2" VerticalOptions="Center" />
+                                            <Label Grid.Column="2" Text="&lt;-"
+                                                   FontSize="14" TextColor="#8A93A6"
+                                                   VerticalOptions="Center" />
+                                        </Grid>
+
+                                        <!-- Wrong-spelling variants for this term -->
+                                        <VerticalStackLayout Spacing="6" Margin="20,0,0,0"
+                                                             BindableLayout.ItemsSource="{Binding Variants}">
+                                            <BindableLayout.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                                        <Border Grid.Column="0" BackgroundColor="#1B2540"
+                                                                Stroke="#27324d" StrokeThickness="1"
+                                                                StrokeShape="RoundRectangle 999" Padding="12,6">
+                                                            <Label Text="{Binding Value}" TextColor="#E6EAF2"
+                                                                   FontSize="13" VerticalOptions="Center" />
+                                                        </Border>
+                                                        <Button Grid.Column="1" Text="X"
+                                                                BackgroundColor="#1B2540" TextColor="#8A93A6"
+                                                                FontSize="13" Padding="0" WidthRequest="40"
+                                                                HeightRequest="34" CornerRadius="8"
+                                                                Clicked="OnRemoveVariantClicked"
+                                                                CommandParameter="{Binding}" />
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </BindableLayout.ItemTemplate>
+                                        </VerticalStackLayout>
+
+                                        <!-- Add a wrong spelling to this term -->
+                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8" Margin="20,0,0,0">
+                                            <Entry Grid.Column="0" Text="{Binding NewVariant, Mode=TwoWay}"
+                                                   Placeholder="add wrong spelling"
+                                                   PlaceholderColor="#5A6378"
+                                                   BackgroundColor="#0B1020" TextColor="#E6EAF2"
+                                                   Completed="OnAddVariantClicked" />
+                                            <Button Grid.Column="1" Text="Add"
+                                                    BackgroundColor="#2B6CB0" TextColor="White"
+                                                    Clicked="OnAddVariantClicked"
+                                                    CommandParameter="{Binding}" />
+                                        </Grid>
+                                    </VerticalStackLayout>
+                                </DataTemplate>
+                            </BindableLayout.ItemTemplate>
+                        </VerticalStackLayout>
+
+                        <!-- Add a new correct term -->
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8" Margin="0,8,0,0">
+                            <Entry Grid.Column="0" x:Name="TermAddEntry"
+                                   Placeholder="add a term to correct"
+                                   PlaceholderColor="#5A6378"
+                                   BackgroundColor="#0B1020" TextColor="#E6EAF2"
+                                   Completed="OnAddTermClicked" />
+                            <Button Grid.Column="1" Text="Add"
+                                    BackgroundColor="#2B6CB0" TextColor="White"
+                                    Clicked="OnAddTermClicked" />
+                        </Grid>
+                    </VerticalStackLayout>
+                </Border>
+
+                <!-- ===== Profiles ===== -->
+                <Border BackgroundColor="#141B2E" Stroke="#27324d" StrokeThickness="1"
+                        StrokeShape="RoundRectangle 14" Padding="16">
+                    <VerticalStackLayout Spacing="10">
+                        <Label Text="Profiles" FontSize="15" FontAttributes="Bold"
+                               TextColor="#E6EAF2" />
+                        <Label Text="Cleanup behavior per context."
+                               FontSize="12" TextColor="#8A93A6" />
+
+                        <Label x:Name="ProfilesEmptyLabel"
+                               Text="No profiles. A &quot;default&quot; profile is created automatically on save."
+                               FontSize="13" TextColor="#8A93A6" IsVisible="False" />
+
+                        <VerticalStackLayout x:Name="ProfilesPanel" Spacing="12"
+                                             BindableLayout.ItemsSource="{Binding Profiles}">
+                            <BindableLayout.ItemTemplate>
+                                <DataTemplate>
+                                    <Border BackgroundColor="#1B2540" Stroke="#27324d" StrokeThickness="1"
+                                            StrokeShape="RoundRectangle 12" Padding="14">
+                                        <VerticalStackLayout Spacing="10">
+                                            <Grid ColumnDefinitions="*,Auto">
+                                                <Label Grid.Column="0" Text="{Binding Name}"
+                                                       FontSize="14" FontAttributes="Bold"
+                                                       TextColor="#E6EAF2" VerticalOptions="Center" />
+                                                <Button Grid.Column="1" Text="X"
+                                                        BackgroundColor="#1B2540" TextColor="#8A93A6"
+                                                        FontSize="13" Padding="0" WidthRequest="40"
+                                                        HeightRequest="34" CornerRadius="8"
+                                                        IsVisible="{Binding CanRemove}"
+                                                        Clicked="OnRemoveProfileClicked"
+                                                        CommandParameter="{Binding}" />
+                                            </Grid>
+                                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                                                <Switch Grid.Column="0" IsToggled="{Binding CleanupEnabled, Mode=TwoWay}"
+                                                        OnColor="#5FD08A"
+                                                        Toggled="OnProfileToggled"
+                                                        VerticalOptions="Center" />
+                                                <Label Grid.Column="1" Text="apply dictionary corrections"
+                                                       FontSize="13" TextColor="#8A93A6"
+                                                       VerticalOptions="Center" />
+                                            </Grid>
+                                            <Label Text="When enabled, only dictionary terms are corrected. Your words are never reworded, summarized, or edited."
+                                                   FontSize="12" TextColor="#8A93A6" />
+                                        </VerticalStackLayout>
+                                    </Border>
+                                </DataTemplate>
+                            </BindableLayout.ItemTemplate>
+                        </VerticalStackLayout>
+
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8" Margin="0,4,0,0">
+                            <Entry Grid.Column="0" x:Name="ProfileAddEntry"
+                                   Placeholder="new profile name"
+                                   PlaceholderColor="#5A6378"
+                                   BackgroundColor="#0B1020" TextColor="#E6EAF2"
+                                   Completed="OnAddProfileClicked" />
+                            <Button Grid.Column="1" Text="Add"
+                                    BackgroundColor="#2B6CB0" TextColor="White"
+                                    Clicked="OnAddProfileClicked" />
+                        </Grid>
+                    </VerticalStackLayout>
+                </Border>
+
+            </VerticalStackLayout>
+
+        </VerticalStackLayout>
+    </ScrollView>
+
+        <!-- Top-right burger menu: switch between Talk, Recorder, Exes and Dictionary. -->
+        <Border x:Name="NavMenuButton"
+                HorizontalOptions="End" VerticalOptions="Start"
+                Margin="0,14,16,0" Padding="11,9"
+                BackgroundColor="#141B2E" Stroke="#2A3550"
+                StrokeShape="RoundRectangle 8">
+            <VerticalStackLayout Spacing="4" WidthRequest="22">
+                <BoxView HeightRequest="2" Color="#E6EAF2" />
+                <BoxView HeightRequest="2" Color="#E6EAF2" />
+                <BoxView HeightRequest="2" Color="#E6EAF2" />
+            </VerticalStackLayout>
+            <Border.GestureRecognizers>
+                <TapGestureRecognizer Tapped="OnNavMenuClicked" />
+            </Border.GestureRecognizers>
+        </Border>
+    </Grid>
+</ContentPage>

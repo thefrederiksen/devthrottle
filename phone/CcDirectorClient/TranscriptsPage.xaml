@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="CcDirectorClient.TranscriptsPage"
+             BackgroundColor="#0B1020"
+             Shell.NavBarIsVisible="False"
+             Title="Transcripts">
+
+    <Grid>
+    <ScrollView>
+        <VerticalStackLayout Padding="20" Spacing="14">
+
+            <Label Text="CC Director Client"
+                   FontSize="26" FontAttributes="Bold" TextColor="#E6EAF2" />
+            <Label Text="Recordings uploaded from the phone and transcribed. Read, edit, save to vault, or delete."
+                   FontSize="13" TextColor="#8A93A6" />
+
+            <!-- Refresh row. -->
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                <Label Grid.Column="0" x:Name="StatusLabel" Text=""
+                       FontSize="13" TextColor="#8A93A6" VerticalOptions="Center" />
+                <Button Grid.Column="1" x:Name="RefreshButton" Text="Refresh"
+                        BackgroundColor="#1B2540" TextColor="#E6EAF2"
+                        Clicked="OnRefreshClicked" />
+            </Grid>
+
+            <!-- Loading state (shown until the first load completes). -->
+            <Label x:Name="LoadingLabel" Text="Loading..."
+                   FontSize="14" TextColor="#8A93A6"
+                   HorizontalOptions="Center" Margin="0,40" />
+
+            <!-- Empty state (no recordings yet). -->
+            <Label x:Name="EmptyLabel" IsVisible="False"
+                   Text="No recordings yet. Record something on the phone and it will appear here."
+                   FontSize="14" TextColor="#8A93A6"
+                   HorizontalTextAlignment="Center" Margin="0,40" />
+
+            <!-- Error banner: surfaced verbatim on a load failure. -->
+            <Border x:Name="ErrorCard" IsVisible="False"
+                    BackgroundColor="#2A1417" Stroke="#E5484D" StrokeThickness="1"
+                    StrokeShape="RoundRectangle 8" Padding="12">
+                <Label x:Name="ErrorLabel" Text="" TextColor="#E5484D" FontSize="13" />
+            </Border>
+
+            <!-- One card per recording. -->
+            <VerticalStackLayout x:Name="ListPanel" Spacing="12"
+                                 BindableLayout.ItemsSource="{Binding Recordings}">
+                <BindableLayout.ItemTemplate>
+                    <DataTemplate>
+                        <Border BackgroundColor="#141B2E" Stroke="#27324d" StrokeThickness="1"
+                                StrokeShape="RoundRectangle 14" Padding="16">
+                            <VerticalStackLayout Spacing="0">
+
+                                <!-- Header row: tap to expand/collapse. -->
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                    <VerticalStackLayout Grid.Column="0" Spacing="1">
+                                        <Label Text="{Binding Title}" FontSize="16"
+                                               FontAttributes="Bold" TextColor="#E6EAF2" />
+                                        <Label Text="{Binding Subtitle}"
+                                               IsVisible="{Binding HasSubtitle}"
+                                               FontSize="13" TextColor="#C4CBDA" />
+                                        <Label Text="{Binding MetaLine}" FontSize="13"
+                                               TextColor="#8A93A6" Margin="0,3,0,0" />
+                                    </VerticalStackLayout>
+
+                                    <VerticalStackLayout Grid.Column="1" Spacing="6"
+                                                         HorizontalOptions="End">
+                                        <Border BackgroundColor="{Binding StateBadgeBg}"
+                                                Stroke="{Binding StateBadgeStroke}" StrokeThickness="1"
+                                                StrokeShape="RoundRectangle 999" Padding="9,2"
+                                                HorizontalOptions="End">
+                                            <Label Text="{Binding StateBadgeText}"
+                                                   TextColor="{Binding StateBadgeFg}"
+                                                   FontSize="11" FontAttributes="Bold" />
+                                        </Border>
+                                        <Border IsVisible="{Binding InVault}"
+                                                BackgroundColor="#152544" Stroke="#3A5A9A"
+                                                StrokeThickness="1" StrokeShape="RoundRectangle 999"
+                                                Padding="9,2" HorizontalOptions="End">
+                                            <Label Text="in vault" TextColor="#5B8DEF"
+                                                   FontSize="11" FontAttributes="Bold" />
+                                        </Border>
+                                    </VerticalStackLayout>
+
+                                    <Grid.GestureRecognizers>
+                                        <TapGestureRecognizer Tapped="OnCardTapped"
+                                                              CommandParameter="{Binding}" />
+                                    </Grid.GestureRecognizers>
+                                </Grid>
+
+                                <!-- Expanded body. -->
+                                <VerticalStackLayout Spacing="12" Margin="0,14,0,0"
+                                                     IsVisible="{Binding Expanded}">
+
+                                    <!-- Editable details. -->
+                                    <Border BackgroundColor="#0d1426" Stroke="#27324d"
+                                            StrokeThickness="1" StrokeShape="RoundRectangle 10"
+                                            Padding="14">
+                                        <VerticalStackLayout Spacing="10">
+                                            <Label Text="Title" FontSize="12" TextColor="#8A93A6" />
+                                            <Entry Text="{Binding EditTitle, Mode=TwoWay}"
+                                                   BackgroundColor="#0B1020" TextColor="#E6EAF2"
+                                                   PlaceholderColor="#5A6378" />
+                                            <Label Text="Subtitle" FontSize="12" TextColor="#8A93A6" />
+                                            <Entry Text="{Binding EditSubtitle, Mode=TwoWay}"
+                                                   BackgroundColor="#0B1020" TextColor="#E6EAF2"
+                                                   PlaceholderColor="#5A6378" />
+                                            <Label Text="Summary" FontSize="12" TextColor="#8A93A6" />
+                                            <Editor Text="{Binding EditSummary, Mode=TwoWay}"
+                                                    BackgroundColor="#0B1020" TextColor="#E6EAF2"
+                                                    PlaceholderColor="#5A6378"
+                                                    AutoSize="TextChanges" HeightRequest="80" />
+                                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                                <Button Grid.Column="0" Text="Save details"
+                                                        BackgroundColor="#1f7a47" TextColor="White"
+                                                        Clicked="OnSaveDetailsClicked"
+                                                        CommandParameter="{Binding}" />
+                                                <Label Grid.Column="1" Text="{Binding SaveMessage}"
+                                                       TextColor="#5FD08A" FontSize="13"
+                                                       VerticalOptions="Center" />
+                                            </Grid>
+                                        </VerticalStackLayout>
+                                    </Border>
+
+                                    <!-- Action row: save to vault + delete. -->
+                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                                        <Button Grid.Column="0" Text="{Binding VaultButtonText}"
+                                                IsEnabled="{Binding CanPromote}"
+                                                BackgroundColor="#1B2540" TextColor="#E6EAF2"
+                                                Clicked="OnSaveToVaultClicked"
+                                                CommandParameter="{Binding}" />
+                                        <Button Grid.Column="1" Text="Delete"
+                                                BackgroundColor="#3a1418" TextColor="#f0b4b6"
+                                                Clicked="OnDeleteClicked"
+                                                CommandParameter="{Binding}" />
+                                    </Grid>
+
+                                    <!-- Transcript text. -->
+                                    <Border BackgroundColor="#0d1426" Stroke="#27324d"
+                                            StrokeThickness="1" StrokeShape="RoundRectangle 10"
+                                            Padding="14">
+                                        <Label Text="{Binding TranscriptText}"
+                                               FontFamily="Monospace" FontSize="14"
+                                               TextColor="#cdd6e6" LineBreakMode="WordWrap" />
+                                    </Border>
+
+                                </VerticalStackLayout>
+
+                            </VerticalStackLayout>
+                        </Border>
+                    </DataTemplate>
+                </BindableLayout.ItemTemplate>
+            </VerticalStackLayout>
+
+        </VerticalStackLayout>
+    </ScrollView>
+
+        <!-- Top-right burger menu: switch between Talk, Recorder, Exes, Dictionary and Transcripts. -->
+        <Border x:Name="NavMenuButton"
+                HorizontalOptions="End" VerticalOptions="Start"
+                Margin="0,14,16,0" Padding="11,9"
+                BackgroundColor="#141B2E" Stroke="#2A3550"
+                StrokeShape="RoundRectangle 8">
+            <VerticalStackLayout Spacing="4" WidthRequest="22">
+                <BoxView HeightRequest="2" Color="#E6EAF2" />
+                <BoxView HeightRequest="2" Color="#E6EAF2" />
+                <BoxView HeightRequest="2" Color="#E6EAF2" />
+            </VerticalStackLayout>
+            <Border.GestureRecognizers>
+                <TapGestureRecognizer Tapped="OnNavMenuClicked" />
+            </Border.GestureRecognizers>
+        </Border>
+    </Grid>
+</ContentPage>

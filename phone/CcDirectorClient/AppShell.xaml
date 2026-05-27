@@ -4,17 +4,26 @@
     xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
     xmlns:local="clr-namespace:CcDirectorClient"
+    FlyoutBehavior="Disabled"
     Title="CcDirectorClient">
 
-    <TabBar>
-        <ShellContent
-            Title="Talk"
-            ContentTemplate="{DataTemplate local:TalkPage}"
-            Route="TalkPage" />
-        <ShellContent
-            Title="Recorder"
-            ContentTemplate="{DataTemplate local:MainPage}"
-            Route="MainPage" />
-    </TabBar>
+    <!-- Top-level pages, navigated to from the top-right burger menu on each
+         page (see OnNavMenuClicked). FlyoutBehavior=Disabled hides the built-in
+         left hamburger; there is no bottom tab bar (no TabBar wrapper). -->
+    <FlyoutItem Title="Talk" Route="TalkPage">
+        <ShellContent ContentTemplate="{DataTemplate local:TalkPage}" />
+    </FlyoutItem>
+    <FlyoutItem Title="Recorder" Route="MainPage">
+        <ShellContent ContentTemplate="{DataTemplate local:MainPage}" />
+    </FlyoutItem>
+    <FlyoutItem Title="Exes" Route="ExesPage">
+        <ShellContent ContentTemplate="{DataTemplate local:ExesPage}" />
+    </FlyoutItem>
+    <FlyoutItem Title="Dictionary" Route="DictionaryPage">
+        <ShellContent ContentTemplate="{DataTemplate local:DictionaryPage}" />
+    </FlyoutItem>
+    <FlyoutItem Title="Transcripts" Route="TranscriptsPage">
+        <ShellContent ContentTemplate="{DataTemplate local:TranscriptsPage}" />
+    </FlyoutItem>
 
 </Shell>

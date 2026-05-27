@@ -6,6 +6,7 @@
              Shell.NavBarIsVisible="False"
              Title="Talk">
 
+    <Grid>
     <ScrollView>
         <VerticalStackLayout Padding="20" Spacing="16">
 
@@ -237,4 +238,21 @@
 
         </VerticalStackLayout>
     </ScrollView>
+
+        <!-- Top-right burger menu: switch between Talk and Recorder. -->
+        <Border x:Name="NavMenuButton"
+                HorizontalOptions="End" VerticalOptions="Start"
+                Margin="0,14,16,0" Padding="11,9"
+                BackgroundColor="#141B2E" Stroke="#2A3550"
+                StrokeShape="RoundRectangle 8">
+            <VerticalStackLayout Spacing="4" WidthRequest="22">
+                <BoxView HeightRequest="2" Color="#E6EAF2" />
+                <BoxView HeightRequest="2" Color="#E6EAF2" />
+                <BoxView HeightRequest="2" Color="#E6EAF2" />
+            </VerticalStackLayout>
+            <Border.GestureRecognizers>
+                <TapGestureRecognizer Tapped="OnNavMenuClicked" />
+            </Border.GestureRecognizers>
+        </Border>
+    </Grid>
 </ContentPage>

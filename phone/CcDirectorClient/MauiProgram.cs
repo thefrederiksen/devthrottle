@@ -25,6 +25,9 @@ public static class MauiProgram
 #endif
 		builder.Services.AddSingleton<MainPage>();
 		builder.Services.AddTransient<TalkPage>();
+		builder.Services.AddTransient<ExesPage>();
+		builder.Services.AddTransient<DictionaryPage>();
+		builder.Services.AddTransient<TranscriptsPage>();
 
 #if DEBUG
 		builder.Logging.AddDebug();

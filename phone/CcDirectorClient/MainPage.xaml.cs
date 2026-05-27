@@ -286,6 +286,22 @@ public partial class MainPage : ContentPage
         return $"{prefix}{dur}  -  {stateText}  -  tap to play";
     }
 
+    // Top-right burger menu: switch between the Talk, Recorder, Exes, Dictionary and Transcripts pages.
+    private async void OnNavMenuClicked(object? sender, TappedEventArgs e)
+    {
+        var choice = await DisplayActionSheet("Go to", "Cancel", null, "Talk", "Recorder", "Exes", "Dictionary", "Transcripts");
+        if (choice == "Talk")
+            await Shell.Current.GoToAsync("//TalkPage");
+        else if (choice == "Recorder")
+            await Shell.Current.GoToAsync("//MainPage");
+        else if (choice == "Exes")
+            await Shell.Current.GoToAsync("//ExesPage");
+        else if (choice == "Dictionary")
+            await Shell.Current.GoToAsync("//DictionaryPage");
+        else if (choice == "Transcripts")
+            await Shell.Current.GoToAsync("//TranscriptsPage");
+    }
+
     private sealed record LibraryRow(
         string RecordingId, string Title, string Subtitle, string? Transcript,
         string State, string? UploadError, string? TranscriptError, double Progress, bool IsUploading,

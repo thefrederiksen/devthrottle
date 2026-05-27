@@ -1,0 +1,176 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="CcDirectorClient.ExesPage"
+             BackgroundColor="#0B1020"
+             Shell.NavBarIsVisible="False"
+             Title="Exes">
+
+    <Grid>
+    <ScrollView>
+        <VerticalStackLayout Padding="20" Spacing="16">
+
+            <Label Text="CC Director Client"
+                   FontSize="26" FontAttributes="Bold" TextColor="#E6EAF2" />
+            <Label Text="Director executables running on the Gateway's PC, with their sessions, plus the local build slots 1-4."
+                   FontSize="13" TextColor="#8A93A6" />
+
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                <Label Grid.Column="0" x:Name="StatsLabel" Text="Loading..."
+                       FontSize="14" TextColor="#E6EAF2" VerticalOptions="Center" />
+                <Button Grid.Column="1" x:Name="RefreshButton" Text="Refresh"
+                        BackgroundColor="#2B6CB0" TextColor="White" Clicked="OnRefreshClicked" />
+            </Grid>
+
+            <!-- Error banner: surfaced verbatim on a load failure. -->
+            <Border x:Name="ErrorCard" IsVisible="False"
+                    BackgroundColor="#2A1417" Stroke="#E5484D" StrokeThickness="1"
+                    StrokeShape="RoundRectangle 8" Padding="12">
+                <Label x:Name="ErrorLabel" Text="" TextColor="#E5484D" FontSize="13" />
+            </Border>
+
+            <!-- Notice when slot management is unavailable (repoRoot empty). -->
+            <Border x:Name="RepoNoticeCard" IsVisible="False"
+                    BackgroundColor="#241F0E" Stroke="#E8B339" StrokeThickness="1"
+                    StrokeShape="RoundRectangle 8" Padding="12">
+                <Label Text="Slot management is unavailable: the Gateway is not running from inside the cc-director repo, so build scripts and local_builds cannot be located."
+                       TextColor="#E8B339" FontSize="13" />
+            </Border>
+
+            <!-- ===== Running directors ===== -->
+            <Label Text="RUNNING DIRECTORS ON THIS COMPUTER" FontSize="12"
+                   FontAttributes="Bold" TextColor="#8A93A6" />
+
+            <Label x:Name="NoDirectorsLabel" Text="No Director processes are running on this computer."
+                   FontSize="13" TextColor="#8A93A6" IsVisible="False" />
+
+            <VerticalStackLayout x:Name="DirectorsPanel" Spacing="12"
+                                 BindableLayout.ItemsSource="{Binding Directors}">
+                <BindableLayout.ItemTemplate>
+                    <DataTemplate>
+                        <Border BackgroundColor="#141B2E" Stroke="#2A3550" StrokeThickness="1"
+                                StrokeShape="RoundRectangle 10" Padding="14">
+                            <VerticalStackLayout Spacing="8">
+                                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                                    <Border Grid.Column="0" BackgroundColor="{Binding SlotBadgeColor}"
+                                            StrokeShape="RoundRectangle 6" Padding="9,2"
+                                            VerticalOptions="Center">
+                                        <Label Text="{Binding SlotLabel}" TextColor="White"
+                                               FontSize="12" FontAttributes="Bold" />
+                                    </Border>
+                                    <Label Grid.Column="1" Text="{Binding Meta}" TextColor="#8A93A6"
+                                           FontSize="12" VerticalOptions="Center" />
+                                    <Button Grid.Column="2" Text="Kill"
+                                            BackgroundColor="#E5484D" TextColor="White"
+                                            FontSize="12" Padding="14,0" HeightRequest="36"
+                                            CornerRadius="6"
+                                            Clicked="OnKillDirectorClicked"
+                                            CommandParameter="{Binding}" />
+                                </Grid>
+
+                                <Label Text="{Binding ExePath}" TextColor="#5A6378" FontSize="11"
+                                       FontFamily="Monospace" LineBreakMode="TailTruncation"
+                                       IsVisible="{Binding HasExePath}" />
+
+                                <!-- Sessions block -->
+                                <BoxView HeightRequest="1" Color="#2A3550" Margin="0,2" />
+
+                                <Label Text="{Binding SessionsNotice}" TextColor="#5A6378"
+                                       FontSize="12" FontAttributes="Italic"
+                                       IsVisible="{Binding ShowSessionsNotice}" />
+
+                                <VerticalStackLayout Spacing="4"
+                                                     BindableLayout.ItemsSource="{Binding Sessions}">
+                                    <BindableLayout.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid ColumnDefinitions="Auto,Auto,Auto,*" ColumnSpacing="8">
+                                                <Border Grid.Column="0" WidthRequest="12" HeightRequest="12"
+                                                        StrokeShape="RoundRectangle 6"
+                                                        BackgroundColor="{Binding Dot}"
+                                                        VerticalOptions="Center" />
+                                                <Label Grid.Column="1" Text="{Binding Name}"
+                                                       TextColor="{Binding NameColor}"
+                                                       FontAttributes="{Binding NameAttributes}"
+                                                       FontSize="13" VerticalOptions="Center" />
+                                                <Border Grid.Column="2" BackgroundColor="#1A2236"
+                                                        Stroke="#2A3550" StrokeThickness="1"
+                                                        StrokeShape="RoundRectangle 8" Padding="6,1"
+                                                        VerticalOptions="Center">
+                                                    <Label Text="{Binding Agent}" TextColor="#8A93A6"
+                                                           FontSize="10" />
+                                                </Border>
+                                                <Label Grid.Column="3" Text="{Binding StateLine}"
+                                                       TextColor="#8A93A6" FontSize="12"
+                                                       VerticalOptions="Center" />
+                                            </Grid>
+                                        </DataTemplate>
+                                    </BindableLayout.ItemTemplate>
+                                </VerticalStackLayout>
+                            </VerticalStackLayout>
+                        </Border>
+                    </DataTemplate>
+                </BindableLayout.ItemTemplate>
+            </VerticalStackLayout>
+
+            <!-- ===== Build slots ===== -->
+            <Label Text="BUILD SLOTS (1-4)" FontSize="12"
+                   FontAttributes="Bold" TextColor="#8A93A6" Margin="0,8,0,0" />
+
+            <Label x:Name="SlotsUnavailableLabel" Text="Unavailable (see notice above)."
+                   FontSize="13" TextColor="#8A93A6" IsVisible="False" />
+
+            <VerticalStackLayout x:Name="SlotsPanel" Spacing="12"
+                                 BindableLayout.ItemsSource="{Binding Slots}">
+                <BindableLayout.ItemTemplate>
+                    <DataTemplate>
+                        <Border BackgroundColor="#141B2E" Stroke="#2A3550" StrokeThickness="1"
+                                StrokeShape="RoundRectangle 10" Padding="14">
+                            <VerticalStackLayout Spacing="8">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <Label Grid.Column="0" Text="{Binding Title}" TextColor="#E6EAF2"
+                                           FontSize="14" FontAttributes="Bold" VerticalOptions="Center" />
+                                    <Label Grid.Column="1" Text="{Binding Status}"
+                                           TextColor="{Binding StatusColor}" FontSize="12"
+                                           VerticalOptions="Center" />
+                                </Grid>
+                                <Label Text="{Binding Sub}" TextColor="#8A93A6" FontSize="11" />
+                                <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+                                    <Button Grid.Column="0" Text="{Binding BuildButtonText}"
+                                            BackgroundColor="#2B6CB0" TextColor="White"
+                                            HeightRequest="44" CornerRadius="8" FontSize="13"
+                                            IsEnabled="{Binding CanBuild}"
+                                            Clicked="OnBuildStartClicked"
+                                            CommandParameter="{Binding}" />
+                                    <Button Grid.Column="1" Text="Delete"
+                                            BackgroundColor="#E5484D" TextColor="White"
+                                            HeightRequest="44" CornerRadius="8" FontSize="13"
+                                            IsEnabled="{Binding CanDelete}"
+                                            Clicked="OnDeleteSlotClicked"
+                                            CommandParameter="{Binding}" />
+                                </Grid>
+                            </VerticalStackLayout>
+                        </Border>
+                    </DataTemplate>
+                </BindableLayout.ItemTemplate>
+            </VerticalStackLayout>
+
+        </VerticalStackLayout>
+    </ScrollView>
+
+        <!-- Top-right burger menu: switch between Talk, Recorder and Exes. -->
+        <Border x:Name="NavMenuButton"
+                HorizontalOptions="End" VerticalOptions="Start"
+                Margin="0,14,16,0" Padding="11,9"
+                BackgroundColor="#141B2E" Stroke="#2A3550"
+                StrokeShape="RoundRectangle 8">
+            <VerticalStackLayout Spacing="4" WidthRequest="22">
+                <BoxView HeightRequest="2" Color="#E6EAF2" />
+                <BoxView HeightRequest="2" Color="#E6EAF2" />
+                <BoxView HeightRequest="2" Color="#E6EAF2" />
+            </VerticalStackLayout>
+            <Border.GestureRecognizers>
+                <TapGestureRecognizer Tapped="OnNavMenuClicked" />
+            </Border.GestureRecognizers>
+        </Border>
+    </Grid>
+</ContentPage>
