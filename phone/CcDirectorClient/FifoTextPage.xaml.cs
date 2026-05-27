@@ -363,8 +363,8 @@ public partial class FifoTextPage : ContentPage
     // Top-right burger menu: switch between pages.
     private async void OnNavMenuClicked(object? sender, TappedEventArgs e)
     {
-        var choice = await DisplayActionSheet("Go to", "Cancel", null, "Talk", "FIFO", "FIFO Text", "Notes", "Exes", "Dictionary", "Transcripts");
-        if (choice == "Talk")
+        var choice = await DisplayActionSheet("Go to", "Cancel", null, "Sessions", "FIFO", "FIFO Text", "Notes", "Exes", "Dictionary", "Transcripts");
+        if (choice == "Sessions")
             await Shell.Current.GoToAsync("//TalkPage");
         else if (choice == "FIFO")
             await Shell.Current.GoToAsync("//FifoPage");

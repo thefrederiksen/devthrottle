@@ -299,8 +299,8 @@ public partial class ExesPage : ContentPage
     // Top-right burger menu: switch between the Talk, Recorder, Exes, Dictionary and Transcripts pages.
     private async void OnNavMenuClicked(object? sender, TappedEventArgs e)
     {
-        var choice = await DisplayActionSheet("Go to", "Cancel", null, "Talk", "Notes", "Exes", "Dictionary", "Transcripts");
-        if (choice == "Talk")
+        var choice = await DisplayActionSheet("Go to", "Cancel", null, "Sessions", "Notes", "Exes", "Dictionary", "Transcripts");
+        if (choice == "Sessions")
             await Shell.Current.GoToAsync("//TalkPage");
         else if (choice == "Notes")
             await Shell.Current.GoToAsync("//MainPage");

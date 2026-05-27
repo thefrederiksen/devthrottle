@@ -4,15 +4,15 @@
              x:Class="CcDirectorClient.TalkPage"
              BackgroundColor="#0B1020"
              Shell.NavBarIsVisible="False"
-             Title="Talk">
+             Title="Sessions">
 
     <Grid>
     <ScrollView>
         <VerticalStackLayout Padding="20" Spacing="16">
 
-            <Label Text="CC Director Client"
+            <Label Text="Sessions"
                    FontSize="26" FontAttributes="Bold" TextColor="#E6EAF2" />
-            <Label Text="Talk to a Claude Code session by voice. Push to talk, push to send, hear the reply."
+            <Label Text="Pick a session to talk to one-on-one, or start FIFO to go through everything that needs you."
                    FontSize="13" TextColor="#8A93A6" />
 
             <!-- ===== Session list (roster) ===== -->
@@ -25,9 +25,9 @@
                 </Grid>
                 <Label x:Name="ListStatusLabel" Text="Loading sessions..." FontSize="13" TextColor="#8A93A6" />
 
-                <Button x:Name="ConductorButton" Text="Talk to all sessions that need me"
+                <Button x:Name="FifoButton" Text="FIFO - go through everything that needs me"
                         BackgroundColor="#6B46C1" TextColor="White" HeightRequest="50"
-                        CornerRadius="12" Clicked="OnConductorClicked" />
+                        CornerRadius="12" Clicked="OnFifoClicked" />
 
                 <CollectionView x:Name="SessionsList" SelectionMode="Single"
                                 SelectionChanged="OnSessionSelected" HeightRequest="420">
@@ -129,10 +129,6 @@
                     <Button x:Name="AskWingmanButton" Text="Ask Wingman"
                             BackgroundColor="#0E7C6B" TextColor="White" HeightRequest="62"
                             CornerRadius="14" FontSize="16" Clicked="OnAskWingmanClicked" />
-
-                    <Button x:Name="NextButton" Text="Next session" IsVisible="False"
-                            BackgroundColor="#6B46C1" TextColor="White" HeightRequest="54"
-                            CornerRadius="12" Clicked="OnNextClicked" />
 
                     <Border BackgroundColor="#0F1626" StrokeShape="RoundRectangle 12" Padding="14">
                         <VerticalStackLayout Spacing="10">

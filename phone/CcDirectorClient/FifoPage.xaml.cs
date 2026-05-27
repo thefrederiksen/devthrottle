@@ -324,7 +324,7 @@ public partial class FifoPage : ContentPage
             SetFifoStatus("Reading what's happening...", StatusBlue);
             await convo.SpeakExplainAsync(session, OnTurnUpdate, ct);
             if (!ct.IsCancellationRequested)
-                SetFifoStatus("Answer, Skip, or Hold", StatusGreen);
+                SetFifoStatus("Ask Agent, Skip, or Hold", StatusGreen);
         }
         catch (OperationCanceledException)
         {
@@ -425,8 +425,8 @@ public partial class FifoPage : ContentPage
             RecordingCard.IsVisible = false;
             LevelMeter.Progress = 0;
             try { await _recorder.StopAsync(); } catch { /* discard the half-captured clip */ }
-            SetAnswerButton(recording: false, busy: false);
-            SetFifoStatus("Answer, Skip, or Hold", StatusGreen);
+            SetIdleButtons();
+            SetFifoStatus("Ask Agent, Skip, or Hold", StatusGreen);
         }
         catch (Exception ex)
         {
@@ -454,7 +454,10 @@ public partial class FifoPage : ContentPage
                 _recordingForWingman = wingman;
                 _foreground.Start();
                 await _recorder.StartAsync();
-                SetAnswerButton(recording: true, busy: false);
+                SetRecordingButtons(wingman);
+                RecordingHintLabel.Text = wingman
+                    ? "Recording - tap Ask Wingman to send"
+                    : "Recording - tap Ask Agent to send";
                 _recStart = DateTime.UtcNow;
                 RecElapsedLabel.Text = "00:00";
                 LevelMeter.Progress = 0;
@@ -482,7 +485,7 @@ public partial class FifoPage : ContentPage
             RecordingCard.IsVisible = false;
             LevelMeter.Progress = 0;
             SetFifoStatus("Something went wrong", StatusRed);
-            SetAnswerButton(recording: false, busy: false);
+            SetIdleButtons();
             await DisplayAlert("Voice error", ex.Message, "OK");
         }
     }
@@ -508,7 +511,7 @@ public partial class FifoPage : ContentPage
                     await MarkHandledAndAdvanceAsync(session, wasHold: true);
                     break;
                 case VoiceConversation.FifoOutcomeKind.WingmanAnswered:
-                    SetFifoStatus("Answer, Skip, or Hold", StatusGreen);
+                    SetFifoStatus("Ask Agent, Skip, or Hold", StatusGreen);
                     SetBusy(false);
                     break;
             }
@@ -631,43 +634,75 @@ public partial class FifoPage : ContentPage
     private void SetBusy(bool busy)
     {
         _busy = busy;
-        SkipButton.IsEnabled = !busy;
-        HoldButton.IsEnabled = !busy;
-        AskWingmanButton.IsEnabled = !busy;
-        SetAnswerButton(recording: false, busy: busy);
+        if (busy) SetBusyButtons();
+        else SetIdleButtons();
     }
 
-    private void SetAnswerButton(bool recording, bool busy)
+    // ===== action-button states (issue #143) ==============================
+    // The two primary buttons keep their identity WORDS at all times ("Ask Agent" /
+    // "Ask Wingman", set in XAML and never changed here); state is shown by colour and
+    // enablement only, so a driver is never confused about which button talks to whom.
+
+    private static readonly Color AgentGreen = Color.FromArgb("#5FD08A");
+    private static readonly Color AgentText = Color.FromArgb("#06210F");
+    private static readonly Color WingmanTeal = Color.FromArgb("#0E7C6B");
+    private static readonly Color RecordingRed = Color.FromArgb("#E5484D");
+    private static readonly Color DisabledGrey = Color.FromArgb("#6B7280");
+
+    // Resting: both primaries live, Skip / Hold available.
+    private void SetIdleButtons()
     {
-        // The button's identity never changes (always "Ask Agent") so that while driving
-        // the user is never confused about which button talks to the agent. State is shown
-        // by colour only: green = ready, red = recording (tap again to send), grey = busy.
-        AnswerButton.IsEnabled = !busy;
-        AnswerButton.Text = "Ask Agent";
-        if (busy)
-        {
-            AnswerButton.BackgroundColor = Color.FromArgb("#6B7280");
-            AnswerButton.TextColor = Colors.White;
-        }
-        else if (recording)
-        {
-            AnswerButton.BackgroundColor = Color.FromArgb("#E5484D");
-            AnswerButton.TextColor = Colors.White;
-        }
-        else
-        {
-            AnswerButton.BackgroundColor = Color.FromArgb("#5FD08A");
-            AnswerButton.TextColor = Color.FromArgb("#06210F");
-        }
+        AnswerButton.IsEnabled = true;
+        AnswerButton.BackgroundColor = AgentGreen;
+        AnswerButton.TextColor = AgentText;
+
+        AskWingmanButton.IsEnabled = true;
+        AskWingmanButton.BackgroundColor = WingmanTeal;
+        AskWingmanButton.TextColor = Colors.White;
+
+        SkipButton.IsEnabled = true;
+        HoldButton.IsEnabled = true;
+    }
+
+    // Recording: the button being recorded turns red (tap it again to send); every other
+    // control is disabled so the only moves are send (the red button) or Cancel. This also
+    // closes a latent bug where Skip mid-recording advanced without stopping the mic.
+    private void SetRecordingButtons(bool wingman)
+    {
+        AnswerButton.IsEnabled = !wingman;
+        AnswerButton.BackgroundColor = wingman ? DisabledGrey : RecordingRed;
+        AnswerButton.TextColor = Colors.White;
+
+        AskWingmanButton.IsEnabled = wingman;
+        AskWingmanButton.BackgroundColor = wingman ? RecordingRed : DisabledGrey;
+        AskWingmanButton.TextColor = Colors.White;
+
+        SkipButton.IsEnabled = false;
+        HoldButton.IsEnabled = false;
+    }
+
+    // Busy (a turn is running): everything disabled and dimmed.
+    private void SetBusyButtons()
+    {
+        AnswerButton.IsEnabled = false;
+        AnswerButton.BackgroundColor = DisabledGrey;
+        AnswerButton.TextColor = Colors.White;
+
+        AskWingmanButton.IsEnabled = false;
+        AskWingmanButton.BackgroundColor = DisabledGrey;
+        AskWingmanButton.TextColor = Colors.White;
+
+        SkipButton.IsEnabled = false;
+        HoldButton.IsEnabled = false;
     }
 
     // Top-right burger menu: switch between pages.
     private async void OnNavMenuClicked(object? sender, TappedEventArgs e)
     {
-        var choice = await DisplayActionSheet("Go to", "Cancel", null, "Talk", "FIFO", "FIFO Text", "Notes", "Exes", "Dictionary", "Transcripts");
+        var choice = await DisplayActionSheet("Go to", "Cancel", null, "Sessions", "FIFO", "FIFO Text", "Notes", "Exes", "Dictionary", "Transcripts");
         if (string.IsNullOrEmpty(choice) || choice == "Cancel") return;
         CancelSpeechAndTurn();
-        if (choice == "Talk")
+        if (choice == "Sessions")
             await Shell.Current.GoToAsync("//TalkPage");
         else if (choice == "FIFO")
             await Shell.Current.GoToAsync("//FifoPage");

@@ -134,7 +134,7 @@
                                 <Border Grid.Column="0" WidthRequest="12" HeightRequest="12"
                                         StrokeShape="RoundRectangle 6" BackgroundColor="#E5484D"
                                         VerticalOptions="Center" />
-                                <Label Grid.Column="1" Text="Recording - tap Ask Agent to send"
+                                <Label Grid.Column="1" x:Name="RecordingHintLabel" Text="Recording - tap Ask Agent to send"
                                        TextColor="#E6EAF2" FontAttributes="Bold" VerticalOptions="Center" />
                                 <Label Grid.Column="2" x:Name="RecElapsedLabel" Text="00:00"
                                        TextColor="#8A93A6" VerticalOptions="Center" />

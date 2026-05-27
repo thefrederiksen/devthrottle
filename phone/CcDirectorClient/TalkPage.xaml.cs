@@ -49,11 +49,6 @@ public partial class TalkPage : ContentPage
     private bool _backgrounded;
     private bool _lifecycleHooked;
 
-    // Conductor mode: rotate only through sessions that need the user, one at a
-    // time, waiting after each (push-to-talk reply or Next). Nothing auto-advances.
-    private readonly ConductorState _conductor = new();
-    private bool _conductorMode;
-
     // True when the current push-to-talk recording should be routed to the wingman
     // (the user tapped "Ask Wingman" rather than "Talk"). Set when recording starts,
     // read when it stops. Saying "Hey wingman ..." routes server-side regardless.
@@ -229,8 +224,6 @@ public partial class TalkPage : ContentPage
 
     private void EnterTalk(SessionInfo session)
     {
-        _conductorMode = false;
-        NextButton.IsVisible = false;
         ShowTalkPanelFor(session);
         // Mark the session as in walkie-talkie voice mode so the desktop tile, the web
         // view, and the roster all show it is being talked to. Best-effort and
@@ -352,119 +345,25 @@ public partial class TalkPage : ContentPage
             _ = new DirectorVoiceClient(TokenEntry.Text ?? "")
                 .SetVoiceModeAsync(_selected.TailnetEndpoint, _selected.SessionId, false);
         _selected = null;
-        _conductorMode = false;
-        NextButton.IsVisible = false;
         _foreground.Stop(); // leaving the conversation; release the background hold
         TalkPanel.IsVisible = false;
         ListPanel.IsVisible = true;
         _ = LoadRosterAsync();
     }
 
-    // ===== all-sessions conductor ==========================================
+    // ===== FIFO launcher ===================================================
 
-    private async void OnConductorClicked(object? sender, EventArgs e)
+    // The "go through everything that needs me" walkthrough now lives entirely on the FIFO
+    // page (the old all-sessions conductor was removed in favour of it). This screen is just
+    // the session browser; the FIFO button hands off to that conveyor.
+    private async void OnFifoClicked(object? sender, EventArgs e)
     {
-        if (_busy) return;
-        try
-        {
-            // Replies use the mic, and we want the foreground hold up before the
-            // first spoken item so backgrounding mid-recap does not cut it off.
-            // Required order on Android 14+: permission before starting the
-            // microphone-typed foreground service.
-            var status = await Permissions.RequestAsync<Permissions.Microphone>();
-            if (status != PermissionStatus.Granted)
-            {
-                await DisplayAlert("Microphone needed",
-                    "CC Director Client needs microphone access to reply to sessions.", "OK");
-                return;
-            }
-
-            ListStatusLabel.Text = "Finding sessions that need you...";
-            var gateway = new GatewayClient(ServerEntry.Text ?? "", TokenEntry.Text ?? "");
-            var roster = await gateway.GetRosterAsync();
-            _conductor.Update(roster);
-
-            if (!_conductor.HasWork)
-            {
-                ListStatusLabel.Text = "No sessions need you right now.";
-                await DisplayAlert("All caught up", "No sessions need you right now.", "OK");
-                return;
-            }
-
-            _conductorMode = true;
-            _foreground.Start();
-            NextButton.IsVisible = true;
-            await SpeakCurrentConductorItemAsync();
-        }
-        catch (Exception ex)
-        {
-            ListStatusLabel.Text = $"Could not start conductor: {ex.Message}";
-            await DisplayAlert("Conductor error", ex.Message, "OK");
-        }
-    }
-
-    private async void OnNextClicked(object? sender, EventArgs e)
-    {
-        if (_busy || !_conductorMode) return;
-        try
-        {
-            // Refresh first so a session that has been resolved drops out, then
-            // move to the next one. Only the explicit Next advances - nothing auto-rotates.
-            var gateway = new GatewayClient(ServerEntry.Text ?? "", TokenEntry.Text ?? "");
-            var roster = await gateway.GetRosterAsync();
-            _conductor.Update(roster);
-            _conductor.Advance();
-
-            if (!_conductor.HasWork)
-            {
-                await DisplayAlert("All caught up", "No more sessions need you.", "OK");
-                OnBackClicked(this, EventArgs.Empty);
-                return;
-            }
-            await SpeakCurrentConductorItemAsync();
-        }
-        catch (Exception ex)
-        {
-            await DisplayAlert("Conductor error", ex.Message, "OK");
-        }
-    }
-
-    private async Task SpeakCurrentConductorItemAsync()
-    {
-        var session = _conductor.Current;
-        if (session is null) { OnBackClicked(this, EventArgs.Empty); return; }
-
-        ShowTalkPanelFor(session);
-        TalkSessionState.Text = $"Needs you - {_conductor.Count} in queue";
-        SetTalkButton(recording: false, busy: true);
-        SetVoiceStatus("Reading...", StatusBlue);
-        TurnStatusLabel.Text = "";
-
         _turnCts?.Cancel();
-        _turnCts = new CancellationTokenSource();
-        var convo = new VoiceConversation(new DirectorVoiceClient(TokenEntry.Text ?? ""), _tts);
-        try
-        {
-            await convo.SpeakConductorItemAsync(session, OnTurnUpdate, _turnCts.Token);
-            SetVoiceStatus("Push Talk to reply, or Next", StatusGreen);
-            TurnStatusLabel.Text = "";
-        }
-        catch (OperationCanceledException)
-        {
-            // User left the conductor; nothing to report.
-        }
-        catch (Exception ex)
-        {
-            TurnStatusLabel.Text = "";
-            await DisplayAlert("Voice error", ex.Message, "OK");
-        }
-        finally
-        {
-            SetTalkButton(recording: false, busy: false);
-        }
+        _tts.Stop();
+        await Shell.Current.GoToAsync("//FifoPage");
     }
 
-    // "Talk" -> route to the agent (unless the user says "Hey wingman ...").
+    // "Ask Agent" -> route to the agent (unless the user says "Hey wingman ...").
     private async void OnTalkClicked(object? sender, EventArgs e) => await HandleTalkButtonAsync(wingman: false);
 
     // "Ask Wingman" -> force this push-to-talk turn to the read-only wingman, no wake
@@ -872,12 +771,12 @@ public partial class TalkPage : ContentPage
     // Top-right burger menu: switch between the Talk, Recorder, Exes, Dictionary and Transcripts pages.
     private async void OnNavMenuClicked(object? sender, TappedEventArgs e)
     {
-        var choice = await DisplayActionSheet("Go to", "Cancel", null, "Talk", "FIFO", "FIFO Text", "Notes", "Exes", "Dictionary", "Transcripts");
+        var choice = await DisplayActionSheet("Go to", "Cancel", null, "Sessions", "FIFO", "FIFO Text", "Notes", "Exes", "Dictionary", "Transcripts");
         if (string.IsNullOrEmpty(choice) || choice == "Cancel") return;
         StopVoiceForNavigation();
         if (choice == "Notes")
             await Shell.Current.GoToAsync("//MainPage");
-        else if (choice == "Talk")
+        else if (choice == "Sessions")
             await Shell.Current.GoToAsync("//TalkPage");
         else if (choice == "FIFO")
             await Shell.Current.GoToAsync("//FifoPage");

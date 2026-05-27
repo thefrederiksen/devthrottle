@@ -10,7 +10,7 @@
     <!-- Top-level pages, navigated to from the top-right burger menu on each
          page (see OnNavMenuClicked). FlyoutBehavior=Disabled hides the built-in
          left hamburger; there is no bottom tab bar (no TabBar wrapper). -->
-    <FlyoutItem Title="Talk" Route="TalkPage">
+    <FlyoutItem Title="Sessions" Route="TalkPage">
         <ShellContent ContentTemplate="{DataTemplate local:TalkPage}" />
     </FlyoutItem>
     <FlyoutItem Title="FIFO" Route="FifoPage">
