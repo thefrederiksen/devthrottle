@@ -171,9 +171,11 @@ public sealed class VoiceConversation
             || string.Equals(result.Status, "no_session_configured", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException($"could not deliver your answer (status '{result.Status}'): {result.Error}");
 
-        var receipt = $"Sent to {session.DisplayName}.";
-        onUpdate?.Invoke(new TurnUpdate("delivered", receipt));
-        await SpeakAsync(session.TailnetEndpoint,receipt, ct);
+        // The point of FIFO Answer is to deposit the text and immediately move on. We do
+        // NOT speak a receipt here: awaiting it would delay the advance, and it would then
+        // talk over the next session's briefing. The UI still shows "Sent to X"; the audible
+        // cue that we moved on is the next session's briefing (or the "all caught up" idle line).
+        onUpdate?.Invoke(new TurnUpdate("delivered", $"Sent to {session.DisplayName}."));
         return new FifoOutcome(FifoOutcomeKind.Delivered, transcript);
     }
 

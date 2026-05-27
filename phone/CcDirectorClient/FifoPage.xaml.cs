@@ -65,6 +65,12 @@ public partial class FifoPage : ContentPage
     // Cancels the in-flight turn / briefing so Exit can abandon it.
     private CancellationTokenSource? _turnCts;
 
+    // True while the app is in the background (the user switched to another app such as
+    // Waze). Speech and the recheck loop must keep running then; they are only torn down
+    // on a real in-app navigation away. Set from the Window lifecycle (see HookAppLifecycle).
+    private bool _backgrounded;
+    private bool _lifecycleHooked;
+
     public FifoPage(IUtteranceRecorder recorder, IReplySpeaker tts, IVoiceForeground foreground)
     {
         InitializeComponent();
@@ -110,6 +116,8 @@ public partial class FifoPage : ContentPage
     {
         base.OnAppearing();
         DeviceDisplay.Current.KeepScreenOn = true;
+        _backgrounded = false;
+        HookAppLifecycle();
         _ = LoadQueueCountAsync();
     }
 
@@ -117,8 +125,19 @@ public partial class FifoPage : ContentPage
     {
         base.OnDisappearing();
         DeviceDisplay.Current.KeepScreenOn = false;
-        _turnCts?.Cancel();
         _levelTimer.Stop();
+
+        // The app went to the background (e.g. the user switched to Waze in the car):
+        // keep the in-flight turn, the spoken reply, the 5-minute recheck loop, and the
+        // foreground service ALL alive so speech keeps playing and FIFO resumes on return.
+        // Tearing down here is only correct for a real in-app navigation away.
+        if (_backgrounded) return;
+
+        // Real navigation away from the FIFO screen: cancel the turn so a late reply can
+        // never come back and overlap a prompt on the next screen, stop the recheck loop,
+        // stop speech, and release the voice / foreground resources.
+        UnhookAppLifecycle();
+        _turnCts?.Cancel();
         _recheckTimer.Stop();
         if (_recorder.IsRecording)
         {
@@ -127,6 +146,43 @@ public partial class FifoPage : ContentPage
         _tts.Stop();
         ClearVoiceMode(_current);
         _foreground.Stop();
+    }
+
+    // ===== app background vs in-app navigation =============================
+
+    // Speech must keep playing while the app is merely backgrounded (the user glances at
+    // Waze), but must be cut the moment they navigate to another screen so prompts never
+    // overlap. The MAUI Window fires Deactivated when the app loses focus and does NOT
+    // fire on in-app page navigation, so it tells an OnDisappearing caused by backgrounding
+    // apart from one caused by navigation.
+    private void HookAppLifecycle()
+    {
+        if (_lifecycleHooked || Window is null) return;
+        Window.Deactivated += OnWindowDeactivated;
+        Window.Activated += OnWindowActivated;
+        _lifecycleHooked = true;
+    }
+
+    private void UnhookAppLifecycle()
+    {
+        if (!_lifecycleHooked) return;
+        if (Window is not null)
+        {
+            Window.Deactivated -= OnWindowDeactivated;
+            Window.Activated -= OnWindowActivated;
+        }
+        _lifecycleHooked = false;
+    }
+
+    private void OnWindowDeactivated(object? sender, EventArgs e) => _backgrounded = true;
+    private void OnWindowActivated(object? sender, EventArgs e) => _backgrounded = false;
+
+    // Cancel the current voice turn and silence playback immediately when the user picks
+    // another screen, so the in-flight reply cannot arrive late and talk over the next page.
+    private void StopVoiceForNavigation()
+    {
+        _turnCts?.Cancel();
+        _tts.Stop();
     }
 
     // ===== start panel =====================================================
@@ -548,6 +604,8 @@ public partial class FifoPage : ContentPage
     private async void OnNavMenuClicked(object? sender, TappedEventArgs e)
     {
         var choice = await DisplayActionSheet("Go to", "Cancel", null, "Talk", "FIFO", "FIFO Text", "Notes", "Exes", "Dictionary", "Transcripts");
+        if (string.IsNullOrEmpty(choice) || choice == "Cancel") return;
+        StopVoiceForNavigation();
         if (choice == "Talk")
             await Shell.Current.GoToAsync("//TalkPage");
         else if (choice == "FIFO")
