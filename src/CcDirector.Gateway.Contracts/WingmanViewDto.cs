@@ -36,6 +36,13 @@ public sealed class WingmanViewDto
     public List<WingmanEventDto> Events { get; set; } = new();
 
     /// <summary>
+    /// Recent Wingman actuations on this session's terminal (type / keys / submit),
+    /// newest first. The audit trail for the structured-intent action path; empty when
+    /// the Wingman has not acted on this session.
+    /// </summary>
+    public List<WingmanActionDto> Actions { get; set; } = new();
+
+    /// <summary>
     /// Latest TurnSummary the wingman has consumed, if any. The Session View
     /// renders this for the "what just happened" pane. Null if no summary yet.
     /// </summary>

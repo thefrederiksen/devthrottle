@@ -50,6 +50,8 @@ internal static class WingmanContextBuilder
         }
         catch { /* best-effort; not having git is fine */ }
 
+        var (screenRows, cursorRow, cursorCol) = session.SnapshotScreenRowsWithCursor();
+
         return new WingmanAskContext
         {
             SessionId = session.Id.ToString(),
@@ -62,6 +64,9 @@ internal static class WingmanContextBuilder
             RecentWingmanEvents = events,
             RecentTurnSummaries = summaries,
             BufferTailText = bufferTail,
+            ScreenRows = screenRows,
+            CursorRow = cursorRow,
+            CursorCol = cursorCol,
         };
     }
 }

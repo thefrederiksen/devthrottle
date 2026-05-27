@@ -30,9 +30,20 @@ under `src/CcDirector.Core/Wingman/` violates the mechanical ones.
    are back-compat aliases of `Model`. (Audited: no cheap-model literal in Wingman source.)
    Note: this applies to the **content** features in sections 4-5. Turn-**state detection**
    (section 3) uses no model at all.
-2. **Read-only.** The Wingman observes; it never writes to, sends to, or resizes a session.
-   Any full-power Wingman session gets a read-only tool allow-list (`Read Grep Glob`) only.
-   (Audited: no non-read-only `allowedTools`.)
+2. **The Wingman's LLM calls are read-only.** No Wingman LLM call may write to a session.
+   Any full-power Wingman session gets a read-only tool allow-list (`Read Grep Glob`) only,
+   and the side-calls are tool-less (`--tools ""`). (Audited: no non-read-only `allowedTools`.)
+   Actuation does NOT change this: when the Wingman acts on a terminal it does so via the
+   structured-intent path (section 7), where the **Director** writes - the model only ever
+   returns a proposed action and is never handed a write tool.
+7. **One write chokepoint.** All Wingman actuation goes through `WingmanActionExecutor`; it is
+   the only file under `src/CcDirector.Core/Wingman/` allowed to call a Session write method,
+   and every actuation it performs is logged. (Audited.)
+8. **Actuation is request-driven - the Wingman never acts on its own.** Every action originates
+   from an explicit `POST /sessions/{sid}/wingman/act`. There is no turn-completion hook, timer,
+   or background loop that invokes actuation; the Wingman does not wake up and "figure out what
+   to do" after a turn. (Audited: nothing under `src/CcDirector.Core/Wingman/` calls
+   `WingmanActionExecutor.Execute`.)
 3. **Faithful, not summarizing, when content is asked for.** Status outputs (badge, terse
    briefing) may be short, but when the user asks to *read* content ("read me the article")
    the Wingman reproduces it verbatim, complete, no length cap.
@@ -125,6 +136,41 @@ that). They each read this session's own terminal transcript.
 - **Rules / memory enforcement** - `CheckRulesAsync` (CLAUDE.md violations).
 - **Goal tracking** - `AssessGoalAsync` (on-track / drifting / complete).
 - **Git awareness / crash recovery** - `GitSnapshotAsync`, `BuildRecoveryPromptAsync` (no LLM).
+
+---
+
+## 5b. Actuation (structured-intent): the Wingman acts, the Director writes
+
+The Wingman can act on a session's input prompt - type, press named keys, or submit a line -
+without ever being handed a write tool. The split is the whole point:
+
+1. **Decide (LLM, tool-less, read-only).** `WingmanService.DecideSessionActionAsync` runs a
+   strong-model `claude --print --tools ""` side-call over the session's live screen + cursor
+   (`Session.SnapshotScreenRowsWithCursor`), pending question, and state. It returns a
+   `WingmanAction` JSON: `none | type | send_keys | submit`. The model proposes; it cannot
+   touch the terminal. Fail-closed: anything ambiguous, low-confidence, or unparseable becomes
+   `none`. The model is told to choose `none` for any decision the user owns.
+2. **Execute (trusted C#).** `WingmanActionExecutor.Execute` is the **only** code under
+   `src/CcDirector.Core/Wingman/` allowed to write to a session. It maps the validated action
+   to bytes (`KeyChords` for named keys) and writes through the same `Session.SendInput` path a
+   human keystroke uses - so Claude Code's UX is unchanged (terminal stays sacred).
+
+Endpoint: `POST /sessions/{sid}/wingman/act` (decide + execute). `?decideOnly=true` returns the
+decision without executing it - a dry run for tests and tooling.
+
+Request-driven and always-on: the Wingman never triggers itself - it acts only when a user
+request hits the endpoint (invariant 8). There is no per-session enable flag and no
+confirm-first gate, so when it IS asked, it just acts. The safeguards that remain are not
+permission gates, they are correctness:
+
+- **Audit.** Every performed action is logged to `FileLog` and to `Session.RecentWingmanActions`
+  (surfaced in `GET /sessions/{sid}/wingman`), so you can always see what the Wingman typed and why.
+- **Self-injection guard.** Before writing, the executor calls `Session.SuppressActivityFor`
+  (the same window the resize path uses) so the `TerminalStateDetector` does not mistake the
+  echo/repaint of the Wingman's own keystrokes for fresh agent output and loop on it.
+- **Idempotency / cooldown.** The executor refuses to act twice on an unchanged screen within a
+  short window (`LastActedScreenHash` + `ActionCooldown`), so a repeated request (e.g. a
+  double-tap) cannot inject onto a screen the Wingman just acted on.
 
 ---
 

@@ -396,6 +396,22 @@ public sealed class Session : IDisposable
     private readonly object _wingmanEventsLock = new();
 
     /// <summary>
+    /// One actuation the Wingman performed on this session's terminal (structured-intent
+    /// path): the action kind ("type" | "send_keys" | "submit"), a short detail of what
+    /// was sent, and the Wingman's stated reason. Distinct from <see cref="WingmanEvent"/>
+    /// (a colour change) - this is a WRITE the Wingman made, and the audit trail for it.
+    /// </summary>
+    public sealed record WingmanActionRecord(
+        DateTime At,
+        string Action,
+        string Detail,
+        string Reason);
+
+    private const int WingmanActionLogCapacity = 50;
+    private readonly LinkedList<WingmanActionRecord> _wingmanActions = new();
+    private readonly object _wingmanActionsLock = new();
+
+    /// <summary>
     /// One activity-state transition for this session: when it happened and the state it
     /// moved from -&gt; to. The detector's only rule produces Working (bytes) and
     /// WaitingForInput (silence), so in practice this is the blue&lt;-&gt;red history the
@@ -512,6 +528,47 @@ public sealed class Session : IDisposable
     /// at <c>WingmanEventLogCapacity</c>. Surfaced via <c>GET /sessions/{sid}/wingman</c>
     /// so the UI can show WHY a dot is the color it is.
     /// </summary>
+    /// <summary>
+    /// Most recent Wingman actuations on this session, newest first. Ring-buffered at
+    /// <c>WingmanActionLogCapacity</c>. Written only by <c>WingmanActionExecutor</c> via
+    /// <see cref="RecordWingmanAction"/>; surfaced via <c>GET /sessions/{sid}/wingman</c>.
+    /// </summary>
+    public IReadOnlyList<WingmanActionRecord> RecentWingmanActions
+    {
+        get
+        {
+            lock (_wingmanActionsLock)
+                return _wingmanActions.ToList();
+        }
+    }
+
+    /// <summary>UTC time of the last Wingman injection, or null if none. With
+    /// <see cref="LastActedScreenHash"/> this is the executor's idempotency/cooldown guard.</summary>
+    public DateTime? LastWingmanInjectionAt { get; private set; }
+
+    /// <summary>Screen hash the Wingman last acted on, or null. Used to suppress a repeat
+    /// action on an unchanged screen.</summary>
+    public string? LastActedScreenHash { get; private set; }
+
+    /// <summary>Record that the Wingman just injected against the given screen hash. Sole
+    /// writer is <c>WingmanActionExecutor</c>, called once per performed action.</summary>
+    public void MarkWingmanInjection(string screenHash)
+    {
+        LastWingmanInjectionAt = DateTime.UtcNow;
+        LastActedScreenHash = screenHash;
+    }
+
+    /// <summary>Append a performed actuation to the audit ring.</summary>
+    public void RecordWingmanAction(WingmanActionRecord rec)
+    {
+        lock (_wingmanActionsLock)
+        {
+            _wingmanActions.AddFirst(rec);
+            while (_wingmanActions.Count > WingmanActionLogCapacity)
+                _wingmanActions.RemoveLast();
+        }
+    }
+
     public IReadOnlyList<WingmanEvent> RecentWingmanEvents
     {
         get

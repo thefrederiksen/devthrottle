@@ -34,6 +34,21 @@ public sealed class WingmanAskContext
     public string BufferTailText { get; init; } = "";
 
     /// <summary>
+    /// The RESOLVED visible terminal grid (top to bottom, trailing-trimmed), from
+    /// <c>Session.SnapshotScreenRowsWithCursor</c>. Unlike <see cref="BufferTailText"/>
+    /// this is what is actually on screen right now, which the action decision needs to
+    /// reason about the prompt box and any choices the agent is offering. Empty when the
+    /// session has no grid.
+    /// </summary>
+    public IReadOnlyList<string> ScreenRows { get; init; } = Array.Empty<string>();
+
+    /// <summary>Live cursor cell (0-based) on <see cref="ScreenRows"/>, or -1 when there is no grid.</summary>
+    public int CursorRow { get; init; } = -1;
+
+    /// <summary>Live cursor column (0-based) on <see cref="ScreenRows"/>, or -1 when there is no grid.</summary>
+    public int CursorCol { get; init; } = -1;
+
+    /// <summary>
     /// One-line description of what's actually in this context, used as the UI's
     /// "context the wingman sees" footer AND echoed back in <see cref="WingmanAskResult.ContextDigest"/>.
     /// </summary>

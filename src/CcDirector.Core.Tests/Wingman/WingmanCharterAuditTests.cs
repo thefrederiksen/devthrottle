@@ -110,6 +110,62 @@ public sealed class WingmanCharterAuditTests
             $"Wingman sessions must be read-only ({CharterRef}):\n  " + string.Join("\n  ", offenders));
     }
 
+    // The only Wingman file allowed to write to a session's PTY (invariant 7:
+    // one write chokepoint). Actuation must funnel through WingmanActionExecutor so the
+    // audit log + self-injection guard live in exactly one place.
+    private static readonly string WriteFunnelFile = "WingmanActionExecutor.cs";
+
+    // Session write methods that count as "actuation" for the funnel check.
+    private static readonly Regex SessionWriteCall =
+        new(@"\.(SendInput|SendTextAsync|SendText|SendEnterAsync)\s*\(", RegexOptions.None);
+
+    [Fact]
+    public void Only_the_executor_writes_to_a_session()
+    {
+        var dir = ResolveWingmanSourceDir();
+        var files = Directory.GetFiles(dir, "*.cs", SearchOption.AllDirectories);
+        Assert.NotEmpty(files);
+
+        var offenders = new List<string>();
+        foreach (var file in files)
+        {
+            if (string.Equals(Path.GetFileName(file), WriteFunnelFile, StringComparison.Ordinal))
+                continue; // the one permitted chokepoint
+
+            var text = File.ReadAllText(file);
+            if (SessionWriteCall.IsMatch(text))
+                offenders.Add($"{Path.GetFileName(file)} calls a Session write method directly");
+        }
+
+        Assert.True(offenders.Count == 0,
+            $"All Wingman actuation must funnel through {WriteFunnelFile} ({CharterRef}):\n  " + string.Join("\n  ", offenders));
+    }
+
+    // Invariant 8: actuation is request-driven. The ONLY caller of the executor is the
+    // ControlApi request endpoint (which lives outside this directory). If anything under
+    // src/CcDirector.Core/Wingman/ calls WingmanActionExecutor.Execute, something has wired
+    // the Wingman to act on its own (a turn hook, timer, or background loop) - which the
+    // charter forbids.
+    private static readonly Regex ExecutorCall =
+        new(@"WingmanActionExecutor\s*\.\s*Execute\s*\(", RegexOptions.None);
+
+    [Fact]
+    public void Wingman_core_never_triggers_its_own_actuation()
+    {
+        var dir = ResolveWingmanSourceDir();
+        var files = Directory.GetFiles(dir, "*.cs", SearchOption.AllDirectories);
+        Assert.NotEmpty(files);
+
+        var offenders = files
+            .Where(f => ExecutorCall.IsMatch(File.ReadAllText(f)))
+            .Select(Path.GetFileName)
+            .ToList();
+
+        Assert.True(offenders.Count == 0,
+            $"Wingman actuation must be request-driven; nothing in the Wingman core may invoke " +
+            $"WingmanActionExecutor.Execute ({CharterRef}):\n  " + string.Join("\n  ", offenders));
+    }
+
     private static string ResolveWingmanSourceDir()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);

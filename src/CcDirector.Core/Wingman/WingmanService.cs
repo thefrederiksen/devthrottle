@@ -1266,6 +1266,152 @@ public static class WingmanService
     }
 
     // ====================================================================
+    // Structured-intent actuation (Path A): decide one action; the Director executes it.
+    // The subprocess stays TOOL-LESS (RunSideClaudeAsync passes --tools ""); the model only
+    // ever returns a WingmanAction, and WingmanActionExecutor is the sole thing that writes
+    // to the PTY. See docs/wingman/WINGMAN.md, "Actuation (structured-intent)".
+    // ====================================================================
+
+    /// <summary>
+    /// Decide a single action to take on a session, given its live screen + cursor and
+    /// recent state. Returns a <see cref="WingmanAction"/>; the SAFE DEFAULT for anything
+    /// ambiguous or unparseable is <see cref="WingmanAction.ActNone"/> (do nothing). This
+    /// method runs a tool-less strong-model side-call and does NOT touch the terminal -
+    /// execution is the caller's job (<c>WingmanActionExecutor.Execute</c>), so the
+    /// read/decide and the write stay separated. Throws on subprocess failure/timeout; the
+    /// HTTP boundary maps that to a wingman_failed result.
+    /// </summary>
+    public static async Task<WingmanAction> DecideSessionActionAsync(
+        WingmanAskContext context, string claudeExePath, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(claudeExePath))
+            throw new InvalidOperationException("no claude CLI configured");
+
+        var prompt = BuildActionDecisionPrompt(context);
+        var stdout = await RunSideClaudeAsync(prompt, claudeExePath, ct, Model);
+        return ParseActionDecisionJson(stdout);
+    }
+
+    internal static string BuildActionDecisionPrompt(WingmanAskContext context)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("You are the Wingman for a coding session. You may act ON THE USER'S BEHALF at the session's input prompt: type text, press named keys, or submit a line.");
+        sb.AppendLine();
+        sb.AppendLine(ClaudeCodeScreenReference);
+        sb.AppendLine();
+        sb.AppendLine("Choose EXACTLY ONE action:");
+        sb.AppendLine("- \"none\": do nothing. THE SAFE DEFAULT. Choose this whenever the next step is not obvious, when there is a real decision only the user should make, when the agent is still working, or when you are unsure.");
+        sb.AppendLine("- \"type\": put text in the input box WITHOUT submitting it (the user will review/submit). Provide \"text\".");
+        sb.AppendLine("- \"send_keys\": press one or more named keys. Provide \"keys\" as an array. Allowed names: Enter, Esc, Tab, Space, Up, Down, Left, Right, Ctrl+C, Backspace.");
+        sb.AppendLine("- \"submit\": type text and press Enter, sending it to the agent. Provide \"text\". Use this ONLY when the answer is unambiguous from the goal and the on-screen question.");
+        sb.AppendLine();
+        sb.AppendLine("Act only when it genuinely helps and the next step is unambiguous. If in doubt, choose \"none\". Never guess at a decision the user owns (e.g. approving a destructive command, picking between real alternatives).");
+        sb.AppendLine();
+        sb.AppendLine("Output ONE JSON object, no markdown fence, exactly this shape:");
+        sb.AppendLine("{\"action\": \"none|type|send_keys|submit\", \"text\": \"<for type/submit>\", \"keys\": [\"Enter\"], \"reason\": \"<one short sentence>\", \"confidence\": \"low|medium|high\"}");
+        sb.AppendLine();
+        sb.AppendLine($"=== SESSION ===  agent={context.AgentKind}, state={context.ActivityState}, color={context.CurrentColor} ({context.CurrentReason})");
+
+        // The agent's pending question, if the latest turn summary captured one - the most
+        // direct signal of what (if anything) the session is waiting on.
+        var latest = context.RecentTurnSummaries.Count > 0 ? context.RecentTurnSummaries[^1] : null;
+        if (latest is not null && !string.IsNullOrEmpty(latest.NeedsUser) && latest.NeedsUser != "no")
+        {
+            sb.AppendLine($"=== AGENT IS WAITING ===  kind={latest.NeedsUser}");
+            if (!string.IsNullOrWhiteSpace(latest.NeedsUserShort))
+                sb.AppendLine(Truncate(latest.NeedsUserShort, 500));
+        }
+
+        sb.AppendLine();
+        sb.AppendLine("=== SCREEN (resolved grid; cursor marks where typing goes) ===");
+        sb.AppendLine(RenderScreenForPrompt(context));
+
+        if (!string.IsNullOrEmpty(context.BufferTailText))
+        {
+            sb.AppendLine();
+            sb.AppendLine("=== TERMINAL BUFFER (tail, ANSI stripped) ===");
+            sb.AppendLine(Truncate(context.BufferTailText, 2000));
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>Render the grid rows for the prompt, noting the cursor cell so the model
+    /// can tell where input would land. Drops blank rows above/below the content.</summary>
+    private static string RenderScreenForPrompt(WingmanAskContext context)
+    {
+        if (context.ScreenRows.Count == 0)
+            return "(no grid available)";
+
+        var sb = new StringBuilder();
+        if (context.CursorRow >= 0)
+            sb.AppendLine($"[cursor at row {context.CursorRow}, col {context.CursorCol}]");
+        for (int r = 0; r < context.ScreenRows.Count; r++)
+        {
+            var line = context.ScreenRows[r];
+            if (string.IsNullOrWhiteSpace(line)) continue;
+            sb.AppendLine($"{r,3}| {line}");
+        }
+        return sb.ToString().TrimEnd();
+    }
+
+    internal static WingmanAction ParseActionDecisionJson(string raw)
+    {
+        var none = new WingmanAction { Action = WingmanAction.ActNone, Reason = "no action" };
+        if (string.IsNullOrWhiteSpace(raw)) return none;
+
+        var s = raw.Trim();
+        if (s.StartsWith("```"))
+        {
+            var nl = s.IndexOf('\n');
+            if (nl > 0) s = s[(nl + 1)..];
+            var endFence = s.LastIndexOf("```", StringComparison.Ordinal);
+            if (endFence > 0) s = s[..endFence].Trim();
+        }
+        var firstBrace = s.IndexOf('{');
+        var lastBrace = s.LastIndexOf('}');
+        if (firstBrace >= 0 && lastBrace > firstBrace)
+            s = s.Substring(firstBrace, lastBrace - firstBrace + 1);
+
+        try
+        {
+            using var doc = JsonDocument.Parse(s);
+            var root = doc.RootElement;
+            var action = root.TryGetProperty("action", out var a) ? (a.GetString() ?? "").Trim().ToLowerInvariant() : "";
+            var text = root.TryGetProperty("text", out var t) ? (t.GetString() ?? "") : "";
+            var reason = root.TryGetProperty("reason", out var r) ? (r.GetString() ?? "").Trim() : "";
+            var confidence = root.TryGetProperty("confidence", out var c) ? (c.GetString() ?? "low").Trim().ToLowerInvariant() : "low";
+
+            var keys = new List<string>();
+            if (root.TryGetProperty("keys", out var k) && k.ValueKind == JsonValueKind.Array)
+                foreach (var item in k.EnumerateArray())
+                    if (item.ValueKind == JsonValueKind.String)
+                    {
+                        var name = (item.GetString() ?? "").Trim();
+                        if (name.Length > 0) keys.Add(name);
+                    }
+
+            // Validate the intent so a half-formed action can never reach the executor:
+            // type/submit need text; send_keys needs keys. Anything else collapses to none.
+            switch (action)
+            {
+                case WingmanAction.ActType or WingmanAction.ActSubmit when !string.IsNullOrEmpty(text):
+                    return new WingmanAction { Action = action, Text = text, Reason = reason, Confidence = confidence };
+                case WingmanAction.ActSendKeys when keys.Count > 0:
+                    var sendKeys = new WingmanAction { Action = action, Reason = reason, Confidence = confidence };
+                    sendKeys.Keys.AddRange(keys);
+                    return sendKeys;
+                default:
+                    return new WingmanAction { Action = WingmanAction.ActNone, Reason = string.IsNullOrEmpty(reason) ? "no action" : reason, Confidence = confidence };
+            }
+        }
+        catch (JsonException ex)
+        {
+            FileLog.Write($"[WingmanService] action-decision JSON parse failed: {ex.Message}, raw='{Truncate(raw, 200)}'");
+            return none;
+        }
+    }
+
+    // ====================================================================
     // Internals: side-claude invocation (mirrors RecapGenerator)
     // ====================================================================
 

@@ -181,6 +181,60 @@ internal static class ControlEndpoints
             return Results.Json(result);
         });
 
+        // Structured-intent actuation (Path A): the Wingman looks at the session's live
+        // screen + state, decides ONE action (type / send_keys / submit / none), and the
+        // Director executes it. The decision runs on a tool-less strong-model side-call; the
+        // model never gets a write tool - WingmanActionExecutor is the only thing that writes
+        // to the PTY. Pass ?decideOnly=true to get the decision WITHOUT executing it (dry run).
+        app.MapPost("/sessions/{sid}/wingman/act", async (string sid, bool? decideOnly, CancellationToken ct) =>
+        {
+            if (!Guid.TryParse(sid, out var guid))
+                return Results.BadRequest(new WingmanActResult { Status = WingmanActResult.StatusBadRequest, Error = "invalid session id format" });
+
+            var session = sessionManager.GetSession(guid);
+            if (session is null)
+                return Results.NotFound(new { error = "session not found" });
+
+            if (string.IsNullOrWhiteSpace(sessionManager.Options.ClaudePath))
+                return Results.Json(new WingmanActResult { Status = WingmanActResult.StatusNoClaude, Error = "no claude CLI configured" });
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            try
+            {
+                var context = await WingmanContextBuilder.BuildAsync(session, turnSummaryCache, ct);
+                var action = await Core.Wingman.WingmanService.DecideSessionActionAsync(
+                    context, sessionManager.Options.ClaudePath, ct);
+                sw.Stop();
+
+                WingmanActResult result;
+                if (decideOnly == true)
+                {
+                    result = new WingmanActResult { Action = action.Action, Text = action.Text, Reason = action.Reason };
+                    result.Keys.AddRange(action.Keys);
+                }
+                else
+                {
+                    result = Core.Wingman.WingmanActionExecutor.Execute(session, action);
+                }
+                result.Model = Core.Wingman.WingmanService.Model;
+                result.LatencyMs = sw.ElapsedMilliseconds;
+                FileLog.Write($"[ControlEndpoints] POST /wingman/act: session={guid} decideOnly={decideOnly == true} action={result.Action} performed={result.Performed} status={result.Status}");
+                return Results.Json(result);
+            }
+            catch (Exception ex)
+            {
+                sw.Stop();
+                FileLog.Write($"[ControlEndpoints] POST /wingman/act FAILED: session={guid}: {ex.Message}");
+                return Results.Json(new WingmanActResult
+                {
+                    Status = WingmanActResult.StatusWingmanFailed,
+                    Error = ex.Message,
+                    Model = Core.Wingman.WingmanService.Model,
+                    LatencyMs = sw.ElapsedMilliseconds,
+                });
+            }
+        });
+
         // Mobile experience: the proactively-cached wingman briefing for this session.
         // Returns instantly (no LLM call) so a phone shows it the moment the view opens.
         // text is null when nothing has been cached yet (mobile mode off, or first turn
@@ -320,6 +374,13 @@ internal static class ControlEndpoints
                     NewColor = e.NewColor,
                     Reason = e.Reason,
                     Llm = e.Llm,
+                }).ToList(),
+                Actions = session.RecentWingmanActions.Select(a => new WingmanActionDto
+                {
+                    At = a.At,
+                    Action = a.Action,
+                    Detail = a.Detail,
+                    Reason = a.Reason,
                 }).ToList(),
                 LatestTurnSummary = latestSummary,
                 Goal = session.WingmanGoal,
