@@ -307,6 +307,18 @@ public sealed class Session : IDisposable
     /// </summary>
     public bool VoiceMode => ViewMode == MobileViewMode.Voice;
 
+    /// <summary>
+    /// True when the user has explicitly parked this session in the FIFO voice queue:
+    /// "I do not want to deal with this one right now." A user override that is
+    /// ORTHOGONAL to <see cref="ActivityState"/> and <see cref="StatusColor"/> - the
+    /// terminal-state detector keeps reporting the true underlying state, and this flag
+    /// sits on top of it so the FIFO conductor can skip held sessions without the
+    /// detector ever clobbering the intent. Cleared when the user takes it off hold.
+    /// Runtime-only (not persisted across a Director restart): it tracks what the user
+    /// is currently choosing to defer, not durable session state. Off by default.
+    /// </summary>
+    public bool OnHold { get; set; }
+
     /// <summary>Latest proactively-generated wingman briefing, or null if none yet.</summary>
     public string? CachedExplainText { get; private set; }
 
@@ -770,9 +782,20 @@ public sealed class Session : IDisposable
     /// interrupt" on screen) apart from an idle status-line repaint, which the raw
     /// byte stream cannot. Returns an empty array when there is no grid (Embedded mode).
     /// </summary>
-    public string[] SnapshotScreenRows()
+    public string[] SnapshotScreenRows() => SnapshotScreenRowsWithCursor().Rows;
+
+    /// <summary>
+    /// Like <see cref="SnapshotScreenRows"/> but also returns the live cursor cell
+    /// (0-based grid row/col). The grid text and the cursor are captured under the
+    /// same lock so they describe the same frame. This lets callers tell text the
+    /// user (or Claude Code) actually authored in the input box apart from a dim
+    /// history/autocomplete suggestion: the suggestion always lives to the RIGHT of
+    /// the cursor. Returns CursorRow/CursorCol of -1 when there is no grid (Embedded mode).
+    /// </summary>
+    public (string[] Rows, int CursorRow, int CursorCol) SnapshotScreenRowsWithCursor()
     {
-        if (_htmlCells is null) return System.Array.Empty<string>();
+        if (_htmlCells is null || _htmlParser is null)
+            return (System.Array.Empty<string>(), -1, -1);
         lock (_htmlParserLock)
         {
             var rows = new string[HtmlGridRows];
@@ -787,7 +810,8 @@ public sealed class Session : IDisposable
                 }
                 rows[r] = sb.ToString().TrimEnd();
             }
-            return rows;
+            var (col, row) = _htmlParser.GetCursorPosition();
+            return (rows, row, col);
         }
     }
 

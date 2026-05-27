@@ -153,4 +153,85 @@ public sealed class PromptInputLineExtractorTests
                     """;
         Assert.Equal("commit the cc-playwright changes too", PromptInputLineExtractor.ExtractFromCleanText(clean));
     }
+
+    // ---------- Grid + cursor aware extraction (ghost-suggestion fix) ----------
+    //
+    // These pin down the rule that an entry only counts when the edit cursor sits
+    // at (or past) the end of the box text; a dim history/autocomplete suggestion
+    // parks the cursor at the start, so its text must NOT be mirrored as an entry.
+    // Indices: in "> Check the log", '>'=0 ' '=1 'C'=2 ... 'g'=14 (length 15),
+    // so the text spans grid columns [2,15).
+
+    private static readonly string[] BoxWithCheckTheLog =
+    {
+        "> Check the log",
+        "  bypass permissions on (shift+tab to cycle)",
+    };
+
+    [Fact]
+    public void Cursor_parked_at_start_of_box_is_a_suggestion_not_an_entry()
+    {
+        // Screenshot case: Claude Code offers "Check the log" as a dim suggestion
+        // with the cursor parked on the first character. Nothing is authored.
+        Assert.Equal("", PromptInputLineExtractor.ExtractUserAuthoredInput(BoxWithCheckTheLog, cursorRow: 0, cursorCol: 2));
+    }
+
+    [Fact]
+    public void Cursor_at_end_of_box_is_a_real_entry()
+    {
+        Assert.Equal("Check the log", PromptInputLineExtractor.ExtractUserAuthoredInput(BoxWithCheckTheLog, cursorRow: 0, cursorCol: 15));
+    }
+
+    [Fact]
+    public void Cursor_in_middle_keeps_only_text_left_of_cursor()
+    {
+        // User typed "Che"; Claude completes "ck the log" as a dim suggestion to its right.
+        Assert.Equal("Che", PromptInputLineExtractor.ExtractUserAuthoredInput(BoxWithCheckTheLog, cursorRow: 0, cursorCol: 5));
+    }
+
+    [Fact]
+    public void Cursor_on_another_row_takes_the_whole_box()
+    {
+        // Committed/injected text: the cursor is not editing the input line.
+        Assert.Equal("Check the log", PromptInputLineExtractor.ExtractUserAuthoredInput(BoxWithCheckTheLog, cursorRow: 5, cursorCol: 0));
+    }
+
+    [Fact]
+    public void Empty_box_returns_empty_regardless_of_cursor()
+    {
+        var rows = new[]
+        {
+            "> ",
+            "  bypass permissions on (shift+tab to cycle)",
+        };
+        Assert.Equal("", PromptInputLineExtractor.ExtractUserAuthoredInput(rows, cursorRow: 0, cursorCol: 2));
+    }
+
+    [Fact]
+    public void No_mode_line_returns_null_for_grid_extraction()
+    {
+        var rows = new[] { "> Check the log", "PS C:\\repo>" };
+        Assert.Null(PromptInputLineExtractor.ExtractUserAuthoredInput(rows, cursorRow: 0, cursorCol: 15));
+    }
+
+    [Fact]
+    public void Bordered_box_with_cursor_at_end_is_an_entry()
+    {
+        // '│'=0 ' '=1 '>'=2 ' '=3 'c'=4 ... text "commit the changes" spans [4,22).
+        var rows = new[]
+        {
+            "╭───────────────────────────────────╮",
+            "│ > commit the changes               │",
+            "╰───────────────────────────────────╯",
+            "  >> bypass permissions on (shift+tab to cycle)",
+        };
+        Assert.Equal("commit the changes", PromptInputLineExtractor.ExtractUserAuthoredInput(rows, cursorRow: 1, cursorCol: 22));
+    }
+
+    [Fact]
+    public void Null_or_empty_rows_return_null()
+    {
+        Assert.Null(PromptInputLineExtractor.ExtractUserAuthoredInput(null, 0, 0));
+        Assert.Null(PromptInputLineExtractor.ExtractUserAuthoredInput(System.Array.Empty<string>(), 0, 0));
+    }
 }

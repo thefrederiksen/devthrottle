@@ -162,8 +162,11 @@ public sealed class SessionStatusWingman : IDisposable
 /// Operation:
 /// 1. Subscribe to <see cref="CircularTerminalBuffer.OnBytesWritten"/>.
 /// 2. On each write, restart a 500ms debounce timer.
-/// 3. When the timer fires (no new bytes for 500ms), run
-///    <see cref="PromptInputLineExtractor.ExtractClaudeCodeInputLine"/>.
+/// 3. When the timer fires (no new bytes for 500ms), snapshot the resolved grid
+///    plus the live cursor and run
+///    <see cref="PromptInputLineExtractor.ExtractUserAuthoredInput"/>. The cursor
+///    lets us reject a dim history/autocomplete suggestion (cursor parked at the
+///    start of the box) instead of mirroring it as if the user had entered it.
 /// 4. If the extracted text is non-empty and differs from what we last pushed,
 ///    call <c>session.SetPendingPromptText(text, "wingman")</c>.
 /// 5. The UI side decides whether to actually populate the visible textbox
@@ -223,8 +226,11 @@ internal sealed class PromptInjectionWatcher : IDisposable
         if (Volatile.Read(ref _disposed) != 0) return;
         try
         {
-            var bytes = _buffer.DumpAll();
-            var extracted = PromptInputLineExtractor.ExtractClaudeCodeInputLine(bytes);
+            // Read the RESOLVED grid plus the live cursor, not the raw byte buffer:
+            // the cursor tells a real entry (cursor at the end of the box text) apart
+            // from a dim history/autocomplete suggestion (cursor parked at the start).
+            var (rows, cursorRow, cursorCol) = _session.SnapshotScreenRowsWithCursor();
+            var extracted = PromptInputLineExtractor.ExtractUserAuthoredInput(rows, cursorRow, cursorCol);
 
             if (extracted is null)
             {

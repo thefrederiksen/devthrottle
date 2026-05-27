@@ -373,10 +373,12 @@ public sealed class SessionStatusWingmanTests
                 }
             };
 
+            // CRLF: a real PTY resets the column on CR. The grid-aware extractor
+            // reads the resolved grid, so the mode line must land at column 0.
             var frame =
-                "\n\n" +
-                "> commit the cc-playwright changes too\n" +
-                "  >> bypass permissions on (shift+tab to cycle)\n";
+                "\r\n\r\n" +
+                "> commit the cc-playwright changes too\r\n" +
+                "  >> bypass permissions on (shift+tab to cycle)\r\n";
             session.Buffer.Write(System.Text.Encoding.UTF8.GetBytes(frame));
 
             await Task.Delay(TimeSpan.FromMilliseconds(1500));
@@ -406,15 +408,15 @@ public sealed class SessionStatusWingmanTests
             };
 
             var frame =
-                "\n\n" +
-                "> commit the cc-playwright changes too\n" +
-                "  >> bypass permissions on (shift+tab to cycle)\n";
+                "\r\n\r\n" +
+                "> commit the cc-playwright changes too\r\n" +
+                "  >> bypass permissions on (shift+tab to cycle)\r\n";
             session.Buffer.Write(System.Text.Encoding.UTF8.GetBytes(frame));
             await Task.Delay(TimeSpan.FromMilliseconds(1000));
 
             // Append unrelated noise; the frame at the tail is unchanged.
             session.Buffer.Write(System.Text.Encoding.UTF8.GetBytes(
-                "some background log line\n" + frame));
+                "some background log line\r\n" + frame));
             await Task.Delay(TimeSpan.FromMilliseconds(1000));
 
             Assert.Equal(1, pushCount);
