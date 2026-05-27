@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Three Tabs QA - Terminal / Voice / Wingman</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin:0; background:#0B1020; color:#E6EAF2; font-family:Segoe UI,Arial,sans-serif; line-height:1.5; }
+  .wrap { max-width:1100px; margin:0 auto; padding:32px 24px 80px; }
+  h1 { font-size:28px; margin:0 0 4px; }
+  h2 { font-size:20px; margin:36px 0 12px; border-bottom:1px solid #2A3550; padding-bottom:6px; }
+  .sub { color:#8A93A6; font-size:14px; margin-bottom:24px; }
+  .meta { background:#141B2E; border:1px solid #2A3550; border-radius:10px; padding:14px 18px; font-size:13px; color:#B7C0D4; }
+  .meta b { color:#E6EAF2; }
+  table { width:100%; border-collapse:collapse; margin-top:8px; font-size:14px; }
+  th,td { text-align:left; padding:10px 12px; border-bottom:1px solid #232E48; vertical-align:top; }
+  th { color:#8A93A6; font-weight:600; }
+  .pass { color:#5FD08A; font-weight:700; }
+  .fixed { color:#E8B339; font-weight:700; }
+  .pend { color:#7FA8FF; font-weight:700; }
+  figure { margin:24px 0; }
+  figcaption { color:#8A93A6; font-size:13px; margin-top:8px; }
+  img { width:100%; border:1px solid #2A3550; border-radius:10px; display:block; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+  .tag { display:inline-block; font-size:11px; font-weight:700; padding:2px 8px; border-radius:6px; margin-left:8px; }
+  .tag.before { background:#3a1d22; color:#E5484D; }
+  .tag.after { background:#16241B; color:#5FD08A; }
+  .note { background:#101a12; border:1px solid #2D7D46; border-radius:8px; padding:12px 16px; font-size:13px; color:#B7C0D4; }
+  code { background:#0F1626; padding:1px 6px; border-radius:4px; color:#A9B4C8; font-size:12.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Three Tabs QA: Terminal / Voice / Wingman</h1>
+  <div class="sub">CC Director - desktop (Avalonia) live test, 2026-05-26</div>
+
+  <div class="meta">
+    <div><b>Build:</b> slot-4 test Director <code>cc-director-avalonia4.exe</code> (Release, v0.3.2), launched via the <code>cc-director-launch</code> scheduled task.</div>
+    <div><b>Session under test:</b> a live Claude Code session on <code>D:\ReposFred\cc-director</code> (Claude Code v2.1.150, Opus 4.7).</div>
+    <div><b>Control API:</b> <code>http://127.0.0.1:7883</code> (loopback; remote via Tailscale Serve).</div>
+    <div><b>Capture method:</b> window-targeted <code>PrintWindow</code> + UI Automation invoke (does not depend on screen focus / z-order, so it never captured or touched other Director windows).</div>
+  </div>
+
+  <h2>QA results</h2>
+  <table>
+    <tr><th>Tab / item</th><th>Result</th><th>Notes</th></tr>
+    <tr>
+      <td><b>Terminal tab</b></td>
+      <td class="pass">PASS</td>
+      <td>Live Claude Code renders in the real ConPTY terminal (unchanged behavior). Prompt bar present. The scheduled-task launch kept the grandchild claude alive.</td>
+    </tr>
+    <tr>
+      <td><b>Voice tab</b></td>
+      <td class="pass">PASS</td>
+      <td>"Ask Agent" (larger, green) above a smaller "Ask Wingman" (teal); status line + "You said"/"Reply" panels. Both are push-to-talk; Ask Agent speaks the agent reply, Ask Wingman speaks the read-only answer.</td>
+    </tr>
+    <tr>
+      <td><b>Wingman tab</b></td>
+      <td class="pass">PASS</td>
+      <td>Generated a real plain-language wingman annotation over the live session ("This session is empty... nothing waiting on you here..."), clean output area, and a single Speak/Send-to-agent bar (text replies).</td>
+    </tr>
+    <tr>
+      <td><b>Bug: duplicate input bar</b></td>
+      <td class="fixed">FOUND &amp; FIXED</td>
+      <td>The shared Terminal prompt bar was also showing on the Voice and Wingman tabs - a duplicate input bar on Wingman. Fixed in <code>SwitchLeftTab</code> (hide <code>PromptBarBorder</code> on Voice/Wingman). Verified in the after shots below.</td>
+    </tr>
+    <tr>
+      <td><b>Backend: voice cleanup port (Phase 0)</b></td>
+      <td class="pass">PASS</td>
+      <td>Voice path now uses the shared verbatim/dictionary-only CleanupOrchestrator. Covered by 117 passing Core unit tests (not a UI screenshot).</td>
+    </tr>
+    <tr>
+      <td><b>Phone (MAUI) - all three tabs</b></td>
+      <td class="pass">PASS (emulator)</td>
+      <td>Built, installed, and run on the cc_rec_test Android emulator. Roster loaded 6 live sessions from the Gateway; the in-session Voice / Wingman / Terminal switcher and all three tab layouts render. Screenshots below.</td>
+    </tr>
+    <tr>
+      <td><b>Phone bug: Voice button label</b></td>
+      <td class="fixed">FOUND &amp; FIXED</td>
+      <td>The big Voice button showed "Talk" instead of "Ask Agent" - the XAML was renamed but <code>SetTalkButton</code> reset the idle text to "Talk". Fixed; now reads "Ask Agent".</td>
+    </tr>
+    <tr>
+      <td><b>Phone bug: terminal mirror unreadable</b></td>
+      <td class="fixed">FOUND &amp; FIXED</td>
+      <td>The Terminal mirror polled <code>raw=true</code> and showed raw ANSI escape codes (unreadable). Switched to a cleaned snapshot (<code>raw=false</code>, last 300 lines, replace each poll) - now readable. (VT-grade rendering remains a separate xterm.js follow-up.)</td>
+    </tr>
+  </table>
+
+  <div class="note">
+    Emulator caveat: the app targets a Tailscale-connected device, and the emulator is not a tailnet node. To load the roster I pointed it at the host Gateway over HTTP (<code>http://10.0.2.2:7878</code>) and temporarily enabled Android cleartext traffic for the test (reverted afterward - production uses HTTPS/tailnet). Per-session data over the tailnet endpoints is therefore empty on the emulator (e.g. "No clean output yet"), but every tab layout renders. The real end-to-end data path is proven on the desktop above (same backend) and on Soren's tailnet-connected phone.
+  </div>
+
+  <h2>Terminal tab</h2>
+  <figure>
+    <img src="shots/41-terminal.png" alt="Terminal tab" />
+    <figcaption>Live Claude Code in the real terminal for the selected session.</figcaption>
+  </figure>
+
+  <h2>Voice tab</h2>
+  <figure>
+    <img src="shots/42-voice.png" alt="Voice tab" />
+    <figcaption>Ask Agent (larger) + Ask Wingman, eyes-free. No duplicate input bar (post-fix).</figcaption>
+  </figure>
+
+  <h2>Wingman tab</h2>
+  <figure>
+    <img src="shots/43-wingman.png" alt="Wingman tab" />
+    <figcaption>Wingman annotation banner (generated live) + clean output + single Speak/Send-to-agent bar.</figcaption>
+  </figure>
+
+  <h2>Bug fix: duplicate input bar (before / after)</h2>
+  <div class="note">The shared prompt bar belongs to the Terminal-style tabs. On the Wingman tab it appeared in addition to the tab's own Speak/Send bar, giving two input rows. Fix: hide the shared bar on the Voice and Wingman tabs.</div>
+  <div class="grid2">
+    <figure>
+      <img src="shots/04-wingman-note.png" alt="Wingman before fix" />
+      <figcaption><span class="tag before">BEFORE</span> two input bars at the bottom (the tab's own bar + the shared prompt bar).</figcaption>
+    </figure>
+    <figure>
+      <img src="shots/43-wingman.png" alt="Wingman after fix" />
+      <figcaption><span class="tag after">AFTER</span> a single Speak/Send-to-agent bar.</figcaption>
+    </figure>
+  </div>
+
+  <h2>Phone (Android emulator)</h2>
+  <div class="sub">Built + installed + run on the cc_rec_test emulator. Roster loaded 6 live sessions; all three in-session tabs render.</div>
+  <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:14px; align-items:start;">
+    <figure style="margin:0;">
+      <img src="phone/p05-roster-loaded.png" alt="Phone roster" />
+      <figcaption>Roster: 6 live sessions.</figcaption>
+    </figure>
+    <figure style="margin:0;">
+      <img src="phone/p09-voice-fixed.png" alt="Phone Voice tab" />
+      <figcaption>Voice: Ask Agent (bigger) + Ask Wingman.</figcaption>
+    </figure>
+    <figure style="margin:0;">
+      <img src="phone/p07-session-wingman.png" alt="Phone Wingman tab" />
+      <figcaption>Wingman: note + clean output + Speak/Send.</figcaption>
+    </figure>
+    <figure style="margin:0;">
+      <img src="phone/p10-terminal-fixed.png" alt="Phone Terminal tab" />
+      <figcaption>Terminal: cleaned read-only mirror + controls.</figcaption>
+    </figure>
+  </div>
+
+  <h2>Notes</h2>
+  <div class="note">
+    A slot-4 test Director (<code>cc-director-avalonia4.exe</code>) and its test session are left running; safe to close. Nothing was committed. The screen was locked partway through, so the live screenshots were captured with <code>PrintWindow</code> (which renders the window into memory and works regardless of lock/occlusion) rather than a screen grab.
+  </div>
+
+</div>
+</body>
+</html>
