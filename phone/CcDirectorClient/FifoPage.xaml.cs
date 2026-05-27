@@ -380,6 +380,27 @@ public partial class FifoPage : ContentPage
     private async void OnAnswerClicked(object? sender, EventArgs e) => await HandleRecordAsync(wingman: false);
     private async void OnAskWingmanClicked(object? sender, EventArgs e) => await HandleRecordAsync(wingman: true);
 
+    // Abandon the current recording (e.g. the user tapped Answer/Ask Wingman by mistake):
+    // stop the mic, discard the clip without transcribing or sending, and return to the
+    // session's resting state. Never advances the queue.
+    private async void OnCancelRecordingClicked(object? sender, EventArgs e)
+    {
+        if (!_recorder.IsRecording) return;
+        try
+        {
+            _levelTimer.Stop();
+            RecordingCard.IsVisible = false;
+            LevelMeter.Progress = 0;
+            try { await _recorder.StopAsync(); } catch { /* discard the half-captured clip */ }
+            SetAnswerButton(recording: false, busy: false);
+            SetFifoStatus("Answer, Skip, or Hold", StatusGreen);
+        }
+        catch (Exception ex)
+        {
+            await DisplayAlert("Voice error", ex.Message, "OK");
+        }
+    }
+
     private async Task HandleRecordAsync(bool wingman)
     {
         if (_current is null || _busy) return;

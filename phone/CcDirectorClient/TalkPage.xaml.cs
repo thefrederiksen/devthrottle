@@ -471,6 +471,28 @@ public partial class TalkPage : ContentPage
     // phrase needed. Same record/stop mechanics as Talk.
     private async void OnAskWingmanClicked(object? sender, EventArgs e) => await HandleTalkButtonAsync(wingman: true);
 
+    // Abandon the current recording (e.g. the user tapped Ask Agent/Ask Wingman by mistake):
+    // stop the mic, discard the clip without transcribing or sending, and return to the
+    // resting state.
+    private async void OnCancelRecordingClicked(object? sender, EventArgs e)
+    {
+        if (!_recorder.IsRecording) return;
+        try
+        {
+            _levelTimer.Stop();
+            RecordingCard.IsVisible = false;
+            LevelMeter.Progress = 0;
+            try { await _recorder.StopAsync(); } catch { /* discard the half-captured clip */ }
+            SetTalkButton(recording: false, busy: false);
+            TurnStatusLabel.Text = "";
+            SetVoiceStatus("Ready", StatusGreen);
+        }
+        catch (Exception ex)
+        {
+            await DisplayAlert("Voice error", ex.Message, "OK");
+        }
+    }
+
     private async Task HandleTalkButtonAsync(bool wingman)
     {
         if (_selected is null || _busy) return;

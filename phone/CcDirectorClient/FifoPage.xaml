@@ -80,6 +80,11 @@
                         </Grid>
                         <ProgressBar x:Name="LevelMeter" Progress="0" ProgressColor="#5FD08A"
                                      HeightRequest="10" />
+                        <!-- Always able to bail out of a recording (e.g. started by mistake):
+                             discards the clip without transcribing or sending. -->
+                        <Button x:Name="CancelRecordingButton" Text="Cancel"
+                                BackgroundColor="#3A2230" TextColor="#E6EAF2" HeightRequest="48"
+                                CornerRadius="10" FontSize="15" Clicked="OnCancelRecordingClicked" />
                     </VerticalStackLayout>
                 </Border>
 
