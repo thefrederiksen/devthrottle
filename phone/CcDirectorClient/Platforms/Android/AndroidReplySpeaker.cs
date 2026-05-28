@@ -20,6 +20,18 @@ public sealed class AndroidReplySpeaker : Java.Lang.Object, IReplySpeaker
     private AudioManager? _audioManager;
     private AudioFocusRequestClass? _focusRequest;
 
+    // Broadcasts "is a clip playing" so a screen can show its Stop-talking control only while
+    // there is something to stop (issue #146). Change-only, so it does not flicker the button.
+    private readonly PlaybackSignal _signal = new();
+
+    public bool IsPlaying => _signal.IsPlaying;
+
+    public event Action<bool>? PlayingChanged
+    {
+        add => _signal.Changed += value;
+        remove => _signal.Changed -= value;
+    }
+
     public async Task PlayAsync(byte[] audio, CancellationToken ct = default)
     {
         if (audio is null || audio.Length == 0) return;
@@ -67,6 +79,7 @@ public sealed class AndroidReplySpeaker : Java.Lang.Object, IReplySpeaker
             using (ct.Register(() => { try { player.Stop(); } catch { } tcs.TrySetResult(false); }))
             {
                 player.Start();
+                _signal.Begin();   // playing now: any visible screen shows its Stop-talking control
                 await tcs.Task;
             }
         }
@@ -76,6 +89,7 @@ public sealed class AndroidReplySpeaker : Java.Lang.Object, IReplySpeaker
             try { player.Release(); } catch { }
             try { player.Dispose(); } catch { }
             AbandonAudioFocus();
+            _signal.End();         // playback ended (finished, stopped, or cancelled)
             try { System.IO.File.Delete(path); } catch { }
         }
     }
@@ -84,6 +98,7 @@ public sealed class AndroidReplySpeaker : Java.Lang.Object, IReplySpeaker
     {
         StopInternal();
         AbandonAudioFocus();
+        _signal.End();             // make the Stop-talking control disappear even if no PlayAsync is awaiting
     }
 
     private void StopInternal()

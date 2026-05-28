@@ -95,6 +95,10 @@ public partial class TalkPage : ContentPage
         DeviceDisplay.Current.KeepScreenOn = true;
         _backgrounded = false;
         HookAppLifecycle();
+        // Drive the Stop-talking pill off the speaker's playback state, syncing it now in
+        // case audio is already playing (e.g. returning from the background mid-read).
+        _tts.PlayingChanged += OnPlayingChanged;
+        UpdateStopTalkingVisibility(_tts.IsPlaying);
         _ = LoadRosterAsync();
     }
 
@@ -102,6 +106,7 @@ public partial class TalkPage : ContentPage
     {
         base.OnDisappearing();
         DeviceDisplay.Current.KeepScreenOn = false;
+        _tts.PlayingChanged -= OnPlayingChanged;
         _levelTimer.Stop();
 
         // The app went to the background (e.g. the user switched to Waze in the car):
@@ -156,6 +161,44 @@ public partial class TalkPage : ContentPage
         _tts.Stop();
     }
 
+    // ===== stop-talking control (issue #146) ===============================
+    // A floating pill, pinned to the top and shown only while audio is playing, lets the
+    // user silence a long read at once without scrolling. Tapping it cancels the turn (so a
+    // multi-part read does not just roll on to the next clip) and stops playback.
+
+    private void OnPlayingChanged(bool playing)
+        => MainThread.BeginInvokeOnMainThread(() => UpdateStopTalkingVisibility(playing));
+
+    private void UpdateStopTalkingVisibility(bool playing) => StopTalkingButton.IsVisible = playing;
+
+    private void OnStopTalkingClicked(object? sender, EventArgs e)
+    {
+        ClientLog.Write("[TalkPage] Stop talking tapped");
+        _turnCts?.Cancel();
+        _tts.Stop();
+        UpdateStopTalkingVisibility(false);
+    }
+
+    // ===== offline gate (issue #147) =======================================
+    // A button must never sink into the disabled "Working..." state waiting on a network call
+    // that cannot succeed (the 5-minute HTTP timeout is what makes the Send button "appear
+    // dead" with no signal). Any handler about to do network work checks connectivity FIRST:
+    // when offline it shows an instant message, leaves the button live, and bails before
+    // awaiting anything. The local effects (stop the mic, hide the recording card) have
+    // already run by then, so the press still gives immediate feedback. Mirrors FifoPage.
+
+    private static bool DeviceOnline => Connectivity.Current.NetworkAccess == NetworkAccess.Internet;
+
+    private bool EnsureOnline(string action)
+    {
+        var verdict = OfflineGuard.Check(DeviceOnline, action);
+        if (verdict.Allowed) return true;
+        ClientLog.Write($"[TalkPage] offline gate blocked action='{action}'");
+        SetVoiceStatus(verdict.Message, StatusRed);
+        SetTalkButton(recording: false, busy: false);   // never leave the button stuck disabled
+        return false;
+    }
+
     // ===== roster ===========================================================
 
     private async void OnRefreshClicked(object? sender, EventArgs e) => await LoadRosterAsync();
@@ -163,6 +206,10 @@ public partial class TalkPage : ContentPage
     private async Task LoadRosterAsync()
     {
         SaveCreds();
+        // Don't spin "Loading sessions..." behind a doomed fetch when there is no signal;
+        // tell the user at once on the list's own status line.
+        var gate = OfflineGuard.Check(DeviceOnline, "load sessions");
+        if (!gate.Allowed) { ListStatusLabel.Text = gate.Message; SessionsList.ItemsSource = null; return; }
         ListStatusLabel.Text = "Loading sessions...";
         try
         {
@@ -451,6 +498,12 @@ public partial class TalkPage : ContentPage
 
     private async Task RunTurnAsync(SessionInfo session, UtteranceAudio audio)
     {
+        // The mic is already stopped (HandleTalkButtonAsync did that the instant the user
+        // tapped Send). The round-trip is the network step: gate it so an offline send
+        // surfaces at once and the Talk button stays live, instead of dimming to "Working..."
+        // for the whole HTTP timeout. (#147)
+        if (!EnsureOnline(_wingmanTurn ? "ask the wingman" : "send your answer"))
+            return;
         SetTalkButton(recording: false, busy: true);
         _turnCts?.Cancel();
         _turnCts = new CancellationTokenSource();
@@ -510,6 +563,8 @@ public partial class TalkPage : ContentPage
     {
         if (_selected is null || _wingmanBusy) return;
         var session = _selected;
+        var gate = OfflineGuard.Check(DeviceOnline, "read the session");
+        if (!gate.Allowed) { WingmanStatusLabel.Text = gate.Message; return; }
         try
         {
             _wingmanBusy = true;
@@ -538,6 +593,8 @@ public partial class TalkPage : ContentPage
     {
         if (_selected is null) return;
         var session = _selected;
+        var gate = OfflineGuard.Check(DeviceOnline, "load the clean output");
+        if (!gate.Allowed) { WingmanOutputLabel.Text = gate.Message; return; }
         try
         {
             var client = new DirectorVoiceClient(TokenEntry.Text ?? "");
@@ -575,11 +632,15 @@ public partial class TalkPage : ContentPage
                 return;
             }
 
-            // Second press: stop, transcribe, drop the text into the input box.
+            // Second press: stop the mic (local, instant), then transcribe. The stop
+            // always runs; only the network transcribe is gated so an offline tap surfaces
+            // at once instead of hanging on "Transcribing...". (#147)
             WingmanSpeakButton.Text = "Speak";
             WingmanSpeakButton.BackgroundColor = Color.FromArgb("#0E7C6B");
-            WingmanStatusLabel.Text = "Transcribing...";
             var audio = await _recorder.StopAsync();
+            var gate = OfflineGuard.Check(DeviceOnline, "transcribe your dictation");
+            if (!gate.Allowed) { WingmanStatusLabel.Text = gate.Message; return; }
+            WingmanStatusLabel.Text = "Transcribing...";
             var client = new DirectorVoiceClient(TokenEntry.Text ?? "");
             var t = await client.TranscribeUtteranceAsync(
                 _selected.TailnetEndpoint, _selected.SessionId, audio.Bytes, audio.Mime);
@@ -603,6 +664,10 @@ public partial class TalkPage : ContentPage
         if (_selected is null || _wingmanBusy) return;
         var text = (WingmanInput.Text ?? "").Trim();
         if (string.IsNullOrWhiteSpace(text)) return;
+        // Gate before disabling the Send button: offline this would otherwise dim the button
+        // and loop on a doomed poll for the whole HTTP timeout. (#147)
+        var gate = OfflineGuard.Check(DeviceOnline, "send to the agent");
+        if (!gate.Allowed) { WingmanStatusLabel.Text = gate.Message; return; }
         var session = _selected;
         try
         {
@@ -700,6 +765,8 @@ public partial class TalkPage : ContentPage
     {
         if (_selected is null) return;
         var session = _selected;
+        var gate = OfflineGuard.Check(DeviceOnline, "send Esc to the terminal");
+        if (!gate.Allowed) { TerminalStatusLabel.Text = gate.Message; return; }
         try
         {
             TerminalStatusLabel.Text = "Sent Esc";
@@ -716,6 +783,8 @@ public partial class TalkPage : ContentPage
     {
         if (_selected is null) return;
         var session = _selected;
+        var gate = OfflineGuard.Check(DeviceOnline, "send Stop to the terminal");
+        if (!gate.Allowed) { TerminalStatusLabel.Text = gate.Message; return; }
         try
         {
             TerminalStatusLabel.Text = "Sent Stop (Ctrl+C)";
@@ -732,6 +801,8 @@ public partial class TalkPage : ContentPage
     {
         if (_selected is null) return;
         var session = _selected;
+        var gate = OfflineGuard.Check(DeviceOnline, "send to the terminal");
+        if (!gate.Allowed) { TerminalStatusLabel.Text = gate.Message; return; }
         try
         {
             TerminalStatusLabel.Text = "Sent";

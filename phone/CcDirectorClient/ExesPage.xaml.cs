@@ -70,11 +70,17 @@ public partial class ExesPage : ContentPage
 
     private async void OnRefreshClicked(object? sender, EventArgs e) => await LoadAsync();
 
+    // Issue #147: a network action must check connectivity first so an offline tap fails
+    // instantly with a clear message instead of dimming the button behind the HTTP timeout.
+    private static bool DeviceOnline => Connectivity.Current.NetworkAccess == NetworkAccess.Internet;
+
     private async Task LoadAsync()
     {
         // Never refresh while a build is running (the slot button is mid-flight) or
         // while a previous load is still in progress.
         if (_buildBusy || _loading) return;
+        var gate = OfflineGuard.Check(DeviceOnline, "load the running Directors");
+        if (!gate.Allowed) { ErrorLabel.Text = gate.Message; ErrorCard.IsVisible = true; return; }
         try
         {
             _loading = true;
@@ -216,6 +222,8 @@ public partial class ExesPage : ContentPage
     private async void OnKillDirectorClicked(object? sender, EventArgs e)
     {
         if (sender is not Button b || b.CommandParameter is not DirectorRow row) return;
+        var gate = OfflineGuard.Check(DeviceOnline, "kill this Director");
+        if (!gate.Allowed) { await DisplayAlert("No connection", gate.Message, "OK"); return; }
         var label = row.Slot > 0 ? $"slot {row.Slot}" : $"PID {row.Pid}";
         var ok = await DisplayAlert(
             $"Kill Director {label}?",
@@ -241,6 +249,8 @@ public partial class ExesPage : ContentPage
     private async void OnDeleteSlotClicked(object? sender, EventArgs e)
     {
         if (sender is not Button b || b.CommandParameter is not SlotRow row) return;
+        var gate = OfflineGuard.Check(DeviceOnline, "delete this build");
+        if (!gate.Allowed) { await DisplayAlert("No connection", gate.Message, "OK"); return; }
         var ok = await DisplayAlert(
             $"Delete the slot {row.Slot} build?",
             $"This removes local_builds/cc-director-avalonia{row.Slot}.exe from disk. You can rebuild it with Build & start.",
@@ -265,6 +275,8 @@ public partial class ExesPage : ContentPage
     private async void OnBuildStartClicked(object? sender, EventArgs e)
     {
         if (sender is not Button button || button.CommandParameter is not SlotRow row) return;
+        var gate = OfflineGuard.Check(DeviceOnline, "build and start the slot");
+        if (!gate.Allowed) { await DisplayAlert("No connection", gate.Message, "OK"); return; }
         var ok = await DisplayAlert(
             $"Build slot {row.Slot} and launch it?",
             $"This runs the build script (about a minute) and then starts cc-director-avalonia{row.Slot}.exe. The slot must not already be running.",

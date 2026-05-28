@@ -29,6 +29,9 @@
     <Compile Include="..\CcDirectorClient\Voice\ChatTurnResult.cs" Link="Voice\ChatTurnResult.cs" />
     <Compile Include="..\CcDirectorClient\Voice\ConductorState.cs" Link="Voice\ConductorState.cs" />
     <Compile Include="..\CcDirectorClient\Voice\RawTerminalPage.cs" Link="Voice\RawTerminalPage.cs" />
+    <Compile Include="..\CcDirectorClient\Voice\OfflineGuard.cs" Link="Voice\OfflineGuard.cs" />
+    <Compile Include="..\CcDirectorClient\Voice\PlaybackSignal.cs" Link="Voice\PlaybackSignal.cs" />
+    <Compile Include="..\CcDirectorClient\Voice\LastClipCache.cs" Link="Voice\LastClipCache.cs" />
   </ItemGroup>
 
 </Project>

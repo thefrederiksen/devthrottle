@@ -96,6 +96,13 @@
                         BackgroundColor="#0E7C6B" TextColor="White" HeightRequest="56"
                         CornerRadius="14" FontSize="16" Clicked="OnAskWingmanClicked" />
 
+                <!-- Replay (issue #148): re-hear the last thing said for this session (its
+                     briefing, or the wingman's last answer). Shown only when a clip is cached;
+                     hidden once the session starts working again so stale audio never replays. -->
+                <Button x:Name="ReplayButton" Text="Replay" IsVisible="False"
+                        BackgroundColor="#2B6CB0" TextColor="White" HeightRequest="56"
+                        CornerRadius="14" FontSize="16" Clicked="OnReplayClicked" />
+
                 <!-- Skip / Hold: steer the queue. Skip = move on, come back later.
                      Hold = park this one out of the rotation until you bring it back. -->
                 <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
@@ -163,6 +170,16 @@
                 </VerticalStackLayout>
             </ScrollView>
         </Grid>
+
+        <!-- Floating Stop-talking pill (issue #146): pinned to the top, reachable without
+             scrolling, shown only while the wingman/briefing is speaking. One tap silences
+             the read immediately. Centered so it never collides with the burger menu. -->
+        <Button x:Name="StopTalkingButton" Text="Stop talking"
+                IsVisible="False" Clicked="OnStopTalkingClicked"
+                HorizontalOptions="Center" VerticalOptions="Start" Margin="0,12,0,0"
+                Padding="22,0" HeightRequest="52" CornerRadius="26"
+                BackgroundColor="#E5484D" TextColor="White"
+                FontSize="16" FontAttributes="Bold" />
 
         <!-- Top-right burger menu: switch between pages. -->
         <Border x:Name="NavMenuButton"

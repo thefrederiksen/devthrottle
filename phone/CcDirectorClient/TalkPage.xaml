@@ -242,6 +242,16 @@
         </VerticalStackLayout>
     </ScrollView>
 
+        <!-- Floating Stop-talking pill (issue #146): pinned to the top, reachable without
+             scrolling no matter where the page is scrolled, shown only while a reply or the
+             wingman is speaking. One tap silences the read immediately. -->
+        <Button x:Name="StopTalkingButton" Text="Stop talking"
+                IsVisible="False" Clicked="OnStopTalkingClicked"
+                HorizontalOptions="Center" VerticalOptions="Start" Margin="0,12,0,0"
+                Padding="22,0" HeightRequest="52" CornerRadius="26"
+                BackgroundColor="#E5484D" TextColor="White"
+                FontSize="16" FontAttributes="Bold" />
+
         <!-- Top-right burger menu: switch between Talk and Recorder. -->
         <Border x:Name="NavMenuButton"
                 HorizontalOptions="End" VerticalOptions="Start"

@@ -51,9 +51,22 @@ public partial class TranscriptsPage : ContentPage
 
     private async void OnRefreshClicked(object? sender, EventArgs e) => await LoadAsync();
 
+    // Issue #147: a network action must check connectivity first so an offline tap fails
+    // instantly with a clear message instead of dimming the button behind the HTTP timeout.
+    private static bool DeviceOnline => Connectivity.Current.NetworkAccess == NetworkAccess.Internet;
+
     private async Task LoadAsync()
     {
         if (_loading) return;
+        var gate = OfflineGuard.Check(DeviceOnline, "load your recordings");
+        if (!gate.Allowed)
+        {
+            LoadingLabel.IsVisible = false;
+            StatusLabel.Text = "";
+            ErrorLabel.Text = gate.Message;
+            ErrorCard.IsVisible = true;
+            return;
+        }
         _loading = true;
         RefreshButton.IsEnabled = false;
         LoadingLabel.IsVisible = !_loaded;
@@ -136,6 +149,9 @@ public partial class TranscriptsPage : ContentPage
             return;
         }
 
+        // Leave TranscriptLoaded false on an offline tap so the next expand re-fetches.
+        var gate = OfflineGuard.Check(DeviceOnline, "load the transcript");
+        if (!gate.Allowed) { row.TranscriptText = gate.Message; return; }
         row.TranscriptText = "Loading transcript...";
         try
         {
@@ -158,6 +174,8 @@ public partial class TranscriptsPage : ContentPage
     private async void OnSaveDetailsClicked(object? sender, EventArgs e)
     {
         if (sender is not Button b || b.CommandParameter is not RecordingRow row) return;
+        var gate = OfflineGuard.Check(DeviceOnline, "save the details");
+        if (!gate.Allowed) { row.SaveMessage = gate.Message; return; }
         b.IsEnabled = false;
         row.SaveMessage = "saving...";
         try
@@ -194,6 +212,8 @@ public partial class TranscriptsPage : ContentPage
     {
         if (sender is not Button b || b.CommandParameter is not RecordingRow row) return;
         if (!row.CanPromote) return;
+        var gate = OfflineGuard.Check(DeviceOnline, "save to the vault");
+        if (!gate.Allowed) { await DisplayAlert("No connection", gate.Message, "OK"); return; }
         b.IsEnabled = false;
         try
         {
@@ -215,6 +235,8 @@ public partial class TranscriptsPage : ContentPage
     private async void OnDeleteClicked(object? sender, EventArgs e)
     {
         if (sender is not Button b || b.CommandParameter is not RecordingRow row) return;
+        var gate = OfflineGuard.Check(DeviceOnline, "delete this recording");
+        if (!gate.Allowed) { await DisplayAlert("No connection", gate.Message, "OK"); return; }
         var vaultNote = row.InVault
             ? "\n\nThis recording is saved in the vault; that copy is kept."
             : "";

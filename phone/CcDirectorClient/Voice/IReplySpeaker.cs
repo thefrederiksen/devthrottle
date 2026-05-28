@@ -19,4 +19,17 @@ public interface IReplySpeaker
 
     /// <summary>Stop any in-progress playback immediately.</summary>
     void Stop();
+
+    /// <summary>
+    /// True while a clip is playing. Lets a "Stop talking" control show only when there is
+    /// something to stop (issue #146).
+    /// </summary>
+    bool IsPlaying { get; }
+
+    /// <summary>
+    /// Raised when playback starts (true) or stops (false), so a screen can toggle its
+    /// "Stop talking" control. Fires on the playback thread - marshal to the UI thread in
+    /// the handler before touching views.
+    /// </summary>
+    event Action<bool>? PlayingChanged;
 }

@@ -129,7 +129,8 @@ public sealed class VoiceConversation
     /// </summary>
     public async Task<FifoOutcome> DeliverToSessionAsync(
         SessionInfo session, UtteranceAudio audio,
-        Action<TurnUpdate>? onUpdate = null, CancellationToken ct = default, bool forceWingman = false)
+        Action<TurnUpdate>? onUpdate = null, CancellationToken ct = default, bool forceWingman = false,
+        Action<byte[]>? onClip = null)
     {
         ClientLog.Write($"[VoiceConversation] DeliverToSession: session={session.DisplayName}, forceWingman={forceWingman}");
         onUpdate?.Invoke(new TurnUpdate("transcribing", "Transcribing..."));
@@ -156,7 +157,9 @@ public sealed class VoiceConversation
             if (string.IsNullOrWhiteSpace(answer))
                 answer = "The wingman had nothing to report.";
             onUpdate?.Invoke(new TurnUpdate("answer", answer));
-            await SpeakAsync(session.TailnetEndpoint,answer, ct);
+            // Cache this reply (issue #148): it becomes the clip the Replay button re-plays,
+            // replacing the session's briefing.
+            await SpeakAndCacheAsync(session.TailnetEndpoint, answer, onClip, ct);
             return new FifoOutcome(FifoOutcomeKind.WingmanAnswered, transcript);
         }
 
@@ -179,29 +182,43 @@ public sealed class VoiceConversation
         return new FifoOutcome(FifoOutcomeKind.Delivered, transcript);
     }
 
+    /// <summary>A briefing prepared but not yet spoken: the on-screen text and the ready-to-play audio.</summary>
+    public sealed record PreparedBriefing(string DisplayText, byte[] Audio);
+
     /// <summary>
-    /// Brief the user on a session the FIFO queue just landed on: fetch the wingman's
-    /// "what's happening / what it wants" explanation (the SAME mode=explain path the
-    /// Voice tab uses) and read it aloud. Returns the spoken briefing text (empty when
-    /// the wingman had nothing). Throws on an explain/synthesis failure so the page can
-    /// surface it. The page then waits for the user to answer, skip, or hold.
+    /// Fetch the wingman's "what's happening" briefing AND synthesize its audio WITHOUT
+    /// playing it. Lets the FIFO page generate the spoken briefing BEFORE it navigates to the
+    /// session, so the user lands on a page whose audio is already in hand instead of waiting
+    /// for it (issue #148). Returns the on-screen briefing text plus the MP3 bytes for the
+    /// page to cache and play. Throws on an explain/synthesis failure so the page can surface it.
     /// </summary>
-    public async Task<string> SpeakExplainAsync(
-        SessionInfo session, Action<TurnUpdate>? onUpdate = null, CancellationToken ct = default)
+    public async Task<PreparedBriefing> PrepareExplainAsync(
+        SessionInfo session, CancellationToken ct = default)
     {
-        ClientLog.Write($"[VoiceConversation] SpeakExplain: session={session.DisplayName}");
-        onUpdate?.Invoke(new TurnUpdate("explaining", "Reading what's happening..."));
+        ClientLog.Write($"[VoiceConversation] PrepareExplain: session={session.DisplayName}");
         var briefing = await _client.ExplainAsync(session.TailnetEndpoint, session.SessionId, ct);
         if (string.IsNullOrWhiteSpace(briefing))
             briefing = "Nothing to report on this one yet.";
-        onUpdate?.Invoke(new TurnUpdate("briefing", briefing));
 
-        // Lead the spoken briefing with which session this is - the name AND the repo it
-        // lives in - so the user knows where they are before hearing what happened and what
-        // the agent wants. The on-screen briefing stays just the briefing (the name and repo
-        // are already shown in the session card above it).
-        await SpeakAsync(session.TailnetEndpoint, BuildSpokenIntro(session) + " " + briefing, ct);
-        return briefing;
+        // Lead the spoken clip with which session this is - the name AND the repo - so the user
+        // knows where they are before hearing what happened. The on-screen text stays just the
+        // briefing (the name and repo are already shown in the session card above it).
+        var spoken = BuildSpokenIntro(session) + " " + briefing;
+        var bytes = await _client.SynthesizeSpeechAsync(session.TailnetEndpoint, spoken, ct);
+        ClientLog.Write($"[VoiceConversation] PrepareExplain OK: chars={briefing.Length}, audioBytes={bytes.Length}");
+        return new PreparedBriefing(briefing, bytes);
+    }
+
+    /// <summary>
+    /// Synthesize <paramref name="text"/>, hand the raw bytes to <paramref name="onClip"/> (so the
+    /// page can cache them for Replay, issue #148), then play it. No-op for empty text.
+    /// </summary>
+    private async Task SpeakAndCacheAsync(string directorBase, string text, Action<byte[]>? onClip, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return;
+        var audio = await _client.SynthesizeSpeechAsync(directorBase, text, ct);
+        onClip?.Invoke(audio);
+        await _tts.PlayAsync(audio, ct);
     }
 
     /// <summary>

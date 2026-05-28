@@ -47,10 +47,22 @@ public partial class DictionaryPage : ContentPage
 
     // ===== load =============================================================
 
+    // Issue #147: a network action must check connectivity first so an offline tap fails
+    // instantly with a clear message instead of dimming the button behind the HTTP timeout.
+    private static bool DeviceOnline => Connectivity.Current.NetworkAccess == NetworkAccess.Internet;
+
     private async Task LoadAsync()
     {
         LoadingLabel.IsVisible = true;
         ErrorCard.IsVisible = false;
+        var gate = OfflineGuard.Check(DeviceOnline, "load the dictionary");
+        if (!gate.Allowed)
+        {
+            LoadingLabel.IsVisible = false;
+            ErrorLabel.Text = gate.Message;
+            ErrorCard.IsVisible = true;
+            return;
+        }
         try
         {
             var gateway = new GatewayClient(
@@ -126,6 +138,8 @@ public partial class DictionaryPage : ContentPage
     private async void OnSaveClicked(object? sender, EventArgs e)
     {
         if (!_dirty) return;
+        var gate = OfflineGuard.Check(DeviceOnline, "save the dictionary");
+        if (!gate.Allowed) { SavedLabel.Text = gate.Message; SavedLabel.TextColor = Color.FromArgb("#E5484D"); return; }
         SaveButton.IsEnabled = false;
         SavedLabel.Text = "saving...";
         SavedLabel.TextColor = Color.FromArgb("#8A93A6");

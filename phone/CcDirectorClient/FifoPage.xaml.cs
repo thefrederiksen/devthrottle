@@ -62,6 +62,11 @@ public partial class FifoPage : ContentPage
     private bool _busy;
     private bool _recordingForWingman;
 
+    // The most recent spoken clip for the current session (briefing or wingman answer), kept so
+    // the Replay button can re-play it (issue #148). Holds only the last clip; cleared when the
+    // session starts working again so stale audio is never replayed.
+    private readonly LastClipCache _clipCache = new();
+
     // Cancels the in-flight turn / briefing so Exit can abandon it.
     private CancellationTokenSource? _turnCts;
 
@@ -118,6 +123,10 @@ public partial class FifoPage : ContentPage
         DeviceDisplay.Current.KeepScreenOn = true;
         _backgrounded = false;
         HookAppLifecycle();
+        // Drive the Stop-talking pill off the speaker's playback state, and sync it now in
+        // case audio is already playing (e.g. returning from the background mid-read).
+        _tts.PlayingChanged += OnPlayingChanged;
+        UpdateStopTalkingVisibility(_tts.IsPlaying);
         _ = LoadQueueCountAsync();
     }
 
@@ -125,6 +134,7 @@ public partial class FifoPage : ContentPage
     {
         base.OnDisappearing();
         DeviceDisplay.Current.KeepScreenOn = false;
+        _tts.PlayingChanged -= OnPlayingChanged;
         _levelTimer.Stop();
 
         // The app went to the background (e.g. the user switched to Waze in the car):
@@ -186,6 +196,44 @@ public partial class FifoPage : ContentPage
         _tts.Stop();
     }
 
+    // ===== stop-talking control (issue #146) ===============================
+    // A floating pill, pinned to the top and shown only while audio is playing, lets the
+    // user silence a long read at once without scrolling. Tapping it cancels the turn (so a
+    // multi-part read does not just roll on to the next clip) and stops playback.
+
+    private void OnPlayingChanged(bool playing)
+        => MainThread.BeginInvokeOnMainThread(() => UpdateStopTalkingVisibility(playing));
+
+    private void UpdateStopTalkingVisibility(bool playing) => StopTalkingButton.IsVisible = playing;
+
+    private void OnStopTalkingClicked(object? sender, EventArgs e)
+    {
+        ClientLog.Write("[FifoPage] Stop talking tapped");
+        CancelSpeechAndTurn();
+        UpdateStopTalkingVisibility(false);
+        SetFifoStatus("Stopped. Ask Agent, Skip, or Hold", StatusGreen);
+    }
+
+    // ===== offline gate (issue #147) =======================================
+    // Buttons must never sink into the disabled "busy" state waiting on a network call that
+    // cannot succeed (the 5-minute HTTP timeout is what makes them "appear dead" with no
+    // signal). Any handler that is about to do network work calls EnsureOnline FIRST: when
+    // offline it shows an instant message, keeps the buttons live, and the handler bails
+    // before awaiting anything. The local effects (stop the briefing, stop the mic) have
+    // already run by then, so the press still gives immediate feedback.
+
+    private static bool DeviceOnline => Connectivity.Current.NetworkAccess == NetworkAccess.Internet;
+
+    private bool EnsureOnline(string action)
+    {
+        var verdict = OfflineGuard.Check(DeviceOnline, action);
+        if (verdict.Allowed) return true;
+        ClientLog.Write($"[FifoPage] offline gate blocked action='{action}'");
+        SetFifoStatus(verdict.Message, StatusRed);
+        SetBusy(false);   // never leave the buttons stuck disabled
+        return false;
+    }
+
     // ===== start panel =====================================================
 
     private async void OnRescanClicked(object? sender, EventArgs e) => await LoadQueueCountAsync();
@@ -193,6 +241,10 @@ public partial class FifoPage : ContentPage
     private async Task LoadQueueCountAsync()
     {
         SaveCreds();
+        // Don't spin "Loading sessions..." behind a doomed fetch when there is no signal;
+        // tell the user at once on the start panel's own status line.
+        var gate = OfflineGuard.Check(DeviceOnline, "load sessions");
+        if (!gate.Allowed) { StartStatusLabel.Text = gate.Message; return; }
         StartStatusLabel.Text = "Loading sessions...";
         try
         {
@@ -255,14 +307,22 @@ public partial class FifoPage : ContentPage
 
     /// <summary>
     /// Refresh the roster, rebuild the queue, and present the next session not yet handled
-    /// this pass. When none remain, the user is caught up. The busy lock is held only while
-    /// the roster is fetched and the session is shown; the briefing is then spoken in the
-    /// background (see <see cref="SpeakBriefingAsync"/>) so the user can Answer / Skip / Hold
-    /// the instant the session appears, cutting off a message they do not want to hear.
+    /// this pass. When none remain, the user is caught up.
+    ///
+    /// The briefing audio is PRE-GENERATED before the session card is shown (issue #148): we
+    /// fetch the wingman's explanation and synthesize its speech while still on the previous
+    /// card (status "Preparing next session..."), and only switch to the new session once the
+    /// audio is in hand, then play it immediately. The clip is cached so Replay can re-play it.
+    /// The busy lock is held across the fetch + synth so the controls cannot fire mid-prepare.
     /// </summary>
     private async Task PresentNextAsync()
     {
+        // The advance needs the roster: gate it so an offline tap fails instantly instead of
+        // disabling every button behind a doomed fetch.
+        if (!EnsureOnline("load your sessions")) return;
         SetBusy(true);
+        // The previous session's clip is stale the moment we move on.
+        ClearCachedClip();
         SessionInfo? next;
         try
         {
@@ -286,8 +346,32 @@ public partial class FifoPage : ContentPage
             return;
         }
 
-        // A live session to handle: leave any idle wait and reset the cue so the next
-        // dry spell is announced again.
+        // Pre-generate the briefing audio BEFORE switching to the session, tied to a fresh
+        // token so Exit can abandon it. We stay on the current card showing "Preparing..." until
+        // the audio is ready, so the user never lands on a silent page waiting for speech.
+        _turnCts?.Cancel();
+        _turnCts = new CancellationTokenSource();
+        var token = _turnCts.Token;
+        SetFifoStatus("Preparing next session...", StatusBlue);
+
+        VoiceConversation.PreparedBriefing? prepared = null;
+        try
+        {
+            var convo = new VoiceConversation(new DirectorVoiceClient(TokenEntry.Text ?? ""), _tts);
+            prepared = await convo.PrepareExplainAsync(next, token);
+        }
+        catch (OperationCanceledException)
+        {
+            return; // the user exited during prepare; nothing to show
+        }
+        catch (Exception ex)
+        {
+            // The briefing could not be prepared: still land on the session so the user can act,
+            // just without the spoken briefing.
+            ClientLog.Write($"[FifoPage] PrepareExplain failed: {ex.Message}");
+        }
+
+        // Audio is in hand (or failed): now switch to the session.
         _idleAnnounced = false;
         IdlePanel.IsVisible = false;
         MainScroll.IsVisible = false;
@@ -296,6 +380,7 @@ public partial class FifoPage : ContentPage
         _lastEndpoint = next.TailnetEndpoint;
         var remaining = _conductor.Queue.Count(s => !_pass.Contains(s.SessionId));
         ShowSessionPanel(next, remaining);
+        if (prepared is not null) BriefingLabel.Text = prepared.DisplayText;
 
         // Mark it as being talked to so the desktop tile / web view / roster agree.
         _ = new DirectorVoiceClient(TokenEntry.Text ?? "")
@@ -304,40 +389,68 @@ public partial class FifoPage : ContentPage
         // The session is on screen: free the controls so Answer / Skip / Hold respond at once.
         SetBusy(false);
 
-        // Speak the briefing in the background, tied to a fresh token, so Skip (or any action)
-        // can cancel it mid-sentence instead of forcing the user to sit through it.
-        _turnCts?.Cancel();
-        _turnCts = new CancellationTokenSource();
-        _ = SpeakBriefingAsync(next, _turnCts.Token);
+        if (prepared is not null)
+        {
+            CacheClip(prepared.Audio);                 // make it replayable
+            _ = PlayClipAsync(prepared.Audio, token);  // speak it now (cancellable)
+        }
+        else
+        {
+            SetFifoStatus("Could not read this session", StatusRed);
+        }
     }
 
     /// <summary>
-    /// Speak the wingman's briefing for <paramref name="session"/> off the UI path so the user
-    /// can interrupt it. A cancelled token (the user skipped / held / answered) ends quietly and
-    /// must not stomp the status set by whatever they did next.
+    /// Play an already-synthesized clip (the just-prepared briefing, or a cached Replay) off the
+    /// UI path so the user can interrupt it. A cancelled token (skip / hold / answer / Stop) ends
+    /// quietly and must not stomp the status set by whatever they did next.
     /// </summary>
-    private async Task SpeakBriefingAsync(SessionInfo session, CancellationToken ct)
+    private async Task PlayClipAsync(byte[] audio, CancellationToken ct)
     {
         try
         {
-            var convo = new VoiceConversation(new DirectorVoiceClient(TokenEntry.Text ?? ""), _tts);
-            SetFifoStatus("Reading what's happening...", StatusBlue);
-            await convo.SpeakExplainAsync(session, OnTurnUpdate, ct);
+            SetFifoStatus("Speaking...", StatusBlue);
+            await _tts.PlayAsync(audio, ct);
             if (!ct.IsCancellationRequested)
                 SetFifoStatus("Ask Agent, Skip, or Hold", StatusGreen);
         }
         catch (OperationCanceledException)
         {
-            // The user skipped, held, or answered before the briefing finished. Expected.
+            // The user skipped, held, answered, or stopped playback. Expected.
         }
         catch (Exception ex)
         {
             if (!ct.IsCancellationRequested)
-            {
-                SetFifoStatus("Could not read this session", StatusRed);
-                await DisplayAlert("FIFO error", ex.Message, "OK");
-            }
+                SetFifoStatus("Could not play this briefing", StatusRed);
+            ClientLog.Write($"[FifoPage] PlayClip failed: {ex.Message}");
         }
+    }
+
+    // ===== last-clip cache + Replay (issue #148) ===========================
+
+    // Remember the most recent spoken clip (briefing or wingman answer) and reveal Replay.
+    private void CacheClip(byte[] audio)
+    {
+        _clipCache.Set(audio);
+        MainThread.BeginInvokeOnMainThread(() => ReplayButton.IsVisible = _clipCache.HasClip);
+    }
+
+    // Drop the cached clip and hide Replay - used when the session starts working again (a new
+    // job starts) and when leaving the session, so stale audio is never replayed.
+    private void ClearCachedClip()
+    {
+        _clipCache.Clear();
+        MainThread.BeginInvokeOnMainThread(() => ReplayButton.IsVisible = false);
+    }
+
+    private void OnReplayClicked(object? sender, EventArgs e)
+    {
+        var clip = _clipCache.Clip;
+        if (clip is null || _busy) return;
+        ClientLog.Write("[FifoPage] Replay tapped");
+        _turnCts?.Cancel();
+        _turnCts = new CancellationTokenSource();
+        _ = PlayClipAsync(clip, _turnCts.Token);
     }
 
     private void ShowSessionPanel(SessionInfo session, int remaining)
@@ -492,6 +605,11 @@ public partial class FifoPage : ContentPage
 
     private async Task RunFifoTurnAsync(SessionInfo session, UtteranceAudio audio)
     {
+        // The mic is already stopped (HandleRecordAsync did that the instant the user tapped).
+        // The upload/transcribe is the network step: gate it so an offline send surfaces at
+        // once and the buttons stay live, rather than dimming for the whole HTTP timeout.
+        if (!EnsureOnline(_recordingForWingman ? "ask the wingman" : "send your answer"))
+            return;
         SetBusy(true);
         _turnCts?.Cancel();
         _turnCts = new CancellationTokenSource();
@@ -499,12 +617,16 @@ public partial class FifoPage : ContentPage
         try
         {
             var outcome = await convo.DeliverToSessionAsync(
-                session, audio, OnTurnUpdate, _turnCts.Token, forceWingman: _recordingForWingman);
+                session, audio, OnTurnUpdate, _turnCts.Token, forceWingman: _recordingForWingman,
+                onClip: CacheClip);
 
             switch (outcome.Kind)
             {
                 case VoiceConversation.FifoOutcomeKind.Delivered:
                 case VoiceConversation.FifoOutcomeKind.Skip:
+                    // The answer went to the agent: it is (re)starting work, so its briefing is
+                    // now stale (issue #148). Drop it before advancing so Replay never plays it.
+                    ClearCachedClip();
                     await MarkHandledAndAdvanceAsync(session, wasHold: false);
                     break;
                 case VoiceConversation.FifoOutcomeKind.Hold:
@@ -534,6 +656,8 @@ public partial class FifoPage : ContentPage
     {
         if (_current is null || _busy) return;
         CancelSpeechAndTurn();   // cut the briefing immediately; don't make the user wait it out
+        // The cut above is the instant local feedback; advancing needs the roster, so gate it.
+        if (!EnsureOnline("move to the next session")) return;
         await MarkHandledAndAdvanceAsync(_current, wasHold: false);
     }
 
@@ -541,6 +665,9 @@ public partial class FifoPage : ContentPage
     {
         if (_current is null || _busy) return;
         CancelSpeechAndTurn();   // cut the briefing immediately
+        // Hold posts to the Director before it can advance: gate it so an offline tap does not
+        // dim every button behind the hold call's timeout.
+        if (!EnsureOnline("hold this session")) return;
         await MarkHandledAndAdvanceAsync(_current, wasHold: true);
     }
 
@@ -589,6 +716,7 @@ public partial class FifoPage : ContentPage
             try { _ = _recorder.StopAsync(); } catch { /* discarding a half-captured clip on leave */ }
         }
         _tts.Stop();
+        ClearCachedClip();   // leaving FIFO: nothing to replay
         ClearVoiceMode(_current);
         _current = null;
         _pass.Clear();
@@ -662,6 +790,7 @@ public partial class FifoPage : ContentPage
 
         SkipButton.IsEnabled = true;
         HoldButton.IsEnabled = true;
+        ReplayButton.IsEnabled = true;
     }
 
     // Recording: the button being recorded turns red (tap it again to send); every other
@@ -679,6 +808,7 @@ public partial class FifoPage : ContentPage
 
         SkipButton.IsEnabled = false;
         HoldButton.IsEnabled = false;
+        ReplayButton.IsEnabled = false;
     }
 
     // Busy (a turn is running): everything disabled and dimmed.
@@ -694,6 +824,7 @@ public partial class FifoPage : ContentPage
 
         SkipButton.IsEnabled = false;
         HoldButton.IsEnabled = false;
+        ReplayButton.IsEnabled = false;
     }
 
     // Top-right burger menu: switch between pages.

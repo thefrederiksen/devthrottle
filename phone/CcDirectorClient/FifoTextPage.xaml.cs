@@ -80,6 +80,9 @@ public partial class FifoTextPage : ContentPage
     private async Task LoadQueueCountAsync()
     {
         SaveCreds();
+        // Don't spin "Loading sessions..." behind a doomed fetch when there is no signal.
+        var gate = OfflineGuard.Check(DeviceOnline, "load sessions");
+        if (!gate.Allowed) { StartStatusLabel.Text = gate.Message; return; }
         StartStatusLabel.Text = "Loading sessions...";
         try
         {
@@ -108,6 +111,23 @@ public partial class FifoTextPage : ContentPage
         Preferences.Set(PrefToken, (TokenEntry.Text ?? "").Trim());
     }
 
+    // ===== offline gate (issue #147) =======================================
+    // No button may sink into the disabled "Working..." state waiting on a network call that
+    // cannot succeed (the HTTP timeout is what makes them "appear dead" with no signal). Any
+    // handler about to do network work checks connectivity FIRST: offline it shows an instant
+    // message, frees the buttons, and bails before awaiting anything. Mirrors FifoPage.
+
+    private static bool DeviceOnline => Connectivity.Current.NetworkAccess == NetworkAccess.Internet;
+
+    private bool EnsureOnline(string action)
+    {
+        var verdict = OfflineGuard.Check(DeviceOnline, action);
+        if (verdict.Allowed) return true;
+        SetFifoStatus(verdict.Message, StatusRed);
+        SetBusy(false);   // never leave the buttons stuck disabled
+        return false;
+    }
+
     private async void OnStartClicked(object? sender, EventArgs e)
     {
         if (_busy) return;
@@ -132,6 +152,9 @@ public partial class FifoTextPage : ContentPage
     /// </summary>
     private async Task PresentNextAsync()
     {
+        // The advance needs the roster: gate it so an offline tap fails instantly instead of
+        // disabling every button behind a doomed fetch.
+        if (!EnsureOnline("load your sessions")) return;
         SetBusy(true);
         try
         {
@@ -205,6 +228,7 @@ public partial class FifoTextPage : ContentPage
         }
 
         var session = _current;
+        if (!EnsureOnline("send your answer")) return;
         SetBusy(true);
         SetFifoStatus("Sending...", StatusYellow);
         _turnCts?.Cancel();
@@ -248,6 +272,7 @@ public partial class FifoTextPage : ContentPage
         }
 
         var session = _current;
+        if (!EnsureOnline("ask the wingman")) return;
         SetBusy(true);
         SetFifoStatus("Asking the wingman...", StatusBlue);
         _turnCts?.Cancel();
@@ -300,6 +325,9 @@ public partial class FifoTextPage : ContentPage
     private async void OnHoldClicked(object? sender, EventArgs e)
     {
         if (_current is null || _busy) return;
+        // Hold posts to the Director before it can advance: gate so an offline tap does not
+        // dim every button behind the hold call's timeout.
+        if (!EnsureOnline("hold this session")) return;
         await MarkHandledAndAdvanceAsync(_current, wasHold: true);
     }
 
