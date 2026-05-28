@@ -109,4 +109,22 @@ public sealed class SessionDto
     /// rather than typed-at. Mirrors <c>Session.VoiceMode</c> on the owning Director.
     /// </summary>
     public bool VoiceMode { get; set; }
+
+    /// <summary>
+    /// True when the user has parked this session in the FIFO voice queue ("deal with
+    /// this later"). A user override orthogonal to <see cref="ActivityState"/> and
+    /// <see cref="StatusColor"/>: the underlying state is still reported truthfully, but
+    /// the FIFO conductor skips held sessions. Mirrors <c>Session.OnHold</c> on the
+    /// owning Director. The UI renders this verbatim and never derives it.
+    /// </summary>
+    public bool OnHold { get; set; }
+
+    /// <summary>
+    /// Whether the Wingman experience is enabled for this session: auto-explain briefing on
+    /// turn-end, Voice + Wingman tabs visible, Yellow "Wingman is reading" state available.
+    /// Default ON. When false the session behaves as a plain terminal -- clients hide the
+    /// Voice + Wingman tabs and the dot goes straight Blue->Red on turn-end (no Yellow).
+    /// Mirrors <c>Session.WingmanEnabled</c> on the owning Director.
+    /// </summary>
+    public bool WingmanEnabled { get; set; } = true;
 }

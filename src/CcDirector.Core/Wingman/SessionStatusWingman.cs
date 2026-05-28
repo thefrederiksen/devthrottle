@@ -31,6 +31,7 @@ public sealed class SessionStatusWingman : IDisposable
 {
     private readonly SessionManager _sessionManager;
     private readonly ConcurrentDictionary<Guid, Action<ActivityState, ActivityState>> _activityHandlers = new();
+    private readonly ConcurrentDictionary<Guid, Action<bool>> _explainHandlers = new();
     private readonly ConcurrentDictionary<Guid, PromptInjectionWatcher> _injectionWatchers = new();
     private bool _started;
     private bool _disposed;
@@ -69,15 +70,27 @@ public sealed class SessionStatusWingman : IDisposable
         if (_activityHandlers.ContainsKey(session.Id)) return;
 
         // Initialize colour from the current activity state.
-        var (color, reason) = ColorFromActivityState(session.ActivityState, isNew);
+        var (color, reason) = ColorFor(session, isNew);
         session.SetStatusColor(color, reason);
         FileLog.Write($"[SessionStatusWingman] init {session.Id} -> {color} ({reason})");
+
+        // Brand-new session: seed a canned Wingman greeting so the Wingman tab has
+        // content the moment the user opens it, with no Opus call. The
+        // ProactiveExplainService skips the first turn-end briefing for IsBrandNew
+        // sessions (nothing useful to summarize yet); this line is what the user reads
+        // until they send their first prompt.
+        if (isNew && session.IsBrandNew)
+        {
+            session.SetCachedExplain(
+                "This is a brand new session. Nothing to explain yet -- the Wingman will pick up after your first turn.",
+                "system");
+        }
 
         Action<ActivityState, ActivityState> handler = (oldState, newState) =>
         {
             try
             {
-                var (c, r) = ColorFromActivityState(newState, isNew: false);
+                var (c, r) = ColorFor(session, isNew: false);
                 session.SetStatusColor(c, r);
                 FileLog.Write($"[SessionStatusWingman] {session.Id} activity {oldState}->{newState} => {c} ({r})");
 
@@ -101,6 +114,27 @@ public sealed class SessionStatusWingman : IDisposable
         };
         _activityHandlers[session.Id] = handler;
         session.OnActivityStateChanged += handler;
+
+        // ProactiveExplainService toggles Session.IsExplaining around its briefing call.
+        // When the flag flips we recompute the colour so the dot can move into Yellow
+        // ("Wingman is reading") while the briefing is in flight and back to Red when
+        // it finishes. The activity state has NOT changed during this window -- only the
+        // Yellow overlay -- so we don't write to StateChangeLog here.
+        Action<bool> explainHandler = isExplaining =>
+        {
+            try
+            {
+                var (c, r) = ColorFor(session, isNew: false);
+                session.SetStatusColor(c, r);
+                FileLog.Write($"[SessionStatusWingman] {session.Id} explaining={isExplaining} => {c} ({r})");
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[SessionStatusWingman] explain handler failed for {session.Id}: {ex.Message}");
+            }
+        };
+        _explainHandlers[session.Id] = explainHandler;
+        session.OnIsExplainingChanged += explainHandler;
 
         // Subscribe to the byte stream so we re-scan Claude Code's input-prompt
         // line whenever the TUI redraws and then goes quiet. The watcher debounces
@@ -136,6 +170,25 @@ public sealed class SessionStatusWingman : IDisposable
         };
     }
 
+    /// <summary>
+    /// Resolve the dot colour for a session given its current ActivityState plus the
+    /// Wingman overlays (IsExplaining + WingmanEnabled). Yellow is emitted only when
+    /// the session is parked at a turn-end (WaitingForInput / WaitingForPerm), has
+    /// Wingman enabled, and currently has a briefing in flight. Otherwise the colour
+    /// is the plain activity-state mapping above.
+    /// </summary>
+    internal static (string color, string reason) ColorFor(Session session, bool isNew)
+    {
+        var baseColor = ColorFromActivityState(session.ActivityState, isNew);
+
+        var atTurnEnd = session.ActivityState is ActivityState.WaitingForInput
+                                              or ActivityState.WaitingForPerm;
+        if (session.WingmanEnabled && session.IsExplaining && atTurnEnd)
+            return (StatusColor.Yellow, "wingman is reading");
+
+        return baseColor;
+    }
+
     public void Dispose()
     {
         if (_disposed) return;
@@ -146,6 +199,8 @@ public sealed class SessionStatusWingman : IDisposable
         {
             if (_activityHandlers.TryRemove(s.Id, out var h))
                 s.OnActivityStateChanged -= h;
+            if (_explainHandlers.TryRemove(s.Id, out var eh))
+                s.OnIsExplainingChanged -= eh;
         }
         foreach (var kv in _injectionWatchers)
             kv.Value.Dispose();

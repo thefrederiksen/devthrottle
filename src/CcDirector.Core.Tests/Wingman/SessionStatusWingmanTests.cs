@@ -105,6 +105,73 @@ public sealed class SessionStatusWingmanTests
 
     // ---------- End-to-end: the timer flip drives the badge ----------
 
+    // ---------- Yellow overlay (Wingman auto-explain in flight) ----------
+    // These tests use the in-process BufferOnlyBackend (never auto-exits) so the
+    // Yellow rule is exercised without racing the cmd.exe spawn/exit lifecycle.
+
+    [Fact]
+    public void Yellow_only_when_wingman_enabled_and_explaining_and_at_turn_end()
+    {
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        var wingman = new SessionStatusWingman(manager);
+        try
+        {
+            wingman.Start();
+            var (session, _) = CreateBufferSession(manager);
+
+            // WingmanEnabled is on by default. Park at turn-end and flip IsExplaining.
+            session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
+            Assert.Equal(StatusColor.Red, session.StatusColor);
+
+            session.IsExplaining = true;
+            Assert.Equal(StatusColor.Yellow, session.StatusColor);
+            Assert.Equal("wingman is reading", session.LastStatusReason);
+
+            session.IsExplaining = false;
+            Assert.Equal(StatusColor.Red, session.StatusColor);
+        }
+        finally { wingman.Dispose(); manager.Dispose(); }
+    }
+
+    [Fact]
+    public void Yellow_does_not_apply_while_session_is_working()
+    {
+        // Yellow is the "your turn just ended, Wingman is reading" overlay. While the agent
+        // is still producing bytes the dot must stay Blue even if IsExplaining is somehow
+        // set (defensive: ProactiveExplainService only fires on WaitingForInput).
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        var wingman = new SessionStatusWingman(manager);
+        try
+        {
+            wingman.Start();
+            var (session, _) = CreateBufferSession(manager);
+
+            session.ApplyTerminalActivityState(ActivityState.Working);
+            session.IsExplaining = true;
+            Assert.Equal(StatusColor.Blue, session.StatusColor);
+        }
+        finally { wingman.Dispose(); manager.Dispose(); }
+    }
+
+    [Fact]
+    public void Yellow_suppressed_when_wingman_disabled()
+    {
+        // A WingmanEnabled=false session must never go Yellow -- it goes straight Blue->Red.
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        var wingman = new SessionStatusWingman(manager);
+        try
+        {
+            wingman.Start();
+            var (session, _) = CreateBufferSession(manager);
+            session.WingmanEnabled = false;
+
+            session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
+            session.IsExplaining = true;
+            Assert.Equal(StatusColor.Red, session.StatusColor);
+        }
+        finally { wingman.Dispose(); manager.Dispose(); }
+    }
+
     [Fact]
     public void Wingman_paints_blue_on_working_and_red_on_waiting_for_input()
     {
@@ -367,6 +434,104 @@ public sealed class SessionStatusWingmanTests
             Assert.Equal("commit the cc-playwright changes too", session.PendingPromptText);
         }
         finally { wingman.Dispose(); manager.Dispose(); }
+    }
+
+    // ---------- Brand-new session gate ----------
+
+    [Fact]
+    public void New_session_is_brand_new_until_user_submits()
+    {
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        try
+        {
+            var session = manager.CreateSession(Path.GetTempPath());
+            Assert.True(session.IsBrandNew);
+        }
+        finally { manager.Dispose(); }
+    }
+
+    [Fact]
+    public async Task SendTextAsync_clears_IsBrandNew()
+    {
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        try
+        {
+            var (session, _) = CreateBufferSession(manager);
+            Assert.True(session.IsBrandNew);
+            await session.SendTextAsync("hello");
+            Assert.False(session.IsBrandNew);
+        }
+        finally { manager.Dispose(); }
+    }
+
+    [Fact]
+    public void SendInput_with_submit_byte_clears_IsBrandNew()
+    {
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        try
+        {
+            var (session, _) = CreateBufferSession(manager);
+            Assert.True(session.IsBrandNew);
+            // Submit byte (LF) flips the gate.
+            session.SendInput(new byte[] { 0x0A });
+            Assert.False(session.IsBrandNew);
+        }
+        finally { manager.Dispose(); }
+    }
+
+    [Fact]
+    public void SendInput_without_submit_byte_keeps_IsBrandNew()
+    {
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        try
+        {
+            var (session, _) = CreateBufferSession(manager);
+            // A bare keystroke (single 'a') is the user composing - not a submitted turn.
+            session.SendInput(new byte[] { (byte)'a' });
+            Assert.True(session.IsBrandNew);
+        }
+        finally { manager.Dispose(); }
+    }
+
+    [Fact]
+    public void Wingman_seeds_brand_new_session_with_canned_explain()
+    {
+        // SessionStatusWingman.WireSession populates CachedExplainText with a canned
+        // greeting on new sessions so the Wingman tab has content immediately, with no
+        // Opus call.
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        var wingman = new SessionStatusWingman(manager);
+        try
+        {
+            wingman.Start();
+            var session = manager.CreateSession(Path.GetTempPath());
+            Assert.NotNull(session.CachedExplainText);
+            Assert.Contains("brand new session", session.CachedExplainText, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal("system", session.CachedExplainModel);
+        }
+        finally { wingman.Dispose(); manager.Dispose(); }
+    }
+
+    [Fact]
+    public void SetCachedExplain_fires_OnCachedExplainChanged()
+    {
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        try
+        {
+            var session = manager.CreateSession(Path.GetTempPath());
+            int fires = 0;
+            session.OnCachedExplainChanged += () => fires++;
+
+            session.SetCachedExplain("hello", "opus");
+            Assert.Equal(1, fires);
+            Assert.Equal("hello", session.CachedExplainText);
+
+            // Empty/whitespace input is ignored and does not fire.
+            session.SetCachedExplain("", "opus");
+            session.SetCachedExplain("   ", "opus");
+            Assert.Equal(1, fires);
+        }
+        finally { manager.Dispose(); }
     }
 
     [Fact]

@@ -438,6 +438,7 @@ public partial class MainWindow : Window
             _activeSession.Session.OnClaudeMetadataChanged -= OnActiveSessionMetadataChanged;
             _activeSession.Session.OnActivityStateChanged -= OnActiveSessionActivityChanged;
             _activeSession.Session.OnPendingPromptTextChanged -= OnActiveSessionPendingPromptTextChanged;
+            _activeSession.Session.OnCachedExplainChanged -= OnActiveSessionCachedExplainChanged;
             TerminalHost.Detach();
             GitChangesView.Detach();
             CleanView.Detach();
@@ -455,6 +456,7 @@ public partial class MainWindow : Window
             TabBarRefreshButton.IsVisible = false;
             TabBarCaptureButton.IsVisible = false;
             TabBarOpenWingmanButton.IsVisible = false;
+            WingmanTabButton.IsVisible = false;
             GitChangesView.Detach();
             CleanView.Detach();
             WingmanView.Detach();
@@ -469,6 +471,9 @@ public partial class MainWindow : Window
         // and pushes it through this event; we mirror it into "Type a message..."
         // when the box is empty.
         vm.Session.OnPendingPromptTextChanged += OnActiveSessionPendingPromptTextChanged;
+        // Re-render the Wingman tab whenever ProactiveExplainService stores a fresh
+        // briefing on this session. The tab is a passive viewer of CachedExplainText.
+        vm.Session.OnCachedExplainChanged += OnActiveSessionCachedExplainChanged;
 
         // Update header
         SessionHeaderBanner.IsVisible = true;
@@ -496,17 +501,28 @@ public partial class MainWindow : Window
         TabBarCaptureButton.IsVisible = _activeLeftTab == "Terminal";
         TabBarOpenWingmanButton.IsVisible = true;
 
+        // Wingman tab is only available when the session has the Wingman experience
+        // enabled. If it's off, the tab button is hidden and the Wingman left panel
+        // stays collapsed.
+        WingmanTabButton.IsVisible = vm.Session.WingmanEnabled;
+        // Render whatever cached briefing the ProactiveExplainService has produced so
+        // far (or the brand-new greeting set on session creation). The tab is a
+        // passive viewer; it does not run the wingman itself.
+        RenderWingmanCachedExplain(vm.Session);
+
         // Restore prompt text for incoming session
         PromptInput.Text = vm.Session.PendingPromptText ?? "";
         PromptInput.CaretIndex = PromptInput.Text.Length;
 
         // Restore last selected tab. The Session/Agent tabs were removed; the
         // wingman/voice view now opens in an external browser. Normalize any
-        // persisted values from older builds and default to Terminal.
+        // persisted values from older builds and default to Terminal. Also fall back
+        // to Terminal if the saved tab was Wingman but the session has it disabled.
         var tabName = vm.Session.SelectedTabName;
         if (string.Equals(tabName, "Session", StringComparison.Ordinal) ||
-            string.Equals(tabName, "Agent", StringComparison.Ordinal) ||
-            string.Equals(tabName, "Wingman", StringComparison.Ordinal))
+            string.Equals(tabName, "Agent", StringComparison.Ordinal))
+            tabName = "Terminal";
+        if (string.Equals(tabName, "Wingman", StringComparison.Ordinal) && !vm.Session.WingmanEnabled)
             tabName = "Terminal";
         if (string.IsNullOrEmpty(tabName)) tabName = "Terminal";
         if (tabName != _activeLeftTab)
@@ -538,19 +554,18 @@ public partial class MainWindow : Window
     private void OnActiveSessionActivityChanged(ActivityState oldState, ActivityState newState)
     {
         Dispatcher.UIThread.Post(UpdateSessionHeader);
+        // Wingman note updates are driven by OnCachedExplainChanged, not by activity-state
+        // edges. The ProactiveExplainService owns the analysis; this tab only reads what
+        // it has produced.
+    }
 
-        // When a turn just finished (Working -> a stopping state) and the Wingman tab
-        // is the one showing, refresh the plain-language note so it tracks the session
-        // without the user having to ask.
-        if (oldState == ActivityState.Working
-            && newState is ActivityState.Idle or ActivityState.WaitingForInput or ActivityState.WaitingForPerm)
+    private void OnActiveSessionCachedExplainChanged()
+    {
+        Dispatcher.UIThread.Post(() =>
         {
-            Dispatcher.UIThread.Post(() =>
-            {
-                if (_activeLeftTab == "Wingman")
-                    _ = RefreshWingmanAnnotationAsync();
-            });
-        }
+            if (_activeSession is null) return;
+            RenderWingmanCachedExplain(_activeSession.Session);
+        });
     }
 
     /// <summary>
@@ -1414,10 +1429,15 @@ public partial class MainWindow : Window
             agentArgs = string.Empty;
         }
 
-        FileLog.Write($"[MainWindow] ShowNewSessionDialog: path={dialog.SelectedPath}, agent={agentKind}, resume={resumeSessionId ?? "null"}, bypassPermissions={dialog.BypassPermissions}, remoteControl={dialog.EnableRemoteControl}");
+        FileLog.Write($"[MainWindow] ShowNewSessionDialog: path={dialog.SelectedPath}, agent={agentKind}, resume={resumeSessionId ?? "null"}, bypassPermissions={dialog.BypassPermissions}, remoteControl={dialog.EnableRemoteControl}, wingmanEnabled={dialog.WingmanEnabled}");
 
         var vm = CreateSession(dialog.SelectedPath, resumeSessionId, agentArgs, agentKind);
         if (vm == null) return;
+
+        // Apply the per-session Wingman opt-in chosen in the dialog. Default in the checkbox
+        // is true (matches Session.WingmanEnabled's default); the dialog can flip it off so
+        // the session boots as plain-terminal with no auto-explain and no Voice/Wingman tabs.
+        vm.Session.WingmanEnabled = dialog.WingmanEnabled;
 
         // Track last used time for repository sorting
         registry?.MarkUsed(dialog.SelectedPath);
@@ -1738,59 +1758,15 @@ public partial class MainWindow : Window
         SwitchLeftTab("Wingman");
     }
 
-    // The wingman annotation banner shows a plain-language read of the active session.
-    // Track which session the current note describes so we only auto-regenerate when
-    // the session actually changed (a fresh Opus call is not free).
-    private Guid? _wingmanNoteSessionId;
-    private CancellationTokenSource? _wingmanNoteCts;
-
-    private async void WingmanRefreshButton_Click(object? sender, RoutedEventArgs e)
-        => await RefreshWingmanAnnotationAsync();
-
-    // Generate the wingman's plain-language note for the active session over its full
-    // cleaned terminal, using the same read-only in-process path as Ask Wingman. The
-    // latest call wins (an in-flight note is cancelled when a newer one starts).
-    private async Task RefreshWingmanAnnotationAsync()
+    // The wingman annotation banner is a passive viewer of Session.CachedExplainText -
+    // the briefing the ProactiveExplainService stores at each turn-end. No Opus calls
+    // are made from this tab; updates arrive via Session.OnCachedExplainChanged.
+    private void RenderWingmanCachedExplain(global::CcDirector.Core.Sessions.Session session)
     {
-        var vm = _activeSession;
-        if (vm is null)
-        {
-            WingmanNoteText.Text = "No session selected.";
-            return;
-        }
-        var options = (global::Avalonia.Application.Current as App)?.SessionManager?.Options;
-        if (options is null) return;
-
-        _wingmanNoteCts?.Cancel();
-        _wingmanNoteCts = new CancellationTokenSource();
-        var ct = _wingmanNoteCts.Token;
-        _wingmanNoteSessionId = vm.Session.Id;
-
-        try
-        {
-            WingmanNoteText.Text = "Reading the session...";
-            var session = vm.Session;
-            var bytes = session.Buffer?.DumpAll() ?? Array.Empty<byte>();
-            var fullTerminal = global::CcDirector.ControlApi.AnsiCleaner.Clean(bytes);
-            const string q = "In two or three sentences, plainly summarize what just happened in this session "
-                + "and what, if anything, you are waiting on me to do. Keep specifics like file names and the "
-                + "actual question; do not summarize them away.";
-            var result = await global::CcDirector.Core.Wingman.WingmanService.AnswerViaSessionAsync(
-                q, fullTerminal, session.AgentKind.ToString(), session.RepoPath, options.ClaudePath, ct);
-            if (ct.IsCancellationRequested) return;
-            WingmanNoteText.Text = string.IsNullOrWhiteSpace(result.Answer)
-                ? "Nothing to report yet."
-                : result.Answer;
-        }
-        catch (OperationCanceledException)
-        {
-            // Superseded by a newer refresh; leave the newer one to update the text.
-        }
-        catch (Exception ex)
-        {
-            FileLog.Write($"[MainWindow] RefreshWingmanAnnotation FAILED: {ex.Message}");
-            WingmanNoteText.Text = "Wingman error: " + ex.Message;
-        }
+        var text = session.CachedExplainText;
+        WingmanNoteText.Text = string.IsNullOrWhiteSpace(text)
+            ? "No briefing yet. The Wingman will write here at the next turn-end."
+            : text;
     }
 
     // Wingman tab "Send": route the typed/dictated text to the agent through the
@@ -2177,13 +2153,11 @@ public partial class MainWindow : Window
             _ttsPlayer?.Stop();
         }
 
-        // Opening the Wingman tab on a different session than the current note
-        // describes: generate a fresh note (skip when it already matches, so toggling
-        // tabs doesn't fire repeated Opus calls).
-        if (tab == "Wingman" && _activeSession is not null
-            && _wingmanNoteSessionId != _activeSession.Session.Id)
+        // The Wingman tab is a passive viewer of Session.CachedExplainText. Just render
+        // whatever is currently cached; OnCachedExplainChanged will keep it fresh.
+        if (tab == "Wingman" && _activeSession is not null)
         {
-            _ = RefreshWingmanAnnotationAsync();
+            RenderWingmanCachedExplain(_activeSession.Session);
         }
 
         // Show refresh button only when Terminal tab is active and a session exists

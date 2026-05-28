@@ -203,6 +203,14 @@
                               Margin="0,8,0,0"
                               ToolTip.Tip="When checked, starts session in Remote Control mode for access from claude.ai or mobile app" />
 
+                    <CheckBox x:Name="WingmanCheckBox" Grid.Row="7"
+                              Content="Wingman (auto-explain on turn-end + Voice tabs)"
+                              IsChecked="True"
+                              HorizontalAlignment="Right"
+                              Foreground="#CCCCCC"
+                              Margin="0,8,0,0"
+                              ToolTip.Tip="When checked, the session auto-runs the Wingman briefing on every turn-end and shows Voice/Wingman tabs. Uncheck for a plain terminal-only session." />
+
                     <!-- Quick-launch cards -->
                     <StackPanel Grid.Row="8" Orientation="Horizontal" Margin="0,16,0,0">
                         <!-- Assistant card -->

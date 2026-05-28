@@ -1110,6 +1110,7 @@
         <button type="button" class="menu-item" role="menuitem" onclick="return menuRename()">Rename session</button>
         <a class="menu-item" id="gatewayBtn" data-url="__GATEWAY_URL__" role="menuitem">Gateway directory</a>
         <button type="button" id="stopBtn" class="menu-item" role="menuitem" onclick="return menuStop()" title="Send Escape to interrupt the current turn">Stop the turn</button>
+        <button type="button" id="wingmanToggleBtn" class="menu-item" role="menuitem" onclick="return menuToggleWingman()" title="Auto-explain on turn-end + Voice + Wingman tabs">Wingman: on</button>
         <div class="menu-sep"></div>
         <button type="button" id="shutdownBtn" class="menu-item danger" role="menuitem" onclick="return menuShutdown()" title="Shut down this session (terminates the Claude process)">Shut down session</button>
       </div>
@@ -1117,8 +1118,8 @@
   </header>
 
   <div class="tabs">
-    <div class="tab active" data-view="session">Session</div>
-    <div class="tab" data-view="voice">Voice</div>
+    <div class="tab active" data-view="session" data-needs-wingman="1">Session</div>
+    <div class="tab" data-view="voice" data-needs-wingman="1">Voice</div>
     <div class="tab" data-view="raw">Raw terminal</div>
   </div>
 </div>
@@ -1172,6 +1173,7 @@
 
   <div class="explain-panel" id="explainPanel" style="display:none">
     <div class="explain-label">SUMMARY<span class="explain-meta" id="explainMeta"></span></div>
+    <div class="explain-headline" id="explainHeadline" style="display:none; font-weight:600; font-size:1.05em; margin: 6px 0 8px 0;"></div>
     <div class="explain-body" id="explainBody"></div>
   </div>
 
@@ -1944,6 +1946,7 @@
         bodyEl.textContent = 'Explain failed: HTTP ' + resp.status;
       } else {
         const result = await resp.json();
+        applyHeadline(result.headline);
         renderBriefing(bodyEl, result.answer || '(no answer)');
         metaEl.textContent = ' updated just now';
         renderQuickReplies(result.quickReplies);
@@ -2002,12 +2005,29 @@
         const at = new Date(data.at).getTime();
         if (Number.isNaN(at) || at <= _explainShownAt) return;
         _explainShownAt = at;
+        applyHeadline(data.headline);
         renderBriefing(document.getElementById('explainBody'), data.text);
         document.getElementById('explainMeta').textContent = data.at ? (' updated ' + relativeTime(data.at)) : '';
         renderQuickReplies(data.quickReplies);
         document.getElementById('explainPanel').style.display = '';
       }
     } catch {}
+  }
+
+  // Show or hide the briefing headline. Called by both runExplain and loadCachedExplain.
+  // A blank headline (the wingman might omit it when there is nothing to summarise) hides
+  // the element entirely rather than leaving a one-line gap above the body text.
+  function applyHeadline(headline) {
+    const el = document.getElementById('explainHeadline');
+    if (!el) return;
+    const txt = (headline || '').trim();
+    if (txt.length === 0) {
+      el.style.display = 'none';
+      el.textContent = '';
+    } else {
+      el.textContent = txt;
+      el.style.display = '';
+    }
   }
 
   // Render a wingman briefing into an element. On a phone, file paths the agent
@@ -2331,7 +2351,15 @@
     const avail = rawEl.clientHeight - padV;
     const rows = Math.max(1, Math.floor(avail / cellH));
     if (t.cols !== lastRawCols || t.rows !== rows) {
+      // Bottom-sticky resize: if the viewport was sitting on the live bottom
+      // before we shrink the box (e.g. the keypad opening reserves --keypadH),
+      // pin it back to the bottom afterwards. xterm's resize can otherwise leave
+      // the viewport on older scrollback, which hides the live footer (the
+      // prompt / status line) right when the keypad is opened to drive it.
+      const buf = t.buffer.active;
+      const wasAtBottom = buf.viewportY >= buf.baseY;
       try { t.resize(lastRawCols, rows); } catch {}
+      if (wasAtBottom) { try { t.scrollToBottom(); } catch {} }
     }
   }
 
@@ -2455,8 +2483,39 @@
         stateDotEl.style.background = stateColor(dto.activityState);
         stateDotEl.title = 'Session state: ' + dto.activityState;
       }
+      applyWingmanEnabled(dto.wingmanEnabled !== false);
     } catch {}
   }
+
+  // Reflect the session's WingmanEnabled flag in the UI: hide the Session + Voice tabs
+  // when off (showing only "Raw terminal"), update the menu toggle label, and force the
+  // active view to Raw if the user had been parked on a now-hidden tab.
+  let _wingmanEnabled = true;
+  function applyWingmanEnabled(enabled) {
+    _wingmanEnabled = !!enabled;
+    document.querySelectorAll('.tabs .tab[data-needs-wingman="1"]').forEach(el => {
+      el.style.display = enabled ? '' : 'none';
+    });
+    const btn = document.getElementById('wingmanToggleBtn');
+    if (btn) btn.textContent = enabled ? 'Wingman: on' : 'Wingman: off';
+    if (!enabled && (activeView === 'session' || activeView === 'voice')) {
+      const rawTab = document.querySelector('.tabs .tab[data-view="raw"]');
+      if (rawTab) rawTab.click();
+    }
+  }
+
+  // Menu action: flip the session's WingmanEnabled flag on the server, then re-read it.
+  window.menuToggleWingman = function () {
+    window.closeSessionMenu();
+    const target = !_wingmanEnabled;
+    fetch('/sessions/' + SID + '/wingman-enabled', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ enabled: target }),
+    }).then(() => applyWingmanEnabled(target)).catch(() => {});
+    return false;
+  };
 
   // Speak button: in-page dictation overlay. Cleaned transcript is
   // auto-inserted at the caret in the prompt input; user reviews/edits then

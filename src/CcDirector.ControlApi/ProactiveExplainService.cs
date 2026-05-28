@@ -6,23 +6,33 @@ using CcDirector.Core.Utilities;
 namespace CcDirector.ControlApi;
 
 /// <summary>
-/// Powers the mobile/voice "instant briefing" experience. For sessions flagged
-/// <see cref="Session.MobileMode"/>, this regenerates the wingman "explain" briefing
-/// (strong model / Opus) in the background at each decision-point turn-end - i.e. when the
-/// session transitions into <see cref="ActivityState.WaitingForInput"/> - and caches the
-/// result on the session via <see cref="Session.SetCachedExplain"/>.
+/// Powers the auto-explain experience. For sessions with <see cref="Session.WingmanEnabled"/>
+/// (default ON), this regenerates the wingman "explain" briefing (strong model / Opus) in
+/// the background at each decision-point turn-end - i.e. when the session transitions into
+/// <see cref="ActivityState.WaitingForInput"/> - and caches the result on the session via
+/// <see cref="Session.SetCachedExplain"/>.
+///
+/// While the briefing call is in flight, the session is flagged
+/// <see cref="Session.IsExplaining"/>=true so the <c>SessionStatusWingman</c> can paint the
+/// dot Yellow ("Wingman is reading") instead of jumping straight to Red. The flag is cleared
+/// in <c>finally</c> so a failure / timeout / shutdown still releases the Yellow state.
 ///
 /// The phone then reads the cache instantly on open (GET /sessions/{id}/wingman/explain)
 /// rather than waiting on a live Opus call behind a spinner.
 ///
-/// Design notes (from the remote-experience plan, P1.2):
-/// - Gated to mobile-mode sessions only, so the Opus cost stays off the whole fleet.
+/// Design notes:
+/// - Gated to <see cref="Session.WingmanEnabled"/> sessions, so the Opus cost stays off the
+///   whole fleet when a user disables Wingman for a session.
 /// - Triggered on the WaitingForInput transition (a decision point), NOT every byte/turn.
 /// - Background job: it owns its own cancellation, nobody is waiting on it.
 /// - Per-session in-flight guard: never run two generations for one session at once; a
 ///   turn-end that arrives mid-generation is skipped (the next one regenerates).
 /// - <see cref="Session.SetCachedExplain"/> ignores empty results, so a failed or timed-out
 ///   generation preserves the last good briefing instead of blanking the screen.
+/// - TEXT ONLY. We do NOT pre-render TTS audio here. Auto-narration on every turn-end would
+///   spend OpenAI tokens on briefings nobody will hear (and our experiment showed the work is
+///   wasted - the phone is fast at the live /tts call against the cached briefing). The
+///   phone's voice mode hits /tts on demand against the briefing's spoken-version field.
 /// </summary>
 public sealed class ProactiveExplainService : IDisposable
 {
@@ -38,7 +48,10 @@ public sealed class ProactiveExplainService : IDisposable
     /// <summary>Let the terminal buffer settle into its final frame before briefing.</summary>
     private static readonly TimeSpan SettleDelay = TimeSpan.FromMilliseconds(600);
 
-    public ProactiveExplainService(SessionManager sessionManager, string claudePath, TurnSummaryCache? turnSummaryCache = null)
+    public ProactiveExplainService(
+        SessionManager sessionManager,
+        string claudePath,
+        TurnSummaryCache? turnSummaryCache = null)
     {
         _sessionManager = sessionManager;
         _claudePath = claudePath;
@@ -76,7 +89,7 @@ public sealed class ProactiveExplainService : IDisposable
         {
             // Decision point: the agent finished its turn and is back at the prompt.
             if (newState != ActivityState.WaitingForInput) return;
-            if (!session.MobileMode) return;
+            if (!session.WingmanEnabled) return;
             TriggerBackgroundExplain(session);
         };
         _handlers[session.Id] = handler;
@@ -84,14 +97,31 @@ public sealed class ProactiveExplainService : IDisposable
     }
 
     /// <summary>
-    /// Generate a briefing now, regardless of activity state. Used when mobile mode is
-    /// switched on so the cache is populated immediately instead of waiting for the next turn.
+    /// Generate a briefing now, regardless of activity state. Used when the user flips
+    /// Wingman on so the cache is populated immediately instead of waiting for the next
+    /// turn-end. No-op for Wingman-off sessions even if a stale code path calls in.
     /// </summary>
     public void TriggerBackgroundExplain(Session session)
     {
         if (_disposed) return;
+        // Defensive: never spend an Opus turn on a session the user has disabled Wingman on.
+        if (!session.WingmanEnabled) return;
+        // Brand-new session: nothing useful to summarize yet (the agent has just printed
+        // its splash banner). The Wingman tab is already showing the canned greeting set
+        // by SessionStatusWingman.WireSession; running Opus on the banner is wasted work.
+        // The flag clears on the user's first real submit, so the next turn-end will run
+        // the wingman normally.
+        if (session.IsBrandNew)
+        {
+            FileLog.Write($"[ProactiveExplainService] skip brand-new session {session.Id} (no user input yet)");
+            return;
+        }
         // Per-session in-flight guard: skip if one is already running.
         if (!_inFlight.TryAdd(session.Id, 0)) return;
+
+        // Flip the Yellow overlay on now so SessionStatusWingman can repaint the dot
+        // BEFORE the strong-model call starts; clear it in finally regardless of outcome.
+        session.IsExplaining = true;
 
         _ = Task.Run(async () =>
         {
@@ -105,7 +135,8 @@ public sealed class ProactiveExplainService : IDisposable
                 if (result is not null && string.Equals(result.Status, "ok", StringComparison.OrdinalIgnoreCase))
                 {
                     session.SetCachedExplain(result.Answer, result.Model, result.QuickReplies);
-                    FileLog.Write($"[ProactiveExplainService] cached explain for {session.Id} (model={result.Model}, len={result.Answer?.Length ?? 0}, replies={result.QuickReplies?.Count ?? 0})");
+                    session.SetCachedExplainStructured(result.Headline, result.WhatHappened, result.WhatClaudeWants, result.Say);
+                    FileLog.Write($"[ProactiveExplainService] cached explain for {session.Id} (model={result.Model}, headline=\"{result.Headline}\", len={result.Answer?.Length ?? 0}, replies={result.QuickReplies?.Count ?? 0}, sayLen={result.Say?.Length ?? 0})");
                 }
                 else
                 {
@@ -119,6 +150,7 @@ public sealed class ProactiveExplainService : IDisposable
             }
             finally
             {
+                session.IsExplaining = false;
                 _inFlight.TryRemove(session.Id, out _);
             }
         });
@@ -149,3 +181,6 @@ internal sealed record StateVoteRequest(string? CorrectState, string? Note, stri
 
 /// <summary>Body of POST /sessions/{sid}/voice-mode.</summary>
 internal sealed record VoiceModeRequest(bool Enabled);
+
+/// <summary>Body of POST /sessions/{sid}/wingman-enabled.</summary>
+internal sealed record WingmanEnabledRequest(bool Enabled);

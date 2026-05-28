@@ -254,6 +254,10 @@ internal static class ControlEndpoints
                 at = session.CachedExplainAt,
                 model = session.CachedExplainModel,
                 quickReplies = session.CachedQuickReplies,
+                headline = session.CachedExplainHeadline,
+                whatHappened = session.CachedExplainWhatHappened,
+                whatClaudeWants = session.CachedExplainWhatClaudeWants,
+                say = session.CachedExplainSay,
             });
         });
 
@@ -308,6 +312,69 @@ internal static class ControlEndpoints
             FileLog.Write($"[ControlEndpoints] /voice-mode: session={guid} enabled={enabled} viewMode={session.ViewMode}");
             proactiveExplain?.TriggerBackgroundExplain(session);
             return Results.Json(new { voiceMode = session.VoiceMode, mobileMode = session.MobileMode });
+        });
+
+        // Park / un-park a session in the FIFO voice queue. The phone's FIFO mode calls this
+        // when the user says "put this on hold": held sessions stay reported with their true
+        // state and color, but the FIFO conductor skips them until they are taken off hold.
+        // Empty body defaults to onHold=true (the common case is "hold this one").
+        app.MapPost("/sessions/{sid}/hold", async (string sid, HttpContext httpCtx) =>
+        {
+            if (!Guid.TryParse(sid, out var guid))
+                return Results.BadRequest(new { error = "invalid session id format" });
+            var session = sessionManager.GetSession(guid);
+            if (session is null)
+                return Results.NotFound(new { error = "session not found" });
+
+            var onHold = true;
+            try
+            {
+                var body = await httpCtx.Request.ReadFromJsonAsync<HoldRequest>();
+                if (body is not null) onHold = body.OnHold;
+            }
+            catch { /* empty body -> default to hold */ }
+
+            session.OnHold = onHold;
+            FileLog.Write($"[ControlEndpoints] /hold: session={guid} onHold={onHold}");
+            return Results.Json(new { onHold = session.OnHold });
+        });
+
+        // Toggle the Wingman experience for a session. Default ON for every session; users
+        // turn it OFF on the per-session settings UI when they want a plain terminal with
+        // no auto-explain and no Voice/Wingman tabs. When the toggle is flipped back ON we
+        // kick off an immediate background briefing so the cache is warm right away. When
+        // flipped OFF mid-flight we also clear IsExplaining so the dot doesn't stick on
+        // Yellow waiting for the in-flight briefing to finish.
+        // Empty body defaults to enabled=true (the common case is "turn it on").
+        app.MapPost("/sessions/{sid}/wingman-enabled", async (string sid, HttpContext httpCtx) =>
+        {
+            if (!Guid.TryParse(sid, out var guid))
+                return Results.BadRequest(new { error = "invalid session id format" });
+            var session = sessionManager.GetSession(guid);
+            if (session is null)
+                return Results.NotFound(new { error = "session not found" });
+
+            var enabled = true;
+            try
+            {
+                var body = await httpCtx.Request.ReadFromJsonAsync<WingmanEnabledRequest>();
+                if (body is not null) enabled = body.Enabled;
+            }
+            catch { /* empty body -> default enable */ }
+
+            session.WingmanEnabled = enabled;
+            FileLog.Write($"[ControlEndpoints] /wingman-enabled: session={guid} enabled={enabled}");
+            if (enabled)
+            {
+                // Warm the cache so the Wingman tab has something to show on first open.
+                proactiveExplain?.TriggerBackgroundExplain(session);
+            }
+            else
+            {
+                // Don't let a Yellow dot stick around for a session the user just turned off.
+                session.IsExplaining = false;
+            }
+            return Results.Json(new { wingmanEnabled = session.WingmanEnabled });
         });
 
         // Mobile view-links: serve a local file INLINE so a phone can tap a link and VIEW
@@ -1460,6 +1527,12 @@ internal static class ControlEndpoints
                 return Results.Problem(ex.Message, statusCode: 500);
             }
 
+            // Apply the per-session Wingman opt-in from the request. Default in the contract
+            // is true (matching Session.WingmanEnabled's default), so a new session boots with
+            // the auto-explain briefing on unless the caller explicitly disabled it.
+            session.WingmanEnabled = req.WingmanEnabled;
+            FileLog.Write($"[ControlEndpoints] POST /sessions: sid={session.Id} wingmanEnabled={session.WingmanEnabled}");
+
             // SessionManager.CreateSession now fires OnSessionCreated itself, so no
             // explicit RaiseSessionCreated call is needed here.
 
@@ -1582,6 +1655,8 @@ internal static class ControlEndpoints
             IdleSeconds = idleSeconds,
             QuietThresholdSeconds = CcDirector.Core.Wingman.TerminalStateDetector.QuietThreshold.TotalSeconds,
             VoiceMode = s.VoiceMode,
+            OnHold = s.OnHold,
+            WingmanEnabled = s.WingmanEnabled,
         };
     }
 

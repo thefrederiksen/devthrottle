@@ -312,6 +312,49 @@ public sealed class Session : IDisposable
     /// </summary>
     public bool OnHold { get; set; }
 
+    /// <summary>
+    /// Whether this session participates in the Wingman experience: the auto-explain
+    /// briefing on turn-end, the Voice/Wingman tabs, and the Yellow "Wingman is reading"
+    /// state. ON by default for every new session. When OFF the session behaves like a
+    /// plain terminal: ProactiveExplainService skips it, the dot goes straight Blue->Red,
+    /// and the clients hide the Voice + Wingman tabs. Durable per session (persisted via
+    /// <see cref="PersistedSession.WingmanEnabled"/>).
+    /// </summary>
+    public bool WingmanEnabled { get; set; } = true;
+
+    private bool _isExplaining;
+
+    /// <summary>
+    /// True while <c>ProactiveExplainService</c> has a Wingman briefing in flight for
+    /// this session. Set just before the call, cleared in <c>finally</c>. Transient
+    /// (in-memory only). The Yellow status is keyed off this flag together with
+    /// <see cref="WingmanEnabled"/>; <see cref="OnIsExplainingChanged"/> notifies the
+    /// SessionStatusWingman so it can repaint the dot.
+    /// </summary>
+    public bool IsExplaining
+    {
+        get => _isExplaining;
+        set
+        {
+            if (_isExplaining == value) return;
+            _isExplaining = value;
+            OnIsExplainingChanged?.Invoke(value);
+        }
+    }
+
+    /// <summary>Fires when <see cref="IsExplaining"/> changes. Arg: new value.</summary>
+    public event Action<bool>? OnIsExplainingChanged;
+
+    /// <summary>
+    /// True until the user submits real input for the first time. New sessions boot with
+    /// this flag set so the ProactiveExplainService can skip the first turn-end briefing
+    /// (there is nothing yet to explain) and the Wingman tab can show a canned greeting
+    /// instead. Cleared on the first <see cref="SendInput"/> with a submit byte or the
+    /// first <see cref="SendTextAsync"/>. Restored sessions start with this <c>false</c>
+    /// because they already have history.
+    /// </summary>
+    public bool IsBrandNew { get; set; } = true;
+
     /// <summary>Latest proactively-generated wingman briefing, or null if none yet.</summary>
     public string? CachedExplainText { get; private set; }
 
@@ -323,6 +366,18 @@ public sealed class Session : IDisposable
 
     /// <summary>Tap-to-answer options from the latest briefing (may be empty).</summary>
     public IReadOnlyList<string> CachedQuickReplies { get; private set; } = System.Array.Empty<string>();
+
+    /// <summary>One-line headline from the latest briefing for the session card / list view.</summary>
+    public string? CachedExplainHeadline { get; private set; }
+
+    /// <summary>Latest briefing's on-screen "what's happened" section (may contain a markdown table).</summary>
+    public string? CachedExplainWhatHappened { get; private set; }
+
+    /// <summary>Latest briefing's on-screen "what Claude wants" section (verbatim agent question when state is red).</summary>
+    public string? CachedExplainWhatClaudeWants { get; private set; }
+
+    /// <summary>Latest briefing's spoken-version field, used by the phone's voice mode on demand. No markdown.</summary>
+    public string? CachedExplainSay { get; private set; }
 
     /// <summary>
     /// Store a freshly-generated proactive explain briefing. Only replaces the cache when
@@ -336,6 +391,26 @@ public sealed class Session : IDisposable
         CachedExplainModel = model;
         CachedQuickReplies = quickReplies ?? System.Array.Empty<string>();
         CachedExplainAt = DateTime.UtcNow;
+        OnCachedExplainChanged?.Invoke();
+    }
+
+    /// <summary>Fires after <see cref="SetCachedExplain"/> stores a new briefing. The
+    /// Wingman tab subscribes so it can re-render whenever the proactive explain pipeline
+    /// has produced a fresh result. Re-renders read the structured fields off the session
+    /// directly; the event carries no payload.</summary>
+    public event Action? OnCachedExplainChanged;
+
+    /// <summary>
+    /// Store the structured fields from a freshly-generated explain briefing alongside the
+    /// joined text. Fields are independent of <see cref="SetCachedExplain"/> so the caller
+    /// can update them in one shot from <see cref="WingmanAskResult"/>.
+    /// </summary>
+    public void SetCachedExplainStructured(string? headline, string? whatHappened, string? whatClaudeWants, string? say)
+    {
+        CachedExplainHeadline = string.IsNullOrWhiteSpace(headline) ? null : headline.Trim();
+        CachedExplainWhatHappened = string.IsNullOrWhiteSpace(whatHappened) ? null : whatHappened.Trim();
+        CachedExplainWhatClaudeWants = string.IsNullOrWhiteSpace(whatClaudeWants) ? null : whatClaudeWants.Trim();
+        CachedExplainSay = string.IsNullOrWhiteSpace(say) ? null : say.Trim();
     }
 
     /// <summary>
@@ -953,7 +1028,10 @@ public sealed class Session : IDisposable
         // Claude Code hasn't received a turn yet. Treating every byte as Working
         // flickered the sidebar dot blue on every character typed.
         if (ContainsSubmit(data))
+        {
+            IsBrandNew = false;
             SetActivityState(ActivityState.Working);
+        }
     }
 
     private static bool ContainsSubmit(byte[] data)
@@ -970,6 +1048,7 @@ public sealed class Session : IDisposable
 
         FileLog.Write($"[Session] SendTextAsync: session={Id}, text=\"{(text.Length > 60 ? text[..60] + "..." : text)}\", len={text.Length}");
         await _backend.SendTextAsync(text);
+        IsBrandNew = false;
         SetActivityState(ActivityState.Working);
     }
 

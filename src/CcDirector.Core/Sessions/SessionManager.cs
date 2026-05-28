@@ -527,6 +527,7 @@ public sealed class SessionManager : IDisposable
                 AgentKind = s.AgentKind,
                 RawStartupText = s.RawStartupText,
                 SelectedTabName = s.SelectedTabName,
+                WingmanEnabled = s.WingmanEnabled,
                 QueuedPrompts = s.PromptQueue.HasItems
                     ? s.PromptQueue.Items.Select(q => new PersistedPromptQueueItem
                     {
@@ -549,6 +550,10 @@ public sealed class SessionManager : IDisposable
             ps.CustomName, ps.CustomColor, ps.PendingPromptText);
 
         session.AgentKind = ps.AgentKind;
+        session.WingmanEnabled = ps.WingmanEnabled;
+        // Restored sessions already have history, so the brand-new gate (which short-
+        // circuits the Wingman's first turn-end briefing on fresh sessions) does not apply.
+        session.IsBrandNew = false;
 
         // Set expected first prompt BEFORE verification so it can be compared
         session.ExpectedFirstPrompt = ps.ExpectedFirstPrompt;

@@ -51,6 +51,14 @@ public class PersistedSession
 
     /// <summary>Name of the last selected tab (e.g. "Terminal", "Agent", "SourceControl"). Null = default (Terminal).</summary>
     public string? SelectedTabName { get; set; }
+
+    /// <summary>
+    /// Whether the Wingman experience is enabled for this session (auto-explain briefing on
+    /// turn-end, Voice/Wingman tabs visible, Yellow "Wingman is reading" state). Default is
+    /// true so sessions persisted before this field existed restore with Wingman ON, matching
+    /// the new-session default.
+    /// </summary>
+    public bool WingmanEnabled { get; set; } = true;
 }
 
 public class PersistedPromptQueueItem

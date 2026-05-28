@@ -345,6 +345,7 @@ public partial class NewSessionDialog : Window
     public string? SelectedHandoverPath { get; private set; }
     public bool BypassPermissions => BypassPermissionsCheckBox.IsChecked == true;
     public bool EnableRemoteControl => RemoteControlCheckBox.IsChecked == true;
+    public bool WingmanEnabled => WingmanCheckBox?.IsChecked == true;
     public bool IsStudioMode => false;
 
     /// <summary>The agent the user selected via the radio buttons. Defaults to ClaudeCode.</summary>

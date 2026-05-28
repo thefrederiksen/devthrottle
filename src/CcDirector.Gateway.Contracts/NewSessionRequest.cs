@@ -27,6 +27,14 @@ public sealed class NewSessionRequest
     /// <summary>How long to wait for the new session to reach Idle before sending the
     /// PrePrompt (milliseconds). Default 30000.</summary>
     public int PrePromptWaitMs { get; set; } = 30_000;
+
+    /// <summary>
+    /// Whether the new session should boot with the Wingman experience on (auto-explain
+    /// briefing on turn-end + Voice/Wingman tabs + Yellow "Wingman is reading" state).
+    /// Defaults to true, matching <c>Session.WingmanEnabled</c>'s default; set to false to
+    /// create a plain-terminal session with no auto-explain and no voice tabs.
+    /// </summary>
+    public bool WingmanEnabled { get; set; } = true;
 }
 
 /// <summary>

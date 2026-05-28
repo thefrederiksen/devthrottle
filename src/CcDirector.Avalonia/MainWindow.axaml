@@ -645,30 +645,22 @@
                          on top in a later slice. -->
                     <Panel x:Name="WingmanPanel" IsVisible="False">
                         <DockPanel>
-                            <!-- Wingman annotation banner: a plain-language read of what
-                                 the session is doing, refreshed automatically when a turn
-                                 ends while this tab is open (and on demand). -->
+                            <!-- Wingman annotation banner: the latest briefing the
+                                 ProactiveExplainService stored on the session. Passive
+                                 viewer only - the wingman runs automatically at each
+                                 turn-end and pushes here via Session.OnCachedExplainChanged. -->
                             <Border DockPanel.Dock="Top"
                                     Background="#16241B"
                                     BorderBrush="#2D7D46" BorderThickness="0,0,0,1"
                                     Padding="12,8">
-                                <DockPanel>
-                                    <Button x:Name="WingmanRefreshButton" DockPanel.Dock="Right"
-                                            Content="Refresh"
-                                            Click="WingmanRefreshButton_Click"
-                                            Background="Transparent" Foreground="#7FD0A0"
-                                            BorderThickness="0" Cursor="Hand"
-                                            Padding="6,2" FontSize="11"
-                                            VerticalAlignment="Top" />
-                                    <StackPanel>
-                                        <TextBlock Text="WINGMAN"
-                                                   Foreground="#5FD08A" FontSize="11" FontWeight="Bold" />
-                                        <TextBlock x:Name="WingmanNoteText"
-                                                   Text="Open this tab or hit Refresh for a plain-language read of what the session is doing."
-                                                   Foreground="#B7C0D4" FontSize="13"
-                                                   TextWrapping="Wrap" Margin="0,3,0,0" />
-                                    </StackPanel>
-                                </DockPanel>
+                                <StackPanel>
+                                    <TextBlock Text="WINGMAN"
+                                               Foreground="#5FD08A" FontSize="11" FontWeight="Bold" />
+                                    <TextBlock x:Name="WingmanNoteText"
+                                               Text="No briefing yet."
+                                               Foreground="#B7C0D4" FontSize="13"
+                                               TextWrapping="Wrap" Margin="0,3,0,0" />
+                                </StackPanel>
                             </Border>
 
                             <Border DockPanel.Dock="Bottom"

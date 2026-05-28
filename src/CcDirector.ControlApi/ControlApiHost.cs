@@ -164,8 +164,10 @@ public sealed class ControlApiHost : IAsyncDisposable
         _turnSummaryCache = new TurnSummaryCache(_sessionManager, _sessionManager.Options);
         _turnSummaryCache.Start();
 
-        // Proactive explain: for mobile-mode sessions, regenerate + cache the Opus briefing
-        // at each decision-point turn-end so the phone reads it instantly on open.
+        // Proactive explain: for Wingman-enabled sessions, regenerate + cache the Opus briefing
+        // at each decision-point turn-end so the phone reads it instantly on open. TEXT ONLY --
+        // no auto-narration. The phone's voice mode invokes /tts on demand against the cached
+        // briefing's spoken-version field.
         _proactiveExplain = new ProactiveExplainService(_sessionManager, _sessionManager.Options.ClaudePath, _turnSummaryCache);
         _proactiveExplain.Start();
 
