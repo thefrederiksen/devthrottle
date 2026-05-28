@@ -54,7 +54,7 @@ public sealed class TurnReviewLogTests : IDisposable
             StatusReason = "needs you",
             WingmanSaid = "It finished and is asking how to proceed.",
         };
-        record.Screen.Add("> Continue?");
+        record.ScreenCells.Add(new List<TurnReviewSegment> { new() { Text = "> Continue?", Fg = "#CD3131", Bold = true } });
         record.WingmanActions.Add(new TurnReviewAction { At = DateTime.UtcNow, Action = "submit", Detail = "submit \"yes\"", Reason = "obvious" });
 
         TurnReviewLog.Write(record);
@@ -64,7 +64,10 @@ public sealed class TurnReviewLogTests : IDisposable
         Assert.Equal("my session", read.SessionName);
         Assert.Equal("agent did the thing", read.Transcript);
         Assert.Equal("red", read.StatusColor);
-        Assert.Contains("> Continue?", read.Screen);
+        var seg = Assert.Single(read.ScreenCells.SelectMany(row => row));
+        Assert.Equal("> Continue?", seg.Text);
+        Assert.Equal("#CD3131", seg.Fg);
+        Assert.True(seg.Bold);
         Assert.Single(read.WingmanActions);
         Assert.Equal("submit", read.WingmanActions[0].Action);
     }
@@ -116,6 +119,62 @@ public sealed class TurnReviewLogTests : IDisposable
             Assert.NotNull(read);
             Assert.Equal(session.Id.ToString(), read.SessionId);
             Assert.Contains("TURN_OUTPUT_MARKER_42", read.Transcript);
+        }
+        finally { logger.Dispose(); manager.Dispose(); }
+    }
+
+    [Fact]
+    public void SnapshotScreenColoredRows_preserves_foreground_colour_and_bold()
+    {
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        try
+        {
+            var backend = new BufferOnlyBackend();
+            var session = manager.CreateEmbeddedSession(Path.GetTempPath(), null, backend);
+            var buf = session.Buffer ?? throw new InvalidOperationException("embedded session has no buffer");
+
+            // Bold red "ERR", reset, then plain "ok".
+            buf.Write(Encoding.UTF8.GetBytes("\x1b[1;31mERR\x1b[0m ok"));
+
+            var rows = session.SnapshotScreenColoredRows();
+
+            Assert.NotEmpty(rows);
+            var flat = rows.SelectMany(r => r).ToList();
+            var err = Assert.Single(flat, s => s.Text.Contains("ERR"));
+            Assert.Equal("#CD3131", err.Fg); // ANSI red (205,49,49)
+            Assert.True(err.Bold);
+            // The reset run carries no explicit colour.
+            Assert.Contains(flat, s => s.Text.Contains("ok") && s.Fg is null && !s.Bold);
+        }
+        finally { manager.Dispose(); }
+    }
+
+    [Fact]
+    public async Task Logger_persists_the_coloured_screen_on_the_flip()
+    {
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        var logger = new TurnReviewLogger(manager);
+        try
+        {
+            var backend = new BufferOnlyBackend();
+            var session = manager.CreateEmbeddedSession(Path.GetTempPath(), null, backend);
+            var buf = session.Buffer ?? throw new InvalidOperationException("embedded session has no buffer");
+            logger.Start();
+
+            buf.Write(Encoding.UTF8.GetBytes("\x1b[31mRED_LINE\x1b[0m\r\n"));
+            session.ApplyTerminalActivityState(ActivityState.Working);
+            session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
+
+            TurnReviewRecord? read = null;
+            for (int i = 0; i < 20 && read is null; i++)
+            {
+                read = ReadLatestRecord();
+                if (read is null) await Task.Delay(50);
+            }
+
+            Assert.NotNull(read);
+            var flat = read.ScreenCells.SelectMany(r => r).ToList();
+            Assert.Contains(flat, s => s.Text.Contains("RED_LINE") && s.Fg == "#CD3131");
         }
         finally { logger.Dispose(); manager.Dispose(); }
     }

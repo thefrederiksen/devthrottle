@@ -63,12 +63,15 @@
                                Foreground="#888888" FontSize="11" Margin="0,0,0,6" />
 
                     <TextBlock Text="SCREEN AT TURN END" Foreground="#888888" FontSize="10" FontWeight="SemiBold" />
-                    <TextBox x:Name="ScreenBox"
-                             IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap"
-                             MaxHeight="300"
-                             ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Auto"
-                             Background="#1E1E1E" Foreground="#CCCCCC" BorderBrush="#3C3C3C" BorderThickness="1"
-                             Padding="8,6" FontFamily="Cascadia Mono, Consolas" FontSize="12" />
+                    <Border Background="#1E1E1E" BorderBrush="#3C3C3C" BorderThickness="1" MaxHeight="300">
+                        <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                            <SelectableTextBlock x:Name="ScreenText"
+                                                 Padding="8,6"
+                                                 Foreground="#CCCCCC"
+                                                 FontFamily="Cascadia Mono, Consolas" FontSize="12"
+                                                 TextWrapping="NoWrap" />
+                        </ScrollViewer>
+                    </Border>
 
                     <TextBlock Text="TRANSCRIPT (this turn)" Foreground="#888888" FontSize="10" FontWeight="SemiBold" Margin="0,8,0,0" />
                     <TextBox x:Name="TranscriptBox"

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Controls;
+using Avalonia.Controls.Documents;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using CcDirector.Core.Storage;
@@ -60,13 +61,58 @@ public partial class TurnReviewDialog : Window
         DetailPanel.IsVisible = true;
         DetailHeader.Text = string.IsNullOrWhiteSpace(r.SessionName) ? r.SessionId : r.SessionName;
         DetailSub.Text = $"{r.TsUtc.ToLocalTime():MMM d, yyyy  HH:mm:ss}    {r.StatusColor} - {r.StatusReason}";
-        ScreenBox.Text = r.Screen.Count > 0 ? string.Join("\n", r.Screen) : "(no screen captured)";
+        RenderScreen(r);
         TranscriptBox.Text = string.IsNullOrWhiteSpace(r.Transcript) ? "(no output this turn)" : r.Transcript;
         WingmanSaidBox.Text = string.IsNullOrWhiteSpace(r.WingmanSaid) ? "(nothing)" : r.WingmanSaid;
         ActionsList.ItemsSource = r.WingmanActions.Count == 0
             ? new List<string> { "(none)" }
             : r.WingmanActions.Select(a => $"{a.At.ToLocalTime():HH:mm:ss}  {a.Action}: {a.Detail}"
                 + (string.IsNullOrWhiteSpace(a.Reason) ? "" : $"  ({a.Reason})")).ToList();
+    }
+
+    /// <summary>Render the captured screen into <c>ScreenText</c> with its terminal colours,
+    /// from the record's styled <see cref="TurnReviewRecord.ScreenCells"/>.</summary>
+    private void RenderScreen(TurnReviewRecord r)
+    {
+        // TextBlock.Inlines is null until first assigned (the getter has no lazy-init), so
+        // create the collection once; later selections reuse and clear it.
+        var inlines = ScreenText.Inlines ??= new InlineCollection();
+        inlines.Clear();
+
+        if (r.ScreenCells.Count == 0)
+        {
+            inlines.Add(new Run("(no screen captured)"));
+            return;
+        }
+
+        for (int i = 0; i < r.ScreenCells.Count; i++)
+        {
+            foreach (var seg in r.ScreenCells[i])
+            {
+                var run = new Run(seg.Text);
+                if (TryBrush(seg.Fg, out var fg)) run.Foreground = fg;
+                if (TryBrush(seg.Bg, out var bg)) run.Background = bg;
+                if (seg.Bold) run.FontWeight = FontWeight.Bold;
+                inlines.Add(run);
+            }
+            if (i < r.ScreenCells.Count - 1)
+                inlines.Add(new LineBreak());
+        }
+    }
+
+    private static bool TryBrush(string? hex, out IBrush brush)
+    {
+        brush = Brushes.Transparent;
+        if (string.IsNullOrEmpty(hex)) return false;
+        try
+        {
+            brush = new SolidColorBrush(Color.Parse(hex));
+            return true;
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
     }
 
     private async void Refresh_Click(object? sender, RoutedEventArgs e) => await LoadAsync();

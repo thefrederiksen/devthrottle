@@ -63,6 +63,15 @@ public sealed class TerminalVerificationResult
 }
 
 /// <summary>
+/// One styled run within a snapshot screen row: a stretch of characters sharing the same
+/// colours and weight. <see cref="Fg"/>/<see cref="Bg"/> are "#RRGGBB" strings, or null when
+/// the cell carried no explicit colour (the consumer renders that with its default brush).
+/// Produced by <see cref="Session.SnapshotScreenColoredRows"/> so the captured terminal can be
+/// reproduced in colour, not flattened to monochrome text.
+/// </summary>
+public sealed record ScreenSegment(string Text, string? Fg, string? Bg, bool Bold);
+
+/// <summary>
 /// Represents a single Claude session. Delegates process management to an ISessionBackend.
 /// Session handles metadata, activity state, and routing - backend handles process I/O.
 /// </summary>
@@ -853,6 +862,84 @@ public sealed class Session : IDisposable
             var (col, row) = _htmlParser.GetCursorPosition();
             return (rows, row, col);
         }
+    }
+
+    /// <summary>
+    /// Snapshot the CURRENT visible terminal grid as rows of styled <see cref="ScreenSegment"/>
+    /// runs, preserving the foreground/background colours and bold weight that
+    /// <see cref="SnapshotScreenRows"/> throws away. Adjacent cells sharing a style are coalesced
+    /// into one segment (matching how <c>AnsiToHtmlConverter</c> builds spans), trailing blank
+    /// cells per row and trailing blank rows are trimmed. Returns an empty list when there is no
+    /// grid (Embedded mode). Used by the turn-review log so a captured screen can be replayed in
+    /// colour for a human reviewer.
+    /// </summary>
+    public List<IReadOnlyList<ScreenSegment>> SnapshotScreenColoredRows()
+    {
+        var result = new List<IReadOnlyList<ScreenSegment>>();
+        if (_htmlCells is null || _htmlParser is null)
+            return result;
+
+        lock (_htmlParserLock)
+        {
+            for (int r = 0; r < HtmlGridRows; r++)
+            {
+                // Trim trailing blanks: the last column with a glyph or an explicit background.
+                int lastCol = -1;
+                for (int c = HtmlGridCols - 1; c >= 0; c--)
+                {
+                    var cell = _htmlCells[c, r];
+                    if ((cell.Character != '\0' && cell.Character != ' ') || cell.Background != default)
+                    {
+                        lastCol = c;
+                        break;
+                    }
+                }
+
+                var row = new List<ScreenSegment>();
+                if (lastCol >= 0)
+                {
+                    var sb = new System.Text.StringBuilder(HtmlGridCols);
+                    string? curFg = null, curBg = null;
+                    bool curBold = false, started = false;
+
+                    for (int c = 0; c <= lastCol; c++)
+                    {
+                        var cell = _htmlCells[c, r];
+                        var ch = cell.Character == '\0' ? ' ' : cell.Character;
+                        // The parser paints uncoloured text with its default foreground
+                        // (TerminalColor.LightGray); treat that - and an untouched cell - as
+                        // "no explicit colour" so the viewer renders it with its own default.
+                        var fg = cell.Foreground == default || cell.Foreground == TerminalColor.LightGray
+                            ? null
+                            : cell.Foreground.ToString();
+                        var bg = cell.Background == default ? null : cell.Background.ToString();
+
+                        if (!started)
+                        {
+                            curFg = fg; curBg = bg; curBold = cell.Bold; started = true;
+                        }
+                        else if (fg != curFg || bg != curBg || cell.Bold != curBold)
+                        {
+                            row.Add(new ScreenSegment(sb.ToString(), curFg, curBg, curBold));
+                            sb.Clear();
+                            curFg = fg; curBg = bg; curBold = cell.Bold;
+                        }
+
+                        sb.Append(ch);
+                    }
+
+                    if (sb.Length > 0)
+                        row.Add(new ScreenSegment(sb.ToString(), curFg, curBg, curBold));
+                }
+
+                result.Add(row);
+            }
+
+            while (result.Count > 0 && result[^1].Count == 0)
+                result.RemoveAt(result.Count - 1);
+        }
+
+        return result;
     }
 
     /// <summary>Send raw bytes to the backend.</summary>

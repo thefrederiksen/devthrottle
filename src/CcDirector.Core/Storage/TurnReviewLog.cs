@@ -83,8 +83,10 @@ public sealed class TurnReviewRecord
     public string? SessionName { get; set; }
 
     // ----- terminal half -----
-    /// <summary>The resolved on-screen grid at the turn end (trailing-trimmed rows, top to bottom).</summary>
-    public List<string> Screen { get; init; } = new();
+    /// <summary>The resolved on-screen grid at the turn end (trailing-trimmed rows, top to bottom),
+    /// with the terminal's colours and bold weight preserved per styled run so a reviewer can
+    /// replay it in colour. One inner list per row; an empty inner list is a blank line.</summary>
+    public List<List<TurnReviewSegment>> ScreenCells { get; init; } = new();
     /// <summary>The terminal output produced DURING this turn (ANSI-stripped, since the previous flip).</summary>
     public string Transcript { get; set; } = "";
 
@@ -95,6 +97,17 @@ public sealed class TurnReviewRecord
     public string? WingmanSaid { get; set; }
     /// <summary>Actuations the Wingman performed during this turn (type/keys/submit), if any.</summary>
     public List<TurnReviewAction> WingmanActions { get; init; } = new();
+}
+
+/// <summary>One styled run within a captured screen row: a stretch of text sharing the same
+/// colours and weight. <see cref="Fg"/>/<see cref="Bg"/> are "#RRGGBB" strings, or null when the
+/// cell carried no explicit colour (render with the viewer's default).</summary>
+public sealed class TurnReviewSegment
+{
+    public string Text { get; set; } = "";
+    public string? Fg { get; set; }
+    public string? Bg { get; set; }
+    public bool Bold { get; set; }
 }
 
 /// <summary>One Wingman actuation captured in a turn-review record.</summary>

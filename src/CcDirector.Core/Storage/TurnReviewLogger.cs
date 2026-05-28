@@ -72,7 +72,7 @@ public sealed class TurnReviewLogger : IDisposable
         var now = DateTime.UtcNow;
         _lastFlipAt[session.Id] = now;
 
-        var screen = session.SnapshotScreenRows().Where(r => r.Length > 0).ToList();
+        var screenCells = session.SnapshotScreenColoredRows();
         var transcript = CaptureSinceCursor(session);
 
         var record = new TurnReviewRecord
@@ -87,7 +87,13 @@ public sealed class TurnReviewLogger : IDisposable
             // after the turn started; otherwise it belongs to an earlier turn.
             WingmanSaid = session.CachedExplainAt is { } at && at >= turnStart ? session.CachedExplainText : null,
         };
-        foreach (var screenRow in screen) record.Screen.Add(screenRow);
+        foreach (var styledRow in screenCells)
+        {
+            var rowSegments = new List<TurnReviewSegment>(styledRow.Count);
+            foreach (var seg in styledRow)
+                rowSegments.Add(new TurnReviewSegment { Text = seg.Text, Fg = seg.Fg, Bg = seg.Bg, Bold = seg.Bold });
+            record.ScreenCells.Add(rowSegments);
+        }
         foreach (var a in session.RecentWingmanActions)
         {
             if (a.At < turnStart) continue;
