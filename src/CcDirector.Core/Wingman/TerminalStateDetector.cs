@@ -150,6 +150,15 @@ public sealed class TerminalStateDetector : IDisposable
             if (DateTime.UtcNow < _session.SuppressActivityUntilUtc)
                 return;
 
+            // Brand-new session: Claude Code's startup splash (logo, version line, prompt box,
+            // bypass-permissions footer) emits a flood of bytes BEFORE the user has done anything.
+            // The byte->Working rule would flip a fresh session blue for ~QuietThreshold seconds
+            // even though it is sitting idle at the prompt. Suppress it. IsBrandNew clears the
+            // moment the user sends their first submission (Session.SendInput / SendTextAsync),
+            // and the normal byte->Working / silence->NeedsYou cycle kicks in from there.
+            if (_session.IsBrandNew)
+                return;
+
             // THE ONLY RULE: a byte out of the ConPTY means the agent is producing output, so
             // it is working. We do not inspect what the byte is, diff the grid, read the footer,
             // or ask a judge. A byte is activity. Period. Full stop. The buffer already stamps

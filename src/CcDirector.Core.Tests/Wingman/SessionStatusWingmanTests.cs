@@ -343,8 +343,9 @@ public sealed class SessionStatusWingmanTests
             wingman.Start();
             try
             {
-                // Starting maps to blue.
-                Assert.Equal(StatusColor.Blue, session.StatusColor);
+                // A freshly created session is born WaitingForInput ("your turn") since it
+                // is literally sitting at Claude Code's prompt. The wingman maps that to red.
+                Assert.Equal(StatusColor.Red, session.StatusColor);
             }
             finally { wingman.Dispose(); }
         }
@@ -370,7 +371,7 @@ public sealed class SessionStatusWingmanTests
     }
 
     [Fact]
-    public void Wingman_OnSessionCreated_writes_blue_session_created()
+    public void Wingman_OnSessionCreated_writes_red_needs_you()
     {
         var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
         try
@@ -380,8 +381,11 @@ public sealed class SessionStatusWingmanTests
             try
             {
                 var session = manager.CreateSession(Path.GetTempPath());
-                Assert.Equal(StatusColor.Blue, session.StatusColor);
-                Assert.Equal("session created", session.LastStatusReason);
+                // A brand-new session is born WaitingForInput, so the badge starts red.
+                // Wingman is silenced separately (cached "brand new session" greeting +
+                // ProactiveExplainService skipping IsBrandNew); no Opus call fires here.
+                Assert.Equal(StatusColor.Red, session.StatusColor);
+                Assert.Equal("needs you", session.LastStatusReason);
             }
             finally { wingman.Dispose(); }
         }

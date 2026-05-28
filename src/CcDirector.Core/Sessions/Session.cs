@@ -129,8 +129,15 @@ public sealed class Session : IDisposable
     /// <summary>Process ID from the backend.</summary>
     public int ProcessId => _backend.ProcessId;
 
-    /// <summary>Claude's cognitive activity state, driven by hook events.</summary>
-    public ActivityState ActivityState { get; private set; } = ActivityState.Starting;
+    /// <summary>
+    /// Claude's cognitive activity state, driven by hook events.
+    /// Initial state is <see cref="ActivityState.WaitingForInput"/>: a freshly spawned session is
+    /// literally sitting at Claude Code's input prompt with no turn in flight. This pairs with the
+    /// IsBrandNew guard in <c>TerminalStateDetector</c>, which suppresses the byte->Working flip
+    /// while the startup splash is painting, so the badge stays red ("needs you") from the moment
+    /// the row appears until the user submits their first prompt.
+    /// </summary>
+    public ActivityState ActivityState { get; private set; } = ActivityState.WaitingForInput;
 
     /// <summary>The session_id reported by Claude hooks, used for routing.</summary>
     public string? ClaudeSessionId { get; internal set; }
