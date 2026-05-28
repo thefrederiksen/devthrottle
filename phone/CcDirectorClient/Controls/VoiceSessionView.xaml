@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentView xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="CcDirectorClient.Controls.VoiceSessionView"
+             BackgroundColor="#0B1020">
+
+    <!-- Voice mode for one session. Reusable: same control instance powers the FIFO
+         page (which calls LoadSessionAsync as it walks the queue) AND TalkPage's Voice
+         tab (which calls it once per selected session and stays put after Ask Agent).
+         The host decides what to do on AnswerDelivered / HoldRequested / SkipRequested
+         / ExitRequested; everything else (briefing fetch, recording, TTS, clip cache,
+         status state machine) lives here. The root is a Grid Auto,* so the action
+         buttons stay PINNED at the top and the output scrolls underneath, no matter
+         which host renders the control. -->
+    <Grid>
+
+        <Grid RowDefinitions="Auto,*">
+
+            <!-- Fixed action header: never scrolls, always reachable while driving. -->
+            <VerticalStackLayout Grid.Row="0" Padding="20,12,20,12" Spacing="10"
+                                 BackgroundColor="#0B1020">
+                <Button x:Name="ExitButton" Text="&lt; Exit"
+                        BackgroundColor="Transparent" TextColor="#8A93A6"
+                        HorizontalOptions="Start" Padding="0" Clicked="OnExitClicked" />
+
+                <!-- Which session you're acting on, compact so the buttons stay reachable. -->
+                <Label x:Name="SessionNameLabel" Text="" FontSize="19"
+                       FontAttributes="Bold" TextColor="#E6EAF2" />
+                <Label x:Name="SessionStateLabel" Text="" FontSize="12" TextColor="#8A93A6" />
+
+                <!-- "Ask X" buttons: the WORD never changes (state is shown by colour /
+                     enablement) so the driver is never confused about which one talks to
+                     whom. Ask Agent records your answer; Ask Wingman asks the read-only
+                     observer about this session. -->
+                <Button x:Name="AnswerButton" Text="Ask Agent"
+                        BackgroundColor="#5FD08A" TextColor="#06210F"
+                        FontSize="22" FontAttributes="Bold" HeightRequest="96"
+                        CornerRadius="18" Clicked="OnAnswerClicked" />
+
+                <Button x:Name="AskWingmanButton" Text="Ask Wingman"
+                        BackgroundColor="#0E7C6B" TextColor="White" HeightRequest="56"
+                        CornerRadius="14" FontSize="16" Clicked="OnAskWingmanClicked" />
+
+                <!-- Replay (issue #148): re-hear the last spoken clip for this session (its
+                     briefing or the wingman's last answer). Hidden when no clip cached. -->
+                <Button x:Name="ReplayButton" Text="Replay" IsVisible="False"
+                        BackgroundColor="#2B6CB0" TextColor="White" HeightRequest="56"
+                        CornerRadius="14" FontSize="16" Clicked="OnReplayClicked" />
+
+                <!-- Skip / Hold. Skip is queue-only (host hides it via ShowSkip=false in
+                     single-session mode); Hold parks the session out of the FIFO rotation. -->
+                <Grid x:Name="SkipHoldRow" ColumnDefinitions="*,*" ColumnSpacing="8">
+                    <Button Grid.Column="0" x:Name="SkipButton" Text="Skip"
+                            BackgroundColor="#2B6CB0" TextColor="White" HeightRequest="56"
+                            CornerRadius="12" FontSize="16" Clicked="OnSkipClicked" />
+                    <Button Grid.Column="1" x:Name="HoldButton" Text="Hold"
+                            BackgroundColor="#8A5A1A" TextColor="White" HeightRequest="56"
+                            CornerRadius="12" FontSize="16" Clicked="OnHoldClicked" />
+                </Grid>
+            </VerticalStackLayout>
+
+            <!-- Scrollable output: everything being answered for this session. -->
+            <ScrollView Grid.Row="1" Padding="20,4,20,20">
+                <VerticalStackLayout Spacing="14">
+
+                    <!-- Big, always-present status so you always know where we are. -->
+                    <Label x:Name="StatusLabel" Text="Ready" FontSize="17"
+                           FontAttributes="Bold" TextColor="#5FD08A" HorizontalOptions="Center" />
+
+                    <!-- What's happening: the wingman's spoken briefing, also shown as text. -->
+                    <Border BackgroundColor="#15233B" Stroke="#0E7C6B" StrokeThickness="1"
+                            StrokeShape="RoundRectangle 12" Padding="14">
+                        <VerticalStackLayout Spacing="6">
+                            <Label Text="What's happening" FontSize="12" FontAttributes="Bold" TextColor="#5FD08A" />
+                            <Label x:Name="BriefingLabel" Text="-" TextColor="#E6EAF2" FontSize="14" />
+                        </VerticalStackLayout>
+                    </Border>
+
+                    <Border BackgroundColor="#0F1626" StrokeShape="RoundRectangle 12" Padding="14">
+                        <VerticalStackLayout Spacing="10">
+                            <Label Text="You said" FontSize="12" FontAttributes="Bold" TextColor="#5A6378" />
+                            <Label x:Name="TranscriptLabel" Text="-" TextColor="#B7C0D4" FontSize="14" />
+                            <Label Text="Reply" FontSize="12" FontAttributes="Bold" TextColor="#5A6378" Margin="0,8,0,0" />
+                            <Label x:Name="ReplyLabel" Text="-" TextColor="#E6EAF2" FontSize="14" />
+                        </VerticalStackLayout>
+                    </Border>
+
+                    <Label x:Name="TurnStatusLabel" Text="" FontSize="13" TextColor="#E8B339"
+                           HorizontalOptions="Center" />
+                </VerticalStackLayout>
+            </ScrollView>
+        </Grid>
+
+        <!-- Floating Stop-talking pill (issue #146): pinned to the top, reachable
+             without scrolling, shown only while a clip is playing. One tap silences
+             the read immediately. Centered so the host's burger menu sits beside it. -->
+        <Button x:Name="StopTalkingButton" Text="Stop talking"
+                IsVisible="False" Clicked="OnStopTalkingClicked"
+                HorizontalOptions="Center" VerticalOptions="Start" Margin="0,12,0,0"
+                Padding="22,0" HeightRequest="52" CornerRadius="26"
+                BackgroundColor="#E5484D" TextColor="White"
+                FontSize="16" FontAttributes="Bold" />
+    </Grid>
+</ContentView>

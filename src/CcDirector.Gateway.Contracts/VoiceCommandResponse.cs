@@ -28,13 +28,6 @@ public sealed class VoiceCommandResponse
     public string? CleanupReason { get; set; }
 
     /// <summary>
-    /// Who this utterance is addressed to, decided during cleanup: "agent" (default,
-    /// forward to the session via /chat) or "wingman" (the user said "Hey wingman ...",
-    /// so route the cleaned question to the read-only Ask-the-Wingman channel instead).
-    /// </summary>
-    public string RouteTarget { get; set; } = "agent";
-
-    /// <summary>
     /// The spoken-style reply text the Director wants the user to hear.
     /// Always present even when the command is unknown or failed (in which
     /// case it is the explanation).

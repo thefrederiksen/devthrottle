@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentView xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="CcDirectorClient.Voice.BouncingBarsView">
+
+    <!-- 9-bar "your voice is being heard" equalizer. Each red bar sits inside a
+         fixed-height grey track well so the full vertical range is always visible;
+         the red bar rises from the bottom proportional to the smoothed live audio
+         level. The bars are decorative (not a real spectrum) - they share one peak
+         amplitude with per-bar offsets so the dance looks alive without an FFT. -->
+    <HorizontalStackLayout HorizontalOptions="Center" VerticalOptions="Center"
+                           Spacing="6" HeightRequest="92">
+
+        <Border WidthRequest="12" HeightRequest="92" BackgroundColor="#33333A"
+                StrokeShape="RoundRectangle 3" VerticalOptions="Center">
+            <Border x:Name="Bar0" HeightRequest="6" BackgroundColor="#F44747"
+                    StrokeShape="RoundRectangle 3" VerticalOptions="End" />
+        </Border>
+        <Border WidthRequest="12" HeightRequest="92" BackgroundColor="#33333A"
+                StrokeShape="RoundRectangle 3" VerticalOptions="Center">
+            <Border x:Name="Bar1" HeightRequest="6" BackgroundColor="#F44747"
+                    StrokeShape="RoundRectangle 3" VerticalOptions="End" />
+        </Border>
+        <Border WidthRequest="12" HeightRequest="92" BackgroundColor="#33333A"
+                StrokeShape="RoundRectangle 3" VerticalOptions="Center">
+            <Border x:Name="Bar2" HeightRequest="6" BackgroundColor="#F44747"
+                    StrokeShape="RoundRectangle 3" VerticalOptions="End" />
+        </Border>
+        <Border WidthRequest="12" HeightRequest="92" BackgroundColor="#33333A"
+                StrokeShape="RoundRectangle 3" VerticalOptions="Center">
+            <Border x:Name="Bar3" HeightRequest="6" BackgroundColor="#F44747"
+                    StrokeShape="RoundRectangle 3" VerticalOptions="End" />
+        </Border>
+        <Border WidthRequest="12" HeightRequest="92" BackgroundColor="#33333A"
+                StrokeShape="RoundRectangle 3" VerticalOptions="Center">
+            <Border x:Name="Bar4" HeightRequest="6" BackgroundColor="#F44747"
+                    StrokeShape="RoundRectangle 3" VerticalOptions="End" />
+        </Border>
+        <Border WidthRequest="12" HeightRequest="92" BackgroundColor="#33333A"
+                StrokeShape="RoundRectangle 3" VerticalOptions="Center">
+            <Border x:Name="Bar5" HeightRequest="6" BackgroundColor="#F44747"
+                    StrokeShape="RoundRectangle 3" VerticalOptions="End" />
+        </Border>
+        <Border WidthRequest="12" HeightRequest="92" BackgroundColor="#33333A"
+                StrokeShape="RoundRectangle 3" VerticalOptions="Center">
+            <Border x:Name="Bar6" HeightRequest="6" BackgroundColor="#F44747"
+                    StrokeShape="RoundRectangle 3" VerticalOptions="End" />
+        </Border>
+        <Border WidthRequest="12" HeightRequest="92" BackgroundColor="#33333A"
+                StrokeShape="RoundRectangle 3" VerticalOptions="Center">
+            <Border x:Name="Bar7" HeightRequest="6" BackgroundColor="#F44747"
+                    StrokeShape="RoundRectangle 3" VerticalOptions="End" />
+        </Border>
+        <Border WidthRequest="12" HeightRequest="92" BackgroundColor="#33333A"
+                StrokeShape="RoundRectangle 3" VerticalOptions="Center">
+            <Border x:Name="Bar8" HeightRequest="6" BackgroundColor="#F44747"
+                    StrokeShape="RoundRectangle 3" VerticalOptions="End" />
+        </Border>
+    </HorizontalStackLayout>
+</ContentView>

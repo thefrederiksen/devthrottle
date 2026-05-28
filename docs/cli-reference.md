@@ -502,7 +502,8 @@ COMMANDS:
   delete               Delete/trash email
   archive              Archive (move to Archive folder)
   unarchive            Move from Archive to Inbox
-  folders              List all mail folders
+  move                 Move email to any folder (path or ID)
+  folders              List all mail folders (--ids to show folder IDs)
   profile              Show authenticated user
   accounts             Manage accounts
   calendar             Calendar operations

@@ -1802,10 +1802,17 @@ public partial class MainWindow : Window
         WingmanWhatNextSection.IsVisible = !string.IsNullOrEmpty(whatNext);
         WingmanWhatNextText.Text = whatNext ?? "";
 
-        // Voice preview + Speak button.
-        WingmanVoiceSection.IsVisible = !string.IsNullOrEmpty(say);
+        // Tap-to-answer buttons: one per briefing action (Session.CachedQuickReplies).
+        // Clicking sends that literal text to the agent through the normal send path, so
+        // the user can answer the ask in one click instead of typing. Rebuilt each render
+        // because the set changes per turn; hidden when the briefing offered no short answers.
+        RenderWingmanActionButtons(session.CachedQuickReplies);
+
+        // Voice preview + Speak button. The preview is a QA surface, off by default; it only
+        // shows when the user has flipped the header toggle AND there is a spoken version.
         WingmanVoiceText.Text = say ?? "";
         WingmanSpeakVoiceButton.IsEnabled = !string.IsNullOrEmpty(say);
+        WingmanVoiceSection.IsVisible = _wingmanShowVoicePreview && !string.IsNullOrEmpty(say);
 
         // Meta row: model + age. Short, no padding.
         if (hasAny)
@@ -1821,6 +1828,60 @@ public partial class MainWindow : Window
         {
             WingmanMetaText.Text = "";
         }
+    }
+
+    // Build one tap-to-answer button per briefing action. Each sends its own literal text
+    // to the agent. The buttons are styled to read as answers to the orange "what Claude
+    // wants" box they sit inside (amber fill on the action accent color).
+    private void RenderWingmanActionButtons(global::System.Collections.Generic.IReadOnlyList<string> actions)
+    {
+        WingmanActionsPanel.Children.Clear();
+
+        var shown = 0;
+        foreach (var action in actions)
+        {
+            if (string.IsNullOrWhiteSpace(action)) continue;
+            var replyText = action.Trim();
+            var button = new global::Avalonia.Controls.Button
+            {
+                Content = replyText,
+                Background = new global::Avalonia.Media.SolidColorBrush(global::Avalonia.Media.Color.FromRgb(0xD9, 0x77, 0x06)),
+                Foreground = global::Avalonia.Media.Brushes.White,
+                BorderThickness = new global::Avalonia.Thickness(0),
+                CornerRadius = new global::Avalonia.CornerRadius(4),
+                Padding = new global::Avalonia.Thickness(12, 6),
+                Margin = new global::Avalonia.Thickness(0, 0, 8, 8),
+                FontSize = 13,
+                FontWeight = global::Avalonia.Media.FontWeight.SemiBold,
+                Cursor = new global::Avalonia.Input.Cursor(global::Avalonia.Input.StandardCursorType.Hand),
+            };
+            button.Click += (_, _) => SendWingmanActionReply(replyText);
+            WingmanActionsPanel.Children.Add(button);
+            shown++;
+        }
+
+        WingmanActionsPanel.IsVisible = shown > 0;
+    }
+
+    // Send a tap-to-answer reply through the same path as the Wingman input box, so the
+    // prompt + reply render in the Clean view the Wingman tab hosts.
+    private void SendWingmanActionReply(string text)
+    {
+        if (_activeSession is null || string.IsNullOrWhiteSpace(text)) return;
+        FileLog.Write($"[MainWindow] SendWingmanActionReply: sid={_activeSession.Session.Id}, text=\"{text}\"");
+        PromptInput.Text = text;
+        SendPrompt();
+    }
+
+    // Whether the QA voice-preview box is shown. Off by default to keep the tab clean;
+    // toggled by the header ToggleButton. Persists across re-renders within the session.
+    private bool _wingmanShowVoicePreview;
+
+    private void WingmanVoicePreviewToggle_Changed(object? sender, RoutedEventArgs e)
+    {
+        _wingmanShowVoicePreview = WingmanVoicePreviewToggle.IsChecked == true;
+        if (_activeSession is not null)
+            RenderWingmanCachedExplain(_activeSession.Session);
     }
 
     // Play the spoken-version field aloud through TTS. Opens a modal SpeakPlaybackDialog

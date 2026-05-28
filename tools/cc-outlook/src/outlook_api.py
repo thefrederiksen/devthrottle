@@ -282,6 +282,68 @@ class OutlookClient:
         message.move(target)
         return True
 
+    def resolve_folder(self, identifier: str):
+        """
+        Resolve a folder by ID, full path, or path suffix.
+
+        Matching order (each step is exact, no fuzzy fallback):
+          1. Exact folder ID.
+          2. Exact full display-path (case-insensitive), e.g.
+             "Top of Information Store/Inbox/Customers/Nufarm".
+          3. Path-suffix match on the '/'-separated segments, so
+             "Customers/Nufarm" or just "Nufarm" resolve the same folder.
+
+        Raises ValueError if nothing matches, or if a suffix matches more
+        than one folder (the candidate paths are listed so the caller can
+        disambiguate with a longer path).
+        """
+        mailbox = self.account.mailbox()
+        all_folders = self.list_folders()
+
+        # 1. Exact folder ID
+        for f in all_folders:
+            if f['id'] == identifier:
+                return mailbox.get_folder(folder_id=identifier)
+
+        target_segs = [s.lower() for s in identifier.split('/') if s]
+
+        # 2. Exact full path (case-insensitive)
+        for f in all_folders:
+            if f['display_name'].lower() == identifier.lower():
+                return mailbox.get_folder(folder_id=f['id'])
+
+        # 3. Path-suffix match on segments
+        matches = []
+        for f in all_folders:
+            segs = [s.lower() for s in f['display_name'].split('/') if s]
+            if segs[-len(target_segs):] == target_segs:
+                matches.append(f)
+
+        if len(matches) == 1:
+            return mailbox.get_folder(folder_id=matches[0]['id'])
+        if len(matches) > 1:
+            paths = '\n  '.join(m['display_name'] for m in matches)
+            raise ValueError(
+                f"Folder path '{identifier}' is ambiguous, matches:\n  {paths}\n"
+                "Provide a longer path to disambiguate."
+            )
+        raise ValueError(f"Folder not found: {identifier}")
+
+    def move_message_to(self, message_id: str, target: str) -> str:
+        """
+        Move a message to any folder, resolved by ID, full path, or suffix.
+
+        Returns the resolved folder's display name.
+        """
+        mailbox = self.account.mailbox()
+        message = mailbox.get_message(object_id=message_id)
+        if not message:
+            raise ValueError(f"Message not found: {message_id}")
+
+        folder = self.resolve_folder(target)
+        message.move(folder)
+        return folder.name
+
     def mark_as_read(self, message_id: str, is_read: bool = True) -> bool:
         """
         Mark a message as read or unread.
@@ -435,9 +497,7 @@ class OutlookClient:
         mailbox = self.account.mailbox()
 
         if parent_folder:
-            parent = mailbox.get_folder(folder_name=parent_folder)
-            if not parent:
-                raise ValueError(f"Parent folder not found: {parent_folder}")
+            parent = self.resolve_folder(parent_folder)
             new_folder = parent.create_child_folder(name)
         else:
             inbox = mailbox.inbox_folder()

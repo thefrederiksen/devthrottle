@@ -6,11 +6,12 @@ using System.Text.Json;
 namespace CcDirectorClient.Voice;
 
 /// <summary>
-/// Result of transcribing one utterance: the cleaned <paramref name="Text"/> and the
-/// <paramref name="Target"/> it should be routed to ("agent" to send to the session,
-/// "wingman" when the user addressed the wingman with a "Hey wingman" wake phrase).
+/// Result of transcribing one utterance: the cleaned <paramref name="Text"/> the
+/// caller dispatches to whichever channel the user's button choice picked
+/// (agent via /chat, or wingman via /wingman/ask). The dictate pipeline no
+/// longer carries a routing field - buttons are the source of truth.
 /// </summary>
-public sealed record TranscribeResult(string Text, string Target);
+public sealed record TranscribeResult(string Text);
 
 /// <summary>
 /// One incremental slice of the raw terminal buffer: the new <paramref name="Text"/>
@@ -18,13 +19,6 @@ public sealed record TranscribeResult(string Text, string Target);
 /// poll of the Terminal mirror.
 /// </summary>
 public sealed record BufferSlice(string Text, long NewCursor);
-
-/// <summary>
-/// A spoken FIFO command classified by the wingman: the <paramref name="Action"/> is
-/// "skip", "hold", or "answer" (the safe default - it was a question, not a queue
-/// command). <paramref name="Reason"/> is a short human explanation for logs/UI.
-/// </summary>
-public sealed record CommandResult(string Action, string Reason);
 
 /// <summary>
 /// Drives the per-session voice round-trip directly against the owning Director's
@@ -72,10 +66,10 @@ public sealed class DirectorVoiceClient
 
     /// <summary>
     /// Upload the recorded utterance as a single chunk and return the cleaned
-    /// transcript plus its route target ("agent" or "wingman", decided server-side
-    /// during cleanup from a "Hey wingman" wake phrase). Throws on any HTTP or
-    /// transcription failure so the caller can tell the user plainly rather than
-    /// silently sending an empty prompt.
+    /// transcript. Throws on any HTTP or transcription failure so the caller can
+    /// tell the user plainly rather than silently sending an empty prompt.
+    /// Routing (agent vs wingman) is the caller's button choice; the server no
+    /// longer infers it.
     /// </summary>
     public async Task<TranscribeResult> TranscribeUtteranceAsync(
         string directorBase, string sessionId, byte[] audio, string mime, CancellationToken ct = default)
@@ -121,9 +115,8 @@ public sealed class DirectorVoiceClient
         // The cleaned transcript is what the web voice UI forwards to /chat; fall
         // back to the raw transcript only when the cleanup step produced nothing.
         var text = !string.IsNullOrWhiteSpace(comp.CleanedTranscript) ? comp.CleanedTranscript! : comp.Transcript;
-        var target = string.Equals(comp.RouteTarget, "wingman", StringComparison.OrdinalIgnoreCase) ? "wingman" : "agent";
-        ClientLog.Write($"[DirectorVoiceClient] TranscribeUtterance OK: chars={text?.Length ?? 0}, target={target}");
-        return new TranscribeResult((text ?? "").Trim(), target);
+        ClientLog.Write($"[DirectorVoiceClient] TranscribeUtterance OK: chars={text?.Length ?? 0}");
+        return new TranscribeResult((text ?? "").Trim());
     }
 
     /// <summary>
@@ -241,8 +234,33 @@ public sealed class DirectorVoiceClient
     /// </summary>
     public async Task<string> ExplainAsync(string directorBase, string sessionId, CancellationToken ct = default)
     {
+        var briefing = await ExplainStructuredAsync(directorBase, sessionId, ct);
+        return briefing.OnScreenText;
+    }
+
+    /// <summary>
+    /// Structured briefing returned by /wingman/ask?mode=explain. The screen layer reads
+    /// <see cref="OnScreenText"/>; voice mode reads <see cref="SpokenText"/>. Fields fall
+    /// back gracefully when the model omitted them: empty <see cref="SpokenText"/> means
+    /// the caller should TTS <see cref="OnScreenText"/> instead.
+    /// </summary>
+    public sealed record StructuredBriefing(
+        string OnScreenText,
+        string Headline,
+        string WhatHappened,
+        string WhatClaudeWants,
+        string SpokenText);
+
+    /// <summary>
+    /// Structured-explain variant of <see cref="ExplainAsync"/>. Returns the full briefing
+    /// payload so voice mode can TTS the spoken-version field instead of the on-screen
+    /// (possibly markdown-laden) text. Same endpoint, same prompt, just keeping the extra
+    /// fields the server now returns.
+    /// </summary>
+    public async Task<StructuredBriefing> ExplainStructuredAsync(string directorBase, string sessionId, CancellationToken ct = default)
+    {
         var b = directorBase.TrimEnd('/');
-        ClientLog.Write($"[DirectorVoiceClient] Explain: base={b}, sid={sessionId}");
+        ClientLog.Write($"[DirectorVoiceClient] ExplainStructured: base={b}, sid={sessionId}");
         using var http = NewClient();
         var resp = await http.PostAsync($"{b}/sessions/{sessionId}/wingman/ask",
             JsonBody(new { Question = "", Mode = "explain" }), ct);
@@ -250,9 +268,13 @@ public sealed class DirectorVoiceClient
         if (!resp.IsSuccessStatusCode)
             throw new HttpRequestException($"wingman/ask explain failed: {(int)resp.StatusCode} {body}");
         var r = JsonSerializer.Deserialize<ExplainResp>(body, Json);
-        var text = (r?.Answer ?? "").Trim();
-        ClientLog.Write($"[DirectorVoiceClient] Explain OK: chars={text.Length}");
-        return text;
+        var onScreen = (r?.Answer ?? "").Trim();
+        var headline = (r?.Headline ?? "").Trim();
+        var whatHappened = (r?.WhatHappened ?? "").Trim();
+        var whatClaudeWants = (r?.WhatClaudeWants ?? "").Trim();
+        var spoken = (r?.Say ?? "").Trim();
+        ClientLog.Write($"[DirectorVoiceClient] ExplainStructured OK: screenChars={onScreen.Length}, sayChars={spoken.Length}, headline=\"{headline}\"");
+        return new StructuredBriefing(onScreen, headline, whatHappened, whatClaudeWants, spoken);
     }
 
     /// <summary>
@@ -294,31 +316,6 @@ public sealed class DirectorVoiceClient
         var body = await resp.Content.ReadAsStringAsync(ct);
         if (!resp.IsSuccessStatusCode)
             throw new HttpRequestException($"hold failed: {(int)resp.StatusCode} {body}");
-    }
-
-    /// <summary>
-    /// Interpret a spoken request the user addressed to the wingman in FIFO mode as a
-    /// QUEUE command (POST /sessions/{sid}/wingman/command). Returns the classified
-    /// intent: "skip", "hold", or "answer" (the safe default - it was a question). Throws
-    /// on HTTP failure so the caller can surface the real reason. The server never acts on
-    /// the command itself; the page decides what to do with the returned action.
-    /// </summary>
-    public async Task<CommandResult> InterpretCommandAsync(
-        string directorBase, string sessionId, string spokenText, CancellationToken ct = default)
-    {
-        var b = directorBase.TrimEnd('/');
-        ClientLog.Write($"[DirectorVoiceClient] InterpretCommand: base={b}, sid={sessionId}, chars={spokenText.Length}");
-        using var http = NewClient();
-        var resp = await http.PostAsync($"{b}/sessions/{sessionId}/wingman/command",
-            JsonBody(new { Text = spokenText }), ct);
-        var body = await resp.Content.ReadAsStringAsync(ct);
-        if (!resp.IsSuccessStatusCode)
-            throw new HttpRequestException($"wingman/command failed: {(int)resp.StatusCode} {body}");
-        var r = JsonSerializer.Deserialize<CommandResp>(body, Json);
-        var action = (r?.Action ?? "answer").Trim().ToLowerInvariant();
-        if (action is not ("skip" or "hold")) action = "answer";
-        ClientLog.Write($"[DirectorVoiceClient] InterpretCommand OK: action={action}");
-        return new CommandResult(action, r?.Reason ?? "");
     }
 
     // ===== TERMINAL MIRROR + CONTROLS ======================================
@@ -546,7 +543,6 @@ public sealed class DirectorVoiceClient
     {
         public string? Transcript { get; set; }
         public string? CleanedTranscript { get; set; }
-        public string? RouteTarget { get; set; }
         public string? Status { get; set; }
         public string? Error { get; set; }
     }
@@ -571,12 +567,9 @@ public sealed class DirectorVoiceClient
         public string? Answer { get; set; }
         public string? Status { get; set; }
         public string? Error { get; set; }
-    }
-    private sealed class CommandResp
-    {
-        public string? Action { get; set; }
-        public string? Reason { get; set; }
-        public string? Status { get; set; }
-        public string? Error { get; set; }
+        public string? Headline { get; set; }
+        public string? WhatHappened { get; set; }
+        public string? WhatClaudeWants { get; set; }
+        public string? Say { get; set; }
     }
 }

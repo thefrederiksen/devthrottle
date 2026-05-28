@@ -133,6 +133,12 @@ that). They each read this session's own terminal transcript.
   cached and persisted for the Agent view, voice, and goals. It does **not** vote on the
   badge colour.
 - **Explain briefing** - `AskAboutSessionAsync(explain)` (terse "what's happening").
+  Returns a single JSON object with `headline` + `what_happened` + `what_claude_wants` +
+  `say` + `actions`. The `say` field is the spoken version (no markdown, ~30s of speech)
+  used by the phone's voice mode when the user opens a session; we do **not** pre-render
+  TTS audio at turn-end. State is NOT decided here -- `WhatClaudeWantsDirective` binds
+  the briefing to the badge colour owned by `SessionStatusWingman`, and the legacy
+  `Answer` text is synthesised from the show fields so older clients keep working.
 - **Rules / memory enforcement** - `CheckRulesAsync` (CLAUDE.md violations).
 - **Goal tracking** - `AssessGoalAsync` (on-track / drifting / complete).
 - **Git awareness / crash recovery** - `GitSnapshotAsync`, `BuildRecoveryPromptAsync` (no LLM).

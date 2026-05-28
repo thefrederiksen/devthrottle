@@ -16,7 +16,9 @@ public static class MarkdownHtmlRenderer
 
     public static string Render(string markdown)
     {
-        var body = Markdown.ToHtml(markdown ?? string.Empty, Pipeline);
+        // Fully qualified: the Markdown.Avalonia package introduces a top-level
+        // "Markdown" namespace that otherwise shadows the Markdig.Markdown class.
+        var body = Markdig.Markdown.ToHtml(markdown ?? string.Empty, Pipeline);
         return Wrap(body);
     }
 

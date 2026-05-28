@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:voice="clr-namespace:CcDirectorClient.Voice"
+             x:Class="CcDirectorClient.Voice.VoiceDictationDialog"
+             BackgroundColor="#AA000000"
+             Shell.NavBarIsVisible="False"
+             Title="Voice">
+
+    <!-- Voice-mode dictation dialog (Mode A). Used everywhere the user is already in
+         voice mode (FIFO Ask Agent / Ask Wingman). Stripped to the bone for glance /
+         driving use: bouncing bars to confirm the mic is hot, a big SUBMIT, a big
+         CANCEL. No timer, no transcript, no other controls.
+
+         The Page background is a semi-transparent black so the page underneath
+         shows through as a dimmed backdrop - the dialog itself is the centred card
+         below. Tapping the backdrop is intentionally ignored; the user must hit
+         CANCEL to dismiss, which prevents a stray touch from killing the recording. -->
+    <Grid>
+        <Border HorizontalOptions="Center" VerticalOptions="Center"
+                BackgroundColor="#0B1020"
+                Stroke="#2A3550" StrokeThickness="1"
+                StrokeShape="RoundRectangle 18"
+                Padding="24,28" WidthRequest="320">
+
+            <VerticalStackLayout Spacing="22" HorizontalOptions="Center">
+
+                <voice:BouncingBarsView x:Name="Bars" HorizontalOptions="Center" />
+
+                <Button x:Name="SubmitButton" Text="SUBMIT"
+                        BackgroundColor="#5FD08A" TextColor="#06210F"
+                        FontSize="22" FontAttributes="Bold"
+                        HeightRequest="72" WidthRequest="260"
+                        CornerRadius="16"
+                        Clicked="OnSubmitClicked" />
+
+                <Button x:Name="CancelButton" Text="CANCEL"
+                        BackgroundColor="#E5484D" TextColor="White"
+                        FontSize="22" FontAttributes="Bold"
+                        HeightRequest="72" WidthRequest="260"
+                        CornerRadius="16"
+                        Clicked="OnCancelClicked" />
+            </VerticalStackLayout>
+        </Border>
+    </Grid>
+</ContentPage>

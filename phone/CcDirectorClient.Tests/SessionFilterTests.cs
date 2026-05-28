@@ -5,8 +5,8 @@ namespace CcDirectorClient.Tests;
 
 public class SessionFilterTests
 {
-    private static SessionInfo Make(string id, string color, string endpoint = "https://host.ts.net", string? name = null, bool onHold = false)
-        => new() { SessionId = id, StatusColor = color, TailnetEndpoint = endpoint, Name = name, OnHold = onHold };
+    private static SessionInfo Make(string id, string color, string endpoint = "https://host.ts.net", string? name = null, bool onHold = false, bool wingmanEnabled = true)
+        => new() { SessionId = id, StatusColor = color, TailnetEndpoint = endpoint, Name = name, OnHold = onHold, WingmanEnabled = wingmanEnabled };
 
     [Theory]
     [InlineData("red", true)]
@@ -78,5 +78,31 @@ public class SessionFilterTests
         Assert.Equal(2, fifo.Count);
         Assert.Equal("alpha", fifo[0].DisplayName);
         Assert.Equal("gamma", fifo[1].DisplayName);
+    }
+
+    [Fact]
+    public void NeedsAttention_WingmanDisabledRed_IsAlwaysSkipped()
+    {
+        // A Wingman-off session has no auto-explain briefing for the conveyor to deliver,
+        // so the FIFO + all-sessions conductor both skip it regardless of color/hold.
+        var off = Make("a", "red", wingmanEnabled: false);
+        Assert.False(SessionFilter.NeedsAttention(off, excludeHeld: false));
+        Assert.False(SessionFilter.NeedsAttention(off, excludeHeld: true));
+    }
+
+    [Fact]
+    public void AttentionQueue_DropsWingmanDisabledSessions()
+    {
+        var roster = new List<SessionInfo>
+        {
+            Make("1", "red", name: "alpha"),
+            Make("2", "red", name: "beta", wingmanEnabled: false),
+            Make("3", "red", name: "gamma"),
+        };
+
+        var queue = SessionFilter.AttentionQueue(roster);
+        Assert.Equal(2, queue.Count);
+        Assert.Equal("alpha", queue[0].DisplayName);
+        Assert.Equal("gamma", queue[1].DisplayName);
     }
 }

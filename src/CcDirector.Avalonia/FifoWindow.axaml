@@ -1,0 +1,119 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:terminal="clr-namespace:CcDirector.Terminal.Avalonia;assembly=CcDirector.Terminal.Avalonia"
+        x:Class="CcDirector.Avalonia.FifoWindow"
+        Title="FIFO"
+        WindowState="FullScreen"
+        Background="#0B1020">
+
+    <!-- Full-screen FIFO takeover: one session at a time, wingman-led. The wingman
+         briefing is the PRIMARY surface (read and heard); the live terminal is a
+         secondary "verify" pane you glance at - or hide entirely - while the wingman
+         walks you through what needs you. Voice is the default interaction: the
+         briefing is spoken on arrival, and Ask Wingman (Space) is the hero action.
+         No sidebar, no session tabs - the order is decided, you just deal with what's
+         next. RootGrid is focusable so Space/Esc reach the window even when the
+         terminal pane is on screen. -->
+    <Grid x:Name="RootGrid" Focusable="True" RowDefinitions="Auto,*,Auto">
+
+        <!-- ===== Top bar: which session, progress, verify toggle, exit ===== -->
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="16,12,16,8">
+            <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                <TextBlock x:Name="HeaderTitle" Text="FIFO" FontSize="20"
+                           FontWeight="Bold" Foreground="#E6EAF2" />
+                <TextBlock x:Name="HeaderSub" Text="" FontSize="13" Foreground="#8A93A6" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <Button x:Name="VerifyToggle" Content="Hide terminal"
+                        Click="OnVerifyToggleClick" Background="#1A2236" Foreground="#B7C0D4"
+                        Padding="14,6" Cursor="Hand" />
+                <Button x:Name="ExitButton" Content="Exit  (Esc)"
+                        Click="OnExitClick" Background="#2A3550" Foreground="#E6EAF2"
+                        Padding="16,6" Cursor="Hand" />
+            </StackPanel>
+        </Grid>
+
+        <!-- ===== Center: wingman briefing (primary) | terminal (verify) ===== -->
+        <Grid x:Name="CenterGrid" Grid.Row="1" Margin="16,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="2*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Wingman briefing: the PRIMARY surface. This is what you read and hear. -->
+            <Border Grid.Column="0" Background="#141B2E" BorderBrush="#2A3550"
+                    BorderThickness="1" CornerRadius="6" Padding="20">
+                <ScrollViewer>
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="WHAT'S HAPPENING" FontSize="13"
+                                   FontWeight="Bold" Foreground="#5FD08A" />
+                        <TextBlock x:Name="BriefingText" Text="-" TextWrapping="Wrap"
+                                   Foreground="#E6EAF2" FontSize="17" LineHeight="25"
+                                   Margin="0,0,0,14" />
+
+                        <TextBlock Text="YOU SAID" FontSize="12"
+                                   FontWeight="Bold" Foreground="#5A6378" />
+                        <TextBlock x:Name="TranscriptText" Text="-" TextWrapping="Wrap"
+                                   Foreground="#B7C0D4" FontSize="15" Margin="0,0,0,12" />
+
+                        <TextBlock Text="REPLY / STATUS" FontSize="12"
+                                   FontWeight="Bold" Foreground="#5A6378" />
+                        <TextBlock x:Name="ReplyText" Text="-" TextWrapping="Wrap"
+                                   Foreground="#E6EAF2" FontSize="15" />
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+
+            <GridSplitter x:Name="VerifySplitter" Grid.Column="1" Width="6"
+                          Background="#1A2236" ResizeDirection="Columns" />
+
+            <!-- Terminal: SECONDARY verify pane. Glance to check the wingman, or hide it. -->
+            <Border x:Name="TerminalPane" Grid.Column="2" Background="#0A0E1A"
+                    BorderBrush="#2A3550" BorderThickness="1" CornerRadius="6" ClipToBounds="True">
+                <terminal:TerminalControl x:Name="TerminalHost" />
+            </Border>
+        </Grid>
+
+        <!-- ===== Caught-up overlay (covers the center when nothing needs you) ===== -->
+        <Border x:Name="CaughtUpOverlay" Grid.Row="1" Background="#0B1020" IsVisible="False">
+            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="12">
+                <TextBlock Text="All caught up" FontSize="28" FontWeight="Bold"
+                           Foreground="#5FD08A" HorizontalAlignment="Center" />
+                <TextBlock x:Name="CaughtUpSub" Text="Nothing needs you right now."
+                           FontSize="15" Foreground="#E6EAF2" HorizontalAlignment="Center" />
+                <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center">
+                    <Button Content="Re-scan" Click="OnRescanClick"
+                            Background="#2B6CB0" Foreground="White" Padding="18,8" Cursor="Hand" />
+                    <Button Content="Close" Click="OnExitClick"
+                            Background="#2A3550" Foreground="#E6EAF2" Padding="18,8" Cursor="Hand" />
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <!-- ===== Fixed action bar: never scrolls. Ask Wingman is the hero. ===== -->
+        <Grid Grid.Row="2" Margin="16,8,16,16" RowDefinitions="Auto,Auto">
+            <TextBlock Grid.Row="0" x:Name="StatusText" Text="Ready" FontSize="14"
+                       FontWeight="Bold" Foreground="#5FD08A"
+                       HorizontalAlignment="Center" Margin="0,0,0,8" />
+            <Grid Grid.Row="1" ColumnDefinitions="2*,*,Auto,Auto,Auto" ColumnSpacing="8">
+                <Button Grid.Column="0" x:Name="AskWingmanButton" Content="Ask Wingman  (Space)"
+                        Click="OnAskWingmanClick" Background="#5FD08A" Foreground="#06210F"
+                        FontSize="18" FontWeight="Bold" Height="64"
+                        HorizontalContentAlignment="Center" Cursor="Hand" />
+                <Button Grid.Column="1" x:Name="AskAgentButton" Content="Ask Agent"
+                        Click="OnAskAgentClick" Background="#0E7C6B" Foreground="White"
+                        FontSize="15" Height="64" HorizontalContentAlignment="Center" Cursor="Hand" />
+                <Button Grid.Column="2" x:Name="SkipButton" Content="Skip"
+                        Click="OnSkipClick" Background="#2B6CB0" Foreground="White"
+                        Height="64" Width="92" HorizontalContentAlignment="Center" Cursor="Hand" />
+                <Button Grid.Column="3" x:Name="HoldButton" Content="Hold"
+                        Click="OnHoldClick" Background="#8A5A1A" Foreground="White"
+                        Height="64" Width="92" HorizontalContentAlignment="Center" Cursor="Hand" />
+                <Button Grid.Column="4" x:Name="NextButton" Content="Next &gt;"
+                        Click="OnNextClick" Background="#6B46C1" Foreground="White"
+                        Height="64" Width="110" HorizontalContentAlignment="Center" Cursor="Hand" />
+            </Grid>
+        </Grid>
+    </Grid>
+</Window>

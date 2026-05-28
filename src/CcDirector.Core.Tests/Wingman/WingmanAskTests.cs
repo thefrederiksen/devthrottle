@@ -116,8 +116,12 @@ public sealed class WingmanAskTests
         };
         var prompt = WingmanService.BuildExplainPrompt(ctx);
 
-        Assert.Contains("WHAT'S HAPPENED", prompt);
-        Assert.Contains("WHAT CLAUDE WANTS", prompt);
+        // The JSON schema must demand the four on-screen fields the Wingman tab renders:
+        // a quick what-happened line, a longer description, and a what-Claude-wants section.
+        Assert.Contains("\"what_happened\"", prompt);
+        Assert.Contains("\"long_description\"", prompt);
+        Assert.Contains("\"what_claude_wants\"", prompt);
+        Assert.Contains("\"say\"", prompt);
         // The verbatim-preservation rule must be present so the agent's question isn't reworded.
         Assert.Contains("OWN WORDS", prompt);
         // Shared session context still flows in.

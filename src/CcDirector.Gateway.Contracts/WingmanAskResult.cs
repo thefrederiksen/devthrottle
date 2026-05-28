@@ -37,4 +37,43 @@ public sealed class WingmanAskResult
     /// Each entry is the literal text sent back to the session when tapped.
     /// </summary>
     public List<string> QuickReplies { get; set; } = new();
+
+    /// <summary>
+    /// One short line summarising the situation at a glance, populated in explain mode.
+    /// Drives the per-session headline above the on-screen briefing. Empty for free-text
+    /// ask responses.
+    /// </summary>
+    public string Headline { get; set; } = "";
+
+    /// <summary>
+    /// On-screen "what's happened" section, populated in explain mode. The QUICK version -
+    /// one short sentence the user can read at a glance when returning to the session.
+    /// May contain a single markdown table when the agent presented tabular content the
+    /// user must see. Empty for free-text ask responses.
+    /// </summary>
+    public string WhatHappened { get; set; } = "";
+
+    /// <summary>
+    /// On-screen "what's happened" section, LONGER version (1-2 short paragraphs) with the
+    /// extra detail the quick line cannot carry: which files were touched, key decisions,
+    /// what the agent looked at. Populated in explain mode. Empty for free-text ask
+    /// responses. Lets the Wingman tab show the quick line at the top and expand into the
+    /// fuller story below for users who want more context.
+    /// </summary>
+    public string LongDescription { get; set; } = "";
+
+    /// <summary>
+    /// On-screen "what Claude wants" section, populated in explain mode. Verbatim agent
+    /// phrasing for the pending question when state is red, anchored to the badge color
+    /// otherwise. Empty for free-text ask responses.
+    /// </summary>
+    public string WhatClaudeWants { get; set; } = "";
+
+    /// <summary>
+    /// Spoken version of the briefing - smooth prose, no markdown, optimised for TTS.
+    /// Populated in explain mode and read on demand by the phone's voice mode when the
+    /// user opens a session; we do NOT pre-render TTS audio. Empty for free-text ask
+    /// responses.
+    /// </summary>
+    public string Say { get; set; } = "";
 }

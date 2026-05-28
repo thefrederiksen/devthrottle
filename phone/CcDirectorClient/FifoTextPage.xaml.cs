@@ -279,23 +279,9 @@ public partial class FifoTextPage : ContentPage
         _turnCts = new CancellationTokenSource();
         try
         {
+            // Ask Wingman is a question, period. Skip / Hold are explicit buttons; we do
+            // NOT classify the typed text to second-guess the user's choice of button.
             var client = new DirectorVoiceClient(TokenEntry.Text ?? "");
-            // Same classify-first path as the spoken FIFO mode: "skip"/"hold" steer the
-            // queue; anything else is a question, answered as text below.
-            var cmd = await client.InterpretCommandAsync(session.TailnetEndpoint, session.SessionId, text, _turnCts.Token);
-            if (string.Equals(cmd.Action, "skip", StringComparison.OrdinalIgnoreCase))
-            {
-                InputEditor.Text = "";
-                await MarkHandledAndAdvanceAsync(session, wasHold: false);
-                return;
-            }
-            if (string.Equals(cmd.Action, "hold", StringComparison.OrdinalIgnoreCase))
-            {
-                InputEditor.Text = "";
-                await MarkHandledAndAdvanceAsync(session, wasHold: true);
-                return;
-            }
-
             var answer = await client.AskWingmanAsync(session.TailnetEndpoint, session.SessionId, text, _turnCts.Token);
             ReplyLabel.Text = string.IsNullOrWhiteSpace(answer) ? "The wingman had nothing to report." : answer;
             InputEditor.Text = "";

@@ -49,6 +49,7 @@ public static class RosterParser
                 MachineName = d.MachineName ?? "",
                 VoiceMode = d.VoiceMode,
                 OnHold = d.OnHold,
+                WingmanEnabled = d.WingmanEnabled,
             });
         }
         return result;
@@ -68,5 +69,6 @@ public static class RosterParser
         public string? MachineName { get; set; }
         public bool VoiceMode { get; set; }
         public bool OnHold { get; set; }
+        public bool WingmanEnabled { get; set; } = true;
     }
 }

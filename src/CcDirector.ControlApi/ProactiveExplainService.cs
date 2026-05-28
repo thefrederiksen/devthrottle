@@ -135,8 +135,8 @@ public sealed class ProactiveExplainService : IDisposable
                 if (result is not null && string.Equals(result.Status, "ok", StringComparison.OrdinalIgnoreCase))
                 {
                     session.SetCachedExplain(result.Answer, result.Model, result.QuickReplies);
-                    session.SetCachedExplainStructured(result.Headline, result.WhatHappened, result.WhatClaudeWants, result.Say);
-                    FileLog.Write($"[ProactiveExplainService] cached explain for {session.Id} (model={result.Model}, headline=\"{result.Headline}\", len={result.Answer?.Length ?? 0}, replies={result.QuickReplies?.Count ?? 0}, sayLen={result.Say?.Length ?? 0})");
+                    session.SetCachedExplainStructured(result.Headline, result.WhatHappened, result.LongDescription, result.WhatClaudeWants, result.Say);
+                    FileLog.Write($"[ProactiveExplainService] cached explain for {session.Id} (model={result.Model}, headline=\"{result.Headline}\", len={result.Answer?.Length ?? 0}, longLen={result.LongDescription?.Length ?? 0}, replies={result.QuickReplies?.Count ?? 0}, sayLen={result.Say?.Length ?? 0})");
                 }
                 else
                 {

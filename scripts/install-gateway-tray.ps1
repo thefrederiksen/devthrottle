@@ -63,10 +63,17 @@ Write-Host ""
 Write-Host "[install-gateway-tray] Installed: $exePath"
 
 if ($Launch) {
-    $args = @()
-    if ($Port -gt 0) { $args += @("--port", "$Port") }
+    # Do NOT use $args here: it is an automatic PowerShell variable, and
+    # Start-Process -ArgumentList rejects an empty/null collection, which made -Launch
+    # fail whenever no -Port was given. Build an explicit list and only pass it when set.
+    $launchArgs = @()
+    if ($Port -gt 0) { $launchArgs += @("--port", "$Port") }
     Write-Host "[install-gateway-tray] Launching (this registers the autostart Run key)..."
-    $proc = Start-Process -FilePath $exePath -ArgumentList $args -PassThru
+    $proc = if ($launchArgs.Count -gt 0) {
+        Start-Process -FilePath $exePath -ArgumentList $launchArgs -PassThru
+    } else {
+        Start-Process -FilePath $exePath -PassThru
+    }
     Start-Sleep -Seconds 4
     if (Get-Process -Id $proc.Id -ErrorAction SilentlyContinue) {
         Write-Host "[install-gateway-tray] Running, PID $($proc.Id). Autostart on login is now active."

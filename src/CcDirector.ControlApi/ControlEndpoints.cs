@@ -256,6 +256,7 @@ internal static class ControlEndpoints
                 quickReplies = session.CachedQuickReplies,
                 headline = session.CachedExplainHeadline,
                 whatHappened = session.CachedExplainWhatHappened,
+                longDescription = session.CachedExplainLongDescription,
                 whatClaudeWants = session.CachedExplainWhatClaudeWants,
                 say = session.CachedExplainSay,
             });

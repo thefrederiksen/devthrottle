@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using CcDirector.Core.Claude;
@@ -40,6 +42,22 @@ public static class WingmanService
 
     /// <summary>Hard timeout per Wingman call.</summary>
     public static readonly TimeSpan ProcessTimeout = TimeSpan.FromSeconds(60);
+
+    /// <summary>
+    /// The single shared "explain this session" question. This is the one prompt every
+    /// entry point that asks the Wingman to plainly read a session and say what it wants
+    /// should use - the FIFO conveyor briefing, the desktop Terminal "Explain" button, and
+    /// any future caller - so improving how the Wingman explains a session improves all of
+    /// them at once. Feed it to <see cref="AnswerViaSessionAsync"/> with the session's
+    /// full cleaned terminal. Read-only and verbatim: it states what happened and what the
+    /// agent is waiting on, inventing nothing.
+    /// </summary>
+    public const string BriefingQuestion =
+        "Give me a short briefing on this session, reading ONLY from the terminal. " +
+        "First, WHAT'S HAPPENING: 1 to 3 short sentences on what the agent just did. " +
+        "Then, WHAT IT WANTS: the exact question or decision it is waiting on, in its own " +
+        "words, or 'Nothing pending' if it is just working. No file paths unless essential. " +
+        "Do not invent anything.";
 
     /// <summary>
     /// Shared briefing on how a Claude Code session actually LOOKS on screen, so any
@@ -113,39 +131,87 @@ public static class WingmanService
     // ====================================================================
 
     /// <summary>
-    /// Clean a raw Whisper transcript into a polished prompt for a Claude Code
-    /// agent.  Strips filler words, fixes obvious mis-transcriptions, preserves
-    /// intent.  Output is a JSON object  { cleaned, reason }; we parse it.
+    /// Cleanup model. A small instruction-following model is the right tool here:
+    /// the cleanup prompt asks for verbatim text + a JSON wrapper + an agent/wingman
+    /// routing decision, none of which need a reasoning-tier model. Using
+    /// <c>claude --print</c> on the Wingman's strong model meant a cold subprocess
+    /// spawn per turn and 60s timeouts on a third of turns (issue #142); a direct
+    /// HTTP call to OpenAI's nano-tier finishes in ~1s and never spawns a process.
+    /// Dictation's <c>CleanupOrchestrator</c> already runs the same model in prod.
+    /// </summary>
+    private const string VoiceCleanupModel = "gpt-4.1-nano";
+    private const string OpenAiChatCompletionsEndpoint = "https://api.openai.com/v1/chat/completions";
+    private static readonly TimeSpan VoiceCleanupHttpTimeout = TimeSpan.FromSeconds(20);
+    private static readonly HttpClient _voiceCleanupHttp = new() { Timeout = VoiceCleanupHttpTimeout };
+
+    /// <summary>
+    /// Clean a raw Whisper transcript and decide its routing target. Output is a JSON
+    /// object <c>{ cleaned, reason, target }</c>; we parse it.
     ///
-    /// On any failure (no claude CLI, parse error, timeout) returns a result
-    /// whose <see cref="VoiceCleanupResult.Cleaned"/> is the raw transcript verbatim
-    /// (fail open) and <see cref="VoiceCleanupResult.Reason"/> describes the failure.
+    /// Backed by a direct OpenAI chat call (<see cref="VoiceCleanupModel"/>) rather than
+    /// a side <c>claude --print</c> spawn - issue #142, where cold-spawn cost timed the
+    /// cleanup out on a third of turns including very short ones.
+    ///
+    /// On any failure (no key, parse error, HTTP error, timeout) returns a result whose
+    /// <see cref="VoiceCleanupResult.Cleaned"/> is the raw transcript verbatim (fail open)
+    /// and <see cref="VoiceCleanupResult.Reason"/> describes the failure.
     /// </summary>
     public static async Task<VoiceCleanupResult> CleanVoiceTranscriptAsync(
         string rawTranscript,
         string repoPath,
-        string claudeExePath,
+        string openAiApiKey,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(rawTranscript))
             return new VoiceCleanupResult(rawTranscript ?? "", "empty raw transcript");
-        if (string.IsNullOrWhiteSpace(claudeExePath))
-            return new VoiceCleanupResult(rawTranscript, "no claude CLI configured");
+        if (string.IsNullOrWhiteSpace(openAiApiKey))
+            return new VoiceCleanupResult(rawTranscript, "no OpenAI key configured");
 
         var prompt = BuildVoiceCleanupPrompt(rawTranscript, repoPath ?? "");
 
+        var sw = Stopwatch.StartNew();
         try
         {
-            // Runs on the Wingman's strong Model like everything else; this call also
-            // decides agent-vs-wingman routing, which a cheap model could not do reliably.
-            var stdout = await RunSideClaudeAsync(prompt, claudeExePath, ct, Model);
+            var stdout = await CallOpenAiChatAsync(prompt, VoiceCleanupModel, openAiApiKey, ct);
+            sw.Stop();
+            FileLog.Write($"[WingmanService] CleanVoiceTranscriptAsync OK in {sw.ElapsedMilliseconds}ms");
             return ParseVoiceCleanupJson(stdout, rawTranscript);
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[WingmanService] CleanVoiceTranscriptAsync FAILED: {ex.Message}");
-            return new VoiceCleanupResult(rawTranscript, "wingman call failed: " + ex.Message);
+            sw.Stop();
+            FileLog.Write($"[WingmanService] CleanVoiceTranscriptAsync FAILED in {sw.ElapsedMilliseconds}ms: {ex.Message}");
+            return new VoiceCleanupResult(rawTranscript, "voice cleanup failed: " + ex.Message);
         }
+    }
+
+    private static async Task<string> CallOpenAiChatAsync(
+        string userPrompt, string model, string apiKey, CancellationToken ct)
+    {
+        var payload = new
+        {
+            model,
+            messages = new object[]
+            {
+                new { role = "user", content = userPrompt },
+            },
+            temperature = 0.0,
+        };
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, OpenAiChatCompletionsEndpoint);
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+        req.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+
+        using var resp = await _voiceCleanupHttp.SendAsync(req, ct);
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode)
+            throw new HttpRequestException($"OpenAI chat completions HTTP {(int)resp.StatusCode}: {Truncate(body, 200)}");
+
+        using var doc = JsonDocument.Parse(body);
+        var choices = doc.RootElement.GetProperty("choices");
+        if (choices.GetArrayLength() == 0) return "";
+        var content = choices[0].GetProperty("message").GetProperty("content").GetString() ?? "";
+        return content.Trim();
     }
 
     private static string BuildVoiceCleanupPrompt(string raw, string repoPath)
@@ -157,26 +223,19 @@ public static class WingmanService
         sb.Append("The text is a request, question, or instruction the user wants sent to the Claude Code agent that is working in ");
         sb.AppendLine(string.IsNullOrEmpty(repoPath) ? "their repository." : $"the `{repoPath}` repository.");
         sb.AppendLine();
-        sb.AppendLine("Your job: return the user's message VERBATIM (changing nothing except removing a wingman wake phrase when present), AND decide who it is addressed to.");
+        sb.AppendLine("Your job: return the user's message VERBATIM. Do not classify it, do not route it - the UI button the user pressed already decided who hears it.");
         sb.AppendLine();
         sb.AppendLine("Cleanup rules - you are a strict transcriber, NOT an editor:");
         sb.AppendLine("- Return the user's words VERBATIM: same words, same order, same meaning.");
         sb.AppendLine("- Do NOT remove or alter filler words (um, uh, like, you know, so, right). Keep every one.");
         sb.AppendLine("- Do NOT reword, rephrase, shorten, summarize, expand, paraphrase, or 'improve' anything.");
-        sb.AppendLine("- Do NOT add or delete words, and do NOT reorder words.");
+        sb.AppendLine("- Do NOT add or delete words, and do NOT reorder words. This includes wake phrases like \"hey wingman\" - leave them in.");
         sb.AppendLine("- Do NOT fix grammar, spelling, or mis-transcribed terms. A separate dictionary step handles known term corrections.");
-        sb.AppendLine("- The ONLY change you may make to the words is removing the wingman wake phrase when the target is \"wingman\" (see Routing below).");
         sb.AppendLine("- Do NOT add greetings, sign-offs, or commentary. Do NOT answer the question yourself; just return the prompt text.");
         sb.AppendLine("- One paragraph. No bullet lists, no headings, no quotation marks around the result.");
         sb.AppendLine();
-        sb.AppendLine("Routing (the \"target\" field):");
-        sb.AppendLine("- There are two recipients. The AGENT is the Claude Code agent doing the work. The WINGMAN is a separate read-only assistant that can read the session and answer questions or read content aloud, but does no work.");
-        sb.AppendLine("- Set target to \"wingman\" ONLY when the user addresses the wingman explicitly: the message starts with or contains a wake phrase like \"hey wingman\", \"wingman\", \"ok wingman\", or \"ask the wingman\". Whisper may mis-spell it (\"wing man\", \"wingmen\", \"hey wing man\"); treat those as the wake phrase too.");
-        sb.AppendLine("- When target is \"wingman\", STRIP the wake phrase from \"cleaned\" so only the actual question/request remains. Example: \"Hey wingman, read me the whole article\" -> cleaned: \"read me the whole article\", target: \"wingman\".");
-        sb.AppendLine("- Otherwise set target to \"agent\" and leave the message intact. When unsure, choose \"agent\" (the safe default).");
-        sb.AppendLine();
         sb.AppendLine("Output JSON only, no markdown fence, no other text, this exact shape:");
-        sb.AppendLine("{\"cleaned\": \"<the cleaned prompt>\", \"reason\": \"<one short sentence explaining what you changed, or 'no changes needed' if minimal>\", \"target\": \"agent|wingman\"}");
+        sb.AppendLine("{\"cleaned\": \"<the cleaned prompt>\", \"reason\": \"<one short sentence explaining what you changed, or 'no changes needed' if minimal>\"}");
         sb.AppendLine();
         sb.AppendLine("RAW TRANSCRIPT:");
         sb.Append(raw);
@@ -211,14 +270,9 @@ public static class WingmanService
             var root = doc.RootElement;
             var cleaned = root.TryGetProperty("cleaned", out var c) ? (c.GetString() ?? "") : "";
             var reason = root.TryGetProperty("reason", out var r) ? (r.GetString() ?? "") : "";
-            // target: "wingman" routes to the read-only Ask-the-Wingman channel; anything
-            // else (or absent) is the safe default "agent".
-            var target = root.TryGetProperty("target", out var t)
-                && string.Equals((t.GetString() ?? "").Trim(), "wingman", StringComparison.OrdinalIgnoreCase)
-                    ? "wingman" : "agent";
             if (string.IsNullOrWhiteSpace(cleaned))
                 return new VoiceCleanupResult(fallbackRaw, "wingman returned empty 'cleaned' field");
-            return new VoiceCleanupResult(cleaned.Trim(), string.IsNullOrEmpty(reason) ? "no changes needed" : reason.Trim(), target);
+            return new VoiceCleanupResult(cleaned.Trim(), string.IsNullOrEmpty(reason) ? "no changes needed" : reason.Trim());
         }
         catch (JsonException ex)
         {
@@ -849,15 +903,34 @@ public static class WingmanService
         {
             var stdout = await RunSideClaudeAsync(prompt, claudeExePath, ct, model);
             sw.Stop();
-            var answer = (stdout ?? "").Trim();
-            // Explain mode appends a "QUICK REPLIES:" JSON line; lift it off and clean the
-            // displayed briefing so the UI can render tap-to-answer buttons.
-            var quickReplies = new List<string>();
+            var raw = (stdout ?? "").Trim();
+
+            // Explain mode returns a single JSON object; parse it into structured fields and
+            // synthesise the legacy `Answer` text so older clients (the desktop session view
+            // before this change, plus anything that just shows the briefing as text) keep
+            // working unchanged. Free-text ask mode keeps the plain-string contract.
             if (explain)
             {
-                (answer, quickReplies) = ExtractQuickReplies(answer);
+                var parsed = ParseExplainJson(raw);
+                if (parsed.Answer.Length > 4000) parsed.Answer = parsed.Answer[..3997] + "...";
+                return new WingmanAskResult
+                {
+                    Answer = parsed.Answer,
+                    Headline = parsed.Headline,
+                    WhatHappened = parsed.WhatHappened,
+                    LongDescription = parsed.LongDescription,
+                    WhatClaudeWants = parsed.WhatClaudeWants,
+                    Say = parsed.Say,
+                    QuickReplies = parsed.Actions,
+                    Model = model,
+                    LatencyMs = sw.ElapsedMilliseconds,
+                    ContextDigest = context.ToDigest(),
+                    Status = "ok",
+                };
             }
+
             // Cap response so a misbehaving model can't return a megabyte into the UI.
+            var answer = raw;
             if (answer.Length > 4000) answer = answer[..3997] + "...";
             return new WingmanAskResult
             {
@@ -866,7 +939,6 @@ public static class WingmanService
                 LatencyMs = sw.ElapsedMilliseconds,
                 ContextDigest = context.ToDigest(),
                 Status = "ok",
-                QuickReplies = quickReplies,
             };
         }
         catch (Exception ex)
@@ -885,9 +957,158 @@ public static class WingmanService
     }
 
     /// <summary>
+    /// Structured form of a parsed explain briefing. <see cref="Answer"/> is the synthesised
+    /// human-readable text built from the show fields, so older callers that only know the
+    /// flat-text shape keep working. <see cref="Headline"/>, <see cref="WhatHappened"/>,
+    /// <see cref="WhatClaudeWants"/>, <see cref="Say"/>, and <see cref="Actions"/> carry the
+    /// structured fields straight from the model.
+    /// </summary>
+    internal sealed class ExplainBriefing
+    {
+        public string Answer { get; set; } = "";
+        public string Headline { get; set; } = "";
+        public string WhatHappened { get; set; } = "";
+        public string LongDescription { get; set; } = "";
+        public string WhatClaudeWants { get; set; } = "";
+        public string Say { get; set; } = "";
+        public List<string> Actions { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Parse the model's explain output. The new prompt asks for a single JSON object with
+    /// headline / what_happened / what_claude_wants / say / actions. We fall open if the
+    /// model returns plain text instead - the legacy text is treated as the briefing body so
+    /// the briefing is still useful even when the JSON wrapper goes missing.
+    /// </summary>
+    internal static ExplainBriefing ParseExplainJson(string raw)
+    {
+        var result = new ExplainBriefing();
+        if (string.IsNullOrWhiteSpace(raw)) return result;
+
+        var json = ExtractJsonObject(raw);
+        if (json is null)
+        {
+            // Model didn't return JSON. Treat the entire response as the briefing body and
+            // try the legacy QUICK REPLIES trailer extractor so older prompt outputs still
+            // get tappable actions.
+            var (legacyText, legacyReplies) = ExtractQuickReplies(raw);
+            result.Answer = legacyText;
+            result.WhatHappened = legacyText;
+            result.Say = legacyText;
+            result.Actions = legacyReplies;
+            return result;
+        }
+
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            result.Headline = ReadString(root, "headline");
+            result.WhatHappened = ReadString(root, "what_happened");
+            result.LongDescription = ReadString(root, "long_description");
+            result.WhatClaudeWants = ReadString(root, "what_claude_wants");
+            result.Say = ReadString(root, "say");
+            result.Actions = ReadStringArray(root, "actions", maxCount: 4);
+        }
+        catch (System.Text.Json.JsonException ex)
+        {
+            FileLog.Write($"[WingmanService] ParseExplainJson FAILED: {ex.Message}");
+            result.Answer = raw;
+            result.WhatHappened = raw;
+            result.Say = raw;
+            return result;
+        }
+
+        result.Answer = ComposeAnswerFromFields(result);
+        return result;
+    }
+
+    private static string ReadString(System.Text.Json.JsonElement root, string name)
+    {
+        if (!root.TryGetProperty(name, out var el)) return "";
+        if (el.ValueKind != System.Text.Json.JsonValueKind.String) return "";
+        return (el.GetString() ?? "").Trim();
+    }
+
+    private static List<string> ReadStringArray(System.Text.Json.JsonElement root, string name, int maxCount)
+    {
+        var list = new List<string>();
+        if (!root.TryGetProperty(name, out var el)) return list;
+        if (el.ValueKind != System.Text.Json.JsonValueKind.Array) return list;
+        foreach (var item in el.EnumerateArray())
+        {
+            if (item.ValueKind != System.Text.Json.JsonValueKind.String) continue;
+            var s = (item.GetString() ?? "").Trim();
+            if (s.Length == 0) continue;
+            list.Add(s);
+            if (list.Count >= maxCount) break;
+        }
+        return list;
+    }
+
+    /// <summary>
+    /// Build the legacy two-section briefing text from the structured fields, so callers that
+    /// only know <c>Answer</c> keep rendering the same shape that pre-#150 prompts produced.
+    /// </summary>
+    private static string ComposeAnswerFromFields(ExplainBriefing b)
+    {
+        var sb = new StringBuilder();
+        if (!string.IsNullOrWhiteSpace(b.WhatHappened))
+        {
+            sb.AppendLine("WHAT'S HAPPENED:");
+            sb.AppendLine(b.WhatHappened.Trim());
+        }
+        if (!string.IsNullOrWhiteSpace(b.LongDescription))
+        {
+            if (sb.Length > 0) sb.AppendLine();
+            sb.AppendLine(b.LongDescription.Trim());
+        }
+        if (!string.IsNullOrWhiteSpace(b.WhatClaudeWants))
+        {
+            if (sb.Length > 0) sb.AppendLine();
+            sb.AppendLine("WHAT CLAUDE WANTS YOU TO DO NEXT:");
+            sb.AppendLine(b.WhatClaudeWants.Trim());
+        }
+        return sb.ToString().TrimEnd();
+    }
+
+    /// <summary>
+    /// Pull the first balanced JSON object out of a model response. The model is told to
+    /// return ONLY JSON but real models occasionally wrap it in ```json fences or prepend a
+    /// stray "Here is the briefing:" line; this finds the {...} block tolerantly.
+    /// </summary>
+    private static string? ExtractJsonObject(string raw)
+    {
+        var open = raw.IndexOf('{');
+        if (open < 0) return null;
+        var depth = 0;
+        var inString = false;
+        var escape = false;
+        for (var i = open; i < raw.Length; i++)
+        {
+            var ch = raw[i];
+            if (escape) { escape = false; continue; }
+            if (ch == '\\') { escape = true; continue; }
+            if (ch == '"') { inString = !inString; continue; }
+            if (inString) continue;
+            if (ch == '{') depth++;
+            else if (ch == '}')
+            {
+                depth--;
+                if (depth == 0) return raw[open..(i + 1)];
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
     /// Lift the trailing "QUICK REPLIES: [...]" line off an explain answer: returns the
     /// briefing with that section removed, plus the parsed options (the model produced them
     /// as JSON; we only parse our own structured trailer, not free prose). Capped at 4.
+    ///
+    /// Kept as a fallback for older non-JSON model outputs and for the existing unit tests
+    /// that exercise the legacy two-section format. New explain calls go through
+    /// <see cref="ParseExplainJson"/> instead.
     /// </summary>
     internal static (string cleaned, List<string> replies) ExtractQuickReplies(string answer)
     {
@@ -1034,25 +1255,58 @@ public static class WingmanService
     /// account of what the session has done and what the agent is waiting on, while
     /// preserving the agent's actual question verbatim (clarifying only when the bare
     /// question is ambiguous out of context).
+    ///
+    /// Output shape is a single JSON object so the same briefing can be rendered both
+    /// as on-screen text (headline + sections + tap-to-answer actions) AND as a
+    /// spoken-version field the phone TTSs on demand when the user enters voice mode.
+    /// State is NOT decided here - <see cref="WhatClaudeWantsDirective"/> still binds
+    /// the briefing to the badge color owned by SessionStatusWingman.
     /// </summary>
     internal static string BuildExplainPrompt(WingmanAskContext context)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("You are the wingman for a CC Director session. The user is away from their computer and wants a quick, clear briefing on THIS session so they can decide what to do next.");
+        sb.AppendLine("You are the wingman for a CC Director session. The user is away from their computer and wants a clear briefing on THIS session so they can step back in and decide what to do next.");
         sb.AppendLine();
-        sb.AppendLine("Write exactly TWO labeled sections, plain text, no code blocks, no bullet symbols. The ONLY markdown allowed is a table (see below); otherwise no markdown:");
+        sb.AppendLine("The briefing is for someone returning to the session - it MUST make two things crystal clear, with no scanning required:");
+        sb.AppendLine("  (a) what happened while they were away, and");
+        sb.AppendLine("  (b) what Claude is asking them to do next (or that nothing is pending).");
         sb.AppendLine();
-        sb.AppendLine("WHAT'S HAPPENED:");
-        sb.AppendLine("Be terse. 1 to 3 short sentences, fewer is better. No padding, no preamble, no restating the obvious, no narrating an empty session. Plain language a non-expert can follow. No file paths or commands unless they are essential to understanding.");
-        sb.AppendLine("- If no real work has happened yet (the session is fresh or idle and the agent has not done anything), say so in ONE short sentence and stop. Example: \"Nothing yet; the session is idle and waiting for a task.\" Do NOT speculate about what it might do.");
+        sb.AppendLine("Return a single JSON object with EXACTLY these fields and no others. Output ONLY the JSON object, no markdown fence, no commentary before or after:");
+        sb.AppendLine();
+        sb.AppendLine("{");
+        sb.AppendLine("  \"headline\": \"<one short line, ~6-10 words, what's the situation right now>\",");
+        sb.AppendLine("  \"what_happened\": \"<the QUICK on-screen line - 1 short sentence, scan-friendly; rules below>\",");
+        sb.AppendLine("  \"long_description\": \"<the LONGER on-screen detail - 1-2 short paragraphs; rules below>\",");
+        sb.AppendLine("  \"what_claude_wants\": \"<the question Claude is waiting on, verbatim when possible; rules below>\",");
+        sb.AppendLine("  \"say\": \"<the same content rewritten for the ear; smooth prose; rules below>\",");
+        sb.AppendLine("  \"actions\": [\"<tap-to-answer option>\", \"...\"]");
+        sb.AppendLine("}");
+        sb.AppendLine();
+        sb.AppendLine("Rules for headline:");
+        sb.AppendLine("- One line. ~6-10 words. Sets the situation in a glance, like a notification subject.");
+        sb.AppendLine("- The headline and the \"what_claude_wants\" section are shown TOGETHER. They MUST carry DIFFERENT information - never the same fact twice. The headline states WHAT THE TURN WAS ABOUT (the work Claude just did, or the topic); what_claude_wants states the actual ASK. Do NOT put the question in the headline.");
+        sb.AppendLine("- When Claude is waiting on the user, DO NOT write a headline like \"Waiting on which X you prefer\" - that just restates the ask. Instead summarize what was accomplished or worked on, and let the ask live only in what_claude_wants. The colored status already tells the user a decision is pending, so the headline does not need to say \"waiting\".");
+        sb.AppendLine("- Good pairing: headline \"Finished the login refactor; one decision left.\" + what_claude_wants \"Use JWT or session cookies?\". Bad pairing (duplicates): headline \"Waiting on which auth method you prefer.\" + what_claude_wants \"Use JWT or session cookies?\".");
+        sb.AppendLine("- Examples of headlines: \"Finished the Wingman tab rewrite.\" / \"Refactored the parser; tests pass.\" / \"Hit a build error in the gateway.\" / \"Session is idle; nothing done yet.\"");
+        sb.AppendLine();
+        sb.AppendLine("Rules for what_happened (the QUICK on-screen line - what the user sees first):");
+        sb.AppendLine("- ONE short sentence. Plain language a non-expert can follow. No padding, no preamble.");
+        sb.AppendLine("- The user reads this in under a second when they return to the session, so make it carry weight: lead with the most important thing the agent actually did.");
+        sb.AppendLine("- If no real work has happened yet (the session is fresh or idle and the agent has not done anything), say so in ONE short sentence. Example: \"Nothing yet; the session is idle and waiting for a task.\" Do NOT speculate about what it might do.");
         sb.AppendLine("- The terminal's input box may show faint placeholder or example text (such as a suggested command or a sample file name) when it is empty. That is NOT something the agent did or the user typed. Never describe placeholder text as activity.");
-        sb.AppendLine("- If the agent presented a TABLE the user needs to SEE to make sense of things (a comparison, a set of options, a plan laid out in rows, or data with columns), reproduce that table as a GitHub-style markdown table right here, after the sentences. Keep the agent's row and column content; do not invent rows. Example:");
+        sb.AppendLine("- No markdown of any kind in this field. Use the long_description for tables and detail.");
+        sb.AppendLine();
+        sb.AppendLine("Rules for long_description (the LONGER on-screen detail - what the user reads when they want more):");
+        sb.AppendLine("- 1 to 2 short paragraphs (no more than ~6 sentences total). Fill in the specifics the QUICK line cannot carry: what the agent looked at or modified, which files or symbols were touched if relevant, decisions or findings, errors hit and how they were resolved.");
+        sb.AppendLine("- Plain language; file paths and short symbol names are fine when they are part of what actually happened. NO bullets unless reproducing the agent's own list.");
+        sb.AppendLine("- If the QUICK line already covers everything (truly nothing more to say, e.g. a brand-new idle session), repeat it in slightly different words rather than padding.");
+        sb.AppendLine("- If the agent presented a TABLE the user needs to SEE to make sense of things (a comparison, a set of options, a plan laid out in rows, or data with columns), reproduce that table inside this field as a GitHub-style markdown table right after the prose (this field is the ONLY place markdown tables are allowed). Keep the agent's rows and columns; do not invent rows. Example:");
         sb.AppendLine("    | Item | Today |");
         sb.AppendLine("    | --- | --- |");
         sb.AppendLine("    | Session name | header |");
-        sb.AppendLine("- Only include a table when the agent actually presented tabular content the user must see. Do NOT turn ordinary prose, lists, or a single value into a table. At most one table.");
+        sb.AppendLine("- At most one table.");
         sb.AppendLine();
-        sb.AppendLine("WHAT CLAUDE WANTS:");
+        sb.AppendLine("Rules for what_claude_wants (the on-screen WHAT CLAUDE WANTS section):");
         // The session's working/waiting/idle verdict is ALREADY computed deterministically
         // by SessionStatusWingman (the colored badge the user sees). Anchor this section to
         // that verdict so the briefing can never contradict the badge -- the old prompt let
@@ -1063,13 +1317,20 @@ public static class WingmanService
         sb.AppendLine("- Only add a few words of clarification IN PARENTHESES when the bare question is ambiguous without context. Example: \"Want me to implement it?\" -> \"Want me to implement it (the Tailscale auto-provisioning)?\"");
         sb.AppendLine("- If the agent asked multiple questions, include them all.");
         sb.AppendLine();
-        sb.AppendLine("QUICK REPLIES:");
-        sb.AppendLine("If \"WHAT CLAUDE WANTS\" is a decision the user can answer in a few words (yes/no, this-or-that, pick from a short menu), output the tappable answer options as a JSON array on ONE line, e.g.: [\"Yes, go ahead\", \"No, stop\"]");
-        sb.AppendLine("- 2 to 4 options. Each is the literal text the user would send back to the agent, phrased as the user's own reply (not a description).");
-        sb.AppendLine("- Cover the real choices the agent offered; do not invent options the agent did not imply.");
-        sb.AppendLine("- If there is no clear short answer (the agent is just working, or the reply needs real typing), output an empty array: []");
+        sb.AppendLine("Rules for say (the spoken version, used by the phone's voice mode):");
+        sb.AppendLine("- Same content as what_happened + what_claude_wants but optimized for the ear, not the screen. Smooth prose, one short paragraph.");
+        sb.AppendLine("- NO markdown of any kind. No tables, no bullets, no asterisks, no backticks, no headings.");
+        sb.AppendLine("- Read paths and commands as words only if essential; in general avoid them. Do not say file extensions like \"dot c-s\" or read URLs aloud.");
+        sb.AppendLine("- Keep what_claude_wants verbatim in the say field too when there is a real question; reading the agent's own words is the point.");
+        sb.AppendLine("- Aim for under ~30 seconds of speech (roughly 60-80 words). Tighter is better.");
         sb.AppendLine();
-        sb.AppendLine("Answer ONLY from the context below. Do NOT invent file names, decisions, or questions. If the context does not show what the agent is asking, say so plainly.");
+        sb.AppendLine("Rules for actions (tappable answer options - what was called QUICK REPLIES):");
+        sb.AppendLine("- If what_claude_wants is a decision the user can answer in a few words (yes/no, this-or-that, pick from a short menu), populate this array with 2 to 4 options.");
+        sb.AppendLine("- Each option is the LITERAL text the user would send back to the agent, phrased as the user's own reply (not a description).");
+        sb.AppendLine("- Cover the real choices the agent offered; do not invent options the agent did not imply.");
+        sb.AppendLine("- If there is no clear short answer (the agent is just working, or the reply needs real typing), return an empty array: []");
+        sb.AppendLine();
+        sb.AppendLine("Answer ONLY from the context below. Do NOT invent file names, decisions, or questions. If the context does not show what the agent is asking, say so plainly in what_claude_wants and say.");
         sb.AppendLine();
         AppendSessionContext(sb, context);
         return sb.ToString();
@@ -1594,4 +1855,4 @@ public static class WingmanService
 /// <param name="Cleaned">The cleaned transcript, with any "Hey wingman" wake phrase stripped when <paramref name="Target"/> is "wingman".</param>
 /// <param name="Reason">One-sentence explanation of what changed (or a failure reason).</param>
 /// <param name="Target">Who the utterance is addressed to: "agent" (default, send to the session) or "wingman" (route to the read-only Ask-the-Wingman channel).</param>
-public sealed record VoiceCleanupResult(string Cleaned, string Reason, string Target = "agent");
+public sealed record VoiceCleanupResult(string Cleaned, string Reason);

@@ -91,7 +91,7 @@ public sealed class VoiceService
             cleanup = await Wingman.WingmanService.CleanVoiceTranscriptAsync(
                 transcript,
                 repoPath: "",       // best-effort: VoiceService doesn't currently know the session repo
-                claudeExePath: _options.ClaudePath,
+                openAiApiKey: _options.ResolveOpenAiKey() ?? "",
                 ct: ct);
             FileLog.Write($"[VoiceService] Cleaned: \"{Truncate(cleanup.Cleaned, 200)}\" reason=\"{cleanup.Reason}\"");
         }
@@ -109,7 +109,6 @@ public sealed class VoiceService
             var response = Execute(transcript, command);
             response.CleanedTranscript = await ApplyDictionaryCorrectionAsync(cleanup.Cleaned, ct);
             response.CleanupReason = cleanup.Reason;
-            response.RouteTarget = cleanup.Target;
             return response;
         }
         catch (Exception ex)
@@ -129,13 +128,13 @@ public sealed class VoiceService
     }
 
     /// <summary>
-    /// Transcribe an already-assembled audio blob, decide its route target
-    /// (agent vs wingman) verbatim, then correct known dictionary terms with the
-    /// shared dictation cleanup engine - returning both the raw transcript and the
-    /// final corrected text. Used by the resumable /voice/utterance path, which
-    /// reassembles the chunked upload into one blob and then needs exactly the
-    /// transcribe+route+correct half of <see cref="HandleAsync"/> WITHOUT the
-    /// command intent parsing. Fails open (cleaned == raw) at each step.
+    /// Transcribe an already-assembled audio blob, then correct known dictionary terms
+    /// with the shared dictation cleanup engine - returning both the raw transcript and
+    /// the final corrected text. Used by the resumable /voice/utterance path, which
+    /// reassembles the chunked upload into one blob and then needs the
+    /// transcribe+correct half of <see cref="HandleAsync"/> WITHOUT the command intent
+    /// parsing. Routing (agent vs wingman) is the caller's button choice; the cleanup
+    /// step is verbatim text and a reason only. Fails open (cleaned == raw) at each step.
     /// </summary>
     public async Task<VoiceCommandResponse> TranscribeAndCleanAsync(
         Stream audio, string fileName, string repoPath, CancellationToken ct = default)
@@ -168,7 +167,7 @@ public sealed class VoiceService
         try
         {
             cleanup = await Wingman.WingmanService.CleanVoiceTranscriptAsync(
-                transcript, repoPath, _options.ClaudePath, ct);
+                transcript, repoPath, _options.ResolveOpenAiKey() ?? "", ct);
         }
         catch (Exception ex)
         {
@@ -177,10 +176,10 @@ public sealed class VoiceService
         }
 
         // Apply the SHARED dictionary corrector (verbatim + the live dictation
-        // dictionary) - the same engine desktop dictation uses - to the routed,
-        // wake-phrase-stripped transcript. cleanup.Cleaned is already verbatim
-        // (routing only); this pass fixes known mistranscribed terms and nothing
-        // else. Fails open: ships the routed transcript unchanged on any problem.
+        // dictionary) - the same engine desktop dictation uses - to the verbatim
+        // transcript. cleanup.Cleaned is already verbatim; this pass fixes known
+        // mistranscribed terms and nothing else. Fails open: ships the transcript
+        // unchanged on any problem.
         var corrected = await ApplyDictionaryCorrectionAsync(cleanup.Cleaned, ct);
 
         return new VoiceCommandResponse
@@ -188,7 +187,6 @@ public sealed class VoiceService
             Transcript = transcript,
             CleanedTranscript = corrected,
             CleanupReason = cleanup.Reason,
-            RouteTarget = cleanup.Target,
             Status = "ok",
         };
     }

@@ -58,6 +58,15 @@ public sealed class SessionInfo
     public bool OnHold { get; set; }
 
     /// <summary>
+    /// Whether the Wingman experience is enabled for this session: auto-explain briefing on
+    /// turn-end, Voice + Wingman tabs visible, Yellow "Wingman is reading" state available.
+    /// Default ON. When false the session behaves as a plain terminal -- the phone hides
+    /// the Voice + Wingman tabs and the FIFO conveyor skips it (no briefing to deliver).
+    /// Mirrors the server's <c>Session.WingmanEnabled</c>.
+    /// </summary>
+    public bool WingmanEnabled { get; set; } = true;
+
+    /// <summary>
     /// Human-friendly label for the session: the server-supplied name when set,
     /// otherwise the repository folder name, otherwise a short id. Never empty.
     /// </summary>

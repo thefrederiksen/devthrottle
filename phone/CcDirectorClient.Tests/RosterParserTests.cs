@@ -53,6 +53,25 @@ public class RosterParserTests
     }
 
     [Fact]
+    public void Parse_MissingWingmanEnabled_DefaultsToTrue()
+    {
+        // Sessions returned by older Directors (before WingmanEnabled was on the wire) must
+        // restore with Wingman ON, matching the server-side default. Otherwise old fleets
+        // would silently lose the Voice/Wingman tabs.
+        var json = """[ { "sessionId": "a", "activityState": "Idle", "status": "Running" } ]""";
+        var s = Assert.Single(RosterParser.Parse(json));
+        Assert.True(s.WingmanEnabled);
+    }
+
+    [Fact]
+    public void Parse_WingmanEnabledFalse_RoundTrips()
+    {
+        var json = """[ { "sessionId": "a", "activityState": "Idle", "status": "Running", "wingmanEnabled": false } ]""";
+        var s = Assert.Single(RosterParser.Parse(json));
+        Assert.False(s.WingmanEnabled);
+    }
+
+    [Fact]
     public void Parse_DropsExitedAndFailedSessions()
     {
         var json = """

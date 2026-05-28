@@ -26,29 +26,30 @@ public sealed class WingmanServiceTests
     [Fact]
     public async Task CleanVoiceTranscriptAsync_empty_raw_returns_empty_with_reason()
     {
-        var r = await WingmanService.CleanVoiceTranscriptAsync("", repoPath: "", claudeExePath: "claude.exe");
+        var r = await WingmanService.CleanVoiceTranscriptAsync("", repoPath: "", openAiApiKey: "sk-test");
         Assert.Equal("", r.Cleaned);
         Assert.Contains("empty", r.Reason, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public async Task CleanVoiceTranscriptAsync_no_claude_path_returns_raw_verbatim()
+    public async Task CleanVoiceTranscriptAsync_no_openai_key_returns_raw_verbatim()
     {
         const string raw = "hello world";
-        var r = await WingmanService.CleanVoiceTranscriptAsync(raw, repoPath: "", claudeExePath: "");
+        var r = await WingmanService.CleanVoiceTranscriptAsync(raw, repoPath: "", openAiApiKey: "");
         Assert.Equal(raw, r.Cleaned);
-        Assert.Contains("no claude", r.Reason, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("no OpenAI key", r.Reason, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public async Task CleanVoiceTranscriptAsync_bad_path_falls_open_to_raw()
+    public async Task CleanVoiceTranscriptAsync_bad_key_falls_open_to_raw()
     {
         const string raw = "list sessions";
-        // Path that does not exist - Process.Start throws Win32Exception ("The system cannot find...").
+        // A syntactically-shaped but unauthorized key produces a 401 from OpenAI; the cleanup
+        // method must fall open with the raw transcript rather than throw.
         var r = await WingmanService.CleanVoiceTranscriptAsync(
-            raw, repoPath: "", claudeExePath: @"C:\__nonexistent__\claude.exe");
+            raw, repoPath: "", openAiApiKey: "sk-this-key-is-not-real-and-will-401");
         Assert.Equal(raw, r.Cleaned);            // fail-open: raw is preserved
-        Assert.Contains("wingman call failed", r.Reason, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("voice cleanup failed", r.Reason, StringComparison.OrdinalIgnoreCase);
     }
 
     // --------------------------------------------------------------------
@@ -123,48 +124,86 @@ public sealed class WingmanServiceTests
     }
 
     // --------------------------------------------------------------------
-    // Route target ("Hey wingman" detection folded into cleanup)
+    // Explain briefing JSON parser
     // --------------------------------------------------------------------
 
     [Fact]
-    public void ParseVoiceCleanupJson_target_wingman_is_extracted()
+    public void ParseExplainJson_full_object_populates_all_fields()
     {
-        const string raw = "{\"cleaned\":\"read me the whole article\",\"reason\":\"stripped wake phrase\",\"target\":\"wingman\"}";
+        const string raw = @"{
+            ""headline"": ""Waiting on migration choice."",
+            ""what_happened"": ""Drafted two strategies for the user-table migration."",
+            ""long_description"": ""Read users.sql, drafted an online migration that backfills in batches and a downtime migration that drops indexes. Either path keeps the existing data; the trade-off is rollout speed vs. window length."",
+            ""what_claude_wants"": ""Which strategy do you prefer - online or with downtime?"",
+            ""say"": ""Claude drafted two migration strategies and is asking which you prefer, online or with downtime."",
+            ""actions"": [""Online"", ""With downtime""]
+        }";
+        var b = WingmanService.ParseExplainJson(raw);
+
+        Assert.Equal("Waiting on migration choice.", b.Headline);
+        Assert.Equal("Drafted two strategies for the user-table migration.", b.WhatHappened);
+        Assert.Contains("backfills in batches", b.LongDescription);
+        Assert.Equal("Which strategy do you prefer - online or with downtime?", b.WhatClaudeWants);
+        Assert.StartsWith("Claude drafted two migration strategies", b.Say);
+        Assert.Equal(2, b.Actions.Count);
+        Assert.Equal("Online", b.Actions[0]);
+
+        // Legacy Answer field is synthesized from the show fields so older callers keep working.
+        Assert.Contains("WHAT'S HAPPENED:", b.Answer);
+        Assert.Contains("WHAT CLAUDE WANTS YOU TO DO NEXT:", b.Answer);
+        Assert.Contains("Drafted two strategies", b.Answer);
+        Assert.Contains("backfills in batches", b.Answer);
+        Assert.Contains("which strategy do you prefer", b.Answer, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ParseExplainJson_caps_actions_at_four()
+    {
+        const string raw = @"{""actions"":[""one"",""two"",""three"",""four"",""five"",""six""]}";
+        var b = WingmanService.ParseExplainJson(raw);
+        Assert.Equal(4, b.Actions.Count);
+        Assert.Equal(new[] { "one", "two", "three", "four" }, b.Actions);
+    }
+
+    [Fact]
+    public void ParseExplainJson_with_fenced_codeblock_still_extracts()
+    {
+        // Defensive: even though the prompt forbids fences, models occasionally add them.
+        const string raw = "```json\n{\"headline\":\"hi\",\"what_happened\":\"x\"}\n```";
+        var b = WingmanService.ParseExplainJson(raw);
+        Assert.Equal("hi", b.Headline);
+        Assert.Equal("x", b.WhatHappened);
+    }
+
+    [Fact]
+    public void ParseExplainJson_non_json_text_falls_open_to_legacy_shape()
+    {
+        // Fail-open: if the model returns the old plain-text format, treat it as the body
+        // so the briefing is still useful while we land the JSON change.
+        const string raw = "WHAT'S HAPPENED:\nDid stuff.\n\nQUICK REPLIES: [\"Yes\", \"No\"]";
+        var b = WingmanService.ParseExplainJson(raw);
+        Assert.Contains("WHAT'S HAPPENED:", b.Answer);
+        Assert.Contains("Did stuff", b.WhatHappened);
+        Assert.Equal(new[] { "Yes", "No" }, b.Actions);
+    }
+
+    [Fact]
+    public void ParseExplainJson_empty_returns_empty_briefing()
+    {
+        var b = WingmanService.ParseExplainJson("");
+        Assert.Equal("", b.Headline);
+        Assert.Equal("", b.Answer);
+        Assert.Empty(b.Actions);
+    }
+
+    [Fact]
+    public void ParseVoiceCleanupJson_target_field_is_ignored_when_present()
+    {
+        // Defensive: the cleanup prompt no longer asks for a target field, but if the
+        // model accidentally includes one we ignore it - routing comes from the button.
+        const string raw = "{\"cleaned\":\"read me the whole article\",\"reason\":\"x\",\"target\":\"wingman\"}";
         var r = WingmanService.ParseVoiceCleanupJson(raw, "FALLBACK");
         Assert.Equal("read me the whole article", r.Cleaned);
-        Assert.Equal("wingman", r.Target);
-    }
-
-    [Fact]
-    public void ParseVoiceCleanupJson_target_defaults_to_agent_when_absent()
-    {
-        const string raw = "{\"cleaned\":\"fix the login bug\",\"reason\":\"removed filler\"}";
-        var r = WingmanService.ParseVoiceCleanupJson(raw, "FALLBACK");
-        Assert.Equal("agent", r.Target);
-    }
-
-    [Fact]
-    public void ParseVoiceCleanupJson_target_agent_explicit_is_agent()
-    {
-        const string raw = "{\"cleaned\":\"do the thing\",\"reason\":\"x\",\"target\":\"agent\"}";
-        var r = WingmanService.ParseVoiceCleanupJson(raw, "FALLBACK");
-        Assert.Equal("agent", r.Target);
-    }
-
-    [Fact]
-    public void ParseVoiceCleanupJson_target_unrecognized_falls_back_to_agent()
-    {
-        const string raw = "{\"cleaned\":\"do the thing\",\"reason\":\"x\",\"target\":\"banana\"}";
-        var r = WingmanService.ParseVoiceCleanupJson(raw, "FALLBACK");
-        Assert.Equal("agent", r.Target);
-    }
-
-    [Fact]
-    public void ParseVoiceCleanupJson_target_is_case_insensitive()
-    {
-        const string raw = "{\"cleaned\":\"x\",\"reason\":\"y\",\"target\":\"WingMan\"}";
-        var r = WingmanService.ParseVoiceCleanupJson(raw, "FALLBACK");
-        Assert.Equal("wingman", r.Target);
     }
 
     // --------------------------------------------------------------------
@@ -600,4 +639,5 @@ public sealed class WingmanServiceTests
         var prompt = WingmanService.BuildGoalAssessmentPrompt("Implement login", Array.Empty<TurnSummary>(), "/tmp/repo");
         Assert.Contains("no turns completed yet", prompt);
     }
+
 }

@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:voice="clr-namespace:CcDirectorClient.Voice"
+             x:Class="CcDirectorClient.Voice.SpeakIntoTextboxDialog"
+             BackgroundColor="#AA000000"
+             Shell.NavBarIsVisible="False"
+             Title="Speak">
+
+    <!-- Speak-into-textbox dictation dialog (Mode B). Used wherever the user is on a
+         regular text-input screen and taps a Speak button next to a text field. Like
+         Mode A it shows bouncing bars over a dimmed backdrop, but it also shows a
+         running timer (this is a sit-down dictation, not a glance / driving one)
+         and replaces the binary SUBMIT/CANCEL with three explicit outcomes:
+
+           Cancel -> throw away, leave the text box alone.
+           Insert -> drop the cleaned transcript into the text box; let the user edit.
+           Send   -> insert + auto-send, saving the extra tap.
+
+         No transcript text is shown - the textbox itself shows the result after
+         Insert/Send, so a second on-dialog readout would just duplicate it. -->
+    <Grid>
+        <Border HorizontalOptions="Center" VerticalOptions="Center"
+                BackgroundColor="#0B1020"
+                Stroke="#2A3550" StrokeThickness="1"
+                StrokeShape="RoundRectangle 18"
+                Padding="20,22" WidthRequest="360">
+
+            <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="20">
+
+                <!-- Timer top-right. Subdued so it never competes with the bars
+                     or the action buttons; it is for orientation, not the main read. -->
+                <Label Grid.Row="0" x:Name="TimerLabel"
+                       Text="0:00"
+                       FontFamily="Consolas"
+                       FontSize="14"
+                       TextColor="#8A93A6"
+                       HorizontalOptions="End" />
+
+                <voice:BouncingBarsView Grid.Row="1" x:Name="Bars"
+                                        HorizontalOptions="Center" />
+
+                <!-- Three actions, equal-width so the row is balanced. Cancel is
+                     muted red, Insert is teal (neutral / "drop it in"), Send is
+                     bright green to highlight the most committed action. -->
+                <Grid Grid.Row="2" ColumnDefinitions="*,*,*" ColumnSpacing="8">
+                    <Button Grid.Column="0" x:Name="CancelButton" Text="CANCEL"
+                            BackgroundColor="#3A2230" TextColor="#E6EAF2"
+                            HeightRequest="56" CornerRadius="12"
+                            FontSize="15" FontAttributes="Bold"
+                            Clicked="OnCancelClicked" />
+                    <Button Grid.Column="1" x:Name="InsertButton" Text="INSERT"
+                            BackgroundColor="#0E7C6B" TextColor="White"
+                            HeightRequest="56" CornerRadius="12"
+                            FontSize="15" FontAttributes="Bold"
+                            Clicked="OnInsertClicked" />
+                    <Button Grid.Column="2" x:Name="SendButton" Text="SEND"
+                            BackgroundColor="#5FD08A" TextColor="#06210F"
+                            HeightRequest="56" CornerRadius="12"
+                            FontSize="15" FontAttributes="Bold"
+                            Clicked="OnSendClicked" />
+                </Grid>
+            </Grid>
+        </Border>
+    </Grid>
+</ContentPage>

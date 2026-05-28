@@ -38,10 +38,12 @@ public class AgentOptions
     public string? ChatSessionRepoPath { get; set; }
 
     /// <summary>
-    /// OpenAI TTS voice for Phase 3 of the voice mode.  Defaults to "alloy".
-    /// Valid values: alloy, echo, fable, onyx, nova, shimmer (OpenAI catalog).
+    /// OpenAI TTS voice for the voice mode.  Defaults to "onyx" - OpenAI's deep,
+    /// natural male voice.  Both the web voice page and the Android client POST
+    /// /tts with no voice override, so this single default is the voice every
+    /// client speaks with.  Valid values: alloy, echo, fable, onyx, nova, shimmer.
     /// </summary>
-    public string TtsVoice { get; set; } = "alloy";
+    public string TtsVoice { get; set; } = "onyx";
 
     /// <summary>
     /// OpenAI TTS model for Phase 3 of the voice mode.  Defaults to "tts-1".

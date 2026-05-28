@@ -39,17 +39,15 @@ public sealed class VoiceConversation
     /// <summary>Status callback so the UI can show what is happening at each step.</summary>
     public sealed record TurnUpdate(string Stage, string Text);
 
-    /// <summary>What a FIFO turn resolved to, so the page knows whether to auto-advance.</summary>
+    /// <summary>What a FIFO turn resolved to, so the page knows whether to auto-advance.
+    /// Skip and Hold are NOT here: they are explicit button actions on the queue UI, not
+    /// inferences from speech. The dialogs hand back audio; the buttons hand back actions.</summary>
     public enum FifoOutcomeKind
     {
         /// <summary>The answer was delivered to the session; the page should advance to the next.</summary>
         Delivered,
         /// <summary>The user asked the wingman a question; it was answered aloud. Stay on this session.</summary>
         WingmanAnswered,
-        /// <summary>The user told the wingman to skip this session; the page should advance.</summary>
-        Skip,
-        /// <summary>The user told the wingman to hold this session; the page should park it and advance.</summary>
-        Hold,
     }
 
     /// <summary>Result of a FIFO turn: the resolved <see cref="FifoOutcomeKind"/> and the transcript that drove it.</summary>
@@ -75,11 +73,10 @@ public sealed class VoiceConversation
         var transcript = t.Text;
         onUpdate?.Invoke(new TurnUpdate("transcript", transcript));
 
-        // Route to the wingman when the user said "Hey wingman ..." (server-decided
-        // target) or tapped the explicit Ask-Wingman button (forceWingman). The wingman
-        // is read-only and answers immediately from the session - no waiting for the
+        // Route to the wingman when the user tapped Ask Wingman. The wingman is
+        // read-only and answers immediately from the session - no waiting for the
         // agent's turn, no /chat - and reads content verbatim instead of summarizing.
-        if (forceWingman || string.Equals(t.Target, "wingman", StringComparison.OrdinalIgnoreCase))
+        if (forceWingman)
         {
             ClientLog.Write($"[VoiceConversation] SpeakTurn: routing to wingman for session={session.DisplayName}");
             onUpdate?.Invoke(new TurnUpdate("wingman", "Asking the wingman..."));
@@ -117,12 +114,12 @@ public sealed class VoiceConversation
     /// One FIFO turn: take the recorded utterance and resolve it WITHOUT waiting for the
     /// agent's reply - the whole point of FIFO is to deposit an answer and move on.
     ///
-    ///   - If the user addressed the wingman ("Hey wingman ...", or <paramref name="forceWingman"/>),
-    ///     the words are classified as a queue command: "skip" / "hold" return that outcome
-    ///     for the page to act on; "answer" routes to the read-only wingman, which answers
-    ///     aloud verbatim, and the page stays on this session.
-    ///   - Otherwise the transcript is delivered to the session (sent, not followed) and a
-    ///     one-line spoken receipt confirms it landed, then the page advances.
+    ///   - <paramref name="forceWingman"/>=true (the user tapped Ask Wingman) routes the
+    ///     transcript to the read-only wingman, which answers aloud verbatim, and the page
+    ///     stays on this session.
+    ///   - <paramref name="forceWingman"/>=false (Ask Agent) delivers the transcript to the
+    ///     session (sent, not followed) and a one-line spoken receipt confirms it landed.
+    ///     The page then advances.
     ///
     /// Returns the <see cref="FifoOutcome"/> so the page decides whether to auto-advance.
     /// Throws on transcription failure so the caller can surface the real error.
@@ -142,17 +139,14 @@ public sealed class VoiceConversation
         var transcript = t.Text;
         onUpdate?.Invoke(new TurnUpdate("transcript", transcript));
 
-        // Wingman channel: classify the spoken request as a queue command first.
-        if (forceWingman || string.Equals(t.Target, "wingman", StringComparison.OrdinalIgnoreCase))
+        // Wingman channel: the user explicitly tapped Ask Wingman, so this utterance
+        // is a question. Answer it aloud (read-only, verbatim) and stay on the session.
+        // No queue-command classifier and no wake-phrase routing - skip and hold are
+        // the queue's own buttons; the dictation only carries text; the BUTTON the user
+        // pressed is the sole source of truth for routing.
+        if (forceWingman)
         {
             onUpdate?.Invoke(new TurnUpdate("wingman", "Asking the wingman..."));
-            var cmd = await _client.InterpretCommandAsync(session.TailnetEndpoint, session.SessionId, transcript, ct);
-            if (string.Equals(cmd.Action, "skip", StringComparison.OrdinalIgnoreCase))
-                return new FifoOutcome(FifoOutcomeKind.Skip, transcript);
-            if (string.Equals(cmd.Action, "hold", StringComparison.OrdinalIgnoreCase))
-                return new FifoOutcome(FifoOutcomeKind.Hold, transcript);
-
-            // Not a queue command - a question. Answer it aloud (read-only, verbatim) and stay.
             var answer = await _client.AskWingmanAsync(session.TailnetEndpoint, session.SessionId, transcript, ct);
             if (string.IsNullOrWhiteSpace(answer))
                 answer = "The wingman had nothing to report.";
@@ -196,17 +190,27 @@ public sealed class VoiceConversation
         SessionInfo session, CancellationToken ct = default)
     {
         ClientLog.Write($"[VoiceConversation] PrepareExplain: session={session.DisplayName}");
-        var briefing = await _client.ExplainAsync(session.TailnetEndpoint, session.SessionId, ct);
-        if (string.IsNullOrWhiteSpace(briefing))
-            briefing = "Nothing to report on this one yet.";
+        var structured = await _client.ExplainStructuredAsync(session.TailnetEndpoint, session.SessionId, ct);
+
+        // What goes on the screen vs. what gets spoken are deliberately different shapes now:
+        // the screen text may include a markdown table and file paths; the spoken-version field
+        // is smooth prose tuned for the ear with no markdown. When the model omits `say`
+        // (older Directors, partial JSON) we fall back to TTSing the on-screen text - the live
+        // /tts engine is forgiving and the user still hears something useful.
+        var onScreen = string.IsNullOrWhiteSpace(structured.OnScreenText)
+            ? "Nothing to report on this one yet."
+            : structured.OnScreenText;
+        var spoken = string.IsNullOrWhiteSpace(structured.SpokenText)
+            ? onScreen
+            : structured.SpokenText;
 
         // Lead the spoken clip with which session this is - the name AND the repo - so the user
         // knows where they are before hearing what happened. The on-screen text stays just the
         // briefing (the name and repo are already shown in the session card above it).
-        var spoken = BuildSpokenIntro(session) + " " + briefing;
-        var bytes = await _client.SynthesizeSpeechAsync(session.TailnetEndpoint, spoken, ct);
-        ClientLog.Write($"[VoiceConversation] PrepareExplain OK: chars={briefing.Length}, audioBytes={bytes.Length}");
-        return new PreparedBriefing(briefing, bytes);
+        var spokenWithIntro = BuildSpokenIntro(session) + " " + spoken;
+        var bytes = await _client.SynthesizeSpeechAsync(session.TailnetEndpoint, spokenWithIntro, ct);
+        ClientLog.Write($"[VoiceConversation] PrepareExplain OK: screenChars={onScreen.Length}, sayChars={spoken.Length}, audioBytes={bytes.Length}");
+        return new PreparedBriefing(onScreen, bytes);
     }
 
     /// <summary>

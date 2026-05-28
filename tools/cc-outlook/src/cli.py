@@ -887,7 +887,66 @@ def unarchive(
 
 
 @app.command()
-def folders() -> None:
+def move(
+    message_id: str = typer.Argument(..., help="Message ID to move"),
+    folder: str = typer.Argument(
+        ...,
+        help="Target folder by ID, full path, or path suffix (e.g. 'Customers/Nufarm' or 'Nufarm')",
+    ),
+    yes: bool = typer.Option(False, "-y", "--yes", help="Skip confirmation"),
+):
+    """Move an email to a folder (resolves nested paths like 'Customers/Nufarm')."""
+    client = get_client()
+
+    if not yes:
+        confirm = typer.confirm(f"Move message {message_id[:16]}... to '{folder}'?")
+        if not confirm:
+            console.print("[yellow]Cancelled.[/yellow]")
+            return
+
+    try:
+        dest = client.move_message_to(message_id, folder)
+        console.print(f"[green]Message moved to:[/green] {dest}")
+    except ValueError as e:
+        logger.error(f"Move error: {e}")
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+    except (ConnectionError, OSError) as e:
+        logger.error(f"Network error moving message: {e}")
+        console.print(f"[red]Error:[/red] Network error: {e}")
+        raise typer.Exit(1)
+
+
+@app.command("create-folder")
+def create_folder(
+    name: str = typer.Argument(..., help="Name of the new folder"),
+    parent: str = typer.Option(
+        None,
+        "--parent",
+        "-p",
+        help="Parent folder by ID, path, or suffix (default: Inbox)",
+    ),
+):
+    """Create a new mail folder (under Inbox, or under --parent)."""
+    client = get_client()
+
+    try:
+        result = client.create_folder(name, parent_folder=parent)
+        console.print(f"[green]Folder created:[/green] {result.get('name')}")
+    except ValueError as e:
+        logger.error(f"Create folder error: {e}")
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+    except (ConnectionError, OSError) as e:
+        logger.error(f"Network error creating folder: {e}")
+        console.print(f"[red]Error:[/red] Network error: {e}")
+        raise typer.Exit(1)
+
+
+@app.command()
+def folders(
+    show_ids: bool = typer.Option(False, "--ids", help="Show folder IDs"),
+) -> None:
     """List all mail folders."""
     client = get_client()
 
@@ -902,14 +961,19 @@ def folders() -> None:
         table.add_column("Name", style="cyan")
         table.add_column("Total", justify="right")
         table.add_column("Unread", justify="right", style="yellow")
+        if show_ids:
+            table.add_column("ID", style="dim")
 
         for folder in folder_list:
             unread = folder.get('unread_count', 0)
-            table.add_row(
+            row = [
                 folder.get('display_name', folder.get('name', '')),
                 str(folder.get('total_count', 0)),
                 str(unread) if unread > 0 else "-",
-            )
+            ]
+            if show_ids:
+                row.append(folder.get('id', ''))
+            table.add_row(*row)
 
         console.print(table)
 

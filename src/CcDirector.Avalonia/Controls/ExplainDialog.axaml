@@ -1,0 +1,44 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="CcDirector.Avalonia.Controls.ExplainDialog"
+        Title="What's happening?"
+        Width="520" Height="380"
+        MinWidth="360" MinHeight="240"
+        CanResize="True"
+        WindowStartupLocation="CenterOwner"
+        Background="#141B2E">
+
+    <!-- Small modal that asks the Wingman to read the active session's terminal and
+         explain, in plain language, what happened and what the agent wants. Same
+         read-only Wingman briefing the FIFO conveyor uses. The call takes a few
+         seconds; Cancel aborts it (and closes) at any time. -->
+    <Grid Margin="16" RowDefinitions="Auto,*,Auto">
+
+        <StackPanel Grid.Row="0" Spacing="2" Margin="0,0,0,10">
+            <TextBlock x:Name="HeaderTitle" Text="What's happening?"
+                       FontSize="18" FontWeight="Bold" Foreground="#E6EAF2" />
+            <TextBlock x:Name="HeaderSub" Text="" FontSize="12" Foreground="#8A93A6"
+                       TextTrimming="CharacterEllipsis" />
+        </StackPanel>
+
+        <Border Grid.Row="1" Background="#0A0E1A" BorderBrush="#2A3550"
+                BorderThickness="1" CornerRadius="6" Padding="12">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <SelectableTextBlock x:Name="ExplanationText"
+                                     Text="Reading the session..."
+                                     TextWrapping="Wrap"
+                                     Foreground="#E6EAF2" FontSize="14" />
+            </ScrollViewer>
+        </Border>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal"
+                    HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button x:Name="CloseButton" Content="Cancel"
+                    Click="BtnClose_Click"
+                    Width="92" Height="30"
+                    Background="#2A3550" Foreground="#E6EAF2"
+                    HorizontalContentAlignment="Center"
+                    BorderThickness="0" Cursor="Hand" />
+        </StackPanel>
+    </Grid>
+</Window>

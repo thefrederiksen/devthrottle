@@ -165,6 +165,30 @@ public sealed class DirectorEndpointClient : IDisposable
     }
 
     /// <summary>
+    /// Forward a "park / un-park this session in the FIFO queue" (hold) call to the owning
+    /// Director. Returns the raw JSON body ({ onHold }) on success, or null on failure.
+    /// </summary>
+    public async Task<string?> SetHoldAsync(string endpoint, string sessionId, HoldRequest req, CancellationToken ct = default)
+    {
+        try
+        {
+            var resp = await _http.PostAsJsonAsync($"{endpoint}/sessions/{sessionId}/hold", req, ct);
+            if (!resp.IsSuccessStatusCode)
+            {
+                var body = await resp.Content.ReadAsStringAsync(ct);
+                FileLog.Write($"[DirectorEndpointClient] SetHoldAsync HTTP {(int)resp.StatusCode}: {Truncate(body, 200)}");
+                return null;
+            }
+            return await resp.Content.ReadAsStringAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[DirectorEndpointClient] SetHoldAsync FAILED: endpoint={endpoint}, sid={sessionId}, error={ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Forward a "kill this session" (DELETE) to the owning Director. Returns true
     /// when the Director reports the session was killed.
     /// </summary>

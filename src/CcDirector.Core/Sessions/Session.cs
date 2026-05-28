@@ -377,8 +377,11 @@ public sealed class Session : IDisposable
     /// <summary>One-line headline from the latest briefing for the session card / list view.</summary>
     public string? CachedExplainHeadline { get; private set; }
 
-    /// <summary>Latest briefing's on-screen "what's happened" section (may contain a markdown table).</summary>
+    /// <summary>Latest briefing's on-screen "what's happened" QUICK line (one short sentence, scan-friendly).</summary>
     public string? CachedExplainWhatHappened { get; private set; }
+
+    /// <summary>Latest briefing's on-screen "what's happened" LONGER detail (1-2 short paragraphs, may contain a markdown table).</summary>
+    public string? CachedExplainLongDescription { get; private set; }
 
     /// <summary>Latest briefing's on-screen "what Claude wants" section (verbatim agent question when state is red).</summary>
     public string? CachedExplainWhatClaudeWants { get; private set; }
@@ -412,10 +415,11 @@ public sealed class Session : IDisposable
     /// joined text. Fields are independent of <see cref="SetCachedExplain"/> so the caller
     /// can update them in one shot from <see cref="WingmanAskResult"/>.
     /// </summary>
-    public void SetCachedExplainStructured(string? headline, string? whatHappened, string? whatClaudeWants, string? say)
+    public void SetCachedExplainStructured(string? headline, string? whatHappened, string? longDescription, string? whatClaudeWants, string? say)
     {
         CachedExplainHeadline = string.IsNullOrWhiteSpace(headline) ? null : headline.Trim();
         CachedExplainWhatHappened = string.IsNullOrWhiteSpace(whatHappened) ? null : whatHappened.Trim();
+        CachedExplainLongDescription = string.IsNullOrWhiteSpace(longDescription) ? null : longDescription.Trim();
         CachedExplainWhatClaudeWants = string.IsNullOrWhiteSpace(whatClaudeWants) ? null : whatClaudeWants.Trim();
         CachedExplainSay = string.IsNullOrWhiteSpace(say) ? null : say.Trim();
     }

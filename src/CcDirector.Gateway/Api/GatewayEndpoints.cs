@@ -335,6 +335,19 @@ internal static class GatewayEndpoints
             return Results.Content(body, "application/json");
         });
 
+        // Forward the FIFO "park / un-park this session" (hold) call to the owning Director.
+        app.MapPost("/sessions/{sid}/hold", async (string sid, HoldRequest req, CancellationToken ct) =>
+        {
+            var (director, session) = await LocateSessionAsync(registry, client, sid);
+            if (session is null || director is null)
+                return Results.NotFound(new { error = "session not found across any director" });
+            var ep = (director.ControlEndpoint ?? "").TrimEnd('/');
+            var body = await client.SetHoldAsync(ep, sid, req ?? new HoldRequest(), ct);
+            if (body is null)
+                return Results.StatusCode(StatusCodes.Status502BadGateway);
+            return Results.Content(body, "application/json");
+        });
+
         app.MapPatch("/sessions/{sid}", async (string sid, SessionUpdateRequest req) =>
         {
             if (req is null)

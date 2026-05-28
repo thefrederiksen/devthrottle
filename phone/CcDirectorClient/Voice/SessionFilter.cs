@@ -24,13 +24,17 @@ public static class SessionFilter
     /// True when the conductor should speak for this session. With
     /// <paramref name="excludeHeld"/> true (the FIFO mode's default), a session the user
     /// has parked (<see cref="SessionInfo.OnHold"/>) is NOT actionable - the whole point
-    /// of hold is to drop it from the rotation until the user brings it back. The
-    /// all-sessions conductor passes false, so its behavior is unchanged.
+    /// of hold is to drop it from the rotation until the user brings it back. Sessions
+    /// with <see cref="SessionInfo.WingmanEnabled"/>=false are ALSO always skipped: by
+    /// definition they have no auto-explain briefing and the conveyor has nothing to
+    /// deliver -- they live as plain terminal cards, not voice rotation entries. The
+    /// all-sessions conductor passes excludeHeld=false, so its hold behavior is unchanged.
     /// </summary>
     public static bool NeedsAttention(SessionInfo s, bool excludeHeld = false)
         => s is not null
            && string.Equals(s.StatusColor, NeedsAttentionColor, StringComparison.OrdinalIgnoreCase)
            && !string.IsNullOrWhiteSpace(s.TailnetEndpoint)
+           && s.WingmanEnabled
            && !(excludeHeld && s.OnHold);
 
     /// <summary>

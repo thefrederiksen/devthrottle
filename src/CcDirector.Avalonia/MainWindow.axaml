@@ -665,11 +665,24 @@
                                                Foreground="#B7C0D4" FontSize="13" FontStyle="Italic"
                                                TextWrapping="Wrap" IsVisible="True" />
 
-                                    <!-- Header row: WINGMAN label + model / generated-at info -->
+                                    <!-- Header row: WINGMAN label + a QA toggle for the voice
+                                         preview + model / generated-at info -->
                                     <DockPanel x:Name="WingmanHeaderRow" IsVisible="False">
                                         <TextBlock Text="WINGMAN"
                                                    Foreground="#5FD08A" FontSize="11" FontWeight="Bold"
                                                    VerticalAlignment="Center" />
+                                        <!-- Voice-preview toggle. The preview is a QA surface (read
+                                             what TTS would say, Play it); off by default so the tab
+                                             stays clean. Flips WingmanVoiceSection visibility. -->
+                                        <ToggleButton x:Name="WingmanVoicePreviewToggle"
+                                                      DockPanel.Dock="Right"
+                                                      Content="Voice preview"
+                                                      IsChecked="False"
+                                                      Margin="8,0,0,0" Padding="8,2"
+                                                      FontSize="10"
+                                                      VerticalAlignment="Center"
+                                                      IsCheckedChanged="WingmanVoicePreviewToggle_Changed"
+                                                      ToolTip.Tip="Show the spoken-version preview (QA). Off keeps the tab clean." />
                                         <TextBlock x:Name="WingmanMetaText"
                                                    DockPanel.Dock="Right"
                                                    Foreground="#888888" FontSize="10"
@@ -697,6 +710,14 @@
                                             <TextBlock x:Name="WingmanWhatNextText"
                                                        Foreground="#FFFFFF" FontSize="14"
                                                        TextWrapping="Wrap" />
+                                            <!-- Tap-to-answer buttons. The briefing's `actions`
+                                                 (Session.CachedQuickReplies) are the literal replies
+                                                 the user can send back; clicking one routes through
+                                                 the normal send path. Populated in code-behind;
+                                                 hidden when there are no clear short answers. -->
+                                            <WrapPanel x:Name="WingmanActionsPanel"
+                                                       Orientation="Horizontal"
+                                                       Margin="0,6,0,0" IsVisible="False" />
                                         </StackPanel>
                                     </Border>
 

@@ -305,6 +305,75 @@ public partial class ExpandedEditorDialog : Window
         return bitmap;
     }
 
+    // Speak: dictate into the editor at the caret via the same in-process SpeakDialog the
+    // Terminal tab uses (NAudio capture -> dictation library -> cleaned transcript, no
+    // browser, no localhost roundtrip). Lets the user talk about the screenshot they can
+    // see in the preview without losing their place. If the dialog finishes with Send and
+    // we are in prompt mode, treat that as Apply.
+    private async void DictateButton_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (!EditorBox.IsEnabled)
+            {
+                FileLog.Write("[ExpandedEditorDialog] DictateButton_Click: editor not editable, ignoring");
+                return;
+            }
+            var options = (global::Avalonia.Application.Current as App)?.SessionManager?.Options;
+            if (options is null || string.IsNullOrWhiteSpace(options.ResolveOpenAiKey()))
+            {
+                FileLog.Write("[ExpandedEditorDialog] DictateButton_Click: no OpenAI key configured");
+                HeaderText.Text = "Dictation needs an OPENAI_API_KEY env var or Voice.OpenAiKey in appsettings.json.";
+                return;
+            }
+
+            // Snapshot the caret BEFORE opening the dialog; focus moves away and some
+            // controls reset CaretIndex to 0 on focus loss, which would prepend instead.
+            var existingBefore = EditorBox.Text ?? "";
+            var caretBefore = EditorBox.CaretIndex;
+            if (caretBefore < 0 || caretBefore > existingBefore.Length)
+                caretBefore = existingBefore.Length;
+
+            FileLog.Write("[ExpandedEditorDialog] DictateButton_Click: opening SpeakDialog");
+            var dlg = new global::CcDirector.Avalonia.Voice.SpeakDialog(options);
+            await dlg.ShowDialog(this);
+            var transcript = dlg.ResultText;
+            if (string.IsNullOrWhiteSpace(transcript))
+            {
+                FileLog.Write("[ExpandedEditorDialog] DictateButton_Click: dialog returned no text");
+                return;
+            }
+
+            InsertAtCaret(transcript!, caretBefore);
+            FileLog.Write($"[ExpandedEditorDialog] DictateButton_Click: inserted {transcript!.Length} chars at caret={caretBefore}, shouldSubmit={dlg.ShouldSubmit}");
+
+            if (dlg.ShouldSubmit && _mode == EditorMode.Prompt)
+            {
+                EditedText = EditorBox.Text ?? "";
+                Close(true);
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[ExpandedEditorDialog] DictateButton_Click FAILED: {ex.Message}");
+            HeaderText.Text = "Dictation failed: " + ex.Message;
+        }
+    }
+
+    private void InsertAtCaret(string text, int caret)
+    {
+        var existing = EditorBox.Text ?? "";
+        if (caret < 0 || caret > existing.Length) caret = existing.Length;
+        var prefix = existing[..caret];
+        var suffix = existing[caret..];
+        var needsSpaceBefore = prefix.Length > 0 && !char.IsWhiteSpace(prefix[^1]);
+        var needsSpaceAfter = suffix.Length > 0 && !char.IsWhiteSpace(suffix[0]);
+        var insert = (needsSpaceBefore ? " " : "") + text + (needsSpaceAfter ? " " : "");
+        EditorBox.Text = prefix + insert + suffix;
+        EditorBox.CaretIndex = prefix.Length + insert.Length;
+        EditorBox.Focus();
+    }
+
     private void SaveButton_Click(object? sender, RoutedEventArgs e)
     {
         try

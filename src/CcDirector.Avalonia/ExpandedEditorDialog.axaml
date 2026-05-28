@@ -103,7 +103,20 @@
         <!-- Footer buttons -->
         <Border Grid.Row="2" Background="#2D2D30" Padding="14,10"
                 BorderBrush="#3C3C3C" BorderThickness="0,1,0,0">
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+            <Grid ColumnDefinitions="Auto,*,Auto">
+            <!-- Speak: dictate straight into the editor at the caret. Handy here because
+                 you can see the screenshot on the right and talk about it without losing
+                 your place. Same in-process dictation the Terminal tab's Speak uses. -->
+            <Button x:Name="DictateButton"
+                    Grid.Column="0"
+                    Content="Speak"
+                    Click="DictateButton_Click"
+                    Width="90" Height="30"
+                    Background="#16A34A" Foreground="White"
+                    BorderThickness="0" Cursor="Hand"
+                    HorizontalContentAlignment="Center"
+                    ToolTip.Tip="Dictate into the editor at the cursor" />
+            <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
                 <Button x:Name="SaveButton"
                         Content="Save"
                         Click="SaveButton_Click"
@@ -127,6 +140,7 @@
                         BorderThickness="0" Cursor="Hand"
                         HorizontalContentAlignment="Center" />
             </StackPanel>
+            </Grid>
         </Border>
     </Grid>
 </Window>
