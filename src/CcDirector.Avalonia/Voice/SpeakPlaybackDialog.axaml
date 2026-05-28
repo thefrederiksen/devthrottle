@@ -1,0 +1,47 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="CcDirector.Avalonia.Voice.SpeakPlaybackDialog"
+        Title="Playing briefing"
+        Width="480" Height="300"
+        MinWidth="360" MinHeight="220"
+        CanResize="True"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner"
+        Background="#141B2E">
+
+    <!-- Modal player for the spoken briefing. Opening it starts playback through the
+         shared DesktopTtsPlayer; the single Stop button cancels playback and closes.
+         Because it is modal, the Play button that launched it cannot be clicked again
+         while audio is playing - which is the whole point: one stream at a time, always
+         stoppable. Closing the window (Stop / Escape / X) cancels any in-flight audio. -->
+    <Grid Margin="16" RowDefinitions="Auto,*,Auto">
+
+        <StackPanel Grid.Row="0" Spacing="2" Margin="0,0,0,10">
+            <TextBlock x:Name="HeaderTitle" Text="Playing the briefing aloud"
+                       FontSize="18" FontWeight="Bold" Foreground="#E6EAF2" />
+            <TextBlock x:Name="StatusText" Text="Speaking..." FontSize="12" Foreground="#5FD08A"
+                       TextTrimming="CharacterEllipsis" />
+        </StackPanel>
+
+        <!-- Read-along: the exact text being spoken, so the user can follow or skim. -->
+        <Border Grid.Row="1" Background="#0A0E1A" BorderBrush="#2A3550"
+                BorderThickness="1" CornerRadius="6" Padding="12">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <SelectableTextBlock x:Name="BodyText"
+                                     Text=""
+                                     TextWrapping="Wrap"
+                                     Foreground="#E6EAF2" FontSize="14" LineHeight="21" />
+            </ScrollViewer>
+        </Border>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal"
+                    HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button x:Name="StopButton" Content="Stop"
+                    Click="StopButton_Click"
+                    Width="100" Height="32"
+                    Background="#B91C1C" Foreground="White"
+                    HorizontalContentAlignment="Center" FontWeight="SemiBold"
+                    BorderThickness="0" CornerRadius="3" Cursor="Hand" />
+        </StackPanel>
+    </Grid>
+</Window>

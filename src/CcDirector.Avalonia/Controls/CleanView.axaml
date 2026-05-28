@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:controls="clr-namespace:CcDirector.Avalonia.Controls"
+             xmlns:md="https://github.com/whistyun/Markdown.Avalonia.Tight"
              x:Class="CcDirector.Avalonia.Controls.CleanView"
              Background="#1E1E1E">
     <UserControl.Styles>
@@ -49,13 +50,21 @@
                                    Foreground="#E0E0E0" FontSize="12" FontWeight="SemiBold"
                                    VerticalAlignment="Center" />
                     </StackPanel>
-                    <!-- Content (plain text) -->
-                    <TextBlock Text="{Binding Content}"
-                               Foreground="#CCCCCC"
-                               FontSize="13" TextWrapping="Wrap"
-                               Margin="0,8,0,0" LineHeight="20" />
+                    <!-- Content (markdown: tables, bold, lists, code blocks). Text colour /
+                         sizing come from the markdown style, not direct properties; the
+                         control sizes to content here and the outer WidgetScroller scrolls. -->
+                    <md:MarkdownScrollViewer Markdown="{Binding Content}"
+                                             Margin="0,8,0,0" />
                 </StackPanel>
             </Border>
+        </DataTemplate>
+
+        <!-- ===== RESPONSE TEXT WIDGET - Wingman tab: Claude's final answer, chromeless =====
+             No card border, no "Claude" avatar header - just the full markdown reply, so the
+             Wingman tab reads as one clean block of text rather than a stack of chat bubbles.
+             Larger margins than the card template since it is the only thing on screen. -->
+        <DataTemplate x:Key="ResponseTextTemplate" DataType="controls:CleanWidgetViewModel">
+            <md:MarkdownScrollViewer Markdown="{Binding Content}" Margin="12,8,12,16" />
         </DataTemplate>
 
         <!-- ===== THINKING WIDGET - Collapsible thinking block ===== -->
@@ -286,6 +295,7 @@
         <!-- Template Selector -->
         <controls:WidgetTemplateSelector x:Key="WidgetSelector"
                                          TextTemplate="{StaticResource TextWidgetTemplate}"
+                                         ResponseTextTemplate="{StaticResource ResponseTextTemplate}"
                                          ThinkingTemplate="{StaticResource ThinkingWidgetTemplate}"
                                          BashTemplate="{StaticResource BashWidgetTemplate}"
                                          ToolTemplate="{StaticResource ToolWidgetTemplate}"

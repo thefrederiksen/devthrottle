@@ -4,6 +4,7 @@
         xmlns:controls="clr-namespace:CcDirector.Avalonia.Controls"
         xmlns:commMgr="clr-namespace:CcDirector.Avalonia.Controls.CommManager"
         xmlns:mgr="clr-namespace:CcDirector.Avalonia.Controls.DirectorView"
+        xmlns:md="https://github.com/whistyun/Markdown.Avalonia.Tight"
         x:Class="CcDirector.Avalonia.MainWindow"
         Title="CC Director"
         Width="1400" Height="900"
@@ -641,25 +642,113 @@
 
                     <!-- Wingman panel: the clean output of the session (the agent's
                          replies render here, de-noised) plus a Speak/Send bar that
-                         talks to the agent. Plain-language wingman annotations layer
-                         on top in a later slice. -->
+                         talks to the agent. The top section is a structured briefing
+                         from the ProactiveExplainService - title, what happened (quick +
+                         longer), what Claude wants next, and the spoken-version preview
+                         with a button to TTS-play it for QA. The whole top section is a
+                         testing surface so we can iterate on how good the Wingman is at
+                         explaining a session. -->
                     <Panel x:Name="WingmanPanel" IsVisible="False">
                         <DockPanel>
-                            <!-- Wingman annotation banner: the latest briefing the
-                                 ProactiveExplainService stored on the session. Passive
-                                 viewer only - the wingman runs automatically at each
-                                 turn-end and pushes here via Session.OnCachedExplainChanged. -->
+                            <!-- ===== Structured briefing banner =====
+                                 Passive viewer of Session.Cached*; refreshed via
+                                 OnCachedExplainChanged whenever the ProactiveExplainService
+                                 stores a new briefing. -->
                             <Border DockPanel.Dock="Top"
                                     Background="#16241B"
                                     BorderBrush="#2D7D46" BorderThickness="0,0,0,1"
-                                    Padding="12,8">
-                                <StackPanel>
-                                    <TextBlock Text="WINGMAN"
-                                               Foreground="#5FD08A" FontSize="11" FontWeight="Bold" />
-                                    <TextBlock x:Name="WingmanNoteText"
-                                               Text="No briefing yet."
-                                               Foreground="#B7C0D4" FontSize="13"
-                                               TextWrapping="Wrap" Margin="0,3,0,0" />
+                                    Padding="12,10">
+                                <StackPanel Spacing="10">
+                                    <!-- Empty/loading state: shown until the first cached briefing arrives. -->
+                                    <TextBlock x:Name="WingmanEmptyText"
+                                               Text="No briefing yet. The Wingman will write here at the next turn-end."
+                                               Foreground="#B7C0D4" FontSize="13" FontStyle="Italic"
+                                               TextWrapping="Wrap" IsVisible="True" />
+
+                                    <!-- Header row: WINGMAN label + model / generated-at info -->
+                                    <DockPanel x:Name="WingmanHeaderRow" IsVisible="False">
+                                        <TextBlock Text="WINGMAN"
+                                                   Foreground="#5FD08A" FontSize="11" FontWeight="Bold"
+                                                   VerticalAlignment="Center" />
+                                        <TextBlock x:Name="WingmanMetaText"
+                                                   DockPanel.Dock="Right"
+                                                   Foreground="#888888" FontSize="10"
+                                                   FontFamily="Cascadia Mono, Consolas, monospace"
+                                                   VerticalAlignment="Center"
+                                                   Text="" />
+                                    </DockPanel>
+
+                                    <!-- TITLE / headline: one-line "what's going on right now" -->
+                                    <TextBlock x:Name="WingmanTitleText"
+                                               Foreground="#FFFFFF" FontSize="18" FontWeight="Bold"
+                                               TextWrapping="Wrap" IsVisible="False"
+                                               Text="" />
+
+                                    <!-- WHAT CLAUDE WANTS YOU TO DO NEXT - the decision the user
+                                         must act on, so it sits directly under the headline and is
+                                         highlighted to be impossible to miss. -->
+                                    <Border x:Name="WingmanWhatNextSection" IsVisible="False"
+                                            Background="#3A2A1B"
+                                            BorderBrush="#D97706" BorderThickness="2"
+                                            CornerRadius="4" Padding="10,8">
+                                        <StackPanel Spacing="4">
+                                            <TextBlock Text="WHAT CLAUDE WANTS YOU TO DO NEXT"
+                                                       Foreground="#F59E0B" FontSize="11" FontWeight="Bold" />
+                                            <TextBlock x:Name="WingmanWhatNextText"
+                                                       Foreground="#FFFFFF" FontSize="14"
+                                                       TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </Border>
+
+                                    <!-- WHAT HAPPENED is intentionally NOT rendered on the desktop
+                                         Wingman tab. The Opus "what happened" paraphrase exists for
+                                         surfaces that cannot show Claude's reply (phone, voice mode),
+                                         where it is the only content. On the desktop the verbatim
+                                         final answer renders in full in the CleanView below, so a
+                                         paraphrase on top of it is pure duplication. The briefing
+                                         fields (CachedExplainWhatHappened / LongDescription) are still
+                                         generated and consumed by the phone; they are just not drawn
+                                         here. Headline + WHAT CLAUDE WANTS + the verbatim answer are
+                                         the desktop's three layers: glance, action, substance. -->
+
+                                    <!-- VOICE PREVIEW - shown for testing so we can read what
+                                         TTS would say AND hear it on demand via the Speak button.
+                                         Normally this content would be hidden behind voice mode. -->
+                                    <Border x:Name="WingmanVoiceSection" IsVisible="False"
+                                            Background="#1B2A3A"
+                                            BorderBrush="#3B82F6" BorderThickness="1"
+                                            CornerRadius="4" Padding="10,8">
+                                        <StackPanel Spacing="6">
+                                            <DockPanel>
+                                                <TextBlock Text="VOICE PREVIEW (what Play reads aloud)"
+                                                           Foreground="#3B82F6" FontSize="11" FontWeight="Bold"
+                                                           VerticalAlignment="Center" />
+                                                <!-- Playback control. Distinct from the green "Speak"
+                                                     (dictation) button in the input bar: this one is a
+                                                     blue play triangle that reads the briefing aloud and
+                                                     opens a modal you can Stop. -->
+                                                <Button x:Name="WingmanSpeakVoiceButton"
+                                                        DockPanel.Dock="Right"
+                                                        Padding="10,3"
+                                                        Background="#3B82F6" Foreground="White"
+                                                        FontSize="11" FontWeight="SemiBold"
+                                                        BorderThickness="0" CornerRadius="3"
+                                                        Cursor="Hand"
+                                                        Click="WingmanSpeakVoiceButton_Click"
+                                                        ToolTip.Tip="Play the briefing aloud. Opens a player with a Stop button.">
+                                                    <StackPanel Orientation="Horizontal" Spacing="6"
+                                                                VerticalAlignment="Center">
+                                                        <Path Data="M0,0 L8,5 L0,10 Z" Fill="White"
+                                                              VerticalAlignment="Center" />
+                                                        <TextBlock Text="Play" VerticalAlignment="Center" />
+                                                    </StackPanel>
+                                                </Button>
+                                            </DockPanel>
+                                            <TextBlock x:Name="WingmanVoiceText"
+                                                       Foreground="#CCCCCC" FontSize="13" FontStyle="Italic"
+                                                       TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </Border>
                                 </StackPanel>
                             </Border>
 

@@ -21,6 +21,7 @@
     <PackageReference Include="Avalonia.AvaloniaEdit" Version="11.*" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
     <PackageReference Include="Markdig" Version="0.38.0" />
+    <PackageReference Include="Markdown.Avalonia" Version="11.0.3" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2739.15" />
     <PackageReference Include="NAudio" Version="2.2.1" />
   </ItemGroup>
@@ -34,5 +35,9 @@
   </ItemGroup>
   <ItemGroup>
     <AvaloniaResource Include="app.ico" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Expose internal helpers (e.g. CleanViewDiff) to the unit-test project. -->
+    <InternalsVisibleTo Include="CcDirector.Avalonia.Tests" />
   </ItemGroup>
 </Project>

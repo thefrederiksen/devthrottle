@@ -183,6 +183,11 @@ public partial class MainWindow : Window
         // Wire clean view rewind event
         CleanView.RewindRequested += OnCleanViewRewindRequested;
 
+        // The Wingman tab is a single-turn view: our prompt, then Claude's full reply,
+        // with all tool/bash/thinking cards stripped out. The briefing banner above
+        // supplies the title and summary.
+        CleanView.ResponseOnlyMode = true;
+
         // Wire usage dashboard to usage service
         UsageDashboardView.SetUsageService(app.ClaudeUsageService);
 
@@ -1758,15 +1763,98 @@ public partial class MainWindow : Window
         SwitchLeftTab("Wingman");
     }
 
-    // The wingman annotation banner is a passive viewer of Session.CachedExplainText -
-    // the briefing the ProactiveExplainService stores at each turn-end. No Opus calls
-    // are made from this tab; updates arrive via Session.OnCachedExplainChanged.
+    // The wingman annotation banner is a passive viewer of the structured briefing the
+    // ProactiveExplainService stores on the session at each turn-end. No Opus calls are
+    // made from this tab; updates arrive via Session.OnCachedExplainChanged.
+    //
+    // The banner has these sections, each independently visible so a partial briefing still
+    // renders cleanly:
+    //   - title (headline)
+    //   - what Claude wants you to do next (verbatim, highlighted)
+    //   - voice preview: the spoken-version field + a Speak-it button
+    // The Opus "what happened" paraphrase (CachedExplainWhatHappened / LongDescription) is
+    // deliberately NOT rendered here: the verbatim final answer shows in full in the CleanView
+    // below, so a paraphrase on top of it only duplicates. Those fields are still generated and
+    // consumed by the phone, which has no verbatim answer to show.
+    // The whole top section is a testing/QA surface so we can iterate on how good the
+    // wingman is at explaining a session.
     private void RenderWingmanCachedExplain(global::CcDirector.Core.Sessions.Session session)
     {
-        var text = session.CachedExplainText;
-        WingmanNoteText.Text = string.IsNullOrWhiteSpace(text)
-            ? "No briefing yet. The Wingman will write here at the next turn-end."
-            : text;
+        var headline = session.CachedExplainHeadline?.Trim();
+        var whatNext = session.CachedExplainWhatClaudeWants?.Trim();
+        var say = session.CachedExplainSay?.Trim();
+
+        // The "what happened" paraphrase fields are intentionally not part of this surface
+        // (see the method doc above); the desktop shows the verbatim answer in the CleanView.
+        bool hasAny =
+            !string.IsNullOrEmpty(headline) ||
+            !string.IsNullOrEmpty(whatNext) ||
+            !string.IsNullOrEmpty(say);
+
+        WingmanEmptyText.IsVisible = !hasAny;
+        WingmanHeaderRow.IsVisible = hasAny;
+
+        // Title: headline if we have it, otherwise hide.
+        WingmanTitleText.IsVisible = !string.IsNullOrEmpty(headline);
+        WingmanTitleText.Text = headline ?? "";
+
+        // What Claude wants you to do next.
+        WingmanWhatNextSection.IsVisible = !string.IsNullOrEmpty(whatNext);
+        WingmanWhatNextText.Text = whatNext ?? "";
+
+        // Voice preview + Speak button.
+        WingmanVoiceSection.IsVisible = !string.IsNullOrEmpty(say);
+        WingmanVoiceText.Text = say ?? "";
+        WingmanSpeakVoiceButton.IsEnabled = !string.IsNullOrEmpty(say);
+
+        // Meta row: model + age. Short, no padding.
+        if (hasAny)
+        {
+            var parts = new List<string>();
+            if (!string.IsNullOrEmpty(session.CachedExplainModel))
+                parts.Add(session.CachedExplainModel);
+            if (session.CachedExplainAt is { } at)
+                parts.Add($"{(int)(DateTime.UtcNow - at).TotalSeconds}s ago");
+            WingmanMetaText.Text = string.Join("  ", parts);
+        }
+        else
+        {
+            WingmanMetaText.Text = "";
+        }
+    }
+
+    // Play the spoken-version field aloud through TTS. Opens a modal SpeakPlaybackDialog
+    // with a Stop button instead of firing playback in the background: the modal blocks
+    // this button while audio plays (no stacking repeated clicks) and gives the user an
+    // explicit way to stop listening. Uses the same DesktopTtsPlayer the Voice tab uses;
+    // lazily initialised on first click since the Voice tab may not have been opened yet.
+    private async void WingmanSpeakVoiceButton_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (_activeSession is null) return;
+            var say = _activeSession.Session.CachedExplainSay?.Trim();
+            if (string.IsNullOrEmpty(say)) return;
+
+            if (_ttsPlayer is null)
+            {
+                var options = (global::Avalonia.Application.Current as App)?.SessionManager?.Options;
+                if (options is null)
+                {
+                    ShowNotification("TTS not available: SessionManager not initialised.");
+                    return;
+                }
+                _ttsPlayer = new global::CcDirector.Avalonia.Voice.DesktopTtsPlayer(options);
+            }
+
+            var dlg = new global::CcDirector.Avalonia.Voice.SpeakPlaybackDialog(_ttsPlayer, say);
+            await dlg.ShowDialog(this);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] WingmanSpeakVoiceButton FAILED: {ex.Message}");
+            ShowNotification($"Play failed: {ex.Message}");
+        }
     }
 
     // Wingman tab "Send": route the typed/dictated text to the agent through the

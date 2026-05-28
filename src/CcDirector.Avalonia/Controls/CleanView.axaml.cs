@@ -27,6 +27,12 @@ public partial class CleanView : UserControl
     private string? _pendingInjection;
     private string _filterMode = "All"; // "All", "UserOnly", "Conversation"
 
+    // Wingman tab view. When true the feed shows only the LATEST turn - our prompt and
+    // Claude's text reply - with every tool/bash/thinking card stripped out. The briefing
+    // banner above supplies the title and summary; this shows the full, verbatim response
+    // in a legible markdown render. "Almost like the terminal, with all the junk removed."
+    private bool _responseOnlyMode;
+
     // The orange question card pinned at the end of the feed whenever the
     // wingman says the session is in "red" status with a distilled question.
     // We hold one instance and add/remove it from the collections directly so
@@ -48,6 +54,27 @@ public partial class CleanView : UserControl
 
         WidgetItems.ItemsSource = _filteredWidgets;
         FilterCombo.SelectionChanged += FilterCombo_SelectionChanged;
+    }
+
+    /// <summary>
+    /// When true the feed shows only the latest turn - the user's prompt and Claude's text
+    /// reply - with all tool/bash/thinking cards filtered out. Used by the Wingman tab so the
+    /// screen reads as "our prompt, then Claude's full response", junk removed.
+    /// </summary>
+    public bool ResponseOnlyMode
+    {
+        get => _responseOnlyMode;
+        set
+        {
+            if (_responseOnlyMode == value) return;
+            _responseOnlyMode = value;
+            // Route assistant text through the chromeless response template (no card,
+            // no avatar) so the Wingman tab shows one clean block, not chat bubbles.
+            if (WidgetItems.ItemTemplate is WidgetTemplateSelector selector)
+                selector.ResponseOnly = value;
+            RebuildFilteredView();
+            UpdateEmptyState();
+        }
     }
 
     /// <summary>Attach to a session and start monitoring its JSONL output.</summary>
@@ -323,37 +350,25 @@ public partial class CleanView : UserControl
 
         try
         {
+            // Cheap incremental read first: if the file has no new lines since last
+            // time, there is nothing to do. This keeps idle ticks (every 2s) free.
             var (newMessages, newLineCount) = StreamMessageParser.ParseFileFrom(_jsonlPath, _lastLineCount);
-
             if (newMessages.Count == 0 && _lastLineCount > 0)
-            {
-                // No new messages - nothing to do
                 return;
-            }
+
+            // Remember whether the user was parked at the bottom BEFORE we touch the
+            // collections. We only auto-scroll if they were already there, so a manual
+            // scroll-up to read history is never yanked back down mid-turn.
+            bool wasAtBottom = IsNearBottom();
 
             var snapshotCount = _session?.History?.SnapshotCount ?? 0;
+            var allMessages = StreamMessageParser.ParseFile(_jsonlPath);
+            var incoming = CleanWidgetViewModel.BuildFromMessages(allMessages, snapshotCount);
+            _lastLineCount = newLineCount > 0 ? newLineCount : CountLines(_jsonlPath);
 
-            if (_lastLineCount == 0)
-            {
-                // Full initial load
-                var allMessages = StreamMessageParser.ParseFile(_jsonlPath);
-                var allWidgets = CleanWidgetViewModel.BuildFromMessages(allMessages, snapshotCount);
+            bool changed = ApplyIncoming(incoming);
 
-                ReplaceAllWidgets(allWidgets);
-                _lastLineCount = newLineCount > 0 ? newLineCount : CountLines(_jsonlPath);
-            }
-            else if (newMessages.Count > 0)
-            {
-                // Incremental update - rebuild all widgets from scratch
-                // (needed because tool results reference earlier tool_use blocks)
-                var allMessages = StreamMessageParser.ParseFile(_jsonlPath);
-                var allWidgets = CleanWidgetViewModel.BuildFromMessages(allMessages, snapshotCount);
-
-                ReplaceAllWidgets(allWidgets);
-                _lastLineCount = newLineCount;
-            }
-
-            // If we injected a user prompt that isn't in the JSONL yet, re-append it
+            // If we injected a user prompt that isn't in the JSONL yet, re-append it.
             if (_pendingInjection != null)
             {
                 var lastUserWidget = _allWidgets.LastOrDefault(w => w.Kind == WidgetKind.UserMessage);
@@ -365,9 +380,8 @@ public partial class CleanView : UserControl
                         Header = "You",
                         Content = _pendingInjection
                     };
-                    _allWidgets.Add(injected);
-                    if (PassesFilter(injected))
-                        _filteredWidgets.Add(injected);
+                    InsertContentWidget(injected);
+                    changed = true;
                 }
                 else
                 {
@@ -377,7 +391,8 @@ public partial class CleanView : UserControl
             }
 
             UpdateEmptyState();
-            ScrollToBottom();
+            if (changed && wasAtBottom)
+                ScrollToBottom();
         }
         catch (Exception ex)
         {
@@ -387,6 +402,118 @@ public partial class CleanView : UserControl
         {
             _parsing = false;
         }
+    }
+
+    /// <summary>
+    /// Reconcile the freshly parsed widget list against what is already on screen,
+    /// touching the bound collections as little as possible. Returns true if anything
+    /// actually changed.
+    ///
+    /// Three cases, cheapest first:
+    ///   1. Identical  - the parse produced the same content widgets (e.g. only a meta
+    ///                   line was added). Do nothing: no clear, no scroll, no persist.
+    ///   2. Pure append- every existing content widget is unchanged and the new list
+    ///                   only adds widgets at the tail (Claude streamed more text / new
+    ///                   tool calls). Insert just the new widgets; existing cards keep
+    ///                   their identity (and expander state), and the list does not flicker.
+    ///   3. Tail change- an earlier widget changed (a pending tool got its result, or a
+    ///                   rewind shortened history). Fall back to a full rebuild, which is
+    ///                   correct but heavier. This is unavoidable: tool results mutate the
+    ///                   widget that owns them, so their signature changes in place.
+    /// The trailing pending-question card (added by SyncPendingQuestionWidget, not part of
+    /// the parsed list) is excluded from the comparison and left where it is.
+    /// </summary>
+    private bool ApplyIncoming(List<CleanWidgetViewModel> incoming)
+    {
+        int contentCount = ContentWidgetCount();
+
+        // Build the structural signatures of what is currently shown (content widgets
+        // only, excluding any trailing pending-question card) and of the new parse, then
+        // let the pure diff decide. Keeping the decision in CleanViewDiff makes it unit
+        // testable; this method just applies the verdict to the bound collections.
+        var currentSigs = new string[contentCount];
+        for (int i = 0; i < contentCount; i++)
+            currentSigs[i] = CleanViewDiff.Signature(_allWidgets[i]);
+
+        var incomingSigs = new string[incoming.Count];
+        for (int i = 0; i < incoming.Count; i++)
+            incomingSigs[i] = CleanViewDiff.Signature(incoming[i]);
+
+        var verdict = CleanViewDiff.Classify(currentSigs, incomingSigs, out int appendFrom);
+        switch (verdict)
+        {
+            case CleanViewDiff.Update.None:
+                return false;
+
+            case CleanViewDiff.Update.Append:
+                for (int i = appendFrom; i < incoming.Count; i++)
+                    InsertContentWidget(incoming[i]);
+                PersistNewWidgetsToDisk(incoming);
+                // A tail append can start a new turn (a fresh user prompt), which must
+                // drop the previous turn from the response-only view.
+                if (_responseOnlyMode)
+                    RebuildFilteredView();
+                return true;
+
+            default: // Rebuild
+                ReplaceAllWidgets(incoming);
+                return true;
+        }
+    }
+
+    /// <summary>
+    /// Number of parsed content widgets currently in <see cref="_allWidgets"/>, i.e.
+    /// excluding the trailing pending-question card which is managed separately.
+    /// </summary>
+    private int ContentWidgetCount()
+    {
+        if (_pendingQuestionWidget != null && _allWidgets.Count > 0
+            && ReferenceEquals(_allWidgets[^1], _pendingQuestionWidget))
+            return _allWidgets.Count - 1;
+        return _allWidgets.Count;
+    }
+
+    /// <summary>
+    /// Add a content widget at the tail of the feed - before the pending-question card if
+    /// one is pinned there - so the orange "waiting" card always stays last. Inserts into
+    /// the filtered (bound) collection in place rather than rebuilding it, so existing
+    /// cards do not flicker.
+    /// </summary>
+    private void InsertContentWidget(CleanWidgetViewModel widget)
+    {
+        bool pendingAtTail = _pendingQuestionWidget != null && _allWidgets.Count > 0
+                             && ReferenceEquals(_allWidgets[^1], _pendingQuestionWidget);
+
+        int allInsertAt = pendingAtTail ? _allWidgets.Count - 1 : _allWidgets.Count;
+        _allWidgets.Insert(allInsertAt, widget);
+
+        if (PassesFilter(widget))
+        {
+            bool pendingAtFilteredTail = _pendingQuestionWidget != null && _filteredWidgets.Count > 0
+                                         && ReferenceEquals(_filteredWidgets[^1], _pendingQuestionWidget);
+            int filteredInsertAt = pendingAtFilteredTail ? _filteredWidgets.Count - 1 : _filteredWidgets.Count;
+            _filteredWidgets.Insert(filteredInsertAt, widget);
+        }
+    }
+
+    /// <summary>
+    /// True when the feed is scrolled to (or near) the bottom, or everything already fits
+    /// in the viewport. Used to decide whether an update should auto-scroll: we only follow
+    /// the tail when the user is already at the tail.
+    /// </summary>
+    private bool IsNearBottom()
+    {
+        var sv = WidgetScroller;
+        if (sv == null)
+            return true;
+
+        double extent = sv.Extent.Height;
+        double viewport = sv.Viewport.Height;
+        if (extent <= viewport)
+            return true; // nothing to scroll
+
+        const double slack = 48.0; // within ~one card of the bottom counts as "at bottom"
+        return sv.Offset.Y >= extent - viewport - slack;
     }
 
     private static int CountLines(string path)
@@ -433,7 +560,11 @@ public partial class CleanView : UserControl
         };
 
         _allWidgets.Add(widget);
-        if (PassesFilter(widget))
+        // A new user prompt opens a fresh turn; in response-only mode that means the
+        // previous turn drops out of view, so recompute rather than just appending.
+        if (_responseOnlyMode)
+            RebuildFilteredView();
+        else if (PassesFilter(widget))
             _filteredWidgets.Add(widget);
 
         UpdateEmptyState();
@@ -448,12 +579,43 @@ public partial class CleanView : UserControl
         // It's the most important thing on the screen when present.
         if (vm.Kind == WidgetKind.PendingQuestion)
             return true;
+        // Wingman tab: Claude's answer text only - no prompt echo, no tool/bash/thinking
+        // cards. The "final answer only" trim is applied separately in RebuildFilteredView
+        // via CleanViewDiff.SelectResponseOnly.
+        if (_responseOnlyMode)
+            return vm.Kind == WidgetKind.Text;
         if (_filterMode == "All")
             return true;
         if (_filterMode == "UserOnly")
             return vm.Kind == WidgetKind.UserMessage;
         // "Conversation" mode: user messages + Claude text responses only
         return vm.Kind == WidgetKind.UserMessage || vm.Kind == WidgetKind.Text;
+    }
+
+    /// <summary>
+    /// Recompute the bound (filtered) collection from <see cref="_allWidgets"/>. Needed for
+    /// <see cref="ResponseOnlyMode"/>, whose last-turn boundary can't be decided by the
+    /// per-widget incremental inserts - a fresh user prompt has to drop the previous turn
+    /// from view. Cheap: the response view holds only a handful of cards.
+    /// </summary>
+    private void RebuildFilteredView()
+    {
+        _filteredWidgets.Clear();
+
+        if (_responseOnlyMode)
+        {
+            var kinds = new List<WidgetKind>(_allWidgets.Count);
+            foreach (var w in _allWidgets)
+                kinds.Add(w.Kind);
+            foreach (var idx in CleanViewDiff.SelectResponseOnly(kinds))
+                _filteredWidgets.Add(_allWidgets[idx]);
+        }
+        else
+        {
+            foreach (var w in _allWidgets)
+                if (PassesFilter(w))
+                    _filteredWidgets.Add(w);
+        }
     }
 
     private void ReplaceAllWidgets(List<CleanWidgetViewModel> widgets)
@@ -474,6 +636,11 @@ public partial class CleanView : UserControl
         // it at the tail if the wingman still says there is one.
         _pendingQuestionWidget = null;
         SyncPendingQuestionWidget();
+
+        // In response-only mode the per-widget PassesFilter above can't enforce the
+        // last-turn boundary, so recompute the bound view from the full list.
+        if (_responseOnlyMode)
+            RebuildFilteredView();
     }
 
     /// <summary>

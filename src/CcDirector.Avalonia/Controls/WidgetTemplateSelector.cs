@@ -16,6 +16,19 @@ public class WidgetTemplateSelector : IDataTemplate
     public IDataTemplate? UserTemplate { get; set; }
     public IDataTemplate? PendingQuestionTemplate { get; set; }
 
+    /// <summary>
+    /// Chromeless render of an assistant text block - just the markdown, no card border or
+    /// "Claude" avatar header. Used in the Wingman tab so the final answer reads as one clean
+    /// block of text, not a chat bubble.
+    /// </summary>
+    public IDataTemplate? ResponseTextTemplate { get; set; }
+
+    /// <summary>
+    /// When true (the Wingman tab), assistant text renders chromeless via
+    /// <see cref="ResponseTextTemplate"/> instead of the bordered card template.
+    /// </summary>
+    public bool ResponseOnly { get; set; }
+
     public Control? Build(object? param)
     {
         if (param is not CleanWidgetViewModel vm)
@@ -23,7 +36,7 @@ public class WidgetTemplateSelector : IDataTemplate
 
         var template = vm.Kind switch
         {
-            WidgetKind.Text => TextTemplate,
+            WidgetKind.Text => ResponseOnly ? ResponseTextTemplate : TextTemplate,
             WidgetKind.Thinking => ThinkingTemplate,
             WidgetKind.Bash => BashTemplate,
             WidgetKind.UserMessage => UserTemplate,

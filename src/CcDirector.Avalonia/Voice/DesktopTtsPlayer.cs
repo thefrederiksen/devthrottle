@@ -37,19 +37,22 @@ public sealed class DesktopTtsPlayer : IDisposable
     /// <summary>
     /// Generate audio for <paramref name="text"/> and play it to completion.
     /// Returns when playback finishes (or is cut off by a newer call / cancel).
+    /// Returns <c>true</c> when audio was generated and handed to the output
+    /// device, <c>false</c> when generation failed (no key, network, API error).
     /// A generation failure logs and returns quietly - a missing voice must never
-    /// take down the caller's turn.
+    /// take down the caller's turn - but the bool lets a caller (e.g. the playback
+    /// dialog) surface the failure instead of closing as if it had spoken.
     /// </summary>
-    public async Task SpeakAsync(string text, CancellationToken ct = default)
+    public async Task<bool> SpeakAsync(string text, CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(text)) return;
+        if (string.IsNullOrWhiteSpace(text)) return false;
 
         var svc = new TtsService(_options);
         var result = await svc.GenerateAsync(text, voiceOverride: null, modelOverride: null, ct);
         if (!result.Success || result.AudioBytes is null)
         {
             FileLog.Write($"[DesktopTtsPlayer] TTS not played: status={result.Status} error={result.ErrorMessage}");
-            return;
+            return false;
         }
 
         Stop(); // cut off anything still speaking before starting the new reply
@@ -80,6 +83,8 @@ public sealed class DesktopTtsPlayer : IDisposable
                 lock (_gate) { if (ReferenceEquals(_output, output)) _output = null; }
             }
         }, ct);
+
+        return true;
     }
 
     /// <summary>Stop any in-progress playback immediately.</summary>
