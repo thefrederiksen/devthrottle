@@ -1,0 +1,112 @@
+<Window x:Class="CcDirector.Avalonia.TurnReviewDialog"
+        xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Turn Reviews"
+        Width="1000" Height="660"
+        WindowStartupLocation="CenterOwner"
+        CanResize="True"
+        Background="#252526">
+
+    <Grid Margin="16" RowDefinitions="Auto,*,Auto">
+
+        <!-- Header -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,12">
+            <TextBlock Text="Turn Reviews"
+                       Foreground="#CCCCCC" FontSize="16" FontWeight="SemiBold"
+                       VerticalAlignment="Center" />
+            <TextBlock x:Name="CountText" Text=""
+                       Foreground="#888888" FontSize="11"
+                       VerticalAlignment="Center" Margin="10,2,0,0" />
+        </StackPanel>
+
+        <!-- Master (list) + detail -->
+        <Grid Grid.Row="1" ColumnDefinitions="340,4,*">
+
+            <!-- Left: the turns, newest first -->
+            <Border Grid.Column="0" Background="#1E1E1E" BorderBrush="#3C3C3C" BorderThickness="1">
+                <ListBox x:Name="TurnList"
+                         Background="Transparent" BorderThickness="0"
+                         SelectionChanged="TurnList_SelectionChanged">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Border Padding="8,6">
+                                <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto">
+                                    <Border Grid.Column="0" Grid.RowSpan="2"
+                                            Width="8" Height="8" CornerRadius="4"
+                                            Background="{Binding Dot}"
+                                            VerticalAlignment="Center" Margin="0,0,8,0" />
+                                    <TextBlock Grid.Column="1" Grid.Row="0"
+                                               Text="{Binding Session}"
+                                               Foreground="#CCCCCC" FontSize="13" FontWeight="Medium"
+                                               TextTrimming="CharacterEllipsis" />
+                                    <StackPanel Grid.Column="1" Grid.Row="1" Orientation="Horizontal">
+                                        <TextBlock Text="{Binding When}" Foreground="#888888" FontSize="10" />
+                                        <TextBlock Text="{Binding Reason}" Foreground="#AAAAAA" FontSize="10"
+                                                   Margin="8,0,0,0" TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Border>
+
+            <GridSplitter Grid.Column="1" Background="#252526" />
+
+            <!-- Right: the selected turn -->
+            <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto" Padding="12,0,0,0">
+                <StackPanel x:Name="DetailPanel" Spacing="6" IsVisible="False">
+
+                    <TextBlock x:Name="DetailHeader"
+                               Foreground="#CCCCCC" FontSize="14" FontWeight="SemiBold" />
+                    <TextBlock x:Name="DetailSub"
+                               Foreground="#888888" FontSize="11" Margin="0,0,0,6" />
+
+                    <TextBlock Text="SCREEN AT TURN END" Foreground="#888888" FontSize="10" FontWeight="SemiBold" />
+                    <TextBox x:Name="ScreenBox"
+                             IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap"
+                             MaxHeight="300"
+                             ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Auto"
+                             Background="#1E1E1E" Foreground="#CCCCCC" BorderBrush="#3C3C3C" BorderThickness="1"
+                             Padding="8,6" FontFamily="Cascadia Mono, Consolas" FontSize="12" />
+
+                    <TextBlock Text="TRANSCRIPT (this turn)" Foreground="#888888" FontSize="10" FontWeight="SemiBold" Margin="0,8,0,0" />
+                    <TextBox x:Name="TranscriptBox"
+                             IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap"
+                             MaxHeight="300" ScrollViewer.VerticalScrollBarVisibility="Auto"
+                             Background="#1E1E1E" Foreground="#CCCCCC" BorderBrush="#3C3C3C" BorderThickness="1"
+                             Padding="8,6" FontFamily="Cascadia Mono, Consolas" FontSize="12" />
+
+                    <TextBlock Text="WINGMAN SAID" Foreground="#888888" FontSize="10" FontWeight="SemiBold" Margin="0,8,0,0" />
+                    <TextBox x:Name="WingmanSaidBox"
+                             IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap"
+                             MaxHeight="160" ScrollViewer.VerticalScrollBarVisibility="Auto"
+                             Background="#1E1E1E" Foreground="#E6EAF2" BorderBrush="#3C3C3C" BorderThickness="1"
+                             Padding="8,6" FontSize="12" />
+
+                    <TextBlock Text="WINGMAN ACTIONS" Foreground="#888888" FontSize="10" FontWeight="SemiBold" Margin="0,8,0,0" />
+                    <ItemsControl x:Name="ActionsList">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding}" Foreground="#AAAAAA" FontSize="11"
+                                           FontFamily="Cascadia Mono, Consolas" Margin="0,1" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+
+        <!-- Bottom bar -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <TextBlock x:Name="StatusText" Foreground="#888888" FontSize="11"
+                       VerticalAlignment="Center" Margin="0,0,12,0" />
+            <Button Content="Refresh" Width="90" Height="28"
+                    Background="#3C3C3C" Foreground="#CCCCCC" BorderThickness="0" Cursor="Hand"
+                    Click="Refresh_Click" />
+            <Button Content="Close" Width="80" Height="28" Margin="8,0,0,0"
+                    Background="#3C3C3C" Foreground="#CCCCCC" BorderThickness="0" Cursor="Hand"
+                    Click="Close_Click" />
+        </StackPanel>
+    </Grid>
+</Window>

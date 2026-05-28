@@ -121,6 +121,28 @@ public sealed class TurnReviewLogTests : IDisposable
     }
 
     [Fact]
+    public void Reader_returns_records_newest_first()
+    {
+        var older = new TurnReviewRecord { SessionId = "s1", TsUtc = DateTime.UtcNow.AddMinutes(-2), Transcript = "older" };
+        var newer = new TurnReviewRecord { SessionId = "s1", TsUtc = DateTime.UtcNow, Transcript = "newer" };
+        TurnReviewLog.Write(older);
+        TurnReviewLog.Write(newer);
+
+        var loaded = TurnReviewReader.LoadRecent();
+
+        Assert.Equal(2, loaded.Count);
+        Assert.Equal("newer", loaded[0].Transcript); // newest first
+        Assert.Equal("older", loaded[1].Transcript);
+    }
+
+    [Fact]
+    public void Reader_returns_empty_when_no_log_dir()
+    {
+        // Fresh isolated root, nothing written yet.
+        Assert.Empty(TurnReviewReader.LoadRecent());
+    }
+
+    [Fact]
     public async Task Logger_does_not_write_on_a_flip_to_working()
     {
         var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });

@@ -1559,6 +1559,14 @@ public partial class MainWindow : Window
             RightPanelTabs.SelectedItem = TabItemDirector;
         };
 
+        var showReviews = new MenuItem { Header = "Show Reviews" };
+        showReviews.Click += async (_, _) =>
+        {
+            FileLog.Write("[MainWindow] Menu: Show Reviews");
+            var dialog = new TurnReviewDialog();
+            await dialog.ShowDialog(this);
+        };
+
         var separator3 = new Separator();
 
         var openSessions = new MenuItem { Header = "Open Sessions File" };
@@ -1616,6 +1624,7 @@ public partial class MainWindow : Window
         menu.Items.Add(repositories);
         menu.Items.Add(accounts);
         menu.Items.Add(manager);
+        menu.Items.Add(showReviews);
         menu.Items.Add(separator2);
         menu.Items.Add(openLogs);
         menu.Items.Add(openSessions);
