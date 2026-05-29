@@ -1938,16 +1938,8 @@ public partial class MainWindow : Window
         if (session.IsExplaining)
             parts.Add("refreshing...");
         else if (session.CachedExplainAt is { } at)
-            parts.Add(FormatAge(DateTime.UtcNow - at));
+            parts.Add(RelativeTime.Ago(DateTime.UtcNow - at));
         WingmanMetaText.Text = string.Join("  ", parts);
-    }
-
-    private static string FormatAge(TimeSpan d)
-    {
-        if (d.TotalSeconds < 1) return "just now";
-        if (d.TotalSeconds < 60) return $"{(int)d.TotalSeconds}s ago";
-        if (d.TotalMinutes < 60) return $"{(int)d.TotalMinutes}m ago";
-        return $"{(int)d.TotalHours}h ago";
     }
 
     // Build one tap-to-answer button per briefing action. Each sends its own literal text
