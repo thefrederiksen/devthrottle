@@ -317,7 +317,22 @@ public sealed class Session : IDisposable
     /// Runtime-only (not persisted across a Director restart): it tracks what the user
     /// is currently choosing to defer, not durable session state. Off by default.
     /// </summary>
-    public bool OnHold { get; set; }
+    public bool OnHold
+    {
+        get => _onHold;
+        set
+        {
+            if (_onHold == value) return;
+            _onHold = value;
+            OnHoldChanged?.Invoke(value);
+        }
+    }
+    private bool _onHold;
+
+    /// <summary>Fires when <see cref="OnHold"/> changes. Arg: new value. The desktop
+    /// session list subscribes so the color strip can repaint dark blue (held) without
+    /// the wingman touching <see cref="StatusColor"/>; OnHold sits on top of it.</summary>
+    public event Action<bool>? OnHoldChanged;
 
     /// <summary>
     /// Whether this session participates in the Wingman experience: the auto-explain

@@ -163,6 +163,11 @@ public partial class MainWindow : Window
         QueueItemsList.ItemsSource = _queueItems;
         ScreenshotList.ItemsSource = _screenshots;
 
+        // Keep the "N need you" header count instant: recompute whenever a session is
+        // added/removed or ANY session's status color flips (e.g. a background session goes
+        // red while you are on another). The 15s timer remains a backstop.
+        _sessions.CollectionChanged += OnSessionsCollectionChanged;
+
         // Subscribe to session registration for ClaudeSessionId persistence
         _sessionManager.OnClaudeSessionRegistered += OnClaudeSessionRegistered;
 
@@ -208,7 +213,12 @@ public partial class MainWindow : Window
         {
             Interval = TimeSpan.FromSeconds(15),
         };
-        _sessionGitTimer.Tick += async (_, _) => await RefreshSessionGitStatusAsync();
+        _sessionGitTimer.Tick += async (_, _) =>
+        {
+            foreach (var vm in _sessions) vm.RefreshTimeLabels();
+            UpdateNeedsYouCount();
+            await RefreshSessionGitStatusAsync();
+        };
         _sessionGitTimer.Start();
 
         // Scheduler-leader indicator: show "LEADER" pill on the sidebar and
@@ -679,6 +689,13 @@ public partial class MainWindow : Window
         var relink = new MenuItem { Header = "Relink Session..." };
         relink.Click += (_, _) => _ = ShowRelinkDialog(vm);
 
+        var separatorHold = new Separator();
+
+        // On-hold toggle: parks the session out of the FIFO rotation and paints its
+        // list strip dark blue so you can see at a glance which sessions you've set aside.
+        var hold = new MenuItem { Header = vm.IsOnHold ? "Take Off Hold" : "Hold" };
+        hold.Click += (_, _) => ToggleSessionHold(vm);
+
         var separator3 = new Separator();
 
         var close = new MenuItem { Header = "Close Session" };
@@ -691,10 +708,22 @@ public partial class MainWindow : Window
         menu.Items.Add(separator2);
         menu.Items.Add(openExplorer);
         menu.Items.Add(openVsCode);
+        menu.Items.Add(separatorHold);
+        menu.Items.Add(hold);
         menu.Items.Add(separator3);
         menu.Items.Add(close);
 
         menu.Open(button);
+    }
+
+    private void ToggleSessionHold(SessionViewModel vm)
+    {
+        var newState = !vm.Session.OnHold;
+        FileLog.Write($"[MainWindow] ToggleSessionHold: session={vm.Session.Id}, onHold={newState}");
+        vm.Session.OnHold = newState;
+        ShowNotification(newState
+            ? $"{vm.DisplayName} put on hold"
+            : $"{vm.DisplayName} taken off hold");
     }
 
     private async void ShowRenameDialog(SessionViewModel vm)
@@ -1798,8 +1827,13 @@ public partial class MainWindow : Window
         WingmanTitleText.IsVisible = !string.IsNullOrEmpty(headline);
         WingmanTitleText.Text = headline ?? "";
 
-        // What Claude wants you to do next.
-        WingmanWhatNextSection.IsVisible = !string.IsNullOrEmpty(whatNext);
+        // What Claude wants you to do next. The orange box is an URGENT "you must act" callout,
+        // so it must only appear when the session is actually red (needs you). When Claude is
+        // working (blue) or idle (green) the briefing still fills whatClaudeWants ("...still
+        // working; nothing needed" / "nothing pending"), and painting that in the orange action
+        // box is a false alarm. Gate on red; the headline carries the working/idle state instead.
+        var isRed = string.Equals(session.StatusColor, "red", StringComparison.OrdinalIgnoreCase);
+        WingmanWhatNextSection.IsVisible = isRed && !string.IsNullOrEmpty(whatNext);
         WingmanWhatNextText.Text = whatNext ?? "";
 
         // Tap-to-answer buttons: one per briefing action (Session.CachedQuickReplies).
@@ -1814,20 +1848,106 @@ public partial class MainWindow : Window
         WingmanSpeakVoiceButton.IsEnabled = !string.IsNullOrEmpty(say);
         WingmanVoiceSection.IsVisible = _wingmanShowVoicePreview && !string.IsNullOrEmpty(say);
 
-        // Meta row: model + age. Short, no padding.
+        // Meta row: model + freshness. Updated live by a timer so the age does not freeze
+        // between briefings (it used to show a single stale "Xs ago" computed at render time),
+        // and so a regeneration in flight reads "refreshing..." instead of a stale age.
         if (hasAny)
         {
-            var parts = new List<string>();
-            if (!string.IsNullOrEmpty(session.CachedExplainModel))
-                parts.Add(session.CachedExplainModel);
-            if (session.CachedExplainAt is { } at)
-                parts.Add($"{(int)(DateTime.UtcNow - at).TotalSeconds}s ago");
-            WingmanMetaText.Text = string.Join("  ", parts);
+            UpdateWingmanMetaText(session);
+            EnsureWingmanFreshnessTimer();
         }
         else
         {
             WingmanMetaText.Text = "";
         }
+    }
+
+    // Ticks every 2s while the Wingman tab is active, refreshing only the small meta line.
+    // Lazily created on first render; cheap (one text update, no full re-render).
+    // Per-session status-color subscriptions so the needs-you count updates the instant any
+    // session flips red, not just on the 15s timer. Keyed by VM so we can unsubscribe on remove.
+    private readonly Dictionary<SessionViewModel, Action<string, string, string>> _needsYouHandlers = new();
+
+    private void OnSessionsCollectionChanged(object? sender, global::System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+    {
+        if (e.Action == global::System.Collections.Specialized.NotifyCollectionChangedAction.Reset)
+        {
+            foreach (var kv in _needsYouHandlers) kv.Key.Session.OnStatusColorChanged -= kv.Value;
+            _needsYouHandlers.Clear();
+            foreach (var vm in _sessions) SubscribeNeedsYou(vm);
+        }
+        else
+        {
+            if (e.OldItems != null)
+                foreach (SessionViewModel vm in e.OldItems)
+                    if (_needsYouHandlers.TryGetValue(vm, out var h)) { vm.Session.OnStatusColorChanged -= h; _needsYouHandlers.Remove(vm); }
+            if (e.NewItems != null)
+                foreach (SessionViewModel vm in e.NewItems) SubscribeNeedsYou(vm);
+        }
+        UpdateNeedsYouCount();
+    }
+
+    private void SubscribeNeedsYou(SessionViewModel vm)
+    {
+        if (_needsYouHandlers.ContainsKey(vm)) return;
+        Action<string, string, string> h = (_, _, _) => Dispatcher.UIThread.Post(UpdateNeedsYouCount);
+        _needsYouHandlers[vm] = h;
+        vm.Session.OnStatusColorChanged += h;
+    }
+
+    // Count of sessions that need you (red) shown beside the SESSIONS header, so you get a
+    // top-level "is anything waiting on me?" signal without scanning the list. Hidden at zero.
+    private void UpdateNeedsYouCount()
+    {
+        var n = _sessions.Count(s => string.Equals(s.Session.StatusColor, "red", StringComparison.OrdinalIgnoreCase));
+        SessionsNeedYouText.Text = n > 0 ? $"{n} need you" : "";
+        SessionsNeedYouText.IsVisible = n > 0;
+    }
+
+    private global::Avalonia.Threading.DispatcherTimer? _wingmanFreshnessTimer;
+
+    private void EnsureWingmanFreshnessTimer()
+    {
+        if (_wingmanFreshnessTimer is not null) return;
+        _wingmanFreshnessTimer = new global::Avalonia.Threading.DispatcherTimer
+        {
+            Interval = TimeSpan.FromSeconds(2),
+        };
+        _wingmanFreshnessTimer.Tick += (_, _) =>
+        {
+            if (_activeLeftTab != "Wingman" || _activeSession is null) return;
+            var s = _activeSession.Session;
+            // Self-correct the orange box visibility as the session flips red<->working<->idle.
+            // RenderWingmanCachedExplain only runs on briefing changes, and the status color can
+            // change without a new briefing (e.g. after the user answers), so re-gate it here.
+            var isRed = string.Equals(s.StatusColor, "red", StringComparison.OrdinalIgnoreCase);
+            WingmanWhatNextSection.IsVisible = isRed && !string.IsNullOrEmpty(s.CachedExplainWhatClaudeWants);
+            if (string.IsNullOrEmpty(s.CachedExplainModel) && s.CachedExplainAt is null) return;
+            UpdateWingmanMetaText(s);
+        };
+        _wingmanFreshnessTimer.Start();
+    }
+
+    // model + live freshness. "refreshing..." while the ProactiveExplainService is mid-flight
+    // (IsExplaining), otherwise a human age (Xs / Xm / Xh ago) that ticks on its own.
+    private void UpdateWingmanMetaText(global::CcDirector.Core.Sessions.Session session)
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrEmpty(session.CachedExplainModel))
+            parts.Add(session.CachedExplainModel!);
+        if (session.IsExplaining)
+            parts.Add("refreshing...");
+        else if (session.CachedExplainAt is { } at)
+            parts.Add(FormatAge(DateTime.UtcNow - at));
+        WingmanMetaText.Text = string.Join("  ", parts);
+    }
+
+    private static string FormatAge(TimeSpan d)
+    {
+        if (d.TotalSeconds < 1) return "just now";
+        if (d.TotalSeconds < 60) return $"{(int)d.TotalSeconds}s ago";
+        if (d.TotalMinutes < 60) return $"{(int)d.TotalMinutes}m ago";
+        return $"{(int)d.TotalHours}h ago";
     }
 
     // Build one tap-to-answer button per briefing action. Each sends its own literal text
@@ -1868,6 +1988,12 @@ public partial class MainWindow : Window
     private void SendWingmanActionReply(string text)
     {
         if (_activeSession is null || string.IsNullOrWhiteSpace(text)) return;
+        // Disable all action buttons the instant one is clicked. The box lingers until the
+        // session flips to Working (re-gated by the 2s timer), so without this a rapid second
+        // click would send a duplicate answer to the agent. Buttons are rebuilt (enabled) on the
+        // next briefing. Also gives an immediate "sent" affordance.
+        foreach (var child in WingmanActionsPanel.Children)
+            if (child is global::Avalonia.Controls.Button b) b.IsEnabled = false;
         FileLog.Write($"[MainWindow] SendWingmanActionReply: sid={_activeSession.Session.Id}, text=\"{text}\"");
         PromptInput.Text = text;
         SendPrompt();

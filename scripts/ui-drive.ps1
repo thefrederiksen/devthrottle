@@ -8,6 +8,7 @@
 param(
     [Parameter(Mandatory = $true)][int]$TargetPid,
     [switch]$SelectFirstSession,
+    [int]$SelectSessionIndex = -1,
     [string]$InvokeAutomationId,
     [string]$InvokeName,
     [string]$ToggleAutomationId
@@ -56,6 +57,17 @@ if ($InvokeAutomationId) {
     $inv = $el.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
     $inv.Invoke()
     Write-Output "INVOKED $InvokeAutomationId"
+}
+
+if ($SelectSessionIndex -ge 0) {
+    $list = Find-ByAutomationId $win "SessionList"
+    if (-not $list) { Write-Output "SessionList not found"; exit 1 }
+    $itemCond = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::ListItem)
+    $items = $list.FindAll($TS::Descendants, $itemCond)
+    if ($SelectSessionIndex -ge $items.Count) { Write-Output "index $SelectSessionIndex out of range ($($items.Count) items)"; exit 1 }
+    $it = $items.Item($SelectSessionIndex)
+    $it.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
+    Write-Output "SELECTED session item $SelectSessionIndex of $($items.Count); name=[$($it.Current.Name)]"
 }
 
 if ($InvokeName) {

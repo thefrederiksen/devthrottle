@@ -38,6 +38,12 @@
                                    FontSize="12" FontWeight="Bold"
                                    VerticalAlignment="Center"
                                    Margin="8,0,0,0" />
+                        <!-- At-a-glance "do I need to act?" count: how many sessions are red
+                             (needs you). Amber, hidden when zero. Updated from the session timer. -->
+                        <TextBlock x:Name="SessionsNeedYouText"
+                                   Foreground="#F0B848" FontSize="11" FontWeight="SemiBold"
+                                   VerticalAlignment="Center" Margin="8,0,0,0"
+                                   IsVisible="False" />
                     </DockPanel>
                 </Border>
 
@@ -226,6 +232,15 @@
                                                        Foreground="#888888"
                                                        FontSize="11"
                                                        VerticalAlignment="Center" />
+                                            <!-- How long a needs-you session has been waiting,
+                                                 so you can triage the most stale one first.
+                                                 Only shown when red. -->
+                                            <TextBlock Text="{Binding WaitingDurationLabel}"
+                                                       IsVisible="{Binding HasWaitingDuration}"
+                                                       Foreground="#E0883C"
+                                                       FontSize="11"
+                                                       Margin="6,0,0,0"
+                                                       VerticalAlignment="Center" />
                                             <Border IsVisible="{Binding HasUncommittedChanges}"
                                                     Background="#6B4C00"
                                                     CornerRadius="6"
@@ -242,6 +257,17 @@
                                                 </TextBlock>
                                             </Border>
                                         </StackPanel>
+                                        <!-- Wingman headline: at-a-glance "what this session
+                                             is about / needs" so the list is scannable without
+                                             opening the Wingman tab. Hidden until a briefing
+                                             exists. One line, ellipsized. -->
+                                        <TextBlock Text="{Binding WingmanHeadline}"
+                                                   IsVisible="{Binding HasWingmanHeadline}"
+                                                   Foreground="{Binding WingmanHeadlineBrush}"
+                                                   FontSize="11"
+                                                   TextWrapping="NoWrap"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   Margin="0,3,0,0" />
                                     </StackPanel>
                                     <!-- Queue count badge + Three-dot menu -->
                                     <StackPanel Grid.Column="1" Orientation="Horizontal"

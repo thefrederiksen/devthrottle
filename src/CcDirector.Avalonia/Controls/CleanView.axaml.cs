@@ -92,6 +92,10 @@ public partial class CleanView : UserControl
         // Subscribe to wingman status changes so we can show/hide the
         // pending-question card inline at the end of the feed.
         session.OnStatusColorChanged += OnStatusColorChanged;
+        // Re-evaluate the pending-question card when a briefing arrives: the banner's ask
+        // (CachedExplainWhatClaudeWants) lands AFTER the red transition, so the suppression
+        // in SyncPendingQuestionWidget must be re-checked once the briefing is cached.
+        session.OnCachedExplainChanged += OnCachedExplainChangedCleanView;
         SyncPendingQuestionWidget();
 
         if (session.Backend is StudioBackend studio)
@@ -124,8 +128,7 @@ public partial class CleanView : UserControl
                 // empty state, not the "Loading..." spinner. The poll timer
                 // will pick the JSONL up the moment Claude starts writing.
                 FileLog.Write("[CleanView] Attach: no JSONL path available yet, will poll");
-                LoadingText.IsVisible = false;
-                EmptyText.IsVisible = true;
+                UpdateEmptyState();
             }
             else
             {
@@ -159,6 +162,7 @@ public partial class CleanView : UserControl
             _session.OnActivityStateChanged -= OnActivityStateChanged;
             _session.OnClaudeMetadataChanged -= OnClaudeMetadataChanged;
             _session.OnStatusColorChanged -= OnStatusColorChanged;
+            _session.OnCachedExplainChanged -= OnCachedExplainChangedCleanView;
 
             // Unsubscribe from StudioBackend events
             if (_session.Backend is StudioBackend studio)
@@ -219,6 +223,14 @@ public partial class CleanView : UserControl
         });
     }
 
+    // A fresh briefing was cached; the banner's ask may now be present, so re-evaluate
+    // whether the redundant in-feed pending-question card should be suppressed.
+    private void OnCachedExplainChangedCleanView()
+    {
+        try { Dispatcher.UIThread.Post(() => { SyncPendingQuestionWidget(); UpdateEmptyState(); }); }
+        catch (Exception ex) { FileLog.Write($"[CleanView] OnCachedExplainChangedCleanView FAILED: {ex.Message}"); }
+    }
+
     private void OnStatusColorChanged(string oldColor, string newColor, string reason)
     {
         // Event handler: try-catch per CLAUDE.md rule 4. Fires on the wingman's
@@ -245,6 +257,22 @@ public partial class CleanView : UserControl
 
         bool shouldShow = string.Equals(_session.StatusColor, "red", StringComparison.OrdinalIgnoreCase)
                           && !string.IsNullOrWhiteSpace(_session.LastStatusReason);
+
+        // In the Wingman tab (response-only), the briefing banner above already shows an
+        // actionable "WHAT CLAUDE WANTS" box with the real question and tap-to-answer buttons.
+        // This in-feed card's text is just the short status reason ("needs you"), so it renders
+        // as a second, weaker orange "Claude is waiting" callout stacked under the first. Drop it
+        // when the banner's ask is present, so there is one clear callout instead of two.
+        if (shouldShow && _responseOnlyMode && !string.IsNullOrWhiteSpace(_session.CachedExplainWhatClaudeWants))
+            shouldShow = false;
+
+        // A brand-new session is red ("ready for a task", commit ff2af0d) but Claude has not
+        // asked anything yet, so a "Claude is waiting on your answer" card is a false alarm -
+        // there is no question. The banner's "No briefing yet" line already conveys this state.
+        // Suppress the card until the session has had real activity (IsBrandNew clears on the
+        // first submit).
+        if (shouldShow && _session.IsBrandNew)
+            shouldShow = false;
 
         if (shouldShow)
         {
@@ -531,7 +559,19 @@ public partial class CleanView : UserControl
     private void UpdateEmptyState()
     {
         LoadingText.IsVisible = false;
-        EmptyText.IsVisible = _filteredWidgets.Count == 0;
+        bool empty = _filteredWidgets.Count == 0;
+        EmptyText.IsVisible = empty;
+        if (empty)
+        {
+            // In the Wingman tab (response-only), a session that has already produced a briefing
+            // is NOT brand-new, so the generic "New session. Type a message below to start."
+            // invite contradicts the question/headline shown in the banner above. Use a neutral
+            // placeholder instead. Truly fresh sessions (no briefing yet) keep the invite.
+            bool hasBriefing = _session?.CachedExplainAt is not null;
+            EmptyText.Text = (_responseOnlyMode && hasBriefing)
+                ? "Claude's reply will appear here."
+                : "New session. Type a message below to start.";
+        }
     }
 
     private void ScrollToBottom()
