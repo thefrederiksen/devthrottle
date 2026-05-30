@@ -74,12 +74,26 @@ public sealed class UnixPseudoConsole : IDisposable
             ws_ypixel = 0
         };
 
-        int result = ioctl(_masterFd, TIOCSWINSZ, ref ws);
-        if (result == -1)
+        // Pass the winsize pointer through __arglist so ioctl receives it via the C
+        // varargs convention (required on arm64 macOS -- see UnixNativeMethods.ioctl).
+        IntPtr wsPtr = Marshal.AllocHGlobal(Marshal.SizeOf<Winsize>());
+        try
         {
-            int errno = Marshal.GetLastWin32Error();
-            // Don't throw - resize failures are not fatal
-            System.Diagnostics.Debug.WriteLine($"[UnixPseudoConsole] ioctl TIOCSWINSZ failed: errno={errno}");
+            Marshal.StructureToPtr(ws, wsPtr, false);
+            int result = RuntimeInformation.IsOSPlatform(OSPlatform.OSX)
+                && RuntimeInformation.ProcessArchitecture == Architecture.Arm64
+                ? ioctl_stackarg(_masterFd, TIOCSWINSZ, 0, 0, 0, 0, 0, 0, wsPtr)
+                : ioctl(_masterFd, TIOCSWINSZ, wsPtr);
+            if (result == -1)
+            {
+                int errno = Marshal.GetLastWin32Error();
+                // Don't throw - resize failures are not fatal
+                System.Diagnostics.Debug.WriteLine($"[UnixPseudoConsole] ioctl TIOCSWINSZ failed: errno={errno}");
+            }
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(wsPtr);
         }
     }
 
@@ -114,9 +128,29 @@ public sealed class UnixPseudoConsole : IDisposable
             // EAGAIN/EWOULDBLOCK means no data available (non-blocking)
             if (errno == 11 || errno == 35) // EAGAIN on Linux/macOS
                 return 0;
+            // EIO (5) is how macOS/Linux report "slave side fully closed" once the
+            // child exits -- treat as EOF. EBADF (9) means the master was closed
+            // out from under a blocking read during shutdown -- also EOF.
+            if (errno == 5 || errno == 9)
+                return 0;
             throw new IOException($"read from PTY master failed: errno={errno}");
         }
         return (int)bytesRead;
+    }
+
+    /// <summary>
+    /// Close the slave file descriptor in this (parent) process.
+    /// Must be called after the child has been spawned with its own copy of the
+    /// slave: while the parent still holds the slave open, reads on the master
+    /// never see EOF when the child exits.
+    /// </summary>
+    public void CloseSlave()
+    {
+        if (_slaveFd != -1)
+        {
+            close(_slaveFd);
+            _slaveFd = -1;
+        }
     }
 
     public void Dispose()

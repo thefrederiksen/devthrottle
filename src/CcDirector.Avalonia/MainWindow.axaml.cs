@@ -351,6 +351,15 @@ public partial class MainWindow : Window
                 FileLog.Write($"[MainWindow] OnExternalSessionCreated: wrapping {session.Id} (repo={session.RepoPath})");
                 var vm = new SessionViewModel(session);
                 _sessions.Add(vm);
+
+                // If nothing is currently shown, surface the externally-created session
+                // (e.g. from the web Manager or Control API) instead of leaving the
+                // terminal on the empty "Select a session to begin" state.
+                if (_activeSession is null)
+                {
+                    SessionList.SelectedItem = vm;
+                    FileLog.Write($"[MainWindow] OnExternalSessionCreated: auto-selected {session.Id} (no active session)");
+                }
             }
             catch (Exception ex)
             {

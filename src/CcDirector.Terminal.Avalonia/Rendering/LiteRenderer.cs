@@ -14,7 +14,7 @@ namespace CcDirector.Terminal.Avalonia.Rendering;
 /// </summary>
 public class LiteRenderer : ITerminalRenderer
 {
-    private static readonly FontFamily FontFamily = new("Cascadia Mono, Consolas, Courier New");
+    private static readonly FontFamily FontFamily = new(TerminalFonts.Family);
     private static readonly Typeface TypefaceNormal = new(FontFamily, FontStyle.Normal, FontWeight.Normal);
     private static readonly Typeface TypefaceBold = new(FontFamily, FontStyle.Normal, FontWeight.Bold);
     private static readonly Typeface TypefaceItalic = new(FontFamily, FontStyle.Italic, FontWeight.Normal);

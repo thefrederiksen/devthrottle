@@ -40,7 +40,7 @@ public class TerminalControl : Control
     private static readonly TimeSpan RepaintSuppressionWindow = TimeSpan.FromMilliseconds(1500);
 
     // Cached typefaces - avoid creating new Typeface per character (4 variants for normal/bold/italic combinations)
-    private static readonly FontFamily _fontFamily = new("Cascadia Mono, Consolas, Courier New");
+    private static readonly FontFamily _fontFamily = new(TerminalFonts.Family);
     private static readonly Typeface _typefaceNormal = new(_fontFamily, FontStyle.Normal, FontWeight.Normal);
     private static readonly Typeface _typefaceBold = new(_fontFamily, FontStyle.Normal, FontWeight.Bold);
     private static readonly Typeface _typefaceItalic = new(_fontFamily, FontStyle.Italic, FontWeight.Normal);
@@ -766,7 +766,7 @@ public class TerminalControl : Control
                 $"Renderer error ({_renderer.Name}): {ex.Message}",
                 CultureInfo.InvariantCulture,
                 FlowDirection.LeftToRight,
-                new Typeface("Consolas"),
+                _typefaceNormal,
                 12,
                 Brushes.Red);
             context.DrawText(errorText, new Point(10, 10));
