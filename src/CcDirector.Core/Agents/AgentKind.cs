@@ -19,5 +19,8 @@ public enum AgentKind
     Codex = 2,
 
     /// <summary>Google Gemini CLI (gemini.cmd from @google/gemini-cli npm package).</summary>
-    Gemini = 3
+    Gemini = 3,
+
+    /// <summary>opencode CLI (the <c>opencode</c> binary from opencode.ai).</summary>
+    OpenCode = 4
 }

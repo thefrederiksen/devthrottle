@@ -10,7 +10,7 @@ project:
   framework: ".NET 10"
   platform: "Windows 10/11 (Avalonia primary; WPF archived), Mac/Linux (experimental backend)"
 
-last_updated: "2026-05-26"
+last_updated: "2026-05-30"
 
 # C4 Level 1: System Context
 context:
@@ -226,7 +226,7 @@ containers:
     project: CcDirector.Core
     components:
       - name: SessionManager
-        description: Session lifecycle management. Accepts an IAgent strategy to pick the underlying CLI (Claude Code, Pi, Codex, or Gemini).
+        description: Session lifecycle management. Accepts an IAgent strategy to pick the underlying CLI (Claude Code, Pi, Codex, Gemini, or opencode).
         file: Sessions/SessionManager.cs
       - name: Session
         description: Central session abstraction with activity state machine. Carries an AgentKind that identifies which CLI is bound to the session. Owns a dedicated AnsiParser (120x40 grid, 5000-line scrollback) that is fed from CircularTerminalBuffer.OnBytesWritten and exposed via GetHtmlSnapshot() for the HTML "Raw terminal" tab; the Avalonia terminal keeps its own parser bound to the live window size.
@@ -235,7 +235,7 @@ containers:
         description: Strategy interface describing an agent CLI - executable path, argument conventions for new/resume, and capability flags (preassigned session IDs, Studio mode).
         file: Agents/IAgent.cs
       - name: AgentKind
-        description: Enum identifying which agent CLI a session is running (ClaudeCode, Pi, Codex, Gemini). Persisted on the Session for restart restoration.
+        description: Enum identifying which agent CLI a session is running (ClaudeCode, Pi, Codex, Gemini, OpenCode). Persisted on the Session for restart restoration.
         file: Agents/AgentKind.cs
       - name: AgentLaunchSpec
         description: Record returned from IAgent.BuildLaunchSpec - fully formed command-line args plus any Director-known preassigned session ID.
@@ -252,6 +252,9 @@ containers:
       - name: GeminiAgent
         description: IAgent implementation for the Google Gemini CLI (gemini.cmd from @google/gemini-cli). V1 spawns gemini with user args - no preassigned session IDs, no Director-initiated resume, no Studio mode.
         file: Agents/GeminiAgent.cs
+      - name: OpenCodeAgent
+        description: IAgent implementation for the opencode CLI (the opencode binary from opencode.ai). V1 spawns opencode with user args - no preassigned session IDs, no Director-initiated resume, no Studio mode; bare launch opens opencode's interactive TUI in the working directory.
+        file: Agents/OpenCodeAgent.cs
       - name: ActivityState
         description: Claude cognitive state enum (Idle, Working, WaitingForInput, etc.)
         file: Sessions/ActivityState.cs
@@ -814,8 +817,8 @@ patterns:
       - Backends/UnixPtyBackend.cs
 
   - name: Strategy Pattern (Agent)
-    implementation: IAgent interface with ClaudeAgent, PiAgent, CodexAgent, and GeminiAgent implementations
-    purpose: Abstracts which coding-agent CLI a session spawns (Claude Code, Pi, OpenAI Codex, Google Gemini CLI) so SessionManager can build per-agent launch specs without hard-coding Claude conventions.
+    implementation: IAgent interface with ClaudeAgent, PiAgent, CodexAgent, GeminiAgent, and OpenCodeAgent implementations
+    purpose: Abstracts which coding-agent CLI a session spawns (Claude Code, Pi, OpenAI Codex, Google Gemini CLI, opencode) so SessionManager can build per-agent launch specs without hard-coding Claude conventions.
     files:
       - Agents/IAgent.cs
       - Agents/AgentKind.cs
@@ -824,6 +827,7 @@ patterns:
       - Agents/PiAgent.cs
       - Agents/CodexAgent.cs
       - Agents/GeminiAgent.cs
+      - Agents/OpenCodeAgent.cs
 
   - name: Observer Pattern
     implementation: Events (StatusChanged, OnActivityStateChanged)

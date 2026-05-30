@@ -407,6 +407,7 @@ public partial class MainWindow : Window
                 AgentKind.Pi => new PiAgent(_sessionManager.Options),
                 AgentKind.Codex => new CodexAgent(_sessionManager.Options),
                 AgentKind.Gemini => new GeminiAgent(_sessionManager.Options),
+                AgentKind.OpenCode => new OpenCodeAgent(_sessionManager.Options),
                 _ => new ClaudeAgent(_sessionManager.Options)
             };
             var session = _sessionManager.CreateSession(repoPath, agent, claudeArgs, SessionBackendType.ConPty, resumeSessionId);

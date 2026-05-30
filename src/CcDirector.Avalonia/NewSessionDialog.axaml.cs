@@ -349,6 +349,7 @@ public partial class NewSessionDialog : Window
             if (AgentRadioPi?.IsChecked == true) return AgentKind.Pi;
             if (AgentRadioCodex?.IsChecked == true) return AgentKind.Codex;
             if (AgentRadioGemini?.IsChecked == true) return AgentKind.Gemini;
+            if (AgentRadioOpenCode?.IsChecked == true) return AgentKind.OpenCode;
             return AgentKind.ClaudeCode;
         }
     }

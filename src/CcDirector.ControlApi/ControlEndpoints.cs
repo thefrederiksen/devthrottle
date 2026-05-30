@@ -1227,6 +1227,7 @@ internal static class ControlEndpoints
                     AgentKind.Pi => new PiAgent(sessionManager.Options),
                     AgentKind.Codex => new CodexAgent(sessionManager.Options),
                     AgentKind.Gemini => new GeminiAgent(sessionManager.Options),
+                    AgentKind.OpenCode => new OpenCodeAgent(sessionManager.Options),
                     _ => throw new InvalidOperationException("unreachable"),
                 };
 
@@ -1509,6 +1510,7 @@ internal static class ControlEndpoints
                 AgentKind.Pi => new PiAgent(sessionManager.Options),
                 AgentKind.Codex => new CodexAgent(sessionManager.Options),
                 AgentKind.Gemini => new GeminiAgent(sessionManager.Options),
+                AgentKind.OpenCode => new OpenCodeAgent(sessionManager.Options),
                 _ => throw new InvalidOperationException("unreachable"),
             };
 

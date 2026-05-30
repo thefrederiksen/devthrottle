@@ -90,7 +90,14 @@
                                      Content="Gemini CLI"
                                      Foreground="#CCCCCC" FontSize="14"
                                      VerticalAlignment="Center"
+                                     Margin="0,0,24,0"
                                      Tag="Gemini"
+                                     IsCheckedChanged="AgentRadio_CheckedChanged" />
+                        <RadioButton x:Name="AgentRadioOpenCode" GroupName="Agent"
+                                     Content="OpenCode"
+                                     Foreground="#CCCCCC" FontSize="14"
+                                     VerticalAlignment="Center"
+                                     Tag="OpenCode"
                                      IsCheckedChanged="AgentRadio_CheckedChanged" />
                     </StackPanel>
 

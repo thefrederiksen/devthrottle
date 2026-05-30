@@ -235,12 +235,14 @@ public class SessionViewModel : INotifyPropertyChanged
     private static readonly ISolidColorBrush PiAgentBrush = new SolidColorBrush(Color.FromRgb(0x8B, 0x5C, 0xF6));
     private static readonly ISolidColorBrush CodexAgentBrush = new SolidColorBrush(Color.FromRgb(0x10, 0xA3, 0x7F));
     private static readonly ISolidColorBrush GeminiAgentBrush = new SolidColorBrush(Color.FromRgb(0xEA, 0x43, 0x35));
+    private static readonly ISolidColorBrush OpenCodeAgentBrush = new SolidColorBrush(Color.FromRgb(0xF9, 0x73, 0x16));
 
     public string AgentLabel => Session.AgentKind switch
     {
         AgentKind.Pi => "Pi",
         AgentKind.Codex => "Codex",
         AgentKind.Gemini => "Gemini",
+        AgentKind.OpenCode => "OpenCode",
         _ => "Claude Code"
     };
 
@@ -249,6 +251,7 @@ public class SessionViewModel : INotifyPropertyChanged
         AgentKind.Pi => PiAgentBrush,
         AgentKind.Codex => CodexAgentBrush,
         AgentKind.Gemini => GeminiAgentBrush,
+        AgentKind.OpenCode => OpenCodeAgentBrush,
         _ => ClaudeAgentBrush
     };
 
