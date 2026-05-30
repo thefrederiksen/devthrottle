@@ -108,14 +108,17 @@ public sealed class UnixPtyBackend : ISessionBackend
         // Brief delay so TUI processes text before Enter
         await Task.Delay(50);
 
-        // Send Enter (newline on Unix)
-        _processHost.Write(new byte[] { 0x0A }); // LF = newline on Unix
+        // Submit with CR (0x0D), NOT LF. Pressing Enter in a terminal sends CR, and
+        // TUIs like Claude Code treat CR as "submit" but LF as "insert a newline".
+        // This matches ConPtyBackend on Windows; sending LF here only added a blank
+        // line in Claude's input box instead of submitting the prompt.
+        _processHost.Write(new byte[] { 0x0D }); // CR = Enter/submit
     }
 
     public Task SendEnterAsync()
     {
         if (_disposed || _processHost == null) return Task.CompletedTask;
-        _processHost.Write(new byte[] { 0x0A }); // LF = newline on Unix
+        _processHost.Write(new byte[] { 0x0D }); // CR = Enter/submit (matches Windows ConPty)
         return Task.CompletedTask;
     }
 
