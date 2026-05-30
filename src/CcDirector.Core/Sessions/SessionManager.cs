@@ -135,8 +135,23 @@ public sealed class SessionManager : IDisposable
                 ["CC_SESSION_ID"] = id.ToString()
             };
 
+            // Resolve the agent command to a concrete executable path before spawning.
+            // CreateProcess only appends ".exe" to a bare command name, so a CLI installed
+            // as a ".cmd" shim (e.g. npm-installed "opencode.cmd") would never be found from
+            // the bare name "opencode". Resolving against PATH+PATHEXT yields the full
+            // "...\opencode.cmd" path. CreateProcess still cannot execute a batch shim
+            // directly, so CommandLineLauncher wraps .cmd/.bat through cmd.exe. If the command
+            // cannot be resolved at all we keep the original so the launch fails loudly.
+            var resolvedExe = ExecutableResolver.Resolve(agent.ExecutablePath) ?? agent.ExecutablePath;
+            if (!string.Equals(resolvedExe, agent.ExecutablePath, StringComparison.OrdinalIgnoreCase))
+                _log?.Invoke($"Resolved agent command '{agent.ExecutablePath}' to '{resolvedExe}'");
+
+            var (launchExe, launchArgs) = CommandLineLauncher.Build(resolvedExe, args);
+            if (!string.Equals(launchExe, resolvedExe, StringComparison.OrdinalIgnoreCase))
+                _log?.Invoke($"Launching '{resolvedExe}' via shell: {launchExe} {launchArgs}");
+
             // Get initial terminal dimensions (default 120x30)
-            backend.Start(agent.ExecutablePath, args, repoPath, 120, 30, envVars);
+            backend.Start(launchExe, launchArgs, repoPath, 120, 30, envVars);
             session.MarkRunning();
 
             _sessions[id] = session;

@@ -397,19 +397,29 @@ public partial class MainWindow : Window
         });
     }
 
+    /// <summary>
+    /// Last failure message from <see cref="CreateSession"/>, so UI callers can surface
+    /// why a launch failed instead of swallowing it. Reset at the start of each attempt.
+    /// </summary>
+    private string? _lastSessionCreateError;
+
+    /// <summary>Construct the <see cref="IAgent"/> strategy for the given agent kind.</summary>
+    private IAgent CreateAgent(AgentKind agentKind) => agentKind switch
+    {
+        AgentKind.Pi => new PiAgent(_sessionManager.Options),
+        AgentKind.Codex => new CodexAgent(_sessionManager.Options),
+        AgentKind.Gemini => new GeminiAgent(_sessionManager.Options),
+        AgentKind.OpenCode => new OpenCodeAgent(_sessionManager.Options),
+        _ => new ClaudeAgent(_sessionManager.Options)
+    };
+
     private SessionViewModel? CreateSession(string repoPath, string? resumeSessionId = null, string? claudeArgs = null, AgentKind agentKind = AgentKind.ClaudeCode)
     {
         FileLog.Write($"[MainWindow] CreateSession: repoPath={repoPath}, agent={agentKind}, resume={resumeSessionId ?? "null"}, args={claudeArgs ?? "default"}");
+        _lastSessionCreateError = null;
         try
         {
-            IAgent agent = agentKind switch
-            {
-                AgentKind.Pi => new PiAgent(_sessionManager.Options),
-                AgentKind.Codex => new CodexAgent(_sessionManager.Options),
-                AgentKind.Gemini => new GeminiAgent(_sessionManager.Options),
-                AgentKind.OpenCode => new OpenCodeAgent(_sessionManager.Options),
-                _ => new ClaudeAgent(_sessionManager.Options)
-            };
+            IAgent agent = CreateAgent(agentKind);
             var session = _sessionManager.CreateSession(repoPath, agent, claudeArgs, SessionBackendType.ConPty, resumeSessionId);
             FileLog.Write($"[MainWindow] CreateSession: session created, id={session.Id}, pid={session.ProcessId}");
 
@@ -421,10 +431,31 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
+            _lastSessionCreateError = ex.Message;
             FileLog.Write($"[MainWindow] CreateSession FAILED: {ex.Message}");
             return null;
         }
     }
+
+    /// <summary>
+    /// Human-readable name and install guidance for an agent CLI, shown when its
+    /// executable cannot be found on PATH.
+    /// </summary>
+    private static (string DisplayName, string InstallHint) AgentInstallInfo(AgentKind kind) => kind switch
+    {
+        AgentKind.Pi => ("Pi",
+            "Install it with: npm install -g @earendil-works/pi-coding-agent"),
+        AgentKind.Codex => ("Codex",
+            "Install it with: npm install -g @openai/codex"),
+        AgentKind.Gemini => ("Gemini CLI",
+            "Install it with: npm install -g @google/gemini-cli"),
+        AgentKind.OpenCode => ("OpenCode",
+            "Install it from https://opencode.ai (for example: 'npm install -g opencode-ai', "
+            + "'brew install sst/tap/opencode', or 'scoop install opencode'), then make sure the "
+            + "'opencode' command is on your PATH."),
+        _ => ("Claude Code",
+            "Install Claude Code and make sure the 'claude' command is on your PATH.")
+    };
 
     private void SelectSession(SessionViewModel? vm)
     {
@@ -1466,8 +1497,33 @@ public partial class MainWindow : Window
 
         FileLog.Write($"[MainWindow] ShowNewSessionDialog: path={dialog.SelectedPath}, agent={agentKind}, resume={resumeSessionId ?? "null"}, bypassPermissions={dialog.BypassPermissions}, remoteControl={dialog.EnableRemoteControl}, wingmanEnabled={dialog.WingmanEnabled}");
 
+        // Preflight: make sure the chosen agent's CLI actually exists before we try to spawn it.
+        // Without this, a missing binary (e.g. OpenCode not installed) makes CreateProcess fail
+        // with a cryptic Win32 error that gets swallowed, so the dialog just closes and "nothing
+        // happens". Resolve it up front and tell the user exactly what to install.
+        var agentExe = CreateAgent(agentKind).ExecutablePath;
+        if (ExecutableResolver.Resolve(agentExe) is null)
+        {
+            var (agentName, installHint) = AgentInstallInfo(agentKind);
+            FileLog.Write($"[MainWindow] ShowNewSessionDialog: agent {agentKind} executable '{agentExe}' not found on PATH; aborting launch");
+            await MessageBox.ShowAsync(this,
+                $"{agentName} is not installed",
+                $"CC Director could not start a {agentName} session because its command line tool "
+                + $"could not be found.\n\nLooked for: {agentExe}\n\n{installHint}\n\n"
+                + "If it is installed in a non-standard location, set its path in config.json.");
+            return;
+        }
+
         var vm = CreateSession(dialog.SelectedPath, resumeSessionId, agentArgs, agentKind);
-        if (vm == null) return;
+        if (vm == null)
+        {
+            FileLog.Write("[MainWindow] ShowNewSessionDialog: CreateSession returned null; showing failure dialog");
+            await MessageBox.ShowAsync(this,
+                "Could not start session",
+                "CC Director could not start the session.\n\n"
+                + (_lastSessionCreateError ?? "See the Director log for details."));
+            return;
+        }
 
         // Apply the per-session Wingman opt-in chosen in the dialog. Default in the checkbox
         // is true (matches Session.WingmanEnabled's default); the dialog can flip it off so
