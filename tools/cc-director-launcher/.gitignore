@@ -1,0 +1,3 @@
+# Runtime artifacts -- not source
+shots/
+*.log

@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.centerconsulting.ccd-launcher</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>__SCRIPT__</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>CCD_BIN</key>
+        <string>__CCD_BIN__</string>
+        <key>DOTNET_ROOT</key>
+        <string>__DOTNET_ROOT__</string>
+        <key>CCD_LAUNCHER_PORT</key>
+        <string>8765</string>
+        <key>CCD_LAUNCHER_DIR</key>
+        <string>__DIR__</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>__DIR__/launcher.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>__DIR__/launcher.err.log</string>
+</dict>
+</plist>
