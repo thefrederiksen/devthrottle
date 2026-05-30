@@ -28,6 +28,9 @@ public class SessionViewModel : INotifyPropertyChanged
     private static readonly ISolidColorBrush BlueStatusBrush    = new SolidColorBrush(Color.FromRgb(0x3B, 0x82, 0xF6));
     private static readonly ISolidColorBrush YellowStatusBrush  = new SolidColorBrush(Color.FromRgb(0xEA, 0xB3, 0x08));
     private static readonly ISolidColorBrush RedStatusBrush     = new SolidColorBrush(Color.FromRgb(0xEF, 0x44, 0x44));
+    // Purple "running in background" - the Wingman determined the session is parked on its own
+    // background task, not on the user. Matches Web/directory.html --purple (#a855f7).
+    private static readonly ISolidColorBrush PurpleStatusBrush  = new SolidColorBrush(Color.FromRgb(0xA8, 0x55, 0xF7));
     private static readonly ISolidColorBrush UnknownStatusBrush = new SolidColorBrush(Color.FromRgb(0x6A, 0x6A, 0x6A));
 
     // Dark navy blue shown when the user has parked a session on hold. OnHold is an
@@ -101,6 +104,7 @@ public class SessionViewModel : INotifyPropertyChanged
                 "blue"   => BlueStatusBrush,
                 "yellow" => YellowStatusBrush,
                 "red"    => RedStatusBrush,
+                "purple" => PurpleStatusBrush,
                 _        => UnknownStatusBrush,
             };
         }

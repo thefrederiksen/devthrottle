@@ -19,6 +19,7 @@
     --yellow: #eab308;  /* vivid amber - "warning" */
     --green: #22c55e;   /* vivid green - "ready" */
     --blue: #3b82f6;    /* vivid blue - "working" (distinct hue from green) */
+    --purple: #a855f7;  /* vivid purple - "running in background" (Wingman override of red) */
     --orange: #ce9178;
   }
   * { box-sizing: border-box; }
@@ -153,6 +154,7 @@
   .card .dot.yellow { background: var(--yellow); }
   .card .dot.green { background: var(--green); }
   .card .dot.blue { background: var(--blue); }
+  .card .dot.purple { background: var(--purple); }
   .card .dot.unknown { background: var(--muted-2); }
   .card .dot { cursor: help; }
   .card .title {
@@ -312,7 +314,7 @@ function humanizeState(s) {
 // the five known colors, we render "unknown" (gray) - that's the truthful answer.
 function statusColorOf(s) {
   const c = (s.statusColor || "").toLowerCase();
-  if (c === "red" || c === "yellow" || c === "green" || c === "blue") return c;
+  if (c === "red" || c === "yellow" || c === "green" || c === "blue" || c === "purple") return c;
   return "unknown";
 }
 
@@ -327,6 +329,7 @@ const COLOR_MEANING = {
   blue:    "Blue - agent working",
   yellow:  "Yellow - warning",
   red:     "Red - needs you",
+  purple:  "Purple - running in background",
   unknown: "Gray - unknown / unreachable",
 };
 function dotTooltipOf(s) {

@@ -142,7 +142,14 @@ public sealed class ProactiveExplainService : IDisposable
                     // on the next regeneration. Order matters: populate, then notify.
                     session.SetCachedExplainStructured(result.Headline, result.WhatHappened, result.LongDescription, result.WhatClaudeWants, result.Say);
                     session.SetCachedExplain(result.Answer, result.Model, result.QuickReplies);
-                    FileLog.Write($"[ProactiveExplainService] cached explain for {session.Id} (model={result.Model}, headline=\"{result.Headline}\", len={result.Answer?.Length ?? 0}, longLen={result.LongDescription?.Length ?? 0}, replies={result.QuickReplies?.Count ?? 0}, sayLen={result.Say?.Length ?? 0})");
+                    // Apply the running_in_background verdict: this is the one sanctioned override
+                    // of the dumb timer's red "needs you". When true the SessionStatusWingman paints
+                    // the badge Purple ("running in background") instead of Red. Set unconditionally
+                    // (including false) so a finished background task clears a stale Purple. The
+                    // verdict resolves to Purple only after the Yellow "wingman is reading" overlay
+                    // lifts in the finally below, which recomputes the colour.
+                    session.SetBackgroundRunning(result.RunningInBackground);
+                    FileLog.Write($"[ProactiveExplainService] cached explain for {session.Id} (model={result.Model}, headline=\"{result.Headline}\", len={result.Answer?.Length ?? 0}, longLen={result.LongDescription?.Length ?? 0}, replies={result.QuickReplies?.Count ?? 0}, sayLen={result.Say?.Length ?? 0}, background={result.RunningInBackground})");
                 }
                 else
                 {

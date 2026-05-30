@@ -32,6 +32,7 @@ public sealed class SessionStatusWingman : IDisposable
     private readonly SessionManager _sessionManager;
     private readonly ConcurrentDictionary<Guid, Action<ActivityState, ActivityState>> _activityHandlers = new();
     private readonly ConcurrentDictionary<Guid, Action<bool>> _explainHandlers = new();
+    private readonly ConcurrentDictionary<Guid, Action<bool>> _backgroundHandlers = new();
     private readonly ConcurrentDictionary<Guid, PromptInjectionWatcher> _injectionWatchers = new();
     private bool _started;
     private bool _disposed;
@@ -136,6 +137,27 @@ public sealed class SessionStatusWingman : IDisposable
         _explainHandlers[session.Id] = explainHandler;
         session.OnIsExplainingChanged += explainHandler;
 
+        // ProactiveExplainService flips Session.IsBackgroundRunning from the explain verdict.
+        // When it flips we recompute the colour so a session parked on its own background task
+        // moves Red -> Purple ("running in background") and back to Red when the verdict clears.
+        // Like the explain overlay, the activity state has NOT changed here, so we do not write
+        // to StateChangeLog.
+        Action<bool> backgroundHandler = isBackground =>
+        {
+            try
+            {
+                var (c, r) = ColorFor(session, isNew: false);
+                session.SetStatusColor(c, r);
+                FileLog.Write($"[SessionStatusWingman] {session.Id} backgroundRunning={isBackground} => {c} ({r})");
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[SessionStatusWingman] background handler failed for {session.Id}: {ex.Message}");
+            }
+        };
+        _backgroundHandlers[session.Id] = backgroundHandler;
+        session.OnIsBackgroundRunningChanged += backgroundHandler;
+
         // Subscribe to the byte stream so we re-scan Claude Code's input-prompt
         // line whenever the TUI redraws and then goes quiet. The watcher debounces
         // bursts; we only run extraction once writes settle.
@@ -186,6 +208,15 @@ public sealed class SessionStatusWingman : IDisposable
         if (session.WingmanEnabled && session.IsExplaining && atTurnEnd)
             return (StatusColor.Yellow, "wingman is reading");
 
+        // Purple overlay: the Wingman read the screen and determined the session is parked on
+        // its OWN background task (a build, a running shell), not on the user. Only meaningful
+        // at a turn-end where the badge would otherwise be Red "needs you". Released the moment
+        // output resumes (the Session clears the flag when it transitions off WaitingForInput).
+        // Checked after Yellow so the transient "wingman is reading" briefing still shows while
+        // the verdict is being computed, then settles to Purple once the flag is set.
+        if (session.WingmanEnabled && session.IsBackgroundRunning && atTurnEnd)
+            return (StatusColor.Purple, session.BackgroundReason);
+
         return baseColor;
     }
 
@@ -201,6 +232,8 @@ public sealed class SessionStatusWingman : IDisposable
                 s.OnActivityStateChanged -= h;
             if (_explainHandlers.TryRemove(s.Id, out var eh))
                 s.OnIsExplainingChanged -= eh;
+            if (_backgroundHandlers.TryRemove(s.Id, out var bh))
+                s.OnIsBackgroundRunningChanged -= bh;
         }
         foreach (var kv in _injectionWatchers)
             kv.Value.Dispose();
