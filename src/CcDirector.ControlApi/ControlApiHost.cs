@@ -50,6 +50,7 @@ public sealed class ControlApiHost : IAsyncDisposable
     private WebApplication? _app;
     private InstanceRegistration? _registration;
     private GatewayClient? _gatewayClient;
+    private readonly SemaphoreSlim _gatewayReapplyLock = new(1, 1);
     private TurnSummaryCache? _turnSummaryCache;
     private SessionStatusWingman? _statusWingman;
     private ProactiveExplainService? _proactiveExplain;
@@ -203,6 +204,7 @@ public sealed class ControlApiHost : IAsyncDisposable
         ControlEndpoints.Map(_app, _sessionManager, DirectorId, _version, _requestShutdownAsync, _authEnabled, _repositoryRegistry, _turnSummaryCache, gatewayUrl, _proactiveExplain);
         DictationEndpoint.Map(_app, _sessionManager.Options);
         TerminalStreamEndpoint.Map(_app, _sessionManager);
+        SettingsEndpoint.Map(_app, ReapplyGatewayAsync);
 
         await _app.StartAsync();
 
@@ -223,6 +225,39 @@ public sealed class ControlApiHost : IAsyncDisposable
         _gatewayClient.Start();
 
         return Port;
+    }
+
+    /// <summary>
+    /// Re-read the gateway config from config.json and re-register the Director with the
+    /// gateway, replacing the running <see cref="GatewayClient"/>. Called when PUT /settings
+    /// (or the Settings UI) changes the gateway block, so a new gateway URL / advertised
+    /// endpoint / token takes effect without restarting the app. Serialized so two concurrent
+    /// settings writes can't leave two heartbeat timers running.
+    /// </summary>
+    public async Task ReapplyGatewayAsync()
+    {
+        await _gatewayReapplyLock.WaitAsync();
+        try
+        {
+            FileLog.Write("[ControlApiHost] ReapplyGatewayAsync: reloading gateway config");
+            if (_gatewayClient is not null)
+            {
+                // Stop the old heartbeat + unregister BEFORE building the new client, so we
+                // never have two clients heartbeating for the same directorId.
+                try { await _gatewayClient.StopAsync(); }
+                catch (Exception ex) { FileLog.Write($"[ControlApiHost] ReapplyGateway stop error: {ex.Message}"); }
+                _gatewayClient.Dispose();
+                _gatewayClient = null;
+            }
+
+            var gatewayConfig = GatewayConfig.Load();
+            _gatewayClient = new GatewayClient(gatewayConfig, DirectorId, Port, _version);
+            _gatewayClient.Start();
+        }
+        finally
+        {
+            _gatewayReapplyLock.Release();
+        }
     }
 
     private static int? ReadAssignedPort(WebApplication app)

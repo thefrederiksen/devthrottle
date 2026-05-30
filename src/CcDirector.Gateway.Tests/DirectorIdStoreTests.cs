@@ -10,6 +10,7 @@ namespace CcDirector.Gateway.Tests;
 /// The tests redirect <see cref="DirectorIdStore"/> at a temp dir via the
 /// <c>CC_DIRECTOR_ROOT</c> env var so they don't touch the real user's file.
 /// </summary>
+[Collection("DirectorRoot")]
 public sealed class DirectorIdStoreTests : IDisposable
 {
     private readonly string _tempRoot;

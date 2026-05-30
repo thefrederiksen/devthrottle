@@ -1,0 +1,105 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="CcDirector.Avalonia.SettingsDialog"
+        Title="CC Director Settings"
+        Width="640" Height="640"
+        WindowStartupLocation="CenterOwner"
+        CanResize="True"
+        Background="#252526">
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="CC Director Settings"
+                   Foreground="#CCCCCC" FontSize="16" FontWeight="SemiBold"
+                   Margin="0,0,0,4" />
+
+        <TextBlock x:Name="LoadingText" Grid.Row="1"
+                   Text="Loading..."
+                   Foreground="#888888" FontSize="12" FontStyle="Italic"
+                   Margin="0,0,0,8" />
+
+        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel x:Name="ContentPanel" IsVisible="False" Spacing="6">
+
+                <!-- ============ Screenshots ============ -->
+                <TextBlock Text="Screenshots" Foreground="#CCCCCC" FontSize="14"
+                           FontWeight="SemiBold" Margin="0,4,0,0" />
+                <TextBlock Text="Where phone-uploaded images are filed so a session can read them by path. On a Mac this must be set explicitly."
+                           Foreground="#888888" FontSize="11" TextWrapping="Wrap" />
+                <Grid ColumnDefinitions="*,Auto">
+                    <TextBox x:Name="ScreenshotsDirBox" Grid.Column="0"
+                             Background="#1E1E1E" Foreground="#CCCCCC" CaretBrush="#CCCCCC"
+                             BorderBrush="#3C3C3C" BorderThickness="1" Padding="8,6"
+                             Watermark="e.g. /Users/soren/Desktop" />
+                    <Button x:Name="BrowseButton" Grid.Column="1" Content="Browse..."
+                            Height="30" Margin="8,0,0,0" Padding="12,0"
+                            Background="#3C3C3C" Foreground="#CCCCCC"
+                            BorderThickness="0" Cursor="Hand"
+                            Click="BtnBrowse_Click" />
+                </Grid>
+
+                <!-- ============ Gateway ============ -->
+                <TextBlock Text="Gateway" Foreground="#CCCCCC" FontSize="14"
+                           FontWeight="SemiBold" Margin="0,12,0,0" />
+                <TextBlock Text="Connect this Director to a central gateway so it shows up there. Leave the URL blank to run local-only. Works on any network, not just a tailnet."
+                           Foreground="#888888" FontSize="11" TextWrapping="Wrap" />
+
+                <TextBlock Text="Gateway URL" Foreground="#AAAAAA" FontSize="11" Margin="0,4,0,0" />
+                <TextBox x:Name="GatewayUrlBox"
+                         Background="#1E1E1E" Foreground="#CCCCCC" CaretBrush="#CCCCCC"
+                         BorderBrush="#3C3C3C" BorderThickness="1" Padding="8,6"
+                         Watermark="e.g. http://gateway-host:7878" />
+
+                <TextBlock Text="Director public URL (any network)" Foreground="#AAAAAA" FontSize="11" Margin="0,4,0,0" />
+                <TextBox x:Name="GatewayAdvertisedBox"
+                         Background="#1E1E1E" Foreground="#CCCCCC" CaretBrush="#CCCCCC"
+                         BorderBrush="#3C3C3C" BorderThickness="1" Padding="8,6"
+                         Watermark="how the gateway reaches THIS Director, e.g. http://this-host:7879" />
+                <TextBlock Text="Required when the gateway runs on a different machine. The gateway calls back to this URL, so it must be reachable from the gateway."
+                           Foreground="#888888" FontSize="11" TextWrapping="Wrap" />
+
+                <TextBlock Text="Gateway token (optional)" Foreground="#AAAAAA" FontSize="11" Margin="0,4,0,0" />
+                <TextBox x:Name="GatewayTokenBox"
+                         Background="#1E1E1E" Foreground="#CCCCCC" CaretBrush="#CCCCCC"
+                         BorderBrush="#3C3C3C" BorderThickness="1" Padding="8,6"
+                         Watermark="only if the gateway requires one" />
+
+                <!-- ============ Advanced ============ -->
+                <TextBlock Text="Advanced: full config.json (read-only)" Foreground="#CCCCCC" FontSize="14"
+                           FontWeight="SemiBold" Margin="0,12,0,0" />
+                <TextBox x:Name="RawConfigBox" IsReadOnly="True"
+                         AcceptsReturn="True" TextWrapping="NoWrap"
+                         MinHeight="120" MaxHeight="220"
+                         ScrollViewer.VerticalScrollBarVisibility="Auto"
+                         ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                         Background="#1E1E1E" Foreground="#888888"
+                         BorderBrush="#3C3C3C" BorderThickness="1" Padding="8,6"
+                         FontFamily="Cascadia Mono, Consolas, Courier New" FontSize="11" />
+
+            </StackPanel>
+        </ScrollViewer>
+
+        <TextBlock x:Name="StatusText" Grid.Row="3"
+                   Text="" Foreground="#888888" FontSize="11"
+                   TextWrapping="Wrap" Margin="0,8,0,0" />
+
+        <StackPanel Grid.Row="4" Orientation="Horizontal"
+                    HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button x:Name="SaveButton" Content="Save" Width="100" Height="28"
+                    Background="#007ACC" Foreground="White"
+                    BorderThickness="0" Cursor="Hand"
+                    IsDefault="True" Click="BtnSave_Click" />
+            <Button Content="Close" Width="80" Height="28" Margin="8,0,0,0"
+                    Background="#3C3C3C" Foreground="#CCCCCC"
+                    BorderThickness="0" Cursor="Hand"
+                    IsCancel="True" Click="BtnClose_Click" />
+        </StackPanel>
+    </Grid>
+</Window>

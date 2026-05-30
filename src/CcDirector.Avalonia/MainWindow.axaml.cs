@@ -1748,9 +1748,9 @@ public partial class MainWindow : Window
 
     private async void BtnSettings_Click(object? sender, RoutedEventArgs e)
     {
-        FileLog.Write("[MainWindow] BtnSettings_Click");
-        var repoPath = _activeSession?.Session.RepoPath;
-        var dialog = new ClaudeConfigDialog(repoPath);
+        FileLog.Write("[MainWindow] BtnSettings_Click: opening CC Director settings");
+        var controlApi = (global::Avalonia.Application.Current as App)?.ControlApiHost;
+        var dialog = new SettingsDialog(controlApi is not null ? controlApi.ReapplyGatewayAsync : null);
         await dialog.ShowDialog<bool?>(this);
     }
 

@@ -135,6 +135,77 @@ class TestSetValue:
         assert success is False
 
 
+class TestPreservesUnknownSections:
+    """The historical data-loss bug: saving the config dropped sections this schema didn't
+    model (notably `gateway`). save() now merges over the on-disk file, so they survive."""
+
+    def test_set_preserves_unknown_section(self, tmp_path):
+        """Setting a known key must not drop an unmodeled section already on disk."""
+        config_file = tmp_path / "config.json"
+        # `gateway` IS modeled now, so use a deliberately unknown section to prove the
+        # general preservation (future-proofs against the next added block too).
+        config_file.write_text(json.dumps({
+            "screenshots": {"source_directory": "C:/old"},
+            "future_block": {"some_key": "must_survive"},
+        }))
+
+        config = CCDirectorConfig().load()
+        config._config_path = config_file
+        config.load()  # reload from the seeded file path
+
+        ok = set_value(config, "screenshots.source_directory", "/Users/soren/Desktop")
+        assert ok is True
+
+        saved = json.loads(config_file.read_text())
+        assert saved["screenshots"]["source_directory"] == "/Users/soren/Desktop"
+        # The unknown section must still be intact.
+        assert saved["future_block"]["some_key"] == "must_survive"
+
+    def test_set_preserves_gateway_block(self, tmp_path):
+        """Setting screenshots must not wipe a populated gateway block."""
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({
+            "gateway": {"url": "http://gw.example:7878", "token": "abc"},
+            "screenshots": {"source_directory": "C:/old"},
+        }))
+
+        config = CCDirectorConfig()
+        config._config_path = config_file
+        config.load()
+
+        ok = set_value(config, "screenshots.source_directory", "/new")
+        assert ok is True
+
+        saved = json.loads(config_file.read_text())
+        assert saved["gateway"]["url"] == "http://gw.example:7878"
+        assert saved["gateway"]["token"] == "abc"
+
+    def test_set_gateway_url_via_dotted_key(self, tmp_path):
+        """gateway.url is settable through the dotted-key API and persists."""
+        config_file = tmp_path / "config.json"
+        config = CCDirectorConfig()
+        config._config_path = config_file
+
+        ok = set_value(config, "gateway.url", "http://gw.example:7878")
+        assert ok is True
+
+        saved = json.loads(config_file.read_text())
+        assert saved["gateway"]["url"] == "http://gw.example:7878"
+
+    def test_save_refuses_to_clobber_corrupt_file(self, tmp_path):
+        """A corrupt on-disk config must not be silently overwritten."""
+        config_file = tmp_path / "config.json"
+        config_file.write_text("{ not valid json ")
+
+        config = CCDirectorConfig()
+        config._config_path = config_file
+
+        with pytest.raises(json.JSONDecodeError):
+            config.save()
+        # File left untouched.
+        assert config_file.read_text() == "{ not valid json "
+
+
 class TestListKeys:
     """Tests for list_keys."""
 
