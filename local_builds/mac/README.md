@@ -132,6 +132,13 @@ So: **click the Dock icon (or use Spotlight/Launchpad).** That's the supported p
 - **"can't be opened because Apple cannot check it for malware."** First launch of an
   unsigned app — right-click the app → **Open** once. Locally-built apps usually skip
   this; the bundle script also strips the quarantine flag.
+- **"Claude Code is not installed" when starting a session.** The app launches under
+  launchd, which provides only a minimal PATH — so `claude` (typically in
+  `~/.local/bin`) isn't found even though it's on your shell PATH. The bundle's
+  launcher bakes in `~/.local/bin`, `~/.dotnet`, and Homebrew dirs to fix this. If
+  `claude` lives somewhere else, either add that dir to the `LAUNCH_PATH` list in
+  `make-app-bundle.sh` and rebuild (`scripts/mac-rebuild.sh apps`), or set the
+  `claude` path in CC Director's `config.json`.
 - **App won't start / runtime error.** The default build is *framework-dependent* and
   needs the .NET 10 runtime. The bundle bakes `DOTNET_ROOT=~/.dotnet` into its
   launcher; if your SDK lives elsewhere, reinstall per the setup section, or build

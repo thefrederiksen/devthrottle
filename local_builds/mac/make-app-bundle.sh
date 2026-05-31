@@ -97,6 +97,20 @@ if ! [[ -x "$DOTNET_DIR/dotnet" ]] && command -v dotnet >/dev/null 2>&1; then
     DOTNET_DIR="$(cd "$(dirname "$(command -v dotnet)")" && pwd)"
 fi
 
+# Apps launched by launchd inherit only a minimal PATH (/usr/bin:/bin:...), so
+# CC Director can't find the CLIs it shells out to — most importantly `claude`,
+# which lives in ~/.local/bin (or similar) and is NOT on that minimal PATH. Bake
+# the real tool directories into the launcher's PATH. Build the list now (at
+# bundle time) from dirs that exist, de-duped, so there are no empty segments.
+LAUNCH_PATH="$DOTNET_DIR"
+for d in "$HOME/.local/bin" "$HOME/.claude/local" "/opt/homebrew/bin" \
+         "/opt/homebrew/sbin" "/usr/local/bin"; do
+    case ":$LAUNCH_PATH:" in
+        *":$d:"*) ;;                                  # already present
+        *) [[ -d "$d" ]] && LAUNCH_PATH="$LAUNCH_PATH:$d" ;;
+    esac
+done
+
 # Native CPU architecture. Telling LaunchServices the bundle is native (and
 # prioritising this arch) stops the spurious "install Rosetta" prompt that a
 # script-based .app otherwise triggers on Apple Silicon — macOS can't read an
@@ -141,7 +155,9 @@ if [[ ! -x "\$BIN" ]]; then
     exit 1
 fi
 export DOTNET_ROOT="$DOTNET_DIR"
-export PATH="$DOTNET_DIR:\$PATH"
+# launchd hands apps only a minimal PATH; prepend the dirs where claude/dotnet/
+# homebrew tools live so CC Director can actually spawn sessions.
+export PATH="$LAUNCH_PATH:\$PATH"
 cd "$BIN_DIR"
 exec "\$BIN" "\$@"
 LAUNCH
