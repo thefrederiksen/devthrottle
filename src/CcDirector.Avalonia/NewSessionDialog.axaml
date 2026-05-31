@@ -212,7 +212,7 @@
 
                     <CheckBox x:Name="WingmanCheckBox" Grid.Row="7"
                               Content="Wingman (auto-explain on turn-end + Voice tabs)"
-                              IsChecked="True"
+                              IsChecked="False"
                               HorizontalAlignment="Right"
                               Foreground="#CCCCCC"
                               Margin="0,8,0,0"

@@ -55,10 +55,10 @@ public class PersistedSession
     /// <summary>
     /// Whether the Wingman experience is enabled for this session (auto-explain briefing on
     /// turn-end, Voice/Wingman tabs visible, Yellow "Wingman is reading" state). Default is
-    /// true so sessions persisted before this field existed restore with Wingman ON, matching
+    /// false so sessions persisted before this field existed restore with Wingman OFF, matching
     /// the new-session default.
     /// </summary>
-    public bool WingmanEnabled { get; set; } = true;
+    public bool WingmanEnabled { get; set; } = false;
 }
 
 public class PersistedPromptQueueItem

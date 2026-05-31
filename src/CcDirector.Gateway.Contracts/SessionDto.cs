@@ -122,11 +122,11 @@ public sealed class SessionDto
     /// <summary>
     /// Whether the Wingman experience is enabled for this session: auto-explain briefing on
     /// turn-end, Voice + Wingman tabs visible, Yellow "Wingman is reading" state available.
-    /// Default ON. When false the session behaves as a plain terminal -- clients hide the
+    /// Default OFF. When false the session behaves as a plain terminal -- clients hide the
     /// Voice + Wingman tabs and the dot goes straight Blue->Red on turn-end (no Yellow).
     /// Mirrors <c>Session.WingmanEnabled</c> on the owning Director.
     /// </summary>
-    public bool WingmanEnabled { get; set; } = true;
+    public bool WingmanEnabled { get; set; } = false;
 
     /// <summary>
     /// For GitHub Actions remote sessions: the "owner/repo" the session runs against.

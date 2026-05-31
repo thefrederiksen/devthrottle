@@ -119,7 +119,7 @@ public sealed class SessionStatusWingmanTests
             wingman.Start();
             var (session, _) = CreateBufferSession(manager);
 
-            // WingmanEnabled is on by default. Park at turn-end and flip IsExplaining.
+            // Park at turn-end and flip IsExplaining (CreateBufferSession enabled Wingman).
             session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
             Assert.Equal(StatusColor.Red, session.StatusColor);
 
@@ -511,6 +511,10 @@ public sealed class SessionStatusWingmanTests
     {
         var backend = new BufferOnlyBackend();
         var session = manager.CreateEmbeddedSession(Path.GetTempPath(), null, backend);
+        // These tests exercise the Wingman status overlays (Yellow/Purple), so opt the
+        // session into the Wingman experience. The new-session default is OFF; the
+        // "suppressed when disabled" cases flip it back to false explicitly.
+        session.WingmanEnabled = true;
         return (session, backend);
     }
 

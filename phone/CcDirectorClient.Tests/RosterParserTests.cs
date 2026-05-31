@@ -53,14 +53,13 @@ public class RosterParserTests
     }
 
     [Fact]
-    public void Parse_MissingWingmanEnabled_DefaultsToTrue()
+    public void Parse_MissingWingmanEnabled_DefaultsToFalse()
     {
-        // Sessions returned by older Directors (before WingmanEnabled was on the wire) must
-        // restore with Wingman ON, matching the server-side default. Otherwise old fleets
-        // would silently lose the Voice/Wingman tabs.
+        // Sessions returned by older Directors (before WingmanEnabled was on the wire) restore
+        // with Wingman OFF, matching the server-side default. The Wingman is opt-in per session.
         var json = """[ { "sessionId": "a", "activityState": "Idle", "status": "Running" } ]""";
         var s = Assert.Single(RosterParser.Parse(json));
-        Assert.True(s.WingmanEnabled);
+        Assert.False(s.WingmanEnabled);
     }
 
     [Fact]

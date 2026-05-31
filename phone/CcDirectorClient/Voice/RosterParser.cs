@@ -69,6 +69,6 @@ public static class RosterParser
         public string? MachineName { get; set; }
         public bool VoiceMode { get; set; }
         public bool OnHold { get; set; }
-        public bool WingmanEnabled { get; set; } = true;
+        public bool WingmanEnabled { get; set; } = false;
     }
 }

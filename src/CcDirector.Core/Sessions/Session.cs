@@ -352,12 +352,13 @@ public sealed class Session : IDisposable
     /// <summary>
     /// Whether this session participates in the Wingman experience: the auto-explain
     /// briefing on turn-end, the Voice/Wingman tabs, and the Yellow "Wingman is reading"
-    /// state. ON by default for every new session. When OFF the session behaves like a
-    /// plain terminal: ProactiveExplainService skips it, the dot goes straight Blue->Red,
-    /// and the clients hide the Voice + Wingman tabs. Durable per session (persisted via
-    /// <see cref="PersistedSession.WingmanEnabled"/>).
+    /// state. OFF by default for every new session (the Wingman is not reliable enough
+    /// yet to opt every session in). When OFF the session behaves like a plain terminal:
+    /// ProactiveExplainService skips it, the dot goes straight Blue->Red, and the clients
+    /// hide the Voice + Wingman tabs. Opt in per session via the context menu / new-session
+    /// dialog. Durable per session (persisted via <see cref="PersistedSession.WingmanEnabled"/>).
     /// </summary>
-    public bool WingmanEnabled { get; set; } = true;
+    public bool WingmanEnabled { get; set; } = false;
 
     private bool _isExplaining;
 

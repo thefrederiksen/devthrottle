@@ -735,6 +735,12 @@ public partial class MainWindow : Window
         var rename = new MenuItem { Header = "Rename" };
         rename.Click += (_, _) => ShowRenameDialog(vm);
 
+        // Copy the session's display name and stable ID to the clipboard so it can be
+        // handed to another agent (e.g. via the Control API) to find and talk to this
+        // exact session.
+        var copyId = new MenuItem { Header = "Copy Name & ID" };
+        copyId.Click += (_, _) => _ = CopySessionNameAndId(vm);
+
         var separator1 = new Separator();
 
         var openJsonl = new MenuItem { Header = "Open .jsonl in Explorer" };
@@ -758,6 +764,12 @@ public partial class MainWindow : Window
         var hold = new MenuItem { Header = vm.IsOnHold ? "Take Off Hold" : "Hold" };
         hold.Click += (_, _) => ToggleSessionHold(vm);
 
+        // Wingman toggle: when on, the session gets the auto-explain briefing, the
+        // Voice/Wingman tabs, and the Yellow "Wingman is reading" state. Removing it
+        // drops the session back to a plain terminal (Blue->Red, no Wingman tabs).
+        var wingman = new MenuItem { Header = vm.Session.WingmanEnabled ? "Remove Wingman" : "Add Wingman" };
+        wingman.Click += (_, _) => ToggleSessionWingman(vm);
+
         var separator3 = new Separator();
 
         var close = new MenuItem { Header = "Close Session" };
@@ -765,6 +777,7 @@ public partial class MainWindow : Window
 
         menu.Items.Add(rename);
         menu.Items.Add(relink);
+        menu.Items.Add(copyId);
         menu.Items.Add(separator1);
         menu.Items.Add(openJsonl);
         menu.Items.Add(separator2);
@@ -772,6 +785,7 @@ public partial class MainWindow : Window
         menu.Items.Add(openVsCode);
         menu.Items.Add(separatorHold);
         menu.Items.Add(hold);
+        menu.Items.Add(wingman);
         menu.Items.Add(separator3);
         menu.Items.Add(close);
 
@@ -786,6 +800,49 @@ public partial class MainWindow : Window
         ShowNotification(newState
             ? $"{vm.DisplayName} put on hold"
             : $"{vm.DisplayName} taken off hold");
+    }
+
+    /// <summary>
+    /// Flips <see cref="Session.WingmanEnabled"/> for the session. When the active
+    /// session is toggled, the Wingman tab is shown/hidden immediately and the view
+    /// falls back to Terminal if the Wingman tab was open while it gets disabled.
+    /// </summary>
+    private void ToggleSessionWingman(SessionViewModel vm)
+    {
+        var newState = !vm.Session.WingmanEnabled;
+        FileLog.Write($"[MainWindow] ToggleSessionWingman: session={vm.Session.Id}, wingmanEnabled={newState}");
+        vm.Session.WingmanEnabled = newState;
+        PersistSessionState();
+
+        if (_activeSession == vm)
+        {
+            WingmanTabButton.IsVisible = newState;
+            if (!newState && string.Equals(_activeLeftTab, "Wingman", StringComparison.Ordinal))
+                SwitchLeftTab("Terminal");
+        }
+
+        ShowNotification(newState
+            ? $"Wingman added to {vm.DisplayName}"
+            : $"Wingman removed from {vm.DisplayName}");
+    }
+
+    /// <summary>
+    /// Copies the session's display name and stable ID to the clipboard in a format
+    /// another agent can use to find and talk to this exact session.
+    /// </summary>
+    private async Task CopySessionNameAndId(SessionViewModel vm)
+    {
+        var text = $"Name: {vm.DisplayName}\nID: {vm.Session.Id}";
+        FileLog.Write($"[MainWindow] CopySessionNameAndId: session={vm.Session.Id}");
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (clipboard == null)
+        {
+            FileLog.Write("[MainWindow] CopySessionNameAndId: no clipboard available");
+            ShowNotification("Clipboard unavailable");
+            return;
+        }
+        await clipboard.SetTextAsync(text);
+        ShowNotification($"Copied name + ID for {vm.DisplayName}");
     }
 
     private async void ShowRenameDialog(SessionViewModel vm)
@@ -973,6 +1030,7 @@ public partial class MainWindow : Window
                 ActivityState = vm.Session.ActivityState,
                 BackendType = vm.Session.BackendType,
                 PendingPromptText = vm.Session.PendingPromptText,
+                WingmanEnabled = vm.Session.WingmanEnabled,
                 SortOrder = i,
             });
             app.SessionStateStore.Save(persisted);

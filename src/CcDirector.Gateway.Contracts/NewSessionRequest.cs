@@ -31,10 +31,10 @@ public sealed class NewSessionRequest
     /// <summary>
     /// Whether the new session should boot with the Wingman experience on (auto-explain
     /// briefing on turn-end + Voice/Wingman tabs + Yellow "Wingman is reading" state).
-    /// Defaults to true, matching <c>Session.WingmanEnabled</c>'s default; set to false to
-    /// create a plain-terminal session with no auto-explain and no voice tabs.
+    /// Defaults to false, matching <c>Session.WingmanEnabled</c>'s default; set to true to
+    /// create a session with the Wingman experience on.
     /// </summary>
-    public bool WingmanEnabled { get; set; } = true;
+    public bool WingmanEnabled { get; set; } = false;
 }
 
 /// <summary>
