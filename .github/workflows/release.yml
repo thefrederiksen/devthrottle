@@ -32,12 +32,54 @@ jobs:
           -c Release -r win-x64 --self-contained true
           -p:PublishSingleFile=true
           -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:UpdaterEnabled=true
 
       - name: Upload cc-director artifact
         uses: actions/upload-artifact@v4
         with:
           name: cc-director-win
           path: src/CcDirector.Avalonia/bin/Release/net10.0/win-x64/publish/cc-director.exe
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------
+  # Job 1b: Build the main CC Director Avalonia app (macOS arm64)
+  # ---------------------------------------------------------------
+  # Runs on the Apple-Silicon runner (macos-14) for a native osx-arm64 build --
+  # no cross-compile. Produces a self-contained, ad-hoc-signed .app bundle zipped
+  # for distribution. Unsigned/non-notarized by design (no Apple Developer
+  # account): the auto-updater strips the Gatekeeper quarantine flag on install.
+  build-director-mac:
+    name: Build CC Director (macOS arm64)
+    runs-on: macos-14
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Publish for macOS arm64
+        run: >
+          dotnet publish src/CcDirector.Avalonia/CcDirector.Avalonia.csproj
+          -c Release -r osx-arm64 --self-contained true
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:EnableCompressionInSingleFile=true
+          -p:UpdaterEnabled=true
+
+      - name: Package distributable .app bundle (zip)
+        run: >
+          scripts/package-mac-app.sh
+          --binary src/CcDirector.Avalonia/bin/Release/net10.0/osx-arm64/publish/cc-director
+          --out artifacts-mac
+
+      - name: Upload cc-director mac artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cc-director-mac
+          path: artifacts-mac/cc-director-mac-arm64.zip
           if-no-files-found: error
 
   # ---------------------------------------------------------------
@@ -159,6 +201,7 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - build-director-win
+      - build-director-mac
       - build-python-tools-win
       - build-setup-wizard-win
 
@@ -180,6 +223,9 @@ jobs:
 
           # Windows main app
           cp release-artifacts/cc-director-win/cc-director.exe "$RELEASE_DIR/cc-director-win-x64.exe"
+
+          # macOS main app (already a .app zip; keep the name the updater expects)
+          cp release-artifacts/cc-director-mac/cc-director-mac-arm64.zip "$RELEASE_DIR/cc-director-mac-arm64.zip"
 
           # Windows Python tools
           for exe in release-artifacts/python-tools-win/*.exe; do

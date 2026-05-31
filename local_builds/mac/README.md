@@ -107,6 +107,41 @@ So: **click the Dock icon (or use Spotlight/Launchpad).** That's the supported p
 
 ---
 
+## Installing a downloaded release & auto-update
+
+The directory above is the **developer** flow (build locally from source). End users
+instead get a prebuilt **`cc-director-mac-arm64.zip`** from a GitHub Release. That
+zip is produced in CI by `scripts/package-mac-app.sh`: a self-contained,
+ad-hoc-signed, **arm64-only** `CC Director.app` (no .NET runtime needed).
+
+**First install (one time):**
+
+1. Download `cc-director-mac-arm64.zip` from the release, unzip it, and drag
+   **`CC Director.app`** into `/Applications`.
+2. Because the app is **not notarized** (we use no paid Apple Developer
+   certificate), macOS quarantines a freshly downloaded app. **Right-click the
+   app → Open** once, then confirm. This is needed only for the very first launch.
+
+**After that — auto-update is automatic and never interrupts you.** While the app
+runs it checks the latest GitHub Release in the background; if a newer version
+exists it downloads + SHA-256-verifies it and shows a passive note ("downloaded —
+installs next time you open the app"). The actual swap happens **on the next
+launch**, before any session starts, so **no running work is ever lost**. The
+update also **strips the Gatekeeper quarantine flag**, so there's no warning on any
+update after the first.
+
+Notes:
+- The running app is never restarted out from under you — updates apply only at
+  startup, when no sessions exist yet.
+- Auto-update is **only active in released builds**. Locally-built apps and the
+  numbered dev slots never self-update (gated by the `UpdaterEnabled` build flag).
+- The updater only touches the app it's running from; your other running Directors
+  and dev slots are unaffected.
+- State (last check, staged version + path) lives in
+  `~/Library/Application Support/cc-director/config/director/updater-state.json`.
+
+---
+
 ## The app icon
 
 - Source: `local_builds/mac/AppIcon.svg` — a dark macOS "squircle" with a **CC**

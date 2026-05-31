@@ -1,4 +1,5 @@
 using System.IO;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using Avalonia;
@@ -10,6 +11,7 @@ using CcDirector.Core.Configuration;
 using CcDirector.Core.Scheduler;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Storage;
+using CcDirector.Core.Update;
 using CcDirector.Core.Utilities;
 using CcDirector.Engine;
 
@@ -34,6 +36,7 @@ public partial class App : Application
     public EngineHost? EngineHost { get; private set; }
     public ControlApiHost? ControlApiHost { get; private set; }
     public SchedulerService? Scheduler { get; private set; }
+    public UpdateService? Updater { get; private set; }
 
     public bool SandboxMode { get; private set; }
 
@@ -78,6 +81,8 @@ public partial class App : Application
                 desktop.MainWindow = mainWindow;
                 mainWindow.Show();
                 splash.Close();
+
+                StartUpdateService(mainWindow);
             }, global::Avalonia.Threading.DispatcherPriority.Background);
 
             desktop.ShutdownRequested += (_, _) => OnShutdown(msg => FileLog.Write($"[CcDirector] {msg}"));
@@ -184,6 +189,48 @@ public partial class App : Application
 
         UpdateSplashStatus(splash, "Starting scheduler...");
         StartScheduler(log);
+    }
+
+    /// <summary>
+    /// Construct the auto-updater and kick off a background "check for updates"
+    /// shortly after the main window is shown. Inert for dev/slot builds (the
+    /// UpdaterEnabled assembly marker is only emitted by CI release builds).
+    /// Never blocks the UI thread; failures only log.
+    /// </summary>
+    private void StartUpdateService(MainWindow mainWindow)
+    {
+        try
+        {
+            var enabled = typeof(App).Assembly
+                .GetCustomAttributes<AssemblyMetadataAttribute>()
+                .Any(a => a.Key == "UpdaterEnabled" &&
+                          string.Equals(a.Value, "true", StringComparison.OrdinalIgnoreCase));
+
+            var current = typeof(App).Assembly.GetName().Version ?? new Version(0, 0, 0);
+            var options = new UpdateOptions
+            {
+                Enabled = enabled,
+                CurrentVersion = current,
+                InstallTarget = UpdateInstaller.InstallTarget(),
+            };
+
+            Updater = new UpdateService(options);
+            Updater.UpdateStaged += staged =>
+                global::Avalonia.Threading.Dispatcher.UIThread.Post(
+                    () => mainWindow.ShowUpdateReady(staged.Version));
+
+            FileLog.Write($"[App] StartUpdateService: enabled={enabled}, current={current}, target={options.InstallTarget}");
+
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(TimeSpan.FromSeconds(2));
+                await Updater.CheckAndStageAsync();
+            });
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[App] StartUpdateService FAILED: {ex.Message}");
+        }
     }
 
     private void StartScheduler(Action<string> log)

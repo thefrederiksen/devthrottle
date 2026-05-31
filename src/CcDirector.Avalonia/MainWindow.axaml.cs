@@ -3208,6 +3208,20 @@ public partial class MainWindow : Window
         NotificationBar.IsVisible = false;
     }
 
+    // ==================== AUTO-UPDATE NOTICE ====================
+
+    /// <summary>
+    /// Passively note that an update has been downloaded. It installs
+    /// automatically the next time CC Director is launched -- the running app is
+    /// never interrupted, so no active sessions are lost. Called by App after
+    /// UpdateService stages a verified build (marshalled to the UI thread).
+    /// </summary>
+    public void ShowUpdateReady(string version)
+    {
+        FileLog.Write($"[MainWindow] ShowUpdateReady: {version}");
+        ShowNotification($"CC Director {version} downloaded -- installs next time you open the app.");
+    }
+
     // ==================== RIGHT PANEL TOGGLE ====================
 
     private void RightPanelToggle_Click(object? sender, RoutedEventArgs e)
