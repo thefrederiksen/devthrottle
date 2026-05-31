@@ -301,6 +301,7 @@
 /* --- full-screen override --- */
 .markdown-body { max-width: none; width: 94vw; margin: 0 auto; }
 .markdown-body table { width: 100%; }
+.markdown-body img { max-width: 100%; height: auto; }
 </style>
 </head>
 <body>
@@ -308,30 +309,31 @@
 <h1>Cockpit / Gateway / Director - Handover</h1>
 <p><strong>Status:</strong> ACTIVE handover
         <strong>Date:</strong> 2026-05-31
-        <strong>For:</strong> a fresh cc-director session picking this up after the current building sessions are killed.</p>
+        <strong>For:</strong> the new agent implementing the <strong>Cockpit</strong> and the <strong>Gateway features</strong>, now that the Director is final, committed, and built.</p>
 <hr/>
 <h2>TL;DR (read this first)</h2>
 <p>We are building <strong>one Cockpit</strong> (Blazor Server, opened in a browser, hosted next to the Gateway) that drives <strong>every</strong> Claude session across the tailnet. <strong>Directors become dumb, long-lived runners</strong> that own the session PTYs. The point is that the UI (Cockpit) restarts freely while <strong>the Directors - and their live sessions - never get killed by our iteration.</strong></p>
-<p><strong>Why this doc exists:</strong> we are about to <strong>kill the current building sessions and relaunch the Directors on a final build.</strong> Rebuilding a Director kills its sessions, so we must get the Director <em>completely right once</em>, launch it, and then never rebuild it. This doc is the source of truth so (a) the final Director build is provably complete, and (b) a fresh agent can continue without us.</p>
-<p><strong>The golden rule:</strong> <strong>ALL Director-side changes go into the final build BEFORE launch.</strong> After launch, only the Cockpit and the Gateway change (both restart freely without touching sessions).</p>
+<p><strong>Why this doc exists:</strong> the Director is now <strong>final, committed (<code>2c12a04</code> code, <code>ba839f6</code> docs), and built</strong> at <code>local_builds\cc-director.exe</code>. Its whole desktop capability surface is exposed over REST, so we should not need to rebuild a Director again. The remaining work is two bodies: <strong>the Cockpit</strong> (the UI) and <strong>the Gateway features</strong> (service, key vault, settings tiers). This doc hands the new agent the current state and how to implement both.</p>
+<p><strong>The golden rule (still holds):</strong> <strong>ALL Director-side changes go into the build BEFORE launch.</strong> After launch, only the Cockpit and the Gateway change - both restart freely without touching a single running session.</p>
 <p><strong>Read the detail in:</strong></p>
 <ul>
 <li>Architecture -&gt; <a href="COCKPIT_DESIGN.md">COCKPIT_DESIGN.md</a> (+ <code>cockpit-topology.png</code>)</li>
 <li>Phased plan -&gt; <a href="IMPLEMENTATION_PLAN.md">IMPLEMENTATION_PLAN.md</a></li>
-<li>This doc = current status + the launch gate + cross-machine rollout.</li>
+<li>What shipped in the Director -&gt; <a href="../../features/cockpit-final-build/REPORT.html">the final-build report</a></li>
+<li>Gateway features to build -&gt; <a href="../gateway/GATEWAY_KEY_VAULT.md">GATEWAY_KEY_VAULT.md</a>, <a href="../gateway/SETTINGS_OWNERSHIP.md">SETTINGS_OWNERSHIP.md</a></li>
+<li>This doc = current state + the new agent's mission + cross-machine rollout.</li>
 </ul>
 <hr/>
-<h2>Current status (2026-05-31)</h2>
-<p>Two parallel tracks (see the plan):</p>
+<h2>Current status (2026-05-31) - what's DONE</h2>
 <ul>
-<li><strong>Track A - Gateway becomes a Windows service.</strong> Being finished by the cockpit agent: re-host <code>GatewayHost</code> under <code>UseWindowsService()</code>, install/autostart, and a probe circuit-breaker for alive-but-unreachable Directors. The <strong>legacy NSSM <code>cc_director</code> service has been removed</strong> (verified: <code>sc</code>/CIM/registry all clear), so the name and slate are free for the new service.</li>
-<li><strong>Track B - final Director build + interactive Cockpit terminal.</strong> Registration fix + queue REST done. <strong>#3-#6 implemented + tested (18/18 green), build 0 warnings</strong> - see <a href="../../features/cockpit-final-build/REPORT.html">the report</a>. The interactive terminal already works (Cockpit routes xterm <code>onData</code> -&gt; <code>POST /prompt {appendEnter:false}</code>); #3's bidirectional <code>/stream</code> is a <strong>kept lower-latency capability</strong> for a future <code>ws.send</code> switch (no rebuild needed). Remaining on this track: cut the build and run the live E2E.</li>
-<li><strong>Cockpit app</strong> (<code>src/CcDirector.Cockpit/</code>, Blazor Server, references <code>Gateway.Contracts</code> only): left rail, direct-to-Director terminal, composer (Speak/Send/Queue/Interrupt/Esc), screenshot upload, queue panel. <strong>Verified</strong> against a slot-5 test Director: terminal renders and Send round-trips over the tailnet.</li>
+<li><strong>Director: final, committed, built.</strong> <code>#3-#6</code> (interactive terminal, queue auto-drain, resize, full REST surface: git writes, workspaces/history, scheduler, relink) are implemented + tested (18/18, 0 warnings) and committed (<code>2c12a04</code>). The <strong>main <code>local_builds\cc-director.exe</code> is built</strong> and ready to launch as the new stable main.</li>
+<li><strong>Gateway (committed, on <code>origin/main</code>):</strong> registration fix (<code>https://{magicdns}:{port}</code>), queue REST, a probe <strong>circuit-breaker</strong> for alive-but-unreachable Directors, and Cockpit supervision. The legacy NSSM <code>cc_director</code> service was <strong>removed</strong> (slate clear for a real service).</li>
+<li><strong>Cockpit app</strong> (<code>src/CcDirector.Cockpit/</code>, Blazor Server, <code>Gateway.Contracts</code> only): left rail, direct-to-Director terminal (typeable - input via <code>onData</code>-&gt;<code>POST /prompt {appendEnter:false}</code>), composer (Speak/Send/Queue/Interrupt/Esc), screenshot upload, queue panel. Verified against a test Director (terminal renders, Send round-trips).</li>
 </ul>
-<p><strong>Nothing is committed to git.</strong> All of the above is working-tree only.</p>
+<p><strong>Everything above is committed and pushed-ready</strong> (local <code>main</code> is 2 commits ahead of <code>origin</code> at handoff - push to share).</p>
 <hr/>
-<h2>THE LAUNCH GATE - the final Director build must be provably complete</h2>
-<p>This is the most important section. The Director's REST surface is <strong>already almost everything the whole Cockpit roadmap needs.</strong> Verified inventory (<code>src/CcDirector.ControlApi/</code>):</p>
+<h2>The Director REST surface (the gate is MET)</h2>
+<p>The Director now exposes the <strong>entire</strong> desktop capability surface over REST. The Cockpit builds against this and needs no further Director change. Inventory (<code>src/CcDirector.ControlApi/</code>):</p>
 <p><strong>Already present (no change needed):</strong></p>
 <ul>
 <li><strong>Lifecycle:</strong> <code>GET /sessions</code>, <code>GET /sessions/{sid}</code>, <code>POST /sessions</code> (create), <code>POST /sessions/github</code>, <code>DELETE /sessions/{sid}</code> (kill), <code>PATCH /sessions/{sid}</code> (rename), <code>GET /repos</code></li>
@@ -376,13 +378,31 @@
 </tr>
 </tbody>
 </table>
-<p><strong>Gate status:</strong> #3-#6 are <strong>implemented and tested (18/18 passing, build 0 warnings)</strong> - the Director now exposes the entire desktop capability surface over REST. Report: <a href="../../features/cockpit-final-build/REPORT.html">REPORT.html</a>. <strong>Remaining before the final launch:</strong> (1) cut the build and run the live E2E from the Cockpit, (2) roll to Mac-mini + Windows-2. After that, no Director rebuilds.</p>
+<p><strong>Gate status: MET.</strong> #3-#6 implemented, tested (18/18), committed, and the main is built. Report: <a href="../../features/cockpit-final-build/REPORT.html">REPORT.html</a>.</p>
+<hr/>
+<h2>New agent: your mission</h2>
+<p>The Director is done. Your work is two streams - both safe (they never rebuild a Director, so live sessions survive your iteration):</p>
+<h3>Stream 1 - Implement the Cockpit (follow <a href="IMPLEMENTATION_PLAN.md">IMPLEMENTATION_PLAN.md</a>)</h3>
+<ul>
+<li><strong>Done:</strong> left rail, live terminal (typeable), composer, queue, screenshots.</li>
+<li><strong>Phase 2 - operate without the desktop:</strong> New session / kill / rename UI + a Settings view (<code>POST /sessions</code>, <code>DELETE</code>, <code>PATCH</code>, <code>GET/PUT /settings</code> - all exist).</li>
+<li><strong>Phase 3 - awareness:</strong> consume the Director's existing <code>/wingman</code>, <code>/explain</code>, <code>/recap</code>, <code>/turn-summaries</code> over REST (no Core reference needed). Recap panel, turn-summary rail, needs-you/notifications.</li>
+<li><strong>Phase 4 - power tools:</strong> git view using the new <code>/git/stage|unstage|discard|commit</code>; workspaces/history (<code>/workspaces</code>, <code>/history</code>); scheduler (<code>/scheduler</code>); relink (<code>/relink</code>).</li>
+<li><strong>Phase 5 - voice</strong>, then deprecate the desktop terminal.</li>
+<li><strong>Optional perf win:</strong> switch terminal input from per-keystroke REST to direct <code>ws.send</code> over the now-bidirectional <code>/stream</code> (#3 capability is already in the build - no Director change).</li>
+</ul>
+<h3>Stream 2 - Build the Gateway features</h3>
+<ul>
+<li><strong>Gateway -&gt; Windows service</strong> (Track A): re-host <code>GatewayHost</code> under <code>UseWindowsService()</code>, install/autostart, survives logout/RDP. The <code>cc_director</code> NSSM service is already removed, so the name is free. Recommend a dedicated <code>CcDirector.GatewayService</code> host; the tray becomes optional.</li>
+<li><strong>Key Vault</strong> - central API keys handed out to Directors on demand. Spec + diagram: <a href="../gateway/GATEWAY_KEY_VAULT.md">GATEWAY_KEY_VAULT.md</a>.</li>
+<li><strong>Settings tiers</strong> - classify settings into Gateway-central vs Director-local as they come up. Framework: <a href="../gateway/SETTINGS_OWNERSHIP.md">SETTINGS_OWNERSHIP.md</a>.</li>
+</ul>
 <hr/>
 <h2>Launch + cross-machine rollout</h2>
 <p>Goal: the <strong>same final Director build</strong> running on <strong>this Windows box, the Mac-mini, and Windows-2</strong>, all registered with the Gateway service, all controllable from the one Cockpit.</p>
 <ol>
-<li><strong>Cut the final Director build</strong> (with #3, #4, and the chosen optionals).</li>
-<li><strong>Relaunch locally:</strong> kill the current building sessions, launch the fresh Director(s) on the final build. (Relaunch deliberately; never kill a Director out from under a session you want to keep.)</li>
+<li><strong>The main build is done</strong> - <code>local_builds\cc-director.exe</code> (committed code <code>2c12a04</code>).</li>
+<li><strong>Relaunch locally:</strong> launch the fresh main and move your live sessions onto it deliberately (never kill a Director out from under a session you want to keep).</li>
 <li><strong>Mac-mini:</strong> build the <strong>Mac</strong> Director (.NET; uses the <code>UnixPty</code> backend, not ConPty - confirm <code>docs/plan-mac-support.md</code> maturity). Set <code>gatewayUrl</code>, ensure Tailscale Serve, autostart at login, launch.</li>
 <li><strong>Windows-2:</strong> same final Windows build as the main box; set <code>gatewayUrl</code>, Tailscale Serve, logon autostart, launch.</li>
 <li><strong>Per machine, confirm:</strong> the Director registers <code>https://{magicdns}:{port}</code>, appears in the Cockpit rail, and a session's terminal drives end-to-end (output + typing + Send/Queue + screenshot + Interrupt/Esc).</li>
@@ -406,11 +426,10 @@
 <li><strong>Director must NOT be a service</strong> (Session 0 isolation breaks ConPTY). <strong>Gateway IS a service.</strong> <strong>Cockpit is neither</strong> - it's a browser-accessed web app next to the Gateway.</li>
 </ul>
 <hr/>
-<h2>Open decisions to settle before launch</h2>
+<h2>Open decisions</h2>
 <ol>
-<li><s>Include #5 (PTY resize)?</s> <strong>DECIDED: yes.</strong></li>
-<li><s>Workspaces/history now or later?</s> <strong>DECIDED: endpoints for everything now (#6).</strong></li>
-<li><strong>Track A:</strong> new <code>CcDirector.GatewayService</code> host project vs a <code>--service</code> mode on the existing <code>CcDirector.GatewayApp</code> tray. (Recommend a dedicated service host; tray becomes optional.)</li>
+<li><strong>Gateway service host:</strong> a new <code>CcDirector.GatewayService</code> project vs a <code>--service</code> mode on the existing <code>CcDirector.GatewayApp</code> tray. (Recommend a dedicated service host; the tray becomes optional.)</li>
+<li><strong>Key Vault at-rest format</strong> and <strong>per-setting tier classification</strong> - deferred until each is built (see the gateway docs).</li>
 </ol>
 <hr/>
 <h2>Document History</h2>
@@ -426,7 +445,12 @@
 <tr>
 <td>2026-05-31</td>
 <td>claude (cc-director assistant)</td>
-<td>Initial handover. Verified Director REST inventory; defined the launch gate (only #3/#4 required, #5 + workspaces/history to decide); cross-machine rollout to Mac-mini + Windows-2.</td>
+<td>Initial handover. Verified Director REST inventory; defined the launch gate; cross-machine rollout to Mac-mini + Windows-2.</td>
+</tr>
+<tr>
+<td>2026-05-31</td>
+<td>claude (cc-director assistant)</td>
+<td><strong>Director final + committed (<code>2c12a04</code>/<code>ba839f6</code>) + main built.</strong> Reframed from launch-gate to the new agent's mission: Stream 1 implement the Cockpit (phases), Stream 2 build the Gateway features (service, key vault, settings tiers).</td>
 </tr>
 </tbody>
 </table>
