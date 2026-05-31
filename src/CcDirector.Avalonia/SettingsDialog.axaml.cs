@@ -10,6 +10,7 @@ using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Network;
+using CcDirector.Core.Storage;
 using CcDirector.Core.Utilities;
 
 namespace CcDirector.Avalonia;
@@ -100,6 +101,48 @@ public partial class SettingsDialog : Window
         var raw = root.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
 
         return (screenshots, url, advertised, token, raw);
+    }
+
+    /// <summary>
+    /// Fill the screenshots folder with the location this OS saves screenshots to (Windows
+    /// Pictures\Screenshots, macOS screencapture location / Desktop). Fills the box on success;
+    /// tells the user to Browse when none is found.
+    /// </summary>
+    private async void BtnDetectScreenshots_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write("[SettingsDialog] BtnDetectScreenshots_Click");
+        DetectScreenshotsButton.IsEnabled = false;
+        try
+        {
+            var dir = await Task.Run(() => ScreenshotLocator.Detect());
+            if (string.IsNullOrEmpty(dir))
+            {
+                ShowScreenshotsStatus("Could not detect a screenshots folder on this machine. Use Browse to pick one.", error: true);
+                return;
+            }
+
+            ScreenshotsDirBox.Text = dir;
+            ShowScreenshotsStatus($"Detected {dir}. Click Save to use it.", error: false);
+            FileLog.Write($"[SettingsDialog] BtnDetectScreenshots_Click: {dir}");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[SettingsDialog] BtnDetectScreenshots_Click FAILED: {ex.Message}");
+            ShowScreenshotsStatus($"Detection failed: {ex.Message}", error: true);
+        }
+        finally
+        {
+            DetectScreenshotsButton.IsEnabled = true;
+        }
+    }
+
+    private void ShowScreenshotsStatus(string text, bool error)
+    {
+        ScreenshotsStatus.Text = text;
+        ScreenshotsStatus.IsVisible = true;
+        ScreenshotsStatus.Foreground = error
+            ? global::Avalonia.Media.Brushes.IndianRed
+            : global::Avalonia.Media.Brushes.MediumSeaGreen;
     }
 
     private async void BtnBrowse_Click(object? sender, RoutedEventArgs e)

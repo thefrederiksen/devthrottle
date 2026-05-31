@@ -33,17 +33,25 @@
                            FontWeight="SemiBold" Margin="0,4,0,0" />
                 <TextBlock Text="Where phone-uploaded images are filed so a session can read them by path. On a Mac this must be set explicitly."
                            Foreground="#888888" FontSize="11" TextWrapping="Wrap" />
-                <Grid ColumnDefinitions="*,Auto">
+                <Grid ColumnDefinitions="*,Auto,Auto">
                     <TextBox x:Name="ScreenshotsDirBox" Grid.Column="0"
                              Background="#1E1E1E" Foreground="#CCCCCC" CaretBrush="#CCCCCC"
                              BorderBrush="#3C3C3C" BorderThickness="1" Padding="8,6"
                              Watermark="e.g. /Users/soren/Desktop" />
-                    <Button x:Name="BrowseButton" Grid.Column="1" Content="Browse..."
+                    <Button x:Name="DetectScreenshotsButton" Grid.Column="1" Content="Detect"
+                            Height="30" Margin="8,0,0,0" Padding="12,0"
+                            Background="#3C3C3C" Foreground="#CCCCCC"
+                            BorderThickness="0" Cursor="Hand"
+                            ToolTip.Tip="Find the folder where this OS saves screenshots"
+                            Click="BtnDetectScreenshots_Click" />
+                    <Button x:Name="BrowseButton" Grid.Column="2" Content="Browse..."
                             Height="30" Margin="8,0,0,0" Padding="12,0"
                             Background="#3C3C3C" Foreground="#CCCCCC"
                             BorderThickness="0" Cursor="Hand"
                             Click="BtnBrowse_Click" />
                 </Grid>
+                <TextBlock x:Name="ScreenshotsStatus" Text="" Foreground="#888888"
+                           FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0" IsVisible="False" />
 
                 <!-- ============ Gateway ============ -->
                 <TextBlock Text="Gateway" Foreground="#CCCCCC" FontSize="14"
