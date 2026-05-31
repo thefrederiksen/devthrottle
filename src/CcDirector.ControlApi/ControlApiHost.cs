@@ -205,6 +205,7 @@ public sealed class ControlApiHost : IAsyncDisposable
         DictationEndpoint.Map(_app, _sessionManager.Options);
         TerminalStreamEndpoint.Map(_app, _sessionManager);
         SettingsEndpoint.Map(_app, ReapplyGatewayAsync, () => Port);
+        ToolsEndpoint.Map(_app);
 
         await _app.StartAsync();
 

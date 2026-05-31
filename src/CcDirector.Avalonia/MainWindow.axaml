@@ -105,6 +105,19 @@
                         </Border>
                     </Grid>
 
+                    <!-- Tools catalog -->
+                    <Button x:Name="BtnTools" Classes="toolbarBtn"
+                            Click="BtnTools_Click"
+                            ToolTip.Tip="Tools -- browse, test and showcase the cc-* toolset">
+                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                            <Viewbox Width="15" Height="15">
+                                <Path Stroke="#CCCCCC" StrokeThickness="1.3" Fill="Transparent"
+                                      Data="M2,2 h5 v5 h-5 z M9,2 h5 v5 h-5 z M2,9 h5 v5 h-5 z M9,9 h5 v5 h-5 z" />
+                            </Viewbox>
+                            <TextBlock Text="Tools" FontSize="12" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+
                     <Border Width="1" Height="18" Background="#3C3C3C"
                             Margin="6,0" VerticalAlignment="Center" />
 
@@ -1407,6 +1420,39 @@
                 </Border>
 
                 <controls:SchedulerView x:Name="SchedulerView" />
+            </DockPanel>
+        </Border>
+
+        <!-- ==================== TOOLS OVERLAY (covers main + right panel) ==================== -->
+        <Border x:Name="ToolsOverlay"
+                Grid.Row="0" Grid.RowSpan="2" Grid.Column="2"
+                Background="{DynamicResource PanelBackground}"
+                ZIndex="10"
+                IsVisible="False">
+            <DockPanel>
+                <Border DockPanel.Dock="Top"
+                        Background="{DynamicResource SidebarBackground}"
+                        BorderBrush="#3C3C3C" BorderThickness="0,0,0,1"
+                        Padding="12,8">
+                    <DockPanel>
+                        <Button x:Name="BtnToolsClose"
+                                DockPanel.Dock="Right"
+                                Content="[x] Close"
+                                Click="BtnToolsClose_Click"
+                                Background="Transparent"
+                                Foreground="#888888"
+                                BorderThickness="0"
+                                Cursor="Hand"
+                                Padding="8,4"
+                                FontSize="12" />
+                        <TextBlock Text="Tools"
+                                   Foreground="{DynamicResource TextForeground}"
+                                   FontSize="16" FontWeight="Bold"
+                                   VerticalAlignment="Center" />
+                    </DockPanel>
+                </Border>
+
+                <controls:ToolsView x:Name="ToolsView" />
             </DockPanel>
         </Border>
 

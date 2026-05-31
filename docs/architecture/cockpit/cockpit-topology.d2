@@ -1,0 +1,88 @@
+# CC Director - Cockpit Fleet Topology  (TARGET / PLANNED - v1)
+#
+# Left  = the OUTSIDE VIEW you interact with:  the Cockpit (your window) and the
+#         always-on Gateway it reads from.
+# Right = INSIDE the Tailscale network:  the runner machines, each with a
+#         Director that owns the live session PTYs.
+#
+# The Cockpit reads the fleet directory from the Gateway, then reaches straight
+# into the network to each owning Director for the live terminal + prompts.
+# The Gateway never carries terminal traffic.  Directors are dumb runners;
+# restarting the Cockpit never touches a session.
+#
+# Render with:
+#   "D:\Tools\d2\d2.exe" --theme=0 --layout=elk cockpit-topology.d2 cockpit-topology.png
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+    pad: 70
+  }
+}
+
+direction: right
+
+classes: {
+  cockpit: {
+    style: { fill: "#0E5A8A"; stroke: "#083A5A"; stroke-width: 4; font-color: white; font-size: 19; bold: true; border-radius: 12; shadow: true }
+  }
+  gateway: {
+    style: { fill: "#1A5276"; stroke: "#0E3850"; stroke-width: 4; font-color: white; font-size: 19; bold: true; border-radius: 12; shadow: true }
+  }
+  director: {
+    style: { fill: "#1D7044"; stroke: "#0E4527"; stroke-width: 4; font-color: white; font-size: 18; bold: true; border-radius: 12; shadow: true }
+  }
+  sessions: {
+    style: { fill: "#7030A0"; stroke: "#4E2270"; stroke-width: 3; font-color: white; font-size: 16; bold: true; border-radius: 10; shadow: true }
+  }
+  machine: {
+    style: { fill: "#EAF1F8"; stroke: "#5B7C99"; stroke-width: 2; font-color: "#22303C"; font-size: 17; bold: true; border-radius: 14 }
+  }
+  outside: {
+    style: { fill: "#F7F4EC"; stroke: "#7E6B3A"; stroke-width: 2; stroke-dash: 5; font-color: "#4A3F22"; font-size: 19; bold: true; border-radius: 16 }
+  }
+  net: {
+    style: { fill: "#E9F6EF"; stroke: "#1D7044"; stroke-width: 3; stroke-dash: 6; font-color: "#0E4527"; font-size: 20; bold: true; border-radius: 18 }
+  }
+}
+
+# ===== LEFT: the outside view (you sit here) ================================
+outside: "OUTSIDE VIEW  -  where you sit" {
+  class: outside
+
+  Cockpit: "COCKPIT\nCcDirector.Cockpit  (Blazor Server)\n\nYour single window into the whole fleet.\nReuses Core C#: WingmanService, SummaryBuilder, RecapGenerator.\nOwns NO session state -> restart it all day, sessions survive." { class: cockpit }
+
+  Gateway: "GATEWAY  (always on)\ncc-director-gateway-tray : 7878\n\nThe front door. Knows every Director on the network.\nServes the directory: GET /sessions, GET /directors.\nDiscovery + read-aggregation ONLY - never carries terminals." { class: gateway }
+
+  Cockpit -> Gateway: "your outside view\ninto the Gateway" { style.stroke: "#1A5276"; style.stroke-width: 4; style.font-size: 16; style.bold: true }
+}
+
+# ===== RIGHT: inside the Tailscale network (the runners) ====================
+network: "TAILSCALE NETWORK  -  the runners live in here" {
+  class: net
+
+  macmini: "Mac-mini" {
+    class: machine
+    DirB: "Director (runner) : 7879" { class: director }
+    SessB: "1..N sessions\n(PTYs - never killed)" { class: sessions }
+    DirB -> SessB: "owns PTY" { style.stroke: "#7030A0"; style.stroke-width: 3; style.font-size: 14 }
+  }
+
+  win2: "Windows-2" {
+    class: machine
+    DirC: "Director (runner) : 7879" { class: director }
+    SessC: "1..N sessions\n(PTYs - never killed)" { class: sessions }
+    DirC -> SessC: "owns PTY" { style.stroke: "#7030A0"; style.stroke-width: 3; style.font-size: 14 }
+  }
+
+  more: "...  more machines\n(any tailnet node\nrunning a Director)" {
+    style: { fill: "#F4FAF6"; stroke: "#1D7044"; stroke-width: 2; stroke-dash: 4; font-color: "#0E4527"; font-size: 15; border-radius: 10 }
+  }
+}
+
+# ===== Gateway knows the fleet (discovery reaches into the network) =========
+outside.Gateway -> network: "discovery: knows every Director inside\n(each one registers with it)" { style.stroke: "#1A5276"; style.stroke-width: 4; style.font-size: 16; style.bold: true; style.stroke-dash: 4 }
+
+# ===== Cockpit dials each owning Director DIRECTLY (live terminal + prompts) =
+outside.Cockpit -> network.macmini.DirB: "live terminal + prompts (DIRECT)" { style.stroke: "#922B21"; style.stroke-width: 5; style.font-size: 16; style.bold: true }
+outside.Cockpit -> network.win2.DirC: "live terminal + prompts (DIRECT)" { style.stroke: "#922B21"; style.stroke-width: 5; style.font-size: 16; style.bold: true }

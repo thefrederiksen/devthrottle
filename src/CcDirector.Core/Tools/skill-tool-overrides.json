@@ -1,0 +1,17 @@
+{
+  "_comment": "Hand-curated skill->tool links that the auto-discovery scanner (SkillToolLinker) cannot infer from a skill's text - e.g. a skill that drives a tool indirectly or refers to it by capability rather than by its cc-* name. These are merged into the discovered links and flagged 'declared' (vs 'discovered') in the UI so the source is always honest. Keyed by tool name; each entry is a skill name + relation ('drives' = the skill is primarily about this tool, 'uses' = it is one of several).",
+  "overrides": {
+    "cc-comm-queue": [
+      { "skill": "write", "relation": "drives" },
+      { "skill": "campaign", "relation": "uses" }
+    ],
+    "cc-vault": [
+      { "skill": "vault-manager", "relation": "drives" },
+      { "skill": "contact-merge", "relation": "uses" },
+      { "skill": "campaign", "relation": "uses" }
+    ],
+    "cc-settings": [
+      { "skill": "cc-settings-api", "relation": "drives" }
+    ]
+  }
+}

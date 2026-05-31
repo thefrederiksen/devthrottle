@@ -142,6 +142,8 @@ public partial class MainWindow : Window
         SessionList.AddHandler(DragDrop.DragOverEvent, SessionList_DragOver);
         SessionList.AddHandler(DragDrop.DropEvent, SessionList_Drop);
         SessionList.AddHandler(PointerPressedEvent, SessionList_PointerPressed, global::Avalonia.Interactivity.RoutingStrategies.Tunnel);
+
+        BuildNativeMenu();
     }
 
     private void MainWindow_Activated(object? sender, EventArgs e)
@@ -1667,74 +1669,105 @@ public partial class MainWindow : Window
         FileLog.Write("[MainWindow] ShowNewSessionDialog: complete");
     }
 
-    private void BtnAppMenu_Click(object? sender, RoutedEventArgs e)
+    // Builds the window menu bar (File / Session / View / Tools / Help). Rendered
+    // in-window by the NativeMenuBar on Windows/Linux and lifted into the system
+    // menu bar on macOS. Replaces the old scattered entry points (sidebar hamburger,
+    // New Session caret, top-bar More/Settings/? cluster). Each leaf reuses the
+    // existing click handlers / dialog logic so behavior is unchanged.
+    private void BuildNativeMenu()
     {
-        FileLog.Write("[MainWindow] BtnAppMenu_Click");
-        _ = ShowAppMenu();
-    }
+        FileLog.Write("[MainWindow] BuildNativeMenu");
 
-    private async Task ShowAppMenu()
-    {
-        var app = (App)global::Avalonia.Application.Current!;
-
-        var menu = new ContextMenu();
-
-        var saveWorkspace = new MenuItem { Header = "Save Workspace..." };
-        saveWorkspace.Click += async (_, _) =>
+        NativeMenuItem Item(string header, Action onClick, KeyGesture? gesture = null)
         {
+            var mi = new NativeMenuItem(header);
+            mi.Click += (_, _) => onClick();
+            if (gesture != null) mi.Gesture = gesture;
+            return mi;
+        }
+
+        App AppRef() => global::Avalonia.Application.Current as App
+            ?? throw new InvalidOperationException("Application.Current is not the CC Director App");
+
+        var menu = new NativeMenu();
+
+        // ===== File =====
+        var file = new NativeMenuItem("File") { Menu = new NativeMenu() };
+        file.Menu.Items.Add(Item("New Session", () => BtnNewSession_Click(this, new RoutedEventArgs()),
+            new KeyGesture(Key.N, KeyModifiers.Control)));
+        file.Menu.Items.Add(new NativeMenuItemSeparator());
+        file.Menu.Items.Add(Item("Save Workspace...", async () =>
+        {
+            var app = AppRef();
             var sessionData = _sessions.Select(vm => new SessionData(
-                vm.DisplayName,
-                vm.Session.RepoPath,
-                vm.Session.CustomName,
-                vm.Session.CustomColor,
-                vm.Session.ClaudeArgs));
+                vm.DisplayName, vm.Session.RepoPath, vm.Session.CustomName,
+                vm.Session.CustomColor, vm.Session.ClaudeArgs));
             var dialog = new SaveWorkspaceDialog(app.WorkspaceStore, sessionData);
             await dialog.ShowDialog<bool?>(this);
-        };
-
-        var loadWorkspace = new MenuItem { Header = "Load Workspace..." };
-        loadWorkspace.Click += async (_, _) =>
+        }));
+        file.Menu.Items.Add(Item("Load Workspace...", async () =>
         {
-            var dialog = new LoadWorkspaceDialog(app.WorkspaceStore);
+            var dialog = new LoadWorkspaceDialog(AppRef().WorkspaceStore);
             var result = await dialog.ShowDialog<bool?>(this);
             if (result == true && dialog.SelectedWorkspace != null)
             {
-                if (_sessions.Count > 0)
-                    await CloseAllSessionsAsync();
+                if (_sessions.Count > 0) await CloseAllSessionsAsync();
                 await LoadWorkspaceAsync(dialog.SelectedWorkspace);
             }
-        };
-
-        var clearWorkspace = new MenuItem { Header = "Clear Workspace" };
-        clearWorkspace.Click += async (_, _) =>
+        }));
+        file.Menu.Items.Add(Item("Clear Workspace", async () =>
         {
             if (_sessions.Count == 0) return;
             await CloseAllSessionsAsync();
-        };
-
-        var separator1 = new Separator();
-
-        var openLogs = new MenuItem { Header = "Open Logs" };
-        openLogs.Click += (_, _) =>
+        }));
+        file.Menu.Items.Add(new NativeMenuItemSeparator());
+        file.Menu.Items.Add(Item("Open Sessions File", () =>
+        {
+            var filePath = AppRef().SessionStateStore.FilePath;
+            if (File.Exists(filePath))
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(filePath)
+                    { UseShellExecute = true });
+            else
+                ShowNotification($"Sessions file not found: {filePath}");
+        }));
+        file.Menu.Items.Add(Item("Open History Folder", () =>
+        {
+            var folder = AppRef().SessionHistoryStore.FolderPath;
+            if (Directory.Exists(folder))
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                    { FileName = folder, UseShellExecute = true });
+            else
+                ShowNotification($"History folder not found: {folder}");
+        }));
+        file.Menu.Items.Add(Item("History in VS Code", () =>
+        {
+            var folder = AppRef().SessionHistoryStore.FolderPath;
+            if (Directory.Exists(folder))
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("code", $"\"{folder}\"")
+                    { UseShellExecute = true });
+            else
+                ShowNotification($"History folder not found: {folder}");
+        }));
+        file.Menu.Items.Add(Item("Open Logs", () =>
         {
             var logDir = Path.GetDirectoryName(FileLog.CurrentLogPath);
             if (logDir != null && Directory.Exists(logDir))
-            {
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = logDir,
-                    UseShellExecute = true
-                });
-            }
-        };
+                    { FileName = logDir, UseShellExecute = true });
+        }));
+        file.Menu.Items.Add(new NativeMenuItemSeparator());
+        file.Menu.Items.Add(Item("Exit", Close));
+        menu.Items.Add(file);
 
-        var separator2 = new Separator();
-
-        var repositories = new MenuItem { Header = "Repositories..." };
-        repositories.Click += async (_, _) =>
+        // ===== Session =====
+        var session = new NativeMenuItem("Session") { Menu = new NativeMenu() };
+        session.Menu.Items.Add(Item("New Session", () => BtnNewSession_Click(this, new RoutedEventArgs())));
+        session.Menu.Items.Add(Item("Start FIFO", () => BtnFifo_Click(this, new RoutedEventArgs())));
+        session.Menu.Items.Add(new NativeMenuItemSeparator());
+        session.Menu.Items.Add(Item("Repositories...", async () =>
         {
             FileLog.Write("[MainWindow] Menu: Repositories");
-            var dialog = new RepositoryManagerDialog(app.RootDirectoryStore);
+            var dialog = new RepositoryManagerDialog(AppRef().RootDirectoryStore);
             var result = await dialog.ShowDialog<bool?>(this);
             if (result == true && dialog.LaunchSessionPath != null)
             {
@@ -1746,97 +1779,53 @@ public partial class MainWindow : Window
                     SwitchLeftTab("Terminal");
                 }
             }
-        };
-
-        var accounts = new MenuItem { Header = "Accounts..." };
-        accounts.Click += async (_, _) =>
+        }));
+        session.Menu.Items.Add(Item("Accounts...", async () =>
         {
             FileLog.Write("[MainWindow] Menu: Accounts");
-            var dialog = new AccountsDialog(app.ClaudeAccountStore);
+            var dialog = new AccountsDialog(AppRef().ClaudeAccountStore);
             await dialog.ShowDialog<bool?>(this);
-        };
-
-        var manager = new MenuItem { Header = "Director (multi-session)" };
-        manager.Click += (_, _) =>
-        {
-            FileLog.Write("[MainWindow] Menu: Director");
-            // Select the Director tab in the right panel
-            RightPanelTabs.SelectedItem = TabItemDirector;
-        };
-
-        var showReviews = new MenuItem { Header = "Show Reviews" };
-        showReviews.Click += async (_, _) =>
+        }));
+        session.Menu.Items.Add(new NativeMenuItemSeparator());
+        session.Menu.Items.Add(Item("Show Reviews", async () =>
         {
             FileLog.Write("[MainWindow] Menu: Show Reviews");
             var dialog = new TurnReviewDialog();
             await dialog.ShowDialog(this);
-        };
+        }));
+        menu.Items.Add(session);
 
-        var separator3 = new Separator();
+        // ===== View =====
+        var view = new NativeMenuItem("View") { Menu = new NativeMenu() };
+        view.Menu.Items.Add(Item("Toggle Right Panel", () => RightPanelToggle_Click(this, new RoutedEventArgs())));
+        view.Menu.Items.Add(Item("Reset Terminal View", () => TabBarRefreshButton_Click(this, new RoutedEventArgs())));
+        menu.Items.Add(view);
 
-        var openSessions = new MenuItem { Header = "Open Sessions File" };
-        openSessions.Click += (_, _) =>
+        // ===== Tools =====
+        var tools = new NativeMenuItem("Tools") { Menu = new NativeMenu() };
+        tools.Menu.Items.Add(Item("Communications", () => BtnComms_Click(this, new RoutedEventArgs())));
+        tools.Menu.Items.Add(Item("Connections", () => BtnConnections_Click(this, new RoutedEventArgs())));
+        tools.Menu.Items.Add(Item("Scheduler", () => BtnScheduler_Click(this, new RoutedEventArgs())));
+        tools.Menu.Items.Add(Item("Director (multi-session)", () =>
         {
-            FileLog.Write("[MainWindow] Menu: Open Sessions File");
-            var filePath = app.SessionStateStore.FilePath;
-            if (File.Exists(filePath))
-            {
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(filePath)
-                    { UseShellExecute = true });
-            }
-            else
-            {
-                ShowNotification($"Sessions file not found: {filePath}");
-            }
-        };
+            FileLog.Write("[MainWindow] Menu: Director");
+            RightPanelTabs.SelectedItem = TabItemDirector;
+        }));
+        tools.Menu.Items.Add(new NativeMenuItemSeparator());
+        tools.Menu.Items.Add(Item("Claude View...", () => BtnClaudeView_Click(this, new RoutedEventArgs())));
+        tools.Menu.Items.Add(Item("MCP Servers...", () => BtnMcpServers_Click(this, new RoutedEventArgs())));
+        tools.Menu.Items.Add(Item("Agent Templates...", () => BtnAgentTemplates_Click(this, new RoutedEventArgs())));
+        tools.Menu.Items.Add(Item("Claude Code Settings...", () => BtnClaudeConfig_Click(this, new RoutedEventArgs())));
+        tools.Menu.Items.Add(new NativeMenuItemSeparator());
+        tools.Menu.Items.Add(Item("Settings...", () => BtnSettings_Click(this, new RoutedEventArgs())));
+        menu.Items.Add(tools);
 
-        var openHistory = new MenuItem { Header = "Open History Folder" };
-        openHistory.Click += (_, _) =>
-        {
-            FileLog.Write("[MainWindow] Menu: Open History Folder");
-            var folder = app.SessionHistoryStore.FolderPath;
-            if (Directory.Exists(folder))
-            {
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                    { FileName = folder, UseShellExecute = true });
-            }
-            else
-            {
-                ShowNotification($"History folder not found: {folder}");
-            }
-        };
+        // ===== Help =====
+        var help = new NativeMenuItem("Help") { Menu = new NativeMenu() };
+        help.Menu.Items.Add(Item("About CC Director", () => BtnHelp_Click(this, new RoutedEventArgs())));
+        menu.Items.Add(help);
 
-        var historyVsCode = new MenuItem { Header = "History in VS Code" };
-        historyVsCode.Click += (_, _) =>
-        {
-            FileLog.Write("[MainWindow] Menu: History in VS Code");
-            var folder = app.SessionHistoryStore.FolderPath;
-            if (Directory.Exists(folder))
-            {
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("code", $"\"{folder}\"")
-                    { UseShellExecute = true });
-            }
-            else
-            {
-                ShowNotification($"History folder not found: {folder}");
-            }
-        };
-
-        menu.Items.Add(saveWorkspace);
-        menu.Items.Add(loadWorkspace);
-        menu.Items.Add(clearWorkspace);
-        menu.Items.Add(separator1);
-        menu.Items.Add(repositories);
-        menu.Items.Add(accounts);
-        menu.Items.Add(manager);
-        menu.Items.Add(showReviews);
-        menu.Items.Add(separator2);
-        menu.Items.Add(openLogs);
-        menu.Items.Add(openSessions);
-        menu.Items.Add(openHistory);
-        menu.Items.Add(historyVsCode);
-
-        menu.Open(BtnAppMenu);
+        NativeMenu.SetMenu(this, menu);
     }
 
     // ==================== TOP APP BAR ====================
@@ -1913,52 +1902,6 @@ public partial class MainWindow : Window
         FileLog.Write("[MainWindow] BtnHelp_Click");
         var dialog = new HelpDialog();
         await dialog.ShowDialog<bool?>(this);
-    }
-
-    // "More" menu: the infrequent workspace-config destinations that used to be
-    // their own top-bar chips (Claude / MCP / Agents) plus the Claude Code settings
-    // gear that used to sit by the build info. One entry point, fewer buttons.
-    private void BtnMore_Click(object? sender, RoutedEventArgs e)
-    {
-        FileLog.Write("[MainWindow] BtnMore_Click");
-
-        var menu = new ContextMenu();
-
-        var claudeView = new MenuItem { Header = "Claude View..." };
-        claudeView.Click += BtnClaudeView_Click;
-
-        var mcpServers = new MenuItem { Header = "MCP Servers..." };
-        mcpServers.Click += BtnMcpServers_Click;
-
-        var agentTemplates = new MenuItem { Header = "Agent Templates..." };
-        agentTemplates.Click += BtnAgentTemplates_Click;
-
-        var claudeCodeSettings = new MenuItem { Header = "Claude Code Settings..." };
-        claudeCodeSettings.Click += BtnClaudeConfig_Click;
-
-        menu.Items.Add(claudeView);
-        menu.Items.Add(mcpServers);
-        menu.Items.Add(agentTemplates);
-        menu.Items.Add(new Separator());
-        menu.Items.Add(claudeCodeSettings);
-
-        menu.Open(BtnMore);
-    }
-
-    // Caret on the "+ New Session" split button: holds the infrequent session
-    // actions (Start FIFO) that no longer warrant their own sidebar button.
-    private void BtnNewSessionMenu_Click(object? sender, RoutedEventArgs e)
-    {
-        FileLog.Write("[MainWindow] BtnNewSessionMenu_Click");
-
-        var menu = new ContextMenu();
-
-        var startFifo = new MenuItem { Header = "Start FIFO" };
-        startFifo.Click += BtnFifo_Click;
-
-        menu.Items.Add(startFifo);
-
-        menu.Open(BtnNewSessionMenu);
     }
 
     // ==================== LEFT TAB SWITCHING ====================
@@ -2564,6 +2507,39 @@ public partial class MainWindow : Window
         SchedulerOverlay.IsVisible = false;
         if (_schedulerInitialized)
             SchedulerView.StopPolling();
+    }
+
+    private void BtnTools_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write("[MainWindow] BtnTools_Click: opening Tools overlay");
+
+        // Close other overlays first.
+        if (CommsOverlay.IsVisible)
+        {
+            CommsOverlay.IsVisible = false;
+            if (_commsInitialized)
+                CommManagerView.StopPolling();
+        }
+        if (ConnectionsOverlay.IsVisible)
+        {
+            ConnectionsOverlay.IsVisible = false;
+            if (_connectionsInitialized)
+                ConnectionsView.StopPolling();
+        }
+        if (SchedulerOverlay.IsVisible)
+        {
+            SchedulerOverlay.IsVisible = false;
+            if (_schedulerInitialized)
+                SchedulerView.StopPolling();
+        }
+
+        ToolsOverlay.IsVisible = true;
+    }
+
+    private void BtnToolsClose_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write("[MainWindow] BtnToolsClose_Click: closing Tools overlay");
+        ToolsOverlay.IsVisible = false;
     }
 
     private void SwitchLeftTab(string tab)
