@@ -1571,6 +1571,46 @@ internal static class ControlEndpoints
             return Results.Json(Map(session, directorId, turnSummaryCache), statusCode: 201);
         });
 
+        // ===== REST: Create a GitHub Actions remote session =====
+        app.MapPost("/sessions/github", (GitHubSessionRequest req) =>
+        {
+            FileLog.Write($"[ControlEndpoints] POST /sessions/github: {req?.Owner}/{req?.Repo} mode={req?.TriggerMode}");
+
+            if (req is null || string.IsNullOrWhiteSpace(req.Owner) || string.IsNullOrWhiteSpace(req.Repo))
+                return Results.BadRequest(new { error = "owner and repo are required" });
+            if (string.IsNullOrWhiteSpace(req.InitialPrompt))
+                return Results.BadRequest(new { error = "initialPrompt is required" });
+            if (!Enum.TryParse<RemoteTriggerMode>(req.TriggerMode, ignoreCase: true, out var mode))
+                return Results.BadRequest(new { error = $"unknown triggerMode: {req.TriggerMode}. Valid: NewIssue, ExistingThread, WorkflowDispatch" });
+            if (mode == RemoteTriggerMode.ExistingThread && (req.ThreadNumber is null || req.ThreadNumber <= 0))
+                return Results.BadRequest(new { error = "threadNumber is required (and must be positive) for ExistingThread mode" });
+            if (mode == RemoteTriggerMode.WorkflowDispatch && string.IsNullOrWhiteSpace(req.WorkflowFile))
+                return Results.BadRequest(new { error = "workflowFile is required for WorkflowDispatch mode" });
+
+            var config = new RemoteSessionConfig
+            {
+                Owner = req.Owner.Trim(),
+                Repo = req.Repo.Trim(),
+                BaseBranch = string.IsNullOrWhiteSpace(req.BaseBranch) ? "main" : req.BaseBranch.Trim(),
+                TriggerMode = mode,
+                InitialPrompt = req.InitialPrompt.Trim(),
+                ThreadNumber = req.ThreadNumber,
+                IssueTitle = req.IssueTitle,
+                WorkflowFile = req.WorkflowFile,
+            };
+
+            try
+            {
+                var session = sessionManager.CreateGitHubActionsSession(config);
+                return Results.Json(Map(session, directorId, turnSummaryCache), statusCode: 201);
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[ControlEndpoints] POST /sessions/github FAILED: {ex.Message}");
+                return Results.Problem(ex.Message, statusCode: 500);
+            }
+        });
+
         // ===== REST: Kill a session =====
         app.MapDelete("/sessions/{sid}", async (string sid) =>
         {
@@ -1660,6 +1700,10 @@ internal static class ControlEndpoints
             VoiceMode = s.VoiceMode,
             OnHold = s.OnHold,
             WingmanEnabled = s.WingmanEnabled,
+            RemoteRepo = s.RemoteRepo ?? "",
+            RemoteThreadUrl = s.RemoteThreadUrl ?? "",
+            RemoteRunUrl = s.RemoteRunUrl ?? "",
+            RemoteRunStatus = s.RemoteRunStatus ?? "",
         };
     }
 

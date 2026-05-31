@@ -12,6 +12,151 @@
         Background="{DynamicResource PanelBackground}"
         Icon="avares://cc-director/app.ico">
 
+    <Window.Styles>
+        <!-- Toolbar buttons: flat, icon + label, subtle hover. The New Session
+             button opts out (accent styling inline) since it is the primary action. -->
+        <Style Selector="Button.toolbarBtn">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Foreground" Value="#CCCCCC" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Padding" Value="8,4" />
+            <Setter Property="Height" Value="30" />
+            <Setter Property="CornerRadius" Value="3" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Button.toolbarBtn:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#2D2D30" />
+        </Style>
+    </Window.Styles>
+
+    <!-- The menu bar and toolbar span the full window width above the sidebar and
+         content. NativeMenuBar renders an in-window menu bar on Windows/Linux and
+         lifts into the system menu bar on macOS automatically. The menu items are
+         built in code-behind (BuildNativeMenu) and assigned via NativeMenu.SetMenu. -->
+    <DockPanel>
+
+        <!-- ==================== MENU BAR (full width) ==================== -->
+        <NativeMenuBar DockPanel.Dock="Top" />
+
+        <!-- ==================== TOOLBAR (full width) ====================
+             High-frequency actions + the badge/pill bearers that cannot live inside
+             a collapsed menu (Comms pending count, Scheduler LEADER pill). -->
+        <Border DockPanel.Dock="Top"
+                Background="{DynamicResource SidebarBackground}"
+                BorderBrush="#3C3C3C" BorderThickness="0,0,0,1"
+                Padding="8,4">
+            <DockPanel>
+                <!-- Right group: global destinations + Settings -->
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"
+                            Spacing="2" VerticalAlignment="Center">
+                    <!-- Comms (with pending-count badge) -->
+                    <Grid>
+                        <Button x:Name="BtnComms" Classes="toolbarBtn"
+                                Click="BtnComms_Click"
+                                ToolTip.Tip="Communication Manager">
+                            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                <Viewbox Width="15" Height="13">
+                                    <Path Stroke="#CCCCCC" StrokeThickness="1.3"
+                                          Data="M1,1 H15 V11 H1 Z M1,1 L8,7 L15,1" />
+                                </Viewbox>
+                                <TextBlock Text="Comms" FontSize="12" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+                        <Border x:Name="CommsBadge"
+                                Background="#DC2626" CornerRadius="8" Padding="5,1"
+                                HorizontalAlignment="Right" VerticalAlignment="Top"
+                                Margin="0,-2,-2,0" IsHitTestVisible="False" IsVisible="False">
+                            <TextBlock x:Name="CommsBadgeText" Text="0"
+                                       Foreground="White" FontSize="10" FontWeight="SemiBold" />
+                        </Border>
+                    </Grid>
+                    <!-- Connections -->
+                    <Button x:Name="BtnConnections" Classes="toolbarBtn"
+                            Click="BtnConnections_Click"
+                            ToolTip.Tip="Browser Connections">
+                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                            <Viewbox Width="15" Height="13">
+                                <Path Stroke="#CCCCCC" StrokeThickness="1.3"
+                                      Data="M1,1 H15 V11 H1 Z M1,4 H15" />
+                            </Viewbox>
+                            <TextBlock Text="Conns" FontSize="12" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                    <!-- Scheduler (with LEADER pill) -->
+                    <Grid>
+                        <Button x:Name="BtnScheduler" Classes="toolbarBtn"
+                                Click="BtnScheduler_Click"
+                                ToolTip.Tip="Scheduler -- view registered runners and run them on demand">
+                            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                <Viewbox Width="15" Height="15">
+                                    <Path Stroke="#CCCCCC" StrokeThickness="1.3" Fill="Transparent"
+                                          Data="M1,8 A7,7 0 1 1 15,8 A7,7 0 1 1 1,8 M8,4 V8 L11,10" />
+                                </Viewbox>
+                                <TextBlock Text="Sched" FontSize="12" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+                        <Border x:Name="SchedulerLeaderPill"
+                                Background="#22C55E" CornerRadius="8" Padding="5,1"
+                                HorizontalAlignment="Right" VerticalAlignment="Top"
+                                Margin="0,-2,-2,0" IsHitTestVisible="False" IsVisible="False"
+                                ToolTip.Tip="This Director holds the scheduler lease (LEADER)">
+                            <TextBlock Text="L" Foreground="White" FontSize="9" FontWeight="Bold" />
+                        </Border>
+                    </Grid>
+
+                    <Border Width="1" Height="18" Background="#3C3C3C"
+                            Margin="6,0" VerticalAlignment="Center" />
+
+                    <!-- Settings -->
+                    <Button x:Name="BtnSettings" Classes="toolbarBtn"
+                            Click="BtnSettings_Click"
+                            ToolTip.Tip="CC Director settings">
+                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                            <Viewbox Width="15" Height="15">
+                                <Path Fill="#CCCCCC"
+                                      Data="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z" />
+                            </Viewbox>
+                            <TextBlock Text="Settings" FontSize="12" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+
+                <!-- Left group: primary session actions -->
+                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <Button x:Name="BtnNewSession"
+                            Click="BtnNewSession_Click"
+                            Background="{DynamicResource AccentBrush}"
+                            Foreground="White"
+                            BorderThickness="0"
+                            CornerRadius="3"
+                            Padding="10,4"
+                            Height="30"
+                            Cursor="Hand"
+                            VerticalContentAlignment="Center"
+                            ToolTip.Tip="Create a new session">
+                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                            <Viewbox Width="13" Height="13">
+                                <Path Fill="White" Data="M6,0 H8 V6 H14 V8 H8 V14 H6 V8 H0 V6 H6 Z" />
+                            </Viewbox>
+                            <TextBlock Text="New Session" FontSize="12" FontWeight="SemiBold"
+                                       VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="BtnStartFifo" Classes="toolbarBtn"
+                            Click="BtnFifo_Click"
+                            ToolTip.Tip="Start FIFO -- step through every session that needs you">
+                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                            <Viewbox Width="14" Height="12">
+                                <Path Fill="#CCCCCC" Data="M0,0 L7,6 L0,12 Z M7,0 L14,6 L7,12 Z" />
+                            </Viewbox>
+                            <TextBlock Text="Start FIFO" FontSize="12" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
     <Grid ColumnDefinitions="264,Auto,*" RowDefinitions="Auto,*">
 
         <!-- ==================== SIDEBAR (spans both rows) ==================== -->
@@ -19,25 +164,15 @@
                 Background="{DynamicResource SidebarBackground}"
                 BorderBrush="#3C3C3C" BorderThickness="0,0,1,0">
             <DockPanel>
-                <!-- Sidebar header: hamburger + title -->
+                <!-- Sidebar header: title + needs-you count. The application menu
+                     moved to the window menu bar; New Session moved to the toolbar. -->
                 <Border DockPanel.Dock="Top" Padding="8,6">
                     <DockPanel>
-                        <Button x:Name="BtnAppMenu"
-                                Content="="
-                                Width="28" Height="28"
-                                Background="Transparent"
-                                Foreground="{DynamicResource TextForeground}"
-                                FontSize="14" FontWeight="Bold"
-                                Padding="0"
-                                HorizontalContentAlignment="Center"
-                                VerticalContentAlignment="Center"
-                                Click="BtnAppMenu_Click"
-                                ToolTip.Tip="Application menu" />
                         <TextBlock Text="SESSIONS"
                                    Foreground="{DynamicResource TextForeground}"
                                    FontSize="12" FontWeight="Bold"
                                    VerticalAlignment="Center"
-                                   Margin="8,0,0,0" />
+                                   Margin="0" />
                         <!-- At-a-glance "do I need to act?" count: how many sessions are red
                              (needs you). Amber, hidden when zero. Updated from the session timer. -->
                         <TextBlock x:Name="SessionsNeedYouText"
@@ -47,129 +182,19 @@
                     </DockPanel>
                 </Border>
 
-                <!-- + New Session button -->
-                <Button x:Name="BtnNewSession"
-                        DockPanel.Dock="Top"
-                        Content="+ New Session"
-                        Background="{DynamicResource AccentBrush}"
-                        Foreground="White"
-                        FontSize="13"
-                        Height="32"
-                        Margin="8,4,8,8"
-                        HorizontalContentAlignment="Center"
-                        Click="BtnNewSession_Click"
-                        ToolTip.Tip="Create a new session" />
+                <!-- New Session and Start FIFO moved to the top toolbar. -->
 
-                <Button x:Name="BtnFifo"
-                        DockPanel.Dock="Top"
-                        Content="Start FIFO"
-                        Background="#6B46C1"
-                        Foreground="White"
-                        FontSize="13"
-                        Height="32"
-                        Margin="8,0,8,8"
-                        HorizontalContentAlignment="Center"
-                        Click="BtnFifo_Click"
-                        ToolTip.Tip="Step through every session that needs you, one at a time (full screen)" />
-
-                <!-- Scheduler button above connections -->
-                <Grid DockPanel.Dock="Bottom" Margin="8,2,8,2">
-                    <Button x:Name="BtnScheduler"
-                            Content="Scheduler"
-                            Click="BtnScheduler_Click"
-                            Background="#5A2D7D"
-                            Foreground="White"
-                            BorderThickness="0"
-                            Cursor="Hand"
-                            Height="30"
-                            FontSize="13"
-                            HorizontalContentAlignment="Center"
-                            ToolTip.Tip="Scheduler -- view registered runners and run them on demand" />
-                    <!-- LEADER pill overlaid when this Director holds the scheduler mutex -->
-                    <Border x:Name="SchedulerLeaderPill"
-                            Background="#22C55E"
-                            CornerRadius="8"
-                            Padding="6,1"
-                            HorizontalAlignment="Right"
-                            VerticalAlignment="Center"
-                            Margin="0,0,8,0"
-                            IsHitTestVisible="False"
-                            IsVisible="False">
-                        <TextBlock Text="LEADER"
-                                   Foreground="White"
-                                   FontSize="9"
-                                   FontWeight="Bold" />
-                    </Border>
-                </Grid>
-
-                <!-- Connections button above comms -->
-                <Grid DockPanel.Dock="Bottom" Margin="8,2,8,2">
-                    <Button x:Name="BtnConnections"
-                            Content="Connections"
-                            Click="BtnConnections_Click"
-                            Background="#2D5A7D"
-                            Foreground="White"
-                            BorderThickness="0"
-                            Cursor="Hand"
-                            Height="30"
-                            FontSize="13"
-                            HorizontalContentAlignment="Center"
-                            ToolTip.Tip="Browser Connections" />
-                </Grid>
-
-                <!-- Comms button above build info -->
-                <Grid DockPanel.Dock="Bottom" Margin="8,2,8,2">
-                    <Button x:Name="BtnComms"
-                            Content="Communications"
-                            Click="BtnComms_Click"
-                            Background="#2D7D46"
-                            Foreground="White"
-                            BorderThickness="0"
-                            Cursor="Hand"
-                            Height="30"
-                            FontSize="13"
-                            HorizontalContentAlignment="Center"
-                            ToolTip.Tip="Communication Manager" />
-                    <!-- Pending count badge overlaid on button -->
-                    <Border x:Name="CommsBadge"
-                            Background="#DC2626"
-                            CornerRadius="8"
-                            Padding="5,1"
-                            HorizontalAlignment="Right"
-                            VerticalAlignment="Center"
-                            Margin="0,0,8,0"
-                            IsHitTestVisible="False"
-                            IsVisible="False">
-                        <TextBlock x:Name="CommsBadgeText"
-                                   Text="0"
-                                   Foreground="White"
-                                   FontSize="10"
-                                   FontWeight="SemiBold" />
-                    </Border>
-                </Grid>
-
-                <!-- Build info + Claude config gear at bottom -->
+                <!-- Build info footer (very bottom). -->
                 <Border DockPanel.Dock="Bottom" Padding="8,4">
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                        <TextBlock x:Name="BuildInfoText"
-                                   Text="Build: --"
-                                   Foreground="#555555"
-                                   FontSize="10"
-                                   VerticalAlignment="Center" />
-                        <Button x:Name="BtnClaudeConfig"
-                                Click="BtnClaudeConfig_Click"
-                                ToolTip.Tip="Claude Code Settings"
-                                Background="Transparent"
-                                BorderThickness="0"
-                                Cursor="Hand"
-                                Padding="4,2"
-                                Margin="6,0,0,0"
-                                VerticalAlignment="Center">
-                            <PathIcon Data="M19.14,12.94c0.04,-0.3 0.06,-0.61 0.06,-0.94c0,-0.32 -0.02,-0.64 -0.07,-0.94l2.03,-1.58c0.18,-0.14 0.23,-0.41 0.12,-0.61l-1.92,-3.32c-0.12,-0.22 -0.37,-0.29 -0.59,-0.22l-2.39,0.96c-0.5,-0.38 -1.03,-0.7 -1.62,-0.94L14.4,2.81c-0.04,-0.24 -0.24,-0.41 -0.48,-0.41h-3.84c-0.24,0 -0.43,0.17 -0.47,0.41L9.25,5.35C8.66,5.59 8.12,5.92 7.63,6.29L5.24,5.33c-0.22,-0.08 -0.47,0 -0.59,0.22L2.74,8.87C2.62,9.08 2.66,9.34 2.86,9.48l2.03,1.58C4.84,11.36 4.8,11.69 4.8,12s0.02,0.64 0.07,0.94l-2.03,1.58c-0.18,0.14 -0.23,0.41 -0.12,0.61l1.92,3.32c0.12,0.22 0.37,0.29 0.59,0.22l2.39,-0.96c0.5,0.38 1.03,0.7 1.62,0.94l0.36,2.54c0.05,0.24 0.24,0.41 0.48,0.41h3.84c0.24,0 0.44,-0.17 0.47,-0.41l0.36,-2.54c0.59,-0.24 1.13,-0.56 1.62,-0.94l2.39,0.96c0.22,0.08 0.47,0 0.59,-0.22l1.92,-3.32c0.12,-0.22 0.07,-0.47 -0.12,-0.61L19.14,12.94z M12,15.6c-1.98,0 -3.6,-1.62 -3.6,-3.6s1.62,-3.6 3.6,-3.6s3.6,1.62 3.6,3.6S13.98,15.6 12,15.6z"
-                                       Foreground="#555555" Width="12" Height="12" />
-                        </Button>
-                    </StackPanel>
+                    <TextBlock x:Name="BuildInfoText"
+                               Text="Build: --"
+                               Foreground="#555555"
+                               FontSize="10"
+                               HorizontalAlignment="Center" />
                 </Border>
+
+                <!-- Communications / Connections / Scheduler moved to the top toolbar
+                     (their pending-count badge and LEADER pill ride along with them). -->
 
                 <!-- Session list -->
                 <ListBox x:Name="SessionList"
@@ -325,71 +350,27 @@
                       Background="#3C3C3C"
                       ResizeDirection="Columns" />
 
-        <!-- ==================== TOP APP BAR ==================== -->
-        <Border Grid.Row="0" Grid.Column="2"
+        <!-- ==================== TOP BAR (unified, always visible) ====================
+             One bar holds BOTH the global tools (right) and the per-session identity
+             (fill). These used to be two separate, overlapping borders in the same
+             grid cell, so the opaque blue session banner painted right over the
+             Settings button. Now the global tools always render; only the identity
+             grid toggles. The blue accent background is applied in code-behind when a
+             session is active (SetSessionHeaderVisible). -->
+        <Border x:Name="TopBar"
+                Grid.Row="0" Grid.Column="2"
                 Background="{DynamicResource SidebarBackground}"
                 BorderBrush="#3C3C3C" BorderThickness="0,0,0,1"
-                MinHeight="36"
-                ZIndex="0">
+                MinHeight="36">
             <DockPanel Margin="12,6">
-                <!-- Right side: app bar buttons -->
-                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"
-                            VerticalAlignment="Center">
-                    <Button x:Name="BtnClaudeView"
-                            Click="BtnClaudeView_Click"
-                            ToolTip.Tip="Claude View - Browse Claude config files"
-                            Background="Transparent" BorderThickness="0"
-                            Cursor="Hand" Padding="6,4" Margin="4,0,0,0">
-                        <TextBlock Text="Claude" Foreground="#888888"
-                                   FontSize="11" FontWeight="SemiBold" />
-                    </Button>
-                    <Button x:Name="BtnMcpServers"
-                            Click="BtnMcpServers_Click"
-                            ToolTip.Tip="MCP Servers"
-                            Background="Transparent" BorderThickness="0"
-                            Cursor="Hand" Padding="6,4" Margin="4,0,0,0">
-                        <TextBlock Text="MCP" Foreground="#888888"
-                                   FontSize="11" FontWeight="SemiBold" />
-                    </Button>
-                    <Button x:Name="BtnAgentTemplates"
-                            Click="BtnAgentTemplates_Click"
-                            ToolTip.Tip="Agent Templates"
-                            Background="Transparent" BorderThickness="0"
-                            Cursor="Hand" Padding="6,4" Margin="4,0,0,0">
-                        <TextBlock Text="Agents" Foreground="#888888"
-                                   FontSize="11" FontWeight="SemiBold" />
-                    </Button>
-                    <Button x:Name="BtnSettings"
-                            Click="BtnSettings_Click"
-                            ToolTip.Tip="Settings"
-                            Background="Transparent" BorderThickness="0"
-                            Cursor="Hand" Padding="6,4" Margin="4,0,0,0">
-                        <TextBlock Text="Settings" Foreground="#888888"
-                                   FontSize="11" FontWeight="SemiBold" />
-                    </Button>
-                    <Button x:Name="BtnHelp"
-                            Click="BtnHelp_Click"
-                            ToolTip.Tip="About CC Director"
-                            Background="Transparent" BorderThickness="0"
-                            Cursor="Hand" Padding="6,4" Margin="4,0,0,0">
-                        <TextBlock Text="?" Foreground="#888888"
-                                   FontSize="14" FontWeight="Bold" />
-                    </Button>
-                </StackPanel>
+                <!-- Global tools (Settings, Claude/MCP/Agents config, Help) moved to
+                     the window menu bar and toolbar. This bar now carries only the
+                     per-session identity. -->
 
-                <!-- Left side: spacer -->
-                <Panel />
-            </DockPanel>
-        </Border>
-
-        <!-- ==================== SESSION HEADER BANNER ==================== -->
-        <Border x:Name="SessionHeaderBanner"
-                Grid.Row="0" Grid.Column="2"
-                ZIndex="1"
-                Background="#007ACC"
-                Padding="12,6"
-                IsVisible="False">
-            <Grid RowDefinitions="Auto,Auto">
+                <!-- Per-session identity (fill). Toggled via SessionHeaderBanner in code. -->
+                <Grid x:Name="SessionHeaderBanner"
+                      RowDefinitions="Auto,Auto,Auto"
+                      IsVisible="False">
                 <!-- Row 0: Session name + badges + buttons -->
                 <DockPanel Grid.Row="0">
                     <!-- Right-aligned buttons -->
@@ -495,7 +476,37 @@
                                Margin="4,0,0,0"
                                VerticalAlignment="Center" />
                 </StackPanel>
-            </Grid>
+
+                <!-- Row 2: GitHub remote links (only for GitHub Actions sessions) -->
+                <StackPanel x:Name="HeaderRemoteLinks" Grid.Row="2"
+                            Orientation="Horizontal"
+                            Margin="0,4,0,0"
+                            IsVisible="False">
+                    <TextBlock Text="Remote:"
+                               Foreground="#87CEFA" FontSize="10"
+                               VerticalAlignment="Center" Margin="0,0,6,0" />
+                    <TextBlock x:Name="HeaderRemoteRepo"
+                               Text=""
+                               Foreground="#E0E0E0" FontSize="10"
+                               FontFamily="Cascadia Mono,Consolas,monospace"
+                               VerticalAlignment="Center" Margin="0,0,10,0" />
+                    <Button x:Name="BtnOpenRemoteThread"
+                            Content="Open thread"
+                            Click="BtnOpenRemoteThread_Click"
+                            Padding="6,2" FontSize="10"
+                            Background="#005A9E" Foreground="#E0E0E0"
+                            BorderThickness="0" Cursor="Hand" Margin="0,0,6,0"
+                            ToolTip.Tip="Open the GitHub issue/PR thread driving this session" />
+                    <Button x:Name="BtnOpenRemoteActions"
+                            Content="Open Actions"
+                            Click="BtnOpenRemoteActions_Click"
+                            Padding="6,2" FontSize="10"
+                            Background="#005A9E" Foreground="#E0E0E0"
+                            BorderThickness="0" Cursor="Hand"
+                            ToolTip.Tip="Open the repository's GitHub Actions runs" />
+                </StackPanel>
+                </Grid>
+            </DockPanel>
         </Border>
 
         <!-- ==================== MAIN CONTENT + RIGHT PANEL ==================== -->
@@ -1400,4 +1411,5 @@
         </Border>
 
     </Grid>
+    </DockPanel>
 </Window>

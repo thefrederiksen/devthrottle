@@ -438,6 +438,34 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
+    /// Create a GitHub Actions remote session: the work runs on a GitHub-hosted
+    /// runner and streams into a normal session window. Surfaces setup failures
+    /// (missing token, etc.) as an explicit dialog rather than silently failing.
+    /// </summary>
+    private async Task CreateRemoteSessionAsync(RemoteSessionConfig config)
+    {
+        FileLog.Write($"[MainWindow] CreateRemoteSessionAsync: {config.Slug} mode={config.TriggerMode}");
+        try
+        {
+            var session = _sessionManager.CreateGitHubActionsSession(config);
+            FileLog.Write($"[MainWindow] CreateRemoteSessionAsync: session created, id={session.Id}");
+
+            var vm = new SessionViewModel(session);
+            _sessions.Add(vm);
+            SessionList.SelectedItem = vm;
+
+            ShowRenameDialog(vm);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] CreateRemoteSessionAsync FAILED: {ex.Message}");
+            await MessageBox.ShowAsync(this,
+                "Could not start remote session",
+                "CC Director could not start the GitHub Actions session.\n\n" + ex.Message);
+        }
+    }
+
+    /// <summary>
     /// Human-readable name and install guidance for an agent CLI, shown when its
     /// executable cannot be found on PATH.
     /// </summary>
@@ -496,7 +524,7 @@ public partial class MainWindow : Window
 
         if (vm == null)
         {
-            SessionHeaderBanner.IsVisible = false;
+            SetSessionHeaderVisible(false);
             PlaceholderText.IsVisible = true;
             TerminalDock.IsVisible = false;
             PromptBarBorder.IsVisible = false;
@@ -523,7 +551,7 @@ public partial class MainWindow : Window
         vm.Session.OnCachedExplainChanged += OnActiveSessionCachedExplainChanged;
 
         // Update header
-        SessionHeaderBanner.IsVisible = true;
+        SetSessionHeaderVisible(true);
         UpdateSessionHeader();
 
         // Attach terminal
@@ -679,7 +707,7 @@ public partial class MainWindow : Window
             _sessionManager.RemoveSession(vm.Session.Id);
         }
 
-        SessionHeaderBanner.IsVisible = false;
+        SetSessionHeaderVisible(false);
         PlaceholderText.IsVisible = true;
         TerminalDock.IsVisible = false;
         PromptBarBorder.IsVisible = false;
@@ -877,7 +905,7 @@ public partial class MainWindow : Window
             WingmanView.Detach();
             _activeSession = null;
 
-            SessionHeaderBanner.IsVisible = false;
+            SetSessionHeaderVisible(false);
             PlaceholderText.IsVisible = true;
             TerminalDock.IsVisible = false;
             PromptBarBorder.IsVisible = false;
@@ -969,6 +997,45 @@ public partial class MainWindow : Window
 
     // ==================== SESSION HEADER ====================
 
+    private void BtnOpenRemoteThread_Click(object? sender, RoutedEventArgs e)
+    {
+        var url = _activeSession?.Session.RemoteThreadUrl;
+        OpenUrlInBrowser(url);
+    }
+
+    private void BtnOpenRemoteActions_Click(object? sender, RoutedEventArgs e)
+    {
+        var slug = _activeSession?.Session.RemoteRepo;
+        if (string.IsNullOrEmpty(slug)) return;
+        OpenUrlInBrowser($"https://github.com/{slug}/actions");
+    }
+
+    private static void OpenUrlInBrowser(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return;
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] OpenUrlInBrowser FAILED for {url}: {ex.Message}");
+        }
+    }
+
+    // Top bar accent: sidebar-colored when idle, blue when a session is active.
+    private static readonly IBrush TopBarIdleBrush = new SolidColorBrush(Color.Parse("#252526"));
+    private static readonly IBrush TopBarActiveBrush = new SolidColorBrush(Color.Parse("#007ACC"));
+
+    // Show or hide the per-session identity block in the unified top bar. The bar
+    // itself is always visible (so the global tools can never be occluded); only the
+    // identity content and the bar's accent color change with the active session.
+    private void SetSessionHeaderVisible(bool visible)
+    {
+        SessionHeaderBanner.IsVisible = visible;
+        TopBar.Background = visible ? TopBarActiveBrush : TopBarIdleBrush;
+    }
+
     private void UpdateSessionHeader()
     {
         if (_activeSession == null) return;
@@ -976,6 +1043,20 @@ public partial class MainWindow : Window
         var session = _activeSession.Session;
         HeaderSessionName.Text = _activeSession.DisplayName;
         HeaderActivityLabel.Text = _activeSession.ActivityLabel;
+
+        // GitHub Actions remote sessions get a links row (repo slug + thread + Actions).
+        if (session.IsRemote)
+        {
+            HeaderRemoteLinks.IsVisible = true;
+            HeaderRemoteRepo.Text = session.RemoteRepo ?? "";
+            // "Open thread" is only useful once the thread exists; the run links are in
+            // the streamed buffer too, but the Actions button is always reachable.
+            BtnOpenRemoteThread.IsEnabled = !string.IsNullOrEmpty(session.RemoteThreadUrl);
+        }
+        else
+        {
+            HeaderRemoteLinks.IsVisible = false;
+        }
 
         // Message count
         var msgCount = session.ClaudeMetadata?.MessageCount ?? 0;
@@ -1470,9 +1551,22 @@ public partial class MainWindow : Window
         var dialog = new NewSessionDialog(registry, app.SessionHistoryStore);
         var result = await dialog.ShowDialog<bool?>(this);
 
-        if (result != true || string.IsNullOrWhiteSpace(dialog.SelectedPath))
+        if (result != true)
         {
             FileLog.Write("[MainWindow] ShowNewSessionDialog: cancelled");
+            return;
+        }
+
+        // GitHub (Remote) tab: the work runs on a GitHub-hosted runner, not locally.
+        if (dialog.RemoteConfig is { } remoteConfig)
+        {
+            await CreateRemoteSessionAsync(remoteConfig);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(dialog.SelectedPath))
+        {
+            FileLog.Write("[MainWindow] ShowNewSessionDialog: no path selected");
             return;
         }
 
@@ -1819,6 +1913,52 @@ public partial class MainWindow : Window
         FileLog.Write("[MainWindow] BtnHelp_Click");
         var dialog = new HelpDialog();
         await dialog.ShowDialog<bool?>(this);
+    }
+
+    // "More" menu: the infrequent workspace-config destinations that used to be
+    // their own top-bar chips (Claude / MCP / Agents) plus the Claude Code settings
+    // gear that used to sit by the build info. One entry point, fewer buttons.
+    private void BtnMore_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write("[MainWindow] BtnMore_Click");
+
+        var menu = new ContextMenu();
+
+        var claudeView = new MenuItem { Header = "Claude View..." };
+        claudeView.Click += BtnClaudeView_Click;
+
+        var mcpServers = new MenuItem { Header = "MCP Servers..." };
+        mcpServers.Click += BtnMcpServers_Click;
+
+        var agentTemplates = new MenuItem { Header = "Agent Templates..." };
+        agentTemplates.Click += BtnAgentTemplates_Click;
+
+        var claudeCodeSettings = new MenuItem { Header = "Claude Code Settings..." };
+        claudeCodeSettings.Click += BtnClaudeConfig_Click;
+
+        menu.Items.Add(claudeView);
+        menu.Items.Add(mcpServers);
+        menu.Items.Add(agentTemplates);
+        menu.Items.Add(new Separator());
+        menu.Items.Add(claudeCodeSettings);
+
+        menu.Open(BtnMore);
+    }
+
+    // Caret on the "+ New Session" split button: holds the infrequent session
+    // actions (Start FIFO) that no longer warrant their own sidebar button.
+    private void BtnNewSessionMenu_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write("[MainWindow] BtnNewSessionMenu_Click");
+
+        var menu = new ContextMenu();
+
+        var startFifo = new MenuItem { Header = "Start FIFO" };
+        startFifo.Click += BtnFifo_Click;
+
+        menu.Items.Add(startFifo);
+
+        menu.Open(BtnNewSessionMenu);
     }
 
     // ==================== LEFT TAB SWITCHING ====================

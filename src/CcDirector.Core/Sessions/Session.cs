@@ -100,6 +100,21 @@ public sealed class Session : IDisposable
 
     public SessionBackendType BackendType { get; }
 
+    /// <summary>True when this session is a GitHub Actions remote session.</summary>
+    public bool IsRemote => BackendType == SessionBackendType.GitHubActions;
+
+    /// <summary>Remote repo slug ("owner/repo") for GitHub Actions sessions, else null.</summary>
+    public string? RemoteRepo => (_backend as GitHubActionsBackend)?.RepoSlug;
+
+    /// <summary>Web URL of the issue/PR thread for GitHub Actions sessions, else null.</summary>
+    public string? RemoteThreadUrl => (_backend as GitHubActionsBackend)?.ThreadUrl;
+
+    /// <summary>Web URL of the most recent workflow run for GitHub Actions sessions, else null.</summary>
+    public string? RemoteRunUrl => (_backend as GitHubActionsBackend)?.CurrentRunUrl;
+
+    /// <summary>Last observed run status for GitHub Actions sessions, else null.</summary>
+    public string? RemoteRunStatus => (_backend as GitHubActionsBackend)?.RunStatus;
+
     /// <summary>Which agent CLI this session is running (Claude Code, Pi, etc).
     /// Defaults to ClaudeCode for sessions created via legacy code paths.</summary>
     public AgentKind AgentKind { get; internal set; } = AgentKind.ClaudeCode;

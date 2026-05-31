@@ -437,6 +437,60 @@
                     </Grid>
                 </Grid>
             </TabItem>
+
+            <!-- GitHub (Remote) Tab (fourth) -->
+            <TabItem Header="GitHub (Remote)">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="12" Spacing="10">
+                        <TextBlock Text="Run this task on a GitHub-hosted runner"
+                                   Foreground="#CCCCCC" FontSize="15" FontWeight="SemiBold" />
+                        <TextBlock TextWrapping="Wrap" Foreground="#888888" FontSize="12"
+                                   Text="The work runs on GitHub's compute, not this machine. CC Director opens an issue (or attaches to one), drives it with @claude comments, and streams the run into this session window. Requires the Claude GitHub App and an @claude workflow on the target repo." />
+
+                        <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto,Auto" Margin="0,4,0,0">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Owner / org"
+                                       Foreground="#CCCCCC" VerticalAlignment="Center" />
+                            <TextBox x:Name="GhOwnerBox" Grid.Row="0" Grid.Column="1" Margin="0,0,0,8"
+                                     Background="#1E1E1E" Foreground="#CCCCCC" BorderBrush="#3C3C3C" Padding="8"
+                                     Watermark="thefrederiksen" TextChanged="GhField_Changed" />
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Repository"
+                                       Foreground="#CCCCCC" VerticalAlignment="Center" />
+                            <TextBox x:Name="GhRepoBox" Grid.Row="1" Grid.Column="1" Margin="0,0,0,8"
+                                     Background="#1E1E1E" Foreground="#CCCCCC" BorderBrush="#3C3C3C" Padding="8"
+                                     Watermark="cc-director" TextChanged="GhField_Changed" />
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="Base branch"
+                                       Foreground="#CCCCCC" VerticalAlignment="Center" />
+                            <TextBox x:Name="GhBranchBox" Grid.Row="2" Grid.Column="1"
+                                     Background="#1E1E1E" Foreground="#CCCCCC" BorderBrush="#3C3C3C" Padding="8"
+                                     Text="main" TextChanged="GhField_Changed" />
+                        </Grid>
+
+                        <StackPanel Orientation="Horizontal" Spacing="20" Margin="0,4,0,0">
+                            <TextBlock Text="Thread:" Foreground="#CCCCCC" VerticalAlignment="Center" />
+                            <RadioButton x:Name="GhModeNewIssue" GroupName="GhMode" Content="Create new issue"
+                                         IsChecked="True" Foreground="#CCCCCC"
+                                         IsCheckedChanged="GhMode_Changed" />
+                            <RadioButton x:Name="GhModeExisting" GroupName="GhMode" Content="Existing issue/PR #"
+                                         Foreground="#CCCCCC" IsCheckedChanged="GhMode_Changed" />
+                            <TextBox x:Name="GhThreadBox" Width="90" IsEnabled="False"
+                                     Background="#1E1E1E" Foreground="#CCCCCC" BorderBrush="#3C3C3C" Padding="6"
+                                     Watermark="123" TextChanged="GhField_Changed" />
+                        </StackPanel>
+
+                        <TextBlock Text="First task for @claude" Foreground="#CCCCCC" Margin="0,4,0,0" />
+                        <TextBox x:Name="GhPromptBox"
+                                 Background="#1E1E1E" Foreground="#CCCCCC" BorderBrush="#3C3C3C" Padding="8"
+                                 AcceptsReturn="True" TextWrapping="Wrap" MinHeight="120"
+                                 Watermark="Describe the task. e.g. 'Add a --json flag to the export command and update the README.'"
+                                 TextChanged="GhField_Changed" />
+
+                        <TextBlock x:Name="GhHintText" TextWrapping="Wrap" Foreground="#888888" FontSize="11"
+                                   Text="Token: reads GITHUB_TOKEN from credentials.env at launch (needs repo, actions, issues scopes)." />
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
         </TabControl>
 
         <!-- Bottom buttons -->

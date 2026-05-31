@@ -210,6 +210,59 @@ public sealed class SessionManager : IDisposable
     }
 
     /// <summary>
+    /// Create a GitHub Actions remote session. No local process is spawned: the
+    /// session is a handle to a GitHub issue/PR thread driven by @claude comments,
+    /// with the work running on a GitHub-hosted runner. The backend's authoritative
+    /// activity-state sink is wired to the session so run status (queued/in_progress/
+    /// completed) drives the Working/WaitingForInput badge directly - the
+    /// <c>TerminalStateDetector</c> silence heuristic is skipped for remote sessions.
+    /// </summary>
+    /// <param name="config">Repo, branch, trigger mode, and initial prompt.</param>
+    /// <param name="client">
+    /// GitHub REST client. Pass null to build a real <see cref="GitHubRestClient"/>
+    /// using the token from credentials.env (read at point of use). Tests pass a stub.
+    /// </param>
+    public Session CreateGitHubActionsSession(RemoteSessionConfig config, IGitHubClient? client = null)
+    {
+        if (config is null) throw new ArgumentNullException(nameof(config));
+
+        FileLog.Write($"[SessionManager] CreateGitHubActionsSession: {config.Slug} mode={config.TriggerMode}");
+
+        var gh = client ?? new GitHubRestClient(GitHubCredentials.ReadToken());
+        var backend = new GitHubActionsBackend(config, gh, _options.DefaultBufferSizeBytes);
+
+        var id = Guid.NewGuid();
+        // A remote thread has no local working directory; use the repo slug as a stable
+        // human label in the RepoPath slot (the UI shows it; nothing on disk is touched).
+        var label = config.Slug;
+        var session = new Session(id, label, label, config.InitialPrompt, backend, SessionBackendType.GitHubActions)
+        {
+            AgentKind = Agents.AgentKind.ClaudeCode
+        };
+
+        // Authoritative activity wiring: the run status drives the badge.
+        backend.ActivitySink = state => session.ApplyTerminalActivityState(state);
+
+        try
+        {
+            backend.StartRemote();
+            session.MarkRunning();
+
+            _sessions[id] = session;
+            RaiseSessionCreated(session);
+            _log?.Invoke($"GitHub Actions session {id} created for {config.Slug}.");
+            return session;
+        }
+        catch (Exception ex)
+        {
+            session.MarkFailed();
+            _log?.Invoke($"Failed to create GitHub Actions session for {config.Slug}: {ex.Message}");
+            session.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>
     /// Create an embedded mode session. The WPF layer must provide the backend
     /// since EmbeddedBackend depends on WPF components.
     /// </summary>

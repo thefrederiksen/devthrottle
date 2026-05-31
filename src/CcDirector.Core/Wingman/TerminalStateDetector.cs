@@ -73,6 +73,10 @@ public sealed class TerminalStateDetector : IDisposable
     private void Wire(Session session)
     {
         if (session.Buffer is null) return;
+        // Remote (GitHub Actions) sessions self-report activity from authoritative run
+        // status via the backend's ActivitySink. The silence heuristic would misfire
+        // (a queued run emits no bytes yet is genuinely Working), so skip them entirely.
+        if (session.BackendType == Backends.SessionBackendType.GitHubActions) return;
         if (_watchers.ContainsKey(session.Id)) return;
         var w = new Watcher(session, _driveState);
         if (_watchers.TryAdd(session.Id, w))
