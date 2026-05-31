@@ -46,15 +46,15 @@ classes: {
   }
 }
 
-# ===== LEFT: the outside view (you sit here) ================================
-outside: "OUTSIDE VIEW  -  where you sit" {
+# ===== LEFT: the always-on access layer (Gateway + Cockpit) =================
+outside: "OUTSIDE VIEW  -  the always-on access layer" {
   class: outside
 
-  Cockpit: "COCKPIT\nCcDirector.Cockpit  (Blazor Server)\n\nYour single window into the whole fleet.\nReuses Core C#: WingmanService, SummaryBuilder, RecapGenerator.\nOwns NO session state -> restart it all day, sessions survive." { class: cockpit }
+  Cockpit: "COCKPIT\nCcDirector.Cockpit  (Blazor Server)\n\nONE per fleet. Hosted by Kestrel next to the Gateway;\nyou open it in a browser over the tailnet.\nReuses Core C#: WingmanService, SummaryBuilder, RecapGenerator.\nOwns NO session state -> restart it all day, sessions survive." { class: cockpit }
 
-  Gateway: "GATEWAY  (always on)\ncc-director-gateway-tray : 7878\n\nThe front door. Knows every Director on the network.\nServes the directory: GET /sessions, GET /directors.\nDiscovery + read-aggregation ONLY - never carries terminals." { class: gateway }
+  Gateway: "GATEWAY  (always-on service)\ncc-director-gateway : 7878\n\nThe front door. Knows every Director on the network.\nServes the directory: GET /sessions, GET /directors.\nDiscovery + read-aggregation ONLY - never carries terminals." { class: gateway }
 
-  Cockpit -> Gateway: "your outside view\ninto the Gateway" { style.stroke: "#1A5276"; style.stroke-width: 4; style.font-size: 16; style.bold: true }
+  Cockpit -> Gateway: "reads the fleet directory" { style.stroke: "#1A5276"; style.stroke-width: 4; style.font-size: 16; style.bold: true }
 }
 
 # ===== RIGHT: inside the Tailscale network (the runners) ====================
@@ -80,8 +80,9 @@ network: "TAILSCALE NETWORK  -  the runners live in here" {
   }
 }
 
-# ===== Gateway knows the fleet (discovery reaches into the network) =========
-outside.Gateway -> network: "discovery: knows every Director inside\n(each one registers with it)" { style.stroke: "#1A5276"; style.stroke-width: 4; style.font-size: 16; style.bold: true; style.stroke-dash: 4 }
+# ===== Each Director REGISTERS WITH the Gateway (how it learns the fleet) ====
+network.macmini.DirB -> outside.Gateway: "registers + heartbeat" { style.stroke: "#1D7044"; style.stroke-width: 3; style.font-size: 15; style.bold: true; style.stroke-dash: 5 }
+network.win2.DirC -> outside.Gateway: "registers + heartbeat" { style.stroke: "#1D7044"; style.stroke-width: 3; style.font-size: 15; style.bold: true; style.stroke-dash: 5 }
 
 # ===== Cockpit dials each owning Director DIRECTLY (live terminal + prompts) =
 outside.Cockpit -> network.macmini.DirB: "live terminal + prompts (DIRECT)" { style.stroke: "#922B21"; style.stroke-width: 5; style.font-size: 16; style.bold: true }

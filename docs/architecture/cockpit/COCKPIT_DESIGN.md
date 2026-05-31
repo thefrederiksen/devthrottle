@@ -6,7 +6,7 @@
 
 ## Related documents
 
-- `cockpit-topology.d2` / `cockpit-topology.png` - the three-lane topology (read first)
+- `cockpit-topology.d2` / `cockpit-topology.png` - the fleet topology (read first)
 - [../gateway/GATEWAY_DIRECTOR_ARCHITECTURE.md](../gateway/GATEWAY_DIRECTOR_ARCHITECTURE.md) - CURRENT Gateway/Director split this builds on
 - [../gateway/GATEWAY_SESSION_VIEW_PLAN.md](../gateway/GATEWAY_SESSION_VIEW_PLAN.md) - the shipped fleet-wide `GET /sessions` aggregation the Cockpit consumes
 - [../wingman/SESSION_VIEW_MERGE_PLAN.md](../wingman/SESSION_VIEW_MERGE_PLAN.md) - the wingman/agent-feed view the Cockpit replaces
@@ -16,9 +16,9 @@
 
 ## Topology at a glance
 
-On the left is the **outside view** you interact with: the Cockpit (your window) and the always-on Gateway it reads from. On the right, **inside the Tailscale network**, are the runner machines - each a Director that owns the live session PTYs. The Cockpit reads the fleet directory from the Gateway, then reaches straight into the network to each owning Director for the live terminal and prompts. The Gateway never carries terminal traffic, and there is no Director on the Gateway's host - it is purely the front door.
+On the left, on the **always-on box**, sits the access layer: the **Gateway** (the front door) and the **Cockpit** - **one** Blazor Server web app hosted by Kestrel right next to the Gateway. You reach the Cockpit from a **browser** on whatever machine you happen to be at, over the tailnet; there is exactly one Cockpit for the whole fleet, not one per machine. On the right, **inside the Tailscale network**, are the runner machines - each a Director that owns the live session PTYs. The Cockpit reads the fleet directory from the Gateway, then reaches straight into the network to each owning Director for the live terminal and prompts. The Gateway never carries terminal traffic, and there is no Director on the always-on box - it is purely the access layer.
 
-![Cockpit fleet topology: outside view (Cockpit + Gateway) reaching into the Tailscale network of Director runners](cockpit-topology.png)
+![Cockpit fleet topology: the always-on access layer (Gateway + Cockpit) reaching into the Tailscale network of Director runners](cockpit-topology.png)
 
 ---
 
@@ -65,14 +65,12 @@ So: **one call to the Gateway to find sessions; direct calls to each Director to
 
 ## 5. "Why is there a Cockpit *server*?" (the Blazor Server model)
 
-This caused confusion in the first draft, so to be explicit: **the Cockpit is one app you launch, not a client plus a separate server you deploy.**
+Blazor Server means the app's C# logic runs server-side under Kestrel, and the **browser is the client**, connected over SignalR. So the Cockpit is **one web app, hosted once** (next to the Gateway - see section 7), that you open in a browser. There is no native wrapper and no per-OS shell: Kestrel is cross-platform .NET, so it just serves the page.
 
-Blazor Server simply means the app's C# logic runs in an in-process web host, and the window you see is its view, connected over a local (loopback) SignalR link. You double-click one exe; everything below is internal:
+- The **C# server** is where the smarts live - `WingmanService` (opus briefing), `SummaryBuilder` (the turn rail), `RecapGenerator` - reused directly from `CcDirector.Core`. This is the concrete meaning of "dumb runners": the enrichment the external harness (`playground/wingman-briefing/`) does today from outside the Director becomes a permanent, built-in part of the Cockpit.
+- The **browser** renders the page (xterm.js terminal + the panels) and talks to the C# server over SignalR.
 
-- The **C# side** is where the smarts live - `WingmanService` (opus briefing), `SummaryBuilder` (the turn rail), `RecapGenerator` - reused directly from `CcDirector.Core`. This is the concrete meaning of "dumb runners": the enrichment the external harness (`playground/wingman-briefing/`) does today from outside the Director becomes a permanent, built-in part of the Cockpit.
-- The **view side** is the rendered window (xterm.js terminal + the panels).
-
-We chose Blazor Server precisely so that smart layer is **C# we share with the rest of the stack** instead of re-implemented in JavaScript. The terminal is the one thing that deliberately bypasses this internal link - its bytes go from the window straight to the Director (section 4.2), not through the C# render channel, so the terminal stays fast.
+We chose Blazor Server precisely so that smart layer is **C# we share with the rest of the stack** instead of re-implemented in JavaScript. The terminal is the one thing that deliberately bypasses the SignalR channel - the browser's xterm.js opens a WebSocket straight to the Director (section 4.2), not through the C# render channel, so the terminal stays fast.
 
 The briefing is **async enrichment layered over the live view** - it catches up; you never wait on opus to see reality. The live terminal and the cheap fleet reads are always current regardless of briefing latency.
 
@@ -108,18 +106,21 @@ The briefing is **async enrichment layered over the live view** - it catches up;
 - `ReplyBar` - writes (prompt / interrupt / escape) direct to the owning Director.
 - `TurnRail` - renders `GET /sessions/{sid}/turn-summaries`, newest highlighted.
 
-## 7. Hosting (the one open fork)
+## 7. Hosting
 
-Blazor Server is a server process plus SignalR to a browser. "Desktop app" can mean two things:
+**There is one Cockpit. It is a Blazor Server web app hosted by Kestrel on the always-on box, right next to the Gateway, and you open it in a browser** from whatever machine you are at, over the tailnet. No native wrapper, no WebView2, no per-machine copy - the browser is the client, and Kestrel runs the same on Windows, Mac, or Linux.
 
-| | (i) Local host (RECOMMENDED for v1) | (ii) Always-on host |
-|---|---|---|
-| Where the Cockpit server runs | On the user's desktop machine, wrapped in a WebView2 shell (Photino.NET or a tiny WPF/WinForms WebView2 host) - a real window/exe | On the always-on box, co-located with the Gateway (possibly hosted by the GatewayApp tray) |
-| Accessed from | The local shell window | Any machine's browser |
-| UI latency (SignalR) | Loopback - zero | Crosses the tailnet per interaction (usually fine, occasionally noticeable) |
-| Cockpits per fleet | One per machine | One shared |
+It is **desktop-first** in the sense of *form factor* - laid out for a large screen, not a phone. The existing Android app is the phone form factor and a separate track. "Desktop" here never meant a packaged native app.
 
-**Recommendation: (i) for v1.** It gives a true desktop-app feel, loopback-fast UI, and a single exe, while Lane A and Lane C still reach Directors anywhere on the tailnet. It also preserves the Cockpit's restartability - rebuild and relaunch all day, never touch a PTY. The connection lanes are identical under (ii), so moving to a from-anywhere model later is a small change, not a rewrite. Revisit (ii) when the phone/from-anywhere story comes up.
+How the connections fall out:
+
+- **Browser <-> Cockpit** - SignalR over the tailnet. This is the UI. Fine on a tailnet.
+- **Browser -> Director** - the xterm.js terminal opens its WebSocket straight to the owning Director (still direct, still off the Gateway).
+- **Cockpit server -> Gateway / Directors** - reads the fleet directory; sends prompts / interrupt / rename.
+
+The one real implementation choice, and it is small: does the Cockpit run **inside the Gateway service** (one Kestrel host serving both the discovery API and the Blazor UI) or as **its own process on the same box, next to the Gateway**? **Recommendation: its own process**, so you can rebuild and restart the Cockpit UI without bouncing the always-on discovery service. Both are stateless; neither restart ever touches a session.
+
+The Cockpit is **never a service** - unlike the Gateway. It is the UI, it should be freely restartable, and that restartability is the whole point: rebuild and relaunch it all day while every session keeps running on the Directors.
 
 ## 8. What this buys you, restated
 
@@ -127,7 +128,7 @@ The PTY lives only on the Director and is reached by a direct WebSocket. The Coc
 
 ## 9. Build order (by risk, front-loading the uncertain part)
 
-1. **Scaffold `CcDirector.Cockpit`** (Blazor Server) referencing `Core` + `Gateway.Contracts`; WebView2 shell per hosting option (i).
+1. **Scaffold `CcDirector.Cockpit`** (Blazor Server) referencing `Core` + `Gateway.Contracts`, hosted by Kestrel on the always-on box next to the Gateway (section 7).
 2. **TerminalPane first (Lane A).** xterm.js JS-interop component, direct WebSocket to a live Director's `/sessions/{sid}/stream`. This is the only genuinely uncertain piece - does a remoted terminal feel good enough to abandon the in-Director one? Learn that cheaply, before building anything pretty.
 3. **ReplyBar (Lane C).** Prove a human can answer a real pending question from the Cockpit.
 4. **SessionPicker (Lane B).** Fleet-wide list from the Gateway's `GET /sessions`.
@@ -137,7 +138,7 @@ The PTY lives only on the Director and is reached by a direct WebSocket. The Coc
 
 ## 10. Open questions
 
-1. **WebView2 shell choice** - Photino.NET vs a minimal WPF/WinForms WebView2 host. Both are small; pick when scaffolding.
+1. **Cockpit process vs Gateway process** - run the Cockpit Blazor app inside the Gateway service's Kestrel host, or as its own process on the same box. Leaning to its own process so the UI can restart without bouncing the always-on Gateway.
 2. **Director-side trims** - which opinionated routes/pages get retired, and when. Keep a barebones raw-terminal page on the Director as an emergency fallback?
 3. **Reuse vs extract** - does the Director REST client get extracted from `CcDirector.Gateway` into a shared library both Gateway and Cockpit reference, or copied?
 4. **Briefing ownership** - does the Cockpit server run opus side-calls itself, or call a Director endpoint that does? v1 leans Cockpit-server-side to keep Directors dumb.
@@ -148,4 +149,5 @@ The PTY lives only on the Director and is reached by a direct WebSocket. The Coc
 
 | Date | Author | Change |
 |---|---|---|
-| 2026-05-31 | claude (cc-director assistant) | Initial PLANNED design. Locks Blazor Server, desktop-first, the three connection lanes, smarts-in-Cockpit, and the local-host recommendation. Formalizes the `playground/wingman-briefing` prototype. |
+| 2026-05-31 | claude (cc-director assistant) | Initial PLANNED design. Locks Blazor Server, desktop-first, the phone-book + direct-dial topology, smarts-in-Cockpit. Formalizes the `playground/wingman-briefing` prototype. |
+| 2026-05-31 | claude (cc-director assistant) | **Hosting corrected.** One Cockpit, hosted by Kestrel on the always-on box next to the Gateway, browser-accessed over the tailnet. Removed the wrong per-machine native-shell (WebView2/Photino) model. Gateway becomes a Windows service; Cockpit is never a service. |

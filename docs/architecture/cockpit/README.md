@@ -4,8 +4,10 @@ The Cockpit is the planned single UI for driving every Claude session on the tai
 
 | Document | Status | Covers |
 |---|---|---|
-| [COCKPIT_DESIGN.md](COCKPIT_DESIGN.md) | PLANNED (v1) | The idea, the driver, v1 scope, the three connection lanes, where the smarts run, project shape, hosting fork, build order |
-| `cockpit-topology.d2` / `.png` | PLANNED (v1) | Three-lane topology: terminal (browser->Director direct), discovery+reads (server->Gateway), writes (server->Director direct) |
+| [COCKPIT_DESIGN.md](COCKPIT_DESIGN.md) | PLANNED (v1) | The idea, the driver, v1 scope, the connection model, where the smarts run, project shape, hosting, build order |
+| [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) | PLANNED | Status snapshot of the built MVP + the ordered phase plan (two parallel tracks; Phase 0 -> Phase 5 retire the desktop) |
+| [HANDOVER.md](HANDOVER.md) | ACTIVE | Hand-off for a fresh session: status, the **launch gate** (verified Director REST inventory + the only gaps), and cross-machine rollout to Mac-mini + Windows-2 |
+| `cockpit-topology.d2` / `.png` / `.svg` | PLANNED (v1) | Fleet topology: outside access layer (Gateway + Cockpit) reaching into the Tailscale network of Director runners |
 
 **Read order for someone new:**
 1. `cockpit-topology.png` - see the three lanes

@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>The Cockpit - Implementation Plan (all phases)</title>
+<style>
+        /* Boardroom Theme - Corporate, executive style with serif fonts */
+        
+        :root {
+            /* Colors */
+            --primary: #1A365D;
+            --primary-light: #2A4A7F;
+            --accent: #D69E2E;
+            --text: #2D3748;
+            --heading: #1A365D;
+            --background: #FFFFFF;
+            --code-bg: #EDF2F7;
+            --code-text: #1A365D;
+            --border: #CBD5E0;
+            --link: #2B6CB0;
+            --blockquote-text: #4A5568;
+            --blockquote-border: #D69E2E;
+            --blockquote-bg: #FFFFFF;
+            --table-header-bg: #1A365D;
+            --table-header-text: #FFFFFF;
+            --alt-row-bg: #F7FAFC;
+            --shadow-color: rgba(26, 54, 93, 0.08);
+        
+            /* Fonts */
+            --font-heading: "Palatino Linotype", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-body: "Georgia", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-code: "Courier New", "JetBrains Mono", "Fira Code", Consolas, monospace;
+        
+            /* Style */
+            --heading-letter-spacing: -0.02em;
+            --line-height: 1.7;
+            --radius: 4px;
+            --code-radius: 6px;
+            --shadow-sm: 0 1px 3px rgba(26, 54, 93, 0.08);
+            --shadow-md: 0 4px 12px rgba(26, 54, 93, 0.1);
+        }
+        
+        /* Base styles for all themes */
+        
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+        }
+        
+        html {
+            font-size: 16px;
+            line-height: var(--line-height);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: var(--font-body);
+            color: var(--text);
+            background: var(--background);
+        }
+        
+        .markdown-body {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 3rem 2.5rem;
+        }
+        
+        /* Typography */
+        h1, h2, h3, h4, h5, h6 {
+            font-family: var(--font-heading);
+            color: var(--heading);
+            margin-top: 1.8em;
+            margin-bottom: 0.6em;
+            font-weight: 600;
+            line-height: 1.25;
+            letter-spacing: var(--heading-letter-spacing);
+            orphans: 3;
+            widows: 3;
+        }
+        
+        h1 {
+            font-size: 2.25em;
+            margin-top: 0;
+        }
+        
+        h2 { font-size: 1.65em; }
+        h3 { font-size: 1.35em; }
+        h4 { font-size: 1.1em; }
+        h5 { font-size: 0.95em; }
+        h6 { font-size: 0.85em; color: var(--blockquote-text); }
+        
+        p {
+            margin: 1em 0;
+            orphans: 3;
+            widows: 3;
+        }
+        
+        /* Links */
+        a {
+            color: var(--link);
+            text-decoration: none;
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.2s ease;
+        }
+        
+        a:hover {
+            border-bottom-color: var(--link);
+        }
+        
+        /* Lists */
+        ul, ol {
+            margin: 1em 0;
+            padding-left: 2em;
+            line-height: var(--line-height);
+        }
+        
+        li {
+            margin: 0.35em 0;
+        }
+        
+        li > ul,
+        li > ol {
+            margin: 0.2em 0;
+        }
+        
+        /* Inline code */
+        code {
+            font-family: var(--font-code);
+            font-size: 0.875em;
+            padding: 0.15em 0.4em;
+            border-radius: var(--radius);
+            background: var(--code-bg);
+            color: var(--code-text);
+        }
+        
+        /* Code blocks */
+        pre {
+            margin: 1.5em 0;
+            padding: 1.25em 1.5em;
+            overflow-x: auto;
+            border-radius: var(--code-radius);
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow-sm);
+            position: relative;
+        }
+        
+        pre code {
+            padding: 0;
+            background: transparent;
+            border-radius: 0;
+            font-size: 0.875em;
+            line-height: 1.55;
+        }
+        
+        /* Blockquotes */
+        blockquote {
+            margin: 1.5em 0;
+            padding: 0.75em 1.25em;
+            border-left: 4px solid var(--blockquote-border);
+            background: var(--blockquote-bg);
+            color: var(--blockquote-text);
+            border-radius: 0 var(--radius) var(--radius) 0;
+        }
+        
+        blockquote p {
+            margin: 0.4em 0;
+        }
+        
+        blockquote p:first-child {
+            margin-top: 0;
+        }
+        
+        blockquote p:last-child {
+            margin-bottom: 0;
+        }
+        
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin: 1.5em 0;
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border);
+        }
+        
+        th, td {
+            padding: 0.75em 1em;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        th {
+            font-weight: 600;
+            background: var(--table-header-bg);
+            color: var(--table-header-text);
+        }
+        
+        tr:last-child td {
+            border-bottom: none;
+        }
+        
+        /* Horizontal rule */
+        hr {
+            border: none;
+            height: 2px;
+            max-width: 200px;
+            margin: 2.5em auto;
+            background: var(--border);
+            border-radius: 1px;
+        }
+        
+        /* Images */
+        img {
+            max-width: 100%;
+            height: auto;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        /* Task lists */
+        .task-list-item {
+            list-style-type: none;
+        }
+        
+        .task-list-item input[type="checkbox"] {
+            margin-right: 0.5em;
+        }
+        
+        /* Strong and emphasis */
+        strong {
+            font-weight: 700;
+        }
+        
+        /* Definition lists (if supported by parser) */
+        dt {
+            font-weight: 600;
+            margin-top: 1em;
+        }
+        
+        dd {
+            margin-left: 1.5em;
+            margin-bottom: 0.5em;
+        }
+        
+        
+        /* Boardroom: corporate authority with accent borders */
+        h1 {
+            border-bottom: 3px solid var(--accent);
+            padding-bottom: 0.5em;
+        }
+        
+        h2 {
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.3em;
+        }
+        
+        pre {
+            border-left: 4px solid var(--primary);
+            border-radius: 0 var(--code-radius) var(--code-radius) 0;
+        }
+        
+        pre::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--accent);
+            border-radius: 0;
+        }
+        
+        blockquote {
+            font-style: italic;
+        }
+        
+        hr {
+            background: var(--accent);
+            max-width: none;
+            height: 2px;
+        }
+        
+        tr:nth-child(even) td {
+            background: var(--alt-row-bg);
+        }
+        
+    </style>
+
+<style>
+/* --- full-screen override --- */
+.markdown-body { max-width: none; width: 94vw; margin: 0 auto; }
+.markdown-body table { width: 100%; }
+</style>
+</head>
+<body>
+<article class="markdown-body">
+<h1>The Cockpit - Implementation Plan (all phases)</h1>
+<p><strong>Status:</strong> PLANNED
+        <strong>Date:</strong> 2026-05-31
+        <strong>Audience:</strong> Anyone implementing the Cockpit. Pairs with <a href="COCKPIT_DESIGN.md">COCKPIT_DESIGN.md</a> (the architecture) - this doc is the ordered work.</p>
+<h2>Related documents</h2>
+<ul>
+<li><a href="COCKPIT_DESIGN.md">COCKPIT_DESIGN.md</a> - architecture, topology, hosting</li>
+<li><code>src/CcDirector.Cockpit/</code> - the live code this plan continues</li>
+<li><code>playground/wingman-briefing/</code> - the prototype the design formalizes</li>
+</ul>
+<hr/>
+<h2>Where we are (status snapshot, 2026-05-31)</h2>
+<p>The MVP is <strong>already largely built</strong> in <code>src/CcDirector.Cockpit/</code> (Blazor Server, references <code>Gateway.Contracts</code> only):</p>
+<ul>
+<li><strong>Left rail</strong> (<code>SessionRail</code>) - fleet-wide sessions from the Gateway's <code>GET /sessions</code>, 2s poll.</li>
+<li><strong>Terminal</strong> (<code>TerminalPane</code> + <code>cockpit-terminal.js</code>) - xterm.js on a direct <code>wss://</code> to the Director's <code>/sessions/{sid}/stream</code>, with reconnect + column-mirroring.</li>
+<li><strong>Composer</strong> - Speak (browser Web Speech API), Send, Queue, Interrupt, Escape.</li>
+<li><strong>Screenshots</strong> - drag/drop or pick -&gt; uploaded through the Cockpit server to the Director's <code>/upload-image</code>.</li>
+<li><strong>Queue</strong> - full panel (list / enqueue / send-now / remove).</li>
+</ul>
+<p>Every Director endpoint the Cockpit calls <strong>exists today</strong> (<code>/prompt</code>, <code>/queue</code> + item ops, <code>/interrupt</code>, <code>/escape</code>, <code>/upload-image</code>, <code>/stream</code>). Nothing is assuming a phantom API.</p>
+<p><strong>Recent progress (parallel session):</strong></p>
+<ul>
+<li><strong>Registration reachability is fixed in code.</strong> <code>ControlApi/GatewayClient.cs</code> <code>ResolveTailnetEndpoint()</code> now advertises <code>https://{magicdns}:{ownPort}</code> (matching the Gateway's <code>TailscaleServeProvisioner</code>), demoting the stale shared <code>:7882</code> override to a fallback. Verified end-to-end on a slot-5 test Director (<code>https://host-a...:7887</code>, healthz 200 through Serve, aggregated by the Gateway, shown in the Cockpit rail). The user's 3 live Directors still error until they are <strong>re-launched</strong> with this build (do NOT restart them out from under their sessions).</li>
+<li><strong>Director queue REST exists</strong> (<code>/sessions/{sid}/queue</code> GET/POST/DELETE + <code>/queue/{itemId}/send</code>), wired to <code>Session.PromptQueue</code>.</li>
+<li><strong>A raw-PTY write primitive already exists:</strong> <code>session.SendInput(bytes)</code>. This is the hook the interactive terminal needs.</li>
+</ul>
+<p><strong>Two things still NOT true:</strong></p>
+<ol>
+<li><strong>Not verified E2E against the live fleet</strong> - the terminal path is proven on a test Director, but the user's live Directors need re-launching with the registration fix first.</li>
+<li><strong>The terminal is read-only</strong> (<code>disableStdin: true</code>) - a decision we are now <strong>reversing</strong>: the user must be able to type into the terminal.</li>
+</ol>
+<hr/>
+<h2>Locked decisions</h2>
+<ul>
+<li><strong>One Cockpit</strong>, Blazor Server, hosted by Kestrel next to the Gateway, browser-accessed over the tailnet. (See COCKPIT_DESIGN.)</li>
+<li><strong>Reads aggregate through the Gateway; writes + the terminal stream go direct to the owning Director.</strong></li>
+<li><strong>The terminal is INTERACTIVE.</strong> The user can type into it. This reverses the code's current <code>disableStdin: true</code>. The composer stays as a convenience for long prompts, dictation, queue, and screenshots - but the terminal itself is fully usable.</li>
+<li><strong>Cockpit stays thin (Contracts-only) until Phase 3.</strong> The smarts (<code>WingmanService</code>, <code>SummaryBuilder</code>, <code>RecapGenerator</code>) move in only when the awareness layer is built.</li>
+<li><strong>Speak = browser Web Speech API for now.</strong> Routing through cc-director's dictation pipeline (dictionary + verbatim) is deferred.</li>
+<li><strong>The Gateway becomes an always-on Windows service.</strong> Headless Kestrel on <code>:7878</code>, auto-start at boot, survives logout/RDP. The <strong>Director is never a service</strong> (ConPTY/<code>claude.exe</code> needs an interactive session; Session 0 isolation breaks it). "Ensure a Director is running" = a watchdog that triggers the <strong>Task Scheduler</strong> launch (not <code>CreateProcessAsUser</code>); cross-machine supervision is local per-machine, not central.</li>
+<li><strong>The Cockpit is its own process next to the Gateway service</strong> (not hosted inside it), so the UI can restart without bouncing the always-on Gateway. This is why the two tracks below are independent.</li>
+</ul>
+<hr/>
+<h2>Immediate work runs as two parallel tracks (two agents)</h2>
+<p>The immediate work touches <strong>disjoint code</strong>, so two agents can run concurrently:</p>
+<ul>
+<li><strong>Track A - Gateway -&gt; always-on service</strong> (Gateway code only: host, install, the probe breaker).</li>
+<li><strong>Track B - Final Director build + interactive Cockpit terminal</strong> (Director endpoints + Cockpit). This is the "Phase 0" work below.</li>
+</ul>
+<p>They converge before the E2E verification (a fresh Director registered with the now-service Gateway, driven from the Cockpit). Phases 1-5 follow once both tracks land.</p>
+<hr/>
+<h2>Track A - Gateway becomes an always-on service</h2>
+<p><strong>Goal:</strong> the Gateway runs headless and always-on - auto-starts at boot, survives logout/RDP, auto-restarts on crash - so the fleet front door is reachable from your phone/browser regardless of interactive session state.</p>
+<ul>
+<li><strong>A1. Re-host <code>GatewayHost</code> as a service.</strong> Run it under a Generic Host with <code>Microsoft.Extensions.Hosting.WindowsServices</code> (<code>UseWindowsService()</code>); Kestrel binds <code>0.0.0.0:7878</code>. Today it lives in <code>CcDirector.GatewayApp</code> (an Avalonia tray that hosts <code>GatewayHost</code> in-process) - decide between a new <code>CcDirector.GatewayService</code> host project vs a <code>--service</code> entry mode on the existing one.</li>
+<li><strong>A2. Install / lifecycle.</strong> Idempotent install/uninstall/start (<code>sc.exe create</code> / <code>New-Service</code>), Automatic start type, an account that can bind the port and reach the tailnet.</li>
+<li><strong>A3. Tray app's fate.</strong> Keep <code>CcDirector.GatewayApp</code> as an optional <em>status</em> tray that talks to the service, or retire it. The service owns the lifecycle either way. (Soft decision.)</li>
+<li><strong>A4. Probe circuit-breaker</strong> (Gateway-side; <strong>already in flight in the cockpit session</strong>). Back off Directors that fail their probe (alive-but-unreachable at a stale endpoint) instead of eating a 2s timeout every poll. Naturally belongs to the Gateway agent.</li>
+<li><strong>A5. Don't break local-only.</strong> Keep the filesystem-watch discovery path for deployments with no configured gateway URL.</li>
+<li><strong>Watchdog (follow-up, not blocking):</strong> the service can trigger the Task Scheduler task to relaunch a <em>local</em> missing Director. Cross-machine machines self-supervise via a logon-triggered scheduled task; central remote-spawn stays deferred.</li>
+</ul>
+<p><strong>Done:</strong> the Gateway runs as a service, auto-starts at boot, survives logout; Cockpit and Directors talk to it unchanged.</p>
+<hr/>
+<h2>Track B - the "final Director build" principle</h2>
+<p><strong>Every Director rebuild kills its sessions.</strong> So all Director-side changes must land in ONE build that we launch once and then never rebuild. Adding a Director endpoint later costs you a session-killing restart. Therefore Track B front-loads <em>every</em> Director-side change we can foresee, then cuts the build, then we drive everything else from the Cockpit (which restarts freely).</p>
+<h3>Already on the Director - no change needed</h3>
+<p>sessions list / create / kill, <strong>rename</strong> (<code>PATCH /sessions/{sid}</code>), terminal stream (WS), buffer, prompt, interrupt, escape, upload-image, git, turn-summaries (read + generate), the whole wingman set (<code>/wingman</code>, <code>/wingman/ask</code>, <code>/explain</code>, <code>/goal</code>), recap, handover, <code>/dictate</code> (WS), <code>/tts</code>, and the <code>voice-mode</code> / <code>hold</code> / <code>wingman-enabled</code> toggles. So briefing, the turn rail, screenshots, rename, and <strong>real OpenAI dictation</strong> all already work against the current endpoints.</p>
+<h3>Director build manifest (bake all of these in before launch)</h3>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Change</th>
+<th>Status</th>
+<th>Note</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><strong>Registration fix</strong> - advertise <code>https://{magicdns}:{port}</code></td>
+<td>done in code</td>
+<td>reachable over Tailscale Serve</td>
+</tr>
+<tr>
+<td>2</td>
+<td><strong>Queue REST</strong> - <code>GET/POST/DELETE /sessions/{sid}/queue</code>, <code>…/{id}/send</code></td>
+<td>done in code</td>
+<td>wired to <code>Session.PromptQueue</code></td>
+</tr>
+<tr>
+<td>3</td>
+<td><strong>Terminal input channel</strong> - stream WS accepts binary input frames -&gt; <code>session.SendInput(bytes)</code></td>
+<td>TO DO (small, safe)</td>
+<td>the interactive-terminal piece; <code>SendInput</code> already exists</td>
+</tr>
+<tr>
+<td>4</td>
+<td><strong>Queue auto-drain on ready</strong> - "send next queued item when the session goes idle" moves into the Director/Core</td>
+<td>TO DO</td>
+<td>makes Queue mean "auto-send when Claude is ready", not a manual holding list</td>
+</tr>
+<tr>
+<td>5</td>
+<td><strong>PTY resize</strong> (<code>POST /sessions/{sid}/resize</code>)</td>
+<td><strong>INCLUDE NOW</strong> (decided 2026-05-31)</td>
+<td>touches the wingman repaint-loop invariant - do deliberately, but include it so we never rebuild for it</td>
+</tr>
+<tr>
+<td>6</td>
+<td><strong>Full REST coverage of the desktop feature surface</strong></td>
+<td><strong>INCLUDE NOW</strong> (decided 2026-05-31 - "endpoints for everything")</td>
+<td>Gaps found vs <code>src/CcDirector.Avalonia</code>: <strong>workspaces/history</strong>, <strong>source-control write actions</strong> (stage/commit/discard - <code>/git</code> is read-only today), <strong>scheduler</strong> (view runners / run on demand), <strong>session relink</strong>. Build agent confirms the exhaustive list against the desktop code before cutting the build.</td>
+</tr>
+</tbody>
+</table>
+<p>Decision: ship the final Director with <strong>#1-#6</strong> - the Director exposes the entire desktop capability surface over REST, so we never rebuild it.</p>
+<hr/>
+<h2>Track B / Phase 0 - Final Director build + interactive Cockpit terminal  [IMMEDIATE]</h2>
+<p><strong>Goal:</strong> cut one final Director build with the full manifest, launch a fresh controllable Director, and drive a real session end-to-end from the Cockpit.</p>
+<ul>
+<li><strong>B1. Finish the Director build manifest</strong> - implement #3 (terminal input channel) and #4 (queue auto-drain); #1 and #2 are already coded. This is the only Director code left before launch.</li>
+<li><strong>B2. Cockpit interactive terminal</strong> - pairs with #3: <code>cockpit-terminal.js</code> set <code>disableStdin: false</code>; wire xterm <code>onData</code> -&gt; WS send. <strong>Keep PTY-resize OFF</strong> (column-mirror only) until manifest #5 is done deliberately.</li>
+<li><strong>B3. Launch the fresh Director</strong> (with the final build) and <strong>verify E2E</strong>: see output, type directly into the terminal, Send + Queue (auto-drains), drop a screenshot, Interrupt + Escape. (Re-launch the user's live Directors with this build too; do NOT restart them out from under their sessions.)</li>
+<li>Open sub-decision: Tailscale Serve strategy when several Directors share one machine (per-port vs path-based) - confirm per-port <code>tailscale serve --https={port}</code> scales to N Directors.</li>
+</ul>
+<p><em>(The Gateway probe circuit-breaker that protects against the stale-<code>:7882</code> Directors is <strong>Track A / A4</strong>, not Track B.)</em></p>
+<p><strong>Done (both tracks converge):</strong> the Gateway runs as a service; a fresh Director runs the final build; a human drives a real session end-to-end from the Cockpit, including typing into the terminal, with no further Director rebuilds needed.</p>
+<hr/>
+<h2>Phase 1 - MVP finish + hardening</h2>
+<p><strong>Goal:</strong> the built MVP is solid against real multi-Director data.</p>
+<ul>
+<li>Confirm composer, queue CRUD, screenshots, reconnect, and error/empty states under load.</li>
+<li>Selection UX; keyboard focus into the terminal on select.</li>
+<li>Status dots / needs-you correctness against live data (not just the error path).</li>
+</ul>
+<p><strong>Done:</strong> MVP reliable on a real fleet.</p>
+<hr/>
+<h2>Phase 2 - Operate without the desktop (lifecycle + settings)</h2>
+<p><strong>Goal:</strong> the line you cross to stop opening the desktop for everyday work. All REST-backed, low risk.</p>
+<ul>
+<li><strong>New session</strong> - pick machine/Director + repo + agent -&gt; <code>POST /sessions</code> (direct, with a small "on which Director?" step).</li>
+<li><strong>Kill</strong> session; <strong>rename</strong> (<code>PATCH /sessions/{sid}</code>).</li>
+<li><strong>Settings view</strong> - <code>GET /settings</code> (read) -&gt; <code>PUT /settings</code> (edit), with live re-apply.</li>
+</ul>
+<p><strong>Done:</strong> start / stop / rename / configure sessions entirely from the Cockpit.</p>
+<hr/>
+<h2>Phase 3 - Awareness / wingman (consume the Director's existing endpoints)</h2>
+<p><strong>Goal:</strong> at-a-glance awareness and briefings without opening each session.</p>
+<p><strong>Reconciliation:</strong> the Director is <em>not</em> actually dumb today - it already exposes the whole wingman surface (<code>/wingman</code>, <code>/wingman/ask</code>, <code>/explain</code>, <code>/goal</code>), <code>recap</code>, <code>turn-summaries</code>, <code>/tts</code>, and <code>/dictate</code> over REST. So this phase is mostly <strong>the Cockpit consuming those endpoints</strong>, not hosting <code>WingmanService</code> itself. The Cockpit can stay Contracts-only + REST; no <code>CcDirector.Core</code> reference is required to ship awareness. (Moving the smarts physically into the Cockpit per the original "dumb runner" vision stays a <em>future option</em>, not a prerequisite.)</p>
+<ul>
+<li><strong>Recap / "what's happening"</strong> panel - calls the Director's recap/explain; async, never blocks the live view (mind the ~90s opus latency).</li>
+<li><strong>Turn-summary right rail</strong> (the session's arc) from <code>/turn-summaries</code>.</li>
+<li><strong>Needs-you prominence + notifications.</strong></li>
+</ul>
+<p><strong>Done:</strong> the awareness layer the prototype sketched, driven from the Director's existing REST surface.</p>
+<hr/>
+<h2>Phase 4 - Power tools</h2>
+<p><strong>Goal:</strong> the heavier desktop features.</p>
+<ul>
+<li><strong>Source-control / git diff</strong> view.</li>
+<li><strong>Workspaces / history.</strong></li>
+<li><strong>Handover</strong> and <strong>fan-out</strong> across sessions.</li>
+</ul>
+<p><strong>Done:</strong> the remaining day-to-day desktop capabilities live in the Cockpit.</p>
+<hr/>
+<h2>Phase 5 - Voice + retire the desktop</h2>
+<p><strong>Goal:</strong> finish the job.</p>
+<ul>
+<li>Full <strong>voice mode</strong> (optionally route Speak through the gateway dictation pipeline for dictionary + verbatim parity).</li>
+<li>Sweep any remaining desktop-only features into the Cockpit.</li>
+<li><strong>Deprecate the in-Director terminal + opinionated UI.</strong></li>
+</ul>
+<p><strong>Done:</strong> the desktop app is no longer needed.</p>
+<hr/>
+<h2>Cross-cutting concerns / risks</h2>
+<ul>
+<li><strong>Director reachability/Serve is the gating dependency</strong> for everything terminal-related (Phase 0a). Nothing downstream is verifiable until it's fixed.</li>
+<li><strong>Interactive terminal:</strong> never resize the PTY from the Cockpit (repaint loop); keystroke input is the safe part.</li>
+<li><strong>Opus latency (~90s)</strong> for briefings - async enrichment only, never block the live view.</li>
+<li><strong>Multiple viewers of one PTY</strong> (desktop owner + Cockpit): a read mirror is fine; if both write, keystrokes interleave at the PTY - acceptable, it's one user.</li>
+</ul>
+<hr/>
+<h2>Document History</h2>
+<table>
+<thead>
+<tr>
+<th>Date</th>
+<th>Author</th>
+<th>Change</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>2026-05-31</td>
+<td>claude (cc-director assistant)</td>
+<td>Initial plan. Status snapshot of the built MVP; reversed the read-only-terminal decision to interactive; phased Phase 0 (unblock + interactive terminal) through Phase 5 (retire the desktop).</td>
+</tr>
+</tbody>
+</table>
+</article>
+</body>
+</html>
