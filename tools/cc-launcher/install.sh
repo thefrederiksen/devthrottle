@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 #
-# Installs the cc-director-launcher as a per-user launchd agent so it runs in the
-# clean GUI session (outside any Claude Code process tree). Idempotent.
+# Installs cc-launcher as a per-user launchd agent so it runs in the clean GUI
+# session (outside any Claude Code process tree). Idempotent.
 #
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LABEL="com.centerconsulting.ccd-launcher"
+LABEL="com.centerconsulting.cc-launcher"
 PLIST_SRC="$DIR/$LABEL.plist"
 PLIST_DST="$HOME/Library/LaunchAgents/$LABEL.plist"
 SCRIPT="$DIR/launcher.py"

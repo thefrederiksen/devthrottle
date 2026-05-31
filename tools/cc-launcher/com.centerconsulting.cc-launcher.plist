@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.centerconsulting.ccd-launcher</string>
+    <string>com.centerconsulting.cc-launcher</string>
 
     <key>ProgramArguments</key>
     <array>
@@ -17,9 +17,9 @@
         <string>__CCD_BIN__</string>
         <key>DOTNET_ROOT</key>
         <string>__DOTNET_ROOT__</string>
-        <key>CCD_LAUNCHER_PORT</key>
+        <key>CCL_PORT</key>
         <string>8765</string>
-        <key>CCD_LAUNCHER_DIR</key>
+        <key>CCL_DIR</key>
         <string>__DIR__</string>
     </dict>
 
