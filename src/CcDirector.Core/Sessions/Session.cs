@@ -100,6 +100,21 @@ public sealed class Session : IDisposable
 
     public SessionBackendType BackendType { get; }
 
+    /// <summary>True when this session is a GitHub Actions remote session.</summary>
+    public bool IsRemote => BackendType == SessionBackendType.GitHubActions;
+
+    /// <summary>Remote repo slug ("owner/repo") for GitHub Actions sessions, else null.</summary>
+    public string? RemoteRepo => (_backend as GitHubActionsBackend)?.RepoSlug;
+
+    /// <summary>Web URL of the issue/PR thread for GitHub Actions sessions, else null.</summary>
+    public string? RemoteThreadUrl => (_backend as GitHubActionsBackend)?.ThreadUrl;
+
+    /// <summary>Web URL of the most recent workflow run for GitHub Actions sessions, else null.</summary>
+    public string? RemoteRunUrl => (_backend as GitHubActionsBackend)?.CurrentRunUrl;
+
+    /// <summary>Last observed run status for GitHub Actions sessions, else null.</summary>
+    public string? RemoteRunStatus => (_backend as GitHubActionsBackend)?.RunStatus;
+
     /// <summary>Which agent CLI this session is running (Claude Code, Pi, etc).
     /// Defaults to ClaudeCode for sessions created via legacy code paths.</summary>
     public AgentKind AgentKind { get; internal set; } = AgentKind.ClaudeCode;
@@ -317,7 +332,22 @@ public sealed class Session : IDisposable
     /// Runtime-only (not persisted across a Director restart): it tracks what the user
     /// is currently choosing to defer, not durable session state. Off by default.
     /// </summary>
-    public bool OnHold { get; set; }
+    public bool OnHold
+    {
+        get => _onHold;
+        set
+        {
+            if (_onHold == value) return;
+            _onHold = value;
+            OnHoldChanged?.Invoke(value);
+        }
+    }
+    private bool _onHold;
+
+    /// <summary>Fires when <see cref="OnHold"/> changes. Arg: new value. The desktop
+    /// session list subscribes so the color strip can repaint dark blue (held) without
+    /// the wingman touching <see cref="StatusColor"/>; OnHold sits on top of it.</summary>
+    public event Action<bool>? OnHoldChanged;
 
     /// <summary>
     /// Whether this session participates in the Wingman experience: the auto-explain
@@ -351,6 +381,59 @@ public sealed class Session : IDisposable
 
     /// <summary>Fires when <see cref="IsExplaining"/> changes. Arg: new value.</summary>
     public event Action<bool>? OnIsExplainingChanged;
+
+    private bool _isBackgroundRunning;
+    private string _backgroundReason = "running in background";
+
+    /// <summary>
+    /// True when the Wingman has read the screen and determined this session is parked
+    /// waiting on its OWN background task (a long build, "N shell still running") rather
+    /// than on the user. A Wingman-owned overlay ORTHOGONAL to <see cref="ActivityState"/>,
+    /// exactly like <see cref="IsExplaining"/>: the <c>TerminalStateDetector</c> still reports
+    /// the true underlying <see cref="ActivityState.WaitingForInput"/> (the dumb 10s silence
+    /// timer cannot tell a background-wait apart from "your turn"), and this flag sits on top
+    /// so <c>SessionStatusWingman</c> can paint the badge Purple ("running in background")
+    /// instead of Red ("needs you"). Set by <c>ProactiveExplainService</c> from the explain
+    /// verdict via <see cref="SetBackgroundRunning"/>; auto-cleared the moment real output
+    /// resumes (the session transitions off WaitingForInput in <see cref="SetActivityState"/>).
+    /// Transient (in-memory only); it tracks a live read of the screen, not durable state.
+    /// </summary>
+    public bool IsBackgroundRunning
+    {
+        get => _isBackgroundRunning;
+        private set
+        {
+            if (_isBackgroundRunning == value) return;
+            _isBackgroundRunning = value;
+            OnIsBackgroundRunningChanged?.Invoke(value);
+        }
+    }
+
+    /// <summary>Short reason for the Purple background state, shown as the badge tooltip,
+    /// e.g. "running in background". Set alongside <see cref="IsBackgroundRunning"/>.</summary>
+    public string BackgroundReason => _backgroundReason;
+
+    /// <summary>Fires when <see cref="IsBackgroundRunning"/> changes. Arg: new value. The
+    /// SessionStatusWingman subscribes so it can repaint the badge Purple/Red.</summary>
+    public event Action<bool>? OnIsBackgroundRunningChanged;
+
+    /// <summary>
+    /// Set (or clear) the Wingman's "parked on a background task" verdict for this session.
+    /// Sole caller is <c>ProactiveExplainService</c> after an explain briefing. Pass a short
+    /// reason when <paramref name="running"/> is true (used as the badge tooltip); clearing
+    /// resets the reason to the default. The flag only affects the badge while the session is
+    /// parked at a turn-end (see <c>SessionStatusWingman.ColorFor</c>).
+    /// </summary>
+    public void SetBackgroundRunning(bool running, string? reason = null)
+    {
+        // string.IsNullOrWhiteSpace is annotated [NotNullWhen(false)], so in the else branch
+        // the compiler already knows reason is non-null -- no null-forgiving operator needed.
+        if (running)
+            _backgroundReason = string.IsNullOrWhiteSpace(reason) ? "running in background" : reason.Trim();
+        else
+            _backgroundReason = "running in background";
+        IsBackgroundRunning = running;
+    }
 
     /// <summary>
     /// True until the user submits real input for the first time. New sessions boot with
@@ -1083,6 +1166,12 @@ public sealed class Session : IDisposable
         var old = ActivityState;
         if (old == newState) return;
         ActivityState = newState;
+        // A real activity change ends any Wingman "running in the background" overlay: once the
+        // terminal produces output again (Working), or the session otherwise leaves the parked
+        // turn-end it was judged at, the background-wait verdict is stale. The next turn-end
+        // briefing re-evaluates from scratch. Only WaitingForInput/WaitingForPerm preserve it.
+        if (newState is not (ActivityState.WaitingForInput or ActivityState.WaitingForPerm))
+            IsBackgroundRunning = false;
         // A real state change opens a new "generation". This releases any sticky
         // positive-evidence color from the previous generation (issue #136 option C):
         // e.g. a red pending-question survives cosmetic repaints while the session is

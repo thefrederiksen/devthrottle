@@ -142,6 +142,8 @@ public partial class MainWindow : Window
         SessionList.AddHandler(DragDrop.DragOverEvent, SessionList_DragOver);
         SessionList.AddHandler(DragDrop.DropEvent, SessionList_Drop);
         SessionList.AddHandler(PointerPressedEvent, SessionList_PointerPressed, global::Avalonia.Interactivity.RoutingStrategies.Tunnel);
+
+        BuildNativeMenu();
     }
 
     private void MainWindow_Activated(object? sender, EventArgs e)
@@ -162,6 +164,11 @@ public partial class MainWindow : Window
         SessionList.ItemsSource = _sessions;
         QueueItemsList.ItemsSource = _queueItems;
         ScreenshotList.ItemsSource = _screenshots;
+
+        // Keep the "N need you" header count instant: recompute whenever a session is
+        // added/removed or ANY session's status color flips (e.g. a background session goes
+        // red while you are on another). The 15s timer remains a backstop.
+        _sessions.CollectionChanged += OnSessionsCollectionChanged;
 
         // Subscribe to session registration for ClaudeSessionId persistence
         _sessionManager.OnClaudeSessionRegistered += OnClaudeSessionRegistered;
@@ -208,7 +215,12 @@ public partial class MainWindow : Window
         {
             Interval = TimeSpan.FromSeconds(15),
         };
-        _sessionGitTimer.Tick += async (_, _) => await RefreshSessionGitStatusAsync();
+        _sessionGitTimer.Tick += async (_, _) =>
+        {
+            foreach (var vm in _sessions) vm.RefreshTimeLabels();
+            UpdateNeedsYouCount();
+            await RefreshSessionGitStatusAsync();
+        };
         _sessionGitTimer.Start();
 
         // Scheduler-leader indicator: show "LEADER" pill on the sidebar and
@@ -396,18 +408,29 @@ public partial class MainWindow : Window
         });
     }
 
+    /// <summary>
+    /// Last failure message from <see cref="CreateSession"/>, so UI callers can surface
+    /// why a launch failed instead of swallowing it. Reset at the start of each attempt.
+    /// </summary>
+    private string? _lastSessionCreateError;
+
+    /// <summary>Construct the <see cref="IAgent"/> strategy for the given agent kind.</summary>
+    private IAgent CreateAgent(AgentKind agentKind) => agentKind switch
+    {
+        AgentKind.Pi => new PiAgent(_sessionManager.Options),
+        AgentKind.Codex => new CodexAgent(_sessionManager.Options),
+        AgentKind.Gemini => new GeminiAgent(_sessionManager.Options),
+        AgentKind.OpenCode => new OpenCodeAgent(_sessionManager.Options),
+        _ => new ClaudeAgent(_sessionManager.Options)
+    };
+
     private SessionViewModel? CreateSession(string repoPath, string? resumeSessionId = null, string? claudeArgs = null, AgentKind agentKind = AgentKind.ClaudeCode)
     {
         FileLog.Write($"[MainWindow] CreateSession: repoPath={repoPath}, agent={agentKind}, resume={resumeSessionId ?? "null"}, args={claudeArgs ?? "default"}");
+        _lastSessionCreateError = null;
         try
         {
-            IAgent agent = agentKind switch
-            {
-                AgentKind.Pi => new PiAgent(_sessionManager.Options),
-                AgentKind.Codex => new CodexAgent(_sessionManager.Options),
-                AgentKind.Gemini => new GeminiAgent(_sessionManager.Options),
-                _ => new ClaudeAgent(_sessionManager.Options)
-            };
+            IAgent agent = CreateAgent(agentKind);
             var session = _sessionManager.CreateSession(repoPath, agent, claudeArgs, SessionBackendType.ConPty, resumeSessionId);
             FileLog.Write($"[MainWindow] CreateSession: session created, id={session.Id}, pid={session.ProcessId}");
 
@@ -419,10 +442,59 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
+            _lastSessionCreateError = ex.Message;
             FileLog.Write($"[MainWindow] CreateSession FAILED: {ex.Message}");
             return null;
         }
     }
+
+    /// <summary>
+    /// Create a GitHub Actions remote session: the work runs on a GitHub-hosted
+    /// runner and streams into a normal session window. Surfaces setup failures
+    /// (missing token, etc.) as an explicit dialog rather than silently failing.
+    /// </summary>
+    private async Task CreateRemoteSessionAsync(RemoteSessionConfig config)
+    {
+        FileLog.Write($"[MainWindow] CreateRemoteSessionAsync: {config.Slug} mode={config.TriggerMode}");
+        try
+        {
+            var session = _sessionManager.CreateGitHubActionsSession(config);
+            FileLog.Write($"[MainWindow] CreateRemoteSessionAsync: session created, id={session.Id}");
+
+            var vm = new SessionViewModel(session);
+            _sessions.Add(vm);
+            SessionList.SelectedItem = vm;
+
+            ShowRenameDialog(vm);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] CreateRemoteSessionAsync FAILED: {ex.Message}");
+            await MessageBox.ShowAsync(this,
+                "Could not start remote session",
+                "CC Director could not start the GitHub Actions session.\n\n" + ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Human-readable name and install guidance for an agent CLI, shown when its
+    /// executable cannot be found on PATH.
+    /// </summary>
+    private static (string DisplayName, string InstallHint) AgentInstallInfo(AgentKind kind) => kind switch
+    {
+        AgentKind.Pi => ("Pi",
+            "Install it with: npm install -g @earendil-works/pi-coding-agent"),
+        AgentKind.Codex => ("Codex",
+            "Install it with: npm install -g @openai/codex"),
+        AgentKind.Gemini => ("Gemini CLI",
+            "Install it with: npm install -g @google/gemini-cli"),
+        AgentKind.OpenCode => ("OpenCode",
+            "Install it from https://opencode.ai (for example: 'npm install -g opencode-ai', "
+            + "'brew install sst/tap/opencode', or 'scoop install opencode'), then make sure the "
+            + "'opencode' command is on your PATH."),
+        _ => ("Claude Code",
+            "Install Claude Code and make sure the 'claude' command is on your PATH.")
+    };
 
     private void SelectSession(SessionViewModel? vm)
     {
@@ -463,7 +535,7 @@ public partial class MainWindow : Window
 
         if (vm == null)
         {
-            SessionHeaderBanner.IsVisible = false;
+            SetSessionHeaderVisible(false);
             PlaceholderText.IsVisible = true;
             TerminalDock.IsVisible = false;
             PromptBarBorder.IsVisible = false;
@@ -490,7 +562,7 @@ public partial class MainWindow : Window
         vm.Session.OnCachedExplainChanged += OnActiveSessionCachedExplainChanged;
 
         // Update header
-        SessionHeaderBanner.IsVisible = true;
+        SetSessionHeaderVisible(true);
         UpdateSessionHeader();
 
         // Attach terminal
@@ -646,7 +718,7 @@ public partial class MainWindow : Window
             _sessionManager.RemoveSession(vm.Session.Id);
         }
 
-        SessionHeaderBanner.IsVisible = false;
+        SetSessionHeaderVisible(false);
         PlaceholderText.IsVisible = true;
         TerminalDock.IsVisible = false;
         PromptBarBorder.IsVisible = false;
@@ -688,6 +760,13 @@ public partial class MainWindow : Window
         var relink = new MenuItem { Header = "Relink Session..." };
         relink.Click += (_, _) => _ = ShowRelinkDialog(vm);
 
+        var separatorHold = new Separator();
+
+        // On-hold toggle: parks the session out of the FIFO rotation and paints its
+        // list strip dark blue so you can see at a glance which sessions you've set aside.
+        var hold = new MenuItem { Header = vm.IsOnHold ? "Take Off Hold" : "Hold" };
+        hold.Click += (_, _) => ToggleSessionHold(vm);
+
         var separator3 = new Separator();
 
         var close = new MenuItem { Header = "Close Session" };
@@ -700,10 +779,22 @@ public partial class MainWindow : Window
         menu.Items.Add(separator2);
         menu.Items.Add(openExplorer);
         menu.Items.Add(openVsCode);
+        menu.Items.Add(separatorHold);
+        menu.Items.Add(hold);
         menu.Items.Add(separator3);
         menu.Items.Add(close);
 
         menu.Open(button);
+    }
+
+    private void ToggleSessionHold(SessionViewModel vm)
+    {
+        var newState = !vm.Session.OnHold;
+        FileLog.Write($"[MainWindow] ToggleSessionHold: session={vm.Session.Id}, onHold={newState}");
+        vm.Session.OnHold = newState;
+        ShowNotification(newState
+            ? $"{vm.DisplayName} put on hold"
+            : $"{vm.DisplayName} taken off hold");
     }
 
     private async void ShowRenameDialog(SessionViewModel vm)
@@ -825,7 +916,7 @@ public partial class MainWindow : Window
             WingmanView.Detach();
             _activeSession = null;
 
-            SessionHeaderBanner.IsVisible = false;
+            SetSessionHeaderVisible(false);
             PlaceholderText.IsVisible = true;
             TerminalDock.IsVisible = false;
             PromptBarBorder.IsVisible = false;
@@ -917,6 +1008,45 @@ public partial class MainWindow : Window
 
     // ==================== SESSION HEADER ====================
 
+    private void BtnOpenRemoteThread_Click(object? sender, RoutedEventArgs e)
+    {
+        var url = _activeSession?.Session.RemoteThreadUrl;
+        OpenUrlInBrowser(url);
+    }
+
+    private void BtnOpenRemoteActions_Click(object? sender, RoutedEventArgs e)
+    {
+        var slug = _activeSession?.Session.RemoteRepo;
+        if (string.IsNullOrEmpty(slug)) return;
+        OpenUrlInBrowser($"https://github.com/{slug}/actions");
+    }
+
+    private static void OpenUrlInBrowser(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return;
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] OpenUrlInBrowser FAILED for {url}: {ex.Message}");
+        }
+    }
+
+    // Top bar accent: sidebar-colored when idle, blue when a session is active.
+    private static readonly IBrush TopBarIdleBrush = new SolidColorBrush(Color.Parse("#252526"));
+    private static readonly IBrush TopBarActiveBrush = new SolidColorBrush(Color.Parse("#007ACC"));
+
+    // Show or hide the per-session identity block in the unified top bar. The bar
+    // itself is always visible (so the global tools can never be occluded); only the
+    // identity content and the bar's accent color change with the active session.
+    private void SetSessionHeaderVisible(bool visible)
+    {
+        SessionHeaderBanner.IsVisible = visible;
+        TopBar.Background = visible ? TopBarActiveBrush : TopBarIdleBrush;
+    }
+
     private void UpdateSessionHeader()
     {
         if (_activeSession == null) return;
@@ -924,6 +1054,20 @@ public partial class MainWindow : Window
         var session = _activeSession.Session;
         HeaderSessionName.Text = _activeSession.DisplayName;
         HeaderActivityLabel.Text = _activeSession.ActivityLabel;
+
+        // GitHub Actions remote sessions get a links row (repo slug + thread + Actions).
+        if (session.IsRemote)
+        {
+            HeaderRemoteLinks.IsVisible = true;
+            HeaderRemoteRepo.Text = session.RemoteRepo ?? "";
+            // "Open thread" is only useful once the thread exists; the run links are in
+            // the streamed buffer too, but the Actions button is always reachable.
+            BtnOpenRemoteThread.IsEnabled = !string.IsNullOrEmpty(session.RemoteThreadUrl);
+        }
+        else
+        {
+            HeaderRemoteLinks.IsVisible = false;
+        }
 
         // Message count
         var msgCount = session.ClaudeMetadata?.MessageCount ?? 0;
@@ -1418,9 +1562,22 @@ public partial class MainWindow : Window
         var dialog = new NewSessionDialog(registry, app.SessionHistoryStore);
         var result = await dialog.ShowDialog<bool?>(this);
 
-        if (result != true || string.IsNullOrWhiteSpace(dialog.SelectedPath))
+        if (result != true)
         {
             FileLog.Write("[MainWindow] ShowNewSessionDialog: cancelled");
+            return;
+        }
+
+        // GitHub (Remote) tab: the work runs on a GitHub-hosted runner, not locally.
+        if (dialog.RemoteConfig is { } remoteConfig)
+        {
+            await CreateRemoteSessionAsync(remoteConfig);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(dialog.SelectedPath))
+        {
+            FileLog.Write("[MainWindow] ShowNewSessionDialog: no path selected");
             return;
         }
 
@@ -1445,8 +1602,33 @@ public partial class MainWindow : Window
 
         FileLog.Write($"[MainWindow] ShowNewSessionDialog: path={dialog.SelectedPath}, agent={agentKind}, resume={resumeSessionId ?? "null"}, bypassPermissions={dialog.BypassPermissions}, remoteControl={dialog.EnableRemoteControl}, wingmanEnabled={dialog.WingmanEnabled}");
 
+        // Preflight: make sure the chosen agent's CLI actually exists before we try to spawn it.
+        // Without this, a missing binary (e.g. OpenCode not installed) makes CreateProcess fail
+        // with a cryptic Win32 error that gets swallowed, so the dialog just closes and "nothing
+        // happens". Resolve it up front and tell the user exactly what to install.
+        var agentExe = CreateAgent(agentKind).ExecutablePath;
+        if (ExecutableResolver.Resolve(agentExe) is null)
+        {
+            var (agentName, installHint) = AgentInstallInfo(agentKind);
+            FileLog.Write($"[MainWindow] ShowNewSessionDialog: agent {agentKind} executable '{agentExe}' not found on PATH; aborting launch");
+            await MessageBox.ShowAsync(this,
+                $"{agentName} is not installed",
+                $"CC Director could not start a {agentName} session because its command line tool "
+                + $"could not be found.\n\nLooked for: {agentExe}\n\n{installHint}\n\n"
+                + "If it is installed in a non-standard location, set its path in config.json.");
+            return;
+        }
+
         var vm = CreateSession(dialog.SelectedPath, resumeSessionId, agentArgs, agentKind);
-        if (vm == null) return;
+        if (vm == null)
+        {
+            FileLog.Write("[MainWindow] ShowNewSessionDialog: CreateSession returned null; showing failure dialog");
+            await MessageBox.ShowAsync(this,
+                "Could not start session",
+                "CC Director could not start the session.\n\n"
+                + (_lastSessionCreateError ?? "See the Director log for details."));
+            return;
+        }
 
         // Apply the per-session Wingman opt-in chosen in the dialog. Default in the checkbox
         // is true (matches Session.WingmanEnabled's default); the dialog can flip it off so
@@ -1496,74 +1678,105 @@ public partial class MainWindow : Window
         FileLog.Write("[MainWindow] ShowNewSessionDialog: complete");
     }
 
-    private void BtnAppMenu_Click(object? sender, RoutedEventArgs e)
+    // Builds the window menu bar (File / Session / View / Tools / Help). Rendered
+    // in-window by the NativeMenuBar on Windows/Linux and lifted into the system
+    // menu bar on macOS. Replaces the old scattered entry points (sidebar hamburger,
+    // New Session caret, top-bar More/Settings/? cluster). Each leaf reuses the
+    // existing click handlers / dialog logic so behavior is unchanged.
+    private void BuildNativeMenu()
     {
-        FileLog.Write("[MainWindow] BtnAppMenu_Click");
-        _ = ShowAppMenu();
-    }
+        FileLog.Write("[MainWindow] BuildNativeMenu");
 
-    private async Task ShowAppMenu()
-    {
-        var app = (App)global::Avalonia.Application.Current!;
-
-        var menu = new ContextMenu();
-
-        var saveWorkspace = new MenuItem { Header = "Save Workspace..." };
-        saveWorkspace.Click += async (_, _) =>
+        NativeMenuItem Item(string header, Action onClick, KeyGesture? gesture = null)
         {
+            var mi = new NativeMenuItem(header);
+            mi.Click += (_, _) => onClick();
+            if (gesture != null) mi.Gesture = gesture;
+            return mi;
+        }
+
+        App AppRef() => global::Avalonia.Application.Current as App
+            ?? throw new InvalidOperationException("Application.Current is not the CC Director App");
+
+        var menu = new NativeMenu();
+
+        // ===== File =====
+        var file = new NativeMenuItem("File") { Menu = new NativeMenu() };
+        file.Menu.Items.Add(Item("New Session", () => BtnNewSession_Click(this, new RoutedEventArgs()),
+            new KeyGesture(Key.N, KeyModifiers.Control)));
+        file.Menu.Items.Add(new NativeMenuItemSeparator());
+        file.Menu.Items.Add(Item("Save Workspace...", async () =>
+        {
+            var app = AppRef();
             var sessionData = _sessions.Select(vm => new SessionData(
-                vm.DisplayName,
-                vm.Session.RepoPath,
-                vm.Session.CustomName,
-                vm.Session.CustomColor,
-                vm.Session.ClaudeArgs));
+                vm.DisplayName, vm.Session.RepoPath, vm.Session.CustomName,
+                vm.Session.CustomColor, vm.Session.ClaudeArgs));
             var dialog = new SaveWorkspaceDialog(app.WorkspaceStore, sessionData);
             await dialog.ShowDialog<bool?>(this);
-        };
-
-        var loadWorkspace = new MenuItem { Header = "Load Workspace..." };
-        loadWorkspace.Click += async (_, _) =>
+        }));
+        file.Menu.Items.Add(Item("Load Workspace...", async () =>
         {
-            var dialog = new LoadWorkspaceDialog(app.WorkspaceStore);
+            var dialog = new LoadWorkspaceDialog(AppRef().WorkspaceStore);
             var result = await dialog.ShowDialog<bool?>(this);
             if (result == true && dialog.SelectedWorkspace != null)
             {
-                if (_sessions.Count > 0)
-                    await CloseAllSessionsAsync();
+                if (_sessions.Count > 0) await CloseAllSessionsAsync();
                 await LoadWorkspaceAsync(dialog.SelectedWorkspace);
             }
-        };
-
-        var clearWorkspace = new MenuItem { Header = "Clear Workspace" };
-        clearWorkspace.Click += async (_, _) =>
+        }));
+        file.Menu.Items.Add(Item("Clear Workspace", async () =>
         {
             if (_sessions.Count == 0) return;
             await CloseAllSessionsAsync();
-        };
-
-        var separator1 = new Separator();
-
-        var openLogs = new MenuItem { Header = "Open Logs" };
-        openLogs.Click += (_, _) =>
+        }));
+        file.Menu.Items.Add(new NativeMenuItemSeparator());
+        file.Menu.Items.Add(Item("Open Sessions File", () =>
+        {
+            var filePath = AppRef().SessionStateStore.FilePath;
+            if (File.Exists(filePath))
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(filePath)
+                    { UseShellExecute = true });
+            else
+                ShowNotification($"Sessions file not found: {filePath}");
+        }));
+        file.Menu.Items.Add(Item("Open History Folder", () =>
+        {
+            var folder = AppRef().SessionHistoryStore.FolderPath;
+            if (Directory.Exists(folder))
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                    { FileName = folder, UseShellExecute = true });
+            else
+                ShowNotification($"History folder not found: {folder}");
+        }));
+        file.Menu.Items.Add(Item("History in VS Code", () =>
+        {
+            var folder = AppRef().SessionHistoryStore.FolderPath;
+            if (Directory.Exists(folder))
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("code", $"\"{folder}\"")
+                    { UseShellExecute = true });
+            else
+                ShowNotification($"History folder not found: {folder}");
+        }));
+        file.Menu.Items.Add(Item("Open Logs", () =>
         {
             var logDir = Path.GetDirectoryName(FileLog.CurrentLogPath);
             if (logDir != null && Directory.Exists(logDir))
-            {
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = logDir,
-                    UseShellExecute = true
-                });
-            }
-        };
+                    { FileName = logDir, UseShellExecute = true });
+        }));
+        file.Menu.Items.Add(new NativeMenuItemSeparator());
+        file.Menu.Items.Add(Item("Exit", Close));
+        menu.Items.Add(file);
 
-        var separator2 = new Separator();
-
-        var repositories = new MenuItem { Header = "Repositories..." };
-        repositories.Click += async (_, _) =>
+        // ===== Session =====
+        var session = new NativeMenuItem("Session") { Menu = new NativeMenu() };
+        session.Menu.Items.Add(Item("New Session", () => BtnNewSession_Click(this, new RoutedEventArgs())));
+        session.Menu.Items.Add(Item("Start FIFO", () => BtnFifo_Click(this, new RoutedEventArgs())));
+        session.Menu.Items.Add(new NativeMenuItemSeparator());
+        session.Menu.Items.Add(Item("Repositories...", async () =>
         {
             FileLog.Write("[MainWindow] Menu: Repositories");
-            var dialog = new RepositoryManagerDialog(app.RootDirectoryStore);
+            var dialog = new RepositoryManagerDialog(AppRef().RootDirectoryStore);
             var result = await dialog.ShowDialog<bool?>(this);
             if (result == true && dialog.LaunchSessionPath != null)
             {
@@ -1575,97 +1788,53 @@ public partial class MainWindow : Window
                     SwitchLeftTab("Terminal");
                 }
             }
-        };
-
-        var accounts = new MenuItem { Header = "Accounts..." };
-        accounts.Click += async (_, _) =>
+        }));
+        session.Menu.Items.Add(Item("Accounts...", async () =>
         {
             FileLog.Write("[MainWindow] Menu: Accounts");
-            var dialog = new AccountsDialog(app.ClaudeAccountStore);
+            var dialog = new AccountsDialog(AppRef().ClaudeAccountStore);
             await dialog.ShowDialog<bool?>(this);
-        };
-
-        var manager = new MenuItem { Header = "Director (multi-session)" };
-        manager.Click += (_, _) =>
-        {
-            FileLog.Write("[MainWindow] Menu: Director");
-            // Select the Director tab in the right panel
-            RightPanelTabs.SelectedItem = TabItemDirector;
-        };
-
-        var showReviews = new MenuItem { Header = "Show Reviews" };
-        showReviews.Click += async (_, _) =>
+        }));
+        session.Menu.Items.Add(new NativeMenuItemSeparator());
+        session.Menu.Items.Add(Item("Show Reviews", async () =>
         {
             FileLog.Write("[MainWindow] Menu: Show Reviews");
             var dialog = new TurnReviewDialog();
             await dialog.ShowDialog(this);
-        };
+        }));
+        menu.Items.Add(session);
 
-        var separator3 = new Separator();
+        // ===== View =====
+        var view = new NativeMenuItem("View") { Menu = new NativeMenu() };
+        view.Menu.Items.Add(Item("Toggle Right Panel", () => RightPanelToggle_Click(this, new RoutedEventArgs())));
+        view.Menu.Items.Add(Item("Reset Terminal View", () => TabBarRefreshButton_Click(this, new RoutedEventArgs())));
+        menu.Items.Add(view);
 
-        var openSessions = new MenuItem { Header = "Open Sessions File" };
-        openSessions.Click += (_, _) =>
+        // ===== Tools =====
+        var tools = new NativeMenuItem("Tools") { Menu = new NativeMenu() };
+        tools.Menu.Items.Add(Item("Communications", () => BtnComms_Click(this, new RoutedEventArgs())));
+        tools.Menu.Items.Add(Item("Connections", () => BtnConnections_Click(this, new RoutedEventArgs())));
+        tools.Menu.Items.Add(Item("Scheduler", () => BtnScheduler_Click(this, new RoutedEventArgs())));
+        tools.Menu.Items.Add(Item("Director (multi-session)", () =>
         {
-            FileLog.Write("[MainWindow] Menu: Open Sessions File");
-            var filePath = app.SessionStateStore.FilePath;
-            if (File.Exists(filePath))
-            {
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(filePath)
-                    { UseShellExecute = true });
-            }
-            else
-            {
-                ShowNotification($"Sessions file not found: {filePath}");
-            }
-        };
+            FileLog.Write("[MainWindow] Menu: Director");
+            RightPanelTabs.SelectedItem = TabItemDirector;
+        }));
+        tools.Menu.Items.Add(new NativeMenuItemSeparator());
+        tools.Menu.Items.Add(Item("Claude View...", () => BtnClaudeView_Click(this, new RoutedEventArgs())));
+        tools.Menu.Items.Add(Item("MCP Servers...", () => BtnMcpServers_Click(this, new RoutedEventArgs())));
+        tools.Menu.Items.Add(Item("Agent Templates...", () => BtnAgentTemplates_Click(this, new RoutedEventArgs())));
+        tools.Menu.Items.Add(Item("Claude Code Settings...", () => BtnClaudeConfig_Click(this, new RoutedEventArgs())));
+        tools.Menu.Items.Add(new NativeMenuItemSeparator());
+        tools.Menu.Items.Add(Item("Settings...", () => BtnSettings_Click(this, new RoutedEventArgs())));
+        menu.Items.Add(tools);
 
-        var openHistory = new MenuItem { Header = "Open History Folder" };
-        openHistory.Click += (_, _) =>
-        {
-            FileLog.Write("[MainWindow] Menu: Open History Folder");
-            var folder = app.SessionHistoryStore.FolderPath;
-            if (Directory.Exists(folder))
-            {
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                    { FileName = folder, UseShellExecute = true });
-            }
-            else
-            {
-                ShowNotification($"History folder not found: {folder}");
-            }
-        };
+        // ===== Help =====
+        var help = new NativeMenuItem("Help") { Menu = new NativeMenu() };
+        help.Menu.Items.Add(Item("About CC Director", () => BtnHelp_Click(this, new RoutedEventArgs())));
+        menu.Items.Add(help);
 
-        var historyVsCode = new MenuItem { Header = "History in VS Code" };
-        historyVsCode.Click += (_, _) =>
-        {
-            FileLog.Write("[MainWindow] Menu: History in VS Code");
-            var folder = app.SessionHistoryStore.FolderPath;
-            if (Directory.Exists(folder))
-            {
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("code", $"\"{folder}\"")
-                    { UseShellExecute = true });
-            }
-            else
-            {
-                ShowNotification($"History folder not found: {folder}");
-            }
-        };
-
-        menu.Items.Add(saveWorkspace);
-        menu.Items.Add(loadWorkspace);
-        menu.Items.Add(clearWorkspace);
-        menu.Items.Add(separator1);
-        menu.Items.Add(repositories);
-        menu.Items.Add(accounts);
-        menu.Items.Add(manager);
-        menu.Items.Add(showReviews);
-        menu.Items.Add(separator2);
-        menu.Items.Add(openLogs);
-        menu.Items.Add(openSessions);
-        menu.Items.Add(openHistory);
-        menu.Items.Add(historyVsCode);
-
-        menu.Open(BtnAppMenu);
+        NativeMenu.SetMenu(this, menu);
     }
 
     // ==================== TOP APP BAR ====================
@@ -1728,9 +1897,12 @@ public partial class MainWindow : Window
 
     private async void BtnSettings_Click(object? sender, RoutedEventArgs e)
     {
-        FileLog.Write("[MainWindow] BtnSettings_Click");
-        var repoPath = _activeSession?.Session.RepoPath;
-        var dialog = new ClaudeConfigDialog(repoPath);
+        FileLog.Write("[MainWindow] BtnSettings_Click: opening CC Director settings");
+        var controlApi = (global::Avalonia.Application.Current as App)?.ControlApiHost;
+        var dialog = new SettingsDialog(
+            controlApi is not null ? controlApi.ReapplyGatewayAsync : null,
+            controlApi?.Port ?? 0,
+            ReloadScreenshotsPanelAsync);
         await dialog.ShowDialog<bool?>(this);
     }
 
@@ -1807,8 +1979,13 @@ public partial class MainWindow : Window
         WingmanTitleText.IsVisible = !string.IsNullOrEmpty(headline);
         WingmanTitleText.Text = headline ?? "";
 
-        // What Claude wants you to do next.
-        WingmanWhatNextSection.IsVisible = !string.IsNullOrEmpty(whatNext);
+        // What Claude wants you to do next. The orange box is an URGENT "you must act" callout,
+        // so it must only appear when the session is actually red (needs you). When Claude is
+        // working (blue) or idle (green) the briefing still fills whatClaudeWants ("...still
+        // working; nothing needed" / "nothing pending"), and painting that in the orange action
+        // box is a false alarm. Gate on red; the headline carries the working/idle state instead.
+        var isRed = string.Equals(session.StatusColor, "red", StringComparison.OrdinalIgnoreCase);
+        WingmanWhatNextSection.IsVisible = isRed && !string.IsNullOrEmpty(whatNext);
         WingmanWhatNextText.Text = whatNext ?? "";
 
         // Tap-to-answer buttons: one per briefing action (Session.CachedQuickReplies).
@@ -1823,20 +2000,98 @@ public partial class MainWindow : Window
         WingmanSpeakVoiceButton.IsEnabled = !string.IsNullOrEmpty(say);
         WingmanVoiceSection.IsVisible = _wingmanShowVoicePreview && !string.IsNullOrEmpty(say);
 
-        // Meta row: model + age. Short, no padding.
+        // Meta row: model + freshness. Updated live by a timer so the age does not freeze
+        // between briefings (it used to show a single stale "Xs ago" computed at render time),
+        // and so a regeneration in flight reads "refreshing..." instead of a stale age.
         if (hasAny)
         {
-            var parts = new List<string>();
-            if (!string.IsNullOrEmpty(session.CachedExplainModel))
-                parts.Add(session.CachedExplainModel);
-            if (session.CachedExplainAt is { } at)
-                parts.Add($"{(int)(DateTime.UtcNow - at).TotalSeconds}s ago");
-            WingmanMetaText.Text = string.Join("  ", parts);
+            UpdateWingmanMetaText(session);
+            EnsureWingmanFreshnessTimer();
         }
         else
         {
             WingmanMetaText.Text = "";
         }
+    }
+
+    // Ticks every 2s while the Wingman tab is active, refreshing only the small meta line.
+    // Lazily created on first render; cheap (one text update, no full re-render).
+    // Per-session status-color subscriptions so the needs-you count updates the instant any
+    // session flips red, not just on the 15s timer. Keyed by VM so we can unsubscribe on remove.
+    private readonly Dictionary<SessionViewModel, Action<string, string, string>> _needsYouHandlers = new();
+
+    private void OnSessionsCollectionChanged(object? sender, global::System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+    {
+        if (e.Action == global::System.Collections.Specialized.NotifyCollectionChangedAction.Reset)
+        {
+            foreach (var kv in _needsYouHandlers) kv.Key.Session.OnStatusColorChanged -= kv.Value;
+            _needsYouHandlers.Clear();
+            foreach (var vm in _sessions) SubscribeNeedsYou(vm);
+        }
+        else
+        {
+            if (e.OldItems != null)
+                foreach (SessionViewModel vm in e.OldItems)
+                    if (_needsYouHandlers.TryGetValue(vm, out var h)) { vm.Session.OnStatusColorChanged -= h; _needsYouHandlers.Remove(vm); }
+            if (e.NewItems != null)
+                foreach (SessionViewModel vm in e.NewItems) SubscribeNeedsYou(vm);
+        }
+        UpdateNeedsYouCount();
+    }
+
+    private void SubscribeNeedsYou(SessionViewModel vm)
+    {
+        if (_needsYouHandlers.ContainsKey(vm)) return;
+        Action<string, string, string> h = (_, _, _) => Dispatcher.UIThread.Post(UpdateNeedsYouCount);
+        _needsYouHandlers[vm] = h;
+        vm.Session.OnStatusColorChanged += h;
+    }
+
+    // Count of sessions that need you (red) shown beside the SESSIONS header, so you get a
+    // top-level "is anything waiting on me?" signal without scanning the list. Hidden at zero.
+    private void UpdateNeedsYouCount()
+    {
+        var n = _sessions.Count(s => string.Equals(s.Session.StatusColor, "red", StringComparison.OrdinalIgnoreCase));
+        SessionsNeedYouText.Text = n > 0 ? $"{n} need you" : "";
+        SessionsNeedYouText.IsVisible = n > 0;
+    }
+
+    private global::Avalonia.Threading.DispatcherTimer? _wingmanFreshnessTimer;
+
+    private void EnsureWingmanFreshnessTimer()
+    {
+        if (_wingmanFreshnessTimer is not null) return;
+        _wingmanFreshnessTimer = new global::Avalonia.Threading.DispatcherTimer
+        {
+            Interval = TimeSpan.FromSeconds(2),
+        };
+        _wingmanFreshnessTimer.Tick += (_, _) =>
+        {
+            if (_activeLeftTab != "Wingman" || _activeSession is null) return;
+            var s = _activeSession.Session;
+            // Self-correct the orange box visibility as the session flips red<->working<->idle.
+            // RenderWingmanCachedExplain only runs on briefing changes, and the status color can
+            // change without a new briefing (e.g. after the user answers), so re-gate it here.
+            var isRed = string.Equals(s.StatusColor, "red", StringComparison.OrdinalIgnoreCase);
+            WingmanWhatNextSection.IsVisible = isRed && !string.IsNullOrEmpty(s.CachedExplainWhatClaudeWants);
+            if (string.IsNullOrEmpty(s.CachedExplainModel) && s.CachedExplainAt is null) return;
+            UpdateWingmanMetaText(s);
+        };
+        _wingmanFreshnessTimer.Start();
+    }
+
+    // model + live freshness. "refreshing..." while the ProactiveExplainService is mid-flight
+    // (IsExplaining), otherwise a human age (Xs / Xm / Xh ago) that ticks on its own.
+    private void UpdateWingmanMetaText(global::CcDirector.Core.Sessions.Session session)
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrEmpty(session.CachedExplainModel))
+            parts.Add(session.CachedExplainModel!);
+        if (session.IsExplaining)
+            parts.Add("refreshing...");
+        else if (session.CachedExplainAt is { } at)
+            parts.Add(RelativeTime.Ago(DateTime.UtcNow - at));
+        WingmanMetaText.Text = string.Join("  ", parts);
     }
 
     // Build one tap-to-answer button per briefing action. Each sends its own literal text
@@ -1877,6 +2132,12 @@ public partial class MainWindow : Window
     private void SendWingmanActionReply(string text)
     {
         if (_activeSession is null || string.IsNullOrWhiteSpace(text)) return;
+        // Disable all action buttons the instant one is clicked. The box lingers until the
+        // session flips to Working (re-gated by the 2s timer), so without this a rapid second
+        // click would send a duplicate answer to the agent. Buttons are rebuilt (enabled) on the
+        // next briefing. Also gives an immediate "sent" affordance.
+        foreach (var child in WingmanActionsPanel.Children)
+            if (child is global::Avalonia.Controls.Button b) b.IsEnabled = false;
         FileLog.Write($"[MainWindow] SendWingmanActionReply: sid={_activeSession.Session.Id}, text=\"{text}\"");
         PromptInput.Text = text;
         SendPrompt();
@@ -2255,6 +2516,39 @@ public partial class MainWindow : Window
         SchedulerOverlay.IsVisible = false;
         if (_schedulerInitialized)
             SchedulerView.StopPolling();
+    }
+
+    private void BtnTools_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write("[MainWindow] BtnTools_Click: opening Tools overlay");
+
+        // Close other overlays first.
+        if (CommsOverlay.IsVisible)
+        {
+            CommsOverlay.IsVisible = false;
+            if (_commsInitialized)
+                CommManagerView.StopPolling();
+        }
+        if (ConnectionsOverlay.IsVisible)
+        {
+            ConnectionsOverlay.IsVisible = false;
+            if (_connectionsInitialized)
+                ConnectionsView.StopPolling();
+        }
+        if (SchedulerOverlay.IsVisible)
+        {
+            SchedulerOverlay.IsVisible = false;
+            if (_schedulerInitialized)
+                SchedulerView.StopPolling();
+        }
+
+        ToolsOverlay.IsVisible = true;
+    }
+
+    private void BtnToolsClose_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write("[MainWindow] BtnToolsClose_Click: closing Tools overlay");
+        ToolsOverlay.IsVisible = false;
     }
 
     private void SwitchLeftTab(string tab)
@@ -3070,19 +3364,39 @@ public partial class MainWindow : Window
 
     // ==================== SCREENSHOTS ====================
 
+    /// <summary>
+    /// Re-point the screenshots tab after the configured folder changes (Settings save), so
+    /// the new folder takes effect without restarting the app. Idempotent - safe to call
+    /// repeatedly; it tears down the previous watcher first.
+    /// </summary>
+    public Task ReloadScreenshotsPanelAsync() => InitializeScreenshotsPanelAsync();
+
     private async Task InitializeScreenshotsPanelAsync()
     {
         FileLog.Write("[MainWindow] InitializeScreenshotsPanelAsync: starting");
 
         try
         {
-            _screenshotsDirectory = await Task.Run(() => ResolveScreenshotsDirectory());
-
-            if (_screenshotsDirectory == null || !Directory.Exists(_screenshotsDirectory))
+            // Idempotent: tear down any previous watcher/timer and clear the list so a reload
+            // after a folder change doesn't double-watch or stack stale thumbnails.
+            if (_screenshotWatcher is not null)
             {
-                FileLog.Write("[MainWindow] InitializeScreenshotsPanelAsync: no screenshots directory found");
-                return;
+                _screenshotWatcher.EnableRaisingEvents = false;
+                _screenshotWatcher.Created -= OnScreenshotFileChanged;
+                _screenshotWatcher.Deleted -= OnScreenshotFileChanged;
+                _screenshotWatcher.Renamed -= OnScreenshotFileChanged;
+                _screenshotWatcher.Dispose();
+                _screenshotWatcher = null;
             }
+            _screenshotDebounceTimer?.Stop();
+            _screenshotDebounceTimer = null;
+            _screenshots.Clear();
+
+            // Single source of truth: the same resolver the phone-upload endpoint writes to
+            // (CcStorage.Screenshots()), so the tab always watches where images actually land.
+            // It honors the configured folder, falls back to the platform default, and creates
+            // the directory if needed - so it always returns a real, existing path.
+            _screenshotsDirectory = await Task.Run(() => CcDirector.Core.Storage.CcStorage.Screenshots());
 
             FileLog.Write($"[MainWindow] InitializeScreenshotsPanelAsync: directory={_screenshotsDirectory}");
 
@@ -3117,45 +3431,6 @@ public partial class MainWindow : Window
         {
             FileLog.Write($"[MainWindow] InitializeScreenshotsPanelAsync FAILED: {ex.Message}");
         }
-    }
-
-    private static string? ResolveScreenshotsDirectory()
-    {
-        // Check cc-director config first
-        try
-        {
-            var configDir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "cc-director", "config");
-            var configPath = Path.Combine(configDir, "config.json");
-            if (File.Exists(configPath))
-            {
-                var json = File.ReadAllText(configPath);
-                using var doc = System.Text.Json.JsonDocument.Parse(json);
-                if (doc.RootElement.TryGetProperty("screenshots", out var ss) &&
-                    ss.TryGetProperty("source_directory", out var dir))
-                {
-                    var path = dir.GetString();
-                    if (path != null && Directory.Exists(path))
-                        return path;
-                }
-            }
-        }
-        catch { /* Non-critical */ }
-
-        // Auto-detect OneDrive Screenshots
-        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var oneDrive = Path.Combine(userProfile, "OneDrive", "Pictures", "Screenshots");
-        if (Directory.Exists(oneDrive))
-            return oneDrive;
-
-        // Local Pictures/Screenshots
-        var pictures = Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
-        var local = Path.Combine(pictures, "Screenshots");
-        if (Directory.Exists(local))
-            return local;
-
-        return null;
     }
 
     private static List<ScreenshotViewModel> LoadScreenshotViewModels(string directory)

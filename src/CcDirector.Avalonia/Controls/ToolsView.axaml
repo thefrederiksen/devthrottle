@@ -1,0 +1,247 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="CcDirector.Avalonia.Controls.ToolsView"
+             Background="#1E1E1E">
+
+    <DockPanel>
+        <!-- ============ Top bar: agent selector + run all + summary ============ -->
+        <Border DockPanel.Dock="Top" Background="#252526"
+                BorderBrush="#3C3C3C" BorderThickness="0,0,0,1" Padding="16,10">
+            <Grid ColumnDefinitions="Auto,Auto,*,Auto">
+                <TextBlock Grid.Column="0" Text="AGENT:" Foreground="#888888"
+                           FontSize="12" VerticalAlignment="Center" Margin="0,0,8,0" />
+                <ComboBox x:Name="AgentSelector" Grid.Column="1"
+                          Width="160" SelectedIndex="0"
+                          Background="#1E1E1E" Foreground="#CCCCCC"
+                          VerticalAlignment="Center">
+                    <ComboBoxItem>Claude Code</ComboBoxItem>
+                    <ComboBoxItem IsEnabled="False">Gemini (later)</ComboBoxItem>
+                    <ComboBoxItem IsEnabled="False">Pi (later)</ComboBoxItem>
+                </ComboBox>
+
+                <TextBlock x:Name="SummaryText" Grid.Column="2"
+                           Text="" Foreground="#CCCCCC" FontSize="12"
+                           VerticalAlignment="Center" HorizontalAlignment="Center" />
+
+                <Button x:Name="RunAllButton" Grid.Column="3" Content="Run All Tests"
+                        Click="RunAllButton_Click"
+                        Background="#007ACC" Foreground="White"
+                        BorderThickness="0" Cursor="Hand" Padding="14,6" FontSize="12" />
+            </Grid>
+        </Border>
+
+        <!-- ============ Session-first hint: this page is a dashboard; everything is scriptable ============ -->
+        <Border DockPanel.Dock="Top" Background="#1B2A33"
+                BorderBrush="#264E5E" BorderThickness="0,0,0,1" Padding="16,7">
+            <TextBlock Foreground="#9FC4D4" FontSize="11" TextWrapping="Wrap">
+                <Run Text="This page is just a dashboard. Every check here is runnable from a Claude Code session over the Control API -" />
+                <Run Text=" you almost never need to open this view." />
+                <LineBreak />
+                <Run Text="GET /tools" FontFamily="Consolas,monospace" Foreground="#CFE6EF" />
+                <Run Text="   POST /tools/test" FontFamily="Consolas,monospace" Foreground="#CFE6EF" />
+                <Run Text="   POST /tools/{name}/test" FontFamily="Consolas,monospace" Foreground="#CFE6EF" />
+                <Run Text="   GET /tools/{name}" FontFamily="Consolas,monospace" Foreground="#CFE6EF" />
+            </TextBlock>
+        </Border>
+
+        <!-- ============ Master-detail ============ -->
+        <Grid ColumnDefinitions="280,*">
+
+            <!-- Left: search + tool list -->
+            <DockPanel Grid.Column="0" Background="#202021">
+                <TextBox x:Name="SearchBox" DockPanel.Dock="Top"
+                         Watermark="search tools..."
+                         Margin="8" Padding="8,6"
+                         Background="#1E1E1E" Foreground="#CCCCCC" CaretBrush="#CCCCCC"
+                         BorderBrush="#3C3C3C" BorderThickness="1"
+                         TextChanged="SearchBox_TextChanged" />
+
+                <TextBlock x:Name="ListSummary" DockPanel.Dock="Bottom"
+                           Text="" Foreground="#777777" FontSize="11"
+                           Margin="10,6" TextWrapping="Wrap" />
+
+                <ListBox x:Name="ToolList" Background="Transparent" Padding="2"
+                         SelectionChanged="ToolList_SelectionChanged">
+                    <ListBox.Styles>
+                        <Style Selector="ListBoxItem">
+                            <Setter Property="Padding" Value="0" />
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                        </Style>
+                    </ListBox.Styles>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Grid ColumnDefinitions="*,Auto" Margin="10,7">
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="{Binding Name}" Foreground="#DDDDDD"
+                                               FontSize="13" FontWeight="Medium" />
+                                    <TextBlock Text="{Binding Category}" Foreground="#777777"
+                                               FontSize="10" />
+                                </StackPanel>
+                                <Border Grid.Column="1" Background="{Binding StatusBrush}"
+                                        CornerRadius="4" Padding="6,2" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding StatusText}" Foreground="White"
+                                               FontSize="9" FontWeight="SemiBold" />
+                                </Border>
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
+
+            <!-- Right: detail -->
+            <DockPanel Grid.Column="1" Margin="0">
+                <!-- Empty state -->
+                <TextBlock x:Name="DetailEmpty" DockPanel.Dock="Top"
+                           Text="Select a tool to see its description, commands, tests and skills."
+                           Foreground="#666666" FontSize="13"
+                           Margin="24" />
+
+                <Grid x:Name="DetailPanel" IsVisible="False" RowDefinitions="Auto,*" Margin="20,16,20,16">
+
+                    <!-- Detail header -->
+                    <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,10">
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                            <TextBlock x:Name="DetailName" Text="" Foreground="#FFFFFF"
+                                       FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            <Border x:Name="DetailStatusChip" Background="#888888"
+                                    CornerRadius="4" Padding="8,3" VerticalAlignment="Center">
+                                <TextBlock x:Name="DetailStatusText" Text="untested" Foreground="White"
+                                           FontSize="11" FontWeight="SemiBold" />
+                            </Border>
+                            <TextBlock x:Name="DetailVersion" Text="" Foreground="#888888"
+                                       FontSize="12" VerticalAlignment="Center" />
+                        </StackPanel>
+                        <Button x:Name="RunButton" Grid.Column="1" Content="Run Tests"
+                                Click="RunButton_Click"
+                                Background="#3C3C3C" Foreground="#CCCCCC"
+                                BorderThickness="0" Cursor="Hand" Padding="14,6" FontSize="12" />
+                    </Grid>
+
+                    <!-- Tabs -->
+                    <TabControl Grid.Row="1" x:Name="DetailTabs" Background="Transparent">
+                        <TabControl.Styles>
+                            <Style Selector="TabItem">
+                                <Setter Property="FontSize" Value="13" />
+                                <Setter Property="Foreground" Value="#999999" />
+                                <Setter Property="Padding" Value="10,6" />
+                            </Style>
+                            <Style Selector="TabItem:selected">
+                                <Setter Property="Foreground" Value="#FFFFFF" />
+                            </Style>
+                        </TabControl.Styles>
+
+                        <!-- Overview -->
+                        <TabItem Header="Overview">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,10,0,0">
+                                <StackPanel Spacing="10">
+                                    <TextBlock x:Name="DetailDescription" Text="" Foreground="#CCCCCC"
+                                               FontSize="13" TextWrapping="Wrap" />
+                                    <Border x:Name="DetailNoteBox" Background="#2A2A1E"
+                                            BorderBrush="#5A5030" BorderThickness="1"
+                                            CornerRadius="4" Padding="10" IsVisible="False">
+                                        <TextBlock x:Name="DetailNote" Text="" Foreground="#E0C870"
+                                                   FontSize="12" TextWrapping="Wrap" />
+                                    </Border>
+                                    <StackPanel Spacing="3">
+                                        <TextBlock Text="Category" Foreground="#777777" FontSize="11" />
+                                        <TextBlock x:Name="DetailCategory" Text="" Foreground="#CCCCCC" FontSize="13" />
+                                    </StackPanel>
+                                    <StackPanel Spacing="3">
+                                        <TextBlock Text="Binary" Foreground="#777777" FontSize="11" />
+                                        <TextBlock x:Name="DetailBinaryPath" Text="" Foreground="#CCCCCC"
+                                                   FontSize="12" FontFamily="Consolas,monospace" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </TabItem>
+
+                        <!-- Commands -->
+                        <TabItem Header="Commands">
+                            <DockPanel Margin="0,10,0,0">
+                                <Button x:Name="LoadCommandsButton" DockPanel.Dock="Top"
+                                        Content="Load --help" Click="LoadCommandsButton_Click"
+                                        HorizontalAlignment="Left"
+                                        Background="#3C3C3C" Foreground="#CCCCCC"
+                                        BorderThickness="0" Cursor="Hand" Padding="12,5" FontSize="12"
+                                        Margin="0,0,0,8" />
+                                <TextBox x:Name="CommandsOutput" IsReadOnly="True"
+                                         AcceptsReturn="True" TextWrapping="NoWrap"
+                                         Background="#141414" Foreground="#CCCCCC"
+                                         BorderBrush="#3C3C3C" BorderThickness="1"
+                                         FontFamily="Consolas,monospace" FontSize="12"
+                                         ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                         ScrollViewer.HorizontalScrollBarVisibility="Auto" />
+                            </DockPanel>
+                        </TabItem>
+
+                        <!-- Tests -->
+                        <TabItem Header="Tests">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,10,0,0">
+                                <StackPanel Spacing="6">
+                                    <TextBlock x:Name="TestsHint" Foreground="#777777" FontSize="11"
+                                               Text="Click Run Tests to execute the read-only health checks." />
+                                    <ItemsControl x:Name="TestsList">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Grid ColumnDefinitions="Auto,*" Margin="0,4">
+                                                    <TextBlock Grid.Column="0" Text="{Binding ResultText}"
+                                                               Foreground="{Binding ResultBrush}"
+                                                               FontFamily="Consolas,monospace" FontSize="12"
+                                                               FontWeight="SemiBold" Width="64" />
+                                                    <StackPanel Grid.Column="1">
+                                                        <TextBlock Text="{Binding Label}" Foreground="#DDDDDD" FontSize="13" />
+                                                        <TextBlock Text="{Binding Detail}" Foreground="#888888" FontSize="11"
+                                                                   TextWrapping="Wrap" />
+                                                    </StackPanel>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </TabItem>
+
+                        <!-- Skills -->
+                        <TabItem Header="Skills">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,10,0,0">
+                                <StackPanel Spacing="6">
+                                    <TextBlock Foreground="#777777" FontSize="11"
+                                               Text="Claude Code skills that drive or use this tool." />
+                                    <TextBlock x:Name="SkillsEmpty" Foreground="#666666" FontSize="12"
+                                               Text="No skills reference this tool." IsVisible="False" />
+                                    <ItemsControl x:Name="SkillsList">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,4">
+                                                    <TextBlock Grid.Column="0" Text="{Binding SkillName}"
+                                                               Foreground="#4FC1FF" FontSize="13" VerticalAlignment="Center" />
+                                                    <TextBlock Grid.Column="1" Text="{Binding Relation}"
+                                                               Foreground="#CCCCCC" FontSize="11" VerticalAlignment="Center"
+                                                               Margin="0,0,10,0" />
+                                                    <TextBlock Grid.Column="2" Text="{Binding Source}"
+                                                               Foreground="{Binding SourceBrush}" FontSize="10"
+                                                               VerticalAlignment="Center" />
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </TabItem>
+
+                        <!-- Logs -->
+                        <TabItem Header="Logs">
+                            <TextBox x:Name="LogsOutput" IsReadOnly="True" Margin="0,10,0,0"
+                                     AcceptsReturn="True" TextWrapping="NoWrap"
+                                     Background="#141414" Foreground="#CCCCCC"
+                                     BorderBrush="#3C3C3C" BorderThickness="1"
+                                     FontFamily="Consolas,monospace" FontSize="12"
+                                     ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Auto" />
+                        </TabItem>
+                    </TabControl>
+                </Grid>
+            </DockPanel>
+        </Grid>
+    </DockPanel>
+</UserControl>

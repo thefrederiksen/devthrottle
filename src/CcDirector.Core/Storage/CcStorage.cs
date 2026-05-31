@@ -129,16 +129,23 @@ public static class CcStorage
     /// User's screenshots directory, where phone-uploaded images are filed so the
     /// owning session can read them by absolute path. Resolution order:
     ///   1. config.json -> screenshots.source_directory (honored when explicitly set).
-    ///   2. The Windows "Pictures" known folder + \Screenshots. GetFolderPath follows
-    ///      a OneDrive redirect, so on a machine with Pictures backed up to OneDrive
-    ///      this yields e.g. D:\...\OneDrive\Pictures\Screenshots.
-    /// The directory is created if it does not exist.
+    ///   2. Platform default:
+    ///      - macOS: the Desktop (where macOS drops screenshots by default).
+    ///      - Windows/Linux: the "Pictures" known folder + \Screenshots. GetFolderPath
+    ///        follows a OneDrive redirect, so on a machine with Pictures backed up to
+    ///        OneDrive this yields e.g. D:\...\OneDrive\Pictures\Screenshots.
+    /// The directory is created if it does not exist. On a Mac neither default may match
+    /// where the user actually keeps screenshots, so the explicit config override (set via
+    /// the Settings page) is the reliable path - see CcDirectorConfigService.
     /// </summary>
     public static string Screenshots()
     {
         var configured = TryReadConfigString("screenshots", "source_directory");
         if (!string.IsNullOrWhiteSpace(configured))
             return Ensure(configured);
+
+        if (OperatingSystem.IsMacOS())
+            return Ensure(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory));
 
         var pictures = Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
         return Ensure(Path.Combine(pictures, "Screenshots"));

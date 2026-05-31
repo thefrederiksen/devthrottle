@@ -6,9 +6,9 @@ using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Platform;
 using Avalonia.Threading;
+using CcDirector.Core.Network;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway;
-using CcDirector.Gateway.Tailscale;
 
 namespace CcDirector.GatewayApp;
 

@@ -7,6 +7,7 @@ All path resolution is delegated to cc_storage.CcStorage.
 import json
 import logging
 import os
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -143,6 +144,12 @@ def _default_screenshots_path() -> str:
     Checks the Windows Snipping Tool / Screenshots folder location.
     Falls back to Pictures/Screenshots under the user profile.
     """
+    # macOS drops screenshots on the Desktop by default. (USERPROFILE/OneDrive below are
+    # Windows-only, so without this branch a Mac falls through to "" - the Settings page's
+    # explicit override is still the reliable path on any platform.)
+    if sys.platform == "darwin":
+        return os.path.join(os.path.expanduser("~"), "Desktop").replace("\\", "/")
+
     # Check common Windows screenshot locations
     user_profile = os.environ.get("USERPROFILE", "")
 
@@ -186,6 +193,38 @@ class ScreenshotsConfig:
     def from_dict(cls, data: Dict[str, Any]) -> "ScreenshotsConfig":
         return cls(
             source_directory=data.get("source_directory", _default_screenshots_path()),
+        )
+
+
+@dataclass
+class GatewayConfig:
+    """Director-to-Gateway connection settings.
+
+    Mirrors the C# CcDirector.Core.Configuration.GatewayConfig. The JSON keys are
+    intentionally camelCase (url, token, tailnetEndpoint) to match what the C# reader and
+    the Settings REST API write, so dotted CLI keys like `gateway.tailnetEndpoint` line up
+    with the on-disk keys. Empty url means the Director runs local-only (no registration).
+    """
+    url: str = ""
+    token: str = ""
+    tailnetEndpoint: str = ""  # noqa: N815 - matches the on-disk JSON key, not Python style
+
+    def is_empty(self) -> bool:
+        return not (self.url or self.token or self.tailnetEndpoint)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "url": self.url,
+            "token": self.token,
+            "tailnetEndpoint": self.tailnetEndpoint,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "GatewayConfig":
+        return cls(
+            url=data.get("url", ""),
+            token=data.get("token", ""),
+            tailnetEndpoint=data.get("tailnetEndpoint", ""),
         )
 
 
@@ -328,6 +367,22 @@ class PhotosConfig:
         )
 
 
+def _deep_merge(base: Dict[str, Any], overlay: Dict[str, Any]) -> Dict[str, Any]:
+    """Recursively merge overlay into a copy of base.
+
+    Where both sides hold a dict at the same key, merge recursively; otherwise the overlay
+    value wins. Keys present only in base are preserved at every level. Used by save() so the
+    known (overlay) sections override on disk while unknown (base-only) keys are kept.
+    """
+    result = dict(base)
+    for key, value in overlay.items():
+        if isinstance(value, dict) and isinstance(result.get(key), dict):
+            result[key] = _deep_merge(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
 class CCDirectorConfig:
     """Main configuration class for cc-director."""
 
@@ -337,6 +392,7 @@ class CCDirectorConfig:
         self.vault = VaultConfig()
         self.comm_manager = CommManagerConfig()
         self.screenshots = ScreenshotsConfig()
+        self.gateway = GatewayConfig()
         self._config_path = get_config_path()
 
     def load(self) -> "CCDirectorConfig":
@@ -389,16 +445,37 @@ class CCDirectorConfig:
         if "screenshots" in data:
             self.screenshots = ScreenshotsConfig.from_dict(data["screenshots"])
 
+        # Load gateway config
+        if "gateway" in data:
+            self.gateway = GatewayConfig.from_dict(data["gateway"])
+
     def save(self) -> None:
-        """Save configuration to file."""
+        """Save configuration to file, preserving sections this schema doesn't model.
+
+        config.json is shared with the C# app and may hold sections (or extra keys inside a
+        known section) that this dataclass doesn't know about. Writing to_dict() verbatim
+        would silently DROP them. Instead we deep-merge the known sections over whatever is
+        currently on disk, so unknown keys survive. A corrupt on-disk file is NOT clobbered -
+        we raise, matching the C# writer's refuse-to-destroy-recoverable-data rule.
+        """
         ensure_config_dir()
-        data = self.to_dict()
+        known = self.to_dict()
+
+        existing: Dict[str, Any] = {}
+        if self._config_path.exists():
+            text = self._config_path.read_text(encoding="utf-8")
+            if text.strip():
+                existing = json.loads(text)  # raises on corrupt JSON - intentional, no clobber
+                if not isinstance(existing, dict):
+                    raise ValueError(f"config.json root is not a JSON object: {self._config_path}")
+
+        merged = _deep_merge(existing, known)
         with open(self._config_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
+            json.dump(merged, f, indent=2)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert configuration to dictionary."""
-        return {
+        result: Dict[str, Any] = {
             "llm": {
                 "default_provider": self.llm.default_provider,
                 "providers": {
@@ -417,6 +494,11 @@ class CCDirectorConfig:
             "comm_manager": self.comm_manager.to_dict(),
             "screenshots": self.screenshots.to_dict(),
         }
+        # Only emit the gateway block once it has content, so we don't inject an empty
+        # gateway section into configs that never had one.
+        if not self.gateway.is_empty():
+            result["gateway"] = self.gateway.to_dict()
+        return result
 
     def add_photo_source(self, path: str, category: str, label: str, priority: int = 10) -> PhotoSource:
         """Add a photo source."""

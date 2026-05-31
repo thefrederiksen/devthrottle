@@ -84,5 +84,13 @@ public enum SessionBackendType
     Pipe,
 
     /// <summary>Studio mode - persistent stream-json backend with card-based UI.</summary>
-    Studio
+    Studio,
+
+    /// <summary>
+    /// Remote backend - the session is a handle to a GitHub conversation thread
+    /// (issue/PR) watched by the Claude GitHub App. Each turn is a @claude comment
+    /// that triggers a workflow run on a GitHub-hosted runner. No local process;
+    /// the buffer is fed from the run's status and the action's progress comment.
+    /// </summary>
+    GitHubActions
 }

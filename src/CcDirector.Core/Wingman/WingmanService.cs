@@ -922,6 +922,7 @@ public static class WingmanService
                     WhatClaudeWants = parsed.WhatClaudeWants,
                     Say = parsed.Say,
                     QuickReplies = parsed.Actions,
+                    RunningInBackground = parsed.RunningInBackground,
                     Model = model,
                     LatencyMs = sw.ElapsedMilliseconds,
                     ContextDigest = context.ToDigest(),
@@ -972,6 +973,10 @@ public static class WingmanService
         public string WhatClaudeWants { get; set; } = "";
         public string Say { get; set; } = "";
         public List<string> Actions { get; set; } = new();
+
+        /// <summary>The model's running_in_background verdict: true when the session is parked
+        /// on its own background task and is NOT waiting on the user. Drives the Purple badge.</summary>
+        public bool RunningInBackground { get; set; }
     }
 
     /// <summary>
@@ -1009,6 +1014,7 @@ public static class WingmanService
             result.WhatClaudeWants = ReadString(root, "what_claude_wants");
             result.Say = ReadString(root, "say");
             result.Actions = ReadStringArray(root, "actions", maxCount: 4);
+            result.RunningInBackground = ReadBool(root, "running_in_background");
         }
         catch (System.Text.Json.JsonException ex)
         {
@@ -1028,6 +1034,21 @@ public static class WingmanService
         if (!root.TryGetProperty(name, out var el)) return "";
         if (el.ValueKind != System.Text.Json.JsonValueKind.String) return "";
         return (el.GetString() ?? "").Trim();
+    }
+
+    /// <summary>Read a boolean field tolerantly: a real JSON true/false, or a "true"/"false"
+    /// string (some models quote booleans despite the schema). Anything else is false.</summary>
+    private static bool ReadBool(System.Text.Json.JsonElement root, string name)
+    {
+        if (!root.TryGetProperty(name, out var el)) return false;
+        return el.ValueKind switch
+        {
+            System.Text.Json.JsonValueKind.True => true,
+            System.Text.Json.JsonValueKind.False => false,
+            System.Text.Json.JsonValueKind.String =>
+                string.Equals((el.GetString() ?? "").Trim(), "true", StringComparison.OrdinalIgnoreCase),
+            _ => false,
+        };
     }
 
     private static List<string> ReadStringArray(System.Text.Json.JsonElement root, string name, int maxCount)
@@ -1279,7 +1300,8 @@ public static class WingmanService
         sb.AppendLine("  \"long_description\": \"<the LONGER on-screen detail - 1-2 short paragraphs; rules below>\",");
         sb.AppendLine("  \"what_claude_wants\": \"<the question Claude is waiting on, verbatim when possible; rules below>\",");
         sb.AppendLine("  \"say\": \"<the same content rewritten for the ear; smooth prose; rules below>\",");
-        sb.AppendLine("  \"actions\": [\"<tap-to-answer option>\", \"...\"]");
+        sb.AppendLine("  \"actions\": [\"<tap-to-answer option>\", \"...\"],");
+        sb.AppendLine("  \"running_in_background\": <true or false - is the agent parked on its OWN background task and NOT waiting on you? rules below>");
         sb.AppendLine("}");
         sb.AppendLine();
         sb.AppendLine("Rules for headline:");
@@ -1329,6 +1351,13 @@ public static class WingmanService
         sb.AppendLine("- Each option is the LITERAL text the user would send back to the agent, phrased as the user's own reply (not a description).");
         sb.AppendLine("- Cover the real choices the agent offered; do not invent options the agent did not imply.");
         sb.AppendLine("- If there is no clear short answer (the agent is just working, or the reply needs real typing), return an empty array: []");
+        sb.AppendLine();
+        sb.AppendLine("Rules for running_in_background (this is the ONE case where you may override a NEEDS YOU determination):");
+        sb.AppendLine("- The session may look idle to the system's dumb silence timer (no spinner, an empty input box, the badge already set to red NEEDS YOU) yet actually be BLOCKED ON ITS OWN BACKGROUND WORK that it kicked off and will resume from on its own. In that case it does NOT need the user.");
+        sb.AppendLine("- Set running_in_background to true ONLY when BOTH are clearly true: (1) the agent is NOT asking you any question and is NOT parked on any prompt, permission box, or decision; AND (2) the screen shows it is waiting on its OWN background task that finishes on its own - for example a footer or line like \"N shell still running\", \"running in the background\", \"esc to interrupt\" alongside a long build, or the agent saying in its own words that it is waiting for a background build/task/command to finish before continuing (e.g. \"I'll wait for it to finish\", \"notified automatically when the background task completes\").");
+        sb.AppendLine("- If there is ANY real question, prompt, numbered choice box, permission gate, or decision the user must make, set running_in_background to false. A pending ask ALWAYS wins over a background wait.");
+        sb.AppendLine("- When unsure, set false. Do not guess a background task into existence; you must see real evidence of one on screen.");
+        sb.AppendLine("- When you set running_in_background to true, what_claude_wants and say MUST say a background task is still running and nothing is needed from the user yet (this OVERRIDES the what_claude_wants directive above for this turn).");
         sb.AppendLine();
         sb.AppendLine("Answer ONLY from the context below. Do NOT invent file names, decisions, or questions. If the context does not show what the agent is asking, say so plainly in what_claude_wants and say.");
         sb.AppendLine();

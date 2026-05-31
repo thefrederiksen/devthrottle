@@ -28,7 +28,20 @@ public class SessionViewModel : INotifyPropertyChanged
     private static readonly ISolidColorBrush BlueStatusBrush    = new SolidColorBrush(Color.FromRgb(0x3B, 0x82, 0xF6));
     private static readonly ISolidColorBrush YellowStatusBrush  = new SolidColorBrush(Color.FromRgb(0xEA, 0xB3, 0x08));
     private static readonly ISolidColorBrush RedStatusBrush     = new SolidColorBrush(Color.FromRgb(0xEF, 0x44, 0x44));
+    // Purple "running in background" - the Wingman determined the session is parked on its own
+    // background task, not on the user. Matches Web/directory.html --purple (#a855f7).
+    private static readonly ISolidColorBrush PurpleStatusBrush  = new SolidColorBrush(Color.FromRgb(0xA8, 0x55, 0xF7));
     private static readonly ISolidColorBrush UnknownStatusBrush = new SolidColorBrush(Color.FromRgb(0x6A, 0x6A, 0x6A));
+
+    // Dark navy blue shown when the user has parked a session on hold. OnHold is an
+    // orthogonal user override (see Session.OnHold), so it sits on top of the wingman's
+    // StatusColor in the list strip rather than the wingman writing it.
+    private static readonly ISolidColorBrush OnHoldStatusBrush  = new SolidColorBrush(Color.FromRgb(0x1E, 0x3A, 0x8A));
+
+    // Session-list headline color. Warm amber when the session needs you (red) so the eye is
+    // drawn to actionable sessions in a multi-session list; muted otherwise.
+    private static readonly ISolidColorBrush HeadlineNeedsYouBrush = new SolidColorBrush(Color.FromRgb(0xF0, 0xB8, 0x48));
+    private static readonly ISolidColorBrush HeadlineMutedBrush    = new SolidColorBrush(Color.FromRgb(0x9F, 0xB0, 0xC3));
 
     private static readonly Dictionary<ActivityState, string> ActivityLabels = new()
     {
@@ -49,6 +62,8 @@ public class SessionViewModel : INotifyPropertyChanged
         session.OnVerificationStatusChanged += OnVerificationStatusChanged;
         session.OnTerminalVerificationStatusChanged += OnTerminalVerificationStatusChanged;
         session.OnStatusColorChanged += OnStatusColorChanged;
+        session.OnCachedExplainChanged += OnCachedExplainChangedVm;
+        session.OnHoldChanged += OnHoldChangedVm;
 
         if (session.PromptQueue != null)
         {
@@ -63,6 +78,9 @@ public class SessionViewModel : INotifyPropertyChanged
         {
             OnPropertyChanged(nameof(StatusColorBrush));
             OnPropertyChanged(nameof(StatusReason));
+            OnPropertyChanged(nameof(WingmanHeadlineBrush));
+            OnPropertyChanged(nameof(WaitingDurationLabel));
+            OnPropertyChanged(nameof(HasWaitingDuration));
         });
     }
 
@@ -70,18 +88,104 @@ public class SessionViewModel : INotifyPropertyChanged
     /// Phase 4d: the sidebar color strip's brush. Reads <see cref="Session.StatusColor"/>
     /// written by the SessionStatusWingman. Desktop and Gateway use the same field
     /// so the same session shows the same color in both windows.
+    ///
+    /// Exception: when the user has parked the session on hold (<see cref="Session.OnHold"/>),
+    /// the strip shows a dark navy blue so held sessions read as "set aside" at a glance.
+    /// OnHold is an orthogonal user override that sits on top of the wingman's color.
     /// </summary>
-    public ISolidColorBrush StatusColorBrush => (Session.StatusColor?.ToLowerInvariant()) switch
+    public ISolidColorBrush StatusColorBrush
     {
-        "green"  => GreenStatusBrush,
-        "blue"   => BlueStatusBrush,
-        "yellow" => YellowStatusBrush,
-        "red"    => RedStatusBrush,
-        _        => UnknownStatusBrush,
-    };
+        get
+        {
+            if (Session.OnHold) return OnHoldStatusBrush;
+            return (Session.StatusColor?.ToLowerInvariant()) switch
+            {
+                "green"  => GreenStatusBrush,
+                "blue"   => BlueStatusBrush,
+                "yellow" => YellowStatusBrush,
+                "red"    => RedStatusBrush,
+                "purple" => PurpleStatusBrush,
+                _        => UnknownStatusBrush,
+            };
+        }
+    }
 
-    /// <summary>Tooltip-ready reason supplied by the wingman for the current color.</summary>
-    public string StatusReason => Session.LastStatusReason ?? "";
+    /// <summary>True when the user has parked this session on hold. Drives the menu toggle
+    /// label and the dark-blue strip color.</summary>
+    public bool IsOnHold => Session.OnHold;
+
+    /// <summary>Tooltip-ready reason for the current strip color. Reflects the on-hold
+    /// override when set, otherwise the wingman's reason for <see cref="Session.StatusColor"/>.</summary>
+    public string StatusReason => Session.OnHold
+        ? "On hold (set aside by you)"
+        : Session.LastStatusReason ?? "";
+
+    private void OnHoldChangedVm(bool onHold)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            OnPropertyChanged(nameof(StatusColorBrush));
+            OnPropertyChanged(nameof(StatusReason));
+            OnPropertyChanged(nameof(IsOnHold));
+        });
+    }
+
+    private void OnCachedExplainChangedVm()
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            OnPropertyChanged(nameof(WingmanHeadline));
+            OnPropertyChanged(nameof(HasWingmanHeadline));
+            OnPropertyChanged(nameof(WingmanHeadlineBrush));
+            // The waiting duration is proxied from CachedExplainAt, which this briefing just
+            // set. When a session is already red and its first briefing lands, HasWaitingDuration
+            // flips false->true here; without raising it the "waiting Xm" list label would not
+            // appear until the next 15s timer tick.
+            OnPropertyChanged(nameof(HasWaitingDuration));
+            OnPropertyChanged(nameof(WaitingDurationLabel));
+        });
+    }
+
+    /// <summary>The latest wingman headline. Shown under the session name in the list so the
+    /// sidebar gives an at-a-glance "what this session is about / needs" without opening the
+    /// Wingman tab. Updates when the ProactiveExplainService caches a new briefing.</summary>
+    public string WingmanHeadline => Session.CachedExplainHeadline ?? "";
+
+    public bool HasWingmanHeadline => !string.IsNullOrWhiteSpace(Session.CachedExplainHeadline);
+
+    /// <summary>Headline color: warm amber when the session needs you (red), muted otherwise,
+    /// so actionable sessions stand out in the list at a glance.</summary>
+    public ISolidColorBrush WingmanHeadlineBrush =>
+        string.Equals(Session.StatusColor, "red", StringComparison.OrdinalIgnoreCase)
+            ? HeadlineNeedsYouBrush
+            : HeadlineMutedBrush;
+
+    /// <summary>How long this session has been waiting on you, shown in the list only when red,
+    /// so you can see at a glance WHICH needs-you session is the most stale and triage it first.
+    /// Proxied from the last briefing time (generated at turn-end, when the session goes red).</summary>
+    public bool HasWaitingDuration =>
+        string.Equals(Session.StatusColor, "red", StringComparison.OrdinalIgnoreCase)
+        && Session.CachedExplainAt is not null;
+
+    public string WaitingDurationLabel
+    {
+        get
+        {
+            if (!HasWaitingDuration) return "";
+            var d = DateTime.UtcNow - Session.CachedExplainAt!.Value;
+            if (d.TotalMinutes < 1) return "waiting <1m";
+            if (d.TotalMinutes < 60) return $"waiting {(int)d.TotalMinutes}m";
+            return $"waiting {(int)d.TotalHours}h";
+        }
+    }
+
+    /// <summary>Re-raise time-derived list labels; called periodically so the waiting duration
+    /// ticks up without an event.</summary>
+    public void RefreshTimeLabels()
+    {
+        OnPropertyChanged(nameof(WaitingDurationLabel));
+        OnPropertyChanged(nameof(HasWaitingDuration));
+    }
 
     public string DisplayName => Session.CustomName
         ?? Path.GetFileName(Session.RepoPath.TrimEnd('\\', '/'));
@@ -135,12 +239,14 @@ public class SessionViewModel : INotifyPropertyChanged
     private static readonly ISolidColorBrush PiAgentBrush = new SolidColorBrush(Color.FromRgb(0x8B, 0x5C, 0xF6));
     private static readonly ISolidColorBrush CodexAgentBrush = new SolidColorBrush(Color.FromRgb(0x10, 0xA3, 0x7F));
     private static readonly ISolidColorBrush GeminiAgentBrush = new SolidColorBrush(Color.FromRgb(0xEA, 0x43, 0x35));
+    private static readonly ISolidColorBrush OpenCodeAgentBrush = new SolidColorBrush(Color.FromRgb(0xF9, 0x73, 0x16));
 
     public string AgentLabel => Session.AgentKind switch
     {
         AgentKind.Pi => "Pi",
         AgentKind.Codex => "Codex",
         AgentKind.Gemini => "Gemini",
+        AgentKind.OpenCode => "OpenCode",
         _ => "Claude Code"
     };
 
@@ -149,6 +255,7 @@ public class SessionViewModel : INotifyPropertyChanged
         AgentKind.Pi => PiAgentBrush,
         AgentKind.Codex => CodexAgentBrush,
         AgentKind.Gemini => GeminiAgentBrush,
+        AgentKind.OpenCode => OpenCodeAgentBrush,
         _ => ClaudeAgentBrush
     };
 

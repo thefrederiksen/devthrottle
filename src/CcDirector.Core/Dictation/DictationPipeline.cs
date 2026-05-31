@@ -181,6 +181,18 @@ public sealed class DictationPipeline : IAsyncDisposable
         }
 
         FileLog.Write($"[DictationPipeline] StopAsync: drained. captured={CapturedBytes}, delivered={DeliveredBytes}");
+
+        // Fail honestly, naming the device, when the mic produced nothing. We do
+        // this BEFORE committing to the provider: an empty commit makes the
+        // provider reject the buffer with an opaque "buffer too small / 0.00ms"
+        // error that tells the user nothing about the real cause (a silent or
+        // wrong microphone). See NoAudioCapturedException.
+        if (CapturedBytes == 0)
+        {
+            FileLog.Write($"[DictationPipeline] StopAsync: NO AUDIO captured from '{_audio.Description}' - not committing empty buffer");
+            throw new NoAudioCapturedException(_audio.Description);
+        }
+
         return await _session.StopAsync(ct);
     }
 

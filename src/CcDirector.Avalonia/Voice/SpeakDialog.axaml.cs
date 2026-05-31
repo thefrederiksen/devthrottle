@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -57,6 +58,13 @@ public partial class SpeakDialog : Window
     private SpeakService? _service;
     private string _accumulatedText = "";
     private string _currentPartial = "";
+
+    // WaveIn device number the current SpeakService captures from. Defaults to
+    // the Windows default mic; overridden by the persisted choice on open and by
+    // the user via the mic selector. _suppressMicChange guards the programmatic
+    // selection we make while populating the ComboBox from firing a restart.
+    private int _selectedDeviceNumber = MicDevices.DefaultDeviceNumber;
+    private bool _suppressMicChange;
 
     /// <summary>
     /// The text the user accepted (cleaned, possibly spanning multiple
@@ -126,6 +134,11 @@ public partial class SpeakDialog : Window
         _eqTimer.Start();
         try
         {
+            // Resolve the saved mic choice to a current device index BEFORE the
+            // first capture starts, so we record from the right device from the
+            // very first frame. Then show the device list in the selector.
+            _selectedDeviceNumber = MicDevices.ResolveByName(LoadPersistedMicName());
+            PopulateMicSelector();
             await StartNewServiceAsync();
         }
         catch (Exception ex)
@@ -151,7 +164,7 @@ public partial class SpeakDialog : Window
 
     private async Task StartNewServiceAsync()
     {
-        var svc = new SpeakService(_options);
+        var svc = new SpeakService(_options, _selectedDeviceNumber);
         svc.OnPartial += OnPartial;
         svc.OnStateChanged += OnStateChanged;
         svc.OnAudioBands += OnAudioBands;
@@ -168,6 +181,88 @@ public partial class SpeakDialog : Window
         if (svc is null) return;
         try { await svc.DisposeAsync(); }
         catch (Exception ex) { FileLog.Write($"[SpeakDialog] dispose error: {ex.Message}"); }
+    }
+
+    /// <summary>Fill the mic selector with available devices and select the active one.</summary>
+    private void PopulateMicSelector()
+    {
+        var devices = MicDevices.Enumerate();
+        _suppressMicChange = true;
+        MicSelector.ItemsSource = devices;
+        int idx = 0;
+        for (int i = 0; i < devices.Count; i++)
+        {
+            if (devices[i].Number == _selectedDeviceNumber) { idx = i; break; }
+        }
+        MicSelector.SelectedIndex = idx;
+        _suppressMicChange = false;
+    }
+
+    private async void MicSelector_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        // Ignore the programmatic selection PopulateMicSelector makes, and any
+        // no-op re-selection of the device already in use.
+        if (_suppressMicChange) return;
+        if (MicSelector.SelectedItem is not MicDevice device) return;
+        if (device.Number == _selectedDeviceNumber) return;
+
+        try
+        {
+            // Persist the device NAME (indices reorder across replugs); the
+            // Windows-default entry is stored as empty so it keeps tracking the
+            // OS default rather than pinning to whatever it maps to today.
+            PersistMicName(device.Number == MicDevices.DefaultDeviceNumber ? null : device.Name);
+            await ChangeDeviceAsync(device.Number);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[SpeakDialog] MicSelector_SelectionChanged FAILED: {ex.Message}");
+            ShowError("Could not switch microphone: " + ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Switch the live capture to a different device. Tears down the current
+    /// service and starts a fresh one on the new device. Already-accumulated
+    /// cleaned text (from prior pauses) is kept; the in-flight, not-yet-cleaned
+    /// partial is discarded because it came from the device being abandoned.
+    /// </summary>
+    private async Task ChangeDeviceAsync(int deviceNumber)
+    {
+        _selectedDeviceNumber = deviceNumber;
+        FileLog.Write($"[SpeakDialog] ChangeDevice: {deviceNumber} ({MicDevices.DescribeDevice(deviceNumber)})");
+        await DisposeServiceAsync();
+        _currentPartial = "";
+        await StartNewServiceAsync();
+        _elapsedBeforeSegment = TimeSpan.Zero;
+        _t0 = DateTime.UtcNow;
+        SwitchToRecording();
+        RenderTranscript();
+    }
+
+    private void ShowError(string message)
+    {
+        TranscriptText.Text = message;
+        TranscriptText.Foreground = new SolidColorBrush(Color.FromRgb(0xF4, 0x47, 0x47));
+        StatusLabel.Text = "ERROR";
+        StatusLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xF4, 0x47, 0x47));
+    }
+
+    private static string? LoadPersistedMicName()
+    {
+        var config = CcDirectorConfigService.ReadRaw();
+        var name = config["dictation"]?["mic_device_name"]?.GetValue<string>();
+        return string.IsNullOrWhiteSpace(name) ? null : name;
+    }
+
+    private static void PersistMicName(string? name)
+    {
+        var patch = new JsonObject
+        {
+            ["dictation"] = new JsonObject { ["mic_device_name"] = name ?? "" },
+        };
+        CcDirectorConfigService.MergePatch(patch);
+        FileLog.Write($"[SpeakDialog] PersistMicName: '{name ?? "(default)"}'");
     }
 
     private void UpdateTimer()
@@ -458,6 +553,7 @@ public partial class SpeakDialog : Window
         TimerLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xDC, 0xDC, 0xAA));
         PrimaryButton.IsEnabled = false;
         StopButton.IsEnabled = false;
+        MicSelector.IsEnabled = false;
         for (int i = 0; i < _barTargets.Length; i++) _barTargets[i] = 34.0;
         foreach (var bar in _bars) bar.Background = new SolidColorBrush(Color.FromRgb(0xDC, 0xDC, 0xAA));
         LevelHint.Text = "";
@@ -473,6 +569,7 @@ public partial class SpeakDialog : Window
         PauseButton.IsEnabled = true;
         StopButton.IsEnabled = true;
         PrimaryButton.IsEnabled = true;
+        MicSelector.IsEnabled = true;
         // Park the equalizer bars at a low resting height while paused.
         for (int i = 0; i < _barTargets.Length; i++) _barTargets[i] = 8.0;
         foreach (var bar in _bars) bar.Background = new SolidColorBrush(Color.FromRgb(0x6A, 0x6A, 0x6A));
@@ -490,6 +587,7 @@ public partial class SpeakDialog : Window
         PauseButton.IsEnabled = true;
         StopButton.IsEnabled = true;
         PrimaryButton.IsEnabled = true;
+        MicSelector.IsEnabled = true;
         foreach (var bar in _bars) bar.Background = new SolidColorBrush(Color.FromRgb(0xF4, 0x47, 0x47));
         // Fresh segment: re-evaluate loudness from scratch.
         _recentPeakRms = 0.0;

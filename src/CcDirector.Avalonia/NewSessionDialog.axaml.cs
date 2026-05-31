@@ -7,6 +7,7 @@ using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using CcDirector.Core.Agents;
+using CcDirector.Core.Backends;
 using CcDirector.Core.Claude;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Sessions;
@@ -73,14 +74,7 @@ public class ClaudeSessionViewModel
             if (_metadata.Modified == DateTime.MinValue)
                 return string.Empty;
 
-            var span = DateTime.UtcNow - _metadata.Modified.ToUniversalTime();
-
-            if (span.TotalMinutes < 1) return "just now";
-            if (span.TotalMinutes < 60) return $"{(int)span.TotalMinutes}m ago";
-            if (span.TotalHours < 24) return $"{(int)span.TotalHours}h ago";
-            if (span.TotalDays < 30) return $"{(int)span.TotalDays}d ago";
-            if (span.TotalDays < 365) return $"{(int)(span.TotalDays / 30)}mo ago";
-            return $"{(int)(span.TotalDays / 365)}y ago";
+            return RelativeTime.Ago(DateTime.UtcNow - _metadata.Modified.ToUniversalTime());
         }
     }
 
@@ -343,6 +337,15 @@ public partial class NewSessionDialog : Window
     public string? SelectedPath { get; private set; }
     public string? SelectedResumeSessionId { get; private set; }
     public string? SelectedHandoverPath { get; private set; }
+
+    /// <summary>
+    /// Non-null when the user chose the GitHub (Remote) tab and clicked Start. The
+    /// caller (MainWindow) creates a GitHub Actions session from this instead of a
+    /// local one. SelectedPath stays null in that case.
+    /// </summary>
+    public RemoteSessionConfig? RemoteConfig { get; private set; }
+
+    private const int GitHubTabIndex = 3;
     public bool BypassPermissions => BypassPermissionsCheckBox.IsChecked == true;
     public bool EnableRemoteControl => RemoteControlCheckBox.IsChecked == true;
     public bool WingmanEnabled => WingmanCheckBox?.IsChecked == true;
@@ -356,6 +359,7 @@ public partial class NewSessionDialog : Window
             if (AgentRadioPi?.IsChecked == true) return AgentKind.Pi;
             if (AgentRadioCodex?.IsChecked == true) return AgentKind.Codex;
             if (AgentRadioGemini?.IsChecked == true) return AgentKind.Gemini;
+            if (AgentRadioOpenCode?.IsChecked == true) return AgentKind.OpenCode;
             return AgentKind.ClaudeCode;
         }
     }
@@ -507,6 +511,14 @@ public partial class NewSessionDialog : Window
             BtnAction.Background = isEnabled ? ResumeButtonBrush : DisabledButtonBrush;
             BtnAction.Foreground = isEnabled ? EnabledTextBrush : DisabledTextBrush;
         }
+        else if (MainTabs.SelectedIndex == GitHubTabIndex)
+        {
+            BtnAction.Content = "Start Remote";
+            var isEnabled = IsGitHubTabValid();
+            BtnAction.IsEnabled = isEnabled;
+            BtnAction.Background = isEnabled ? NewSessionButtonBrush : DisabledButtonBrush;
+            BtnAction.Foreground = isEnabled ? EnabledTextBrush : DisabledTextBrush;
+        }
         else
         {
             BtnAction.Content = "Start Session";
@@ -516,6 +528,52 @@ public partial class NewSessionDialog : Window
             BtnAction.Background = isEnabled ? NewSessionButtonBrush : DisabledButtonBrush;
             BtnAction.Foreground = isEnabled ? EnabledTextBrush : DisabledTextBrush;
         }
+    }
+
+    private bool IsGitHubTabValid()
+    {
+        if (string.IsNullOrWhiteSpace(GhOwnerBox?.Text)) return false;
+        if (string.IsNullOrWhiteSpace(GhRepoBox?.Text)) return false;
+        if (string.IsNullOrWhiteSpace(GhPromptBox?.Text)) return false;
+
+        // Existing-thread mode requires a positive issue/PR number.
+        if (GhModeExisting?.IsChecked == true)
+            return long.TryParse(GhThreadBox?.Text?.Trim(), out var n) && n > 0;
+
+        return true;
+    }
+
+    private void GhField_Changed(object? sender, TextChangedEventArgs e) => UpdateActionButton();
+
+    private void GhMode_Changed(object? sender, RoutedEventArgs e)
+    {
+        if (GhThreadBox is not null)
+            GhThreadBox.IsEnabled = GhModeExisting?.IsChecked == true;
+        UpdateActionButton();
+    }
+
+    private RemoteSessionConfig? BuildRemoteConfig()
+    {
+        if (!IsGitHubTabValid()) return null;
+
+        var existing = GhModeExisting?.IsChecked == true;
+        long? threadNumber = null;
+        if (existing && long.TryParse(GhThreadBox?.Text?.Trim(), out var n))
+            threadNumber = n;
+
+        // Values are guaranteed non-empty by IsGitHubTabValid(); read them null-safely
+        // (no null-forgiving operator) so the validation contract is the single source of truth.
+        var branch = (GhBranchBox?.Text ?? string.Empty).Trim();
+
+        return new RemoteSessionConfig
+        {
+            Owner = (GhOwnerBox?.Text ?? string.Empty).Trim(),
+            Repo = (GhRepoBox?.Text ?? string.Empty).Trim(),
+            BaseBranch = branch.Length == 0 ? "main" : branch,
+            TriggerMode = existing ? RemoteTriggerMode.ExistingThread : RemoteTriggerMode.NewIssue,
+            ThreadNumber = threadNumber,
+            InitialPrompt = (GhPromptBox?.Text ?? string.Empty).Trim(),
+        };
     }
 
     private void SessionSearchBox_TextChanged(object? sender, TextChangedEventArgs e)
@@ -773,6 +831,21 @@ public partial class NewSessionDialog : Window
             SelectedPath = vm.ProjectPath;
 
             FileLog.Write($"[NewSessionDialog] BtnAction_Click: Resuming session claude={vm.ClaudeSessionId}, path={vm.ProjectPath}");
+            Close(true);
+        }
+        else if (MainTabs.SelectedIndex == GitHubTabIndex)
+        {
+            var config = BuildRemoteConfig();
+            if (config is null)
+            {
+                FileLog.Write("[NewSessionDialog] BtnAction_Click: GitHub config incomplete");
+                return;
+            }
+
+            RemoteConfig = config;
+            SelectedPath = null;
+            SelectedResumeSessionId = null;
+            FileLog.Write($"[NewSessionDialog] BtnAction_Click: Starting GitHub remote session for {config.Slug} mode={config.TriggerMode}");
             Close(true);
         }
         else

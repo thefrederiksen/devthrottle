@@ -29,6 +29,14 @@ public class AgentOptions
     public string GeminiPath { get; set; } = DefaultNpmCliPath("gemini");
 
     /// <summary>
+    /// Path to the opencode CLI (the <c>opencode</c> binary from opencode.ai).
+    /// opencode is not an npm package; its installer (curl/brew/scoop/mise) puts
+    /// <c>opencode</c> on PATH, so the default relies on PATH resolution. Users can
+    /// override in config.json if opencode is installed somewhere off PATH.
+    /// </summary>
+    public string OpenCodePath { get; set; } = "opencode";
+
+    /// <summary>
     /// Absolute path to the repository the Director chat will relay every chat
     /// message to. Set via appsettings.json "Chat.SessionRepoPath" - e.g.
     /// "D:/ReposFred/private" - so the Director's /chat endpoint knows which

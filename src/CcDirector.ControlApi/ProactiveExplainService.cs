@@ -134,9 +134,22 @@ public sealed class ProactiveExplainService : IDisposable
 
                 if (result is not null && string.Equals(result.Status, "ok", StringComparison.OrdinalIgnoreCase))
                 {
-                    session.SetCachedExplain(result.Answer, result.Model, result.QuickReplies);
+                    // Set the structured fields (headline, what-happened, etc.) FIRST, then
+                    // SetCachedExplain - because SetCachedExplain is what fires
+                    // OnCachedExplainChanged. If the structured fields were set after the event,
+                    // every consumer that reads them on that event (the Wingman tab, the session
+                    // list headline) would see the PREVIOUS briefing's fields and only catch up
+                    // on the next regeneration. Order matters: populate, then notify.
                     session.SetCachedExplainStructured(result.Headline, result.WhatHappened, result.LongDescription, result.WhatClaudeWants, result.Say);
-                    FileLog.Write($"[ProactiveExplainService] cached explain for {session.Id} (model={result.Model}, headline=\"{result.Headline}\", len={result.Answer?.Length ?? 0}, longLen={result.LongDescription?.Length ?? 0}, replies={result.QuickReplies?.Count ?? 0}, sayLen={result.Say?.Length ?? 0})");
+                    session.SetCachedExplain(result.Answer, result.Model, result.QuickReplies);
+                    // Apply the running_in_background verdict: this is the one sanctioned override
+                    // of the dumb timer's red "needs you". When true the SessionStatusWingman paints
+                    // the badge Purple ("running in background") instead of Red. Set unconditionally
+                    // (including false) so a finished background task clears a stale Purple. The
+                    // verdict resolves to Purple only after the Yellow "wingman is reading" overlay
+                    // lifts in the finally below, which recomputes the colour.
+                    session.SetBackgroundRunning(result.RunningInBackground);
+                    FileLog.Write($"[ProactiveExplainService] cached explain for {session.Id} (model={result.Model}, headline=\"{result.Headline}\", len={result.Answer?.Length ?? 0}, longLen={result.LongDescription?.Length ?? 0}, replies={result.QuickReplies?.Count ?? 0}, sayLen={result.Say?.Length ?? 0}, background={result.RunningInBackground})");
                 }
                 else
                 {

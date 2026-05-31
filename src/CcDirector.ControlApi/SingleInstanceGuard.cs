@@ -12,7 +12,7 @@ namespace CcDirector.ControlApi;
 /// running" exit at startup.
 ///
 /// The mutex name is keyed by the exe path slot (same scheme as DirectorIdStore), so
-/// cc-director-avalonia1.exe and cc-director-avalonia2.exe each have their own guard
+/// cc-director1.exe and cc-director2.exe each have their own guard
 /// and can coexist.
 /// </summary>
 public sealed class SingleInstanceGuard : IDisposable

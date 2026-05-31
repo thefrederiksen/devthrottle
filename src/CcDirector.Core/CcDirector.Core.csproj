@@ -24,4 +24,10 @@
     <ProjectReference Include="..\CcDirector.Terminal.Core\CcDirector.Terminal.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Tools catalog data, embedded so they are available at runtime regardless of cwd. -->
+    <EmbeddedResource Include="Tools\tools-manifest.json" />
+    <EmbeddedResource Include="Tools\skill-tool-overrides.json" />
+  </ItemGroup>
+
 </Project>

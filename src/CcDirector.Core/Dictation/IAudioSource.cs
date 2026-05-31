@@ -20,6 +20,14 @@ namespace CcDirector.Core.Dictation;
 /// </summary>
 public interface IAudioSource
 {
+    /// <summary>
+    /// Human-readable name of the capture device this source is reading from
+    /// (e.g. "Microphone (FDUCE SL40 Audio Device)"). Used so a no-audio failure
+    /// can name the exact device the user needs to check, instead of leaking the
+    /// transcription provider's opaque internal error.
+    /// </summary>
+    string Description { get; }
+
     /// <summary>Fires for every captured audio buffer. PCM16 little-endian. Raised on the source's own thread.</summary>
     event Action<byte[]>? OnAudioChunk;
 

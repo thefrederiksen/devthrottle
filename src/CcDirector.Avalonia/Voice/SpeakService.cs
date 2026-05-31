@@ -26,6 +26,7 @@ namespace CcDirector.Avalonia.Voice;
 public sealed class SpeakService : IAsyncDisposable
 {
     private readonly AgentOptions _options;
+    private readonly int _micDeviceNumber;
 
     private MicAudioCapture? _mic;
     private DictionaryLoader? _dictionary;
@@ -50,9 +51,14 @@ public sealed class SpeakService : IAsyncDisposable
     /// <summary>Fires once the transcription backend is connected and buffered audio is streaming.</summary>
     public event Action? OnConnected;
 
-    public SpeakService(AgentOptions options)
+    /// <param name="micDeviceNumber">
+    /// WaveIn device number to capture from. Defaults to
+    /// <see cref="MicDevices.DefaultDeviceNumber"/> (the Windows default mic).
+    /// </param>
+    public SpeakService(AgentOptions options, int micDeviceNumber = MicDevices.DefaultDeviceNumber)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
+        _micDeviceNumber = micDeviceNumber;
     }
 
     public async Task StartAsync(string profile = "default", CancellationToken ct = default)
@@ -76,7 +82,7 @@ public sealed class SpeakService : IAsyncDisposable
         // depend on the transcription connection, so the bars move from the
         // first captured frame - honest visual confirmation that we are
         // recording even while the backend is still connecting.
-        _mic = new MicAudioCapture();
+        _mic = new MicAudioCapture(_micDeviceNumber);
         _mic.OnAudioBands += bands => OnAudioBands?.Invoke(bands);
         _mic.OnInputRms += rms => OnInputRms?.Invoke(rms);
 

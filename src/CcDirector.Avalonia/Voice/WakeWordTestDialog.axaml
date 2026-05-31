@@ -1,0 +1,207 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="CcDirector.Avalonia.Voice.WakeWordTestDialog"
+        Title="Wake-Word Test"
+        Width="780" Height="660"
+        WindowStartupLocation="CenterOwner"
+        CanResize="True"
+        Background="#1E1E1E">
+
+    <Grid Margin="16" RowDefinitions="Auto,Auto,Auto,*,Auto,Auto">
+
+        <!-- Title + help toggle + state badge -->
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,8">
+            <TextBlock Grid.Column="0" Text="Wake-Word Test"
+                       Foreground="#CCCCCC" FontSize="16" FontWeight="SemiBold"
+                       VerticalAlignment="Center" />
+            <Button Grid.Column="1" x:Name="HelpButton" Content="Help"
+                    Height="26" Margin="0,0,10,0" Padding="12,0"
+                    Background="#3C3C3C" Foreground="#CCCCCC"
+                    BorderThickness="0" Cursor="Hand"
+                    VerticalAlignment="Center" Click="BtnHelp_Click" />
+            <Border Grid.Column="2" x:Name="StateBadge"
+                    Background="#33333A" CornerRadius="4" Padding="12,4">
+                <TextBlock x:Name="StateLabel" Text="IDLE"
+                           FontFamily="Cascadia Mono,Consolas,monospace"
+                           FontSize="14" FontWeight="Bold" Foreground="#AAAAAA" />
+            </Border>
+        </Grid>
+
+        <TextBlock Grid.Row="1"
+                   Text="Say the wake word, dictate a prompt, then say &quot;[wake] send&quot; to emit it or &quot;[wake] cancel&quot; to discard. Emits to the box below, never to a session."
+                   Foreground="#888888" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8" />
+
+        <!-- Controls: wake word + buttons + equalizer -->
+        <Grid Grid.Row="2" ColumnDefinitions="Auto,160,Auto,Auto,Auto,*" Margin="0,0,0,10">
+            <TextBlock Grid.Column="0" Text="Wake word:" Foreground="#AAAAAA"
+                       FontSize="12" VerticalAlignment="Center" Margin="0,0,8,0" />
+            <TextBox Grid.Column="1" x:Name="WakeWordBox" Text="wingman"
+                     Background="#252526" Foreground="#CCCCCC" CaretBrush="#CCCCCC"
+                     BorderBrush="#3C3C3C" BorderThickness="1" Padding="8,4"
+                     VerticalAlignment="Center" />
+            <Button Grid.Column="2" x:Name="StartButton" Content="Start"
+                    Height="30" Margin="8,0,0,0" Padding="14,0"
+                    Background="#16A34A" Foreground="White" FontWeight="SemiBold"
+                    BorderThickness="0" Cursor="Hand" Click="BtnStart_Click" />
+            <Button Grid.Column="3" x:Name="StopButton" Content="Stop"
+                    Height="30" Margin="8,0,0,0" Padding="14,0"
+                    Background="#3C3C3C" Foreground="#CCCCCC"
+                    BorderThickness="0" Cursor="Hand" IsEnabled="False"
+                    Click="BtnStop_Click" />
+            <Button Grid.Column="4" x:Name="ClearButton" Content="Clear"
+                    Height="30" Margin="8,0,0,0" Padding="14,0"
+                    Background="#3C3C3C" Foreground="#CCCCCC"
+                    BorderThickness="0" Cursor="Hand" Click="BtnClear_Click" />
+
+            <!-- compact 9-bar equalizer, mirrors SpeakDialog -->
+            <StackPanel Grid.Column="5" Orientation="Horizontal"
+                        HorizontalAlignment="Right" VerticalAlignment="Center"
+                        Spacing="4" Height="34">
+                <Border Width="6" Height="30" Background="#33333A" CornerRadius="2" VerticalAlignment="Center">
+                    <Border x:Name="Bar0" Height="4" Background="#6A6A6A" CornerRadius="2" VerticalAlignment="Bottom" />
+                </Border>
+                <Border Width="6" Height="30" Background="#33333A" CornerRadius="2" VerticalAlignment="Center">
+                    <Border x:Name="Bar1" Height="4" Background="#6A6A6A" CornerRadius="2" VerticalAlignment="Bottom" />
+                </Border>
+                <Border Width="6" Height="30" Background="#33333A" CornerRadius="2" VerticalAlignment="Center">
+                    <Border x:Name="Bar2" Height="4" Background="#6A6A6A" CornerRadius="2" VerticalAlignment="Bottom" />
+                </Border>
+                <Border Width="6" Height="30" Background="#33333A" CornerRadius="2" VerticalAlignment="Center">
+                    <Border x:Name="Bar3" Height="4" Background="#6A6A6A" CornerRadius="2" VerticalAlignment="Bottom" />
+                </Border>
+                <Border Width="6" Height="30" Background="#33333A" CornerRadius="2" VerticalAlignment="Center">
+                    <Border x:Name="Bar4" Height="4" Background="#6A6A6A" CornerRadius="2" VerticalAlignment="Bottom" />
+                </Border>
+                <Border Width="6" Height="30" Background="#33333A" CornerRadius="2" VerticalAlignment="Center">
+                    <Border x:Name="Bar5" Height="4" Background="#6A6A6A" CornerRadius="2" VerticalAlignment="Bottom" />
+                </Border>
+                <Border Width="6" Height="30" Background="#33333A" CornerRadius="2" VerticalAlignment="Center">
+                    <Border x:Name="Bar6" Height="4" Background="#6A6A6A" CornerRadius="2" VerticalAlignment="Bottom" />
+                </Border>
+                <Border Width="6" Height="30" Background="#33333A" CornerRadius="2" VerticalAlignment="Center">
+                    <Border x:Name="Bar7" Height="4" Background="#6A6A6A" CornerRadius="2" VerticalAlignment="Bottom" />
+                </Border>
+                <Border Width="6" Height="30" Background="#33333A" CornerRadius="2" VerticalAlignment="Center">
+                    <Border x:Name="Bar8" Height="4" Background="#6A6A6A" CornerRadius="2" VerticalAlignment="Bottom" />
+                </Border>
+            </StackPanel>
+        </Grid>
+
+        <!-- Raw transcript (left) + detector log (right) -->
+        <Grid Grid.Row="3" ColumnDefinitions="*,*" RowDefinitions="Auto,*">
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="RAW TRANSCRIPT (cumulative)"
+                       Foreground="#888888" FontSize="11" FontWeight="SemiBold"
+                       Margin="0,0,6,4" />
+            <TextBlock Grid.Row="0" Grid.Column="1" Text="DETECTOR LOG"
+                       Foreground="#888888" FontSize="11" FontWeight="SemiBold"
+                       Margin="6,0,0,4" />
+
+            <Border Grid.Row="1" Grid.Column="0"
+                    Background="#252526" BorderBrush="#3C3C3C" BorderThickness="1"
+                    CornerRadius="6" Margin="0,0,6,0">
+                <ScrollViewer x:Name="RawScroller">
+                    <TextBlock x:Name="RawTranscriptText" Text="(transcript will appear here)"
+                               Foreground="#888888"
+                               FontFamily="Cascadia Mono,Consolas,monospace"
+                               FontSize="12" TextWrapping="Wrap" Padding="10,8" />
+                </ScrollViewer>
+            </Border>
+
+            <Border Grid.Row="1" Grid.Column="1"
+                    Background="#252526" BorderBrush="#3C3C3C" BorderThickness="1"
+                    CornerRadius="6" Margin="6,0,0,0">
+                <ScrollViewer x:Name="LogScroller">
+                    <TextBlock x:Name="DetectorLogText" Text="(detector events will appear here)"
+                               Foreground="#888888"
+                               FontFamily="Cascadia Mono,Consolas,monospace"
+                               FontSize="12" TextWrapping="Wrap" Padding="10,8" />
+                </ScrollViewer>
+            </Border>
+        </Grid>
+
+        <!-- Captured prompt (live body) + emitted output -->
+        <Grid Grid.Row="4" ColumnDefinitions="*,*" Margin="0,10,0,0">
+            <StackPanel Grid.Column="0" Margin="0,0,6,0">
+                <TextBlock Text="CAPTURED PROMPT (live)" Foreground="#888888"
+                           FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4" />
+                <Border Background="#252526" BorderBrush="#3C3C3C" BorderThickness="1"
+                        CornerRadius="6" MinHeight="56">
+                    <TextBlock x:Name="CapturedPromptText" Text=""
+                               Foreground="#DCDCAA"
+                               FontFamily="Cascadia Mono,Consolas,monospace"
+                               FontSize="13" TextWrapping="Wrap" Padding="10,8" />
+                </Border>
+            </StackPanel>
+            <StackPanel Grid.Column="1" Margin="6,0,0,0">
+                <TextBlock Text="EMITTED OUTPUT (would send to session)" Foreground="#888888"
+                           FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4" />
+                <Border Background="#252526" BorderBrush="#16A34A" BorderThickness="1"
+                        CornerRadius="6" MinHeight="56">
+                    <TextBlock x:Name="EmittedOutputText" Text="(nothing emitted yet)"
+                               Foreground="#9CDCAA"
+                               FontFamily="Cascadia Mono,Consolas,monospace"
+                               FontSize="13" TextWrapping="Wrap" Padding="10,8" />
+                </Border>
+            </StackPanel>
+        </Grid>
+
+        <!-- Inject text (drive the engine without a mic) + close -->
+        <Grid Grid.Row="5" ColumnDefinitions="*,Auto,Auto" Margin="0,12,0,0">
+            <TextBox Grid.Column="0" x:Name="InjectBox"
+                     Background="#252526" Foreground="#CCCCCC" CaretBrush="#CCCCCC"
+                     BorderBrush="#3C3C3C" BorderThickness="1" Padding="8,6"
+                     Watermark="type a transcript to test, e.g. wingman fix the bug wingman send" />
+            <Button Grid.Column="1" x:Name="FeedButton" Content="Feed (one-shot)"
+                    Height="32" Margin="8,0,0,0" Padding="14,0"
+                    Background="#007ACC" Foreground="White" FontWeight="SemiBold"
+                    BorderThickness="0" Cursor="Hand" Click="BtnFeed_Click" />
+            <Button Grid.Column="2" Content="Close"
+                    Height="32" Margin="8,0,0,0" Padding="14,0"
+                    Background="#3C3C3C" Foreground="#CCCCCC"
+                    BorderThickness="0" Cursor="Hand" IsCancel="True" Click="BtnClose_Click" />
+        </Grid>
+
+        <!-- Help overlay. Last child = on top; covers the panels while shown.
+             Toggled by the Help button; "Got it" dismisses. -->
+        <Border x:Name="HelpOverlay" Grid.Row="1" Grid.RowSpan="5"
+                IsVisible="False"
+                Background="#0CEEEEEE" Margin="0,0,0,0">
+            <Border Background="#252526" BorderBrush="#3C3C3C" BorderThickness="1"
+                    CornerRadius="8" Margin="0,4,0,8" Padding="0">
+                <Grid RowDefinitions="*,Auto">
+                    <ScrollViewer Grid.Row="0" Padding="16,14">
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="How to use" Foreground="#CCCCCC"
+                                       FontSize="14" FontWeight="SemiBold" />
+
+                            <TextBlock Foreground="#9CDCAA" FontSize="12" FontWeight="SemiBold"
+                                       Text="By voice (uses your mic + an OpenAI key)" />
+                            <TextBlock Foreground="#BBBBBB" FontSize="12" TextWrapping="Wrap"
+                                       Text="1. Click Start. The bars move = the mic is live. The badge shows IDLE.&#10;2. Say &quot;wingman&quot; then your prompt (e.g. &quot;wingman fix the login bug&quot;). The badge turns to CAPTURING and your words build up in CAPTURED PROMPT.&#10;3. Say &quot;wingman send&quot; to emit it, or &quot;wingman cancel&quot; to discard. The badge returns to IDLE.&#10;4. Click Stop when you are finished." />
+
+                            <TextBlock Foreground="#9CDCAA" FontSize="12" FontWeight="SemiBold"
+                                       Text="By typing (no mic)" />
+                            <TextBlock Foreground="#BBBBBB" FontSize="12" TextWrapping="Wrap"
+                                       Text="Leave it stopped, type a full transcript in the bottom box (e.g. &quot;wingman fix the bug wingman send&quot;), and click Feed (one-shot). It runs that whole sentence through the detector at once." />
+
+                            <TextBlock Foreground="#9CDCAA" FontSize="12" FontWeight="SemiBold"
+                                       Text="The panels" />
+                            <TextBlock Foreground="#BBBBBB" FontSize="12" TextWrapping="Wrap"
+                                       Text="- RAW TRANSCRIPT: exactly what was heard.&#10;- DETECTOR LOG: what the engine decided (WAKE / body / COMMIT / CANCEL / ignored).&#10;- CAPTURED PROMPT: the prompt being assembled.&#10;- EMITTED OUTPUT: what WOULD be sent. It only goes to this box, never to a real session." />
+
+                            <TextBlock Foreground="#9CDCAA" FontSize="12" FontWeight="SemiBold"
+                                       Text="Notes" />
+                            <TextBlock Foreground="#BBBBBB" FontSize="12" TextWrapping="Wrap"
+                                       Text="- A phrase ending in &quot;...send&quot; commits about 0.8s after you stop talking. The engine waits for a pause so &quot;wingman&quot; does not turn into &quot;wingman send&quot;. If a commit seems to hang, that pause is why.&#10;- Change the Wake word box to try alternatives (e.g. &quot;hey wingman&quot;) without a rebuild." />
+                        </StackPanel>
+                    </ScrollViewer>
+                    <Button Grid.Row="1" Content="Got it"
+                            HorizontalAlignment="Right" Margin="16,0,16,14" Padding="16,0"
+                            Height="30" Background="#007ACC" Foreground="White"
+                            FontWeight="SemiBold" BorderThickness="0" Cursor="Hand"
+                            Click="BtnHelpClose_Click" />
+                </Grid>
+            </Border>
+        </Border>
+    </Grid>
+</Window>

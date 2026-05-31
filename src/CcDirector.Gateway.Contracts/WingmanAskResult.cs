@@ -76,4 +76,13 @@ public sealed class WingmanAskResult
     /// responses.
     /// </summary>
     public string Say { get; set; } = "";
+
+    /// <summary>
+    /// True when the explain verdict determined the session is parked on its OWN background
+    /// task (a long build, "N shell still running") and is NOT waiting on the user. This is
+    /// the one sanctioned override of a red "needs you" determination: it drives the Purple
+    /// "running in background" badge so a session blocked on its own background work is not
+    /// counted as needing attention. Populated in explain mode; false otherwise.
+    /// </summary>
+    public bool RunningInBackground { get; set; }
 }

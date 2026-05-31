@@ -147,9 +147,9 @@ public class WebView2Host : NativeControlHost
     /// state root. WebView2 exclusively locks its user-data folder, so each
     /// running Director instance needs its own. Keyed by the running exe's
     /// filename, giving:
-    ///   %LOCALAPPDATA%\cc-director\webview2\cc-director-avalonia1\
-    ///   %LOCALAPPDATA%\cc-director\webview2\cc-director-avalonia2\
-    ///   %LOCALAPPDATA%\cc-director\webview2\cc-director\           (production)
+    ///   %LOCALAPPDATA%\cc-director\webview2\cc-director1\
+    ///   %LOCALAPPDATA%\cc-director\webview2\cc-director2\
+    ///   %LOCALAPPDATA%\cc-director\webview2\cc-director\           (main)
     /// Default location (next to the exe) is rejected because it pollutes
     /// the install/build directory with hundreds of MB of Chromium cache.
     /// </summary>

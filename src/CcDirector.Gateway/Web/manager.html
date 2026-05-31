@@ -19,6 +19,7 @@
     --perm: #ce9178;
     --failed: #f44747;
     --starting: #9cdcfe;
+    --background: #a855f7;
   }
   * { box-sizing: border-box; }
   html, body {
@@ -123,6 +124,10 @@
   .card.state-WaitingForInput{ border-left: 4px solid var(--waiting); animation: pulse 1.6s ease-in-out infinite; }
   .card.state-WaitingForPerm { border-left: 4px solid var(--perm); animation: pulse 1.6s ease-in-out infinite; }
   .card.state-Starting       { border-left: 4px solid var(--starting); }
+  /* Background: the Wingman determined the session is parked on its own background task,
+     not on the user. Purple border, NO pulse (it does not need attention). The card gets
+     this class instead of state-WaitingForInput (see effectiveState in the render JS). */
+  .card.state-Background     { border-left: 4px solid var(--background); animation: none; }
   .card.state-Exited, .card.state-Failed { border-left: 4px solid var(--failed); opacity: 0.7; }
   @keyframes pulse {
     0%, 100% { box-shadow: 0 0 0 0 rgba(220,220,170,0.0); }
@@ -146,6 +151,7 @@
   .badge.WaitingForInput{ background: var(--waiting); }
   .badge.WaitingForPerm { background: var(--perm); }
   .badge.Starting       { background: var(--starting); }
+  .badge.Background     { background: var(--background); color: #fff; }
   .badge.Exited, .badge.Failed { background: var(--failed); }
   .meta { color: var(--muted); font-size: 12px; }
 
@@ -179,6 +185,7 @@
   .detail .header-panel.state-WaitingForInput{ border-left: 4px solid var(--waiting); }
   .detail .header-panel.state-WaitingForPerm { border-left: 4px solid var(--perm); }
   .detail .header-panel.state-Starting       { border-left: 4px solid var(--starting); }
+  .detail .header-panel.state-Background     { border-left: 4px solid var(--background); }
   .detail .header-panel.state-Exited, .detail .header-panel.state-Failed { border-left: 4px solid var(--failed); }
 
   .name-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -440,6 +447,7 @@
       <option value="Pi">Pi</option>
       <option value="Codex">Codex</option>
       <option value="Gemini">Gemini</option>
+      <option value="OpenCode">OpenCode</option>
     </select>
 
     <div class="modal-error" id="newSessionError" style="display:none"></div>
@@ -565,11 +573,21 @@
     return repoFolder(s ? s.repoPath : '') || (s && s.sessionId ? s.sessionId.slice(0,8) : '');
   }
 
-  // Human-friendly badge text for an activity state. The badge CSS class still
-  // uses the raw state name (it drives the color + pulse), and the header stats
-  // count off the raw state too - only the visible text is humanized here.
-  // Both WaitingForInput and WaitingForPerm are "the agent is blocked on you"
-  // states, so both read "Needs you" (matching the mobile detail banner).
+  // Effective state for display. The Wingman can override a turn-end "needs you" with a
+  // Purple "running in background" verdict (statusColor === 'purple'), meaning the agent is
+  // parked on its OWN background task and does NOT need the user. When that overlay is on we
+  // report a synthetic "Background" state so the badge, card border, and header counts all
+  // agree with the colored dot instead of contradicting it with "Needs you". Otherwise we
+  // report the raw activityState verbatim.
+  function effectiveState(s) {
+    if (s && (s.statusColor || '').toLowerCase() === 'purple') return 'Background';
+    return (s && s.activityState) || 'Unknown';
+  }
+
+  // Human-friendly badge text for an effective state. The badge CSS class uses the same
+  // state name (it drives the color + pulse), and the header stats count off it too - only
+  // the visible text is humanized here. Both WaitingForInput and WaitingForPerm are "the
+  // agent is blocked on you" states, so both read "Needs you" (matching the mobile banner).
   function stateLabel(s) {
     switch (s) {
       case 'WaitingForInput': return 'Needs you';
@@ -577,6 +595,7 @@
       case 'Working':         return 'Working';
       case 'Idle':            return 'Idle';
       case 'Starting':        return 'Starting';
+      case 'Background':      return 'Background';
       case 'Exited':          return 'Exited';
       case 'Failed':          return 'Failed';
       default:                return s || 'Unknown';
@@ -682,12 +701,13 @@
       entry.blockEl.querySelector('.sessions').appendChild(card);
       entry.cards.set(s.sessionId, card);
     }
-    card.className = 'card state-' + (s.activityState || 'Unknown');
+    const eff = effectiveState(s);
+    card.className = 'card state-' + eff;
     card.querySelector('.name').textContent = displayName(s);
     card.querySelector('.repo').textContent = s.repoPath || '';
     const badge = card.querySelector('.badge');
-    badge.textContent = stateLabel(s.activityState);
-    badge.className = 'badge ' + s.activityState;
+    badge.textContent = stateLabel(eff);
+    badge.className = 'badge ' + eff;
     card.querySelector('.agent').textContent = s.agent;
     card.querySelector('.elapsed').textContent = 'started ' + fmtElapsed(s.createdAt) + ' ago';
   }
@@ -733,12 +753,16 @@
 
       emptyEl.style.display = dirList.length === 0 ? '' : 'none';
 
-      const idle = sessList.filter(s => s.activityState === 'Idle').length;
-      const working = sessList.filter(s => s.activityState === 'Working').length;
-      const waiting = sessList.filter(s => s.activityState === 'WaitingForInput' || s.activityState === 'WaitingForPerm').length;
+      // Count off the EFFECTIVE state so a Purple "running in background" session is counted
+      // as background, not as a waiting/needs-you session - matching its badge and dot.
+      const idle = sessList.filter(s => effectiveState(s) === 'Idle').length;
+      const working = sessList.filter(s => effectiveState(s) === 'Working').length;
+      const background = sessList.filter(s => effectiveState(s) === 'Background').length;
+      const waiting = sessList.filter(s => { const e = effectiveState(s); return e === 'WaitingForInput' || e === 'WaitingForPerm'; }).length;
       statsEl.textContent = dirList.length + ' director' + (dirList.length===1?'':'s') + ', ' +
         sessList.length + ' session' + (sessList.length===1?'':'s') +
-        ' (' + idle + ' idle, ' + working + ' working, ' + waiting + ' waiting)';
+        ' (' + idle + ' idle, ' + working + ' working, ' + waiting + ' waiting' +
+        (background ? ', ' + background + ' background' : '') + ')';
 
       // If we are in detail mode, refresh the selected session header from the list
       if (selectedSessionId) {
@@ -798,10 +822,11 @@
   }
 
   function paintDetailHeader(s) {
-    detailHeader.className = 'header-panel state-' + (s.activityState || 'Unknown');
+    const eff = effectiveState(s);
+    detailHeader.className = 'header-panel state-' + eff;
     nameDisplay.textContent = displayName(s);
-    detailBadge.textContent = stateLabel(s.activityState);
-    detailBadge.className = 'badge ' + s.activityState;
+    detailBadge.textContent = stateLabel(eff);
+    detailBadge.className = 'badge ' + eff;
     detailAgent.textContent = s.agent;
     detailRepo.textContent = s.repoPath || '';
     detailElapsed.textContent = 'started ' + fmtElapsed(s.createdAt) + ' ago';

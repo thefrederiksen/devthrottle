@@ -157,6 +157,40 @@ public sealed class WingmanServiceTests
     }
 
     [Fact]
+    public void ParseExplainJson_reads_running_in_background_verdict()
+    {
+        // The background-running override: when the agent is parked on its own build, the model
+        // sets running_in_background=true and the parser surfaces it so the badge can go purple.
+        const string bg = @"{
+            ""headline"": ""Waiting for the background build."",
+            ""what_claude_wants"": ""Nothing needed; a background build is still running."",
+            ""running_in_background"": true
+        }";
+        Assert.True(WingmanService.ParseExplainJson(bg).RunningInBackground);
+
+        // Default + explicit false both parse as false (the common case - a real pending ask).
+        Assert.False(WingmanService.ParseExplainJson(@"{""headline"":""x""}").RunningInBackground);
+        Assert.False(WingmanService.ParseExplainJson(@"{""running_in_background"":false}").RunningInBackground);
+
+        // Tolerate a quoted boolean (some models stringify it despite the schema).
+        Assert.True(WingmanService.ParseExplainJson(@"{""running_in_background"":""true""}").RunningInBackground);
+    }
+
+    [Fact]
+    public void BuildExplainPrompt_asks_for_running_in_background_override()
+    {
+        var prompt = WingmanService.BuildExplainPrompt(new WingmanAskContext
+        {
+            SessionId = "s", RepoPath = "/tmp", CurrentColor = "red", ActivityState = "WaitingForInput",
+        });
+        Assert.Contains("\"running_in_background\"", prompt);
+        // The prompt must frame it as the sanctioned override of a NEEDS YOU determination,
+        // gated on real on-screen evidence of a background task.
+        Assert.Contains("override a NEEDS YOU determination", prompt);
+        Assert.Contains("shell still running", prompt);
+    }
+
+    [Fact]
     public void ParseExplainJson_caps_actions_at_four()
     {
         const string raw = @"{""actions"":[""one"",""two"",""three"",""four"",""five"",""six""]}";

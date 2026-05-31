@@ -1,0 +1,123 @@
+using CcDirector.Core.Storage;
+using CcDirector.Core.Utilities;
+
+namespace CcDirector.Core.Tools;
+
+/// <summary>
+/// Builds the tool catalog: reads the embedded manifest, resolves each tool's binary against the
+/// bin directory, attaches the universal presence + version checks plus any declared smoke check,
+/// and reports which built binaries are NOT in the manifest so coverage gaps are never silent.
+///
+/// This is pure, side-effect-free read logic - it launches no processes (that is the
+/// <see cref="ToolTestRunner"/>'s job). Both the Avalonia UI and the Control API consume it.
+/// </summary>
+public sealed class ToolCatalogService
+{
+    private readonly string _binDir;
+
+    /// <summary>Construct against the real bin directory.</summary>
+    public ToolCatalogService() : this(CcStorage.Bin()) { }
+
+    /// <summary>Construct against an explicit bin directory (used by tests).</summary>
+    public ToolCatalogService(string binDir)
+    {
+        _binDir = binDir ?? throw new ArgumentNullException(nameof(binDir));
+    }
+
+    /// <summary>
+    /// Build the full catalog: one <see cref="ToolDescriptor"/> per manifest entry, ordered by
+    /// category then name.
+    /// </summary>
+    public IReadOnlyList<ToolDescriptor> GetCatalog()
+    {
+        FileLog.Write($"[ToolCatalogService] GetCatalog: binDir={_binDir}");
+        try
+        {
+            var manifest = ToolManifest.LoadEmbedded();
+            var descriptors = new List<ToolDescriptor>(manifest.Tools.Count);
+
+            foreach (var entry in manifest.Tools)
+                descriptors.Add(BuildDescriptor(entry));
+
+            descriptors.Sort((a, b) =>
+            {
+                var byCategory = string.Compare(a.Category, b.Category, StringComparison.OrdinalIgnoreCase);
+                return byCategory != 0 ? byCategory : string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase);
+            });
+
+            FileLog.Write($"[ToolCatalogService] GetCatalog: {descriptors.Count} tools, {descriptors.Count(d => d.IsBuilt)} built");
+            return descriptors;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[ToolCatalogService] GetCatalog FAILED: {ex.Message}");
+            throw;
+        }
+    }
+
+    /// <summary>Build the descriptor for a single manifest entry.</summary>
+    public ToolDescriptor GetTool(string name)
+    {
+        var entry = ToolManifest.LoadEmbedded().Tools.Find(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException($"Tool not in manifest: {name}");
+        return BuildDescriptor(entry);
+    }
+
+    /// <summary>
+    /// Built binaries present in the bin directory that the manifest does not mention. Reported so
+    /// the UI can show "unmanaged" tools instead of pretending the catalog is exhaustive. Build
+    /// artifacts (RID-suffixed duplicates like <c>*-win-x64</c> and the Director itself) are
+    /// excluded - they are not user-facing cc-* tools.
+    /// </summary>
+    public IReadOnlyList<string> GetUnmanagedBinaries()
+    {
+        if (!Directory.Exists(_binDir))
+            return Array.Empty<string>();
+
+        var managed = new HashSet<string>(
+            ToolManifest.LoadEmbedded().Tools.Select(t => t.Name),
+            StringComparer.OrdinalIgnoreCase);
+
+        var unmanaged = new List<string>();
+        foreach (var path in Directory.EnumerateFiles(_binDir, "*.exe"))
+        {
+            var name = Path.GetFileNameWithoutExtension(path);
+            if (name.EndsWith("-win-x64", StringComparison.OrdinalIgnoreCase)) continue;
+            if (name.StartsWith("cc-director", StringComparison.OrdinalIgnoreCase)) continue;
+            if (!name.StartsWith("cc-", StringComparison.OrdinalIgnoreCase)) continue;
+            if (managed.Contains(name)) continue;
+            unmanaged.Add(name);
+        }
+
+        unmanaged.Sort(StringComparer.OrdinalIgnoreCase);
+        return unmanaged;
+    }
+
+    private ToolDescriptor BuildDescriptor(ToolManifestEntry entry)
+    {
+        var binaryPath = Path.Combine(_binDir, ResolveBinaryFileName(entry.Name));
+        var isBuilt = File.Exists(binaryPath);
+
+        var tests = new List<ToolTest>
+        {
+            new(ToolTestKind.OnPath, Array.Empty<string>(), null),
+            new(ToolTestKind.Version, new[] { "--version" }, null),
+        };
+
+        if (entry.Smoke is { } smoke && smoke.Args.Count > 0)
+            tests.Add(new ToolTest(ToolTestKind.Smoke, smoke.Args.ToArray(), smoke.ExpectContains));
+
+        return new ToolDescriptor(
+            name: entry.Name,
+            category: entry.Category,
+            description: entry.Description,
+            note: entry.Note,
+            binaryPath: binaryPath,
+            isBuilt: isBuilt,
+            tests: tests);
+    }
+
+    /// <summary>The bin file name for a tool. On Windows tools build to <c>&lt;name&gt;.exe</c>.</summary>
+    private static string ResolveBinaryFileName(string toolName)
+        => OperatingSystem.IsWindows() ? toolName + ".exe" : toolName;
+}

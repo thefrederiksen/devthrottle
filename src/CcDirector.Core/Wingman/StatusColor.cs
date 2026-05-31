@@ -12,6 +12,10 @@ namespace CcDirector.Core.Wingman;
 ///   blue    = agent is working / a turn is in progress.
 ///   yellow  = soft warning (idle with uncommitted work, soft rule violation).
 ///   red     = hard, needs the user (waiting for input/permission, error, blocked).
+///   purple  = the session looks idle to the dumb timer (red), but the Wingman has read the
+///             screen and determined it is actually parked on its OWN background task (a long
+///             build, "N shell still running") and will resume on its own - so it does NOT
+///             need the user. A Wingman-set overlay that sits on top of a red turn-end.
 ///   unknown = data-quality state - the data source itself is unreachable or unparseable.
 ///             Rendered as gray. NOT a session state per se.
 ///
@@ -25,6 +29,7 @@ public static class StatusColor
     public const string Yellow = "yellow";
     public const string Green = "green";
     public const string Blue = "blue";
+    public const string Purple = "purple";
     public const string Unknown = "unknown";
 
     /// <summary>

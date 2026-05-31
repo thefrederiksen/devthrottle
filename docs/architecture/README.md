@@ -9,6 +9,7 @@ Authoritative architecture documentation for `cc-director`, organized by topic. 
 | Topic | Subdirectory | Status | Covers |
 |---|---|---|---|
 | Gateway / Director split | [`gateway/`](gateway/) | CURRENT + PLANNED | Where the Director ends and the Gateway begins (CURRENT). Phase 1 PLANNED: thin Gateway = directory page + Director discovery; Director is canonical. Cross-machine, aggregated views, fan-out, and event push are deferred to later phases. |
+| Cockpit | [`cockpit/`](cockpit/) | PLANNED (v1) | The single Blazor Server desktop UI for driving every session on the tailnet. Directors become dumb runners that own the PTY; the Cockpit owns no session state so sessions never get killed. Three connection lanes: terminal (browser->Director direct), discovery+reads (server->Gateway), writes (server->Director direct). |
 
 More topics will land here as we extract them from the loose docs in `docs/`.
 

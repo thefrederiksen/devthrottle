@@ -127,4 +127,28 @@ public sealed class SessionDto
     /// Mirrors <c>Session.WingmanEnabled</c> on the owning Director.
     /// </summary>
     public bool WingmanEnabled { get; set; } = true;
+
+    /// <summary>
+    /// For GitHub Actions remote sessions: the "owner/repo" the session runs against.
+    /// Empty for local sessions. Mirrors the backend's repo slug.
+    /// </summary>
+    public string RemoteRepo { get; set; } = "";
+
+    /// <summary>
+    /// For GitHub Actions remote sessions: web URL of the issue/PR thread driving
+    /// the session, or empty until the thread is established / for local sessions.
+    /// </summary>
+    public string RemoteThreadUrl { get; set; } = "";
+
+    /// <summary>
+    /// For GitHub Actions remote sessions: web URL of the most recent workflow run,
+    /// or empty when none yet / for local sessions.
+    /// </summary>
+    public string RemoteRunUrl { get; set; } = "";
+
+    /// <summary>
+    /// For GitHub Actions remote sessions: last observed run status
+    /// (queued / in_progress / completed / none). Empty for local sessions.
+    /// </summary>
+    public string RemoteRunStatus { get; set; } = "";
 }

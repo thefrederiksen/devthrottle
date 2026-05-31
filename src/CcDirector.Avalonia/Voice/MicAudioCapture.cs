@@ -52,8 +52,18 @@ public sealed class MicAudioCapture : IAudioSource, IDisposable
     private static readonly WaveFormat CaptureFormat = new(SampleRate, BitsPerSample, Channels);
 
     private readonly WaveInEvent _waveIn;
+    private readonly int _deviceNumber;
+    private readonly string _description;
     private bool _started;
     private bool _disposed;
+
+    /// <summary>
+    /// Name of the capture device this instance reads from. Resolved once at
+    /// construction (a UI-thread boundary) and cached, so reads from the Core
+    /// dictation pipeline are a simple field access that cannot throw.
+    /// See <see cref="IAudioSource.Description"/>.
+    /// </summary>
+    public string Description => _description;
 
     /// <summary>Fires for every chunk of audio captured. PCM16 little-endian.</summary>
     public event Action<byte[]>? OnAudioChunk;
@@ -64,10 +74,19 @@ public sealed class MicAudioCapture : IAudioSource, IDisposable
     /// <summary>Fires for every chunk with the raw int16 RMS amplitude (0..32767). Drives the low-level "speak up" hint.</summary>
     public event Action<double>? OnInputRms;
 
-    public MicAudioCapture(int bufferMilliseconds = 50)
+    /// <param name="deviceNumber">
+    /// WaveIn device number to capture from. Defaults to
+    /// <see cref="MicDevices.DefaultDeviceNumber"/> (WAVE_MAPPER), which opens the
+    /// Windows default capture device rather than the fixed device 0 that
+    /// NAudio's <c>WaveInEvent</c> would otherwise use.
+    /// </param>
+    public MicAudioCapture(int deviceNumber = MicDevices.DefaultDeviceNumber, int bufferMilliseconds = 50)
     {
+        _deviceNumber = deviceNumber;
+        _description = MicDevices.DescribeDevice(deviceNumber);
         _waveIn = new WaveInEvent
         {
+            DeviceNumber = deviceNumber,
             WaveFormat = CaptureFormat,
             BufferMilliseconds = bufferMilliseconds,
         };
@@ -83,7 +102,7 @@ public sealed class MicAudioCapture : IAudioSource, IDisposable
         {
             _waveIn.StartRecording();
             _started = true;
-            FileLog.Write($"[MicAudioCapture] Start: {SampleRate}Hz {BitsPerSample}-bit mono");
+            FileLog.Write($"[MicAudioCapture] Start: device={_deviceNumber} ({Description}), {SampleRate}Hz {BitsPerSample}-bit mono");
         }
         catch (Exception ex)
         {

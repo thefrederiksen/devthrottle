@@ -135,8 +135,23 @@ public sealed class SessionManager : IDisposable
                 ["CC_SESSION_ID"] = id.ToString()
             };
 
+            // Resolve the agent command to a concrete executable path before spawning.
+            // CreateProcess only appends ".exe" to a bare command name, so a CLI installed
+            // as a ".cmd" shim (e.g. npm-installed "opencode.cmd") would never be found from
+            // the bare name "opencode". Resolving against PATH+PATHEXT yields the full
+            // "...\opencode.cmd" path. CreateProcess still cannot execute a batch shim
+            // directly, so CommandLineLauncher wraps .cmd/.bat through cmd.exe. If the command
+            // cannot be resolved at all we keep the original so the launch fails loudly.
+            var resolvedExe = ExecutableResolver.Resolve(agent.ExecutablePath) ?? agent.ExecutablePath;
+            if (!string.Equals(resolvedExe, agent.ExecutablePath, StringComparison.OrdinalIgnoreCase))
+                _log?.Invoke($"Resolved agent command '{agent.ExecutablePath}' to '{resolvedExe}'");
+
+            var (launchExe, launchArgs) = CommandLineLauncher.Build(resolvedExe, args);
+            if (!string.Equals(launchExe, resolvedExe, StringComparison.OrdinalIgnoreCase))
+                _log?.Invoke($"Launching '{resolvedExe}' via shell: {launchExe} {launchArgs}");
+
             // Get initial terminal dimensions (default 120x30)
-            backend.Start(agent.ExecutablePath, args, repoPath, 120, 30, envVars);
+            backend.Start(launchExe, launchArgs, repoPath, 120, 30, envVars);
             session.MarkRunning();
 
             _sessions[id] = session;
@@ -192,6 +207,59 @@ public sealed class SessionManager : IDisposable
         _log?.Invoke($"Pipe mode session {id} created for repo {repoPath}.");
 
         return session;
+    }
+
+    /// <summary>
+    /// Create a GitHub Actions remote session. No local process is spawned: the
+    /// session is a handle to a GitHub issue/PR thread driven by @claude comments,
+    /// with the work running on a GitHub-hosted runner. The backend's authoritative
+    /// activity-state sink is wired to the session so run status (queued/in_progress/
+    /// completed) drives the Working/WaitingForInput badge directly - the
+    /// <c>TerminalStateDetector</c> silence heuristic is skipped for remote sessions.
+    /// </summary>
+    /// <param name="config">Repo, branch, trigger mode, and initial prompt.</param>
+    /// <param name="client">
+    /// GitHub REST client. Pass null to build a real <see cref="GitHubRestClient"/>
+    /// using the token from credentials.env (read at point of use). Tests pass a stub.
+    /// </param>
+    public Session CreateGitHubActionsSession(RemoteSessionConfig config, IGitHubClient? client = null)
+    {
+        if (config is null) throw new ArgumentNullException(nameof(config));
+
+        FileLog.Write($"[SessionManager] CreateGitHubActionsSession: {config.Slug} mode={config.TriggerMode}");
+
+        var gh = client ?? new GitHubRestClient(GitHubCredentials.ReadToken());
+        var backend = new GitHubActionsBackend(config, gh, _options.DefaultBufferSizeBytes);
+
+        var id = Guid.NewGuid();
+        // A remote thread has no local working directory; use the repo slug as a stable
+        // human label in the RepoPath slot (the UI shows it; nothing on disk is touched).
+        var label = config.Slug;
+        var session = new Session(id, label, label, config.InitialPrompt, backend, SessionBackendType.GitHubActions)
+        {
+            AgentKind = Agents.AgentKind.ClaudeCode
+        };
+
+        // Authoritative activity wiring: the run status drives the badge.
+        backend.ActivitySink = state => session.ApplyTerminalActivityState(state);
+
+        try
+        {
+            backend.StartRemote();
+            session.MarkRunning();
+
+            _sessions[id] = session;
+            RaiseSessionCreated(session);
+            _log?.Invoke($"GitHub Actions session {id} created for {config.Slug}.");
+            return session;
+        }
+        catch (Exception ex)
+        {
+            session.MarkFailed();
+            _log?.Invoke($"Failed to create GitHub Actions session for {config.Slug}: {ex.Message}");
+            session.Dispose();
+            throw;
+        }
     }
 
     /// <summary>

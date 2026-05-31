@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using CcDirector.Core.Configuration;
+using CcDirector.Core.Network;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 
@@ -38,6 +39,10 @@ public sealed class GatewayClient : IDisposable
     private CancellationTokenSource? _cts;
     private bool _registered;
     private bool _disposed;
+
+    // Cached MagicDNS name (resolving it shells the tailscale CLI). Cached once found; while
+    // null we retry, so a Director that starts before the tailscale daemon still picks it up.
+    private string? _cachedDnsName;
 
     public bool IsEnabled => _config.IsEnabled;
     public bool IsRegistered => _registered;
@@ -217,17 +222,23 @@ public sealed class GatewayClient : IDisposable
 
     private string ResolveTailnetEndpoint()
     {
-        // Default is LOOPBACK. The Director binds 127.0.0.1 only; the Gateway is
-        // co-located (same tailnet node) so it reaches the Director over loopback, and
-        // the phone reaches it via Tailscale Serve (HTTPS), which the Gateway provisions
-        // per Director. Registering a loopback endpoint here makes DeriveDirectorBaseUrl
-        // mirror the public host onto the Director port (https://<host>:<port>) for remote
-        // callers instead of handing them an unreachable raw machine-name:port URL.
-        //
-        // If the Gateway runs on a DIFFERENT machine than this Director, loopback won't
-        // be reachable from it - set gateway.tailnetEndpoint explicitly in that case.
+        // 1. An explicit gateway.tailnetEndpoint always wins (manual override).
         if (!string.IsNullOrWhiteSpace(_config.TailnetEndpoint))
             return _config.TailnetEndpoint!;
+
+        // 2. Default to this node's Tailscale MagicDNS name + control port, e.g.
+        //    http://soren-north.taildb08ed.ts.net:7882. Tailscale routes node-to-node on any
+        //    port over the tailnet, so a Gateway on ANY tailnet node can reach us with no
+        //    extra config - this is what makes a Director on a different machine (a Mac)
+        //    actually show up, instead of advertising a loopback address only it can reach.
+        if (_cachedDnsName is null)
+            _cachedDnsName = TailscaleIdentity.TryGetMagicDnsName();
+        if (!string.IsNullOrWhiteSpace(_cachedDnsName))
+            return $"http://{_cachedDnsName}:{_port}";
+
+        // 3. No Tailscale identity: fall back to loopback. Only reachable when the Gateway is
+        //    co-located on this same machine; a remote Gateway needs gateway.tailnetEndpoint.
+        FileLog.Write("[GatewayClient] ResolveTailnetEndpoint: no Tailscale name, advertising loopback (co-located gateway only)");
         return $"http://127.0.0.1:{_port}";
     }
 }

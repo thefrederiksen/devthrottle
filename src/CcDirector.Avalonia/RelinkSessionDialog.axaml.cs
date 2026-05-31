@@ -32,14 +32,7 @@ public class RelinkSessionViewModel
             if (_metadata.Modified == DateTime.MinValue)
                 return string.Empty;
 
-            var span = DateTime.UtcNow - _metadata.Modified.ToUniversalTime();
-
-            if (span.TotalMinutes < 1) return "just now";
-            if (span.TotalMinutes < 60) return $"{(int)span.TotalMinutes}m ago";
-            if (span.TotalHours < 24) return $"{(int)span.TotalHours}h ago";
-            if (span.TotalDays < 30) return $"{(int)span.TotalDays}d ago";
-            if (span.TotalDays < 365) return $"{(int)(span.TotalDays / 30)}mo ago";
-            return $"{(int)(span.TotalDays / 365)}y ago";
+            return RelativeTime.Ago(DateTime.UtcNow - _metadata.Modified.ToUniversalTime());
         }
     }
 

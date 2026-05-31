@@ -253,7 +253,7 @@ public partial class ExesPage : ContentPage
         if (!gate.Allowed) { await DisplayAlert("No connection", gate.Message, "OK"); return; }
         var ok = await DisplayAlert(
             $"Delete the slot {row.Slot} build?",
-            $"This removes local_builds/cc-director-avalonia{row.Slot}.exe from disk. You can rebuild it with Build & start.",
+            $"This removes local_builds/cc-director{row.Slot}.exe from disk. You can rebuild it with Build & start.",
             "Delete", "Cancel");
         if (!ok) return;
         try
@@ -279,7 +279,7 @@ public partial class ExesPage : ContentPage
         if (!gate.Allowed) { await DisplayAlert("No connection", gate.Message, "OK"); return; }
         var ok = await DisplayAlert(
             $"Build slot {row.Slot} and launch it?",
-            $"This runs the build script (about a minute) and then starts cc-director-avalonia{row.Slot}.exe. The slot must not already be running.",
+            $"This runs the build script (about a minute) and then starts cc-director{row.Slot}.exe. The slot must not already be running.",
             "Build & start", "Cancel");
         if (!ok) return;
 

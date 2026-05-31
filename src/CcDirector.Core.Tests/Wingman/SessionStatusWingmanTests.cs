@@ -172,6 +172,119 @@ public sealed class SessionStatusWingmanTests
         finally { wingman.Dispose(); manager.Dispose(); }
     }
 
+    // ---------- Purple overlay (Wingman "running in background" verdict) ----------
+
+    [Fact]
+    public void Purple_when_background_running_and_at_turn_end()
+    {
+        // A session parked at WaitingForInput is normally red "needs you". When the Wingman
+        // sets the background-running verdict, the badge becomes purple "running in background".
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        var wingman = new SessionStatusWingman(manager);
+        try
+        {
+            wingman.Start();
+            var (session, _) = CreateBufferSession(manager);
+
+            session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
+            Assert.Equal(StatusColor.Red, session.StatusColor);
+
+            session.SetBackgroundRunning(true, "build still running");
+            Assert.Equal(StatusColor.Purple, session.StatusColor);
+            Assert.Equal("build still running", session.LastStatusReason);
+
+            // Clearing the verdict drops back to red "needs you".
+            session.SetBackgroundRunning(false);
+            Assert.Equal(StatusColor.Red, session.StatusColor);
+        }
+        finally { wingman.Dispose(); manager.Dispose(); }
+    }
+
+    [Fact]
+    public void Purple_released_when_output_resumes()
+    {
+        // The background-running overlay is released the instant real output resumes: the
+        // Session clears IsBackgroundRunning on the transition off WaitingForInput, so a purple
+        // session that starts producing bytes again goes blue, not purple.
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        var wingman = new SessionStatusWingman(manager);
+        try
+        {
+            wingman.Start();
+            var (session, _) = CreateBufferSession(manager);
+
+            session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
+            session.SetBackgroundRunning(true);
+            Assert.Equal(StatusColor.Purple, session.StatusColor);
+
+            session.ApplyTerminalActivityState(ActivityState.Working);
+            Assert.False(session.IsBackgroundRunning);
+            Assert.Equal(StatusColor.Blue, session.StatusColor);
+        }
+        finally { wingman.Dispose(); manager.Dispose(); }
+    }
+
+    [Fact]
+    public void Purple_does_not_apply_while_session_is_working()
+    {
+        // Like Yellow, Purple is a turn-end overlay. While the agent is producing bytes the dot
+        // must stay Blue even if the flag is somehow set (defensive).
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        var wingman = new SessionStatusWingman(manager);
+        try
+        {
+            wingman.Start();
+            var (session, _) = CreateBufferSession(manager);
+
+            session.ApplyTerminalActivityState(ActivityState.Working);
+            session.SetBackgroundRunning(true);
+            Assert.Equal(StatusColor.Blue, session.StatusColor);
+        }
+        finally { wingman.Dispose(); manager.Dispose(); }
+    }
+
+    [Fact]
+    public void Yellow_takes_precedence_over_purple_while_explaining()
+    {
+        // While a briefing is in flight (IsExplaining) the transient Yellow "wingman is reading"
+        // wins; the Purple verdict settles in once the briefing lifts.
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        var wingman = new SessionStatusWingman(manager);
+        try
+        {
+            wingman.Start();
+            var (session, _) = CreateBufferSession(manager);
+
+            session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
+            session.SetBackgroundRunning(true);
+            session.IsExplaining = true;
+            Assert.Equal(StatusColor.Yellow, session.StatusColor);
+
+            session.IsExplaining = false;
+            Assert.Equal(StatusColor.Purple, session.StatusColor);
+        }
+        finally { wingman.Dispose(); manager.Dispose(); }
+    }
+
+    [Fact]
+    public void Purple_suppressed_when_wingman_disabled()
+    {
+        // A WingmanEnabled=false session never goes purple; it stays on the plain mapping (red).
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        var wingman = new SessionStatusWingman(manager);
+        try
+        {
+            wingman.Start();
+            var (session, _) = CreateBufferSession(manager);
+            session.WingmanEnabled = false;
+
+            session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
+            session.SetBackgroundRunning(true);
+            Assert.Equal(StatusColor.Red, session.StatusColor);
+        }
+        finally { wingman.Dispose(); manager.Dispose(); }
+    }
+
     [Fact]
     public void Wingman_paints_blue_on_working_and_red_on_waiting_for_input()
     {

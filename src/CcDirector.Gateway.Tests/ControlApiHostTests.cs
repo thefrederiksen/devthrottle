@@ -14,6 +14,7 @@ namespace CcDirector.Gateway.Tests;
 /// Uses a real SessionManager (with no sessions) so we exercise the
 /// HTTP plumbing, JSON serialization, and routing.
 /// </summary>
+[Collection("DirectorRoot")]
 public sealed class ControlApiHostTests : IAsyncLifetime
 {
     private ControlApiHost _host = null!;
