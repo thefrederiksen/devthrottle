@@ -32,6 +32,13 @@ public sealed class UnixProcessHost : IDisposable
     private readonly object _exitLock = new();
     private bool _exitRaised;
 
+    // Optional raw-PTY capture for diagnosing terminal-rendering issues. When the
+    // environment variable CCD_PTY_CAPTURE is set, every byte read from the PTY
+    // master (exactly what the child wrote, before any ANSI parsing) is appended
+    // to that file. Set CCD_PTY_CAPTURE to a path, or to "1"/"auto" for a default
+    // under the temp dir. Diagnostics only -- a no-op when the var is unset.
+    private FileStream? _captureStream;
+
     public event Action<int>? OnExited;
 
     public int ProcessId => _pid;
@@ -120,6 +127,8 @@ public sealed class UnixProcessHost : IDisposable
     {
         if (!_started) throw new InvalidOperationException("Process not started.");
 
+        OpenCaptureIfRequested();
+
         _drainTask = Task.Run(() =>
         {
             var readBuf = new byte[8192];
@@ -130,6 +139,8 @@ public sealed class UnixProcessHost : IDisposable
                     int n = _console.Read(readBuf);
                     if (n > 0)
                     {
+                        _captureStream?.Write(readBuf, 0, n);
+                        _captureStream?.Flush();
                         buffer.Write(readBuf.AsSpan(0, n));
                     }
                     else
@@ -266,7 +277,28 @@ public sealed class UnixProcessHost : IDisposable
         }
         catch (AggregateException) { }
 
+        try { _captureStream?.Dispose(); } catch { }
+        _captureStream = null;
+
         _cts.Dispose();
+    }
+
+    /// <summary>
+    /// Open the raw-PTY capture file if CCD_PTY_CAPTURE is set. Diagnostics only:
+    /// records the exact bytes the child writes to the PTY, before ANSI parsing,
+    /// so terminal-rendering bugs can be reproduced from the real stream.
+    /// </summary>
+    private void OpenCaptureIfRequested()
+    {
+        var setting = Environment.GetEnvironmentVariable("CCD_PTY_CAPTURE");
+        if (string.IsNullOrWhiteSpace(setting)) return;
+
+        var path = setting is "1" or "auto"
+            ? Path.Combine(Path.GetTempPath(), $"ccd-pty-capture-{_pid}.bin")
+            : setting;
+
+        _captureStream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read);
+        FileLog.Write($"[UnixProcessHost] Raw PTY capture enabled -> {path}");
     }
 
     /// <summary>
