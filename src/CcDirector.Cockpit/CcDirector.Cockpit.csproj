@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>CcDirector.Cockpit</RootNamespace>
+    <AssemblyName>cc-director-cockpit</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- SessionDto + MachineErrorDto: the exact shapes the Gateway aggregator returns. -->
+    <ProjectReference Include="..\CcDirector.Gateway.Contracts\CcDirector.Gateway.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,100 @@
+@* Gateway-wide session rail: every session from every Director the Gateway can reach,
+   grouped Machine -> Director, each with its verbatim StatusColor. Unreachable Directors
+   are shown inline so a dead Director is never silently dropped. *@
+
+<div class="rail">
+    @if (Sessions.Count == 0 && Errors.Count == 0)
+    {
+        <div class="rail-empty">No sessions. The Gateway returned an empty roster.</div>
+    }
+
+    @foreach (var machine in Machines())
+    {
+        var machineSessions = Sessions.Where(s => MachineKey(s.MachineName) == machine).ToList();
+        var machineErrors = Errors.Where(e => MachineKey(e.MachineName) == machine).ToList();
+        var needsYou = machineSessions.Count(s => s.StatusColor == "red");
+
+        <div class="machine">
+            <div class="machine-head">
+                <span class="machine-name">@machine</span>
+                <span class="machine-count">@machineSessions.Count</span>
+                @if (needsYou > 0)
+                {
+                    <span class="machine-needs">@needsYou need you</span>
+                }
+            </div>
+
+            @foreach (var dir in machineSessions.GroupBy(s => s.DirectorId).OrderBy(g => g.Key))
+            {
+                <div class="dir-head">director @ShortId(dir.Key)</div>
+
+                @foreach (var s in dir.OrderBy(s => s.Name ?? s.RepoPath))
+                {
+                    var selected = s.SessionId == SelectedSessionId;
+                    <button type="button"
+                            class="@($"sess{(selected ? " sess-selected" : "")}")"
+                            style="border-left-color:@DotColor(s.StatusColor)"
+                            title="@($"{s.StatusColor}: {s.LastStatusReason}")"
+                            @onclick="() => OnSelect.InvokeAsync(s.SessionId)">
+                        <span class="sess-dot" style="background:@DotColor(s.StatusColor)"></span>
+                        <span class="sess-body">
+                            <span class="sess-name">@(string.IsNullOrWhiteSpace(s.Name) ? s.RepoPath : s.Name)</span>
+                            <span class="sess-state">
+                                @s.ActivityState
+                                @if (s.OnHold)
+                                {
+                                    <span class="tag tag-hold">hold</span>
+                                }
+                                @if (s.VoiceMode)
+                                {
+                                    <span class="tag tag-voice">voice</span>
+                                }
+                            </span>
+                        </span>
+                        @if (s.StatusColor == "red")
+                        {
+                            <span class="needs-pill">needs you</span>
+                        }
+                    </button>
+                }
+            }
+
+            @foreach (var e in machineErrors)
+            {
+                <div class="dir-error" title="@e.Error">
+                    director @ShortId(e.DirectorId) &mdash; unreachable (@e.Error)
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public List<SessionDto> Sessions { get; set; } = new();
+    [Parameter] public List<MachineErrorDto> Errors { get; set; } = new();
+    [Parameter] public string? SelectedSessionId { get; set; }
+    [Parameter] public EventCallback<string> OnSelect { get; set; }
+
+    private static string MachineKey(string? machine) =>
+        string.IsNullOrWhiteSpace(machine) ? "(this machine)" : machine;
+
+    private IEnumerable<string> Machines()
+    {
+        var fromSessions = Sessions.Select(s => MachineKey(s.MachineName));
+        var fromErrors = Errors.Select(e => MachineKey(e.MachineName));
+        return fromSessions.Concat(fromErrors).Distinct().OrderBy(m => m);
+    }
+
+    private static string ShortId(string id) =>
+        string.IsNullOrEmpty(id) ? "?" : (id.Length <= 8 ? id : id[..8]);
+
+    // Verbatim render of the Director-authored StatusColor. Never derived from other fields.
+    private static string DotColor(string c) => c switch
+    {
+        "green" => "#22C55E",
+        "blue" => "#3B82F6",
+        "yellow" => "#F59E0B",
+        "red" => "#F14C4C",
+        _ => "#6B7280",
+    };
+}

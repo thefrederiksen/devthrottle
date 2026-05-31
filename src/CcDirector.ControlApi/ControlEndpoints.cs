@@ -1313,6 +1313,71 @@ internal static class ControlEndpoints
             });
         });
 
+        // ===== Per-session prompt queue =====
+        // Messages the user composed while the agent was busy. Stored on the session's
+        // PromptQueue; the Cockpit's Queue button adds here, the queue panel lists/removes,
+        // and "send" delivers an item to the PTY now. Mirrors the existing desktop queue.
+        app.MapGet("/sessions/{sid}/queue", (string sid) =>
+        {
+            if (!Guid.TryParse(sid, out var guid))
+                return Results.BadRequest(new { error = "invalid session id format" });
+            var session = sessionManager.GetSession(guid);
+            if (session is null)
+                return Results.NotFound(new { error = "session not found" });
+            return Results.Json(new { items = ProjectQueue(session) });
+        });
+
+        app.MapPost("/sessions/{sid}/queue", (string sid, PromptRequest req) =>
+        {
+            FileLog.Write($"[ControlEndpoints] POST queue enqueue: sid={sid}, len={req?.Text?.Length ?? 0}");
+            if (!Guid.TryParse(sid, out var guid))
+                return Results.BadRequest(new { error = "invalid session id format" });
+            if (req is null || string.IsNullOrWhiteSpace(req.Text))
+                return Results.BadRequest(new { error = "text is required" });
+            var session = sessionManager.GetSession(guid);
+            if (session is null)
+                return Results.NotFound(new { error = "session not found" });
+
+            session.PromptQueue.Enqueue(req.Text);
+            return Results.Json(new { items = ProjectQueue(session) });
+        });
+
+        app.MapDelete("/sessions/{sid}/queue/{itemId}", (string sid, string itemId) =>
+        {
+            FileLog.Write($"[ControlEndpoints] DELETE queue item: sid={sid}, item={itemId}");
+            if (!Guid.TryParse(sid, out var guid) || !Guid.TryParse(itemId, out var itemGuid))
+                return Results.BadRequest(new { error = "invalid id format" });
+            var session = sessionManager.GetSession(guid);
+            if (session is null)
+                return Results.NotFound(new { error = "session not found" });
+
+            session.PromptQueue.Remove(itemGuid);
+            return Results.Json(new { items = ProjectQueue(session) });
+        });
+
+        // Deliver one queued item to the PTY now (and drop it from the queue). Used by the
+        // queue panel's per-item "send" and by a "send next" action.
+        app.MapPost("/sessions/{sid}/queue/{itemId}/send", async (string sid, string itemId) =>
+        {
+            FileLog.Write($"[ControlEndpoints] POST queue send: sid={sid}, item={itemId}");
+            if (!Guid.TryParse(sid, out var guid) || !Guid.TryParse(itemId, out var itemGuid))
+                return Results.BadRequest(new { error = "invalid id format" });
+            var session = sessionManager.GetSession(guid);
+            if (session is null)
+                return Results.NotFound(new { error = "session not found" });
+            if (session.Status is SessionStatus.Exited or SessionStatus.Failed)
+                return Results.StatusCode(StatusCodes.Status409Conflict);
+
+            var item = session.PromptQueue.FindById(itemGuid);
+            if (item is null)
+                return Results.NotFound(new { error = "queue item not found" });
+
+            var text = item.Text;
+            session.PromptQueue.Remove(itemGuid);
+            await session.SendTextAsync(text);
+            return Results.Json(new { items = ProjectQueue(session) });
+        });
+
         app.MapPost("/sessions/{sid}/interrupt", (string sid) =>
         {
             FileLog.Write($"[ControlEndpoints] POST interrupt: sid={sid}");
@@ -1670,6 +1735,12 @@ internal static class ControlEndpoints
             return "";
         }
     }
+
+    /// <summary>Project a session's prompt queue to the wire shape the Cockpit renders.</summary>
+    private static IReadOnlyList<object> ProjectQueue(Session s) =>
+        s.PromptQueue.Items
+            .Select(i => (object)new { id = i.Id.ToString(), text = i.Text, createdAt = i.CreatedAt })
+            .ToList();
 
     private static SessionDto Map(Session s, string directorId, TurnSummaryCache? cache = null)
     {

@@ -198,8 +198,19 @@ internal static class GatewayEndpoints
             var includeExitedActual = includeExited ?? false;
             var fanoutTasks = directors.Select(async d =>
             {
+                // Reachability circuit-breaker: a Director that has failed recent probes is skipped while
+                // its breaker is open, so it stops costing a per-poll timeout. Still surfaced as an error
+                // so the UI shows it as unreachable. See DIRECTOR_LIVENESS_PLAN.md.
+                if (!registry.ShouldProbe(d.DirectorId))
+                    return (Director: d, Sessions: (List<SessionDto>?)null,
+                            Error: $"unreachable ({registry.LastUnreachableError(d.DirectorId)}; cooling down)");
+
                 var ep = (d.ControlEndpoint ?? "").TrimEnd('/');
                 var (sessions, error) = await client.ListSessionsWithStatusAsync(ep, includeExitedActual);
+                if (error is null)
+                    registry.RecordReachable(d.DirectorId);
+                else
+                    registry.RecordUnreachable(d.DirectorId, error);
                 return (Director: d, Sessions: sessions, Error: error);
             }).ToList();
 

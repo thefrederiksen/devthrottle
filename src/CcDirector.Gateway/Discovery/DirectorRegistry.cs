@@ -31,7 +31,30 @@ public sealed class DirectorRegistry : IDisposable
     /// <summary>If an HTTP-registered Director has not heartbeat for this long, it gets swept.</summary>
     public static TimeSpan HttpHeartbeatTimeout { get; } = TimeSpan.FromSeconds(60);
 
+    /// <summary>Consecutive failed fleet probes before the reachability circuit opens.</summary>
+    public static int MaxConsecutiveFailures { get; } = 3;
+
+    /// <summary>While the circuit is open, the aggregator skips the Director for this long.</summary>
+    public static TimeSpan UnreachableCooldown { get; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>A Director unreachable continuously for this long is evicted even if still heartbeating.</summary>
+    public static TimeSpan UnreachableEvictAfter { get; } = TimeSpan.FromMinutes(3);
+
+    /// <summary>
+    /// Per-Director reachability circuit-breaker state. Kept OFF the wire <see cref="DirectorDto"/>;
+    /// purely a Gateway-side concern. A Director can be heartbeating (process alive) yet have a control
+    /// endpoint the Gateway cannot reach - this tracks that so we stop re-probing it every poll.
+    /// </summary>
+    private sealed class Reachability
+    {
+        public int ConsecutiveFailures;
+        public DateTime? CooldownUntil;
+        public DateTime FirstUnreachableAt;
+        public string LastError = "unreachable";
+    }
+
     private readonly ConcurrentDictionary<string, DirectorDto> _directors = new();
+    private readonly ConcurrentDictionary<string, Reachability> _reach = new();
     private FileSystemWatcher? _watcher;
     private Timer? _sweeper;
     private bool _disposed;
@@ -72,6 +95,9 @@ public sealed class DirectorRegistry : IDisposable
 
         var existed = _directors.TryGetValue(req.DirectorId, out _);
         _directors[req.DirectorId] = dto;
+        // A fresh registration may carry a corrected endpoint - give it a clean reachability slate so a
+        // previously-broken Director that restarted on a good build is probed again immediately.
+        _reach.TryRemove(req.DirectorId, out _);
         FileLog.Write($"[DirectorRegistry] Upsert (http): id={dto.DirectorId}, endpoint={dto.TailnetEndpoint}, existed={existed}");
         if (!existed)
             OnDirectorAdded?.Invoke(dto);
@@ -99,6 +125,7 @@ public sealed class DirectorRegistry : IDisposable
         if (string.IsNullOrEmpty(directorId)) return false;
         if (_directors.TryRemove(directorId, out _))
         {
+            _reach.TryRemove(directorId, out _);
             FileLog.Write($"[DirectorRegistry] Remove (http): id={directorId}");
             OnDirectorRemoved?.Invoke(directorId);
             return true;
@@ -139,6 +166,43 @@ public sealed class DirectorRegistry : IDisposable
     /// <summary>Look up by Director ID. Null if unknown.</summary>
     public DirectorDto? Get(string directorId)
         => _directors.TryGetValue(directorId, out var d) ? d : null;
+
+    // ===== Reachability circuit-breaker (see DIRECTOR_LIVENESS_PLAN.md) =====
+
+    /// <summary>
+    /// Whether the fleet aggregator should probe this Director right now. False while its circuit is
+    /// open (recent run of failures) so a dead/mis-registered Director stops costing a timeout per poll.
+    /// </summary>
+    public bool ShouldProbe(string directorId)
+    {
+        if (!_reach.TryGetValue(directorId, out var r)) return true;
+        return r.CooldownUntil is not { } until || DateTime.UtcNow >= until;
+    }
+
+    /// <summary>Last error seen for an unreachable Director (surfaced in the envelope). Empty if reachable.</summary>
+    public string LastUnreachableError(string directorId)
+        => _reach.TryGetValue(directorId, out var r) ? r.LastError : "unreachable";
+
+    /// <summary>The Director answered a fleet probe: clear its breaker.</summary>
+    public void RecordReachable(string directorId)
+    {
+        if (_reach.TryRemove(directorId, out _))
+            FileLog.Write($"[DirectorRegistry] {directorId} reachable again; reachability circuit reset");
+    }
+
+    /// <summary>A fleet probe to the Director failed: increment the breaker and open it after the threshold.</summary>
+    public void RecordUnreachable(string directorId, string error)
+    {
+        var now = DateTime.UtcNow;
+        var r = _reach.GetOrAdd(directorId, _ => new Reachability { FirstUnreachableAt = now });
+        r.ConsecutiveFailures++;
+        r.LastError = string.IsNullOrWhiteSpace(error) ? "unreachable" : error;
+        if (r.ConsecutiveFailures >= MaxConsecutiveFailures)
+        {
+            r.CooldownUntil = now + UnreachableCooldown;
+            FileLog.Write($"[DirectorRegistry] {directorId} circuit OPEN after {r.ConsecutiveFailures} failures; skipping for {UnreachableCooldown.TotalSeconds:F0}s ({r.LastError})");
+        }
+    }
 
     private void LoadExisting()
     {
@@ -243,12 +307,29 @@ public sealed class DirectorRegistry : IDisposable
             {
                 if (kv.Value.Source == "http")
                 {
+                    // Alive but its control endpoint has been unreachable too long: evict even though it
+                    // is still heartbeating. If the process is genuinely up it self-heals - its next
+                    // heartbeat gets 410 Gone and it re-registers (possibly with a corrected endpoint).
+                    if (_reach.TryGetValue(kv.Key, out var reach)
+                        && reach.ConsecutiveFailures >= MaxConsecutiveFailures
+                        && now - reach.FirstUnreachableAt > UnreachableEvictAfter)
+                    {
+                        if (_directors.TryRemove(kv.Key, out _))
+                        {
+                            _reach.TryRemove(kv.Key, out _);
+                            FileLog.Write($"[DirectorRegistry] Sweeper evicted unreachable http entry: {kv.Key} (control endpoint dead {(now - reach.FirstUnreachableAt).TotalSeconds:F0}s, still heartbeating)");
+                            OnDirectorRemoved?.Invoke(kv.Key);
+                        }
+                        continue;
+                    }
+
                     // HTTP entries: drop if no heartbeat for HttpHeartbeatTimeout.
                     var lastSeen = kv.Value.LastSeen ?? DateTime.MinValue;
                     if (now - lastSeen > HttpHeartbeatTimeout)
                     {
                         if (_directors.TryRemove(kv.Key, out _))
                         {
+                            _reach.TryRemove(kv.Key, out _);
                             FileLog.Write($"[DirectorRegistry] Sweeper removed stale http entry: {kv.Key} (last heartbeat {(now - lastSeen).TotalSeconds:F0}s ago)");
                             OnDirectorRemoved?.Invoke(kv.Key);
                         }

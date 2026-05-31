@@ -160,6 +160,13 @@ public sealed class GatewayClient : IDisposable
     private async Task<bool> TryRegisterAsync(CancellationToken ct)
     {
         var req = BuildRegistrationRequest();
+        if (string.IsNullOrWhiteSpace(req.TailnetEndpoint))
+        {
+            // No tailnet-reachable address to advertise (see ResolveTailnetEndpoint). Registering
+            // an empty endpoint would put an undialable entry in the Gateway. Skip and stay local.
+            FileLog.Write("[GatewayClient] TryRegisterAsync: no tailnet endpoint to advertise; staying local-only");
+            return false;
+        }
         FileLog.Write($"[GatewayClient] POST /directors/register: endpoint={req.TailnetEndpoint}");
         var resp = await _http.PostAsJsonAsync("directors/register", req, ct);
         if (resp.IsSuccessStatusCode)
@@ -222,23 +229,34 @@ public sealed class GatewayClient : IDisposable
 
     private string ResolveTailnetEndpoint()
     {
-        // 1. An explicit gateway.tailnetEndpoint always wins (manual override).
-        if (!string.IsNullOrWhiteSpace(_config.TailnetEndpoint))
-            return _config.TailnetEndpoint!;
-
-        // 2. Default to this node's Tailscale MagicDNS name + control port, e.g.
-        //    http://soren-north.taildb08ed.ts.net:7882. Tailscale routes node-to-node on any
-        //    port over the tailnet, so a Gateway on ANY tailnet node can reach us with no
-        //    extra config - this is what makes a Director on a different machine (a Mac)
-        //    actually show up, instead of advertising a loopback address only it can reach.
+        // The Director binds Kestrel to LOOPBACK only. Remote reachability is provided by the
+        // Gateway's TailscaleServeProvisioner, which runs `tailscale serve --https=<port>
+        // http://localhost:<port>` per Director. So the address we advertise MUST be that
+        // Serve front door: HTTPS, this node's MagicDNS name, and THIS Director's OWN allocated
+        // port (e.g. https://<machine>.<tailnet>.ts.net:7879). It is per-Director, tailnet-
+        // routable from any node, and is NEVER a localhost URL (a remote Gateway or the Cockpit
+        // could never reach loopback). This single value drives both Gateway fan-out reads and
+        // the Cockpit's direct terminal WebSocket (wss://<magicdns>:<port>/sessions/{sid}/stream).
         if (_cachedDnsName is null)
             _cachedDnsName = TailscaleIdentity.TryGetMagicDnsName();
         if (!string.IsNullOrWhiteSpace(_cachedDnsName))
-            return $"http://{_cachedDnsName}:{_port}";
+            return $"https://{_cachedDnsName}:{_port}";
 
-        // 3. No Tailscale identity: fall back to loopback. Only reachable when the Gateway is
-        //    co-located on this same machine; a remote Gateway needs gateway.tailnetEndpoint.
-        FileLog.Write("[GatewayClient] ResolveTailnetEndpoint: no Tailscale name, advertising loopback (co-located gateway only)");
-        return $"http://127.0.0.1:{_port}";
+        // No Tailscale identity on this node. An explicit gateway.tailnetEndpoint override is the
+        // only remaining way to be remotely reachable (a hand-run `tailscale serve`, a reverse
+        // proxy, etc.). Honored ONLY as this fallback - never ahead of the auto-derived MagicDNS
+        // value, so a stale shared override cannot poison a multi-Director box.
+        if (!string.IsNullOrWhiteSpace(_config.TailnetEndpoint))
+        {
+            FileLog.Write("[GatewayClient] ResolveTailnetEndpoint: no Tailscale identity; using configured gateway.tailnetEndpoint override");
+            return _config.TailnetEndpoint!;
+        }
+
+        // Neither Tailscale nor an override: remote reachability is genuinely unavailable. We do
+        // NOT advertise a loopback address (policy is tailnet-or-nothing - a localhost URL would
+        // be a lie to any remote caller). Empty endpoint -> TryRegisterAsync skips registration
+        // and the Director runs local-only, which is the truthful state.
+        FileLog.Write("[GatewayClient] ResolveTailnetEndpoint: no Tailscale identity and no override; cannot advertise a tailnet endpoint, staying local-only");
+        return "";
     }
 }
