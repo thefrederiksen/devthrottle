@@ -37,10 +37,11 @@ public sealed class SessionDto
     /// Aggregate at-a-glance status color, written by the Director's
     /// SessionStatusWingman. The UI renders this verbatim and never derives it
     /// from other fields.
-    /// Values: "green" (greenfield - new or just finished a task cleanly),
-    /// "blue" (agent is working), "yellow" (soft warning, idle with uncommitted
-    /// work, soft rule violation), "red" (needs the user - input/permission/error),
-    /// "unknown" (data-quality state - source unreachable or unparseable).
+    /// Values: "blue" (agent is working), "red" (needs the user - input/permission/idle),
+    /// "yellow" (the Wingman is reading the screen and narrating), "purple" (parked on its
+    /// own background task, will resume itself), "unknown" (process exited, or source
+    /// unreachable/unparseable - rendered gray). On-hold is separate: see <see cref="OnHold"/>.
+    /// ("green" is legacy and no longer emitted.)
     /// </summary>
     public string StatusColor { get; set; } = "unknown";
 

@@ -3,25 +3,28 @@ using CcDirector.Gateway.Contracts;
 namespace CcDirector.Core.Wingman;
 
 /// <summary>
-/// String constants for the five session status colors the SessionStatusWingman
-/// writes onto each <see cref="CcDirector.Core.Sessions.Session"/>. The UI renders
-/// these verbatim and never derives them from other fields.
+/// String constants for the session status colors the SessionStatusWingman writes
+/// onto each <see cref="CcDirector.Core.Sessions.Session"/>. The UI renders these
+/// verbatim and never derives them from other fields.
 ///
-/// Meaning:
-///   green   = "greenfield" - brand new, or just finished a task cleanly, sitting idle.
+/// Live meaning (see SessionStatusWingman.ColorFor - the single source of truth):
 ///   blue    = agent is working / a turn is in progress.
-///   yellow  = soft warning (idle with uncommitted work, soft rule violation).
-///   red     = hard, needs the user (waiting for input/permission, error, blocked).
-///   purple  = the session looks idle to the dumb timer (red), but the Wingman has read the
-///             screen and determined it is actually parked on its OWN background task (a long
-///             build, "N shell still running") and will resume on its own - so it does NOT
-///             need the user. A Wingman-set overlay that sits on top of a red turn-end.
-///   unknown = data-quality state - the data source itself is unreachable or unparseable.
+///   red     = needs the user (waiting for input/permission, idle at a turn-end).
+///   yellow  = the Wingman is reading the screen and narrating a briefing.
+///   purple  = the Wingman read the screen and determined the session is parked on its OWN
+///             background task (a long build, "N shell still running") and will resume on
+///             its own - so it does NOT need the user. An overlay on top of a red turn-end.
+///   unknown = process exited, or the data source is unreachable/unparseable.
 ///             Rendered as gray. NOT a session state per se.
 ///
-/// Phase 3 of the SessionWingman goal makes color a first-class, wingman-owned
-/// field on the Session itself. The static helper below is kept as an internal
-/// utility for the wingman's slow path (turn-summary interpretation).
+/// In practice the TerminalStateDetector only emits Working / WaitingForInput, so the
+/// activity-state badge is just blue or red; yellow and purple are Wingman overlays.
+///
+/// On-hold is NOT one of these: it is a separate, user-driven override (Session.OnHold)
+/// painted by the UI (light gray), not a color the wingman writes here.
+///
+/// NOTE: <see cref="Green"/> below is legacy. The old "greenfield/idle" state was removed;
+/// the wingman no longer emits green and <see cref="From"/> is used only by tests now.
 /// </summary>
 public static class StatusColor
 {

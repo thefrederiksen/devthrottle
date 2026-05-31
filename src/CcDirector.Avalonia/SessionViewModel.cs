@@ -20,10 +20,14 @@ public class SessionViewModel : INotifyPropertyChanged
         { ActivityState.Exited, new SolidColorBrush(Color.FromRgb(0x66, 0x66, 0x66)) },
     };
 
-    // Phase 4d: the sidebar color strip now reads the SessionStatusWingman's color
-    // (Session.StatusColor) directly, so Desktop and Gateway always show the same color.
-    // Brush palette matches Web/directory.html exactly: #22c55e green, #3b82f6 blue,
-    // #eab308 yellow, #ef4444 red, #6a6a6a unknown/gray.
+    // The sidebar color strip reads the SessionStatusWingman's color (Session.StatusColor)
+    // directly, so Desktop and Gateway always show the same color. The live states the
+    // wingman actually emits (see SessionStatusWingman.ColorFor) are:
+    //   blue   = working          red    = needs you
+    //   yellow = wingman narrating purple = parked on its own background task
+    //   gray   = process exited
+    // Green is defined below but is NOT currently emitted by the wingman (the old
+    // "greenfield/idle" state was removed); kept only so a legacy green value still maps.
     private static readonly ISolidColorBrush GreenStatusBrush   = new SolidColorBrush(Color.FromRgb(0x22, 0xC5, 0x5E));
     private static readonly ISolidColorBrush BlueStatusBrush    = new SolidColorBrush(Color.FromRgb(0x3B, 0x82, 0xF6));
     private static readonly ISolidColorBrush YellowStatusBrush  = new SolidColorBrush(Color.FromRgb(0xEA, 0xB3, 0x08));
@@ -33,10 +37,12 @@ public class SessionViewModel : INotifyPropertyChanged
     private static readonly ISolidColorBrush PurpleStatusBrush  = new SolidColorBrush(Color.FromRgb(0xA8, 0x55, 0xF7));
     private static readonly ISolidColorBrush UnknownStatusBrush = new SolidColorBrush(Color.FromRgb(0x6A, 0x6A, 0x6A));
 
-    // Dark navy blue shown when the user has parked a session on hold. OnHold is an
-    // orthogonal user override (see Session.OnHold), so it sits on top of the wingman's
-    // StatusColor in the list strip rather than the wingman writing it.
-    private static readonly ISolidColorBrush OnHoldStatusBrush  = new SolidColorBrush(Color.FromRgb(0x1E, 0x3A, 0x8A));
+    // Light gray shown when the user has manually parked a session on hold. Deliberately
+    // lighter than the exited/unknown gray (#6a6a6a) and distinct from every wingman color
+    // so held sessions recede and can be ignored at a glance. OnHold is an orthogonal user
+    // override (see Session.OnHold), so it sits on top of the wingman's StatusColor in the
+    // list strip rather than the wingman writing it.
+    private static readonly ISolidColorBrush OnHoldStatusBrush  = new SolidColorBrush(Color.FromRgb(0x9C, 0xA3, 0xAF));
 
     // Session-list headline color. Warm amber when the session needs you (red) so the eye is
     // drawn to actionable sessions in a multi-session list; muted otherwise.
@@ -90,7 +96,7 @@ public class SessionViewModel : INotifyPropertyChanged
     /// so the same session shows the same color in both windows.
     ///
     /// Exception: when the user has parked the session on hold (<see cref="Session.OnHold"/>),
-    /// the strip shows a dark navy blue so held sessions read as "set aside" at a glance.
+    /// the strip shows a light gray so held sessions recede and read as "set aside" at a glance.
     /// OnHold is an orthogonal user override that sits on top of the wingman's color.
     /// </summary>
     public ISolidColorBrush StatusColorBrush
@@ -111,7 +117,7 @@ public class SessionViewModel : INotifyPropertyChanged
     }
 
     /// <summary>True when the user has parked this session on hold. Drives the menu toggle
-    /// label and the dark-blue strip color.</summary>
+    /// label and the light-gray strip color.</summary>
     public bool IsOnHold => Session.OnHold;
 
     /// <summary>Tooltip-ready reason for the current strip color. Reflects the on-hold
