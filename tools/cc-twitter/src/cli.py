@@ -51,13 +51,21 @@ def _get_format() -> str:
     return _output_format
 
 
+def _version_callback(value: bool) -> None:
+    """Print version and exit. Eager so --version works without a subcommand."""
+    if value:
+        console.print(f"cc-twitter {__version__}")
+        raise typer.Exit()
+
+
 @app.callback()
 def main(
-    version: bool = typer.Option(
-        False,
+    version: Optional[bool] = typer.Option(
+        None,
         "--version",
         "-v",
         help="Show version and exit.",
+        callback=_version_callback,
         is_eager=True,
     ),
     fmt: str = typer.Option(
@@ -70,10 +78,6 @@ def main(
     """cc-twitter - Twitter/X CLI tool."""
     global _output_format
     _output_format = fmt
-
-    if version:
-        console.print(f"cc-twitter {__version__}")
-        raise typer.Exit()
 
 
 @app.command()

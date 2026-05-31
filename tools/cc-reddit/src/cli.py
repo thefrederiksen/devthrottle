@@ -128,8 +128,19 @@ def warn(msg: str):
     console.print(f"[yellow]WARNING:[/yellow] {msg}")
 
 
+def _version_callback(value: bool) -> None:
+    """Print version and exit. Eager so --version works without a subcommand."""
+    if value:
+        typer.echo("cc-reddit version 0.1.0")
+        raise typer.Exit()
+
+
 @app.callback()
 def main(
+    version: Optional[bool] = typer.Option(
+        None, "--version", help="Show version and exit.",
+        callback=_version_callback, is_eager=True,
+    ),
     connection: Optional[str] = typer.Option(None, "--connection", "-c", help="cc-browser connection name"),
     workspace: Optional[str] = typer.Option(None, "--workspace", "-w", hidden=True, help="Deprecated: use --connection"),
     format: str = typer.Option("text", help="Output format: text, json, markdown"),

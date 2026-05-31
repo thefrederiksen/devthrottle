@@ -23,6 +23,25 @@ app = typer.Typer(
 console = Console()
 
 
+def _version_callback(value: bool) -> None:
+    """Print version and exit. Eager so --version works without a subcommand."""
+    if value:
+        typer.echo("cc-personresearch version 0.1.0")
+        raise typer.Exit()
+
+
+@app.callback()
+def _main(
+    version: Optional[bool] = typer.Option(
+        None, "--version",
+        help="Show version and exit.",
+        callback=_version_callback,
+        is_eager=True,
+    ),
+) -> None:
+    """Person research CLI - gather OSINT data from public sources."""
+
+
 def get_default_output_dir(tool_name: str) -> Path:
     """Return ~/Documents/cc-director/<tool_name>/, creating it if needed."""
     home = Path(os.environ.get("USERPROFILE", "") or Path.home())
