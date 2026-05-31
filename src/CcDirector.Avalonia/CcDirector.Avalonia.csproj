@@ -5,7 +5,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>0.3.2</Version>
+    <Version>0.3.3</Version>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <NoWarn>CS0618;CS0067;AVLN3001</NoWarn>
     <!-- CS0618: Avalonia clipboard API deprecation -->
@@ -13,7 +13,15 @@
     <!-- AVLN3001: Dialogs have no parameterless constructor (instantiated from code, not XAML loader) -->
     <ApplicationIcon>app.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Auto-update gate. Off by default so local/dev/slot builds never try to
+         self-update. CI release builds pass -p:UpdaterEnabled=true, which emits
+         the [assembly: AssemblyMetadata("UpdaterEnabled","true")] marker that
+         UpdateService reads at startup (see src/CcDirector.Core/Update/). -->
+    <UpdaterEnabled Condition="'$(UpdaterEnabled)' == ''">false</UpdaterEnabled>
   </PropertyGroup>
+  <ItemGroup Condition="'$(UpdaterEnabled)' == 'true'">
+    <AssemblyMetadata Include="UpdaterEnabled" Value="true" />
+  </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="11.*" />
     <PackageReference Include="Avalonia.Desktop" Version="11.*" />

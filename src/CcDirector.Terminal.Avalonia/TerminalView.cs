@@ -22,7 +22,7 @@ public class TerminalView : Control
     private const int DefaultRows = 30;
     private const int ScrollbackLines = 1000;
 
-    private static readonly FontFamily _fontFamily = new("Cascadia Mono, Consolas, Courier New");
+    private static readonly FontFamily _fontFamily = new(TerminalFonts.Family);
     private static readonly Typeface _typefaceNormal = new(_fontFamily, FontStyle.Normal, FontWeight.Normal);
 
     private static readonly Dictionary<Color, IBrush> _brushCache = new();

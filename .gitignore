@@ -8,6 +8,12 @@ publish/
 release/
 local_builds/*
 !local_builds/_local_build*.bat
+# macOS build helpers (scripts/docs only -- binaries and .app stay ignored)
+!local_builds/mac/
+local_builds/mac/*
+!local_builds/mac/*.sh
+!local_builds/mac/*.md
+!local_builds/mac/AppIcon.svg
 nul
 tmp_build_output/appsettings.json
 tmp_build_output/cc-director.deps.json

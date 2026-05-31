@@ -216,8 +216,19 @@ containers:
       - CcDirector.Terminal.Core
     components:
       - name: TerminalControl
-        description: Avalonia UserControl for terminal rendering
+        description: Avalonia Control hosting the terminal; wires input, sizing, and the active renderer
         file: TerminalControl.cs
+      - name: TerminalView
+        description: Avalonia Control presenting the parsed terminal grid; owns its own AnsiParser bound to the live window size
+        file: TerminalView.cs
+      - name: ITerminalRenderer
+        description: Strategy interface for drawing the terminal grid; selectable rendering backends
+        files:
+          - Rendering/ITerminalRenderer.cs
+          - Rendering/OriginalRenderer.cs
+          - Rendering/LiteRenderer.cs
+          - Rendering/ProRenderer.cs
+          - Rendering/BoxDrawingHelper.cs
 
   - id: core_services
     name: Core Services Layer
@@ -828,6 +839,15 @@ patterns:
       - Agents/CodexAgent.cs
       - Agents/GeminiAgent.cs
       - Agents/OpenCodeAgent.cs
+
+  - name: Strategy Pattern (Terminal Renderer)
+    implementation: ITerminalRenderer interface with OriginalRenderer, LiteRenderer, and ProRenderer implementations
+    purpose: Abstracts how the parsed terminal grid is drawn in the Avalonia UI so the rendering backend can be swapped without changing the control or parser.
+    files:
+      - Rendering/ITerminalRenderer.cs
+      - Rendering/OriginalRenderer.cs
+      - Rendering/LiteRenderer.cs
+      - Rendering/ProRenderer.cs
 
   - name: Observer Pattern
     implementation: Events (StatusChanged, OnActivityStateChanged)

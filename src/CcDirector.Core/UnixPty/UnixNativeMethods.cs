@@ -41,9 +41,32 @@ internal static class UnixNativeMethods
     /// <summary>
     /// Perform I/O control operations on a file descriptor.
     /// Used for resizing the terminal (TIOCSWINSZ).
+    ///
+    /// ioctl is a C VARIADIC function: int ioctl(int, unsigned long, ...). On Apple
+    /// Silicon (arm64) macOS the variadic argument MUST be passed on the stack, not in
+    /// a register. A plain `ref Winsize` parameter is passed in a register, so ioctl
+    /// reads garbage from the stack and sets a nonsense window size (e.g. 28302 cols),
+    /// which makes TUIs like Claude Code draw full-width rules that wrap hundreds of
+    /// times. Calling through __arglist uses the genuine varargs calling convention and
+    /// is correct on every platform/architecture.
     /// </summary>
     [DllImport(LibC, SetLastError = true)]
-    public static extern int ioctl(int fd, ulong request, ref Winsize ws);
+    public static extern int ioctl(int fd, ulong request, IntPtr argp);
+
+    /// <summary>
+    /// ioctl for arm64 macOS, where the variadic argument must arrive on the STACK,
+    /// not in a register. AArch64 passes the first 8 integer/pointer arguments in
+    /// x0-x7 and spills the 9th onto the stack -- exactly where a variadic callee
+    /// reads its first vararg. By padding with 6 dummy register arguments we force
+    /// <paramref name="argp"/> (the 9th argument) onto the stack. The dummies land in
+    /// x2-x7 and are ignored by ioctl. This is the same EntryPoint ("ioctl"); only the
+    /// managed call shape differs.
+    /// </summary>
+    [DllImport(LibC, SetLastError = true, EntryPoint = "ioctl")]
+    public static extern int ioctl_stackarg(
+        int fd, ulong request,
+        long d2, long d3, long d4, long d5, long d6, long d7,
+        IntPtr argp);
 
     /// <summary>
     /// Close a file descriptor.
@@ -108,6 +131,69 @@ internal static class UnixNativeMethods
     [DllImport(LibC, SetLastError = true)]
     public static extern int kill(int pid, int sig);
 
+    // ---- posix_spawn: launch a child with stdio bound to a PTY slave ----
+    //
+    // We use posix_spawn rather than fork()+exec() because calling fork() in a
+    // multi-threaded managed runtime (CoreCLR) is unsafe: only the calling
+    // thread survives in the child, and any non-async-signal-safe call (managed
+    // allocation, GC, libc malloc) between fork and exec can deadlock. posix_spawn
+    // performs the fork/exec inside libc with all marshaling done in the parent.
+    //
+    // The opaque types posix_spawnattr_t and posix_spawn_file_actions_t are passed
+    // as pointers to caller-allocated, zeroed native buffers (see UnixProcessHost).
+    // On macOS these typedefs are themselves pointers; libc stores its handle in
+    // the first word of the buffer. A generously sized buffer also satisfies the
+    // struct layout used by glibc on Linux.
+
+    public const int O_RDWR = 0x0002;
+
+    /// <summary>POSIX_SPAWN_SETSID: child becomes a new session leader (macOS 10.15+).</summary>
+    public const short POSIX_SPAWN_SETSID = 0x0400;
+
+    [DllImport(LibC, SetLastError = true)]
+    public static extern int posix_spawnp(
+        out int pid,
+        [MarshalAs(UnmanagedType.LPStr)] string file,
+        IntPtr fileActions,
+        IntPtr attrp,
+        [MarshalAs(UnmanagedType.LPArray, ArraySubType = UnmanagedType.LPStr)] string?[] argv,
+        [MarshalAs(UnmanagedType.LPArray, ArraySubType = UnmanagedType.LPStr)] string?[] envp);
+
+    [DllImport(LibC, SetLastError = true)]
+    public static extern int posix_spawn_file_actions_init(IntPtr fileActions);
+
+    [DllImport(LibC, SetLastError = true)]
+    public static extern int posix_spawn_file_actions_destroy(IntPtr fileActions);
+
+    [DllImport(LibC, SetLastError = true)]
+    public static extern int posix_spawn_file_actions_adddup2(IntPtr fileActions, int filedes, int newfiledes);
+
+    [DllImport(LibC, SetLastError = true)]
+    public static extern int posix_spawn_file_actions_addclose(IntPtr fileActions, int filedes);
+
+    [DllImport(LibC, SetLastError = true)]
+    public static extern int posix_spawn_file_actions_addopen(
+        IntPtr fileActions, int filedes,
+        [MarshalAs(UnmanagedType.LPStr)] string path, int oflag, uint mode);
+
+    /// <summary>Set the child's working directory (macOS 10.15+ / glibc 2.29+).</summary>
+    [DllImport(LibC, SetLastError = true)]
+    public static extern int posix_spawn_file_actions_addchdir_np(
+        IntPtr fileActions, [MarshalAs(UnmanagedType.LPStr)] string path);
+
+    [DllImport(LibC, SetLastError = true)]
+    public static extern int posix_spawnattr_init(IntPtr attr);
+
+    [DllImport(LibC, SetLastError = true)]
+    public static extern int posix_spawnattr_destroy(IntPtr attr);
+
+    [DllImport(LibC, SetLastError = true)]
+    public static extern int posix_spawnattr_setflags(IntPtr attr, short flags);
+
+    /// <summary>Return the name of the slave PTY device for a master fd.</summary>
+    [DllImport(LibC, SetLastError = true)]
+    public static extern IntPtr ptsname(int fd);
+
     /// <summary>
     /// Set environment variable.
     /// </summary>
@@ -147,4 +233,10 @@ internal static class UnixNativeMethods
     /// Check if process exited normally.
     /// </summary>
     public static bool WIFEXITED(int status) => (status & 0x7F) == 0;
+
+    /// <summary>Check if the process was terminated by a signal.</summary>
+    public static bool WIFSIGNALED(int status) => ((sbyte)((status & 0x7F) + 1) >> 1) > 0;
+
+    /// <summary>The signal number that terminated the process.</summary>
+    public static int WTERMSIG(int status) => status & 0x7F;
 }

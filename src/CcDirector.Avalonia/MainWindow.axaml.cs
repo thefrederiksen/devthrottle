@@ -363,6 +363,15 @@ public partial class MainWindow : Window
                 FileLog.Write($"[MainWindow] OnExternalSessionCreated: wrapping {session.Id} (repo={session.RepoPath})");
                 var vm = new SessionViewModel(session);
                 _sessions.Add(vm);
+
+                // If nothing is currently shown, surface the externally-created session
+                // (e.g. from the web Manager or Control API) instead of leaving the
+                // terminal on the empty "Select a session to begin" state.
+                if (_activeSession is null)
+                {
+                    SessionList.SelectedItem = vm;
+                    FileLog.Write($"[MainWindow] OnExternalSessionCreated: auto-selected {session.Id} (no active session)");
+                }
             }
             catch (Exception ex)
             {
@@ -3255,6 +3264,20 @@ public partial class MainWindow : Window
         NotificationText.Text = string.Empty;
         NotificationIcon.IsVisible = false;
         NotificationBar.IsVisible = false;
+    }
+
+    // ==================== AUTO-UPDATE NOTICE ====================
+
+    /// <summary>
+    /// Passively note that an update has been downloaded. It installs
+    /// automatically the next time CC Director is launched -- the running app is
+    /// never interrupted, so no active sessions are lost. Called by App after
+    /// UpdateService stages a verified build (marshalled to the UI thread).
+    /// </summary>
+    public void ShowUpdateReady(string version)
+    {
+        FileLog.Write($"[MainWindow] ShowUpdateReady: {version}");
+        ShowNotification($"CC Director {version} downloaded -- installs next time you open the app.");
     }
 
     // ==================== RIGHT PANEL TOGGLE ====================
