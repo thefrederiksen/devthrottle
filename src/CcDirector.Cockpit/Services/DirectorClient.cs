@@ -45,6 +45,19 @@ public sealed class DirectorClient
         resp.EnsureSuccessStatusCode();
     }
 
+    /// <summary>
+    /// Raw PTY keystroke(s) - NO trailing Enter. <c>appendEnter:false</c> routes to
+    /// <c>session.SendInput(bytes)</c>, so control sequences (Esc \x1b, Ctrl+C \x03, arrows,
+    /// the slash-command UI) reach the terminal exactly as typed. Used by the live terminal's
+    /// keystroke forwarding; not logged per-keystroke to avoid noise.
+    /// </summary>
+    public async Task SendInputAsync(string directorBase, string sid, string data, CancellationToken ct = default)
+    {
+        var resp = await _http.PostAsJsonAsync(Url(directorBase, $"sessions/{sid}/prompt"),
+            new { text = data, appendEnter = false }, ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
     public async Task InterruptAsync(string directorBase, string sid, CancellationToken ct = default)
         => (await _http.PostAsync(Url(directorBase, $"sessions/{sid}/interrupt"), null, ct)).EnsureSuccessStatusCode();
 

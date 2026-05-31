@@ -8,7 +8,7 @@
 
 const terms = new Map(); // id -> state
 
-export function connect(id, hostEl, wsUrl) {
+export function connect(id, hostEl, wsUrl, dotNetRef) {
   dispose(id);
   if (typeof window.Terminal === "undefined") {
     hostEl.textContent = "Terminal renderer (xterm.js) failed to load.";
@@ -17,7 +17,7 @@ export function connect(id, hostEl, wsUrl) {
   const term = new window.Terminal({
     fontFamily: '"Cascadia Code", Consolas, "Courier New", monospace',
     fontSize: 13, lineHeight: 1.0, scrollback: 5000, cursorBlink: false,
-    disableStdin: true,            // read-only: input flows through the composer/REST
+    disableStdin: false,           // interactive: keystrokes are forwarded via onData below
     convertEol: false,
     theme: { background: "#1e1e1e", foreground: "#d4d4d8" },
   });
@@ -26,6 +26,12 @@ export function connect(id, hostEl, wsUrl) {
     if (window.CanvasAddon && window.CanvasAddon.CanvasAddon)
       term.loadAddon(new window.CanvasAddon.CanvasAddon());
   } catch (e) { /* DOM renderer stays active */ }
+
+  // Forward every keystroke (raw bytes incl. Esc/Ctrl/arrows) to the owning Director's PTY.
+  // xterm does NOT echo locally - the rendered result comes back over the output stream.
+  if (dotNetRef) {
+    term.onData((data) => { try { dotNetRef.invokeMethodAsync("OnInput", data); } catch (e) {} });
+  }
 
   const state = { term, ws: null, wantOpen: true, host: hostEl, wsUrl, reconnectTimer: null, lastCols: 0, ro: null };
   terms.set(id, state);

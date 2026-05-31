@@ -1,10 +1,13 @@
 @implements IAsyncDisposable
 @inject IJSRuntime JS
+@inject DirectorClient Director
 @inject ILogger<TerminalPane> Log
 
 @* Live terminal for one session. The parent keys this component by SessionId, so switching
    sessions disposes this pane and creates a fresh one - this pane connects exactly once, to
-   one session, over a direct WSS to the owning Director (built from its tailnet endpoint). *@
+   one session. Output streams over a direct WSS to the owning Director; keystrokes (typed into
+   xterm) are forwarded back through the existing raw-input REST path, so the terminal is fully
+   interactive (Esc, Ctrl+C, arrows, slash-command UI) with no Director change. *@
 <div class="term-host" @ref="_host"></div>
 
 @code {
@@ -13,6 +16,7 @@
 
     private ElementReference _host;
     private IJSObjectReference? _module;
+    private DotNetObjectReference<TerminalPane>? _selfRef;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -24,14 +28,35 @@
         }
         try
         {
+            _selfRef = DotNetObjectReference.Create(this);
             _module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/cockpit-terminal.js");
             var wsUrl = BuildWsUrl(DirectorBase, SessionId);
             Log.LogInformation("TerminalPane connecting sid={Sid} to {WsUrl}", SessionId, wsUrl);
-            await _module.InvokeVoidAsync("connect", SessionId, _host, wsUrl);
+            await _module.InvokeVoidAsync("connect", SessionId, _host, wsUrl, _selfRef);
         }
         catch (Exception ex)
         {
             Log.LogError(ex, "TerminalPane connect failed for sid={Sid}", SessionId);
+        }
+    }
+
+    /// <summary>
+    /// Called from xterm's onData on every keystroke. Forwards the raw bytes to the owning
+    /// Director's PTY (no Enter appended). The resulting render comes back over the output
+    /// stream, so there is no local echo to manage.
+    /// </summary>
+    [JSInvokable]
+    public async Task OnInput(string data)
+    {
+        if (string.IsNullOrEmpty(data) || string.IsNullOrEmpty(DirectorBase) || string.IsNullOrEmpty(SessionId))
+            return;
+        try
+        {
+            await Director.SendInputAsync(DirectorBase, SessionId, data);
+        }
+        catch (Exception ex)
+        {
+            Log.LogDebug(ex, "terminal input send failed for sid={Sid}", SessionId);
         }
     }
 
@@ -53,5 +78,6 @@
             try { await _module.InvokeVoidAsync("dispose", SessionId); } catch { /* circuit gone */ }
             try { await _module.DisposeAsync(); } catch { /* already disposed */ }
         }
+        _selfRef?.Dispose();
     }
 }
