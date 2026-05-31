@@ -744,11 +744,22 @@ public partial class MainWindow : Window
         var rename = new MenuItem { Header = "Rename" };
         rename.Click += (_, _) => ShowRenameDialog(vm);
 
-        // Copy the session's display name and stable ID to the clipboard so it can be
-        // handed to another agent (e.g. via the Control API) to find and talk to this
-        // exact session.
-        var copyId = new MenuItem { Header = "Copy Name & ID" };
-        copyId.Click += (_, _) => _ = CopySessionNameAndId(vm);
+        // Copy a full handover block (session name + id, plus this Director's identity
+        // and version) to the clipboard so it can be handed to another agent (e.g. via
+        // the Control API) to locate, recall from memory, and talk to this exact session.
+        var copyId = new MenuItem { Header = "Copy Handover Info" };
+        copyId.Click += async (_, _) =>
+        {
+            try
+            {
+                await CopySessionNameAndId(vm);
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[MainWindow] Copy Handover Info FAILED: {ex.Message}");
+                ShowNotification("Copy failed");
+            }
+        };
 
         var separator1 = new Separator();
 
@@ -836,13 +847,31 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Copies the session's display name and stable ID to the clipboard in a format
-    /// another agent can use to find and talk to this exact session.
+    /// Copies a full handover block to the clipboard: the session's display name and
+    /// stable ID plus the identity of the Director hosting it (Director ID, machine,
+    /// version) and its loopback Control API endpoint. This is everything another agent
+    /// needs to locate the session in memory and talk to it over the Control API.
     /// </summary>
     private async Task CopySessionNameAndId(SessionViewModel vm)
     {
-        var text = $"Name: {vm.DisplayName}\nID: {vm.Session.Id}";
-        FileLog.Write($"[MainWindow] CopySessionNameAndId: session={vm.Session.Id}");
+        var app = global::Avalonia.Application.Current as App;
+        var version = typeof(App).Assembly.GetName().Version?.ToString() ?? "0.0.0";
+
+        var lines = new List<string>
+        {
+            $"Name: {vm.DisplayName}",
+            $"Session ID: {vm.Session.Id}",
+            $"Repo: {vm.RepoPath}",
+            $"Director ID: {app?.ControlApiHost?.DirectorId ?? "(Control API not started)"}",
+            $"Machine: {Environment.MachineName}",
+            $"Version: {version}",
+        };
+        var port = app?.ControlApiHost?.Port;
+        if (port is > 0)
+            lines.Add($"Control API: http://127.0.0.1:{port}");
+
+        var text = string.Join("\n", lines);
+        FileLog.Write($"[MainWindow] CopySessionNameAndId: session={vm.Session.Id}, director={app?.ControlApiHost?.DirectorId}, version={version}");
         var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
         if (clipboard == null)
         {
@@ -851,7 +880,7 @@ public partial class MainWindow : Window
             return;
         }
         await clipboard.SetTextAsync(text);
-        ShowNotification($"Copied name + ID for {vm.DisplayName}");
+        ShowNotification($"Copied handover info for {vm.DisplayName}");
     }
 
     private async void ShowRenameDialog(SessionViewModel vm)
