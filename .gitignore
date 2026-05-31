@@ -113,3 +113,7 @@ bin-verify*/
 # can contain real names and personal speech. Keep the REPORT.md/.html (clean
 # summary) but never commit the evidence captures to this public repo.
 docs/features/voice-mode-fidelity/evidence/
+
+# Cockpit prototype + playground screenshots (throwaway / PII-bearing; not for the public repo)
+playground/wingman-briefing/
+playground/*.png
