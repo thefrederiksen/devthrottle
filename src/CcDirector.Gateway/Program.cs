@@ -1,5 +1,6 @@
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway;
+using CcDirector.Gateway.Cockpit;
 
 FileLog.Start();
 FileLog.Write($"[Program] CC Director Gateway starting, log: {FileLog.CurrentLogPath}");
@@ -48,6 +49,11 @@ catch (Exception ex)
     FileLog.Write($"[Program] FAILED: {ex.Message}");
     return 1;
 }
+
+// Supervise the Cockpit UI (production only). In dev this is inert and the developer runs the
+// Cockpit themselves; the service installer sets CC_COCKPIT_MANAGED=1 to turn it on.
+using var cockpit = CockpitSupervisor.FromEnvironment();
+cockpit.Start();
 
 Console.WriteLine($"CC Director Gateway");
 Console.WriteLine($"  URL:   http://127.0.0.1:{host.Port}/");
