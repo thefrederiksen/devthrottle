@@ -42,7 +42,7 @@ Processes launched by Task Scheduler run under `svchost.exe` (the Schedule servi
 ```powershell
 # Point the task at your current test build. The WorkingDirectory must be set, or
 # Avalonia's first-time resource resolution may fail with exit -1.
-$exe = "D:\ReposFred\cc-director\local_builds\cc-director-avalonia5.exe"
+$exe = "D:\ReposFred\cc-director\local_builds\cc-director5.exe"
 $wd  = "D:\ReposFred\cc-director\local_builds"
 $action = New-ScheduledTaskAction -Execute $exe -WorkingDirectory $wd
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddYears(5)  # far future, on-demand only
@@ -59,11 +59,11 @@ The Director boots with parent = `svchost.exe`, port-allocates a fresh Control A
 
 #### Slot convention to avoid colliding with the user's running Directors
 
-The user keeps long-lived Director processes (`cc-director-avalonia1.exe`, `cc-director-avalonia2.exe`, etc.) and you MUST NOT kill them. Reserve **slot 4 or higher** for your own test Directors. Build to that slot with `scripts\local-build-avalonia.ps1 -Slot 4` and point `cc-director-launch` at that path.
+The `local_builds` directory holds the **main** build `cc-director.exe` (the user's daily-driver, Start Menu + taskbar) plus development slots `cc-director1.exe` through `cc-director4.exe`. The user keeps long-lived Director processes running from the main exe and from slots 1-4, and you MUST NOT kill any of them. Reserve **slot 5 or higher** for your own test Directors. Build to that slot with `scripts\local-build-avalonia.ps1 -Slot 5` and point `cc-director-launch` at that path.
 
 #### Cleaning up your own test Director
 
-Only kill processes whose path matches the slot YOU launched (e.g. `cc-director-avalonia4.exe`). Confirm via `Get-Process | Select-Object Id, ProcessName, Path` before sending `Stop-Process`. Never use a blanket `Stop-Process -Name cc-director-avalonia*` — that would kill the user's working sessions.
+Only kill processes whose path matches the slot YOU launched (e.g. `cc-director5.exe`). Confirm via `Get-Process | Select-Object Id, ProcessName, Path` before sending `Stop-Process`. Never use a blanket `Stop-Process -Name cc-director*` — that would kill the main build and the user's working sessions.
 
 For non-session-creating tests (HTML rendering, REST endpoint smoke, build-only verification) launching from your context is still fine. Only session-creation tests need the Task Scheduler path.
 

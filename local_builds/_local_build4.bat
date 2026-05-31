@@ -7,5 +7,5 @@ if %ERRORLEVEL% neq 0 (
     exit /b %ERRORLEVEL%
 )
 echo.
-echo Exe location: %~dp0cc-director-avalonia4.exe
+echo Exe location: %~dp0cc-director4.exe
 pause

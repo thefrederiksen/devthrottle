@@ -14,7 +14,7 @@ namespace CcDirector.ControlApi;
 /// where {slot} is the first 8 bytes of SHA256(lowercased exe path) in hex.
 ///
 /// Why per-exe-path: developers and operators routinely run multiple Director builds
-/// concurrently (e.g. cc-director-avalonia1.exe, cc-director-avalonia4.exe). A single
+/// concurrently (e.g. cc-director1.exe, cc-director4.exe). A single
 /// global id file made every running instance overwrite the same instances/{id}.json,
 /// so the Gateway only ever saw one Director - last writer wins. Per-exe-path slots
 /// give each distinct install its own stable identity.

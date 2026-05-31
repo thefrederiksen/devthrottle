@@ -109,7 +109,7 @@ $releasesDir = Join-Path $repoRoot "local_builds"
 if (-not (Test-Path $releasesDir)) {
     New-Item -ItemType Directory -Path $releasesDir | Out-Null
 }
-$exeName = if ($Slot) { "cc-director-avalonia$Slot.exe" } else { "cc-director-avalonia.exe" }
+$exeName = if ($Slot) { "cc-director$Slot.exe" } else { "cc-director.exe" }
 $destPath = Join-Path $releasesDir $exeName
 Copy-Item $exePath $destPath -Force
 

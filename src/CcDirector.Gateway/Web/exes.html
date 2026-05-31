@@ -350,7 +350,7 @@ async function killDirector(id, slot, pid) {
 }
 
 async function deleteSlot(n) {
-  if (!confirm(`Delete the slot ${n} build?\n\nThis removes local_builds/cc-director-avalonia${n}.exe from disk. You can rebuild it with "Build & start".`)) return;
+  if (!confirm(`Delete the slot ${n} build?\n\nThis removes local_builds/cc-director${n}.exe from disk. You can rebuild it with "Build & start".`)) return;
   try {
     const resp = await fetch("/exes/slots/" + n, { method: "DELETE", credentials: "same-origin" });
     if (!resp.ok) {
@@ -365,7 +365,7 @@ async function deleteSlot(n) {
 }
 
 async function buildStart(n) {
-  if (!confirm(`Build slot ${n} and launch it?\n\nThis runs the build script (about a minute) and then starts cc-director-avalonia${n}.exe. The slot must not already be running.`)) return;
+  if (!confirm(`Build slot ${n} and launch it?\n\nThis runs the build script (about a minute) and then starts cc-director${n}.exe. The slot must not already be running.`)) return;
   const btn = document.getElementById("bs-" + n);
   state.busy = true;
   if (btn) { btn.disabled = true; btn.textContent = "Building..."; }

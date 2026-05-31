@@ -86,12 +86,12 @@ public sealed class DirectorIdStoreTests : IDisposable
         // and overwrote each other's instances/{id}.json, so the Gateway only ever
         // saw the most-recently-started Director. Per-exe-path slots are what
         // restores fan-out across concurrent Directors.
-        var a = DirectorIdStore.LoadOrCreate(@"D:\builds\cc-director-avalonia1.exe");
-        var b = DirectorIdStore.LoadOrCreate(@"D:\builds\cc-director-avalonia4.exe");
+        var a = DirectorIdStore.LoadOrCreate(@"D:\builds\cc-director1.exe");
+        var b = DirectorIdStore.LoadOrCreate(@"D:\builds\cc-director4.exe");
         Assert.NotEqual(a, b);
 
         // And same slot must still return the same id on repeat calls.
-        var aAgain = DirectorIdStore.LoadOrCreate(@"D:\builds\cc-director-avalonia1.exe");
+        var aAgain = DirectorIdStore.LoadOrCreate(@"D:\builds\cc-director1.exe");
         Assert.Equal(a, aAgain);
     }
 

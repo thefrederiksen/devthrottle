@@ -16,7 +16,7 @@ namespace CcDirector.Gateway.Api;
 ///
 /// Routes:
 ///   GET    /exes                         local directors + slot status (JSON)
-///   DELETE /exes/slots/{n}               delete local_builds/cc-director-avalonia{n}.exe
+///   DELETE /exes/slots/{n}               delete local_builds/cc-director{n}.exe
 ///   POST   /exes/slots/{n}/build-start   build slot n, then launch it
 ///
 /// Killing a running Director reuses the existing <c>DELETE /directors/{id}</c>
@@ -28,7 +28,7 @@ namespace CcDirector.Gateway.Api;
 internal static class ExesEndpoints
 {
     private static readonly Regex SlotFromExe =
-        new(@"cc-director-avalonia(\d+)\.exe$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        new(@"cc-director(\d+)\.exe$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     public static void Map(IEndpointRouteBuilder app, DirectorRegistry registry, DirectorEndpointClient client)
     {
@@ -273,7 +273,7 @@ internal static class ExesEndpoints
         "so the slot build scripts and local_builds are unavailable. Run the Gateway from a repo build to use slot management.";
 
     private static string SlotExePath(string repoRoot, int n) =>
-        Path.Combine(repoRoot, "local_builds", $"cc-director-avalonia{n}.exe");
+        Path.Combine(repoRoot, "local_builds", $"cc-director{n}.exe");
 
     private static int? SlotOf(string? exePath)
     {

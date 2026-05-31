@@ -10,7 +10,7 @@
 
   Convention:
     cc-director-gateway        -> https=443 (front door, no port in phone URL)
-    cc-director-avalonia<N>    -> https=<same-port> (Director's own Control API port)
+    cc-director<N>             -> https=<same-port> (Director's own Control API port)
 
   Tailscale provides one wildcard cert for the node's MagicDNS name that is
   valid on any port, so no per-port cert work is needed.
