@@ -328,7 +328,7 @@
 <p>Every Director endpoint the Cockpit calls <strong>exists today</strong> (<code>/prompt</code>, <code>/queue</code> + item ops, <code>/interrupt</code>, <code>/escape</code>, <code>/upload-image</code>, <code>/stream</code>). Nothing is assuming a phantom API.</p>
 <p><strong>Recent progress (parallel session):</strong></p>
 <ul>
-<li><strong>Registration reachability is fixed in code.</strong> <code>ControlApi/GatewayClient.cs</code> <code>ResolveTailnetEndpoint()</code> now advertises <code>https://{magicdns}:{ownPort}</code> (matching the Gateway's <code>TailscaleServeProvisioner</code>), demoting the stale shared <code>:7882</code> override to a fallback. Verified end-to-end on a slot-5 test Director (<code>https://host-a...:7887</code>, healthz 200 through Serve, aggregated by the Gateway, shown in the Cockpit rail). The user's 3 live Directors still error until they are <strong>re-launched</strong> with this build (do NOT restart them out from under their sessions).</li>
+<li><strong>Registration reachability is fixed in code.</strong> <code>ControlApi/GatewayClient.cs</code> <code>ResolveTailnetEndpoint()</code> now advertises <code>https://{magicdns}:{ownPort}</code> (matching the Gateway's <code>TailscaleServeProvisioner</code>), demoting the stale shared <code>:7882</code> override to a fallback. Verified end-to-end on a slot-5 test Director (<code>https://&lt;machine&gt;.&lt;tailnet&gt;.ts.net:7887</code>, healthz 200 through Serve, aggregated by the Gateway, shown in the Cockpit rail). The user's 3 live Directors still error until they are <strong>re-launched</strong> with this build (do NOT restart them out from under their sessions).</li>
 <li><strong>Director queue REST exists</strong> (<code>/sessions/{sid}/queue</code> GET/POST/DELETE + <code>/queue/{itemId}/send</code>), wired to <code>Session.PromptQueue</code>.</li>
 <li><strong>A raw-PTY write primitive already exists:</strong> <code>session.SendInput(bytes)</code>. This is the hook the interactive terminal needs.</li>
 </ul>
@@ -398,31 +398,31 @@
 </tr>
 <tr>
 <td>3</td>
-<td><strong>Terminal input channel</strong> - stream WS accepts binary input frames -&gt; <code>session.SendInput(bytes)</code></td>
-<td>TO DO (small, safe)</td>
-<td>the interactive-terminal piece; <code>SendInput</code> already exists</td>
+<td><strong>Terminal input channel</strong> - stream WS forwards client bytes -&gt; <code>session.SendInput</code></td>
+<td><strong>DONE + tested</strong></td>
+<td>interactive terminal</td>
 </tr>
 <tr>
 <td>4</td>
-<td><strong>Queue auto-drain on ready</strong> - "send next queued item when the session goes idle" moves into the Director/Core</td>
-<td>TO DO</td>
-<td>makes Queue mean "auto-send when Claude is ready", not a manual holding list</td>
+<td><strong>Queue auto-drain on ready</strong> - sends next queued item on Idle (gated by OnHold; never on WaitingForInput)</td>
+<td><strong>DONE + tested</strong></td>
+<td>Queue = auto-send when ready</td>
 </tr>
 <tr>
 <td>5</td>
-<td><strong>PTY resize</strong> (<code>POST /sessions/{sid}/resize</code>)</td>
-<td><strong>INCLUDE NOW</strong> (decided 2026-05-31)</td>
-<td>touches the wingman repaint-loop invariant - do deliberately, but include it so we never rebuild for it</td>
+<td><strong>PTY resize</strong> (<code>POST /sessions/{sid}/resize</code>) + unchanged-size guard</td>
+<td><strong>DONE + tested</strong></td>
+<td>repaint-loop-safe</td>
 </tr>
 <tr>
 <td>6</td>
-<td><strong>Full REST coverage of the desktop feature surface</strong></td>
-<td><strong>INCLUDE NOW</strong> (decided 2026-05-31 - "endpoints for everything")</td>
-<td>Gaps found vs <code>src/CcDirector.Avalonia</code>: <strong>workspaces/history</strong>, <strong>source-control write actions</strong> (stage/commit/discard - <code>/git</code> is read-only today), <strong>scheduler</strong> (view runners / run on demand), <strong>session relink</strong>. Build agent confirms the exhaustive list against the desktop code before cutting the build.</td>
+<td><strong>Full REST coverage</strong> - git writes, workspaces/history, scheduler, relink</td>
+<td><strong>DONE + tested</strong></td>
+<td>desktop parity; never rebuild</td>
 </tr>
 </tbody>
 </table>
-<p>Decision: ship the final Director with <strong>#1-#6</strong> - the Director exposes the entire desktop capability surface over REST, so we never rebuild it.</p>
+<p>Decision: ship the final Director with <strong>#1-#6</strong>. <strong>Status: all implemented + tested (18/18), build 0 warnings.</strong> Report: <a href="../../features/cockpit-final-build/REPORT.html">../../features/cockpit-final-build/REPORT.html</a>. Remaining: Cockpit <code>disableStdin:false</code>+<code>onData</code>-&gt;WS, cut the build, live E2E, roll to Mac-mini + Windows-2.</p>
 <hr/>
 <h2>Track B / Phase 0 - Final Director build + interactive Cockpit terminal  [IMMEDIATE]</h2>
 <p><strong>Goal:</strong> cut one final Director build with the full manifest, launch a fresh controllable Director, and drive a real session end-to-end from the Cockpit.</p>

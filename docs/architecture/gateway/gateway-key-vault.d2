@@ -1,0 +1,47 @@
+# CC Director - Gateway Key Vault: key-handout flow  (PLANNED)
+#
+# Keys live ONCE in the Gateway's vault on the always-on box. A Director pulls the key it
+# needs on demand, caches it in memory only, and uses it to call the provider. Rotating a
+# key on the Gateway propagates to every Director on its next fetch.
+#
+# Render with:
+#   "D:\Tools\d2\d2.exe" --theme=0 --layout=elk gateway-key-vault.d2 gateway-key-vault.png
+
+vars: { d2-config: { layout-engine: elk; pad: 70 } }
+direction: right
+
+classes: {
+  gateway: { style: { fill: "#1A5276"; stroke: "#0E3850"; stroke-width: 4; font-color: white; font-size: 19; bold: true; border-radius: 12; shadow: true } }
+  vault:   { style: { fill: "#6C3483"; stroke: "#4A235A"; stroke-width: 4; font-color: white; font-size: 18; bold: true; border-radius: 12; shadow: true } }
+  director:{ style: { fill: "#1D7044"; stroke: "#0E4527"; stroke-width: 4; font-color: white; font-size: 18; bold: true; border-radius: 12; shadow: true } }
+  provider:{ style: { fill: "#B9770E"; stroke: "#7E5109"; stroke-width: 3; font-color: white; font-size: 17; bold: true; border-radius: 10; shadow: true } }
+  actor:   { style: { fill: "#4472C4"; stroke: "#2E5599"; stroke-width: 3; font-color: white; font-size: 17; bold: true; border-radius: 10; shadow: true } }
+  machine: { style: { fill: "#EAF1F8"; stroke: "#5B7C99"; stroke-width: 2; font-color: "#22303C"; font-size: 17; bold: true; border-radius: 14 } }
+}
+
+You: "You / setup" { class: actor }
+
+alwayson: "Always-on box" {
+  class: machine
+  Gateway: "GATEWAY (service)" { class: gateway }
+  Vault: "KEY VAULT\n(outside git)\n\nOPENAI_API_KEY\nANTHROPIC_API_KEY\n..." { class: vault }
+  Gateway -> Vault: "owns" { style.stroke: "#6C3483"; style.stroke-width: 3; style.font-size: 14 }
+}
+
+machine: "Any runner machine" {
+  class: machine
+  Director: "DIRECTOR (runner)\n\nneeds a key for a feature\n(dictation, TTS, Claude).\nFetches on demand,\ncaches IN-MEMORY only -\nnever writes it to disk." { class: director }
+}
+
+OpenAI: "OpenAI API\n(transcription / TTS)" { class: provider }
+Anthropic: "Anthropic API\n(Claude)" { class: provider }
+
+# set once
+You -> alwayson.Vault: "PUT /vault/keys/{name}\n(set once; rotate here)" { style.stroke: "#4472C4"; style.stroke-width: 4; style.font-size: 15; style.bold: true }
+
+# pull on demand
+machine.Director -> alwayson.Vault: "1. GET /vault/keys/OPENAI_API_KEY\n(on demand, over the tailnet)" { style.stroke: "#6C3483"; style.stroke-width: 5; style.font-size: 16; style.bold: true }
+
+# use it
+machine.Director -> OpenAI: "2. call with the key" { style.stroke: "#B9770E"; style.stroke-width: 4; style.font-size: 15; style.bold: true }
+machine.Director -> Anthropic: "2. call with the key" { style.stroke: "#B9770E"; style.stroke-width: 4; style.font-size: 15; style.bold: true }

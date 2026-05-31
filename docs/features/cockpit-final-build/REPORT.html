@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Final Director Build (#3-#6) - Implementation Report</title>
+<style>
+        /* Boardroom Theme - Corporate, executive style with serif fonts */
+        
+        :root {
+            /* Colors */
+            --primary: #1A365D;
+            --primary-light: #2A4A7F;
+            --accent: #D69E2E;
+            --text: #2D3748;
+            --heading: #1A365D;
+            --background: #FFFFFF;
+            --code-bg: #EDF2F7;
+            --code-text: #1A365D;
+            --border: #CBD5E0;
+            --link: #2B6CB0;
+            --blockquote-text: #4A5568;
+            --blockquote-border: #D69E2E;
+            --blockquote-bg: #FFFFFF;
+            --table-header-bg: #1A365D;
+            --table-header-text: #FFFFFF;
+            --alt-row-bg: #F7FAFC;
+            --shadow-color: rgba(26, 54, 93, 0.08);
+        
+            /* Fonts */
+            --font-heading: "Palatino Linotype", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-body: "Georgia", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-code: "Courier New", "JetBrains Mono", "Fira Code", Consolas, monospace;
+        
+            /* Style */
+            --heading-letter-spacing: -0.02em;
+            --line-height: 1.7;
+            --radius: 4px;
+            --code-radius: 6px;
+            --shadow-sm: 0 1px 3px rgba(26, 54, 93, 0.08);
+            --shadow-md: 0 4px 12px rgba(26, 54, 93, 0.1);
+        }
+        
+        /* Base styles for all themes */
+        
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+        }
+        
+        html {
+            font-size: 16px;
+            line-height: var(--line-height);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: var(--font-body);
+            color: var(--text);
+            background: var(--background);
+        }
+        
+        .markdown-body {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 3rem 2.5rem;
+        }
+        
+        /* Typography */
+        h1, h2, h3, h4, h5, h6 {
+            font-family: var(--font-heading);
+            color: var(--heading);
+            margin-top: 1.8em;
+            margin-bottom: 0.6em;
+            font-weight: 600;
+            line-height: 1.25;
+            letter-spacing: var(--heading-letter-spacing);
+            orphans: 3;
+            widows: 3;
+        }
+        
+        h1 {
+            font-size: 2.25em;
+            margin-top: 0;
+        }
+        
+        h2 { font-size: 1.65em; }
+        h3 { font-size: 1.35em; }
+        h4 { font-size: 1.1em; }
+        h5 { font-size: 0.95em; }
+        h6 { font-size: 0.85em; color: var(--blockquote-text); }
+        
+        p {
+            margin: 1em 0;
+            orphans: 3;
+            widows: 3;
+        }
+        
+        /* Links */
+        a {
+            color: var(--link);
+            text-decoration: none;
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.2s ease;
+        }
+        
+        a:hover {
+            border-bottom-color: var(--link);
+        }
+        
+        /* Lists */
+        ul, ol {
+            margin: 1em 0;
+            padding-left: 2em;
+            line-height: var(--line-height);
+        }
+        
+        li {
+            margin: 0.35em 0;
+        }
+        
+        li > ul,
+        li > ol {
+            margin: 0.2em 0;
+        }
+        
+        /* Inline code */
+        code {
+            font-family: var(--font-code);
+            font-size: 0.875em;
+            padding: 0.15em 0.4em;
+            border-radius: var(--radius);
+            background: var(--code-bg);
+            color: var(--code-text);
+        }
+        
+        /* Code blocks */
+        pre {
+            margin: 1.5em 0;
+            padding: 1.25em 1.5em;
+            overflow-x: auto;
+            border-radius: var(--code-radius);
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow-sm);
+            position: relative;
+        }
+        
+        pre code {
+            padding: 0;
+            background: transparent;
+            border-radius: 0;
+            font-size: 0.875em;
+            line-height: 1.55;
+        }
+        
+        /* Blockquotes */
+        blockquote {
+            margin: 1.5em 0;
+            padding: 0.75em 1.25em;
+            border-left: 4px solid var(--blockquote-border);
+            background: var(--blockquote-bg);
+            color: var(--blockquote-text);
+            border-radius: 0 var(--radius) var(--radius) 0;
+        }
+        
+        blockquote p {
+            margin: 0.4em 0;
+        }
+        
+        blockquote p:first-child {
+            margin-top: 0;
+        }
+        
+        blockquote p:last-child {
+            margin-bottom: 0;
+        }
+        
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin: 1.5em 0;
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border);
+        }
+        
+        th, td {
+            padding: 0.75em 1em;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        th {
+            font-weight: 600;
+            background: var(--table-header-bg);
+            color: var(--table-header-text);
+        }
+        
+        tr:last-child td {
+            border-bottom: none;
+        }
+        
+        /* Horizontal rule */
+        hr {
+            border: none;
+            height: 2px;
+            max-width: 200px;
+            margin: 2.5em auto;
+            background: var(--border);
+            border-radius: 1px;
+        }
+        
+        /* Images */
+        img {
+            max-width: 100%;
+            height: auto;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        /* Task lists */
+        .task-list-item {
+            list-style-type: none;
+        }
+        
+        .task-list-item input[type="checkbox"] {
+            margin-right: 0.5em;
+        }
+        
+        /* Strong and emphasis */
+        strong {
+            font-weight: 700;
+        }
+        
+        /* Definition lists (if supported by parser) */
+        dt {
+            font-weight: 600;
+            margin-top: 1em;
+        }
+        
+        dd {
+            margin-left: 1.5em;
+            margin-bottom: 0.5em;
+        }
+        
+        
+        /* Boardroom: corporate authority with accent borders */
+        h1 {
+            border-bottom: 3px solid var(--accent);
+            padding-bottom: 0.5em;
+        }
+        
+        h2 {
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.3em;
+        }
+        
+        pre {
+            border-left: 4px solid var(--primary);
+            border-radius: 0 var(--code-radius) var(--code-radius) 0;
+        }
+        
+        pre::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--accent);
+            border-radius: 0;
+        }
+        
+        blockquote {
+            font-style: italic;
+        }
+        
+        hr {
+            background: var(--accent);
+            max-width: none;
+            height: 2px;
+        }
+        
+        tr:nth-child(even) td {
+            background: var(--alt-row-bg);
+        }
+        
+    </style>
+
+<style>
+/* --- full-screen override --- */
+.markdown-body { max-width: none; width: 94vw; margin: 0 auto; }
+.markdown-body table { width: 100%; }
+</style>
+</head>
+<body>
+<article class="markdown-body">
+<h1>Final Director Build (#3-#6) - Implementation Report</h1>
+<p><strong>Date:</strong> 2026-05-31
+        <strong>Status:</strong> IMPLEMENTED + TESTED (not committed)
+        <strong>Scope:</strong> the four remaining Director-side changes from <a href="../../architecture/cockpit/BUILD_CHECKLIST.md">the build checklist</a>, so the Director exposes the whole desktop surface and never needs rebuilding once launched.</p>
+<h2>Summary</h2>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Features implemented</td>
+<td>#3 interactive terminal, #4 queue auto-drain, #5 PTY resize, #6 full REST surface</td>
+</tr>
+<tr>
+<td>Build</td>
+<td>ControlApi + Core + Avalonia: <strong>0 warnings, 0 errors</strong></td>
+</tr>
+<tr>
+<td>New tests</td>
+<td><strong>18 / 18 passing</strong> (9 Core behavior, 9 endpoint wiring)</td>
+</tr>
+</tbody>
+</table>
+<hr/>
+<h2>#3 - Interactive terminal</h2>
+<p>The terminal already accepts input today: the Cockpit wires xterm <code>onData</code> -&gt; <code>POST /sessions/{sid}/prompt {appendEnter:false}</code> -&gt; <code>Session.SendInput</code>, so typing (incl. Esc/Ctrl+C/arrows/slash-UI) works with no Director change.</p>
+<p>This change makes <code>/sessions/{sid}/stream</code> <strong>bidirectional</strong> as well - it now forwards inbound WS frames to <code>Session.SendInput</code>. It is a <strong>kept, ready capability</strong>: the per-keystroke REST path is chatty/laggy for fast + arrow typing, and with the bidirectional stream baked into the final build the Cockpit can later switch to direct <code>ws.send</code> for snappy input <strong>without a Director rebuild</strong>.</p>
+<ul>
+<li><strong>Changed:</strong> <code>TerminalStreamEndpoint.cs</code> (<code>ForwardClientInputAsync</code> replaces the drain-only loop).</li>
+<li><strong>Test:</strong> <code>SendInput_forwards_raw_bytes_to_the_backend</code> - an Up-arrow escape sequence reaches the backend verbatim (the path both routes use).</li>
+</ul>
+<h2>#4 - Queue auto-drain on ready</h2>
+<p>The queue now means "auto-send when Claude is ready". When a session returns to <strong>Idle</strong> (and isn't <strong>OnHold</strong>), the next queued prompt is sent automatically, FIFO, one per Idle transition. It never drains on <strong>WaitingForInput</strong> (a queued prompt must not answer Claude's own question).</p>
+<ul>
+<li><strong>Changed:</strong> <code>Session.cs</code> (<code>TryDrainQueue</code>, hooked into <code>SetActivityState</code>; send is scheduled off-stack to avoid re-entrancy).</li>
+<li><strong>Tests:</strong> <code>Queue_auto_drains_one_item_when_session_goes_idle</code>, <code>Queue_does_not_drain_when_on_hold</code>, <code>Queue_does_not_drain_on_waiting_for_input</code>.</li>
+</ul>
+<h2>#5 - PTY resize</h2>
+<p>New <code>POST /sessions/{sid}/resize {cols,rows}</code> so the Cockpit terminal can use the full window width. <code>Session.Resize</code> now <strong>no-ops on an unchanged size</strong> - the guard against a chatty client feeding a repaint storm (the Wingman repaint-loop invariant).</p>
+<ul>
+<li><strong>Changed:</strong> <code>ControlEndpoints.cs</code> (new route), <code>Session.cs</code> (unchanged-size guard), <code>ResizeRequest</code> DTO.</li>
+<li><strong>Tests:</strong> <code>Resize_changed_size_calls_backend_unchanged_is_noop</code>, <code>Resize_rejects_nonpositive_dimensions</code>, <code>Resize_404_for_unknown_session</code>.</li>
+</ul>
+<h2>#6 - Full REST coverage of the desktop surface</h2>
+<p>Every remaining desktop action now has an endpoint, so no later phase forces a rebuild.</p>
+<ul>
+<li><strong>Git writes</strong> (<code>/sessions/{sid}/git/stage|unstage|discard|commit</code>) via a new <code>GitWriteService</code> that shells git in the repo. Reads stay on <code>GET /git</code>.</li>
+<li><strong>Workspaces / history</strong> (<code>GET /workspaces</code>, <code>GET /workspaces/{slug}</code>, <code>GET /history</code>) wrapping the desktop's <code>WorkspaceStore</code> / <code>SessionHistoryStore</code>.</li>
+<li><strong>Scheduler</strong> (<code>GET /scheduler</code>, <code>POST /scheduler/{name}/run</code>) wrapping <code>SchedulerService</code> (resolved lazily; returns 503 when a Director has no scheduler).</li>
+<li><strong>Relink</strong> (<code>POST /sessions/{sid}/relink</code>) wrapping <code>SessionManager.RelinkClaudeSession</code>.</li>
+<li><strong>Changed/added:</strong> <code>GitWriteService.cs</code>, <code>WorkspacesEndpoint.cs</code>, <code>SchedulerEndpoint.cs</code>, git+relink routes in <code>ControlEndpoints.cs</code>, scheduler accessor plumbed through <code>ControlApiHost</code> + <code>App.axaml.cs</code>.</li>
+<li><strong>Tests:</strong> real-repo <code>GitWriteServiceTests</code> (stage/commit/discard/rejections) + endpoint wiring (<code>Git_stage_404...</code>, <code>Scheduler_get/run_returns_503...</code>, <code>Workspaces_list_returns_200</code>, <code>History_list_returns_200</code>, <code>Relink_...</code>).</li>
+</ul>
+<hr/>
+<h2>Test evidence</h2>
+<h3>Core behavior (9 passed)</h3>
+<pre><code>Passed SessionInteractiveTests.SendInput_forwards_raw_bytes_to_the_backend
+        Passed SessionInteractiveTests.Resize_changed_size_calls_backend_unchanged_is_noop
+        Passed SessionInteractiveTests.Queue_auto_drains_one_item_when_session_goes_idle
+        Passed SessionInteractiveTests.Queue_does_not_drain_when_on_hold
+        Passed SessionInteractiveTests.Queue_does_not_drain_on_waiting_for_input
+        Passed GitWriteServiceTests.Stage_then_commit_creates_a_commit
+        Passed GitWriteServiceTests.Discard_reverts_an_unstaged_change_to_a_tracked_file
+        Passed GitWriteServiceTests.Commit_with_empty_message_is_rejected
+        Passed GitWriteServiceTests.Discard_with_no_paths_is_rejected
+        </code></pre>
+<h3>Endpoint wiring (9 passed)</h3>
+<pre><code>Passed DirectorSurfaceEndpointTests.Resize_rejects_nonpositive_dimensions
+        Passed DirectorSurfaceEndpointTests.Resize_404_for_unknown_session
+        Passed DirectorSurfaceEndpointTests.Relink_rejects_empty_claude_session_id
+        Passed DirectorSurfaceEndpointTests.Relink_404_for_unknown_session
+        Passed DirectorSurfaceEndpointTests.Git_stage_404_for_unknown_session
+        Passed DirectorSurfaceEndpointTests.Scheduler_get_returns_503_when_absent
+        Passed DirectorSurfaceEndpointTests.Scheduler_run_returns_503_when_absent
+        Passed DirectorSurfaceEndpointTests.Workspaces_list_returns_200
+        Passed DirectorSurfaceEndpointTests.History_list_returns_200
+        </code></pre>
+<hr/>
+<h2>What's left before launch</h2>
+<ul>
+<li>This is <strong>code complete + unit/endpoint tested</strong>, not yet exercised against a live Director (the full interactive terminal needs the Cockpit <code>disableStdin:false</code> pair + a running session).</li>
+<li>Cut the final Director build, launch it, and run the live E2E from the Cockpit (type into the terminal, queue auto-fires, resize fills width, git/workspaces/scheduler/relink respond).</li>
+<li>Then roll the same build to the Mac-mini + Windows-2 and update the handover.</li>
+</ul>
+</article>
+</body>
+</html>

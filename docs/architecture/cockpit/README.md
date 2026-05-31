@@ -7,6 +7,7 @@ The Cockpit is the planned single UI for driving every Claude session on the tai
 | [COCKPIT_DESIGN.md](COCKPIT_DESIGN.md) | PLANNED (v1) | The idea, the driver, v1 scope, the connection model, where the smarts run, project shape, hosting, build order |
 | [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) | PLANNED | Status snapshot of the built MVP + the ordered phase plan (two parallel tracks; Phase 0 -> Phase 5 retire the desktop) |
 | [HANDOVER.md](HANDOVER.md) | ACTIVE | Hand-off for a fresh session: status, the **launch gate** (verified Director REST inventory + the only gaps), and cross-machine rollout to Mac-mini + Windows-2 |
+| [BUILD_CHECKLIST.md](BUILD_CHECKLIST.md) | ACTIVE | The unambiguous #3-#6 Director build checklist (endpoint + behavior + done-criteria) to implement before cutting the final build |
 | `cockpit-topology.d2` / `.png` / `.svg` | PLANNED (v1) | Fleet topology: outside access layer (Gateway + Cockpit) reaching into the Tailscale network of Director runners |
 
 **Read order for someone new:**

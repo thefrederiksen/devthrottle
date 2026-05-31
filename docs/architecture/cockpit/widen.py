@@ -13,6 +13,7 @@ OVERRIDE = """
 /* --- full-screen override --- */
 .markdown-body { max-width: none; width: 94vw; margin: 0 auto; }
 .markdown-body table { width: 100%; }
+.markdown-body img { max-width: 100%; height: auto; }
 </style>
 """
 

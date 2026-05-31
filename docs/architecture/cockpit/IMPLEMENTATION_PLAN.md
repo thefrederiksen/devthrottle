@@ -87,12 +87,12 @@ sessions list / create / kill, **rename** (`PATCH /sessions/{sid}`), terminal st
 |---|---|---|---|
 | 1 | **Registration fix** - advertise `https://{magicdns}:{port}` | done in code | reachable over Tailscale Serve |
 | 2 | **Queue REST** - `GET/POST/DELETE /sessions/{sid}/queue`, `…/{id}/send` | done in code | wired to `Session.PromptQueue` |
-| 3 | **Terminal input channel** - stream WS accepts binary input frames -> `session.SendInput(bytes)` | TO DO (small, safe) | the interactive-terminal piece; `SendInput` already exists |
-| 4 | **Queue auto-drain on ready** - "send next queued item when the session goes idle" moves into the Director/Core | TO DO | makes Queue mean "auto-send when Claude is ready", not a manual holding list |
-| 5 | **PTY resize** (`POST /sessions/{sid}/resize`) | **INCLUDE NOW** (decided 2026-05-31) | touches the wingman repaint-loop invariant - do deliberately, but include it so we never rebuild for it |
-| 6 | **Full REST coverage of the desktop feature surface** | **INCLUDE NOW** (decided 2026-05-31 - "endpoints for everything") | Gaps found vs `src/CcDirector.Avalonia`: **workspaces/history**, **source-control write actions** (stage/commit/discard - `/git` is read-only today), **scheduler** (view runners / run on demand), **session relink**. Build agent confirms the exhaustive list against the desktop code before cutting the build. |
+| 3 | **Terminal input channel** - stream WS forwards client bytes -> `session.SendInput` | **DONE + tested** | interactive terminal |
+| 4 | **Queue auto-drain on ready** - sends next queued item on Idle (gated by OnHold; never on WaitingForInput) | **DONE + tested** | Queue = auto-send when ready |
+| 5 | **PTY resize** (`POST /sessions/{sid}/resize`) + unchanged-size guard | **DONE + tested** | repaint-loop-safe |
+| 6 | **Full REST coverage** - git writes, workspaces/history, scheduler, relink | **DONE + tested** | desktop parity; never rebuild |
 
-Decision: ship the final Director with **#1-#6** - the Director exposes the entire desktop capability surface over REST, so we never rebuild it.
+Decision: ship the final Director with **#1-#6**. **Status: all implemented + tested (18/18), build 0 warnings.** Report: [../../features/cockpit-final-build/REPORT.html](../../features/cockpit-final-build/REPORT.html). Remaining: Cockpit `disableStdin:false`+`onData`->WS, cut the build, live E2E, roll to Mac-mini + Windows-2.
 
 ---
 

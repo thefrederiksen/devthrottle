@@ -26,7 +26,7 @@ We are building **one Cockpit** (Blazor Server, opened in a browser, hosted next
 Two parallel tracks (see the plan):
 
 - **Track A - Gateway becomes a Windows service.** Being finished by the cockpit agent: re-host `GatewayHost` under `UseWindowsService()`, install/autostart, and a probe circuit-breaker for alive-but-unreachable Directors. The **legacy NSSM `cc_director` service has been removed** (verified: `sc`/CIM/registry all clear), so the name and slate are free for the new service.
-- **Track B - final Director build + interactive Cockpit terminal.** Registration fix (`https://{magicdns}:{port}`) and queue REST are **done in code**. Outstanding: terminal **input** channel (#3) and queue **auto-drain** (#4).
+- **Track B - final Director build + interactive Cockpit terminal.** Registration fix + queue REST done. **#3-#6 implemented + tested (18/18 green), build 0 warnings** - see [the report](../../features/cockpit-final-build/REPORT.html). The interactive terminal already works (Cockpit routes xterm `onData` -> `POST /prompt {appendEnter:false}`); #3's bidirectional `/stream` is a **kept lower-latency capability** for a future `ws.send` switch (no rebuild needed). Remaining on this track: cut the build and run the live E2E.
 - **Cockpit app** (`src/CcDirector.Cockpit/`, Blazor Server, references `Gateway.Contracts` only): left rail, direct-to-Director terminal, composer (Speak/Send/Queue/Interrupt/Esc), screenshot upload, queue panel. **Verified** against a slot-5 test Director: terminal renders and Send round-trips over the tailnet.
 
 **Nothing is committed to git.** All of the above is working-tree only.
@@ -39,7 +39,7 @@ This is the most important section. The Director's REST surface is **already alm
 
 **Already present (no change needed):**
 - **Lifecycle:** `GET /sessions`, `GET /sessions/{sid}`, `POST /sessions` (create), `POST /sessions/github`, `DELETE /sessions/{sid}` (kill), `PATCH /sessions/{sid}` (rename), `GET /repos`
-- **Terminal / IO:** `GET /sessions/{sid}/stream` (WS - **output-only today**), `/buffer`, `/buffer/html`, `POST /prompt`, `/interrupt`, `/escape`, `/upload-image`, queue (`GET/POST /queue`, `DELETE /queue/{id}`, `POST /queue/{id}/send`)
+- **Terminal / IO:** `GET /sessions/{sid}/stream` (WS - now **bidirectional**, #3), `POST /sessions/{sid}/resize` (#5), `/buffer`, `/buffer/html`, `POST /prompt`, `/interrupt`, `/escape`, `/upload-image`, queue (`GET/POST /queue`, `DELETE /queue/{id}`, `POST /queue/{id}/send`, **auto-drains** #4)
 - **Awareness / wingman:** `/wingman`, `/wingman/ask`, `/wingman/act`, `/wingman/explain`, `/wingman/goal`, `/turns`, `/summary`, `/turn-summaries` (GET+POST), `/recap` (GET+POST), `/handover-context`, `POST /handover`, `/git`, `/state-vote`, `/rule-violations`, `/recovery-prompt`
 - **Voice / dictation:** `/dictate` (WS), `/dictate/recovered`, `/tts`, `/tts/status`, `/voice/command|status|utterance`, `/chat`
 - **Toggles:** `/voice-mode`, `/mobile-mode`, `/hold`, `/wingman-enabled`
@@ -51,14 +51,14 @@ This is the most important section. The Director's REST surface is **already alm
 
 **The only Director-side gaps - decide each BEFORE cutting the build:**
 
-| Gap | Needed for | Verdict |
+| Gap | Needed for | Status |
 |---|---|---|
-| **#3 Terminal input** - make `/sessions/{sid}/stream` bidirectional (client key bytes -> `session.SendInput`, which already exists) | typing into the terminal (Esc/Ctrl+C/arrows/slash-UI) | **MUST ADD** - the interactive terminal you required |
-| **#4 Queue auto-drain** - "send next queued item when the session goes idle" moves into the Director/Core | Queue meaning "auto-send when ready" not a holding list | **MUST ADD** |
-| **#5 PTY resize** (`POST /sessions/{sid}/resize`) | full-width terminal at any window size | **INCLUDE NOW (decided 2026-05-31).** The one careful piece (the wingman repaint-loop invariant) - do it deliberately, but it's in the final build so we never rebuild for it. |
-| **#6 Full REST coverage of the desktop surface** | never rebuilding for any later phase | **INCLUDE NOW (decided 2026-05-31 - "endpoints for everything").** Gaps vs `src/CcDirector.Avalonia`: **workspaces/history**, **source-control write actions** (stage/commit/discard - `/git` is read-only), **scheduler** (view/run), **session relink**. The build agent confirms the exhaustive list against the desktop code. |
+| **#3 Terminal input** - typing already works via REST (`onData`->`/prompt`); `/stream` is now also bidirectional as a kept lower-latency capability | typing into the terminal (Esc/Ctrl+C/arrows/slash-UI) | **DONE + tested** |
+| **#4 Queue auto-drain** - sends the next queued item when the session goes Idle (gated by OnHold; never on WaitingForInput) | Queue meaning "auto-send when ready" not a holding list | **DONE + tested** |
+| **#5 PTY resize** (`POST /sessions/{sid}/resize`) - with the unchanged-size repaint-loop guard | full-width terminal at any window size | **DONE + tested** |
+| **#6 Full REST coverage** - git writes (stage/unstage/discard/commit), workspaces/history, scheduler (view/run), session relink | never rebuilding for any later phase | **DONE + tested** |
 
-**Gate condition (a fresh agent must confirm before launch):** #3, #4, #5, and #6 are implemented - i.e. the Director exposes the **entire desktop capability surface** over REST. Once that's true, the final build is complete and **we should not need to rebuild a Director again.**
+**Gate status:** #3-#6 are **implemented and tested (18/18 passing, build 0 warnings)** - the Director now exposes the entire desktop capability surface over REST. Report: [REPORT.html](../../features/cockpit-final-build/REPORT.html). **Remaining before the final launch:** (1) cut the build and run the live E2E from the Cockpit, (2) roll to Mac-mini + Windows-2. After that, no Director rebuilds.
 
 ---
 

@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Final Director Build - Checklist for #3-#6</title>
+<style>
+        /* Boardroom Theme - Corporate, executive style with serif fonts */
+        
+        :root {
+            /* Colors */
+            --primary: #1A365D;
+            --primary-light: #2A4A7F;
+            --accent: #D69E2E;
+            --text: #2D3748;
+            --heading: #1A365D;
+            --background: #FFFFFF;
+            --code-bg: #EDF2F7;
+            --code-text: #1A365D;
+            --border: #CBD5E0;
+            --link: #2B6CB0;
+            --blockquote-text: #4A5568;
+            --blockquote-border: #D69E2E;
+            --blockquote-bg: #FFFFFF;
+            --table-header-bg: #1A365D;
+            --table-header-text: #FFFFFF;
+            --alt-row-bg: #F7FAFC;
+            --shadow-color: rgba(26, 54, 93, 0.08);
+        
+            /* Fonts */
+            --font-heading: "Palatino Linotype", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-body: "Georgia", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-code: "Courier New", "JetBrains Mono", "Fira Code", Consolas, monospace;
+        
+            /* Style */
+            --heading-letter-spacing: -0.02em;
+            --line-height: 1.7;
+            --radius: 4px;
+            --code-radius: 6px;
+            --shadow-sm: 0 1px 3px rgba(26, 54, 93, 0.08);
+            --shadow-md: 0 4px 12px rgba(26, 54, 93, 0.1);
+        }
+        
+        /* Base styles for all themes */
+        
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+        }
+        
+        html {
+            font-size: 16px;
+            line-height: var(--line-height);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: var(--font-body);
+            color: var(--text);
+            background: var(--background);
+        }
+        
+        .markdown-body {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 3rem 2.5rem;
+        }
+        
+        /* Typography */
+        h1, h2, h3, h4, h5, h6 {
+            font-family: var(--font-heading);
+            color: var(--heading);
+            margin-top: 1.8em;
+            margin-bottom: 0.6em;
+            font-weight: 600;
+            line-height: 1.25;
+            letter-spacing: var(--heading-letter-spacing);
+            orphans: 3;
+            widows: 3;
+        }
+        
+        h1 {
+            font-size: 2.25em;
+            margin-top: 0;
+        }
+        
+        h2 { font-size: 1.65em; }
+        h3 { font-size: 1.35em; }
+        h4 { font-size: 1.1em; }
+        h5 { font-size: 0.95em; }
+        h6 { font-size: 0.85em; color: var(--blockquote-text); }
+        
+        p {
+            margin: 1em 0;
+            orphans: 3;
+            widows: 3;
+        }
+        
+        /* Links */
+        a {
+            color: var(--link);
+            text-decoration: none;
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.2s ease;
+        }
+        
+        a:hover {
+            border-bottom-color: var(--link);
+        }
+        
+        /* Lists */
+        ul, ol {
+            margin: 1em 0;
+            padding-left: 2em;
+            line-height: var(--line-height);
+        }
+        
+        li {
+            margin: 0.35em 0;
+        }
+        
+        li > ul,
+        li > ol {
+            margin: 0.2em 0;
+        }
+        
+        /* Inline code */
+        code {
+            font-family: var(--font-code);
+            font-size: 0.875em;
+            padding: 0.15em 0.4em;
+            border-radius: var(--radius);
+            background: var(--code-bg);
+            color: var(--code-text);
+        }
+        
+        /* Code blocks */
+        pre {
+            margin: 1.5em 0;
+            padding: 1.25em 1.5em;
+            overflow-x: auto;
+            border-radius: var(--code-radius);
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow-sm);
+            position: relative;
+        }
+        
+        pre code {
+            padding: 0;
+            background: transparent;
+            border-radius: 0;
+            font-size: 0.875em;
+            line-height: 1.55;
+        }
+        
+        /* Blockquotes */
+        blockquote {
+            margin: 1.5em 0;
+            padding: 0.75em 1.25em;
+            border-left: 4px solid var(--blockquote-border);
+            background: var(--blockquote-bg);
+            color: var(--blockquote-text);
+            border-radius: 0 var(--radius) var(--radius) 0;
+        }
+        
+        blockquote p {
+            margin: 0.4em 0;
+        }
+        
+        blockquote p:first-child {
+            margin-top: 0;
+        }
+        
+        blockquote p:last-child {
+            margin-bottom: 0;
+        }
+        
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin: 1.5em 0;
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border);
+        }
+        
+        th, td {
+            padding: 0.75em 1em;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        th {
+            font-weight: 600;
+            background: var(--table-header-bg);
+            color: var(--table-header-text);
+        }
+        
+        tr:last-child td {
+            border-bottom: none;
+        }
+        
+        /* Horizontal rule */
+        hr {
+            border: none;
+            height: 2px;
+            max-width: 200px;
+            margin: 2.5em auto;
+            background: var(--border);
+            border-radius: 1px;
+        }
+        
+        /* Images */
+        img {
+            max-width: 100%;
+            height: auto;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        /* Task lists */
+        .task-list-item {
+            list-style-type: none;
+        }
+        
+        .task-list-item input[type="checkbox"] {
+            margin-right: 0.5em;
+        }
+        
+        /* Strong and emphasis */
+        strong {
+            font-weight: 700;
+        }
+        
+        /* Definition lists (if supported by parser) */
+        dt {
+            font-weight: 600;
+            margin-top: 1em;
+        }
+        
+        dd {
+            margin-left: 1.5em;
+            margin-bottom: 0.5em;
+        }
+        
+        
+        /* Boardroom: corporate authority with accent borders */
+        h1 {
+            border-bottom: 3px solid var(--accent);
+            padding-bottom: 0.5em;
+        }
+        
+        h2 {
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.3em;
+        }
+        
+        pre {
+            border-left: 4px solid var(--primary);
+            border-radius: 0 var(--code-radius) var(--code-radius) 0;
+        }
+        
+        pre::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--accent);
+            border-radius: 0;
+        }
+        
+        blockquote {
+            font-style: italic;
+        }
+        
+        hr {
+            background: var(--accent);
+            max-width: none;
+            height: 2px;
+        }
+        
+        tr:nth-child(even) td {
+            background: var(--alt-row-bg);
+        }
+        
+    </style>
+
+<style>
+/* --- full-screen override --- */
+.markdown-body { max-width: none; width: 94vw; margin: 0 auto; }
+.markdown-body table { width: 100%; }
+</style>
+</head>
+<body>
+<article class="markdown-body">
+<h1>Final Director Build - Checklist for #3-#6</h1>
+<p><strong>Status:</strong> ACTIVE - implement ALL of these into the Director, then cut the build ONCE and launch.
+        <strong>Date:</strong> 2026-05-31
+        <strong>Why:</strong> rebuilding a Director kills its sessions. Everything here must be in before we launch the new main Director. See <a href="HANDOVER.md">HANDOVER.md</a>.</p>
+<p>Verified-as-done already: <strong>#1</strong> registration fix, <strong>#2</strong> queue REST. The items below are NOT yet implemented (checked in code).</p>
+<p>For #6, <strong>mirror exactly what the desktop UI already does</strong> - source the action set from <code>src/CcDirector.Avalonia</code> so the Cockpit reaches parity.</p>
+<hr/>
+<h2>#3 - Terminal input channel  (the interactive terminal)</h2>
+<ul>
+<li><strong>File:</strong> <code>src/CcDirector.ControlApi/TerminalStreamEndpoint.cs</code></li>
+<li><strong>Now:</strong> the WS <code>ReceiveAsync</code> loop only watches for <code>Close</code>; inbound frames are discarded.</li>
+<li><strong>Do:</strong> on a <strong>Binary</strong> frame, write the bytes straight to the PTY via <code>session.SendInput(bytes)</code> (the primitive already exists). Keep applying output as today.</li>
+<li><strong>Cockpit pair (Track B):</strong> <code>cockpit-terminal.js</code> set <code>disableStdin: false</code>; xterm <code>onData</code> -&gt; <code>ws.send(bytes)</code>.</li>
+<li><strong>Done:</strong> typing in the Cockpit terminal reaches Claude - text, Enter, <strong>arrows</strong>, Ctrl+C, Esc, double-Esc, the slash-command UI.</li>
+</ul>
+<h2>#4 - Queue auto-drain on ready</h2>
+<ul>
+<li><strong>Where:</strong> Director/Core - <code>Session.PromptQueue</code> + the activity-state transition.</li>
+<li><strong>Do:</strong> when a session becomes <strong>Idle / WaitingForInput</strong> and the queue is non-empty, automatically send the <strong>next</strong> item (FIFO, one at a time). Do <strong>not</strong> drain while <code>Working</code> or <code>OnHold</code>.</li>
+<li><strong>Endpoints:</strong> unchanged (GET/POST/DELETE + <code>/send</code> already exist) - this is the auto-fire logic behind them.</li>
+<li><strong>Done:</strong> enqueued items fire by themselves, in order, the moment Claude is ready - not a manual holding list.</li>
+</ul>
+<h2>#5 - PTY resize</h2>
+<ul>
+<li><strong>Add:</strong> <code>POST /sessions/{sid}/resize</code> body <code>{ cols, rows }</code> -&gt; resize the session's PTY backend.</li>
+<li><strong>Caution (hard):</strong> resizing the PTY is the <strong>wingman repaint-loop invariant</strong> - a resize is an indirect write that can self-inject through the monitoring loop. Guard/debounce so a Cockpit resize does <strong>not</strong> trigger the wingman loop or a repaint storm.</li>
+<li><strong>Multi-viewer:</strong> desktop + Cockpit may both size the same PTY; last-writer wins is acceptable (one user). Note it; don't over-engineer.</li>
+<li><strong>Done:</strong> the Cockpit terminal fills the window width at any size; no repaint loop.</li>
+</ul>
+<h2>#6 - Full REST coverage of the desktop surface  ("endpoints for everything")</h2>
+<p>Mirror the desktop. Confirm the exact action set against the cited Avalonia code before implementing.</p>
+<ul>
+<li><strong>6a. Source-control write actions</strong> - <code>/sessions/{sid}/git</code> is read-only today.
+        <ul>
+<li>Add the writes the desktop <strong>Source Control</strong> tab does (<code>SourceControlTabButton</code> / its view): e.g. <code>POST /sessions/{sid}/git/stage</code>, <code>/unstage</code>, <code>/discard</code>, <code>/commit {message}</code> (and push/pull <strong>only if</strong> the desktop does them).</li>
+</ul>
+</li>
+<li><strong>6b. Workspaces / history</strong> - mirror the desktop Workspaces dialog + history.
+        <ul>
+<li><code>GET /workspaces</code>, <code>GET /history</code> (read), plus any open/reopen action the desktop offers.</li>
+</ul>
+</li>
+<li><strong>6c. Scheduler</strong> - mirror the desktop <strong>Scheduler</strong> view (<code>BtnScheduler</code>).
+        <ul>
+<li><code>GET /scheduler</code> (registered runners + leader/lease status), <code>POST /scheduler/{name}/run</code> (run on demand).</li>
+</ul>
+</li>
+<li><strong>6d. Session relink</strong> - mirror the desktop <strong>Relink</strong> button (<code>BtnRelink</code>).
+        <ul>
+<li><code>POST /sessions/{sid}/relink</code> (re-attach the session to its Claude session).</li>
+</ul>
+</li>
+</ul>
+<p><strong>Done for #6:</strong> every action a user can take in the desktop UI has a REST endpoint - nothing left that would force a later Director rebuild.</p>
+<hr/>
+<h2>Gate (confirm before cutting the build)</h2>
+<ul class="contains-task-list">
+<li class="task-list-item"><input class="task-list-item-checkbox" disabled="disabled" type="checkbox"/> #3 terminal input forwards to the PTY; typing works incl. arrows/Esc/Ctrl+C</li>
+<li class="task-list-item"><input class="task-list-item-checkbox" disabled="disabled" type="checkbox"/> #4 queue auto-drains on Idle, FIFO, not while Working/OnHold</li>
+<li class="task-list-item"><input class="task-list-item-checkbox" disabled="disabled" type="checkbox"/> #5 <code>/resize</code> exists and does not trigger the wingman repaint loop</li>
+<li class="task-list-item"><input class="task-list-item-checkbox" disabled="disabled" type="checkbox"/> #6a git writes, #6b workspaces/history, #6c scheduler, #6d relink - all present and matched to the desktop</li>
+<li class="task-list-item"><input class="task-list-item-checkbox" disabled="disabled" type="checkbox"/> Builds clean (0 warnings); existing tests pass</li>
+<li class="task-list-item"><input class="task-list-item-checkbox" disabled="disabled" type="checkbox"/> Then: cut the build, launch the new main Director, verify E2E from the Cockpit</li>
+</ul>
+</article>
+</body>
+</html>
