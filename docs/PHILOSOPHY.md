@@ -7,75 +7,61 @@
 
 ## TL;DR
 
-CC Director is not a self-contained app you double-click and configure through wizards. It is a thin runtime that sits on top of an AI coding agent. The agent does the setup work. There are exactly two hard requirements: a Claude subscription (so you can run Claude Code) and an OpenAI API key (so audio and the other AI tools work). Everything else, CC Director installs itself by handing prompts to Claude Code. Bring up a clean Windows or Linux machine, install Claude Code, and the rest is automatic.
+Installing CC Director should be one simple step on Windows or macOS, and from then on it keeps itself current: the next time you run it, it auto-updates. Getting there has one rule. **Anything deterministic is code; only the parts that need judgment are a prompt to Claude Code.** Downloading the right build for your OS, verifying it, installing it, registering the Gateway service, and updating everything later are deterministic, so they belong in a small installer/updater tool, not in a prompt that has to be re-derived every time. Claude Code is for the messy, machine-specific parts: getting Claude Code itself onto the box, signing into Tailscale, the one admin step, and troubleshooting.
 
-## 1. The Core Idea: The Agent Installs the Product
+## 1. Deterministic work is code; judgment is a prompt
 
-The old way to ship desktop software is an installer that bundles every dependency, checks prerequisites with hand-written logic, and walks the user through wizard screens. CC Director is moving away from that.
+The original idea was "Claude Code installs everything by following a prompt." That is the right instinct for the *fuzzy* parts of setup, but it is the wrong tool for the *deterministic* parts. Asking the agent to re-figure-out "which asset for this OS, where to put it, how to verify it" on every run is slow and adds points of failure.
 
-The new model is simple: **once Claude Code is running, Claude Code installs everything else.** You do not write a brittle installer. You write prompts. CC Director ships the instructions, and the agent on the machine carries them out: checks prerequisites, installs what is missing, places tools on PATH, wires up config, and verifies the result.
+So the line is:
 
-This is why a Claude instance is a hard requirement and not an optional add-on. The Claude instance is not just how you use CC Director. It is how you install and bring up CC Director in the first place. There is, in effect, no traditional installation step. There is a prompt, and an agent that executes it.
+- **Deterministic -> code.** Detect OS, download the correct release artifacts, verify their checksums, install them, register the Gateway as a service, put things on PATH, and update them later. Same every time, no judgment required. This lives in a real, cross-platform **installer/updater tool**.
+- **Judgment -> Claude Code.** Installing Claude Code itself (Anthropic's own installer does this), signing into a Tailscale account, the single admin elevation the Gateway service needs, and diagnosing whatever is weird about a specific machine. This is where an agent earns its keep.
 
-The payoff: bring up a brand-new machine (Windows or Linux), install Claude Code, point it at CC Director, and the rest runs automatically. The same prompt-driven setup works regardless of the starting state of the machine, because the agent inspects the machine and adapts instead of assuming.
+The installer is boring on purpose. Boring is reliable.
 
-## 2. The Two Hard Requirements
+## 2. Install once, update forever
 
-You need both of these. They are not optional, and one does not substitute for the other.
+The whole experience reduces to two promises:
 
-| Requirement | Why it is required |
-|-------------|--------------------|
-| **A Claude subscription** | Required to run Claude Code. The minimum paid tier is enough. Claude Code is both the agent you work with and the mechanism that installs and configures everything else. Without it, there is no way to bring the product up. |
-| **An OpenAI API key** | Required for audio (text-to-speech, transcription, voice mode) and for the other AI-powered tools. This is a standard OpenAI SDK API key with billing enabled. |
+1. **One simple install on Windows or macOS.** A single command (or one click) downloads and installs everything that is always needed together: the Director and the Gateway. It feels like a normal installer ("Install everything? [Y/n]"), not a scavenger hunt across releases.
+2. **It updates itself.** The next time you run CC Director, it is current. Nobody re-pastes anything. The Director updates itself per-user; the Gateway runs as a service (LocalSystem on Windows) and updates itself and the Cockpit on its own, using the privilege it already has. After the first install there are no more admin prompts.
 
-If you have both, you can run CC Director. If you are missing either one, core functionality will not work, and CC Director will tell you exactly what is missing rather than silently degrading.
+A single release manifest is the source of truth for the versions of all the pieces (Director, Gateway, Cockpit, tools), so one updater can reason about the whole set.
 
-## 3. Beyond the Minimum: Bring Your Own Agents
+> **Reality check (2026-05-31):** this is the target, not the current state. Auto-update does not reliably work today, the Gateway and Cockpit are not yet shipped as release artifacts, and the installer is Windows-leaning. The spec and tracking issue for closing that gap are linked at the bottom of this document.
 
-The two requirements above are the floor, not the ceiling. Claude Code is the default and the agent CC Director uses to install itself, but you are not locked to it for your actual work. You can choose to run other agents alongside or instead (other CLI coding agents and assistants). CC Director manages sessions; the agent inside a session is a choice.
+## 3. Two front doors, one installer underneath
 
-The point of the minimum is to guarantee a known-good baseline so setup is deterministic. Once you are up, the mix of agents is yours.
+There are two ways to start, and they call the same deterministic installer so there is one source of truth:
 
-## 4. Platform Philosophy: Windows First
+- **The normal installer:** a one-line command (`irm .../install.ps1 | iex` on Windows, `curl -fsSL .../install.sh | bash` on macOS) for people who just want it installed.
+- **The Claude Code prompt:** for people already inside Claude Code. The prompt does not reinvent the install; it triggers the installer tool.
 
-CC Director is built for Windows first. It does run on Macs, but it runs better on Windows, and Windows is where it is most complete.
+## 4. Requirements
 
-- **Windows is the primary, best-supported platform.** This is the daily-driver environment the product is developed and used in.
-- **Mac is supported but secondary.** It works, but expect rough edges relative to Windows. Do not expect feature parity in the same release.
-- **The Gateway is currently Windows-only.** The central gateway, so far, is only supported on Windows. Mac and Linux gateway support is not there yet.
-- **Linux is a first-class target for the prompt-driven setup.** The agent-installs-everything model is meant to bring up a clean Linux box just as readily as a Windows one, even where the full desktop and gateway experience is not yet complete there.
+- **A Claude subscription (hard requirement).** The minimum paid tier is enough. Claude Code is how you actually use CC Director (it manages Claude Code sessions), and it is what handles the judgment parts of setup. The free Claude.ai plan does not include Claude Code.
+- **An OpenAI API key (feature-gated, not required to run).** Needed only for voice and image features (text-to-speech, transcription, voice mode, image tools). The base product runs without it; those specific tools fail with a clear "add your key" message until you provide one.
 
-When in doubt, run it on Windows. That is where the experience is strongest today.
+Beyond that, the minimum is a known-good floor, not a cage: Claude Code is the default agent, but you can run other agents in your sessions once you are up.
 
-## 5. Prerequisites the Agent Checks
+## 5. Platform philosophy
 
-Because the agent does the setup, the prerequisite list is short and the agent verifies it for you rather than you verifying it by hand. The agent checks for and, where possible, installs:
-
-- **Python** -- required for the tools and pipelines.
-- **Brave browser** -- used as the testing/automation browser. CC Director standardizes on Brave for browser-driven work so behavior is consistent across machines.
-
-The agent inspects the machine, reports what is present, installs or instructs for what is missing, and confirms the end state. If a prerequisite cannot be satisfied, you get a clear error and the exact fix, not a silent fallback to a degraded mode.
-
-## 6. What This Means in Practice
-
-To stand up CC Director on a fresh machine:
-
-1. Make sure you have a Claude subscription and an OpenAI API key.
-2. Install Claude Code (Windows or Linux).
-3. Hand Claude Code the CC Director setup prompt.
-4. Let the agent check prerequisites (Python, Brave), install the tools and skills, wire up config, and verify.
-5. Start working. On Windows you also get the full desktop and gateway experience.
-
-There is no separate installer to babysit and no wizard to click through. The agent is the installer.
+- **Install and auto-update must work equally well on Windows and macOS.** This is non-negotiable for the experience above. The installer/updater is cross-platform by design.
+- **The Director runs on Windows and macOS (Apple Silicon).** Windows is currently the most complete experience.
+- **The Gateway is Windows-only for now.** It runs as a Windows Service (LocalSystem). macOS Gateway support (a launchd daemon) is tracked as a separate feature request.
 
 ## Related Documents
 
-- [README.md](../README.md) -- product overview, features, download
-- [docs/goals/PRD_CC_DIRECTOR.md](goals/PRD_CC_DIRECTOR.md) -- the architecture and vision (Session Supervisor, Gateway)
-- [docs/public/getting-started/02-installation.md](public/getting-started/02-installation.md) -- the current step-by-step install guide (the "old way" this philosophy is moving away from)
+- [README.md](../README.md) -- product overview and the current install steps
+- [docs/install/install-prompt.md](install/install-prompt.md) -- the Claude Code install prompt (current)
+- Spec: unified install + auto-update (Director + Gateway + Cockpit) -- see the tracking issue below
+- [docs/architecture/gateway/](architecture/gateway/) -- Gateway architecture
+- [docs/plans/phase1-https-via-tailscale.md](plans/phase1-https-via-tailscale.md) -- Tailscale remote access
 
 ## Document History
 
 | Date | Author | Change |
 |------|--------|--------|
-| 2026-05-31 | Soren | Initial draft capturing the philosophy, the two hard requirements, platform stance, and the agent-installs-everything model |
+| 2026-05-31 | Soren | Initial draft (agent-installs-everything model) |
+| 2026-05-31 | Soren | Reframed: deterministic install/update is code, judgment is a prompt; install-once-update-forever; OpenAI is feature-gated, not a hard requirement |
