@@ -13,7 +13,7 @@ Director re-registers with the gateway) - no app restart needed.
 Usage:
     python configure_settings.py show
     python configure_settings.py get screenshots.source_directory
-    python configure_settings.py set-screenshots "/Users/soren/Desktop"
+    python configure_settings.py set-screenshots "/Users/you/Desktop"
     python configure_settings.py set-gateway --url http://gw-host:7878 \
         --advertised http://this-host:7879 [--token TOKEN]
     python configure_settings.py set <dotted.key> <value>
@@ -161,6 +161,19 @@ def put_settings(patch: dict, token: str | None) -> dict:
     return _request("PUT", f"{base}/settings", token, body=patch)
 
 
+def detect(kind: str, apply: bool, token: str | None) -> dict:
+    """POST /settings/detect/{kind}. With apply=True the Director writes the detected value."""
+    base = discover_control_endpoint()
+    q = "?apply=true" if apply else ""
+    return _request("POST", f"{base}/settings/detect/{kind}{q}", token)
+
+
+def test_gateway(url: str, token: str | None) -> dict:
+    """POST /settings/test/gateway - probe a gateway URL's /healthz."""
+    base = discover_control_endpoint()
+    return _request("POST", f"{base}/settings/test/gateway", token, body={"url": url})
+
+
 def _dig(obj: dict, dotted: str):
     cur = obj
     for part in dotted.split("."):
@@ -204,6 +217,18 @@ def main() -> int:
                       help="This Director's reachable URL (gateway calls back here).")
     p_gw.add_argument("--token", default=None, help="Gateway shared token (optional).")
 
+    p_dg = sub.add_parser("detect-gateway", help="Scan the tailnet + loopback for a gateway.")
+    p_dg.add_argument("--apply", action="store_true", help="Write the found URL to gateway.url (re-registers live).")
+
+    p_dp = sub.add_parser("detect-public-url", help="Detect this Director's advertised public URL.")
+    p_dp.add_argument("--apply", action="store_true", help="Write it to gateway.tailnetEndpoint (re-registers live).")
+
+    p_ds = sub.add_parser("detect-screenshots", help="Detect the OS screenshots folder.")
+    p_ds.add_argument("--apply", action="store_true", help="Write it to screenshots.source_directory.")
+
+    p_tg = sub.add_parser("test-gateway", help="Probe a gateway URL's /healthz.")
+    p_tg.add_argument("--url", required=True, help="Gateway base URL to test.")
+
     args = parser.parse_args()
     token = _resolve_token(args.director_token)
 
@@ -236,6 +261,35 @@ def main() -> int:
             merged = put_settings({"gateway": gw}, token)
             print("OK gateway updated (Director re-registered live)")
             print(json.dumps(merged.get("gateway", {}), indent=2))
+
+        elif args.command == "detect-gateway":
+            r = detect("gateway", args.apply, token)
+            found = r.get("found")
+            if found:
+                print(f"OK found gateway: {found}" + (" (applied to gateway.url)" if r.get("applied") else ""))
+            else:
+                print(f"(none) no gateway answered on {len(r.get('scanned', []))} address(es) scanned")
+
+        elif args.command == "detect-public-url":
+            r = detect("public-url", args.apply, token)
+            url = r.get("url")
+            if url:
+                print(f"OK public URL: {url} ({r.get('kind')})" + (" (applied to gateway.tailnetEndpoint)" if r.get("applied") else ""))
+            else:
+                print("(none) no Tailscale identity or reachable address found")
+
+        elif args.command == "detect-screenshots":
+            r = detect("screenshots", args.apply, token)
+            d = r.get("directory")
+            if d:
+                print(f"OK screenshots folder: {d}" + (" (applied to screenshots.source_directory)" if r.get("applied") else ""))
+            else:
+                print("(none) could not detect a screenshots folder")
+
+        elif args.command == "test-gateway":
+            r = test_gateway(args.url, token)
+            # message already starts with "OK:" on success; only mark failures.
+            print(str(r.get("message")) if r.get("ok") else "FAIL: " + str(r.get("message")))
 
     except RuntimeError as e:
         print(f"ERROR: {e}", file=sys.stderr)

@@ -31,12 +31,27 @@ alive) and calls those endpoints.
 Run from the repo root (the script needs no dependencies beyond the standard library):
 
 ```
+# Read / write
 python .claude/skills/cc-settings-api/configure_settings.py show
 python .claude/skills/cc-settings-api/configure_settings.py get screenshots.source_directory
-python .claude/skills/cc-settings-api/configure_settings.py set-screenshots "/Users/soren/Desktop"
+python .claude/skills/cc-settings-api/configure_settings.py set-screenshots "/Users/you/Desktop"
 python .claude/skills/cc-settings-api/configure_settings.py set-gateway --url http://GATEWAY-HOST:7878 --advertised http://THIS-HOST:7879
 python .claude/skills/cc-settings-api/configure_settings.py set <dotted.key> <value>
+
+# Detect (add --apply to write the detected value straight into config.json)
+python .claude/skills/cc-settings-api/configure_settings.py detect-gateway [--apply]
+python .claude/skills/cc-settings-api/configure_settings.py detect-public-url [--apply]
+python .claude/skills/cc-settings-api/configure_settings.py detect-screenshots [--apply]
+
+# Test a gateway URL's reachability (/healthz)
+python .claude/skills/cc-settings-api/configure_settings.py test-gateway --url http://GATEWAY-HOST:7878
 ```
+
+The detect/test commands run the SAME logic as the Settings dialog buttons (via
+`POST /settings/detect/{gateway|public-url|screenshots}` and `POST /settings/test/gateway`) -
+so you never need to open the GUI to view, change, or auto-detect settings from a session.
+Without `--apply`, detect commands only report the found value; the agent then decides whether
+to write it. `detect-gateway --apply` is the one-shot "find and connect to the gateway".
 
 ## Connecting a Director to a gateway (the main use case)
 
