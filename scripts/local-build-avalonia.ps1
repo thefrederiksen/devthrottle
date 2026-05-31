@@ -26,6 +26,15 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# The MAIN cc-director is no longer built locally - it is INSTALLED from a GitHub release into
+# %LOCALAPPDATA%\cc-director\app (see docs/install/windows-install-prompt.md), so auto-update can
+# replace it in place. This script only builds dev/test SLOT builds now. Refuse a main (no -Slot)
+# build so nobody accidentally recreates a competing local_builds\cc-director.exe.
+if (-not $Slot) {
+    Write-Error "Building the main cc-director.exe is disabled. The main app is INSTALLED from a release (docs/install/windows-install-prompt.md). Pass -Slot <n> to build a dev/test slot, e.g. -Slot 5."
+    exit 1
+}
+
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $projectPath = Join-Path $repoRoot "src\CcDirector.Avalonia\CcDirector.Avalonia.csproj"
 $corePath = Join-Path $repoRoot "src\CcDirector.Core\CcDirector.Core.csproj"
@@ -109,7 +118,7 @@ $releasesDir = Join-Path $repoRoot "local_builds"
 if (-not (Test-Path $releasesDir)) {
     New-Item -ItemType Directory -Path $releasesDir | Out-Null
 }
-$exeName = if ($Slot) { "cc-director$Slot.exe" } else { "cc-director.exe" }
+$exeName = "cc-director$Slot.exe"   # always slotted; main builds are refused above
 $destPath = Join-Path $releasesDir $exeName
 Copy-Item $exePath $destPath -Force
 
