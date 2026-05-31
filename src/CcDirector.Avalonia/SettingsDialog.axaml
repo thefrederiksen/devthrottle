@@ -52,18 +52,43 @@
                            Foreground="#888888" FontSize="11" TextWrapping="Wrap" />
 
                 <TextBlock Text="Gateway URL" Foreground="#AAAAAA" FontSize="11" Margin="0,4,0,0" />
-                <TextBox x:Name="GatewayUrlBox"
-                         Background="#1E1E1E" Foreground="#CCCCCC" CaretBrush="#CCCCCC"
-                         BorderBrush="#3C3C3C" BorderThickness="1" Padding="8,6"
-                         Watermark="e.g. http://gateway-host:7878" />
+                <Grid ColumnDefinitions="*,Auto,Auto">
+                    <TextBox x:Name="GatewayUrlBox" Grid.Column="0"
+                             Background="#1E1E1E" Foreground="#CCCCCC" CaretBrush="#CCCCCC"
+                             BorderBrush="#3C3C3C" BorderThickness="1" Padding="8,6"
+                             Watermark="e.g. http://gateway-host:7878" />
+                    <Button x:Name="DetectGatewayButton" Grid.Column="1" Content="Detect"
+                            Height="30" Margin="8,0,0,0" Padding="12,0"
+                            Background="#3C3C3C" Foreground="#CCCCCC"
+                            BorderThickness="0" Cursor="Hand"
+                            ToolTip.Tip="Look for a gateway running on this machine"
+                            Click="BtnDetectGateway_Click" />
+                    <Button x:Name="TestGatewayButton" Grid.Column="2" Content="Test"
+                            Height="30" Margin="8,0,0,0" Padding="12,0"
+                            Background="#3C3C3C" Foreground="#CCCCCC"
+                            BorderThickness="0" Cursor="Hand"
+                            ToolTip.Tip="Check the gateway URL is reachable"
+                            Click="BtnTestGateway_Click" />
+                </Grid>
 
                 <TextBlock Text="Director public URL (any network)" Foreground="#AAAAAA" FontSize="11" Margin="0,4,0,0" />
-                <TextBox x:Name="GatewayAdvertisedBox"
-                         Background="#1E1E1E" Foreground="#CCCCCC" CaretBrush="#CCCCCC"
-                         BorderBrush="#3C3C3C" BorderThickness="1" Padding="8,6"
-                         Watermark="how the gateway reaches THIS Director, e.g. http://this-host:7879" />
-                <TextBlock Text="Required when the gateway runs on a different machine. The gateway calls back to this URL, so it must be reachable from the gateway."
+                <Grid ColumnDefinitions="*,Auto">
+                    <TextBox x:Name="GatewayAdvertisedBox" Grid.Column="0"
+                             Background="#1E1E1E" Foreground="#CCCCCC" CaretBrush="#CCCCCC"
+                             BorderBrush="#3C3C3C" BorderThickness="1" Padding="8,6"
+                             Watermark="how the gateway reaches THIS Director, e.g. http://this-host:7879" />
+                    <Button x:Name="DetectPublicUrlButton" Grid.Column="1" Content="Detect"
+                            Height="30" Margin="8,0,0,0" Padding="12,0"
+                            Background="#3C3C3C" Foreground="#CCCCCC"
+                            BorderThickness="0" Cursor="Hand"
+                            ToolTip.Tip="Fill from this machine's network address + control port"
+                            Click="BtnDetectPublicUrl_Click" />
+                </Grid>
+                <TextBlock Text="Required when the gateway runs on a different machine. The gateway calls back to this URL, so it must be reachable from the gateway. On a Mac this is mandatory - the default loopback address is unreachable, which is why the Director never shows up."
                            Foreground="#888888" FontSize="11" TextWrapping="Wrap" />
+
+                <TextBlock x:Name="GatewayTestStatus" Text="" Foreground="#888888"
+                           FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0" IsVisible="False" />
 
                 <TextBlock Text="Gateway token (optional)" Foreground="#AAAAAA" FontSize="11" Margin="0,4,0,0" />
                 <TextBox x:Name="GatewayTokenBox"

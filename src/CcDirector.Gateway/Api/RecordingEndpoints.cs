@@ -1,10 +1,10 @@
 using System.Text.Json;
 using CcDirector.Core.Dictation;
 using CcDirector.Core.Dictation.Models;
+using CcDirector.Core.Network;
 using CcDirector.Core.Recording;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
-using CcDirector.Gateway.Tailscale;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;

@@ -1807,7 +1807,10 @@ public partial class MainWindow : Window
     {
         FileLog.Write("[MainWindow] BtnSettings_Click: opening CC Director settings");
         var controlApi = (global::Avalonia.Application.Current as App)?.ControlApiHost;
-        var dialog = new SettingsDialog(controlApi is not null ? controlApi.ReapplyGatewayAsync : null);
+        var dialog = new SettingsDialog(
+            controlApi is not null ? controlApi.ReapplyGatewayAsync : null,
+            controlApi?.Port ?? 0,
+            ReloadScreenshotsPanelAsync);
         await dialog.ShowDialog<bool?>(this);
     }
 
@@ -3236,19 +3239,39 @@ public partial class MainWindow : Window
 
     // ==================== SCREENSHOTS ====================
 
+    /// <summary>
+    /// Re-point the screenshots tab after the configured folder changes (Settings save), so
+    /// the new folder takes effect without restarting the app. Idempotent - safe to call
+    /// repeatedly; it tears down the previous watcher first.
+    /// </summary>
+    public Task ReloadScreenshotsPanelAsync() => InitializeScreenshotsPanelAsync();
+
     private async Task InitializeScreenshotsPanelAsync()
     {
         FileLog.Write("[MainWindow] InitializeScreenshotsPanelAsync: starting");
 
         try
         {
-            _screenshotsDirectory = await Task.Run(() => ResolveScreenshotsDirectory());
-
-            if (_screenshotsDirectory == null || !Directory.Exists(_screenshotsDirectory))
+            // Idempotent: tear down any previous watcher/timer and clear the list so a reload
+            // after a folder change doesn't double-watch or stack stale thumbnails.
+            if (_screenshotWatcher is not null)
             {
-                FileLog.Write("[MainWindow] InitializeScreenshotsPanelAsync: no screenshots directory found");
-                return;
+                _screenshotWatcher.EnableRaisingEvents = false;
+                _screenshotWatcher.Created -= OnScreenshotFileChanged;
+                _screenshotWatcher.Deleted -= OnScreenshotFileChanged;
+                _screenshotWatcher.Renamed -= OnScreenshotFileChanged;
+                _screenshotWatcher.Dispose();
+                _screenshotWatcher = null;
             }
+            _screenshotDebounceTimer?.Stop();
+            _screenshotDebounceTimer = null;
+            _screenshots.Clear();
+
+            // Single source of truth: the same resolver the phone-upload endpoint writes to
+            // (CcStorage.Screenshots()), so the tab always watches where images actually land.
+            // It honors the configured folder, falls back to the platform default, and creates
+            // the directory if needed - so it always returns a real, existing path.
+            _screenshotsDirectory = await Task.Run(() => CcDirector.Core.Storage.CcStorage.Screenshots());
 
             FileLog.Write($"[MainWindow] InitializeScreenshotsPanelAsync: directory={_screenshotsDirectory}");
 
@@ -3283,45 +3306,6 @@ public partial class MainWindow : Window
         {
             FileLog.Write($"[MainWindow] InitializeScreenshotsPanelAsync FAILED: {ex.Message}");
         }
-    }
-
-    private static string? ResolveScreenshotsDirectory()
-    {
-        // Check cc-director config first
-        try
-        {
-            var configDir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "cc-director", "config");
-            var configPath = Path.Combine(configDir, "config.json");
-            if (File.Exists(configPath))
-            {
-                var json = File.ReadAllText(configPath);
-                using var doc = System.Text.Json.JsonDocument.Parse(json);
-                if (doc.RootElement.TryGetProperty("screenshots", out var ss) &&
-                    ss.TryGetProperty("source_directory", out var dir))
-                {
-                    var path = dir.GetString();
-                    if (path != null && Directory.Exists(path))
-                        return path;
-                }
-            }
-        }
-        catch { /* Non-critical */ }
-
-        // Auto-detect OneDrive Screenshots
-        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var oneDrive = Path.Combine(userProfile, "OneDrive", "Pictures", "Screenshots");
-        if (Directory.Exists(oneDrive))
-            return oneDrive;
-
-        // Local Pictures/Screenshots
-        var pictures = Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
-        var local = Path.Combine(pictures, "Screenshots");
-        if (Directory.Exists(local))
-            return local;
-
-        return null;
     }
 
     private static List<ScreenshotViewModel> LoadScreenshotViewModels(string directory)
