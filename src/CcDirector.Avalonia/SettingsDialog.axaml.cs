@@ -476,4 +476,30 @@ public partial class SettingsDialog : Window
         FileLog.Write("[SettingsDialog] BtnClose_Click: closing");
         Close();
     }
+
+    /// <summary>
+    /// Open the wake-word grammar sandbox. Resolves AgentOptions from the running App
+    /// (same path the Wingman Speak button uses) so the test dialog can build a
+    /// SpeakService. If no OpenAI key is configured the test dialog itself reports it.
+    /// </summary>
+    private async void BtnWakeWordTest_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write("[SettingsDialog] BtnWakeWordTest_Click");
+        try
+        {
+            var options = (global::Avalonia.Application.Current as App)?.SessionManager?.Options;
+            if (options is null)
+            {
+                StatusText.Text = "Wake-word test not available: AgentOptions not loaded.";
+                return;
+            }
+            var dlg = new global::CcDirector.Avalonia.Voice.WakeWordTestDialog(options);
+            await dlg.ShowDialog(this);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[SettingsDialog] BtnWakeWordTest_Click FAILED: {ex.Message}");
+            StatusText.Text = $"Could not open wake-word test: {ex.Message}";
+        }
+    }
 }

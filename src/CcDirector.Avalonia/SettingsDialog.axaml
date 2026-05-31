@@ -104,6 +104,18 @@
                          BorderBrush="#3C3C3C" BorderThickness="1" Padding="8,6"
                          Watermark="only if the gateway requires one" />
 
+                <!-- ============ Voice (experimental) ============ -->
+                <TextBlock Text="Voice (experimental)" Foreground="#CCCCCC" FontSize="14"
+                           FontWeight="SemiBold" Margin="0,12,0,0" />
+                <TextBlock Text="Sandbox for tuning the hands-free wake-word grammar: say &quot;wingman&quot; to start, dictate, then &quot;wingman send&quot; or &quot;wingman cancel&quot;. Emits to an on-screen box only, never to a live session."
+                           Foreground="#888888" FontSize="11" TextWrapping="Wrap" />
+                <Button x:Name="WakeWordTestButton" Content="Open Wake-Word Test"
+                        Height="30" Margin="0,2,0,0" Padding="14,0"
+                        HorizontalAlignment="Left"
+                        Background="#3C3C3C" Foreground="#CCCCCC"
+                        BorderThickness="0" Cursor="Hand"
+                        Click="BtnWakeWordTest_Click" />
+
                 <!-- ============ Advanced ============ -->
                 <TextBlock Text="Advanced: full config.json (read-only)" Foreground="#CCCCCC" FontSize="14"
                            FontWeight="SemiBold" Margin="0,12,0,0" />
