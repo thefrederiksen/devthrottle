@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#33333A"/>
+      <stop offset="0.55" stop-color="#232327"/>
+      <stop offset="1" stop-color="#161618"/>
+    </linearGradient>
+    <linearGradient id="mono" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F2F2F4"/>
+      <stop offset="1" stop-color="#C2C2C8"/>
+    </linearGradient>
+    <filter id="ds" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="18" flood-color="#000000" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+
+  <!-- macOS squircle with transparent margin -->
+  <g filter="url(#ds)">
+    <rect x="112" y="112" width="800" height="800" rx="180" ry="180" fill="url(#bg)"/>
+  </g>
+  <!-- subtle top highlight for depth -->
+  <rect x="112" y="112" width="800" height="800" rx="180" ry="180"
+        fill="none" stroke="#FFFFFF" stroke-opacity="0.06" stroke-width="3"/>
+
+  <!-- CC monogram -->
+  <text x="512" y="470" text-anchor="middle" dominant-baseline="central"
+        font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+        font-weight="700" font-size="360" letter-spacing="-18"
+        fill="url(#mono)">CC</text>
+
+  <!-- terminal cursor accent: blue prompt underline + blinking block -->
+  <rect x="320" y="650" width="300" height="26" rx="13" fill="#007ACC"/>
+  <rect x="636" y="640" width="68" height="46" rx="10" fill="#007ACC"/>
+</svg>
