@@ -10,7 +10,7 @@ project:
   framework: ".NET 10"
   platform: "Windows 10/11 (Avalonia primary; WPF archived), Mac/Linux (experimental backend)"
 
-last_updated: "2026-05-26"
+last_updated: "2026-05-31"
 
 # C4 Level 1: System Context
 context:
@@ -216,8 +216,19 @@ containers:
       - CcDirector.Terminal.Core
     components:
       - name: TerminalControl
-        description: Avalonia UserControl for terminal rendering
+        description: Avalonia Control hosting the terminal; wires input, sizing, and the active renderer
         file: TerminalControl.cs
+      - name: TerminalView
+        description: Avalonia Control presenting the parsed terminal grid; owns its own AnsiParser bound to the live window size
+        file: TerminalView.cs
+      - name: ITerminalRenderer
+        description: Strategy interface for drawing the terminal grid; selectable rendering backends
+        files:
+          - Rendering/ITerminalRenderer.cs
+          - Rendering/OriginalRenderer.cs
+          - Rendering/LiteRenderer.cs
+          - Rendering/ProRenderer.cs
+          - Rendering/BoxDrawingHelper.cs
 
   - id: core_services
     name: Core Services Layer
@@ -824,6 +835,15 @@ patterns:
       - Agents/PiAgent.cs
       - Agents/CodexAgent.cs
       - Agents/GeminiAgent.cs
+
+  - name: Strategy Pattern (Terminal Renderer)
+    implementation: ITerminalRenderer interface with OriginalRenderer, LiteRenderer, and ProRenderer implementations
+    purpose: Abstracts how the parsed terminal grid is drawn in the Avalonia UI so the rendering backend can be swapped without changing the control or parser.
+    files:
+      - Rendering/ITerminalRenderer.cs
+      - Rendering/OriginalRenderer.cs
+      - Rendering/LiteRenderer.cs
+      - Rendering/ProRenderer.cs
 
   - name: Observer Pattern
     implementation: Events (StatusChanged, OnActivityStateChanged)

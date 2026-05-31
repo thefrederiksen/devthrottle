@@ -9,7 +9,7 @@ project:
 
 # Last verification date - used for drift detection
 # Security profile is considered STALE if older than drift_threshold_days
-last_verified: "2026-05-26"
+last_verified: "2026-05-31"
 
 # Drift configuration
 drift:
