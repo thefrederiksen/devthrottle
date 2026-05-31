@@ -58,6 +58,9 @@ public sealed class ControlApiHost : IAsyncDisposable
     private TerminalSessionRecorder? _sessionRecorder;
     private Core.Storage.TurnReviewLogger? _turnReviewLogger;
     private Core.Storage.SessionLogManager? _sessionLogManager;
+    // Resolved lazily at request time: the scheduler is created AFTER the Control API host
+    // (StartControlApi runs before StartScheduler), so we capture an accessor, not the instance.
+    private readonly Func<Core.Scheduler.SchedulerService?>? _schedulerAccessor;
     private bool _stopped;
 
     /// <summary>
@@ -71,7 +74,7 @@ public sealed class ControlApiHost : IAsyncDisposable
     /// If true, bearer-token or cookie auth is required for all routes except /healthz/login/logout.
     /// If false (default), the Director is completely open. The Tailscale tailnet is the trust boundary.
     /// </param>
-    public ControlApiHost(SessionManager sessionManager, string version, Func<Task> requestShutdownAsync, bool useEphemeralPort = false, bool authEnabled = false, RepositoryRegistry? repositoryRegistry = null, string? directorId = null)
+    public ControlApiHost(SessionManager sessionManager, string version, Func<Task> requestShutdownAsync, bool useEphemeralPort = false, bool authEnabled = false, RepositoryRegistry? repositoryRegistry = null, string? directorId = null, Func<Core.Scheduler.SchedulerService?>? schedulerAccessor = null)
     {
         _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));
         _version = version ?? "0.0.0";
@@ -79,6 +82,7 @@ public sealed class ControlApiHost : IAsyncDisposable
         _useEphemeralPort = useEphemeralPort;
         _authEnabled = authEnabled;
         _repositoryRegistry = repositoryRegistry;
+        _schedulerAccessor = schedulerAccessor;
 
         // Production: persisted id (same across restarts so the Gateway recognizes us).
         // Tests: inject a fresh id per fixture so parallel runs don't collide on the
@@ -206,6 +210,8 @@ public sealed class ControlApiHost : IAsyncDisposable
         TerminalStreamEndpoint.Map(_app, _sessionManager);
         SettingsEndpoint.Map(_app, ReapplyGatewayAsync, () => Port);
         ToolsEndpoint.Map(_app);
+        WorkspacesEndpoint.Map(_app);
+        SchedulerEndpoint.Map(_app, _schedulerAccessor);
 
         await _app.StartAsync();
 

@@ -248,7 +248,7 @@ public partial class App : Application
                 return Task.CompletedTask;
             };
 
-            ControlApiHost = new ControlApiHost(SessionManager, version, requestShutdown, repositoryRegistry: RepositoryRegistry);
+            ControlApiHost = new ControlApiHost(SessionManager, version, requestShutdown, repositoryRegistry: RepositoryRegistry, schedulerAccessor: () => Scheduler);
 
             _ = Task.Run(async () =>
             {

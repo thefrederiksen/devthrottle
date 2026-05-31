@@ -1026,6 +1026,46 @@ internal static class ControlEndpoints
             return Results.Json(snap);
         });
 
+        // ===== Git WRITE actions (mirror the desktop Source Control view) =====
+        // Reads stay on GET /git above; these mutate the working tree of the session's repo.
+        var gitWrite = new Core.Git.GitWriteService();
+
+        async Task<IResult> RunGitWrite(string sid, Func<string, Task<Core.Git.GitWriteResult>> op)
+        {
+            if (!Guid.TryParse(sid, out var guid))
+                return Results.BadRequest(new { error = "invalid session id format" });
+            var session = sessionManager.GetSession(guid);
+            if (session is null) return Results.NotFound(new { error = "session not found" });
+            var r = await op(session.RepoPath);
+            return r.Success
+                ? Results.Json(new { accepted = true, output = r.Output })
+                : Results.Json(new { accepted = false, error = r.Error, exitCode = r.ExitCode }, statusCode: StatusCodes.Status409Conflict);
+        }
+
+        app.MapPost("/sessions/{sid}/git/stage", (string sid, GitPathsRequest? req) =>
+            RunGitWrite(sid, repo => gitWrite.StageAsync(repo, req?.Paths ?? new())));
+        app.MapPost("/sessions/{sid}/git/unstage", (string sid, GitPathsRequest? req) =>
+            RunGitWrite(sid, repo => gitWrite.UnstageAsync(repo, req?.Paths ?? new())));
+        app.MapPost("/sessions/{sid}/git/discard", (string sid, GitPathsRequest? req) =>
+            RunGitWrite(sid, repo => gitWrite.DiscardAsync(repo, req?.Paths ?? new())));
+        app.MapPost("/sessions/{sid}/git/commit", (string sid, GitCommitRequest? req) =>
+            RunGitWrite(sid, repo => gitWrite.CommitAsync(repo, req?.Message ?? "")));
+
+        // Re-point a Director session at a different Claude session id (mirrors the desktop
+        // Relink button - recover continuity when the underlying Claude session id changed).
+        app.MapPost("/sessions/{sid}/relink", (string sid, RelinkRequest? req) =>
+        {
+            if (!Guid.TryParse(sid, out var guid))
+                return Results.BadRequest(new { error = "invalid session id format" });
+            if (req is null || string.IsNullOrWhiteSpace(req.ClaudeSessionId))
+                return Results.BadRequest(new { error = "claudeSessionId is required" });
+            if (sessionManager.GetSession(guid) is null)
+                return Results.NotFound(new { error = "session not found" });
+
+            sessionManager.RelinkClaudeSession(guid, req.ClaudeSessionId);
+            return Results.Json(new { accepted = true, claudeSessionId = req.ClaudeSessionId });
+        });
+
         app.MapPost("/sessions/{sid}/recovery-prompt", async (string sid, HttpContext ctx) =>
         {
             if (!Guid.TryParse(sid, out var guid))
@@ -1408,6 +1448,24 @@ internal static class ControlEndpoints
 
             session.SendInput(new byte[] { 0x1b });
             return Results.Json(new { accepted = true });
+        });
+
+        // Resize the session's PTY grid so a remote terminal (the Cockpit) can use the full
+        // window width. Session.Resize no-ops on an unchanged size, so a chatty client can't
+        // hammer the PTY (the Wingman repaint-loop invariant).
+        app.MapPost("/sessions/{sid}/resize", (string sid, ResizeRequest req) =>
+        {
+            if (!Guid.TryParse(sid, out var guid))
+                return Results.BadRequest(new { error = "invalid session id format" });
+            if (req is null || req.Cols <= 0 || req.Rows <= 0)
+                return Results.BadRequest(new { error = "cols and rows must be > 0" });
+
+            var session = sessionManager.GetSession(guid);
+            if (session is null)
+                return Results.NotFound(new { error = "session not found" });
+
+            session.Resize((short)Math.Min(req.Cols, short.MaxValue), (short)Math.Min(req.Rows, short.MaxValue));
+            return Results.Json(new { accepted = true, cols = (int)session.CurrentCols, rows = (int)session.CurrentRows });
         });
 
         // Upload an image (from the phone) and file it into the user's screenshots folder

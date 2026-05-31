@@ -23,11 +23,15 @@ namespace CcDirector.ControlApi;
 ///   Server -> {"type":"size","cols":C,"rows":R}   (immediately, and again on every PTY resize)
 ///   Server -> &lt;binary frames&gt;                  (raw PTY bytes: full history first, then live)
 ///   Server -> {"type":"closed","reason":"..."}     (session ended) then the socket closes
+///   Client -> &lt;binary/text frames&gt;               (the user's keystrokes -> the PTY)
 ///
-/// The client sends nothing meaningful -- keyboard input still flows through the
-/// existing POST /sessions/{sid}/prompt path. A close frame from the client ends
-/// the stream. Localhost-only by default; the ControlApiHost auth middleware
-/// applies when enabled, exactly like /dictate.
+/// The terminal is bidirectional: the client (xterm.js) sends the user's keystrokes as
+/// frames and we forward every byte straight to the PTY via <c>Session.SendInput</c>, so
+/// the terminal is fully interactive -- text, Enter, arrows, Ctrl+C, Esc, the
+/// slash-command UI. The composer's POST /sessions/{sid}/prompt path still exists for
+/// long or dictated messages. A close frame from the client ends the stream.
+/// Localhost-only by default; the ControlApiHost auth middleware applies when enabled,
+/// exactly like /dictate.
 /// </summary>
 internal static class TerminalStreamEndpoint
 {
@@ -84,10 +88,10 @@ internal static class TerminalStreamEndpoint
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(requestAborted);
         var ct = cts.Token;
 
-        // We don't need anything the client says, but we must drain its frames to
-        // observe the close handshake and notice a dropped connection. Any close or
-        // receive error cancels the send pump below.
-        var receiveTask = DrainClientAsync(ws, cts);
+        // The client sends the user's keystrokes; we forward every byte to the PTY.
+        // This loop also observes the close handshake / dropped connection: any close
+        // or receive error cancels the send pump below.
+        var receiveTask = ForwardClientInputAsync(ws, sessionManager, guid, cts);
 
         // GetWrittenSince(0) returns the full retained history on the first call, then
         // only the bytes appended since the previous call. One monotonic cursor drives
@@ -143,15 +147,32 @@ internal static class TerminalStreamEndpoint
         try { await receiveTask; } catch { /* receive loop already unwound */ }
     }
 
-    private static async Task DrainClientAsync(WebSocket ws, CancellationTokenSource cts)
+    // Forward the client's keystrokes to the PTY. Each WebSocket message (text frames from
+    // xterm's onData, or binary) is accumulated until EndOfMessage, then written verbatim to
+    // the session via SendInput - so control bytes (arrows, Ctrl+C, Esc) pass through intact.
+    // A Close frame or a receive fault ends the loop and cancels the send pump.
+    private static async Task ForwardClientInputAsync(WebSocket ws, SessionManager sessionManager, Guid guid, CancellationTokenSource cts)
     {
-        var buffer = new byte[1024];
+        var buffer = new byte[4096];
+        using var message = new MemoryStream();
         try
         {
             while (!cts.IsCancellationRequested && ws.State == WebSocketState.Open)
             {
                 var result = await ws.ReceiveAsync(buffer, cts.Token);
                 if (result.MessageType == WebSocketMessageType.Close) break;
+
+                if (result.Count > 0)
+                    message.Write(buffer, 0, result.Count);
+                if (!result.EndOfMessage)
+                    continue;
+
+                if (message.Length == 0)
+                    continue;
+                var bytes = message.ToArray();
+                message.SetLength(0);
+
+                sessionManager.GetSession(guid)?.SendInput(bytes);
             }
         }
         catch

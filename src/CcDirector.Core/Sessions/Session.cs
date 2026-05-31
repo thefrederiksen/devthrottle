@@ -1182,6 +1182,34 @@ public sealed class Session : IDisposable
         // Log the transition (blue<->red) to the in-memory ring the Wingman tab renders.
         RecordStateChange(old, newState);
         OnActivityStateChanged?.Invoke(old, newState);
+
+        // Auto-drain the prompt queue when the session returns to Idle (ready at the prompt).
+        if (newState == ActivityState.Idle)
+            TryDrainQueue();
+    }
+
+    /// <summary>
+    /// When the session goes Idle and isn't on hold, send the next queued prompt - so the
+    /// queue means "auto-send when Claude is ready", not a manual holding list. One item per
+    /// Idle transition; SendText -> Working -> Idle drains the rest in FIFO order. We never
+    /// drain on WaitingForInput/WaitingForPerm: a queued prompt must not answer Claude's own
+    /// question. The send is scheduled off the current stack to avoid re-entering
+    /// SetActivityState (SendText synchronously flips to Working).
+    /// </summary>
+    private void TryDrainQueue()
+    {
+        if (OnHold || !PromptQueue.HasItems) return;
+        if (Status is SessionStatus.Exited or SessionStatus.Failed) return;
+
+        var next = PromptQueue.Items[0];
+        PromptQueue.Remove(next.Id); // remove first so a double Idle can't send it twice
+        FileLog.Write($"[Session] Queue auto-drain: session={Id}, remaining={PromptQueue.Count}");
+
+        _ = Task.Run(async () =>
+        {
+            try { await SendTextAsync(next.Text); }
+            catch (Exception ex) { FileLog.Write($"[Session] Queue auto-drain FAILED: session={Id}: {ex.Message}"); }
+        });
     }
 
     /// <summary>
@@ -1451,6 +1479,11 @@ public sealed class Session : IDisposable
     {
         if (_disposed) return;
         if (cols <= 0 || rows <= 0) return;
+        // No-op on an unchanged size. A resize repaints the PTY, which the monitoring loop
+        // observes; resizing to the same dimensions would be a pointless write that could
+        // feed a repaint storm (the Wingman repaint-loop invariant). Guard against it so a
+        // chatty Cockpit (window-drag events) can't hammer the PTY.
+        if (cols == CurrentCols && rows == CurrentRows) return;
         _backend.Resize(cols, rows);
         CurrentCols = cols;
         CurrentRows = rows;

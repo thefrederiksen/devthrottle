@@ -47,3 +47,34 @@ public sealed class PromptResponse
     /// <summary>Error message if Accepted == false.</summary>
     public string? Error { get; set; }
 }
+
+/// <summary>
+/// Body of POST /sessions/{sid}/resize on the Director Control API. Sets the session's PTY
+/// grid so a remote terminal (the Cockpit) can use the full window width.
+/// </summary>
+public sealed class ResizeRequest
+{
+    /// <summary>Column count (must be &gt; 0).</summary>
+    public int Cols { get; set; }
+
+    /// <summary>Row count (must be &gt; 0).</summary>
+    public int Rows { get; set; }
+}
+
+/// <summary>Body of the git stage/unstage/discard endpoints. Empty paths means "all" (stage/unstage only).</summary>
+public sealed class GitPathsRequest
+{
+    public List<string> Paths { get; set; } = new();
+}
+
+/// <summary>Body of POST /sessions/{sid}/git/commit.</summary>
+public sealed class GitCommitRequest
+{
+    public string Message { get; set; } = "";
+}
+
+/// <summary>Body of POST /sessions/{sid}/relink - re-point a Director session at a different Claude session id.</summary>
+public sealed class RelinkRequest
+{
+    public string ClaudeSessionId { get; set; } = "";
+}
