@@ -123,3 +123,6 @@ docs/features/voice-mode-fidelity/evidence/
 # Cockpit prototype + playground screenshots (throwaway / PII-bearing; not for the public repo)
 playground/wingman-briefing/
 playground/*.png
+
+# Merge/patch backup files
+*.orig
