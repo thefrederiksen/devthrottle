@@ -104,6 +104,8 @@ public sealed class DictationPipelineLiveTests
 
         public event Action<byte[]>? OnAudioChunk;
 
+        public string Description => "Replay Test Source";
+
         /// <summary>Completes when the entire clip has been emitted (or capture was stopped).</summary>
         public Task Completed => _completed.Task;
 

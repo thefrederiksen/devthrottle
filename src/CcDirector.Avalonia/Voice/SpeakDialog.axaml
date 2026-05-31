@@ -2,16 +2,39 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="CcDirector.Avalonia.Voice.SpeakDialog"
         Title="Dictate"
-        Width="540" Height="380"
+        Width="540" Height="416"
         WindowStartupLocation="CenterOwner"
         CanResize="False"
         ShowInTaskbar="False"
         Background="#1E1E1E">
 
-    <Grid RowDefinitions="Auto,*,Auto" Margin="16">
+    <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="16">
+
+        <!-- Microphone selector. Shows the active capture device by name and
+             lets the user switch mics (e.g. when the default one is silent).
+             The list is populated in code; selection changes restart capture
+             on the chosen device. -->
+        <Grid Grid.Row="0" ColumnDefinitions="Auto,*" Margin="0,0,0,12" VerticalAlignment="Center">
+            <TextBlock Grid.Column="0" Text="Mic"
+                       Foreground="#888888"
+                       FontFamily="Cascadia Mono,Consolas,monospace"
+                       FontSize="12"
+                       VerticalAlignment="Center"
+                       Margin="0,0,8,0" />
+            <ComboBox x:Name="MicSelector" Grid.Column="1"
+                      HorizontalAlignment="Stretch"
+                      FontSize="12"
+                      SelectionChanged="MicSelector_SelectionChanged">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+        </Grid>
 
         <!-- Status row -->
-        <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,12">
+        <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,12">
             <TextBlock x:Name="StatusLabel" Grid.Column="0"
                        Text="RECORDING"
                        FontFamily="Cascadia Mono,Consolas,monospace"
@@ -27,7 +50,7 @@
         </Grid>
 
         <!-- Center stage: equalizer + low-level hint + transcript area -->
-        <Grid Grid.Row="1" RowDefinitions="Auto,Auto,*">
+        <Grid Grid.Row="2" RowDefinitions="Auto,Auto,*">
             <!-- 9-bar equalizer. Each red bar sits inside a fixed-height gray
                  "track well" so the full range (floor to ceiling) is always
                  visible; the red bar fills the well from the bottom. The well
@@ -103,7 +126,7 @@
              dots up top (color shift Recording->Transcribing->Paused), so we
              don't carry a separate hint TextBlock down here; it just cramped
              the buttons. -->
-        <StackPanel Grid.Row="2"
+        <StackPanel Grid.Row="3"
                     Orientation="Horizontal"
                     HorizontalAlignment="Right"
                     Margin="0,16,0,0"

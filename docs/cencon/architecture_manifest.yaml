@@ -10,7 +10,7 @@ project:
   framework: ".NET 10"
   platform: "Windows 10/11 (Avalonia primary; WPF archived), Mac/Linux (experimental backend)"
 
-last_updated: "2026-05-30"
+last_updated: "2026-05-31"
 
 # C4 Level 1: System Context
 context:
@@ -128,10 +128,10 @@ containers:
         description: Card-based conversation view with rewind buttons and Skill widget support
         file: Controls/CleanView.xaml / Controls/CleanView.xaml.cs
       - name: SettingsView
-        description: Read-only settings overlay showing all configuration values grouped by category
+        description: Settings overlay showing configuration values grouped by category; editable and persisted to config.json via the Control API (GET/PUT /settings) with live gateway re-apply
         file: Controls/SettingsView.xaml / Controls/SettingsView.xaml.cs
       - name: Voice UI
-        description: Voice mode controls and audio playback/recording
+        description: Voice mode controls and audio playback/recording, including the Dictate dialog with microphone selection (WaveIn device picker, default = Windows default device) and an explicit named no-audio failure when the chosen mic captures nothing
         directory: Voice/
       - name: File Viewers
         description: Document tab viewers for images, code, markdown, text, and PDF files

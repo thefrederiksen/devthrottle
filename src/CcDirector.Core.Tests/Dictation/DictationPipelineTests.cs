@@ -31,6 +31,7 @@ public sealed class DictationPipelineTests
         public event Action<byte[]>? OnAudioChunk;
         public bool Started { get; private set; }
         public bool Stopped { get; private set; }
+        public string Description => "Fake Test Microphone";
 
         public void Start() => Started = true;
         public void Stop() => Stopped = true;
@@ -155,6 +156,32 @@ public sealed class DictationPipelineTests
     }
 
     [Fact]
+    public async Task NoAudioCaptured_Throws_NamingTheDevice_WithoutCommitting()
+    {
+        // When the mic produces zero bytes (silent/wrong/dead device), the
+        // pipeline must NOT commit an empty buffer to the provider - that would
+        // surface the provider's opaque "buffer too small / 0.00ms" error. It
+        // must instead throw a clear, device-named failure.
+        using var dict = BuildLoader();
+        var provider = new GatedProvider(); // connects immediately
+        using var cleanup = NewOfflineCleanup();
+        await using var session = new DictationSession(dict, provider, cleanup);
+        var src = new FakeAudioSource();
+        await using var pipeline = new DictationPipeline(src, session);
+
+        await pipeline.StartAsync("default");
+        // The user "talked" but the device delivered nothing: no Emit() calls.
+
+        var ex = await Assert.ThrowsAsync<NoAudioCapturedException>(() => pipeline.StopAsync());
+
+        Assert.Equal("Fake Test Microphone", ex.DeviceDescription);
+        Assert.Contains("Fake Test Microphone", ex.Message);
+        Assert.Equal(0, pipeline.CapturedBytes);
+        // The provider was never committed - no opaque empty-buffer error leaks out.
+        Assert.False(provider.StopCalled);
+    }
+
+    [Fact]
     public async Task CaptureStarts_BeforeConnectionCompletes()
     {
         using var dict = BuildLoader();
@@ -177,6 +204,9 @@ public sealed class DictationPipelineTests
 
         provider.ReleaseConnect();
         await startTask;
+        // Emit one chunk so Stop has real audio to commit; this test is about the
+        // capture-before-connect ordering, not the empty-buffer guard.
+        src.Emit(new byte[] { 1 });
         await pipeline.StopAsync();
     }
 
