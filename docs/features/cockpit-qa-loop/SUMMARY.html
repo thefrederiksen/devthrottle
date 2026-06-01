@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Cockpit QA Loop - SUMMARY</title>
+<style>
+        /* Boardroom Theme - Corporate, executive style with serif fonts */
+        
+        :root {
+            /* Colors */
+            --primary: #1A365D;
+            --primary-light: #2A4A7F;
+            --accent: #D69E2E;
+            --text: #2D3748;
+            --heading: #1A365D;
+            --background: #FFFFFF;
+            --code-bg: #EDF2F7;
+            --code-text: #1A365D;
+            --border: #CBD5E0;
+            --link: #2B6CB0;
+            --blockquote-text: #4A5568;
+            --blockquote-border: #D69E2E;
+            --blockquote-bg: #FFFFFF;
+            --table-header-bg: #1A365D;
+            --table-header-text: #FFFFFF;
+            --alt-row-bg: #F7FAFC;
+            --shadow-color: rgba(26, 54, 93, 0.08);
+        
+            /* Fonts */
+            --font-heading: "Palatino Linotype", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-body: "Georgia", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-code: "Courier New", "JetBrains Mono", "Fira Code", Consolas, monospace;
+        
+            /* Style */
+            --heading-letter-spacing: -0.02em;
+            --line-height: 1.7;
+            --radius: 4px;
+            --code-radius: 6px;
+            --shadow-sm: 0 1px 3px rgba(26, 54, 93, 0.08);
+            --shadow-md: 0 4px 12px rgba(26, 54, 93, 0.1);
+        }
+        
+        /* Base styles for all themes */
+        
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+        }
+        
+        html {
+            font-size: 16px;
+            line-height: var(--line-height);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: var(--font-body);
+            color: var(--text);
+            background: var(--background);
+        }
+        
+        .markdown-body {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 3rem 2.5rem;
+        }
+        
+        /* Typography */
+        h1, h2, h3, h4, h5, h6 {
+            font-family: var(--font-heading);
+            color: var(--heading);
+            margin-top: 1.8em;
+            margin-bottom: 0.6em;
+            font-weight: 600;
+            line-height: 1.25;
+            letter-spacing: var(--heading-letter-spacing);
+            orphans: 3;
+            widows: 3;
+        }
+        
+        h1 {
+            font-size: 2.25em;
+            margin-top: 0;
+        }
+        
+        h2 { font-size: 1.65em; }
+        h3 { font-size: 1.35em; }
+        h4 { font-size: 1.1em; }
+        h5 { font-size: 0.95em; }
+        h6 { font-size: 0.85em; color: var(--blockquote-text); }
+        
+        p {
+            margin: 1em 0;
+            orphans: 3;
+            widows: 3;
+        }
+        
+        /* Links */
+        a {
+            color: var(--link);
+            text-decoration: none;
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.2s ease;
+        }
+        
+        a:hover {
+            border-bottom-color: var(--link);
+        }
+        
+        /* Lists */
+        ul, ol {
+            margin: 1em 0;
+            padding-left: 2em;
+            line-height: var(--line-height);
+        }
+        
+        li {
+            margin: 0.35em 0;
+        }
+        
+        li > ul,
+        li > ol {
+            margin: 0.2em 0;
+        }
+        
+        /* Inline code */
+        code {
+            font-family: var(--font-code);
+            font-size: 0.875em;
+            padding: 0.15em 0.4em;
+            border-radius: var(--radius);
+            background: var(--code-bg);
+            color: var(--code-text);
+        }
+        
+        /* Code blocks */
+        pre {
+            margin: 1.5em 0;
+            padding: 1.25em 1.5em;
+            overflow-x: auto;
+            border-radius: var(--code-radius);
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow-sm);
+            position: relative;
+        }
+        
+        pre code {
+            padding: 0;
+            background: transparent;
+            border-radius: 0;
+            font-size: 0.875em;
+            line-height: 1.55;
+        }
+        
+        /* Blockquotes */
+        blockquote {
+            margin: 1.5em 0;
+            padding: 0.75em 1.25em;
+            border-left: 4px solid var(--blockquote-border);
+            background: var(--blockquote-bg);
+            color: var(--blockquote-text);
+            border-radius: 0 var(--radius) var(--radius) 0;
+        }
+        
+        blockquote p {
+            margin: 0.4em 0;
+        }
+        
+        blockquote p:first-child {
+            margin-top: 0;
+        }
+        
+        blockquote p:last-child {
+            margin-bottom: 0;
+        }
+        
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin: 1.5em 0;
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border);
+        }
+        
+        th, td {
+            padding: 0.75em 1em;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        th {
+            font-weight: 600;
+            background: var(--table-header-bg);
+            color: var(--table-header-text);
+        }
+        
+        tr:last-child td {
+            border-bottom: none;
+        }
+        
+        /* Horizontal rule */
+        hr {
+            border: none;
+            height: 2px;
+            max-width: 200px;
+            margin: 2.5em auto;
+            background: var(--border);
+            border-radius: 1px;
+        }
+        
+        /* Images */
+        img {
+            max-width: 100%;
+            height: auto;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        /* Task lists */
+        .task-list-item {
+            list-style-type: none;
+        }
+        
+        .task-list-item input[type="checkbox"] {
+            margin-right: 0.5em;
+        }
+        
+        /* Strong and emphasis */
+        strong {
+            font-weight: 700;
+        }
+        
+        /* Definition lists (if supported by parser) */
+        dt {
+            font-weight: 600;
+            margin-top: 1em;
+        }
+        
+        dd {
+            margin-left: 1.5em;
+            margin-bottom: 0.5em;
+        }
+        
+        
+        /* Boardroom: corporate authority with accent borders */
+        h1 {
+            border-bottom: 3px solid var(--accent);
+            padding-bottom: 0.5em;
+        }
+        
+        h2 {
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.3em;
+        }
+        
+        pre {
+            border-left: 4px solid var(--primary);
+            border-radius: 0 var(--code-radius) var(--code-radius) 0;
+        }
+        
+        pre::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--accent);
+            border-radius: 0;
+        }
+        
+        blockquote {
+            font-style: italic;
+        }
+        
+        hr {
+            background: var(--accent);
+            max-width: none;
+            height: 2px;
+        }
+        
+        tr:nth-child(even) td {
+            background: var(--alt-row-bg);
+        }
+        
+    </style>
+</head>
+<body>
+<article class="markdown-body">
+<h1>Cockpit QA Loop - SUMMARY</h1>
+<p><strong>App version:</strong> 0.3.5 (build <code>990dba3</code>, branch <code>main</code>) + uncommitted Cockpit fixes from this loop
+        <strong>Run:</strong> 2026-05-31 ~22:45 -&gt; 23:40 local (autonomous overnight QA loop, 5 iterations)
+        <strong>Tested against:</strong> Cockpit on <code>http://localhost:7471</code> (Development) -&gt; Gateway <code>127.0.0.1:7878</code> -&gt; Slot-1 final-build Director <code>c99a103c</code> (<code>7884</code>) and the older Director <code>39aad623</code> (<code>7879</code>).
+        <strong>Method:</strong> real Claude sessions in a throwaway scratch repo, driven through a separate Brave via <code>cc-playwright</code> (connection <code>cockpit-qa</code>). No user sessions were modified; the two scratch sessions created for testing were killed at the end.</p>
+<hr/>
+<h2>Bottom line</h2>
+<p><strong>Every Cockpit feature works</strong> against a real Director and real Claude sessions. Seven iterations - live black-box testing, a structured code review, and a feature-gap fix - found <strong>9 Cockpit issues/gaps</strong> and <strong>fixed 8</strong> (the 9th is a benign LOW deferred). That includes implementing <strong>composer drag-drop</strong> (the goal explicitly asked for "drag and drop into the text box"). The only non-working <em>feature</em> is <strong>recap generation</strong>, which fails <strong>Director-side</strong> (<code>claude --print exited 1</code>) and is out of scope for the Cockpit (handled gracefully). The <strong>desktop app is at-or-ahead of the Cockpit</strong> on every feature.</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Count</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Features exercised live, end-to-end</td>
+<td>25</td>
+</tr>
+<tr>
+<td>Cockpit issues/gaps found</td>
+<td>9</td>
+</tr>
+<tr>
+<td>Cockpit issues/gaps fixed + verified</td>
+<td>8</td>
+</tr>
+<tr>
+<td>Deferred (benign LOW)</td>
+<td>1 (Director GUID ordering in tree view)</td>
+</tr>
+<tr>
+<td>Open actionable Cockpit issues</td>
+<td><strong>0</strong></td>
+</tr>
+<tr>
+<td>Known Director-side issue (flagged, not fixed)</td>
+<td>1 (recap generation)</td>
+</tr>
+</tbody>
+</table>
+<hr/>
+<h2>Issue ledger</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Severity</th>
+<th>Issue</th>
+<th>Status</th>
+<th>Fix location</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>HIGH</td>
+<td><strong>Settings unusable</strong> - "that Director has no reachable endpoint"; empty JSON editor. <code>SettingsEndpointFor</code> resolved only <code>DirectorDto.TailnetEndpoint</code>, which is null for FSW-discovered (same-machine) Directors.</td>
+<td>FIXED + verified (load + save round-trip, both Directors)</td>
+<td><code>Cockpit.razor</code> <code>SettingsEndpointFor</code> -&gt; fall back to <code>ControlEndpoint</code></td>
+</tr>
+<tr>
+<td>2</td>
+<td>MINOR</td>
+<td><strong>Spurious dictation error</strong> - cancelling Speak showed "dictation unavailable: A task was canceled". Root cause: <code>start()</code> held the Blazor JS-interop call open until <code>getUserMedia</code> resolved, so a hung/denied mic tripped the 60s interop timeout.</td>
+<td>FIXED + verified (cancel is now clean)</td>
+<td><code>cockpit-dictate.js</code> <code>start()</code> fires <code>startSegment()</code> instead of awaiting it; <code>Cockpit.razor</code> <code>OpenDictate</code> swallows <code>OperationCanceledException</code></td>
+</tr>
+<tr>
+<td>3</td>
+<td>MINOR (cosmetic)</td>
+<td><strong>Header action buttons clipped at narrow widths</strong> (~930px) - "Rename"/"Kill" ran off the right edge.</td>
+<td>FIXED + verified (wraps to 2 rows; wide layout unchanged)</td>
+<td><code>app.css</code> <code>.detail-head{flex-wrap}</code> + <code>.detail-name</code> truncation</td>
+</tr>
+<tr>
+<td>4</td>
+<td>HIGH</td>
+<td><strong>TOCTOU on <code>Selected</code></strong> (code review) - action handlers re-read the <code>Selected</code>/<code>DirBase</code> computed properties across <code>await</code>s; the 2s poll can null them mid-action -&gt; spurious NRE error banner.</td>
+<td>FIXED + regression-verified</td>
+<td><code>Cockpit.razor</code> - capture <code>sel</code>/<code>dir</code> locals once per handler</td>
+</tr>
+<tr>
+<td>5</td>
+<td>HIGH</td>
+<td><strong>One slow Director freezes the whole roster</strong> (code review) - <code>LoadQueueAsync</code> awaited inline in the poll on the 150s-timeout client.</td>
+<td>FIXED + regression-verified</td>
+<td><code>Cockpit.razor</code> - render roster before queue load; 8s linked-token cap; <code>_refreshing</code> reentrancy guard</td>
+</tr>
+<tr>
+<td>6</td>
+<td>MEDIUM</td>
+<td><strong>Queue poll-vs-action race</strong> (code review) - the 2s queue load could clobber a just-enqueued/removed item.</td>
+<td>FIXED + regression-verified</td>
+<td><code>Cockpit.razor</code> - skip the poll queue load while <code>_acting</code></td>
+</tr>
+<tr>
+<td>7</td>
+<td>MEDIUM</td>
+<td><strong><code>OnDropImages</code> bare <code>StateHasChanged()</code></strong> (code review) - could throw off-dispatcher, mislabeled "image upload failed".</td>
+<td>FIXED + regression-verified</td>
+<td><code>Cockpit.razor</code> -&gt; <code>await InvokeAsync(StateHasChanged)</code></td>
+</tr>
+<tr>
+<td>8</td>
+<td>MEDIUM</td>
+<td><strong>Dictation stuck on STARTING</strong> (code review) - a <code>/dictate</code> socket closing during <code>starting</code> showed no error and never called back, leaving Speak disabled.</td>
+<td>FIXED</td>
+<td><code>cockpit-dictate.js</code> <code>ws.onclose</code> handles the <code>starting</code> stage</td>
+</tr>
+<tr>
+<td>9</td>
+<td>FEATURE GAP (explicitly requested)</td>
+<td><strong>Composer text box didn't accept image drops</strong> - drag-drop only worked on the Screenshots panel, but the goal asked for "drag and drop into the text box".</td>
+<td>IMPLEMENTED + verified (desktop parity; existing panel drop unaffected)</td>
+<td>new <code>cockpit-composer-drop.js</code> routes composer image drops into a hidden <code>InputFile</code> -&gt; same upload+inject path; <code>Cockpit.razor</code> + <code>app.css</code></td>
+</tr>
+<tr>
+<td>-</td>
+<td>LOW (deferred)</td>
+<td>Tree view orders Directors by GUID; benign for one-Director-per-machine.</td>
+<td>DEFERRED</td>
+<td>needs a Director sort key in the DTO</td>
+</tr>
+<tr>
+<td>-</td>
+<td>Director-side</td>
+<td><strong>Recap generation fails</strong> (<code>claude --print exited 1</code>). Cockpit shows the error inline and re-arms the button; cached-recap/git/turn-summary reads all work.</td>
+<td>Flagged for the Director owner (Director is final in this workstream)</td>
+<td>n/a (not a Cockpit bug)</td>
+</tr>
+</tbody>
+</table>
+<hr/>
+<h2>Files changed (uncommitted - left for your review)</h2>
+<ul>
+<li><code>src/CcDirector.Cockpit/Components/Pages/Cockpit.razor</code> - Fixes #1, #2, #4, #5, #6, #7, #9 (Settings endpoint; dictation cancel; TOCTOU local-capture; poll-loop resilience; queue race; dispatcher marshalling; composer drop wiring)</li>
+<li><code>src/CcDirector.Cockpit/wwwroot/js/cockpit-dictate.js</code> - Fixes #2, #8 (don't hold the interop call open; report a socket close during <code>starting</code>)</li>
+<li><code>src/CcDirector.Cockpit/wwwroot/js/cockpit-composer-drop.js</code> - <strong>new</strong> - Fix #9 (composer text-box image drag-drop)</li>
+<li><code>src/CcDirector.Cockpit/wwwroot/app.css</code> - Fix #3 (header wraps / name truncates) + Fix #9 (composer drop-zone styling)</li>
+</ul>
+<p>Build is green (<code>dotnet build</code> 0 warnings, 0 errors). Nothing was committed (per your standing rule).</p>
+<hr/>
+<h2>Feature coverage (all PASS unless noted)</h2>
+<p><strong>MVP:</strong> rail shows the whole fleet (A1); select -&gt; live terminal, coherent, no ghost frames (A2); terminal stays current (A3); terminal input incl. Ctrl+C / Esc (A4); composer Send round-trips (A5); queue enqueue/list/remove/send-now (A6) + auto-drain (edge-triggered on Idle, by design); Speak dialog (A7 - UI verified; live transcription needs a real mic); screenshots upload + path injection, Claude receives the image (A8); Interrupt + Esc (A9); tailnet/endpoint routing (A10).</p>
+<p><strong>Phase 2:</strong> New session via UI (Director + 68 repos + manual path + 5 agents); Rename; Kill (arm -&gt; confirm); <strong>Settings (fixed)</strong>.</p>
+<p><strong>Phase 3:</strong> Awareness - GIT (branch/dirty/last commit), recap state, turn summaries. (Recap generation Director-side-blocked.)</p>
+<p><strong>Phase 4:</strong> Fan-out (delivered); Handover - context preview <strong>and</strong> execution (new session spawned + seeded).</p>
+<p><strong>UI:</strong> Tree&lt;-&gt;Triage; left mini-rail collapse; right panel collapse; pref persistence; gateway-down resilience (rail retained, banner, auto-recover); cross-Director terminal; stale-Director <code>/queue</code> graceful degradation; multi-line composer (Shift+Enter); session-switch terminal swap is clean.</p>
+<hr/>
+<h2>Desktop parity</h2>
+<p>Captured the running desktop app (Avalonia). It has the equivalent of every Cockpit capability (session rail, live terminal, Speak/Send/Queue/Interrupt composer, screenshots/image viewer, New/Kill/Rename/Settings, awareness, fan-out, handover) <strong>plus more</strong> (tabbed Clean/Wingman/document viewers). <strong>Desktop is at-or-ahead of the Cockpit.</strong> The one prior gap - the desktop accepts a drag-drop directly on the prompt box - was <strong>closed this loop</strong> (issue #9): the Cockpit composer now also accepts image drops, in addition to the Screenshots panel; both reach Claude via the same upload path.</p>
+<hr/>
+<h2>Iteration reports (all kept)</h2>
+<table>
+<thead>
+<tr>
+<th>Iteration</th>
+<th>Focus</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="ITER-01_QA_REPORT.html">ITER-01</a></td>
+<td>Full feature matrix</td>
+<td>2 bugs found (#1, #2)</td>
+</tr>
+<tr>
+<td><a href="ITER-02_QA_REPORT.html">ITER-02</a></td>
+<td>Fix verification + New/Kill lifecycle</td>
+<td>#1, #2 fixed + verified; 0 new</td>
+</tr>
+<tr>
+<td><a href="ITER-03_QA_REPORT.html">ITER-03</a></td>
+<td>Edge cases + cross-Director + desktop parity</td>
+<td>0 new</td>
+</tr>
+<tr>
+<td><a href="ITER-04_QA_REPORT.html">ITER-04</a></td>
+<td>Code-level review + responsive fix</td>
+<td>#3 fixed; 0 new functional</td>
+</tr>
+<tr>
+<td><a href="ITER-05_QA_REPORT.html">ITER-05</a></td>
+<td>Latent-bug code review + fixes + regression</td>
+<td>#4-#8 found; #4-#7 + #8 fixed (4 of 5)</td>
+</tr>
+<tr>
+<td><a href="ITER-06_QA_REPORT.html">ITER-06</a></td>
+<td>Remaining-code review + stress tests</td>
+<td>0 new; multi-image + rapid-switch PASS; 1 LOW recommendation documented</td>
+</tr>
+<tr>
+<td><a href="ITER-07_QA_REPORT.html">ITER-07</a></td>
+<td>Composer drag-drop (explicit goal requirement)</td>
+<td>#9 implemented + verified; Screenshots-panel drop unaffected</td>
+</tr>
+</tbody>
+</table>
+<p>Black-box testing converged to clean by iter 3; iter 4 fixed a cosmetic nit; iter 5's structured code review found 5 latent defects (TOCTOU, roster-freeze, queue race, dispatcher, dictation-stuck) and fixed 4 - all regression-verified live with no behavioural regression; iter 6 reviewed the remaining code (SessionOrdering/Program.cs/terminal.js - clean) and stress-tested multi-image upload + rapid session switching (both pass). Screenshots for every step are under <code>img/iter1</code>..<code>img/iter6</code>. All test sessions were cleaned up; only the user's sessions remain running.</p>
+</article>
+</body>
+</html>

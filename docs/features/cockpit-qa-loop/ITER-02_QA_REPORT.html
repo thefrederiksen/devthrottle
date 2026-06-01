@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Cockpit QA Loop - Iteration 02 (fix verification)</title>
+<style>
+        /* Boardroom Theme - Corporate, executive style with serif fonts */
+        
+        :root {
+            /* Colors */
+            --primary: #1A365D;
+            --primary-light: #2A4A7F;
+            --accent: #D69E2E;
+            --text: #2D3748;
+            --heading: #1A365D;
+            --background: #FFFFFF;
+            --code-bg: #EDF2F7;
+            --code-text: #1A365D;
+            --border: #CBD5E0;
+            --link: #2B6CB0;
+            --blockquote-text: #4A5568;
+            --blockquote-border: #D69E2E;
+            --blockquote-bg: #FFFFFF;
+            --table-header-bg: #1A365D;
+            --table-header-text: #FFFFFF;
+            --alt-row-bg: #F7FAFC;
+            --shadow-color: rgba(26, 54, 93, 0.08);
+        
+            /* Fonts */
+            --font-heading: "Palatino Linotype", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-body: "Georgia", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-code: "Courier New", "JetBrains Mono", "Fira Code", Consolas, monospace;
+        
+            /* Style */
+            --heading-letter-spacing: -0.02em;
+            --line-height: 1.7;
+            --radius: 4px;
+            --code-radius: 6px;
+            --shadow-sm: 0 1px 3px rgba(26, 54, 93, 0.08);
+            --shadow-md: 0 4px 12px rgba(26, 54, 93, 0.1);
+        }
+        
+        /* Base styles for all themes */
+        
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+        }
+        
+        html {
+            font-size: 16px;
+            line-height: var(--line-height);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: var(--font-body);
+            color: var(--text);
+            background: var(--background);
+        }
+        
+        .markdown-body {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 3rem 2.5rem;
+        }
+        
+        /* Typography */
+        h1, h2, h3, h4, h5, h6 {
+            font-family: var(--font-heading);
+            color: var(--heading);
+            margin-top: 1.8em;
+            margin-bottom: 0.6em;
+            font-weight: 600;
+            line-height: 1.25;
+            letter-spacing: var(--heading-letter-spacing);
+            orphans: 3;
+            widows: 3;
+        }
+        
+        h1 {
+            font-size: 2.25em;
+            margin-top: 0;
+        }
+        
+        h2 { font-size: 1.65em; }
+        h3 { font-size: 1.35em; }
+        h4 { font-size: 1.1em; }
+        h5 { font-size: 0.95em; }
+        h6 { font-size: 0.85em; color: var(--blockquote-text); }
+        
+        p {
+            margin: 1em 0;
+            orphans: 3;
+            widows: 3;
+        }
+        
+        /* Links */
+        a {
+            color: var(--link);
+            text-decoration: none;
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.2s ease;
+        }
+        
+        a:hover {
+            border-bottom-color: var(--link);
+        }
+        
+        /* Lists */
+        ul, ol {
+            margin: 1em 0;
+            padding-left: 2em;
+            line-height: var(--line-height);
+        }
+        
+        li {
+            margin: 0.35em 0;
+        }
+        
+        li > ul,
+        li > ol {
+            margin: 0.2em 0;
+        }
+        
+        /* Inline code */
+        code {
+            font-family: var(--font-code);
+            font-size: 0.875em;
+            padding: 0.15em 0.4em;
+            border-radius: var(--radius);
+            background: var(--code-bg);
+            color: var(--code-text);
+        }
+        
+        /* Code blocks */
+        pre {
+            margin: 1.5em 0;
+            padding: 1.25em 1.5em;
+            overflow-x: auto;
+            border-radius: var(--code-radius);
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow-sm);
+            position: relative;
+        }
+        
+        pre code {
+            padding: 0;
+            background: transparent;
+            border-radius: 0;
+            font-size: 0.875em;
+            line-height: 1.55;
+        }
+        
+        /* Blockquotes */
+        blockquote {
+            margin: 1.5em 0;
+            padding: 0.75em 1.25em;
+            border-left: 4px solid var(--blockquote-border);
+            background: var(--blockquote-bg);
+            color: var(--blockquote-text);
+            border-radius: 0 var(--radius) var(--radius) 0;
+        }
+        
+        blockquote p {
+            margin: 0.4em 0;
+        }
+        
+        blockquote p:first-child {
+            margin-top: 0;
+        }
+        
+        blockquote p:last-child {
+            margin-bottom: 0;
+        }
+        
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin: 1.5em 0;
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border);
+        }
+        
+        th, td {
+            padding: 0.75em 1em;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        th {
+            font-weight: 600;
+            background: var(--table-header-bg);
+            color: var(--table-header-text);
+        }
+        
+        tr:last-child td {
+            border-bottom: none;
+        }
+        
+        /* Horizontal rule */
+        hr {
+            border: none;
+            height: 2px;
+            max-width: 200px;
+            margin: 2.5em auto;
+            background: var(--border);
+            border-radius: 1px;
+        }
+        
+        /* Images */
+        img {
+            max-width: 100%;
+            height: auto;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        /* Task lists */
+        .task-list-item {
+            list-style-type: none;
+        }
+        
+        .task-list-item input[type="checkbox"] {
+            margin-right: 0.5em;
+        }
+        
+        /* Strong and emphasis */
+        strong {
+            font-weight: 700;
+        }
+        
+        /* Definition lists (if supported by parser) */
+        dt {
+            font-weight: 600;
+            margin-top: 1em;
+        }
+        
+        dd {
+            margin-left: 1.5em;
+            margin-bottom: 0.5em;
+        }
+        
+        
+        /* Boardroom: corporate authority with accent borders */
+        h1 {
+            border-bottom: 3px solid var(--accent);
+            padding-bottom: 0.5em;
+        }
+        
+        h2 {
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.3em;
+        }
+        
+        pre {
+            border-left: 4px solid var(--primary);
+            border-radius: 0 var(--code-radius) var(--code-radius) 0;
+        }
+        
+        pre::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--accent);
+            border-radius: 0;
+        }
+        
+        blockquote {
+            font-style: italic;
+        }
+        
+        hr {
+            background: var(--accent);
+            max-width: none;
+            height: 2px;
+        }
+        
+        tr:nth-child(even) td {
+            background: var(--alt-row-bg);
+        }
+        
+    </style>
+</head>
+<body>
+<article class="markdown-body">
+<h1>Cockpit QA Loop - Iteration 02 (fix verification)</h1>
+<p><strong>App version:</strong> 0.3.5 (build <code>990dba3</code> + uncommitted Cockpit fixes)
+        <strong>Report generated:</strong> 2026-05-31 23:12 local
+        <strong>Tested against:</strong> Cockpit <code>http://localhost:7471</code> (rebuilt with fixes) -&gt; Gateway <code>127.0.0.1:7878</code> -&gt; Slot-1 Director <code>c99a103c</code> (<code>127.0.0.1:7884</code>)
+        <strong>Driver:</strong> cc-playwright <code>cockpit-qa</code> (Brave, 1920x951).</p>
+<hr/>
+<h2>What this iteration did</h2>
+<p>Applied and <strong>live-verified</strong> the two Cockpit defects found in Iteration 01, then exercised the New-session and Kill lifecycle end-to-end (which had only been partially covered in Iter 01).</p>
+<table>
+<thead>
+<tr>
+<th>Item</th>
+<th>Iter-01 status</th>
+<th>Iter-02 result</th>
+<th>Evidence</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>BUG #1 - Settings "no reachable endpoint"</td>
+<td>BUG</td>
+<td><strong>FIXED</strong> - Settings now loads the full Director config JSON; Save round-trips ("saved; the Director re-applied its settings"); rail intact</td>
+<td><code>img/iter2/01-settings-fixed.png</code>, <code>02-settings-saved.png</code></td>
+</tr>
+<tr>
+<td>BUG #2 - spurious "dictation unavailable: A task was canceled" after cancelling Speak</td>
+<td>BUG</td>
+<td><strong>FIXED</strong> - cancelling Speak leaves a clean composer, no error banner</td>
+<td><code>img/iter2/03-dictation-cancel-clean.png</code></td>
+</tr>
+<tr>
+<td>P2-new - create a session via the New-session UI (manual repo path)</td>
+<td>partially tested</td>
+<td><strong>PASS</strong> - new session created + auto-selected with live welcome terminal</td>
+<td><code>img/iter2/04-new-session-created.png</code></td>
+</tr>
+<tr>
+<td>P2-kill - Kill (arm -&gt; Confirm)</td>
+<td>not tested</td>
+<td><strong>PASS</strong> - two-step arm guard; session went <code>Exited</code>, dropped from rail, selection cleared to "Select a session"</td>
+<td><code>img/iter2/05-kill-armed.png</code>, <code>06-killed.png</code>, <code>07-killed-after.png</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>New Cockpit bugs found this iteration: 0.</strong></p>
+<hr/>
+<h2>The fixes (what changed, and why)</h2>
+<h3>Fix #1 - Settings endpoint resolution (HIGH)</h3>
+<p><code>Cockpit.razor</code> <code>SettingsEndpointFor</code> now falls back to <code>ControlEndpoint</code> when <code>TailnetEndpoint</code> is null/empty:</p>
+<pre><code class="language-csharp">private string? SettingsEndpointFor(string directorId)
+        {
+            var d = _directors.FirstOrDefault(x =&gt; x.DirectorId == directorId);
+            if (d is null) return null;
+            return !string.IsNullOrWhiteSpace(d.TailnetEndpoint) ? d.TailnetEndpoint : d.ControlEndpoint;
+        }
+        </code></pre>
+<p>This mirrors the behaviour the session DTOs already had (which is why the terminal/Send/queue worked all along over <code>127.0.0.1:7884</code>) and matches the <code>DirectorDto.TailnetEndpoint</code> contract note: <em>"Null for FSW-discovered Directors (use ControlEndpoint in that case)."</em></p>
+<h3>Fix #2 - dictation cancel is not an error (MINOR + a latent timeout)</h3>
+<p>Two changes:</p>
+<ol>
+<li>
+<p><strong><code>cockpit-dictate.js</code></strong> - <code>start()</code> no longer <code>await</code>s the mic/socket boot before returning. The dialog is fully event-driven, so the Blazor JS-interop call now completes the moment the UI is wired:</p>
+<pre><code class="language-js">// was: await startSegment();
+        startSegment().catch(() =&gt; {});
+        </code></pre>
+<p>Holding the interop call open until <code>getUserMedia</code> resolved meant a hung or denied microphone (no device, or a user ignoring the permission prompt) tripped Blazor's <strong>60-second interop timeout</strong>, which surfaced a bogus "A task was canceled" error on a dialog that was actually working. This is the real root cause - it would bite real users whose mic permission stalls, not just the automated test browser.</p>
+</li>
+<li>
+<p><strong><code>Cockpit.razor</code></strong> <code>OpenDictate</code> - defensively swallows <code>OperationCanceledException</code> so a teardown/cancel never renders as a red error banner.</p>
+</li>
+</ol>
+<hr/>
+<h2>Full regression snapshot (re-confirmed still green)</h2>
+<p>Rail (tree/triage/collapse), select-&gt;terminal, terminal input (type/Ctrl+C/Esc), composer Send/Queue/Interrupt/Esc, screenshots upload+inject, New session, Rename, <strong>Settings (now fixed)</strong>, Kill, awareness (git + recap-state + turn-summaries), Fan-out, Handover preview, panel persistence - all PASS. The only non-working capability remains <strong>recap generation</strong>, which fails Director-side (<code>claude --print exited 1</code>) and is outside the Cockpit (handled gracefully).</p>
+<hr/>
+<h2>Next iteration plan (ITER-03)</h2>
+<p>Adversarial edge-case sweep to confirm there are no remaining Cockpit issues: multi-line composer (Shift+Enter), rapid session switching, terminal reconnect after a stream drop, empty/last-session states, and the "Director has no tailnet endpoint" branch. Fix anything found; otherwise declare the Cockpit clean.</p>
+</article>
+</body>
+</html>

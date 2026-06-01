@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Cockpit QA Loop - Iteration 01</title>
+<style>
+        /* Boardroom Theme - Corporate, executive style with serif fonts */
+        
+        :root {
+            /* Colors */
+            --primary: #1A365D;
+            --primary-light: #2A4A7F;
+            --accent: #D69E2E;
+            --text: #2D3748;
+            --heading: #1A365D;
+            --background: #FFFFFF;
+            --code-bg: #EDF2F7;
+            --code-text: #1A365D;
+            --border: #CBD5E0;
+            --link: #2B6CB0;
+            --blockquote-text: #4A5568;
+            --blockquote-border: #D69E2E;
+            --blockquote-bg: #FFFFFF;
+            --table-header-bg: #1A365D;
+            --table-header-text: #FFFFFF;
+            --alt-row-bg: #F7FAFC;
+            --shadow-color: rgba(26, 54, 93, 0.08);
+        
+            /* Fonts */
+            --font-heading: "Palatino Linotype", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-body: "Georgia", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-code: "Courier New", "JetBrains Mono", "Fira Code", Consolas, monospace;
+        
+            /* Style */
+            --heading-letter-spacing: -0.02em;
+            --line-height: 1.7;
+            --radius: 4px;
+            --code-radius: 6px;
+            --shadow-sm: 0 1px 3px rgba(26, 54, 93, 0.08);
+            --shadow-md: 0 4px 12px rgba(26, 54, 93, 0.1);
+        }
+        
+        /* Base styles for all themes */
+        
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+        }
+        
+        html {
+            font-size: 16px;
+            line-height: var(--line-height);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: var(--font-body);
+            color: var(--text);
+            background: var(--background);
+        }
+        
+        .markdown-body {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 3rem 2.5rem;
+        }
+        
+        /* Typography */
+        h1, h2, h3, h4, h5, h6 {
+            font-family: var(--font-heading);
+            color: var(--heading);
+            margin-top: 1.8em;
+            margin-bottom: 0.6em;
+            font-weight: 600;
+            line-height: 1.25;
+            letter-spacing: var(--heading-letter-spacing);
+            orphans: 3;
+            widows: 3;
+        }
+        
+        h1 {
+            font-size: 2.25em;
+            margin-top: 0;
+        }
+        
+        h2 { font-size: 1.65em; }
+        h3 { font-size: 1.35em; }
+        h4 { font-size: 1.1em; }
+        h5 { font-size: 0.95em; }
+        h6 { font-size: 0.85em; color: var(--blockquote-text); }
+        
+        p {
+            margin: 1em 0;
+            orphans: 3;
+            widows: 3;
+        }
+        
+        /* Links */
+        a {
+            color: var(--link);
+            text-decoration: none;
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.2s ease;
+        }
+        
+        a:hover {
+            border-bottom-color: var(--link);
+        }
+        
+        /* Lists */
+        ul, ol {
+            margin: 1em 0;
+            padding-left: 2em;
+            line-height: var(--line-height);
+        }
+        
+        li {
+            margin: 0.35em 0;
+        }
+        
+        li > ul,
+        li > ol {
+            margin: 0.2em 0;
+        }
+        
+        /* Inline code */
+        code {
+            font-family: var(--font-code);
+            font-size: 0.875em;
+            padding: 0.15em 0.4em;
+            border-radius: var(--radius);
+            background: var(--code-bg);
+            color: var(--code-text);
+        }
+        
+        /* Code blocks */
+        pre {
+            margin: 1.5em 0;
+            padding: 1.25em 1.5em;
+            overflow-x: auto;
+            border-radius: var(--code-radius);
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow-sm);
+            position: relative;
+        }
+        
+        pre code {
+            padding: 0;
+            background: transparent;
+            border-radius: 0;
+            font-size: 0.875em;
+            line-height: 1.55;
+        }
+        
+        /* Blockquotes */
+        blockquote {
+            margin: 1.5em 0;
+            padding: 0.75em 1.25em;
+            border-left: 4px solid var(--blockquote-border);
+            background: var(--blockquote-bg);
+            color: var(--blockquote-text);
+            border-radius: 0 var(--radius) var(--radius) 0;
+        }
+        
+        blockquote p {
+            margin: 0.4em 0;
+        }
+        
+        blockquote p:first-child {
+            margin-top: 0;
+        }
+        
+        blockquote p:last-child {
+            margin-bottom: 0;
+        }
+        
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin: 1.5em 0;
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border);
+        }
+        
+        th, td {
+            padding: 0.75em 1em;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        th {
+            font-weight: 600;
+            background: var(--table-header-bg);
+            color: var(--table-header-text);
+        }
+        
+        tr:last-child td {
+            border-bottom: none;
+        }
+        
+        /* Horizontal rule */
+        hr {
+            border: none;
+            height: 2px;
+            max-width: 200px;
+            margin: 2.5em auto;
+            background: var(--border);
+            border-radius: 1px;
+        }
+        
+        /* Images */
+        img {
+            max-width: 100%;
+            height: auto;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        /* Task lists */
+        .task-list-item {
+            list-style-type: none;
+        }
+        
+        .task-list-item input[type="checkbox"] {
+            margin-right: 0.5em;
+        }
+        
+        /* Strong and emphasis */
+        strong {
+            font-weight: 700;
+        }
+        
+        /* Definition lists (if supported by parser) */
+        dt {
+            font-weight: 600;
+            margin-top: 1em;
+        }
+        
+        dd {
+            margin-left: 1.5em;
+            margin-bottom: 0.5em;
+        }
+        
+        
+        /* Boardroom: corporate authority with accent borders */
+        h1 {
+            border-bottom: 3px solid var(--accent);
+            padding-bottom: 0.5em;
+        }
+        
+        h2 {
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.3em;
+        }
+        
+        pre {
+            border-left: 4px solid var(--primary);
+            border-radius: 0 var(--code-radius) var(--code-radius) 0;
+        }
+        
+        pre::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--accent);
+            border-radius: 0;
+        }
+        
+        blockquote {
+            font-style: italic;
+        }
+        
+        hr {
+            background: var(--accent);
+            max-width: none;
+            height: 2px;
+        }
+        
+        tr:nth-child(even) td {
+            background: var(--alt-row-bg);
+        }
+        
+    </style>
+</head>
+<body>
+<article class="markdown-body">
+<h1>Cockpit QA Loop - Iteration 01</h1>
+<p><strong>App version:</strong> 0.3.5 (build <code>990dba3</code>, 2 commits past tag <code>v0.3.5</code>)
+        <strong>Report generated:</strong> 2026-05-31 23:02 local
+        <strong>Tested against:</strong> Cockpit on <code>http://localhost:7471</code> (ASPNETCORE_ENVIRONMENT=Development) -&gt; Gateway <code>127.0.0.1:7878</code> -&gt; Slot-1 final-build Director <code>c99a103c</code> on <code>127.0.0.1:7884</code>
+<strong>Test session:</strong> a throwaway Claude Code session in scratch repo <code>D:/ReposFred/cc-director-qa-scratch</code> (later renamed "QA Scratch (renamed)"). No user sessions were touched.
+        <strong>Driver:</strong> cc-playwright <code>cockpit-qa</code> connection (separate Brave, 1920x951).</p>
+<hr/>
+<h2>Summary</h2>
+<table>
+<thead>
+<tr>
+<th>Result</th>
+<th>Count</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>PASS (verified live)</td>
+<td>21</td>
+</tr>
+<tr>
+<td>PARTIAL (env-limited)</td>
+<td>1</td>
+</tr>
+<tr>
+<td>Cockpit BUG found</td>
+<td>2</td>
+</tr>
+<tr>
+<td>Known Director-side issue (not a Cockpit bug)</td>
+<td>1</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Headline:</strong> The Cockpit MVP + Phases 2-4 are in very good shape. Every interactive feature works against a real Director and a real Claude session. Two Cockpit defects were found - one <strong>high-impact</strong> (Settings is unusable because the Director endpoint isn't resolved) and one <strong>minor</strong> (a spurious error after cancelling dictation). One feature (recap generation) is blocked by a Director-side <code>claude --print</code> failure, which the Cockpit handles gracefully.</p>
+<hr/>
+<h2>Feature test matrix</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Feature</th>
+<th>Result</th>
+<th>Evidence</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A1</td>
+<td>Rail shows the whole fleet (grouped by machine/Director, verbatim status dots, needs-you pills)</td>
+<td>PASS</td>
+<td><code>img/iter1/01-initial-load.png</code></td>
+</tr>
+<tr>
+<td>A2</td>
+<td>Select a session -&gt; live terminal renders coherently (no ghost frames)</td>
+<td>PASS</td>
+<td><code>img/iter1/02-session-selected.png</code>, <code>03-wide-layout.png</code></td>
+</tr>
+<tr>
+<td>A3</td>
+<td>Terminal stays current (live output, no manual refresh)</td>
+<td>PASS</td>
+<td><code>img/iter1/07-composer-send.png</code></td>
+</tr>
+<tr>
+<td>A4</td>
+<td>Terminal input - typing reaches Claude; Ctrl+C clears the line</td>
+<td>PASS</td>
+<td><code>img/iter1/04-terminal-input.png</code>, <code>06-ctrlc.png</code></td>
+</tr>
+<tr>
+<td>A5</td>
+<td>Composer <strong>Send</strong> round-trips (prompt -&gt; Claude reply <code>COCKPIT_QA_SEND_OK</code>)</td>
+<td>PASS</td>
+<td><code>img/iter1/07-composer-send.png</code></td>
+</tr>
+<tr>
+<td>A6</td>
+<td><strong>Queue</strong> enqueue / list / remove / send-now</td>
+<td>PASS</td>
+<td><code>img/iter1/08-queue.png</code>, <code>09-queue-removed.png</code>, <code>10-queue-sendnow.png</code></td>
+</tr>
+<tr>
+<td>A6b</td>
+<td>Queue <strong>auto-drain</strong></td>
+<td>PASS (by design)</td>
+<td>Edge-triggered on <code>Idle</code> only (Session.cs:1187); intentionally never drains on <code>WaitingForInput</code> so a queued prompt can't answer Claude's own question. Manual ops verified live.</td>
+</tr>
+<tr>
+<td>A7</td>
+<td><strong>Speak</strong> (dictation dialog: mic selector, equalizer, editable transcript, Insert/Send)</td>
+<td>PARTIAL</td>
+<td><code>img/iter1/19-speak.png</code> - dialog opens &amp; matches desktop; live transcription needs a real microphone (automated browser has none).</td>
+</tr>
+<tr>
+<td>A8</td>
+<td><strong>Screenshots</strong> - dropped/picked image uploads to Director and its path is injected into the live prompt; Claude receives it</td>
+<td>PASS</td>
+<td><code>img/iter1/20-screenshot-upload.png</code> (path <code>upload-20260531-225855-210.png</code> injected, Claude "Marinating...")</td>
+</tr>
+<tr>
+<td>A9</td>
+<td><strong>Interrupt</strong> (Ctrl+C clears the run) and <strong>Esc</strong> (soft-stop) buttons</td>
+<td>PASS</td>
+<td><code>img/iter1/21-interrupt.png</code></td>
+</tr>
+<tr>
+<td>A10</td>
+<td>Tailnet-only routing (reads via Gateway; writes/stream direct to the session's endpoint)</td>
+<td>PASS (by design)</td>
+<td>DirectorClient dials <code>Selected.TailnetEndpoint</code>; reads via GatewayClient.</td>
+</tr>
+<tr>
+<td>P2-new</td>
+<td><strong>New session</strong> dialog - Director + Repository (68 repos) + manual path + Agent (5) all populate</td>
+<td>PASS</td>
+<td><code>img/iter1/13-new-session.png</code></td>
+</tr>
+<tr>
+<td>P2-rename</td>
+<td><strong>Rename</strong> a session (live, reflects in header + rail)</td>
+<td>PASS</td>
+<td><code>img/iter1/24-rename.png</code></td>
+</tr>
+<tr>
+<td>P2-set</td>
+<td><strong>Settings</strong> modal opens with Director picker</td>
+<td><strong>BUG #1</strong></td>
+<td><code>img/iter1/12-settings.png</code> - "that Director has no reachable endpoint", empty JSON box</td>
+</tr>
+<tr>
+<td>P3-aware</td>
+<td><strong>What's happening</strong> - GIT (branch/dirty/last commit), RECAP state, TURN SUMMARIES</td>
+<td>PASS</td>
+<td><code>img/iter1/14-awareness.png</code></td>
+</tr>
+<tr>
+<td>P3-recap</td>
+<td><strong>Generate fresh</strong> recap</td>
+<td>Director-side blocked</td>
+<td><code>img/iter1/15-recap-generating.png</code> - "claude --print exited 1:"; Cockpit shows the error inline and re-arms the button (graceful).</td>
+</tr>
+<tr>
+<td>P4-fanout</td>
+<td><strong>Fan-out</strong> a prompt to selected sessions</td>
+<td>PASS</td>
+<td><code>img/iter1/17-fanout.png</code>, <code>18-fanout-sent.png</code> ("delivered ddb54e2f")</td>
+</tr>
+<tr>
+<td>P4-hand</td>
+<td><strong>Handover</strong> - context preview prose generated; new/existing target, Director, repo, agent, archive</td>
+<td>PASS</td>
+<td><code>img/iter1/16-handover.png</code></td>
+</tr>
+<tr>
+<td>UI-view</td>
+<td>Left panel <strong>Tree &lt;-&gt; Triage</strong> toggle (Needs-you / Active buckets)</td>
+<td>PASS</td>
+<td><code>img/iter1/22-triage.png</code></td>
+</tr>
+<tr>
+<td>UI-collapse</td>
+<td>Left <strong>mini-rail</strong> collapse (status dots) + Right panel collapse (terminal full-width)</td>
+<td>PASS</td>
+<td><code>img/iter1/23-collapsed-panels.png</code></td>
+</tr>
+<tr>
+<td>UI-persist</td>
+<td>Panel/view prefs persist to localStorage</td>
+<td>PASS</td>
+<td>Restored on reload via OnAfterRenderAsync.</td>
+</tr>
+<tr>
+<td>Resilience</td>
+<td>Gateway briefly went down mid-test; Cockpit kept the rail, showed a banner, recovered</td>
+<td>PASS</td>
+<td>Banner in <code>img/iter1/10-queue-sendnow.png</code>; rail never blanked.</td>
+</tr>
+</tbody>
+</table>
+<hr/>
+<h2>Issues found</h2>
+<h3>BUG #1 (HIGH) - Settings is unusable: "that Director has no reachable endpoint"</h3>
+<p><strong>What happens:</strong> Opening <strong>Settings</strong> (topbar) shows an empty JSON editor and the red error <em>"that Director has no reachable endpoint"</em>. Settings cannot be read or saved for any Director.</p>
+<p><strong>Root cause:</strong> <code>Cockpit.razor</code> <code>SettingsEndpointFor(directorId)</code> resolves the Director's base URL <strong>only</strong> from <code>DirectorDto.TailnetEndpoint</code>:</p>
+<pre><code class="language-csharp">private string? SettingsEndpointFor(string directorId) =&gt;
+            _directors.FirstOrDefault(d =&gt; d.DirectorId == directorId)?.TailnetEndpoint;
+        </code></pre>
+<p>But for same-machine, FSW-discovered Directors the Gateway returns <code>tailnetEndpoint: null</code> - the contract itself documents this: <em>"Null for FSW-discovered Directors (use ControlEndpoint in that case)."</em> (DirectorDto.cs:42). The session DTOs already get a control-endpoint fallback (that's why the terminal/Send/queue all work over <code>127.0.0.1:7884</code>), but the <strong>Director</strong> DTOs do not, so Settings - the only place that resolves a Director endpoint client-side - is broken.</p>
+<p><strong>Fix:</strong> Fall back to <code>ControlEndpoint</code> when <code>TailnetEndpoint</code> is null/empty (mirroring the session DTO behaviour). One-line helper in <code>Cockpit.razor</code>. Will be applied in the next iteration.</p>
+<h3>BUG #2 (MINOR) - spurious error after cancelling Speak/dictation</h3>
+<p><strong>What happens:</strong> Open <strong>Speak</strong>, then <strong>Cancel</strong> - a red error <em>"dictation unavailable: A task was canceled."</em> lingers in the composer dock. A user-initiated cancellation should not be presented as an error (violates the "no error on screen" rule).</p>
+<p><strong>Root cause:</strong> <code>OpenDictate</code>'s catch sets <code>_actError = $"dictation unavailable: {ex.Message}"</code> for <strong>any</strong> exception, including the <code>OperationCanceledException</code> ("A task was canceled") raised when the dialog is dismissed.</p>
+<p><strong>Fix:</strong> Swallow <code>OperationCanceledException</code> (and the JS cancel path) without surfacing it as an error. Will be applied in the next iteration.</p>
+<h3>Known issue (NOT a Cockpit bug) - recap generation fails Director-side</h3>
+<p><strong>What happens:</strong> <strong>Generate fresh</strong> recap returns <em>"claude --print exited 1:"</em>. The cached-recap read, git read, and turn-summaries read all work; only on-demand generation fails.</p>
+<p><strong>Root cause:</strong> Director-side - the Director runs <code>claude --print</code> to produce the recap and that child process exits 1. This is the same class of issue noted in prior handovers. The Director is final/shipped in this workstream, so this is flagged for the Director owner, not fixed here. The Cockpit's handling is correct (inline error, button re-armed, no hang).</p>
+<hr/>
+<h2>Cockpit vs Desktop parity</h2>
+<p>The user's bar: <strong>the desktop must be at least at par with the Cockpit.</strong> The desktop (Avalonia) is the full product and is at-or-ahead on every Cockpit feature:</p>
+<table>
+<thead>
+<tr>
+<th>Capability</th>
+<th>Cockpit</th>
+<th>Desktop</th>
+<th>Verdict</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Live terminal (typeable, Ctrl+C/Esc/arrows)</td>
+<td>yes (xterm over WSS)</td>
+<td>yes (native TerminalControl)</td>
+<td>at par</td>
+</tr>
+<tr>
+<td>Composer Send / Queue / Interrupt / Esc</td>
+<td>yes</td>
+<td>yes (PromptInput + queue)</td>
+<td>at par</td>
+</tr>
+<tr>
+<td>Screenshots into the session</td>
+<td>upload -&gt; inject path into PTY</td>
+<td>drag-drop a file -&gt; inserts path into the prompt box</td>
+<td>at par (remote vs local; both reach Claude)</td>
+</tr>
+<tr>
+<td>Drag-and-drop gesture</td>
+<td>onto the Screenshots panel (file input)</td>
+<td>onto the prompt textbox (<code>PromptInput_Drop</code>, inserts path+newline)</td>
+<td>desktop also accepts text/file drop directly on the prompt box</td>
+</tr>
+<tr>
+<td>Dictation (Speak)</td>
+<td>yes (browser twin of SpeakDialog)</td>
+<td>yes (SpeakDialog)</td>
+<td>at par</td>
+</tr>
+<tr>
+<td>New / Kill / Rename</td>
+<td>yes</td>
+<td>yes</td>
+<td>at par</td>
+</tr>
+<tr>
+<td>Settings</td>
+<td>yes (currently BUG #1)</td>
+<td>yes (SettingsDialog)</td>
+<td>desktop ahead until BUG #1 fixed</td>
+</tr>
+<tr>
+<td>Awareness / recap / git</td>
+<td>yes</td>
+<td>yes (WingmanView / GitChangesView)</td>
+<td>at par</td>
+</tr>
+<tr>
+<td>Fan-out / Handover</td>
+<td>yes</td>
+<td>yes (FifoWindow / move-session)</td>
+<td>at par</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Parity finding (enhancement, not a defect):</strong> On the desktop you can drop an image (or text) directly onto the <strong>prompt box</strong>; in the Cockpit the drop target is the <strong>Screenshots panel</strong> only. Functionally equivalent (both get the image to Claude), but a Cockpit enhancement to also accept a drop on the composer textarea would match the desktop gesture exactly. Tracked as a parity nicety, not a bug.</p>
+<hr/>
+<h2>Next iteration plan</h2>
+<ol>
+<li>Fix <strong>BUG #1</strong> (Settings endpoint fallback to ControlEndpoint).</li>
+<li>Fix <strong>BUG #2</strong> (don't show cancellation as an error in OpenDictate).</li>
+<li>Rebuild the Cockpit, re-run the full matrix (focus: Settings load+save round-trip, Speak cancel is clean), regenerate ITER-02 report.</li>
+<li>Continue looping until no Cockpit issues remain or 20 iterations.</li>
+</ol>
+</article>
+</body>
+</html>

@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Cockpit QA Loop - Iteration 07 (composer drag-drop - explicit requirement)</title>
+<style>
+        /* Boardroom Theme - Corporate, executive style with serif fonts */
+        
+        :root {
+            /* Colors */
+            --primary: #1A365D;
+            --primary-light: #2A4A7F;
+            --accent: #D69E2E;
+            --text: #2D3748;
+            --heading: #1A365D;
+            --background: #FFFFFF;
+            --code-bg: #EDF2F7;
+            --code-text: #1A365D;
+            --border: #CBD5E0;
+            --link: #2B6CB0;
+            --blockquote-text: #4A5568;
+            --blockquote-border: #D69E2E;
+            --blockquote-bg: #FFFFFF;
+            --table-header-bg: #1A365D;
+            --table-header-text: #FFFFFF;
+            --alt-row-bg: #F7FAFC;
+            --shadow-color: rgba(26, 54, 93, 0.08);
+        
+            /* Fonts */
+            --font-heading: "Palatino Linotype", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-body: "Georgia", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-code: "Courier New", "JetBrains Mono", "Fira Code", Consolas, monospace;
+        
+            /* Style */
+            --heading-letter-spacing: -0.02em;
+            --line-height: 1.7;
+            --radius: 4px;
+            --code-radius: 6px;
+            --shadow-sm: 0 1px 3px rgba(26, 54, 93, 0.08);
+            --shadow-md: 0 4px 12px rgba(26, 54, 93, 0.1);
+        }
+        
+        /* Base styles for all themes */
+        
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+        }
+        
+        html {
+            font-size: 16px;
+            line-height: var(--line-height);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: var(--font-body);
+            color: var(--text);
+            background: var(--background);
+        }
+        
+        .markdown-body {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 3rem 2.5rem;
+        }
+        
+        /* Typography */
+        h1, h2, h3, h4, h5, h6 {
+            font-family: var(--font-heading);
+            color: var(--heading);
+            margin-top: 1.8em;
+            margin-bottom: 0.6em;
+            font-weight: 600;
+            line-height: 1.25;
+            letter-spacing: var(--heading-letter-spacing);
+            orphans: 3;
+            widows: 3;
+        }
+        
+        h1 {
+            font-size: 2.25em;
+            margin-top: 0;
+        }
+        
+        h2 { font-size: 1.65em; }
+        h3 { font-size: 1.35em; }
+        h4 { font-size: 1.1em; }
+        h5 { font-size: 0.95em; }
+        h6 { font-size: 0.85em; color: var(--blockquote-text); }
+        
+        p {
+            margin: 1em 0;
+            orphans: 3;
+            widows: 3;
+        }
+        
+        /* Links */
+        a {
+            color: var(--link);
+            text-decoration: none;
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.2s ease;
+        }
+        
+        a:hover {
+            border-bottom-color: var(--link);
+        }
+        
+        /* Lists */
+        ul, ol {
+            margin: 1em 0;
+            padding-left: 2em;
+            line-height: var(--line-height);
+        }
+        
+        li {
+            margin: 0.35em 0;
+        }
+        
+        li > ul,
+        li > ol {
+            margin: 0.2em 0;
+        }
+        
+        /* Inline code */
+        code {
+            font-family: var(--font-code);
+            font-size: 0.875em;
+            padding: 0.15em 0.4em;
+            border-radius: var(--radius);
+            background: var(--code-bg);
+            color: var(--code-text);
+        }
+        
+        /* Code blocks */
+        pre {
+            margin: 1.5em 0;
+            padding: 1.25em 1.5em;
+            overflow-x: auto;
+            border-radius: var(--code-radius);
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow-sm);
+            position: relative;
+        }
+        
+        pre code {
+            padding: 0;
+            background: transparent;
+            border-radius: 0;
+            font-size: 0.875em;
+            line-height: 1.55;
+        }
+        
+        /* Blockquotes */
+        blockquote {
+            margin: 1.5em 0;
+            padding: 0.75em 1.25em;
+            border-left: 4px solid var(--blockquote-border);
+            background: var(--blockquote-bg);
+            color: var(--blockquote-text);
+            border-radius: 0 var(--radius) var(--radius) 0;
+        }
+        
+        blockquote p {
+            margin: 0.4em 0;
+        }
+        
+        blockquote p:first-child {
+            margin-top: 0;
+        }
+        
+        blockquote p:last-child {
+            margin-bottom: 0;
+        }
+        
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin: 1.5em 0;
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border);
+        }
+        
+        th, td {
+            padding: 0.75em 1em;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        th {
+            font-weight: 600;
+            background: var(--table-header-bg);
+            color: var(--table-header-text);
+        }
+        
+        tr:last-child td {
+            border-bottom: none;
+        }
+        
+        /* Horizontal rule */
+        hr {
+            border: none;
+            height: 2px;
+            max-width: 200px;
+            margin: 2.5em auto;
+            background: var(--border);
+            border-radius: 1px;
+        }
+        
+        /* Images */
+        img {
+            max-width: 100%;
+            height: auto;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        /* Task lists */
+        .task-list-item {
+            list-style-type: none;
+        }
+        
+        .task-list-item input[type="checkbox"] {
+            margin-right: 0.5em;
+        }
+        
+        /* Strong and emphasis */
+        strong {
+            font-weight: 700;
+        }
+        
+        /* Definition lists (if supported by parser) */
+        dt {
+            font-weight: 600;
+            margin-top: 1em;
+        }
+        
+        dd {
+            margin-left: 1.5em;
+            margin-bottom: 0.5em;
+        }
+        
+        
+        /* Boardroom: corporate authority with accent borders */
+        h1 {
+            border-bottom: 3px solid var(--accent);
+            padding-bottom: 0.5em;
+        }
+        
+        h2 {
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.3em;
+        }
+        
+        pre {
+            border-left: 4px solid var(--primary);
+            border-radius: 0 var(--code-radius) var(--code-radius) 0;
+        }
+        
+        pre::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--accent);
+            border-radius: 0;
+        }
+        
+        blockquote {
+            font-style: italic;
+        }
+        
+        hr {
+            background: var(--accent);
+            max-width: none;
+            height: 2px;
+        }
+        
+        tr:nth-child(even) td {
+            background: var(--alt-row-bg);
+        }
+        
+    </style>
+</head>
+<body>
+<article class="markdown-body">
+<h1>Cockpit QA Loop - Iteration 07 (composer drag-drop - explicit requirement)</h1>
+<p><strong>App version:</strong> 0.3.5 (build <code>990dba3</code> + uncommitted Cockpit fixes)
+        <strong>Report generated:</strong> 2026-05-31 23:56 local
+        <strong>Tested against:</strong> Cockpit <code>http://localhost:7471</code> (rebuilt) -&gt; Gateway <code>127.0.0.1:7878</code> -&gt; Slot-1 Director <code>c99a103c</code> (<code>7884</code>).</p>
+<hr/>
+<h2>Why this iteration</h2>
+<p>Re-reading the goal, one requirement was called out by name: <em>"the drag and drop <strong>into the text box</strong> and see that it works."</em> The Cockpit only accepted image drops on the <strong>Screenshots panel</strong> - the composer <strong>text box</strong> had no drop handler, so dropping an image there did nothing (the desktop, by contrast, accepts a drop directly on the prompt box). That is a real, explicitly-requested gap, so this iteration <strong>implemented composer drag-drop</strong> and verified it.</p>
+<h2>Issue #9 (FEATURE GAP - explicitly requested) - composer text box now accepts image drops</h2>
+<p><strong>Before:</strong> dropping an image on the composer textarea did nothing.</p>
+<p><strong>Fix (desktop parity):</strong></p>
+<ul>
+<li><code>cockpit-composer-drop.js</code> (new) - a document-level (event-delegated, idempotent) handler: on dragover of files over <code>.composer</code> it allows the drop + highlights; on drop it routes the image files into the composer's hidden <code>&lt;InputFile&gt;</code> and dispatches <code>change</code>, so they run the <strong>same</strong> server-side <code>OnDropImages</code> upload+inject path the Screenshots panel uses. Text drops fall through to the textarea's native behaviour; non-image files are ignored.</li>
+<li><code>Cockpit.razor</code> - added the hidden <code>.composer-drop-input</code> InputFile inside <code>.composer</code> (always rendered with the composer, so it works even when the right panel is collapsed); wired <code>init()</code> once in <code>OnAfterRenderAsync</code>; updated the placeholder to "...drop an image here"; disposes the JS module ref.</li>
+<li><code>app.css</code> - <code>.composer-drop-input{display:none}</code> + a <code>.composer.drag-over</code> dashed-accent highlight.</li>
+</ul>
+<p><strong>Verified live:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Check</th>
+<th>Result</th>
+<th>Evidence</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Handler wired on load (<code>window.__cockpitComposerDropInit</code>, sink present)</td>
+<td>PASS</td>
+<td><code>wired:true, hasComposer:true, hasSink:true</code></td>
+</tr>
+<tr>
+<td>Drop an image <strong>on the composer text box</strong> -&gt; uploads + injects path</td>
+<td>PASS</td>
+<td><code>img/iter7/01-composer-drop.png</code> - "attached 1 image to the prompt"; path <code>upload-20260531-235443-235.png</code> injected into the live prompt</td>
+</tr>
+<tr>
+<td>Existing <strong>Screenshots panel</strong> drop still works (no regression)</td>
+<td>PASS</td>
+<td>"attached 1 image to the prompt"</td>
+</tr>
+<tr>
+<td>Placeholder now advertises the gesture</td>
+<td>PASS</td>
+<td>"...Shift+Enter for newline; drop an image here)"</td>
+</tr>
+</tbody>
+</table>
+<p>(cc-playwright can't perform a native OS file-drag, so the drop was exercised with a real <code>File</code> in a dispatched <code>DragEvent</code>+<code>DataTransfer</code> - the exact path a browser drop takes into the handler.)</p>
+<hr/>
+<h2>Updated parity note</h2>
+<p>Iters 1-6 listed "composer-textarea drop" as a desktop-parity <em>enhancement</em>. It is now <strong>implemented</strong> - the Cockpit composer accepts image drops just like the desktop prompt box. The two screenshot entry points (composer drop + Screenshots panel) both reach Claude via the identical upload path.</p>
+<hr/>
+<h2>Loop status after Iteration 07</h2>
+<table>
+<thead>
+<tr>
+<th>Iter</th>
+<th>Found</th>
+<th>Fixed</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>01-06</td>
+<td>8 issues + 1 LOW recommendation</td>
+<td>7 fixed, 1 LOW deferred</td>
+</tr>
+<tr>
+<td>07</td>
+<td>#9 composer-drop gap (explicitly requested in the goal)</td>
+<td><strong>#9 implemented + verified</strong></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Total: 9 Cockpit issues/gaps found, 8 fixed/implemented + verified, 1 LOW deferred.</strong> Files changed this loop: <code>Cockpit.razor</code>, <code>wwwroot/js/cockpit-dictate.js</code>, <code>wwwroot/js/cockpit-composer-drop.js</code> (new), <code>wwwroot/app.css</code>. Build green.</p>
+</article>
+</body>
+</html>

@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Cockpit QA Loop - Iteration 04 (code-level review + responsive fix)</title>
+<style>
+        /* Boardroom Theme - Corporate, executive style with serif fonts */
+        
+        :root {
+            /* Colors */
+            --primary: #1A365D;
+            --primary-light: #2A4A7F;
+            --accent: #D69E2E;
+            --text: #2D3748;
+            --heading: #1A365D;
+            --background: #FFFFFF;
+            --code-bg: #EDF2F7;
+            --code-text: #1A365D;
+            --border: #CBD5E0;
+            --link: #2B6CB0;
+            --blockquote-text: #4A5568;
+            --blockquote-border: #D69E2E;
+            --blockquote-bg: #FFFFFF;
+            --table-header-bg: #1A365D;
+            --table-header-text: #FFFFFF;
+            --alt-row-bg: #F7FAFC;
+            --shadow-color: rgba(26, 54, 93, 0.08);
+        
+            /* Fonts */
+            --font-heading: "Palatino Linotype", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-body: "Georgia", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-code: "Courier New", "JetBrains Mono", "Fira Code", Consolas, monospace;
+        
+            /* Style */
+            --heading-letter-spacing: -0.02em;
+            --line-height: 1.7;
+            --radius: 4px;
+            --code-radius: 6px;
+            --shadow-sm: 0 1px 3px rgba(26, 54, 93, 0.08);
+            --shadow-md: 0 4px 12px rgba(26, 54, 93, 0.1);
+        }
+        
+        /* Base styles for all themes */
+        
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+        }
+        
+        html {
+            font-size: 16px;
+            line-height: var(--line-height);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: var(--font-body);
+            color: var(--text);
+            background: var(--background);
+        }
+        
+        .markdown-body {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 3rem 2.5rem;
+        }
+        
+        /* Typography */
+        h1, h2, h3, h4, h5, h6 {
+            font-family: var(--font-heading);
+            color: var(--heading);
+            margin-top: 1.8em;
+            margin-bottom: 0.6em;
+            font-weight: 600;
+            line-height: 1.25;
+            letter-spacing: var(--heading-letter-spacing);
+            orphans: 3;
+            widows: 3;
+        }
+        
+        h1 {
+            font-size: 2.25em;
+            margin-top: 0;
+        }
+        
+        h2 { font-size: 1.65em; }
+        h3 { font-size: 1.35em; }
+        h4 { font-size: 1.1em; }
+        h5 { font-size: 0.95em; }
+        h6 { font-size: 0.85em; color: var(--blockquote-text); }
+        
+        p {
+            margin: 1em 0;
+            orphans: 3;
+            widows: 3;
+        }
+        
+        /* Links */
+        a {
+            color: var(--link);
+            text-decoration: none;
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.2s ease;
+        }
+        
+        a:hover {
+            border-bottom-color: var(--link);
+        }
+        
+        /* Lists */
+        ul, ol {
+            margin: 1em 0;
+            padding-left: 2em;
+            line-height: var(--line-height);
+        }
+        
+        li {
+            margin: 0.35em 0;
+        }
+        
+        li > ul,
+        li > ol {
+            margin: 0.2em 0;
+        }
+        
+        /* Inline code */
+        code {
+            font-family: var(--font-code);
+            font-size: 0.875em;
+            padding: 0.15em 0.4em;
+            border-radius: var(--radius);
+            background: var(--code-bg);
+            color: var(--code-text);
+        }
+        
+        /* Code blocks */
+        pre {
+            margin: 1.5em 0;
+            padding: 1.25em 1.5em;
+            overflow-x: auto;
+            border-radius: var(--code-radius);
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow-sm);
+            position: relative;
+        }
+        
+        pre code {
+            padding: 0;
+            background: transparent;
+            border-radius: 0;
+            font-size: 0.875em;
+            line-height: 1.55;
+        }
+        
+        /* Blockquotes */
+        blockquote {
+            margin: 1.5em 0;
+            padding: 0.75em 1.25em;
+            border-left: 4px solid var(--blockquote-border);
+            background: var(--blockquote-bg);
+            color: var(--blockquote-text);
+            border-radius: 0 var(--radius) var(--radius) 0;
+        }
+        
+        blockquote p {
+            margin: 0.4em 0;
+        }
+        
+        blockquote p:first-child {
+            margin-top: 0;
+        }
+        
+        blockquote p:last-child {
+            margin-bottom: 0;
+        }
+        
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin: 1.5em 0;
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border);
+        }
+        
+        th, td {
+            padding: 0.75em 1em;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        th {
+            font-weight: 600;
+            background: var(--table-header-bg);
+            color: var(--table-header-text);
+        }
+        
+        tr:last-child td {
+            border-bottom: none;
+        }
+        
+        /* Horizontal rule */
+        hr {
+            border: none;
+            height: 2px;
+            max-width: 200px;
+            margin: 2.5em auto;
+            background: var(--border);
+            border-radius: 1px;
+        }
+        
+        /* Images */
+        img {
+            max-width: 100%;
+            height: auto;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        /* Task lists */
+        .task-list-item {
+            list-style-type: none;
+        }
+        
+        .task-list-item input[type="checkbox"] {
+            margin-right: 0.5em;
+        }
+        
+        /* Strong and emphasis */
+        strong {
+            font-weight: 700;
+        }
+        
+        /* Definition lists (if supported by parser) */
+        dt {
+            font-weight: 600;
+            margin-top: 1em;
+        }
+        
+        dd {
+            margin-left: 1.5em;
+            margin-bottom: 0.5em;
+        }
+        
+        
+        /* Boardroom: corporate authority with accent borders */
+        h1 {
+            border-bottom: 3px solid var(--accent);
+            padding-bottom: 0.5em;
+        }
+        
+        h2 {
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.3em;
+        }
+        
+        pre {
+            border-left: 4px solid var(--primary);
+            border-radius: 0 var(--code-radius) var(--code-radius) 0;
+        }
+        
+        pre::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--accent);
+            border-radius: 0;
+        }
+        
+        blockquote {
+            font-style: italic;
+        }
+        
+        hr {
+            background: var(--accent);
+            max-width: none;
+            height: 2px;
+        }
+        
+        tr:nth-child(even) td {
+            background: var(--alt-row-bg);
+        }
+        
+    </style>
+</head>
+<body>
+<article class="markdown-body">
+<h1>Cockpit QA Loop - Iteration 04 (code-level review + responsive fix)</h1>
+<p><strong>App version:</strong> 0.3.5 (build <code>990dba3</code> + uncommitted Cockpit fixes)
+        <strong>Report generated:</strong> 2026-05-31 23:21 local
+        <strong>Tested against:</strong> Cockpit <code>http://localhost:7471</code> -&gt; Gateway <code>127.0.0.1:7878</code> -&gt; Directors <code>c99a103c</code> (<code>7884</code>) and <code>39aad623</code> (<code>7879</code>).</p>
+<hr/>
+<h2>What this iteration did</h2>
+<p>A code-level adversarial pass over the Cockpit's error/edge paths, plus the one cosmetic observation carried over from Iter 03.</p>
+<table>
+<thead>
+<tr>
+<th>Probe</th>
+<th>Result</th>
+<th>Evidence / note</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Settings for the <strong>other, older Director</strong> (39aad623 / v0.3.2 on 7879) - does the endpoint fix + older build cope?</td>
+<td>PASS</td>
+<td><code>img/iter3/04-settings-other-director.png</code> - config JSON loads for both Directors; fix is robust across the fleet (did not save to the user's Director)</td>
+</tr>
+<tr>
+<td><code>SaveSettings</code> / <code>DoHandover</code> / <code>CreateSession</code> error paths</td>
+<td>PASS (review)</td>
+<td>All validate input and surface server errors inline; no silent failure or unhandled throw</td>
+</tr>
+<tr>
+<td><code>OnDropImages</code> 20 MB cap + multi-file</td>
+<td>PASS (review)</td>
+<td>bounded; per-file try/catch</td>
+</tr>
+<tr>
+<td>Fan-out grouping by endpoint, empty-endpoint filtering</td>
+<td>PASS (review)</td>
+<td>sessions without an endpoint are filtered before grouping</td>
+</tr>
+<tr>
+<td><strong>Responsive: header action buttons overflow at narrow widths</strong> (the "Rena..." clipping seen in Iter 01 at ~929px)</td>
+<td><strong>FIXED</strong></td>
+<td><code>img/iter3/06-header-wrap-fixed.png</code> (wraps, all buttons visible) + <code>07-final-fullwidth-regression.png</code> (wide layout unchanged)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>New functional Cockpit bugs found: 0. One cosmetic issue fixed (#3).</strong></p>
+<hr/>
+<h2>Fix #3 - header no longer clips action buttons at narrow widths (MINOR / cosmetic)</h2>
+<p><strong>What happened:</strong> At narrow Cockpit widths (~930px and below - e.g. the Cockpit docked to half a screen) the detail header's action buttons (What's happening / Handover / Rename / <strong>Kill</strong>) overflowed off the right edge; "Rename" rendered as "Rena..." and "Kill" could be clipped, because <code>.detail-head</code> was a single non-wrapping flex row and the long session name/path consumed the width.</p>
+<p><strong>Fix (<code>app.css</code>, isolated):</strong></p>
+<ul>
+<li><code>.detail-head</code> -&gt; <code>flex-wrap:wrap; row-gap:8px</code> so the action group drops to a second row instead of being clipped when the row is too narrow.</li>
+<li><code>.detail-name</code> -&gt; <code>min-width:0; flex:0 1 auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap</code> so a long name truncates with an ellipsis rather than dominating the row.</li>
+<li><code>.detail-meta</code> / <code>.detail-actions</code> -&gt; <code>flex:none</code> so the metadata and buttons keep their natural size.</li>
+</ul>
+<p><strong>Verified:</strong> at a constrained 620px panel the action buttons measured fully <strong>within</strong> the panel (header grew to two rows); at full width the header is unchanged (single row, no wrap). No regression.</p>
+<hr/>
+<h2>Loop status after Iteration 04</h2>
+<table>
+<thead>
+<tr>
+<th>Iter</th>
+<th>Found</th>
+<th>Fixed</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>01</td>
+<td>BUG #1 Settings endpoint (HIGH); BUG #2 dictation-cancel error (MINOR)</td>
+<td>-</td>
+</tr>
+<tr>
+<td>02</td>
+<td>0 new</td>
+<td>#1, #2 fixed + verified</td>
+</tr>
+<tr>
+<td>03</td>
+<td>0 new (edge cases + parity)</td>
+<td>-</td>
+</tr>
+<tr>
+<td>04</td>
+<td>#3 header overflow (MINOR cosmetic)</td>
+<td>#3 fixed + verified</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Total: 3 Cockpit issues found, 3 fixed and live-verified. 0 open Cockpit issues.</strong> The only non-working capability remains recap generation, which is <strong>Director-side</strong> (<code>claude --print exited 1</code>) and out of scope for the Cockpit (handled gracefully).</p>
+<p>The loop's exit condition ("no more issues") is met: the last functional sweep (Iter 03) found nothing, and Iter 04 only turned up - and fixed - a cosmetic responsive nit. A final consolidated summary is in <code>SUMMARY.md</code> / <code>SUMMARY.html</code>.</p>
+</article>
+</body>
+</html>

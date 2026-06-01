@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Cockpit QA Loop - Iteration 05 (latent-bug code review + fixes)</title>
+<style>
+        /* Boardroom Theme - Corporate, executive style with serif fonts */
+        
+        :root {
+            /* Colors */
+            --primary: #1A365D;
+            --primary-light: #2A4A7F;
+            --accent: #D69E2E;
+            --text: #2D3748;
+            --heading: #1A365D;
+            --background: #FFFFFF;
+            --code-bg: #EDF2F7;
+            --code-text: #1A365D;
+            --border: #CBD5E0;
+            --link: #2B6CB0;
+            --blockquote-text: #4A5568;
+            --blockquote-border: #D69E2E;
+            --blockquote-bg: #FFFFFF;
+            --table-header-bg: #1A365D;
+            --table-header-text: #FFFFFF;
+            --alt-row-bg: #F7FAFC;
+            --shadow-color: rgba(26, 54, 93, 0.08);
+        
+            /* Fonts */
+            --font-heading: "Palatino Linotype", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-body: "Georgia", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-code: "Courier New", "JetBrains Mono", "Fira Code", Consolas, monospace;
+        
+            /* Style */
+            --heading-letter-spacing: -0.02em;
+            --line-height: 1.7;
+            --radius: 4px;
+            --code-radius: 6px;
+            --shadow-sm: 0 1px 3px rgba(26, 54, 93, 0.08);
+            --shadow-md: 0 4px 12px rgba(26, 54, 93, 0.1);
+        }
+        
+        /* Base styles for all themes */
+        
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+        }
+        
+        html {
+            font-size: 16px;
+            line-height: var(--line-height);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: var(--font-body);
+            color: var(--text);
+            background: var(--background);
+        }
+        
+        .markdown-body {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 3rem 2.5rem;
+        }
+        
+        /* Typography */
+        h1, h2, h3, h4, h5, h6 {
+            font-family: var(--font-heading);
+            color: var(--heading);
+            margin-top: 1.8em;
+            margin-bottom: 0.6em;
+            font-weight: 600;
+            line-height: 1.25;
+            letter-spacing: var(--heading-letter-spacing);
+            orphans: 3;
+            widows: 3;
+        }
+        
+        h1 {
+            font-size: 2.25em;
+            margin-top: 0;
+        }
+        
+        h2 { font-size: 1.65em; }
+        h3 { font-size: 1.35em; }
+        h4 { font-size: 1.1em; }
+        h5 { font-size: 0.95em; }
+        h6 { font-size: 0.85em; color: var(--blockquote-text); }
+        
+        p {
+            margin: 1em 0;
+            orphans: 3;
+            widows: 3;
+        }
+        
+        /* Links */
+        a {
+            color: var(--link);
+            text-decoration: none;
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.2s ease;
+        }
+        
+        a:hover {
+            border-bottom-color: var(--link);
+        }
+        
+        /* Lists */
+        ul, ol {
+            margin: 1em 0;
+            padding-left: 2em;
+            line-height: var(--line-height);
+        }
+        
+        li {
+            margin: 0.35em 0;
+        }
+        
+        li > ul,
+        li > ol {
+            margin: 0.2em 0;
+        }
+        
+        /* Inline code */
+        code {
+            font-family: var(--font-code);
+            font-size: 0.875em;
+            padding: 0.15em 0.4em;
+            border-radius: var(--radius);
+            background: var(--code-bg);
+            color: var(--code-text);
+        }
+        
+        /* Code blocks */
+        pre {
+            margin: 1.5em 0;
+            padding: 1.25em 1.5em;
+            overflow-x: auto;
+            border-radius: var(--code-radius);
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow-sm);
+            position: relative;
+        }
+        
+        pre code {
+            padding: 0;
+            background: transparent;
+            border-radius: 0;
+            font-size: 0.875em;
+            line-height: 1.55;
+        }
+        
+        /* Blockquotes */
+        blockquote {
+            margin: 1.5em 0;
+            padding: 0.75em 1.25em;
+            border-left: 4px solid var(--blockquote-border);
+            background: var(--blockquote-bg);
+            color: var(--blockquote-text);
+            border-radius: 0 var(--radius) var(--radius) 0;
+        }
+        
+        blockquote p {
+            margin: 0.4em 0;
+        }
+        
+        blockquote p:first-child {
+            margin-top: 0;
+        }
+        
+        blockquote p:last-child {
+            margin-bottom: 0;
+        }
+        
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin: 1.5em 0;
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border);
+        }
+        
+        th, td {
+            padding: 0.75em 1em;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        th {
+            font-weight: 600;
+            background: var(--table-header-bg);
+            color: var(--table-header-text);
+        }
+        
+        tr:last-child td {
+            border-bottom: none;
+        }
+        
+        /* Horizontal rule */
+        hr {
+            border: none;
+            height: 2px;
+            max-width: 200px;
+            margin: 2.5em auto;
+            background: var(--border);
+            border-radius: 1px;
+        }
+        
+        /* Images */
+        img {
+            max-width: 100%;
+            height: auto;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        /* Task lists */
+        .task-list-item {
+            list-style-type: none;
+        }
+        
+        .task-list-item input[type="checkbox"] {
+            margin-right: 0.5em;
+        }
+        
+        /* Strong and emphasis */
+        strong {
+            font-weight: 700;
+        }
+        
+        /* Definition lists (if supported by parser) */
+        dt {
+            font-weight: 600;
+            margin-top: 1em;
+        }
+        
+        dd {
+            margin-left: 1.5em;
+            margin-bottom: 0.5em;
+        }
+        
+        
+        /* Boardroom: corporate authority with accent borders */
+        h1 {
+            border-bottom: 3px solid var(--accent);
+            padding-bottom: 0.5em;
+        }
+        
+        h2 {
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.3em;
+        }
+        
+        pre {
+            border-left: 4px solid var(--primary);
+            border-radius: 0 var(--code-radius) var(--code-radius) 0;
+        }
+        
+        pre::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--accent);
+            border-radius: 0;
+        }
+        
+        blockquote {
+            font-style: italic;
+        }
+        
+        hr {
+            background: var(--accent);
+            max-width: none;
+            height: 2px;
+        }
+        
+        tr:nth-child(even) td {
+            background: var(--alt-row-bg);
+        }
+        
+    </style>
+</head>
+<body>
+<article class="markdown-body">
+<h1>Cockpit QA Loop - Iteration 05 (latent-bug code review + fixes)</h1>
+<p><strong>App version:</strong> 0.3.5 (build <code>990dba3</code> + uncommitted Cockpit fixes)
+        <strong>Report generated:</strong> 2026-05-31 23:38 local
+        <strong>Tested against:</strong> Cockpit <code>http://localhost:7471</code> (rebuilt) -&gt; Gateway <code>127.0.0.1:7878</code> -&gt; Slot-1 Director <code>c99a103c</code> (<code>7884</code>).</p>
+<hr/>
+<h2>What this iteration did</h2>
+<p>Black-box testing (iters 1-4) had converged to clean, so this iteration ran a <strong>structured adversarial code review</strong> of the whole Cockpit to find <strong>latent</strong> defects that live clicking can't surface (TOCTOU races, threading, resource/teardown, timeout/stall behaviour). It found <strong>5 real latent issues</strong>; <strong>4 were fixed</strong> (the 5th is benign for the common case). Then the refactored paths were rebuilt and <strong>regression-tested live</strong>.</p>
+<p>Also ran two new black-box edge probes:</p>
+<table>
+<thead>
+<tr>
+<th>Edge probe</th>
+<th>Result</th>
+<th>Note</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Settings <strong>invalid-JSON</strong> validation</td>
+<td>PASS</td>
+<td>typing bad JSON + Save -&gt; "not valid JSON - fix it before saving"; nothing sent to the Director</td>
+</tr>
+<tr>
+<td><strong>Whitespace-only</strong> prompt guard</td>
+<td>PASS</td>
+<td>Send + Queue both disabled for a spaces-only message (<code>IsNullOrWhiteSpace</code>)</td>
+</tr>
+</tbody>
+</table>
+<hr/>
+<h2>Latent issues found (code review) and fixes</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Severity</th>
+<th>Issue</th>
+<th>Fix</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>4</td>
+<td>HIGH</td>
+<td><strong>TOCTOU on <code>Selected</code></strong> - action handlers (SendNow/QueueIt/SendQueued/RemoveQueued/Interrupt/Escape/OnDropImages) null-check <code>Selected</code> then re-read it (a computed property over <code>_sessions</code>) across an <code>await</code>. The 2s poll replaces <code>_sessions</code>, so a second read can be null -&gt; spurious NRE surfaced as a misleading error banner.</td>
+<td>Capture <code>var sel = Selected; var dir = sel?.TailnetEndpoint</code> once per handler; use the locals.</td>
+</tr>
+<tr>
+<td>5</td>
+<td>HIGH</td>
+<td><strong>One slow Director freezes the whole roster.</strong> <code>LoadQueueAsync</code> was <code>await</code>ed inline in <code>RefreshAsync</code> on the shared 150s-timeout client; a hung <code>/queue</code> on the selected Director stalled the fleet view for up to 150s.</td>
+<td>Render the roster (<code>StateHasChanged</code>) <em>before</em> the queue load; cap the queue GET with an 8s linked-token timeout; add a <code>_refreshing</code> reentrancy guard so overlapping ticks can't reorder.</td>
+</tr>
+<tr>
+<td>6</td>
+<td>MEDIUM</td>
+<td><strong>Queue poll-vs-action race.</strong> The 2s <code>LoadQueueAsync</code> could clobber a just-enqueued/removed item until the next tick (self-healing masked it).</td>
+<td>Skip the poll's queue load while <code>_acting</code> (the action response is authoritative).</td>
+</tr>
+<tr>
+<td>7</td>
+<td>MEDIUM</td>
+<td><strong><code>OnDropImages</code> called bare <code>StateHasChanged()</code></strong> after <code>await</code>s - off the renderer's dispatcher it can throw <code>InvalidOperationException</code>, which the surrounding catch mislabels as "image upload failed".</td>
+<td><code>await InvokeAsync(StateHasChanged)</code> (matches every other call site).</td>
+</tr>
+<tr>
+<td>8</td>
+<td>MEDIUM</td>
+<td><strong>Dictation stuck on STARTING.</strong> <code>cockpit-dictate.js</code> <code>ws.onclose</code> only reported an error for <code>recording</code>/<code>transcribing</code>; a socket that closes during <code>starting</code> (Director rejects the <code>/dictate</code> upgrade) showed nothing and never called back, leaving the C# Speak button disabled until manual Cancel.</td>
+<td><code>onclose</code> now also handles <code>starting</code> -&gt; shows "Dictation stream closed before it was ready."</td>
+</tr>
+<tr>
+<td>-</td>
+<td>LOW</td>
+<td>Tree view orders Directors by GUID (<code>OrderBy(g.Key)</code>) rather than a meaningful order.</td>
+<td>Left as-is: benign for the common one-Director-per-machine case; a real fix needs a Director sort key in the DTO. Noted for the owner.</td>
+</tr>
+</tbody>
+</table>
+<p>All fixes are in <code>Cockpit.razor</code> (#4-7) and <code>cockpit-dictate.js</code> (#8). Build: 0 warnings, 0 errors.</p>
+<hr/>
+<h2>Regression (after the refactor - live)</h2>
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>Result</th>
+<th>Evidence</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Composer <strong>Send</strong> round-trip (refactored to locals)</td>
+<td>PASS</td>
+<td><code>img/iter5/02-send-regression-live.png</code> - Claude replied <code>ITER5_REGRESSION_OK</code></td>
+</tr>
+<tr>
+<td><strong>Queue</strong> enqueue + survives 2 poll cycles (validates the <code>_acting</code> skip)</td>
+<td>PASS</td>
+<td>item <code>iter5 queued probe</code> persisted as <code>QUEUE (1)</code>, not clobbered</td>
+</tr>
+<tr>
+<td><strong>Screenshot</strong> upload + inject (validates the <code>InvokeAsync</code> change)</td>
+<td>PASS</td>
+<td>"attached 1 image to the prompt"</td>
+</tr>
+<tr>
+<td>Roster keeps updating during all of the above</td>
+<td>PASS</td>
+<td>session counts/states refreshed live throughout</td>
+</tr>
+</tbody>
+</table>
+<p>No regressions from the refactor.</p>
+<hr/>
+<h2>Note on test hygiene (not a product bug)</h2>
+<p>DELETE marks a session <code>Exited</code> but the Director keeps it in <code>GET /sessions</code>, so exited sessions <strong>linger in the Gateway envelope and the Cockpit rail</strong> (already documented behaviour). Sending to a stale-selected exited session returns a raw <code>409 (Conflict)</code> in the action-error line - truthful, if terse. Not changed.</p>
+<hr/>
+<h2>Loop status after Iteration 05</h2>
+<table>
+<thead>
+<tr>
+<th>Iter</th>
+<th>Found</th>
+<th>Fixed</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>01</td>
+<td>#1 Settings endpoint (HIGH), #2 dictation-cancel (MINOR)</td>
+<td>-</td>
+</tr>
+<tr>
+<td>02</td>
+<td>0 new</td>
+<td>#1, #2</td>
+</tr>
+<tr>
+<td>03</td>
+<td>0 new (edge + parity)</td>
+<td>-</td>
+</tr>
+<tr>
+<td>04</td>
+<td>#3 header overflow (cosmetic)</td>
+<td>#3</td>
+</tr>
+<tr>
+<td>05</td>
+<td>#4-#8 latent (code review): TOCTOU, roster-freeze, queue race, dispatcher, dictation-stuck</td>
+<td>#4-#7, #8 (4 of 5; #LOW deferred)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Total: 8 Cockpit issues found, 7 fixed + verified, 1 LOW deferred (benign). Recap generation remains Director-side-blocked.</strong></p>
+</article>
+</body>
+</html>

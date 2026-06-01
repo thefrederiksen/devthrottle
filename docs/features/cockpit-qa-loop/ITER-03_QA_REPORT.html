@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Cockpit QA Loop - Iteration 03 (adversarial edge cases + desktop parity)</title>
+<style>
+        /* Boardroom Theme - Corporate, executive style with serif fonts */
+        
+        :root {
+            /* Colors */
+            --primary: #1A365D;
+            --primary-light: #2A4A7F;
+            --accent: #D69E2E;
+            --text: #2D3748;
+            --heading: #1A365D;
+            --background: #FFFFFF;
+            --code-bg: #EDF2F7;
+            --code-text: #1A365D;
+            --border: #CBD5E0;
+            --link: #2B6CB0;
+            --blockquote-text: #4A5568;
+            --blockquote-border: #D69E2E;
+            --blockquote-bg: #FFFFFF;
+            --table-header-bg: #1A365D;
+            --table-header-text: #FFFFFF;
+            --alt-row-bg: #F7FAFC;
+            --shadow-color: rgba(26, 54, 93, 0.08);
+        
+            /* Fonts */
+            --font-heading: "Palatino Linotype", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-body: "Georgia", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-code: "Courier New", "JetBrains Mono", "Fira Code", Consolas, monospace;
+        
+            /* Style */
+            --heading-letter-spacing: -0.02em;
+            --line-height: 1.7;
+            --radius: 4px;
+            --code-radius: 6px;
+            --shadow-sm: 0 1px 3px rgba(26, 54, 93, 0.08);
+            --shadow-md: 0 4px 12px rgba(26, 54, 93, 0.1);
+        }
+        
+        /* Base styles for all themes */
+        
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+        }
+        
+        html {
+            font-size: 16px;
+            line-height: var(--line-height);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: var(--font-body);
+            color: var(--text);
+            background: var(--background);
+        }
+        
+        .markdown-body {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 3rem 2.5rem;
+        }
+        
+        /* Typography */
+        h1, h2, h3, h4, h5, h6 {
+            font-family: var(--font-heading);
+            color: var(--heading);
+            margin-top: 1.8em;
+            margin-bottom: 0.6em;
+            font-weight: 600;
+            line-height: 1.25;
+            letter-spacing: var(--heading-letter-spacing);
+            orphans: 3;
+            widows: 3;
+        }
+        
+        h1 {
+            font-size: 2.25em;
+            margin-top: 0;
+        }
+        
+        h2 { font-size: 1.65em; }
+        h3 { font-size: 1.35em; }
+        h4 { font-size: 1.1em; }
+        h5 { font-size: 0.95em; }
+        h6 { font-size: 0.85em; color: var(--blockquote-text); }
+        
+        p {
+            margin: 1em 0;
+            orphans: 3;
+            widows: 3;
+        }
+        
+        /* Links */
+        a {
+            color: var(--link);
+            text-decoration: none;
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.2s ease;
+        }
+        
+        a:hover {
+            border-bottom-color: var(--link);
+        }
+        
+        /* Lists */
+        ul, ol {
+            margin: 1em 0;
+            padding-left: 2em;
+            line-height: var(--line-height);
+        }
+        
+        li {
+            margin: 0.35em 0;
+        }
+        
+        li > ul,
+        li > ol {
+            margin: 0.2em 0;
+        }
+        
+        /* Inline code */
+        code {
+            font-family: var(--font-code);
+            font-size: 0.875em;
+            padding: 0.15em 0.4em;
+            border-radius: var(--radius);
+            background: var(--code-bg);
+            color: var(--code-text);
+        }
+        
+        /* Code blocks */
+        pre {
+            margin: 1.5em 0;
+            padding: 1.25em 1.5em;
+            overflow-x: auto;
+            border-radius: var(--code-radius);
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow-sm);
+            position: relative;
+        }
+        
+        pre code {
+            padding: 0;
+            background: transparent;
+            border-radius: 0;
+            font-size: 0.875em;
+            line-height: 1.55;
+        }
+        
+        /* Blockquotes */
+        blockquote {
+            margin: 1.5em 0;
+            padding: 0.75em 1.25em;
+            border-left: 4px solid var(--blockquote-border);
+            background: var(--blockquote-bg);
+            color: var(--blockquote-text);
+            border-radius: 0 var(--radius) var(--radius) 0;
+        }
+        
+        blockquote p {
+            margin: 0.4em 0;
+        }
+        
+        blockquote p:first-child {
+            margin-top: 0;
+        }
+        
+        blockquote p:last-child {
+            margin-bottom: 0;
+        }
+        
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin: 1.5em 0;
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border);
+        }
+        
+        th, td {
+            padding: 0.75em 1em;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        th {
+            font-weight: 600;
+            background: var(--table-header-bg);
+            color: var(--table-header-text);
+        }
+        
+        tr:last-child td {
+            border-bottom: none;
+        }
+        
+        /* Horizontal rule */
+        hr {
+            border: none;
+            height: 2px;
+            max-width: 200px;
+            margin: 2.5em auto;
+            background: var(--border);
+            border-radius: 1px;
+        }
+        
+        /* Images */
+        img {
+            max-width: 100%;
+            height: auto;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        /* Task lists */
+        .task-list-item {
+            list-style-type: none;
+        }
+        
+        .task-list-item input[type="checkbox"] {
+            margin-right: 0.5em;
+        }
+        
+        /* Strong and emphasis */
+        strong {
+            font-weight: 700;
+        }
+        
+        /* Definition lists (if supported by parser) */
+        dt {
+            font-weight: 600;
+            margin-top: 1em;
+        }
+        
+        dd {
+            margin-left: 1.5em;
+            margin-bottom: 0.5em;
+        }
+        
+        
+        /* Boardroom: corporate authority with accent borders */
+        h1 {
+            border-bottom: 3px solid var(--accent);
+            padding-bottom: 0.5em;
+        }
+        
+        h2 {
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.3em;
+        }
+        
+        pre {
+            border-left: 4px solid var(--primary);
+            border-radius: 0 var(--code-radius) var(--code-radius) 0;
+        }
+        
+        pre::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--accent);
+            border-radius: 0;
+        }
+        
+        blockquote {
+            font-style: italic;
+        }
+        
+        hr {
+            background: var(--accent);
+            max-width: none;
+            height: 2px;
+        }
+        
+        tr:nth-child(even) td {
+            background: var(--alt-row-bg);
+        }
+        
+    </style>
+</head>
+<body>
+<article class="markdown-body">
+<h1>Cockpit QA Loop - Iteration 03 (adversarial edge cases + desktop parity)</h1>
+<p><strong>App version:</strong> 0.3.5 (build <code>990dba3</code> + uncommitted Cockpit fixes)
+        <strong>Report generated:</strong> 2026-05-31 23:14 local
+        <strong>Tested against:</strong> Cockpit <code>http://localhost:7471</code> -&gt; Gateway <code>127.0.0.1:7878</code> -&gt; Directors <code>c99a103c</code> (<code>7884</code>) and <code>39aad623</code> (<code>7879</code>, older v0.3.2 build).
+        <strong>Driver:</strong> cc-playwright <code>cockpit-qa</code> (Brave, 1920x951) + Win32 PrintWindow capture of the desktop app.</p>
+<hr/>
+<h2>Edge cases swept (all PASS)</h2>
+<table>
+<thead>
+<tr>
+<th>Edge case</th>
+<th>Result</th>
+<th>Evidence / note</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Multi-line composer - <strong>Shift+Enter</strong> inserts a newline, does NOT send</td>
+<td>PASS</td>
+<td>textarea value became <code>line one\nline two</code>; OnComposerKey only sends on Enter-without-Shift</td>
+</tr>
+<tr>
+<td><strong>Cross-Director</strong> terminal - select a session owned by the <em>other</em> Director (39aad623 / 7879)</td>
+<td>PASS</td>
+<td><code>img/iter3/01-crossdirector-readonly.png</code> - live terminal streamed straight from 7879 (read-only, no interaction with the user's session)</td>
+</tr>
+<tr>
+<td><strong>Stale-Director resilience</strong> - 7879 is an older build missing <code>/queue</code></td>
+<td>PASS</td>
+<td>Queue panel degraded gracefully to "QUEUE (0)"; no error surfaced</td>
+</tr>
+<tr>
+<td><strong>Session switching</strong> - swap between sessions/Directors</td>
+<td>PASS</td>
+<td><code>img/iter3/02-back-to-scratch.png</code> - terminal pane (keyed by SessionId) disposes + reconnects cleanly, no ghost frames; composer resets on select</td>
+</tr>
+<tr>
+<td><strong>Gateway-down resilience</strong> (observed in Iter 01)</td>
+<td>PASS</td>
+<td>rail retained last-good roster, red banner shown, auto-recovered on next poll</td>
+</tr>
+</tbody>
+</table>
+<p><strong>New Cockpit bugs found this iteration: 0.</strong></p>
+<hr/>
+<h2>Desktop parity (the user's bar: desktop must be at least at par)</h2>
+<p>Captured the running desktop app (Avalonia, "CC Director -- Leader") via PrintWindow: <code>img/iter3/03-desktop-app.png</code>. It has the equivalent of every Cockpit capability, plus more:</p>
+<table>
+<thead>
+<tr>
+<th>Capability</th>
+<th>Cockpit</th>
+<th>Desktop</th>
+<th>Verdict</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Session rail (fleet, status dots)</td>
+<td>yes</td>
+<td>yes (left rail)</td>
+<td>at par</td>
+</tr>
+<tr>
+<td>Live terminal (type / Ctrl+C / Esc / arrows)</td>
+<td>yes (xterm/WSS)</td>
+<td>yes (native TerminalControl)</td>
+<td>at par</td>
+</tr>
+<tr>
+<td>Composer Speak / Send / Queue / Interrupt</td>
+<td>yes</td>
+<td>yes (same button set, bottom dock)</td>
+<td>at par</td>
+</tr>
+<tr>
+<td>Screenshots into the session</td>
+<td>upload -&gt; inject path</td>
+<td>drag-drop onto prompt box -&gt; path; image also opens in the right-panel viewer (the uploaded <code>qa-screenshot-test.png</code> is visible in the desktop capture)</td>
+<td>at par</td>
+</tr>
+<tr>
+<td>Right panel</td>
+<td>screenshots + queue</td>
+<td>tabbed (Clean / Wingman / document &amp; image viewers)</td>
+<td>desktop ahead</td>
+</tr>
+<tr>
+<td>New / Kill / Rename / Settings</td>
+<td>yes (Settings fixed this loop)</td>
+<td>yes</td>
+<td>at par</td>
+</tr>
+<tr>
+<td>Awareness / recap / git, Fan-out, Handover</td>
+<td>yes</td>
+<td>yes (Wingman / Fifo / move-session)</td>
+<td>at par</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Verdict: the desktop is at-or-ahead of the Cockpit on every feature.</strong> The Cockpit is the focused remote driver; the desktop is the full IDE-style app. No desktop gaps versus the Cockpit were found.</p>
+<p><strong>One parity nicety (enhancement, not a defect):</strong> the desktop accepts a drag-drop directly onto the prompt textbox; the Cockpit's drop target is the Screenshots panel. Both deliver the image to Claude. Adding composer-textarea drop to the Cockpit would match the desktop gesture exactly.</p>
+<hr/>
+<h2>Loop status</h2>
+<ul>
+<li><strong>Iter 01:</strong> 2 Cockpit bugs found (Settings endpoint; dictation cancel error).</li>
+<li><strong>Iter 02:</strong> both fixed + verified live; New/Kill lifecycle verified; 0 new.</li>
+<li><strong>Iter 03:</strong> edge cases + cross-Director + desktop parity; 0 new.</li>
+</ul>
+<p>Two consecutive iterations with <strong>0 new issues</strong>. Iteration 04 does a code-level adversarial review (error/edge paths the happy-path tests don't reach) and revisits the one cosmetic observation (header action-buttons can overflow at narrow widths) before declaring the Cockpit clean.</p>
+</article>
+</body>
+</html>

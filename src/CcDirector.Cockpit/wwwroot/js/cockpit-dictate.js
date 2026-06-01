@@ -330,7 +330,13 @@ window.cockpitDictate = (function () {
         }
       };
       ws.onerror = () => { if (stage !== 'transcribing') showError('WebSocket connection failed.'); };
-      ws.onclose = () => { if (!done && (stage === 'recording' || stage === 'transcribing')) showError('Connection closed.'); };
+      // Include 'starting': a socket that opens then closes before 'ready'/'started' (e.g. the
+      // Director rejects/closes the /dictate upgrade) would otherwise leave the dialog stuck on
+      // STARTING with no error and no callback - keeping the C# Speak button disabled forever.
+      ws.onclose = () => {
+        if (!done && (stage === 'starting' || stage === 'recording' || stage === 'transcribing'))
+          showError(stage === 'starting' ? 'Dictation stream closed before it was ready.' : 'Connection closed.');
+      };
     }
 
     async function startSegment() {
@@ -402,7 +408,15 @@ window.cockpitDictate = (function () {
     }
     document.addEventListener('keydown', onKeyDown);
 
-    await startSegment();
+    // Boot the mic/socket without blocking the promise this function returns. The dialog is
+    // fully event-driven from here (button clicks + WS messages + DotNet callbacks), so the
+    // Blazor JS-interop call that invoked start() should complete the moment the UI is wired -
+    // NOT stay open until getUserMedia resolves. Holding it open meant a hung/denied mic (no
+    // device, or a user ignoring the permission prompt) tripped Blazor's 60s interop timeout,
+    // which surfaced a bogus "dictation unavailable: A task was canceled" error on a dialog
+    // that was actually fine. bootCapture handles its own failures (showError), so a rejection
+    // here is already accounted for; swallow any stray rejection so it isn't logged as unhandled.
+    startSegment().catch(() => {});
   }
 
   function notify(ref, method, arg) {
