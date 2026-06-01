@@ -10,7 +10,7 @@ project:
   framework: ".NET 10"
   platform: "Windows 10/11 (Avalonia primary; WPF archived), Mac/Linux (experimental backend)"
 
-last_updated: "2026-05-31"
+last_updated: "2026-06-01"
 
 # C4 Level 1: System Context
 context:
@@ -242,6 +242,9 @@ containers:
       - name: Session
         description: Central session abstraction with activity state machine. Carries an AgentKind that identifies which CLI is bound to the session. Owns a dedicated AnsiParser (120x40 grid, 5000-line scrollback) that is fed from CircularTerminalBuffer.OnBytesWritten and exposed via GetHtmlSnapshot() for the HTML "Raw terminal" tab; the Avalonia terminal keeps its own parser bound to the live window size.
         file: Sessions/Session.cs
+      - name: HandoverScanner
+        description: Scans the vault handover folder and parses frontmatter into handover summaries for the Cockpit's remote Handovers list/preview (GET /handovers).
+        file: Sessions/HandoverScanner.cs
       - name: IAgent
         description: Strategy interface describing an agent CLI - executable path, argument conventions for new/resume, and capability flags (preassigned session IDs, Studio mode).
         file: Agents/IAgent.cs
@@ -514,7 +517,7 @@ containers:
         description: Kestrel host lifecycle - loopback bind, port allocation, optional auth, and Gateway registration
         file: ControlApiHost.cs
       - name: ControlEndpoints
-        description: Maps the full Director REST surface (40+ routes) and HTML pages
+        description: Maps the full Director REST surface (50+ routes) and HTML pages. Includes the screenshots gallery (GET /screenshots, GET/DELETE /screenshots/file - path-traversal-safe, browser-direct image serving) and the Cockpit new-session parity endpoints (DELETE /repos, GET /coaching/categories, /claude-sessions, /handovers (+content), /fs/list).
         file: ControlEndpoints.cs
       - name: DirectorAuth
         description: Optional bearer-token / cookie middleware; token read from the shared per-machine gateway-token.txt; whitelists /healthz, /login, /logout
@@ -630,10 +633,15 @@ containers:
           - DirectorDto.cs
           - SessionDto.cs
       - name: Request/Response contracts
-        description: Prompt, Buffer, Wingman (ask/view), Handover, Fanout, NewSession, LaunchDirector, registration and update contracts
+        description: Prompt, Buffer, Wingman (ask/view), Handover, Fanout, NewSession (with ResumeSessionId), LaunchDirector, registration and update contracts
         files:
           - WingmanAskResult.cs
           - WingmanViewDto.cs
+          - NewSessionRequest.cs
+      - name: Cockpit parity DTOs
+        description: DTOs for the Cockpit's remote new-session dialog - coaching categories, resumable Claude sessions, handover list/content, and filesystem directory entries (Browse).
+        files:
+          - CockpitParityDtos.cs
       - name: Recording / Chat / state records
         description: RecordingManifest, ChatRequest/Response, TtsRequest, GoalAssessment and related agent-state DTOs
         files:

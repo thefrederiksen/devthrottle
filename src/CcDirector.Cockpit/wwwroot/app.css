@@ -193,16 +193,13 @@ body{background:var(--panel);color:var(--text);
 /* dock: composer only (screenshots + queue moved to the right panel) */
 .detail-dock{flex:none;border-top:1px solid var(--border);background:var(--sidebar)}
 
-/* screenshots: a thin action strip above the gallery (no native file widget) */
-.shots{display:flex;flex-direction:column;gap:6px;padding:8px 14px 10px;border-bottom:1px solid var(--border)}
-/* "Select image": a styled label that opens the picker; the real <input> is hidden inside it,
-   so there is no "Choose Files / No file chosen" control. */
-.btn-select-image{align-self:flex-start;display:inline-flex;align-items:center;gap:6px;cursor:pointer;
-  background:var(--button);color:var(--text);border:1px solid var(--border);border-radius:6px;
-  padding:5px 11px;font-size:12px}
-.btn-select-image:hover{border-color:var(--accent);color:var(--accent)}
-.btn-select-image input{display:none}
-.shots-status{font-size:12px;color:var(--green)}
+/* Composer "Attach": a label styled as a .btn that opens the file picker; the real <input> is
+   hidden inside it, so there is no "Choose Files / No file chosen" control. Lives in the composer
+   (a message-composition action), not the gallery. */
+.btn.attach{display:inline-flex;align-items:center;cursor:pointer}
+.btn.attach input{display:none}
+/* Upload/insert feedback, shown under the composer. */
+.shots-status{font-size:12px;color:var(--green);padding:0 14px 8px}
 
 .queue{padding:8px 14px}
 .queue-head{font-size:11px;letter-spacing:.06em;color:var(--text3);margin-bottom:6px}
