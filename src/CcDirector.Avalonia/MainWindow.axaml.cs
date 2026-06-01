@@ -208,7 +208,7 @@ public partial class MainWindow : Window
 
         SetBuildInfo();
         _ = InitializeScreenshotsPanelAsync();
-        _ = ShowStartupWorkspacePicker();
+        // No automatic workspace picker on startup (like VS Code). Use File | Open Workspace.
 
         // Start session git status polling (15s interval)
         _sessionGitTimer = new global::Avalonia.Threading.DispatcherTimer
@@ -269,38 +269,7 @@ public partial class MainWindow : Window
         }
     }
 
-    // ==================== WORKSPACE STARTUP ====================
-
-    private async Task ShowStartupWorkspacePicker()
-    {
-        var app = (App)global::Avalonia.Application.Current!;
-
-        if (app.SkipWorkspacePicker)
-        {
-            FileLog.Write("[MainWindow] ShowStartupWorkspacePicker: suppressed by --skip-workspace-picker");
-            return;
-        }
-
-        if (!app.WorkspaceStore.LoadAll().Any())
-        {
-            FileLog.Write("[MainWindow] ShowStartupWorkspacePicker: no saved workspaces");
-            return;
-        }
-
-        FileLog.Write("[MainWindow] ShowStartupWorkspacePicker: showing workspace picker");
-
-        var dialog = new LoadWorkspaceDialog(app.WorkspaceStore, startupMode: true);
-        dialog.SetOwner(this);
-        var result = await dialog.ShowDialog<bool?>(this);
-
-        if (result != true || dialog.SelectedWorkspace == null)
-        {
-            FileLog.Write("[MainWindow] ShowStartupWorkspacePicker: user skipped");
-            return;
-        }
-
-        await LoadWorkspaceAsync(dialog.SelectedWorkspace);
-    }
+    // ==================== WORKSPACE LOADING ====================
 
     private async Task LoadWorkspaceAsync(WorkspaceDefinition workspace)
     {

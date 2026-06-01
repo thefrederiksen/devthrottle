@@ -23,18 +23,12 @@ public partial class LoadWorkspaceDialog : Window
         _store = null!;
     }
 
-    public LoadWorkspaceDialog(WorkspaceStore store, bool startupMode = false)
+    public LoadWorkspaceDialog(WorkspaceStore store)
     {
-        FileLog.Write($"[LoadWorkspaceDialog] Constructor: startupMode={startupMode}");
+        FileLog.Write("[LoadWorkspaceDialog] Constructor");
         InitializeComponent();
 
         _store = store;
-
-        if (startupMode)
-        {
-            Title = "Select Workspace";
-            BtnCancel.Content = "Skip";
-        }
 
         Loaded += (_, _) => LoadWorkspaces();
     }

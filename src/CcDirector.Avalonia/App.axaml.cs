@@ -40,14 +40,6 @@ public partial class App : Application
 
     public bool SandboxMode { get; private set; }
 
-    /// <summary>
-    /// When true, suppress the startup workspace picker dialog (the modal that asks
-    /// "Load workspace?" when at least one saved workspace exists). Useful for
-    /// headless / scripted launches such as the Director dashboard testing flow.
-    /// Triggered by the <c>--skip-workspace-picker</c> command-line argument.
-    /// </summary>
-    public bool SkipWorkspacePicker { get; private set; }
-
     public override void Initialize()
     {
         AvaloniaXamlLoader.Load(this);
@@ -69,7 +61,6 @@ public partial class App : Application
 
             // Parse command-line arguments (lightweight)
             SandboxMode = desktop.Args?.Contains("--sandbox", StringComparer.OrdinalIgnoreCase) == true;
-            SkipWorkspacePicker = desktop.Args?.Contains("--skip-workspace-picker", StringComparer.OrdinalIgnoreCase) == true;
             LoadConfiguration();
 
             // Run all heavy initialization on background thread, then swap to main window
