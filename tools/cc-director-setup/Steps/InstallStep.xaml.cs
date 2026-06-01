@@ -27,7 +27,7 @@ public partial class InstallStep : UserControl
         ToolsSummary.Text = $"{_toolItems.Count} tools";
 
         // Set up skills list
-        _skillItems = ToolInstaller.SkillNames
+        _skillItems = SkillInstaller.SkillNames
             .Select(name => new SkillItem { Name = name })
             .ToList();
         SkillList.ItemsSource = _skillItems;

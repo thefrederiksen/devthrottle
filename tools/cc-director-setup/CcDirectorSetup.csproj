@@ -15,4 +15,7 @@
   <ItemGroup>
     <Resource Include="app.ico" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\cc-director-setup-engine\CcDirector.Setup.Engine.csproj" />
+  </ItemGroup>
 </Project>

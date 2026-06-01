@@ -1,17 +1,18 @@
 using System.Net.Http.Headers;
 using System.Text.Json;
-using CcDirector.Setup.Engine;
 
-namespace CcDirector.Setup.Cli;
+namespace CcDirector.Setup.Engine;
 
 /// <summary>A manifest plus the per-asset download URLs needed to fetch each asset.</summary>
 public sealed record ResolvedRelease(ReleaseManifest Manifest, IReadOnlyDictionary<string, string> DownloadUrls);
 
 /// <summary>
-/// Resolves the release a plan is computed against. Two modes:
-///   - a local manifest file (--manifest &lt;path&gt;): plan/dry-run only, no URLs.
-///   - "latest" (default): fetch the GitHub latest release, map asset download
-///     URLs, and download + parse its release-manifest.json.
+/// Resolves the release a plan is computed against. Shared by both front-ends
+/// (the WPF installer UI and the CLI). Three modes:
+///   - a local manifest file (LoadLocalManifest): plan/dry-run only, no URLs.
+///   - a local release directory (LoadLocalReleaseDir): offline install/update.
+///   - "latest" (FetchLatestAsync): the GitHub latest release, mapping asset
+///     download URLs and parsing release-manifest.json.
 /// </summary>
 public sealed class ReleaseSource
 {
@@ -25,7 +26,7 @@ public sealed class ReleaseSource
     {
         _http = http ?? new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
         if (!_http.DefaultRequestHeaders.UserAgent.Any())
-            _http.DefaultRequestHeaders.UserAgent.ParseAdd("cc-director-setup-cli");
+            _http.DefaultRequestHeaders.UserAgent.ParseAdd("cc-director-setup");
         _http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
     }
 
@@ -98,7 +99,7 @@ public sealed class ReleaseSource
     public async Task<string> DownloadAssetAsync(string assetName, IReadOnlyDictionary<string, string> urls, CancellationToken ct)
     {
         if (!urls.TryGetValue(assetName, out var source))
-            throw new InvalidOperationException($"No source for asset '{assetName}'. Use --manifest latest or --release-dir.");
+            throw new InvalidOperationException($"No source for asset '{assetName}'. Use latest or a release dir.");
 
         var dest = Path.Combine(Path.GetTempPath(), $"cc-setup-{Guid.NewGuid():N}-{assetName}");
 

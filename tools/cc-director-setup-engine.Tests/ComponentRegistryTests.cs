@@ -55,4 +55,30 @@ public class ComponentRegistryTests
         Assert.Contains("gateway", gw);
         Assert.Contains("cockpit", gw);
     }
+
+    [Fact]
+    public void DiscoverToolIds_ReturnsShippedToolsExcludingAppsAndInstaller()
+    {
+        var manifest = ReleaseManifest.Parse(
+            """
+            {
+              "version": "0.4.0",
+              "assets": {
+                "cc-director-win-x64.exe": { "version": "0.4.0", "sha256": "a", "platform": "windows" },
+                "cc-director-gateway-win-x64.exe": { "version": "0.4.0", "sha256": "b", "platform": "windows" },
+                "cc-director-cockpit-win-x64.zip": { "version": "0.4.0", "sha256": "c", "platform": "windows" },
+                "cc-director-setup-win-x64.exe": { "version": "0.4.0", "sha256": "d", "platform": "windows" },
+                "cc-director-mac-arm64.zip": { "version": "0.4.0", "sha256": "e", "platform": "macos" },
+                "cc-pdf-win-x64.exe": { "version": "1.2.0", "sha256": "f", "platform": "windows" },
+                "cc-html-win-x64.exe": { "version": "1.1.3", "sha256": "g", "platform": "windows" },
+                "cc-word-win-x64.exe": { "version": "1.0.0", "sha256": "h", "platform": "windows" },
+                "release-manifest.json": { "version": "0.4.0", "sha256": "i", "platform": "unknown" }
+              }
+            }
+            """);
+
+        var ids = ComponentRegistry.DiscoverToolIds(manifest);
+
+        Assert.Equal(new[] { "cc-html", "cc-pdf", "cc-word" }, ids);
+    }
 }

@@ -90,6 +90,38 @@ public static class ComponentRegistry
     /// <summary>The default component list (apps + <see cref="DefaultToolIds"/>).</summary>
     public static IReadOnlyList<Component> Default() => Build(DefaultToolIds);
 
+    /// <summary>
+    /// The tool ids actually shipped in a release: every asset named
+    /// "&lt;id&gt;-win-x64.exe" except the apps (Director/Gateway/Cockpit) and the
+    /// installer itself. The manifest is authoritative about what shipped, so the
+    /// installer tracks the release pipeline with no code change when a tool is
+    /// added or dropped. Returned in a stable (ordinal-sorted) order.
+    /// </summary>
+    public static IReadOnlyList<string> DiscoverToolIds(ReleaseManifest manifest)
+    {
+        ArgumentNullException.ThrowIfNull(manifest);
+        const string suffix = "-win-x64.exe";
+        var excluded = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "cc-director",         // the Director app (its own component, not a tool)
+            "cc-director-gateway", // the Gateway app
+            "cc-director-cockpit", // the Cockpit app (ships as .zip anyway)
+            "cc-director-setup",   // the installer itself
+        };
+
+        var ids = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var assetName in manifest.Assets.Keys)
+        {
+            if (!assetName.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)) continue;
+            var id = assetName[..^suffix.Length];
+            if (excluded.Contains(id)) continue;
+            if (seen.Add(id)) ids.Add(id);
+        }
+        ids.Sort(StringComparer.Ordinal);
+        return ids;
+    }
+
     /// <summary>The subset of <paramref name="all"/> that belongs to <paramref name="role"/>.</summary>
     public static IReadOnlyList<Component> ForRole(IEnumerable<Component> all, InstallRole role)
     {

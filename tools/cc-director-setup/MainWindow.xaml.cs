@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using CcDirector.Setup.Engine;
 using CcDirectorSetup.Models;
 using CcDirectorSetup.Services;
 using CcDirectorSetup.Steps;
@@ -21,8 +22,7 @@ public partial class MainWindow : Window
     private readonly string? _installedVersion;
     private bool _alreadyUpToDate;
     private string? _latestVersion;
-    private string? _cachedVersion;
-    private Dictionary<string, AssetInfo>? _cachedAssets;
+    private EngineInstallRunner.Prep? _cachedPrep;
 
     private WelcomeStep? _welcomeStep;
     private PrerequisitesStep? _prerequisitesStep;
@@ -81,15 +81,10 @@ public partial class MainWindow : Window
 
         try
         {
-            var github = new GitHubReleaseService();
-            var result = await github.GetLatestReleaseAsync();
-
-            if (result != null)
-            {
-                _latestVersion = result.Value.version;
-                SetupLog.Write($"[MainWindow] FetchLatestVersionAsync: latestVersion={_latestVersion}");
-                _welcomeStep?.UpdateVersionInfo(_installedVersion, _latestVersion);
-            }
+            var release = await new ReleaseSource().FetchLatestAsync(CancellationToken.None);
+            _latestVersion = release.Manifest.Version;
+            SetupLog.Write($"[MainWindow] FetchLatestVersionAsync: latestVersion={_latestVersion}");
+            _welcomeStep?.UpdateVersionInfo(_installedVersion, _latestVersion);
         }
         catch (Exception ex)
         {
@@ -223,88 +218,50 @@ public partial class MainWindow : Window
     {
         SetupLog.Write("[MainWindow] RunInstallAsync: starting");
 
-        var installer = new ToolInstaller();
-        installer.OnProcessBlocking = OnProcessBlockingAsync;
-        _installPath = installer.InstallDir;
+        var runner = new EngineInstallRunner { OnProcessBlocking = OnProcessBlockingAsync };
+        _installPath = runner.BinDir;
 
-        var toolNames = ToolGroupRegistry.GetToolsForGroups(_selectedGroups);
-        var downloadItems = installer.BuildDownloadList(toolNames);
-
-        _installStep?.SetItems(downloadItems);
         _installStep?.SetStatus("Fetching release info...");
         _installStep?.ShowProgress();
 
-        var github = new GitHubReleaseService();
-        var releaseResult = await github.GetLatestReleaseAsync();
-
-        if (releaseResult == null)
+        EngineInstallRunner.Prep prep;
+        try
         {
+            prep = await runner.PrepareAsync();
+        }
+        catch (Exception ex)
+        {
+            SetupLog.Write($"[MainWindow] RunInstallAsync: prepare FAILED: {ex.Message}");
             _installStep?.SetStatus("ERROR: Could not fetch release info from GitHub.");
-            SetupLog.Write("[MainWindow] RunInstallAsync: no release found");
             NextButton.Content = "Retry";
             NextButton.IsEnabled = true;
             return;
         }
 
-        var (version, assets) = releaseResult.Value;
-        VersionText.Text = version;
+        _cachedPrep = prep;
+        VersionText.Text = prep.Version;
+        _installStep?.SetItems(prep.Items);
 
-        if (_isUpdate && _installedVersion != null)
+        if (_isUpdate && prep.IsUpToDate)
         {
-            var installedSemVer = _installedVersion.Split('+')[0].TrimStart('v');
-            var releaseSemVer = version.TrimStart('v');
-
-            if (installedSemVer == releaseSemVer)
-            {
-                SetupLog.Write($"[MainWindow] Already up to date: installed={installedSemVer}, release={releaseSemVer}");
-                _alreadyUpToDate = true;
-                _cachedVersion = version;
-                _cachedAssets = assets;
-                SaveSettingsSafe();
-                _installStep?.SetUpToDate(version);
-                if (_installStep != null)
-                    _installStep.OnRepairRequested += OnRepairRequested;
-                _installedCount = 0;
-                _skippedCount = 0;
-                NextButton.Content = "Next";
-                NextButton.IsEnabled = true;
-                return;
-            }
+            SetupLog.Write($"[MainWindow] Already up to date: {prep.Version}");
+            _alreadyUpToDate = true;
+            SaveSettingsSafe();
+            _installStep?.SetUpToDate(prep.Version);
+            if (_installStep != null)
+                _installStep.OnRepairRequested += OnRepairRequested;
+            _installedCount = 0;
+            _skippedCount = 0;
+            NextButton.Content = "Next";
+            NextButton.IsEnabled = true;
+            return;
         }
 
-        var statusText = _isUpdate && _installedVersion != null
-            ? $"Updating from v{_installedVersion.Split('+')[0]} to {version}..."
-            : $"Installing {version}...";
-        _installStep?.SetStatus(statusText);
+        _installStep?.SetStatus(_isUpdate && _installedVersion != null
+            ? $"Updating from v{_installedVersion.Split('+')[0]} to {prep.Version}..."
+            : $"Installing {prep.Version}...");
 
-        var (installed, skipped) = await installer.InstallToolsAsync(downloadItems, assets);
-        _installedCount = installed;
-        _skippedCount = skipped;
-
-        PathManager.AddToPath(_installPath);
-
-        var directorExe = Path.Combine(_installPath, "cc-director.exe");
-        if (File.Exists(directorExe))
-        {
-            _installStep?.SetStatus("Creating Start Menu shortcut...");
-            ShortcutCreator.CreateStartMenuShortcut(directorExe);
-        }
-
-        _installStep?.SetStatus("Installing skills...");
-        var skillItems = _installStep?.GetSkillItems() ?? [];
-        if (skillItems.Count > 0)
-        {
-            await installer.InstallSkillsAsync(skillItems);
-            _installStep?.UpdateSkillsStatus();
-        }
-
-        SaveSettingsSafe();
-
-        _installStep?.SetStatus($"Done - {installed} tools installed, {skipped} skipped");
-        SetupLog.Write($"[MainWindow] RunInstallAsync: complete, installed={installed}, skipped={skipped}");
-
-        NextButton.Content = "Next";
-        NextButton.IsEnabled = true;
+        await RunEngineApplyAsync(runner, prep, repair: false);
     }
 
     private void OnRepairRequested()
@@ -318,51 +275,42 @@ public partial class MainWindow : Window
     {
         SetupLog.Write("[MainWindow] RunRepairAsync: starting forced reinstall");
 
-        if (_cachedVersion == null || _cachedAssets == null)
-        {
-            SetupLog.Write("[MainWindow] RunRepairAsync: no cached release data");
-            return;
-        }
-
         NextButton.Content = _isUpdate ? "Updating..." : "Installing...";
         NextButton.IsEnabled = false;
 
-        var installer = new ToolInstaller();
-        installer.OnProcessBlocking = OnProcessBlockingAsync;
-        _installPath = installer.InstallDir;
+        var runner = new EngineInstallRunner { OnProcessBlocking = OnProcessBlockingAsync };
+        _installPath = runner.BinDir;
 
-        var toolNames = ToolGroupRegistry.GetToolsForGroups(_selectedGroups);
-        var downloadItems = installer.BuildDownloadList(toolNames);
+        var prep = _cachedPrep ?? await runner.PrepareAsync();
+        _cachedPrep = prep;
 
-        _installStep?.SetItems(downloadItems);
-        _installStep?.SetStatus($"Repairing {_cachedVersion}...");
+        _installStep?.SetItems(prep.Items);
+        _installStep?.SetStatus($"Repairing {prep.Version}...");
         _installStep?.ShowProgress();
 
-        var (installed, skipped) = await installer.InstallToolsAsync(downloadItems, _cachedAssets);
+        await RunEngineApplyAsync(runner, prep, repair: true);
+    }
+
+    /// <summary>Apply the prepared release via the engine, install skills, and finalize the UI.</summary>
+    private async Task RunEngineApplyAsync(EngineInstallRunner runner, EngineInstallRunner.Prep prep, bool repair)
+    {
+        var (installed, skipped) = await runner.ApplyAsync(prep);
         _installedCount = installed;
         _skippedCount = skipped;
-
-        PathManager.AddToPath(_installPath);
-
-        var directorExe = Path.Combine(_installPath, "cc-director.exe");
-        if (File.Exists(directorExe))
-        {
-            _installStep?.SetStatus("Creating Start Menu shortcut...");
-            ShortcutCreator.CreateStartMenuShortcut(directorExe);
-        }
 
         _installStep?.SetStatus("Installing skills...");
         var skillItems = _installStep?.GetSkillItems() ?? [];
         if (skillItems.Count > 0)
         {
-            await installer.InstallSkillsAsync(skillItems);
+            await new SkillInstaller().InstallSkillsAsync(skillItems);
             _installStep?.UpdateSkillsStatus();
         }
 
         SaveSettingsSafe();
 
-        _installStep?.SetStatus($"Repair complete - {installed} tools installed, {skipped} skipped");
-        SetupLog.Write($"[MainWindow] RunRepairAsync: complete, installed={installed}, skipped={skipped}");
+        var verb = repair ? "Repair complete" : "Done";
+        _installStep?.SetStatus($"{verb} - {installed} installed, {skipped} skipped");
+        SetupLog.Write($"[MainWindow] RunEngineApplyAsync: repair={repair}, installed={installed}, skipped={skipped}");
 
         NextButton.Content = "Next";
         NextButton.IsEnabled = true;

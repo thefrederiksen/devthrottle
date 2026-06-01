@@ -18,7 +18,7 @@ public partial class SkillsStep : UserControl
             DescriptionText.Text = "The following skills will be updated for Claude Code.";
         }
 
-        SetupLog.Write($"[SkillsStep] Created: isUpdate={isUpdate}, skills={ToolInstaller.SkillNames.Length}");
+        SetupLog.Write($"[SkillsStep] Created: isUpdate={isUpdate}, skills={SkillInstaller.SkillNames.Length}");
     }
 
     private void BuildSkillRows()
@@ -28,7 +28,7 @@ public partial class SkillsStep : UserControl
         var accentBrush = (SolidColorBrush)FindResource("AccentBrush");
         var dimBrush = (SolidColorBrush)FindResource("DimText");
 
-        foreach (var skillName in ToolInstaller.SkillNames)
+        foreach (var skillName in SkillInstaller.SkillNames)
         {
             var card = new Border
             {
@@ -70,6 +70,6 @@ public partial class SkillsStep : UserControl
             SkillList.Children.Add(card);
         }
 
-        SkillCountText.Text = $"{ToolInstaller.SkillNames.Length} skills will be installed";
+        SkillCountText.Text = $"{SkillInstaller.SkillNames.Length} skills will be installed";
     }
 }
