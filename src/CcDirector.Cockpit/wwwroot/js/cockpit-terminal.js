@@ -15,8 +15,12 @@ export function connect(id, hostEl, wsUrl, dotNetRef) {
     return;
   }
   const term = new window.Terminal({
-    fontFamily: '"Cascadia Code", Consolas, "Courier New", monospace',
-    fontSize: 13, lineHeight: 1.0, scrollback: 5000, cursorBlink: false,
+    // Match the desktop terminal's font chain (TerminalFonts.Family) so the two read
+    // identically: Cascadia MONO (not Code - no ligatures, crisper glyphs), then the
+    // same Windows/macOS/Linux fallbacks. lineHeight 1.0 crowded the rows and hurt
+    // legibility; 1.2 gives the text room to breathe.
+    fontFamily: '"Cascadia Mono", Consolas, Menlo, "DejaVu Sans Mono", "Courier New", monospace',
+    fontSize: 14, lineHeight: 1.2, scrollback: 5000, cursorBlink: false,
     disableStdin: false,           // interactive: keystrokes are forwarded via onData below
     convertEol: false,
     theme: { background: "#1e1e1e", foreground: "#d4d4d8" },
