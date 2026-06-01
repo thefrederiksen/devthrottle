@@ -17,9 +17,9 @@ else:
     sys.path.insert(0, str(base_path / 'src'))
 
 # Add cc-vault and cc_shared to path
-cc-vault_path = base_path.parent / 'cc-vault'
-if cc-vault_path.exists():
-    sys.path.insert(0, str(cc-vault_path.parent))
+cc_vault_path = base_path.parent / 'cc-vault'
+if cc_vault_path.exists():
+    sys.path.insert(0, str(cc_vault_path.parent))
 
 cc_shared_path = base_path.parent / 'cc_shared'
 if cc_shared_path.exists():

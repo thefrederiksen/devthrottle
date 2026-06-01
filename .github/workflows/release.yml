@@ -212,7 +212,7 @@ jobs:
           - { tool: cc-transcribe, heavy: true }
           - { tool: cc-video, heavy: true }
           - { tool: cc-image, heavy: true }
-          - { tool: cc-photos, heavy: true }
+          - { tool: cc-photos }
           - { tool: cc-crawl4ai, heavy: true }
 
     steps:
@@ -355,6 +355,57 @@ jobs:
           echo ""
           echo "Release files:"
           ls -lh "$RELEASE_DIR/"
+
+      # No silent drops: a missing REQUIRED asset (apps/installer/CLI/mac) fails the release;
+      # a missing tool is loud (a ::warning:: + a line in the run summary) but tolerated, since
+      # a single fragile tool is allowed to drop. Keep EXPECTED_TOOLS in sync with the matrix above.
+      - name: Verify release completeness
+        run: |
+          RELEASE_DIR="$(pwd)/release-files"
+
+          required=(
+            cc-director-win-x64.exe
+            cc-director-mac-arm64.zip
+            cc-director-gateway-win-x64.exe
+            cc-director-cockpit-win-x64.zip
+            cc-director-setup-win-x64.exe
+            cc-director-setup-cli-win-x64.exe
+          )
+          expected_tools=(
+            cc-pdf cc-html cc-word cc-docgen cc-excel cc-facebook cc-gmail cc-hardware
+            cc-outlook cc-personresearch cc-posthog cc-powerpoint cc-reddit cc-settings
+            cc-spotify cc-twitter cc-vault cc-voice cc-youtube cc-youtube-info
+            cc-whisper cc-transcribe cc-video cc-image cc-photos cc-crawl4ai
+          )
+
+          missing_required=()
+          for a in "${required[@]}"; do
+            [ -f "$RELEASE_DIR/$a" ] || missing_required+=("$a")
+          done
+
+          missing_tools=()
+          for t in "${expected_tools[@]}"; do
+            [ -f "$RELEASE_DIR/${t}-win-x64.exe" ] || missing_tools+=("$t")
+          done
+
+          {
+            echo "## Release completeness"
+            echo "Required assets: $(( ${#required[@]} - ${#missing_required[@]} ))/${#required[@]} present"
+            echo "Tools: $(( ${#expected_tools[@]} - ${#missing_tools[@]} ))/${#expected_tools[@]} present"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          for t in "${missing_tools[@]}"; do
+            echo "::warning title=Tool dropped from release::${t} did not build and is NOT in this release"
+            echo "- DROPPED tool: ${t}-win-x64.exe" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+          if [ ${#missing_required[@]} -gt 0 ]; then
+            echo "::error title=Required asset missing::${missing_required[*]}"
+            echo "- MISSING REQUIRED: ${missing_required[*]}" >> "$GITHUB_STEP_SUMMARY"
+            echo "ERROR: required assets missing from the release: ${missing_required[*]}"
+            exit 1
+          fi
+          echo "Completeness check passed: all ${#required[@]} required assets present; ${#missing_tools[@]} tool(s) dropped."
 
       - name: Generate release manifest
         run: |

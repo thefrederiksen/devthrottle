@@ -13,9 +13,9 @@ try:
     from cc_vault.src import db as vault_db
     from cc_vault.src.config import get_config as get_vault_config
 except ImportError:
-    cc-vault_path = Path(__file__).parent.parent.parent.parent / "cc-vault"
-    if cc-vault_path.exists():
-        sys.path.insert(0, str(cc-vault_path))
+    cc_vault_path = Path(__file__).parent.parent.parent.parent / "cc-vault"
+    if cc_vault_path.exists():
+        sys.path.insert(0, str(cc_vault_path))
         from src import db as vault_db
         from src.config import get_config as get_vault_config
     else:
