@@ -1,45 +1,69 @@
 namespace CcDirector.Setup.Engine;
 
 /// <summary>
-/// Resolves where each component lives on disk. Roots are injectable so tests can
-/// point at temp directories; defaults match production:
-///   - Director + tools: %LOCALAPPDATA%\cc-director  (app\, bin\) - per-user, admin-free
-///   - Gateway + Cockpit: C:\cc-tools                - machine-wide, LocalSystem service
+/// Resolves where each component lives on disk. The canonical layout (the master
+/// spec is docs/install/INSTALLATION.md) has three trust-tiered roots:
+///   - LocalRoot       %LOCALAPPDATA%\cc-director   per-user, no admin (Director + tools)
+///   - ProgramFilesRoot %ProgramFiles%\CC Director   machine-wide service binaries (admin once)
+///   - ProgramDataRoot  %ProgramData%\cc-director     machine-wide service data (all users)
+/// Roots are injectable so tests (and the CLI's testing overrides) can point at
+/// temp directories without admin.
 /// </summary>
 public sealed class InstallLayout
 {
-    /// <summary>%LOCALAPPDATA%\cc-director (or the CC_DIRECTOR_ROOT override).</summary>
+    /// <summary>%LOCALAPPDATA%\cc-director (or the CC_DIRECTOR_ROOT override) - per-user, no admin.</summary>
     public string LocalRoot { get; }
 
-    /// <summary>C:\cc-tools - where the Gateway/Cockpit service files live.</summary>
-    public string ServiceRoot { get; }
+    /// <summary>%ProgramFiles%\CC Director - machine-wide service binaries (Gateway + Cockpit).</summary>
+    public string ProgramFilesRoot { get; }
 
-    public InstallLayout(string localRoot, string serviceRoot)
+    /// <summary>%ProgramData%\cc-director - machine-wide service data (config/state/logs).</summary>
+    public string ProgramDataRoot { get; }
+
+    public InstallLayout(string localRoot, string programFilesRoot, string programDataRoot)
     {
         if (string.IsNullOrWhiteSpace(localRoot))
             throw new ArgumentException("localRoot must not be empty.", nameof(localRoot));
-        if (string.IsNullOrWhiteSpace(serviceRoot))
-            throw new ArgumentException("serviceRoot must not be empty.", nameof(serviceRoot));
+        if (string.IsNullOrWhiteSpace(programFilesRoot))
+            throw new ArgumentException("programFilesRoot must not be empty.", nameof(programFilesRoot));
+        if (string.IsNullOrWhiteSpace(programDataRoot))
+            throw new ArgumentException("programDataRoot must not be empty.", nameof(programDataRoot));
         LocalRoot = localRoot;
-        ServiceRoot = serviceRoot;
+        ProgramFilesRoot = programFilesRoot;
+        ProgramDataRoot = programDataRoot;
     }
 
-    /// <summary>The production layout, honoring CC_DIRECTOR_ROOT like CcStorage does.</summary>
+    /// <summary>The production layout, honoring CC_DIRECTOR_ROOT for the per-user root like CcStorage does.</summary>
     public static InstallLayout Default()
     {
-        var root = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
-        if (string.IsNullOrWhiteSpace(root))
+        var localRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
+        if (string.IsNullOrWhiteSpace(localRoot))
         {
             var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            root = Path.Combine(localAppData, "cc-director");
+            localRoot = Path.Combine(localAppData, "cc-director");
         }
-        return new InstallLayout(root, @"C:\cc-tools");
+
+        var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+        var programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+
+        return new InstallLayout(
+            localRoot,
+            Path.Combine(programFiles, "CC Director"),
+            Path.Combine(programData, "cc-director"));
     }
 
+    // ---- per-user (LocalRoot) ----------------------------------------------
     public string AppDir => Path.Combine(LocalRoot, "app");
     public string BinDir => Path.Combine(LocalRoot, "bin");
-    public string GatewayDir => Path.Combine(ServiceRoot, "cc-director-gateway");
-    public string CockpitDir => Path.Combine(ServiceRoot, "cc-director-cockpit");
+
+    // ---- machine-wide service binaries (ProgramFilesRoot) ------------------
+    public string GatewayDir => Path.Combine(ProgramFilesRoot, "gateway");
+    public string CockpitDir => Path.Combine(ProgramFilesRoot, "cockpit");
+
+    // ---- machine-wide service data (ProgramDataRoot) -----------------------
+    public string ServiceConfigDir => Path.Combine(ProgramDataRoot, "config");
+    public string ServiceStateDir => Path.Combine(ProgramDataRoot, "state");
+    public string ServiceLogsDir => Path.Combine(ProgramDataRoot, "logs");
 
     /// <summary>The on-disk file whose presence/version represents the component.</summary>
     public string PathFor(Component component)

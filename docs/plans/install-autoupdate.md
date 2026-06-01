@@ -1,7 +1,11 @@
 # CC Director - Install & Auto-Update (Windows)
 
-Status: PLAN (agreed high-level design, 2026-06-01). Nothing here is built yet.
+Status: PLAN (agreed high-level design, 2026-06-01).
 Scope: Windows only. macOS stays manual-install and cannot host the Gateway.
+
+> NOTE: For install LOCATIONS, the authoritative master spec is
+> `docs/install/INSTALLATION.md`. Where this plan's older path examples (e.g.
+> `C:\cc-tools`, `app\`) differ, the master spec wins.
 
 This document records the decisions Soren and I agreed and turns them into a
 concrete, phased implementation plan grounded in the code that exists today.

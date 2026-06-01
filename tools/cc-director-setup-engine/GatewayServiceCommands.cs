@@ -10,7 +10,7 @@ public sealed record ServiceCommand(string Exe, IReadOnlyList<string> Args)
 /// <summary>
 /// Builds the command sequences a Gateway-role machine uses to apply its own
 /// updates. The Gateway runs as LocalSystem, so it has the rights to stop/start
-/// its service and write C:\cc-tools - no UAC after the first install (decision
+/// its service and write %ProgramFiles%\CC Director - no UAC after first install (decision
 /// D7). These builders are pure so the exact sequence is unit-testable; actual
 /// execution + the detached-helper handoff is integration-only (deferred to the
 /// empty-machine wizard run).

@@ -19,7 +19,11 @@ namespace CcDirector.Gateway.Cockpit;
 /// </summary>
 public sealed class CockpitSupervisor : IDisposable
 {
-    private const string DefaultExe = @"C:\cc-tools\cc-director-cockpit\cc-director-cockpit.exe";
+    // Canonical Cockpit location (master spec: docs/install/INSTALLATION.md):
+    // %ProgramFiles%\CC Director\cockpit\cc-director-cockpit.exe. CC_COCKPIT_EXE overrides it.
+    private static readonly string DefaultExe = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+        "CC Director", "cockpit", "cc-director-cockpit.exe");
     private const string CockpitProcessName = "cc-director-cockpit";
     private const int DefaultPort = 7470;
 

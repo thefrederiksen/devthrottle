@@ -56,10 +56,14 @@ public static class Program
     private static InstallLayout ResolveLayout(CliArgs args)
     {
         var root = args.Option("root");
-        var serviceRoot = args.Option("service-root");
-        if (root is null && serviceRoot is null) return InstallLayout.Default();
+        var programFiles = args.Option("program-files");
+        var programData = args.Option("program-data");
+        if (root is null && programFiles is null && programData is null) return InstallLayout.Default();
         var def = InstallLayout.Default();
-        return new InstallLayout(root ?? def.LocalRoot, serviceRoot ?? def.ServiceRoot);
+        return new InstallLayout(
+            root ?? def.LocalRoot,
+            programFiles ?? def.ProgramFilesRoot,
+            programData ?? def.ProgramDataRoot);
     }
 
     private static void WireLogging(InstallLayout layout)
@@ -99,8 +103,9 @@ public static class Program
               --release-dir <dir>            Use a local directory as the release (offline)
               --component <id|all>           Limit update to one component (default all)
               --tools <id,id,...>            Override the tool set
-              --root <dir>                   Override the per-user install root (testing)
-              --service-root <dir>           Override the service root (testing)
+              --root <dir>                   Override the per-user root %LOCALAPPDATA%\cc-director (testing)
+              --program-files <dir>          Override the service binaries root %ProgramFiles%\CC Director (testing)
+              --program-data <dir>           Override the service data root %ProgramData%\cc-director (testing)
               --dry-run                      Plan only; do not download or apply
               --json                         Machine-readable output
             """);

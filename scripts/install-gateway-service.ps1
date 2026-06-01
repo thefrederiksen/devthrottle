@@ -23,12 +23,17 @@ $ErrorActionPreference = 'Continue'
 $nssm    = "$env:LOCALAPPDATA\Microsoft\WinGet\Links\nssm.exe"
 $svc     = "cc-gateway-service"
 $repo    = Split-Path -Parent $PSScriptRoot            # repo root (this script lives in scripts/)
-$gwDir   = "C:\cc-tools\cc-director-gateway"
+# Canonical layout (master spec: docs/install/INSTALLATION.md): machine-wide service
+# binaries under %ProgramFiles%\CC Director, machine-wide service data under
+# %ProgramData%\cc-director. The retired C:\cc-tools root must not be used.
+$pfRoot  = "$env:ProgramFiles\CC Director"
+$pdRoot  = "$env:ProgramData\cc-director"
+$gwDir   = "$pfRoot\gateway"
 $gwExe   = "$gwDir\cc-director-gateway.exe"
-$ckDir   = "C:\cc-tools\cc-director-cockpit"
+$ckDir   = "$pfRoot\cockpit"
 $ckExe   = "$ckDir\cc-director-cockpit.exe"
-$root    = "$env:LOCALAPPDATA\cc-director"
-$logDir  = "$gwDir\logs"
+$root    = "$env:LOCALAPPDATA\cc-director"   # the primary user's per-user root (vault stays per-user)
+$logDir  = "$pdRoot\logs"
 $trayDir = "$env:LOCALAPPDATA\cc-director\gateway-tray"
 
 $openaiKey = [Environment]::GetEnvironmentVariable('OPENAI_API_KEY','User')

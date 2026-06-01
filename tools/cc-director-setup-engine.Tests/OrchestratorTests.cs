@@ -12,7 +12,7 @@ public class OrchestratorTests : IDisposable
     {
         _dir = Path.Combine(Path.GetTempPath(), "cc-orch-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_dir);
-        _layout = new InstallLayout(Path.Combine(_dir, "local"), Path.Combine(_dir, "svc"));
+        _layout = new InstallLayout(Path.Combine(_dir, "local"), Path.Combine(_dir, "pf"), Path.Combine(_dir, "pd"));
     }
 
     public void Dispose()

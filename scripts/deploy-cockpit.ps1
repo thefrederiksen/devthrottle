@@ -1,13 +1,18 @@
-# Deploy the staged Cockpit build - NO ADMIN required (after grant-service-control.ps1 has run
-# once to give your user start/stop rights on cc-gateway-service).
+# Deploy the staged Cockpit build (DEV deploy: a user-driven file copy into the live service dir).
 #
 # Stops the Gateway service, swaps the Cockpit files, starts the service (which relaunches the
-# new Cockpit on 7470). The agent runs this for every future deploy; you don't run anything.
+# new Cockpit on 7470).
+#
+# Canonical location (master spec: docs/install/INSTALLATION.md): the Cockpit binaries live under
+# %ProgramFiles%\CC Director\cockpit (the retired C:\cc-tools root must not be used). Because that
+# is a machine-wide location standard users cannot write, this dev deploy must run ELEVATED (or
+# after a one-time ACL grant on the CC Director folder). The PRODUCTION no-admin update path is the
+# LocalSystem Gateway service updating its own + the Cockpit's binaries - not this script.
 
 $ErrorActionPreference = 'Stop'
 $svc    = 'cc-gateway-service'
 $stage  = 'D:\ReposFred\cc-director\local_builds\cockpit-publish'
-$target = 'C:\cc-tools\cc-director-cockpit'
+$target = "$env:ProgramFiles\CC Director\cockpit"
 
 if (-not (Test-Path "$stage\cc-director-cockpit.dll")) { Write-Host "ERROR: cockpit build not staged at $stage." ; exit 1 }
 

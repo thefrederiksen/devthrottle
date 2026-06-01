@@ -11,7 +11,9 @@ namespace CcDirector.Gateway.Tests;
 /// </summary>
 public sealed class CockpitSupervisorTests
 {
-    private const string CockpitExe = @"C:\cc-tools\cc-director-cockpit\cc-director-cockpit.exe";
+    private static readonly string CockpitExe = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+        "CC Director", "cockpit", "cc-director-cockpit.exe");
     private const int TestPort = 7472;
 
     [Fact]

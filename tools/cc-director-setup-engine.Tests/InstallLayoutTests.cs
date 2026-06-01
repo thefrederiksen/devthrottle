@@ -5,7 +5,7 @@ namespace CcDirector.Setup.Engine.Tests;
 
 public class InstallLayoutTests
 {
-    private static readonly InstallLayout Layout = new(@"C:\root", @"C:\cc-tools");
+    private static readonly InstallLayout Layout = new(@"C:\root", @"C:\Program Files\CC Director", @"C:\pd");
 
     [Fact]
     public void PathFor_Director_IsInAppDir()
@@ -22,20 +22,29 @@ public class InstallLayoutTests
     }
 
     [Fact]
-    public void PathFor_GatewayAndCockpit_AreInServiceRoot()
+    public void PathFor_GatewayAndCockpit_AreUnderProgramFiles()
     {
         Assert.Equal(
-            Path.Combine(@"C:\cc-tools", "cc-director-gateway", "cc-director-gateway.exe"),
+            Path.Combine(@"C:\Program Files\CC Director", "gateway", "cc-director-gateway.exe"),
             Layout.PathFor(ComponentRegistry.Gateway));
         Assert.Equal(
-            Path.Combine(@"C:\cc-tools", "cc-director-cockpit", "cc-director-cockpit.exe"),
+            Path.Combine(@"C:\Program Files\CC Director", "cockpit", "cc-director-cockpit.exe"),
             Layout.PathFor(ComponentRegistry.Cockpit));
+    }
+
+    [Fact]
+    public void ServiceDataDirs_AreUnderProgramData()
+    {
+        Assert.Equal(Path.Combine(@"C:\pd", "config"), Layout.ServiceConfigDir);
+        Assert.Equal(Path.Combine(@"C:\pd", "state"), Layout.ServiceStateDir);
+        Assert.Equal(Path.Combine(@"C:\pd", "logs"), Layout.ServiceLogsDir);
     }
 
     [Fact]
     public void Constructor_RejectsEmptyRoots()
     {
-        Assert.Throws<ArgumentException>(() => new InstallLayout("", @"C:\cc-tools"));
-        Assert.Throws<ArgumentException>(() => new InstallLayout(@"C:\root", ""));
+        Assert.Throws<ArgumentException>(() => new InstallLayout("", @"C:\pf", @"C:\pd"));
+        Assert.Throws<ArgumentException>(() => new InstallLayout(@"C:\root", "", @"C:\pd"));
+        Assert.Throws<ArgumentException>(() => new InstallLayout(@"C:\root", @"C:\pf", ""));
     }
 }
