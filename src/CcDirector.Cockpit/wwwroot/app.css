@@ -38,8 +38,7 @@ body{background:var(--panel);color:var(--text);
 .body{flex:1;display:grid;grid-template-columns:300px 1fr;min-height:0}
 .left{background:var(--sidebar);border-right:1px solid var(--border);
   display:flex;flex-direction:column;min-height:0}
-.left-head{font-size:12px;font-weight:600;letter-spacing:.04em;color:var(--text3);
-  padding:12px 14px 8px}
+.left-head{display:flex;align-items:center;gap:8px;padding:10px 10px 8px}
 .right{min-width:0;min-height:0;display:flex;flex-direction:column;background:var(--panel)}
 
 /* rail */
@@ -52,8 +51,13 @@ body{background:var(--panel);color:var(--text);
   text-transform:uppercase}
 .machine-count{font-size:10px;color:var(--text);background:#404040;border-radius:8px;padding:0 6px}
 .machine-needs{font-size:10px;color:var(--red);margin-left:auto}
-.dir-head{font-size:10px;color:var(--muted);padding:4px 8px 2px;
-  font-family:"Cascadia Mono",Consolas,monospace}
+.dir-head{display:flex;align-items:center;gap:6px;font-size:10px;color:var(--muted);
+  padding:4px 8px 2px;font-family:"Cascadia Mono",Consolas,monospace}
+.dir-head-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dir-add{flex:none;width:18px;height:18px;line-height:1;font-size:14px;cursor:pointer;
+  color:var(--text2);background:transparent;border:1px solid var(--border);border-radius:4px;
+  display:flex;align-items:center;justify-content:center;padding:0}
+.dir-add:hover{color:#fff;background:var(--button);border-color:var(--button-hover)}
 .dir-error{font-size:11px;color:var(--amber);background:#2A2218;border:1px solid #3A2A1B;
   border-radius:5px;padding:6px 8px;margin:3px 4px}
 
@@ -74,6 +78,43 @@ body{background:var(--panel);color:var(--text);
 .tag-voice{color:#04101f;background:var(--blue)}
 .needs-pill{font-size:9px;color:var(--red);border:1px solid var(--red);
   border-radius:8px;padding:1px 6px;flex:none}
+
+/* left-panel chrome: view toggle + collapse */
+.view-toggle{display:flex;gap:2px;background:var(--panel);border:1px solid var(--border);
+  border-radius:6px;padding:2px;flex:1}
+.vt{flex:1;font-size:11px;font-weight:600;letter-spacing:.02em;color:var(--text3);
+  background:transparent;border:none;border-radius:4px;padding:3px 8px;cursor:pointer}
+.vt:hover{color:var(--text)}
+.vt-on{color:#fff;background:var(--accent)}
+.left-collapse,.left-expand{flex:none;width:24px;height:24px;font-size:14px;line-height:1;cursor:pointer;
+  color:var(--text2);background:transparent;border:1px solid var(--border);border-radius:5px;
+  display:flex;align-items:center;justify-content:center;padding:0}
+.left-collapse:hover,.left-expand:hover{color:#fff;background:var(--button)}
+
+/* collapsed rail: a thin strip of status dots */
+.body-collapsed{grid-template-columns:48px 1fr}
+.left-collapsed{align-items:center}
+.left-expand{margin:10px auto 6px}
+.rail-mini{display:flex;flex-direction:column;align-items:center;gap:9px;overflow:auto;
+  padding:4px 0 12px;flex:1;width:100%}
+.mini-dot{width:14px;height:14px;border-radius:50%;border:2px solid transparent;cursor:pointer;
+  flex:none;padding:0}
+.mini-dot:hover{outline:1px solid var(--text3)}
+.mini-sel{border-color:#fff}
+
+/* triage layout */
+.triage-sec{margin-bottom:10px}
+.triage-head{display:flex;align-items:center;gap:8px;padding:6px 8px 4px;font-size:11px;
+  font-weight:600;letter-spacing:.05em;color:var(--text2);text-transform:uppercase}
+.triage-head.needs{color:var(--red)}
+.triage-head.hold{color:var(--amber)}
+.triage-head.err{color:var(--amber)}
+.triage-count{font-size:10px;color:var(--text);background:#404040;border-radius:8px;padding:0 6px}
+/* owning-director tag on a session row: hidden in the tree (redundant under a dir-head),
+   shown in triage where rows are no longer grouped by Director. */
+.sess-dir{font-family:"Cascadia Mono",Consolas,monospace;color:var(--muted);font-size:9px}
+.rail.tree .sess-dir{display:none}
+.rail.triage .sess-dir{margin-left:auto}
 
 /* detail (right) */
 .right-empty{margin:auto;text-align:center;max-width:420px;padding:24px}

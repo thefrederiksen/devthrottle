@@ -36,13 +36,44 @@
         <div class="banner-error">Gateway error: @_lastError</div>
     }
 
-    <div class="body">
-        <aside class="left">
-            <div class="left-head">SESSIONS (all directors)</div>
-            <SessionRail Sessions="_sessions"
-                         Errors="_errors"
-                         SelectedSessionId="_selectedId"
-                         OnSelect="OnSelect" />
+    <div class="body @(_leftCollapsed ? "body-collapsed" : "")">
+        <aside class="left @(_leftCollapsed ? "left-collapsed" : "")">
+            @if (_leftCollapsed)
+            {
+                @* Collapsed: a thin rail of status dots so at-a-glance awareness survives,
+                   plus an expand control. Click a dot to jump to that session. *@
+                <button class="left-expand" title="Expand sessions" @onclick="ToggleLeft">&raquo;</button>
+                <div class="rail-mini">
+                    @foreach (var s in SessionOrdering.InDesktopOrder(_sessions))
+                    {
+                        <button type="button"
+                                class="@($"mini-dot{(s.SessionId == _selectedId ? " mini-sel" : "")}")"
+                                style="background:@DotColor(s.StatusColor)"
+                                title="@($"{SessionTitle(s)} - {s.ActivityState}")"
+                                @onclick="() => OnSelect(s.SessionId)"></button>
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="left-head">
+                    <div class="view-toggle" role="tablist">
+                        <button class="@($"vt{(_viewMode == "tree" ? " vt-on" : "")}")"
+                                @onclick='() => SetViewMode("tree")'
+                                title="Machine / Director tree, in desktop order">Tree</button>
+                        <button class="@($"vt{(_viewMode == "triage" ? " vt-on" : "")}")"
+                                @onclick='() => SetViewMode("triage")'
+                                title="Needs-you first, on-hold last">Triage</button>
+                    </div>
+                    <button class="left-collapse" title="Collapse panel" @onclick="ToggleLeft">&laquo;</button>
+                </div>
+                <SessionRail Sessions="_sessions"
+                             Errors="_errors"
+                             SelectedSessionId="@_selectedId"
+                             ViewMode="@_viewMode"
+                             OnSelect="OnSelect"
+                             OnNewSession="OpenNewSessionFor" />
+            }
         </aside>
 
         <main class="right">
@@ -468,6 +499,28 @@
         _ = PollLoopAsync();
     }
 
+    // Restore the left-panel preferences once the circuit can do JS interop. These are
+    // pure UI conveniences; if localStorage is unavailable the defaults (expanded, tree)
+    // stand, which is correct behaviour rather than a hidden failure.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try
+        {
+            var collapsed = await JS.InvokeAsync<string?>("localStorage.getItem", "cockpit.leftCollapsed");
+            var mode = await JS.InvokeAsync<string?>("localStorage.getItem", "cockpit.viewMode");
+            var changed = false;
+            if (collapsed == "1" && !_leftCollapsed) { _leftCollapsed = true; changed = true; }
+            // Pattern match narrows `mode` to non-null, so no null-forgiving operator is needed.
+            if (mode is "tree" or "triage" && mode != _viewMode) { _viewMode = mode; changed = true; }
+            if (changed) await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            Log.LogDebug(ex, "Cockpit: restoring left-panel prefs failed");
+        }
+    }
+
     private async Task PollLoopAsync()
     {
         var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
@@ -707,6 +760,40 @@
         }
         finally { _acting = false; }
         await InvokeAsync(StateHasChanged);
+    }
+
+    // ===== Left panel: collapse + view mode (persisted to localStorage) =====
+    private bool _leftCollapsed;
+    private string _viewMode = "tree";   // "tree" | "triage"
+
+    private async Task ToggleLeft()
+    {
+        _leftCollapsed = !_leftCollapsed;
+        await SavePref("cockpit.leftCollapsed", _leftCollapsed ? "1" : "0");
+    }
+
+    private async Task SetViewMode(string mode)
+    {
+        if (mode != "tree" && mode != "triage") return;
+        _viewMode = mode;
+        await SavePref("cockpit.viewMode", mode);
+    }
+
+    // Open the new-session dialog with a specific Director pre-selected (from a tree [+]).
+    private async Task OpenNewSessionFor(string directorId)
+    {
+        await OpenNewSession();
+        if (!string.IsNullOrEmpty(directorId) && _directors.Any(d => d.DirectorId == directorId))
+        {
+            _nsDirectorId = directorId;
+            await OnNsDirectorChanged();
+        }
+    }
+
+    private async Task SavePref(string key, string value)
+    {
+        try { await JS.InvokeVoidAsync("localStorage.setItem", key, value); }
+        catch (Exception ex) { Log.LogDebug(ex, "SavePref {Key} failed", key); }
     }
 
     // ===== Phase 2: session lifecycle (new / kill / rename) + settings =====

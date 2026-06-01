@@ -1821,6 +1821,7 @@ internal static class ControlEndpoints
             TotalBufferBytes = s.Buffer?.TotalBytesWritten ?? 0,
             BackendType = s.BackendType.ToString(),
             Name = s.CustomName,
+            SortOrder = s.SortOrder,
             StatusColor = s.StatusColor,
             LastStatusReason = s.LastStatusReason,
             LastActivityAt = lastActivity,

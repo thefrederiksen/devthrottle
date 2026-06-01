@@ -34,6 +34,15 @@ public sealed class SessionDto
     public string? Name { get; set; }
 
     /// <summary>
+    /// The session's position in its owning Director's list, mirroring
+    /// <c>Session.SortOrder</c>. This is the user-controlled desktop order
+    /// (set by drag-drop on the desktop and persisted), so a client that sorts
+    /// by it keeps each session in a stable slot instead of reshuffling. 0 when
+    /// the owning Director predates this field. Populated by the Director.
+    /// </summary>
+    public int SortOrder { get; set; }
+
+    /// <summary>
     /// Aggregate at-a-glance status color, written by the Director's
     /// SessionStatusWingman. The UI renders this verbatim and never derives it
     /// from other fields.

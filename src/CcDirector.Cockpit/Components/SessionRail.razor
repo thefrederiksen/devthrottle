@@ -1,71 +1,137 @@
-@* Gateway-wide session rail: every session from every Director the Gateway can reach,
-   grouped Machine -> Director, each with its verbatim StatusColor. Unreachable Directors
-   are shown inline so a dead Director is never silently dropped. *@
+@* Gateway-wide session rail with two layouts (ViewMode):
 
-<div class="rail">
+   "tree"   - Machine -> Director -> Sessions. Sessions keep their owning Director's
+              desktop order (SortOrder), so they hold a stable slot and don't reshuffle.
+              Each Director carries a [+] to start a session on it. Unreachable Directors
+              are shown inline so a dead Director is never silently dropped.
+
+   "triage" - one flat priority list across every Director: sessions that NEED YOU
+              (StatusColor "red") at the top, ON HOLD (user/agent parked) at the bottom,
+              everything else in between. The owning Director short-id is shown per row
+              since the grouping is dropped here.
+
+   StatusColor and OnHold are rendered verbatim from the Director; never derived. *@
+
+<div class="rail @ViewMode">
     @if (Sessions.Count == 0 && Errors.Count == 0)
     {
         <div class="rail-empty">No sessions. The Gateway returned an empty roster.</div>
     }
 
-    @foreach (var machine in Machines())
-    {
-        var machineSessions = Sessions.Where(s => MachineKey(s.MachineName) == machine).ToList();
-        var machineErrors = Errors.Where(e => MachineKey(e.MachineName) == machine).ToList();
-        var needsYou = machineSessions.Count(s => s.StatusColor == "red");
+    @{
+        // One row template shared by both layouts. The director short-id span is always
+        // emitted; CSS hides it in tree mode (redundant under a dir-head) and shows it in
+        // triage mode (where rows are no longer grouped by Director).
+        RenderFragment<SessionDto> SessionRow = s =>
+        @<button type="button"
+                 class="@($"sess{(s.SessionId == SelectedSessionId ? " sess-selected" : "")}")"
+                 style="border-left-color:@DotColor(s.StatusColor)"
+                 title="@($"{s.StatusColor}: {s.LastStatusReason}")"
+                 @onclick="() => OnSelect.InvokeAsync(s.SessionId)">
+            <span class="sess-dot" style="background:@DotColor(s.StatusColor)"></span>
+            <span class="sess-body">
+                <span class="sess-name">@(string.IsNullOrWhiteSpace(s.Name) ? s.RepoPath : s.Name)</span>
+                <span class="sess-state">
+                    @s.ActivityState
+                    @if (s.OnHold)
+                    {
+                        <span class="tag tag-hold">hold</span>
+                    }
+                    @if (s.VoiceMode)
+                    {
+                        <span class="tag tag-voice">voice</span>
+                    }
+                    <span class="sess-dir">@ShortId(s.DirectorId)</span>
+                </span>
+            </span>
+            @if (s.StatusColor == "red")
+            {
+                <span class="needs-pill">needs you</span>
+            }
+        </button>;
+    }
 
-        <div class="machine">
-            <div class="machine-head">
-                <span class="machine-name">@machine</span>
-                <span class="machine-count">@machineSessions.Count</span>
-                @if (needsYou > 0)
+    @if (ViewMode == "triage")
+    {
+        var needs = SessionOrdering.InBucket(Sessions, SessionOrdering.TriageBucket.NeedsYou);
+        var active = SessionOrdering.InBucket(Sessions, SessionOrdering.TriageBucket.Active);
+        var held = SessionOrdering.InBucket(Sessions, SessionOrdering.TriageBucket.OnHold);
+
+        @if (needs.Count > 0)
+        {
+            <div class="triage-sec">
+                <div class="triage-head needs">NEEDS YOU <span class="triage-count">@needs.Count</span></div>
+                @foreach (var s in needs) { @SessionRow(s) }
+            </div>
+        }
+        @if (active.Count > 0)
+        {
+            <div class="triage-sec">
+                <div class="triage-head">ACTIVE <span class="triage-count">@active.Count</span></div>
+                @foreach (var s in active) { @SessionRow(s) }
+            </div>
+        }
+        @if (held.Count > 0)
+        {
+            <div class="triage-sec">
+                <div class="triage-head hold">ON HOLD <span class="triage-count">@held.Count</span></div>
+                @foreach (var s in held) { @SessionRow(s) }
+            </div>
+        }
+        @if (Errors.Count > 0)
+        {
+            <div class="triage-sec">
+                <div class="triage-head err">UNREACHABLE <span class="triage-count">@Errors.Count</span></div>
+                @foreach (var e in Errors)
                 {
-                    <span class="machine-needs">@needsYou need you</span>
+                    <div class="dir-error" title="@e.Error">
+                        @MachineKey(e.MachineName) / director @ShortId(e.DirectorId) &mdash; @e.Error
+                    </div>
                 }
             </div>
+        }
+    }
+    else
+    {
+        @foreach (var machine in Machines())
+        {
+            var machineSessions = Sessions.Where(s => MachineKey(s.MachineName) == machine).ToList();
+            var machineErrors = Errors.Where(e => MachineKey(e.MachineName) == machine).ToList();
+            var needsYou = machineSessions.Count(s => s.StatusColor == "red");
 
-            @foreach (var dir in machineSessions.GroupBy(s => s.DirectorId).OrderBy(g => g.Key))
-            {
-                <div class="dir-head">director @ShortId(dir.Key)</div>
-
-                @foreach (var s in dir.OrderBy(s => s.Name ?? s.RepoPath))
-                {
-                    var selected = s.SessionId == SelectedSessionId;
-                    <button type="button"
-                            class="@($"sess{(selected ? " sess-selected" : "")}")"
-                            style="border-left-color:@DotColor(s.StatusColor)"
-                            title="@($"{s.StatusColor}: {s.LastStatusReason}")"
-                            @onclick="() => OnSelect.InvokeAsync(s.SessionId)">
-                        <span class="sess-dot" style="background:@DotColor(s.StatusColor)"></span>
-                        <span class="sess-body">
-                            <span class="sess-name">@(string.IsNullOrWhiteSpace(s.Name) ? s.RepoPath : s.Name)</span>
-                            <span class="sess-state">
-                                @s.ActivityState
-                                @if (s.OnHold)
-                                {
-                                    <span class="tag tag-hold">hold</span>
-                                }
-                                @if (s.VoiceMode)
-                                {
-                                    <span class="tag tag-voice">voice</span>
-                                }
-                            </span>
-                        </span>
-                        @if (s.StatusColor == "red")
-                        {
-                            <span class="needs-pill">needs you</span>
-                        }
-                    </button>
-                }
-            }
-
-            @foreach (var e in machineErrors)
-            {
-                <div class="dir-error" title="@e.Error">
-                    director @ShortId(e.DirectorId) &mdash; unreachable (@e.Error)
+            <div class="machine">
+                <div class="machine-head">
+                    <span class="machine-name">@machine</span>
+                    <span class="machine-count">@machineSessions.Count</span>
+                    @if (needsYou > 0)
+                    {
+                        <span class="machine-needs">@needsYou need you</span>
+                    }
                 </div>
-            }
-        </div>
+
+                @foreach (var dir in machineSessions.GroupBy(s => s.DirectorId).OrderBy(g => g.Key))
+                {
+                    <div class="dir-head">
+                        <span class="dir-head-label">director @ShortId(dir.Key)</span>
+                        <button type="button" class="dir-add"
+                                title="Start a new session on this Director"
+                                @onclick="() => OnNewSession.InvokeAsync(dir.Key)">+</button>
+                    </div>
+
+                    @foreach (var s in SessionOrdering.InDesktopOrder(dir))
+                    {
+                        @SessionRow(s)
+                    }
+                }
+
+                @foreach (var e in machineErrors)
+                {
+                    <div class="dir-error" title="@e.Error">
+                        director @ShortId(e.DirectorId) &mdash; unreachable (@e.Error)
+                    </div>
+                }
+            </div>
+        }
     }
 </div>
 
@@ -74,6 +140,14 @@
     [Parameter] public List<MachineErrorDto> Errors { get; set; } = new();
     [Parameter] public string? SelectedSessionId { get; set; }
     [Parameter] public EventCallback<string> OnSelect { get; set; }
+
+    /// <summary>"tree" (Machine -> Director -> Sessions, desktop order) or "triage"
+    /// (needs-you first, on-hold last, flat across Directors).</summary>
+    [Parameter] public string ViewMode { get; set; } = "tree";
+
+    /// <summary>Raised with a Director id when the user clicks a Director's [+] to start
+    /// a new session there.</summary>
+    [Parameter] public EventCallback<string> OnNewSession { get; set; }
 
     private static string MachineKey(string? machine) =>
         string.IsNullOrWhiteSpace(machine) ? "(this machine)" : machine;
