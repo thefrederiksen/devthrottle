@@ -1,0 +1,122 @@
+using System.Net.Http.Headers;
+using System.Text.Json;
+using CcDirector.Setup.Engine;
+
+namespace CcDirector.Setup.Cli;
+
+/// <summary>A manifest plus the per-asset download URLs needed to fetch each asset.</summary>
+public sealed record ResolvedRelease(ReleaseManifest Manifest, IReadOnlyDictionary<string, string> DownloadUrls);
+
+/// <summary>
+/// Resolves the release a plan is computed against. Two modes:
+///   - a local manifest file (--manifest &lt;path&gt;): plan/dry-run only, no URLs.
+///   - "latest" (default): fetch the GitHub latest release, map asset download
+///     URLs, and download + parse its release-manifest.json.
+/// </summary>
+public sealed class ReleaseSource
+{
+    private const string Owner = "thefrederiksen";
+    private const string Repo = "cc-director";
+    private const string ManifestAssetName = "release-manifest.json";
+
+    private readonly HttpClient _http;
+
+    public ReleaseSource(HttpClient? http = null)
+    {
+        _http = http ?? new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
+        if (!_http.DefaultRequestHeaders.UserAgent.Any())
+            _http.DefaultRequestHeaders.UserAgent.ParseAdd("cc-director-setup-cli");
+        _http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+    }
+
+    public static ResolvedRelease LoadLocalManifest(string path)
+    {
+        if (!File.Exists(path))
+            throw new FileNotFoundException($"Manifest file not found: {path}", path);
+        var manifest = ReleaseManifest.Parse(File.ReadAllText(path));
+        return new ResolvedRelease(manifest, new Dictionary<string, string>());
+    }
+
+    /// <summary>
+    /// Treat a local directory as a release: it must contain release-manifest.json
+    /// plus each asset file. The "download URL" for an asset is its local file
+    /// path, so a full install/update can run offline with no network and no admin
+    /// (the Workstation flow needs neither). Used for hermetic testing.
+    /// </summary>
+    public static ResolvedRelease LoadLocalReleaseDir(string dir)
+    {
+        var manifestPath = Path.Combine(dir, ManifestAssetName);
+        if (!File.Exists(manifestPath))
+            throw new FileNotFoundException($"No {ManifestAssetName} in release dir: {dir}", manifestPath);
+
+        var manifest = ReleaseManifest.Parse(File.ReadAllText(manifestPath));
+        var urls = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var assetName in manifest.Assets.Keys)
+        {
+            var assetPath = Path.Combine(dir, assetName);
+            if (File.Exists(assetPath)) urls[assetName] = assetPath; // local path acts as the URL
+        }
+        return new ResolvedRelease(manifest, urls);
+    }
+
+    public async Task<ResolvedRelease> FetchLatestAsync(CancellationToken ct)
+    {
+        var url = $"https://api.github.com/repos/{Owner}/{Repo}/releases/latest";
+        var resp = await _http.GetAsync(url, ct);
+        resp.EnsureSuccessStatusCode();
+        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
+        var root = doc.RootElement;
+
+        var urls = new Dictionary<string, string>(StringComparer.Ordinal);
+        string? manifestUrl = null;
+        if (root.TryGetProperty("assets", out var assets))
+        {
+            foreach (var a in assets.EnumerateArray())
+            {
+                var name = a.GetProperty("name").GetString() ?? "";
+                var dl = a.TryGetProperty("browser_download_url", out var u) ? u.GetString() : null;
+                if (string.IsNullOrEmpty(name) || string.IsNullOrEmpty(dl)) continue;
+                urls[name] = dl;
+                if (name == ManifestAssetName) manifestUrl = dl;
+            }
+        }
+
+        if (manifestUrl is null)
+            throw new InvalidOperationException($"Latest release has no {ManifestAssetName} asset.");
+
+        var manifestJson = await _http.GetStringAsync(manifestUrl, ct);
+        var manifest = ReleaseManifest.Parse(manifestJson);
+        return new ResolvedRelease(manifest, urls);
+    }
+
+    /// <summary>
+    /// Stage an asset to a temp file and return its path. The resolved value is
+    /// either an http(s) URL (latest/online mode) or a local file path
+    /// (release-dir mode); each is handled explicitly. Throws when no source is
+    /// known for the asset.
+    /// </summary>
+    public async Task<string> DownloadAssetAsync(string assetName, IReadOnlyDictionary<string, string> urls, CancellationToken ct)
+    {
+        if (!urls.TryGetValue(assetName, out var source))
+            throw new InvalidOperationException($"No source for asset '{assetName}'. Use --manifest latest or --release-dir.");
+
+        var dest = Path.Combine(Path.GetTempPath(), $"cc-setup-{Guid.NewGuid():N}-{assetName}");
+
+        if (source.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+            source.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            using var resp = await _http.GetAsync(source, HttpCompletionOption.ResponseHeadersRead, ct);
+            resp.EnsureSuccessStatusCode();
+            await using var src = await resp.Content.ReadAsStreamAsync(ct);
+            await using var fs = File.Create(dest);
+            await src.CopyToAsync(fs, ct);
+            return dest;
+        }
+
+        // Local release-dir mode: the source is a file path; stage a copy.
+        if (!File.Exists(source))
+            throw new FileNotFoundException($"Local asset not found: {source}", source);
+        File.Copy(source, dest, overwrite: true);
+        return dest;
+    }
+}

@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>CC Director Install &amp; Auto-Update Engine - QA Report</title>
+<style>
+        /* Boardroom Theme - Corporate, executive style with serif fonts */
+        
+        :root {
+            /* Colors */
+            --primary: #1A365D;
+            --primary-light: #2A4A7F;
+            --accent: #D69E2E;
+            --text: #2D3748;
+            --heading: #1A365D;
+            --background: #FFFFFF;
+            --code-bg: #EDF2F7;
+            --code-text: #1A365D;
+            --border: #CBD5E0;
+            --link: #2B6CB0;
+            --blockquote-text: #4A5568;
+            --blockquote-border: #D69E2E;
+            --blockquote-bg: #FFFFFF;
+            --table-header-bg: #1A365D;
+            --table-header-text: #FFFFFF;
+            --alt-row-bg: #F7FAFC;
+            --shadow-color: rgba(26, 54, 93, 0.08);
+        
+            /* Fonts */
+            --font-heading: "Palatino Linotype", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-body: "Georgia", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-code: "Courier New", "JetBrains Mono", "Fira Code", Consolas, monospace;
+        
+            /* Style */
+            --heading-letter-spacing: -0.02em;
+            --line-height: 1.7;
+            --radius: 4px;
+            --code-radius: 6px;
+            --shadow-sm: 0 1px 3px rgba(26, 54, 93, 0.08);
+            --shadow-md: 0 4px 12px rgba(26, 54, 93, 0.1);
+        }
+        
+        /* Base styles for all themes */
+        
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+        }
+        
+        html {
+            font-size: 16px;
+            line-height: var(--line-height);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: var(--font-body);
+            color: var(--text);
+            background: var(--background);
+        }
+        
+        .markdown-body {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 3rem 2.5rem;
+        }
+        
+        /* Typography */
+        h1, h2, h3, h4, h5, h6 {
+            font-family: var(--font-heading);
+            color: var(--heading);
+            margin-top: 1.8em;
+            margin-bottom: 0.6em;
+            font-weight: 600;
+            line-height: 1.25;
+            letter-spacing: var(--heading-letter-spacing);
+            orphans: 3;
+            widows: 3;
+        }
+        
+        h1 {
+            font-size: 2.25em;
+            margin-top: 0;
+        }
+        
+        h2 { font-size: 1.65em; }
+        h3 { font-size: 1.35em; }
+        h4 { font-size: 1.1em; }
+        h5 { font-size: 0.95em; }
+        h6 { font-size: 0.85em; color: var(--blockquote-text); }
+        
+        p {
+            margin: 1em 0;
+            orphans: 3;
+            widows: 3;
+        }
+        
+        /* Links */
+        a {
+            color: var(--link);
+            text-decoration: none;
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.2s ease;
+        }
+        
+        a:hover {
+            border-bottom-color: var(--link);
+        }
+        
+        /* Lists */
+        ul, ol {
+            margin: 1em 0;
+            padding-left: 2em;
+            line-height: var(--line-height);
+        }
+        
+        li {
+            margin: 0.35em 0;
+        }
+        
+        li > ul,
+        li > ol {
+            margin: 0.2em 0;
+        }
+        
+        /* Inline code */
+        code {
+            font-family: var(--font-code);
+            font-size: 0.875em;
+            padding: 0.15em 0.4em;
+            border-radius: var(--radius);
+            background: var(--code-bg);
+            color: var(--code-text);
+        }
+        
+        /* Code blocks */
+        pre {
+            margin: 1.5em 0;
+            padding: 1.25em 1.5em;
+            overflow-x: auto;
+            border-radius: var(--code-radius);
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow-sm);
+            position: relative;
+        }
+        
+        pre code {
+            padding: 0;
+            background: transparent;
+            border-radius: 0;
+            font-size: 0.875em;
+            line-height: 1.55;
+        }
+        
+        /* Blockquotes */
+        blockquote {
+            margin: 1.5em 0;
+            padding: 0.75em 1.25em;
+            border-left: 4px solid var(--blockquote-border);
+            background: var(--blockquote-bg);
+            color: var(--blockquote-text);
+            border-radius: 0 var(--radius) var(--radius) 0;
+        }
+        
+        blockquote p {
+            margin: 0.4em 0;
+        }
+        
+        blockquote p:first-child {
+            margin-top: 0;
+        }
+        
+        blockquote p:last-child {
+            margin-bottom: 0;
+        }
+        
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin: 1.5em 0;
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border);
+        }
+        
+        th, td {
+            padding: 0.75em 1em;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        th {
+            font-weight: 600;
+            background: var(--table-header-bg);
+            color: var(--table-header-text);
+        }
+        
+        tr:last-child td {
+            border-bottom: none;
+        }
+        
+        /* Horizontal rule */
+        hr {
+            border: none;
+            height: 2px;
+            max-width: 200px;
+            margin: 2.5em auto;
+            background: var(--border);
+            border-radius: 1px;
+        }
+        
+        /* Images */
+        img {
+            max-width: 100%;
+            height: auto;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        /* Task lists */
+        .task-list-item {
+            list-style-type: none;
+        }
+        
+        .task-list-item input[type="checkbox"] {
+            margin-right: 0.5em;
+        }
+        
+        /* Strong and emphasis */
+        strong {
+            font-weight: 700;
+        }
+        
+        /* Definition lists (if supported by parser) */
+        dt {
+            font-weight: 600;
+            margin-top: 1em;
+        }
+        
+        dd {
+            margin-left: 1.5em;
+            margin-bottom: 0.5em;
+        }
+        
+        
+        /* Boardroom: corporate authority with accent borders */
+        h1 {
+            border-bottom: 3px solid var(--accent);
+            padding-bottom: 0.5em;
+        }
+        
+        h2 {
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.3em;
+        }
+        
+        pre {
+            border-left: 4px solid var(--primary);
+            border-radius: 0 var(--code-radius) var(--code-radius) 0;
+        }
+        
+        pre::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--accent);
+            border-radius: 0;
+        }
+        
+        blockquote {
+            font-style: italic;
+        }
+        
+        hr {
+            background: var(--accent);
+            max-width: none;
+            height: 2px;
+        }
+        
+        tr:nth-child(even) td {
+            background: var(--alt-row-bg);
+        }
+        
+    </style>
+</head>
+<body>
+<article class="markdown-body">
+<h1>CC Director Install &amp; Auto-Update Engine - QA Report</h1>
+<p>Date: 2026-06-01
+        Scope: Windows install/update engine + CLI front-end (the testable core of all
+        plan phases in <code>docs/plans/install-autoupdate.md</code>).
+        Build: .NET 10.0.300, all projects <code>TreatWarningsAsErrors=true</code>.</p>
+<hr/>
+<h2>1. Summary</h2>
+<p>A headless install/update engine (<code>CcDirector.Setup.Engine</code>) and a CLI front-end
+        (<code>cc-director-setup-cli</code>) were built and tested. They implement the decisions
+        agreed in the plan: one shared engine behind a CLI front-end, a Workstation vs
+        Gateway role model, independent-per-component versioning, silent-auto update
+        planning, swap-with-backup plus rollback, and the Gateway self-update command
+        sequence.</p>
+<ul>
+<li>61 automated tests pass (52 engine, 9 CLI). 0 warnings, 0 failures.</li>
+<li>The CLI was exercised live: <code>help</code>, <code>components</code>, <code>status</code>, <code>prereqs</code>, <code>plan</code>,
+        <code>update --dry-run</code>, the no-download error path, and <code>rollback</code> all behave
+        correctly, including against the REAL published GitHub release and a REAL
+        installed Gateway on this machine.</li>
+<li>No existing C# was modified (the shipping WPF installer is untouched). The only
+        change to an existing file is <code>.github/workflows/release.yml</code> (manifest now
+        carries a per-asset version), validated as still-parsing YAML.</li>
+</ul>
+<p>The full end-to-end wizard run on a clean machine remains a separate exercise (as
+        agreed); this report covers what could be verified individually and in isolation.</p>
+<hr/>
+<h2>2. What was built</h2>
+<h3>Engine library - <code>tools/cc-director-setup-engine/</code></h3>
+<p>A plain <code>net10.0</code> library (no WPF, no network) so it is reusable by the CLI, the
+        WPF wizard, the Director, and the Gateway, and is fully unit-testable.</p>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Responsibility</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>InstallRole.cs</code>, <code>ComponentKind.cs</code>, <code>Component.cs</code></td>
+<td>The component model</td>
+</tr>
+<tr>
+<td><code>ComponentRegistry.cs</code></td>
+<td>Canonical component list; role -&gt; component mapping (Gateway = Workstation superset)</td>
+</tr>
+<tr>
+<td><code>InstallLayout.cs</code></td>
+<td>Where each component lives on disk (roots injectable)</td>
+</tr>
+<tr>
+<td><code>VersionUtil.cs</code></td>
+<td>Version parse/normalize/compare (handles <code>v</code>, <code>-rc</code>, <code>+githash</code>, 4-part)</td>
+</tr>
+<tr>
+<td><code>ReleaseManifest.cs</code></td>
+<td>Parse manifest with PER-ASSET versions (the independence mechanism)</td>
+</tr>
+<tr>
+<td><code>InstalledStateReader.cs</code></td>
+<td>Present? which version? (file + version readers injectable)</td>
+</tr>
+<tr>
+<td><code>UpdatePlanner.cs</code> + <code>UpdatePlan.cs</code></td>
+<td>Pure decision: Install / Update / UpToDate / MissingAsset / Pinned</td>
+</tr>
+<tr>
+<td><code>UpdatePin.cs</code></td>
+<td>Rollback version pins so silent-auto does not re-stage a bad build</td>
+</tr>
+<tr>
+<td><code>Hashing.cs</code></td>
+<td>SHA-256 verify against the manifest</td>
+</tr>
+<tr>
+<td><code>InstallSwapper.cs</code></td>
+<td>Atomic swap keeping <code>.old</code> backup; rollback restore</td>
+</tr>
+<tr>
+<td><code>UpdateRunner.cs</code></td>
+<td>Execute a plan: download (injected) -&gt; verify SHA -&gt; swap</td>
+</tr>
+<tr>
+<td><code>GatewayServiceCommands.cs</code></td>
+<td>NSSM stop/start/status sequence for Gateway self-update</td>
+</tr>
+<tr>
+<td><code>Orchestrator.cs</code></td>
+<td>The single "update everything in scope" entry resident apps call</td>
+</tr>
+</tbody>
+</table>
+<h3>CLI front-end - <code>tools/cc-director-setup-cli/</code></h3>
+<p>A thin <code>net10.0</code> console exe over the engine (<code>AssemblyName=cc-director-setup-cli</code>).</p>
+<p>Commands: <code>components</code>, <code>status</code>, <code>prereqs</code>, <code>plan</code>, <code>update</code>, <code>install</code>,
+        <code>rollback</code>, <code>help</code>. Global options: <code>--role workstation|gateway</code>,
+        <code>--manifest &lt;path|latest&gt;</code>, <code>--component &lt;id|all&gt;</code>, <code>--tools</code>, <code>--root</code>,
+        <code>--service-root</code>, <code>--dry-run</code>, <code>--json</code>. Exit codes: 0 ok, 1 error, 2 usage,
+        3 prerequisite missing.</p>
+<h3>Release pipeline - <code>.github/workflows/release.yml</code> (modified)</h3>
+<p>The manifest generator now emits a <code>version</code> per asset. Default = the release
+        version (backward compatible; identical effective behavior to before). An
+        optional <code>scripts/release-asset-versions.json</code> map overrides individual assets so
+        a single tool can be bumped without a full release. Fails loudly if that map is
+        present but <code>jq</code> is unavailable (no silent no-op).</p>
+<hr/>
+<h2>3. Test results</h2>
+<p>Command: <code>dotnet test &lt;project&gt;</code></p>
+<pre><code>CcDirector.Setup.Engine.Tests   Passed: 52, Failed: 0, Skipped: 0
+        CcDirector.Setup.Cli.Tests      Passed:  9, Failed: 0, Skipped: 0
+        </code></pre>
+<p>Coverage by area:</p>
+<table>
+<thead>
+<tr>
+<th>Area</th>
+<th>Tests</th>
+<th>Key scenarios</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>VersionUtil</td>
+<td>13</td>
+<td>normalize <code>v</code>/<code>-rc</code>/<code>+hash</code>/4-part; IsNewer; null safety</td>
+</tr>
+<tr>
+<td>ReleaseManifest</td>
+<td>8</td>
+<td>per-asset versions; legacy inherit; invalid-manifest throws</td>
+</tr>
+<tr>
+<td>ComponentRegistry</td>
+<td>5</td>
+<td>apps+tools; role scoping; Gateway is a superset of Workstation; duplicate-id reject</td>
+</tr>
+<tr>
+<td>InstallLayout</td>
+<td>4</td>
+<td>app/bin/service paths; empty-root reject</td>
+</tr>
+<tr>
+<td>UpdatePlanner</td>
+<td>5</td>
+<td>install/update/up-to-date/missing-asset; INDEPENDENT versioning; pinned-skip</td>
+</tr>
+<tr>
+<td>InstallSwapper</td>
+<td>5</td>
+<td>fresh install; swap keeps <code>.old</code>; rollback restores + consumes backup; missing-source throws</td>
+</tr>
+<tr>
+<td>UpdateRunner</td>
+<td>5</td>
+<td>install; update + backup; SHA-mismatch fails leaving target untouched; zip skipped</td>
+</tr>
+<tr>
+<td>Gateway/Pins</td>
+<td>6</td>
+<td>restart sequence stop-&gt;start-&gt;status; pin blocks matching version; JSON round-trip</td>
+</tr>
+<tr>
+<td>Orchestrator</td>
+<td>2</td>
+<td>no-work returns null run; installs a missing component</td>
+</tr>
+<tr>
+<td>CLI args</td>
+<td>5</td>
+<td>command/options/flags; positionals; default-to-help; flag does not swallow next option</td>
+</tr>
+<tr>
+<td>Framework detect</td>
+<td>4</td>
+<td>finds launcher by PATHEXT and bare name; null when absent</td>
+</tr>
+</tbody>
+</table>
+<p>The single key invariant - "only the component that is actually behind gets
+        updated" - is asserted directly in
+        <code>UpdatePlannerTests.IndependentVersioning_OnlyBehindComponentUpdates</code>
+        (Director current, cc-html current, only cc-pdf flagged).</p>
+<hr/>
+<h2>4. Live verification (CLI exercised by hand)</h2>
+<p>All run against the built <code>cc-director-setup-cli.dll</code>.</p>
+<h3>4.1 Role scoping (correct superset behavior)</h3>
+<p><code>components --role workstation</code> lists Director + tools only.
+        <code>components --role gateway</code> adds <code>gateway</code> + <code>cockpit</code>. Confirmed.</p>
+<h3>4.2 Framework prerequisite (decision D9: detect + guide)</h3>
+<pre><code>prereqs -&gt;
+          claude   found (C:\Users\soren\.local\bin\claude.EXE)
+          codex    not found
+          exit=0
+        </code></pre>
+<h3>4.3 Plan against a local manifest (independent versions flow through)</h3>
+<pre><code>plan --manifest &lt;local&gt; -&gt;
+          director  Install  install 0.4.0
+          cc-pdf    Install  install 1.2.0
+          cc-html   Install  install 1.1.0
+          cc-word   Install  install 1.0.5
+        </code></pre>
+<p>Each component carries its own target version - independence end to end.</p>
+<h3>4.4 REAL installed component read (no test stub)</h3>
+<p>With only <code>--root</code> overridden, <code>gateway</code>/<code>cockpit</code> resolved to the real
+        <code>C:\cc-tools</code>. The planner read the actually-installed Gateway's product version
+        (<code>1.0.0+&lt;githash&gt;</code>) and correctly judged it NOT behind the 0.4.0 test manifest
+        (<code>UpToDate</code>). Live <code>FileVersionInfo</code> reading + version comparison verified on a
+        real binary.</p>
+<h3>4.5 REAL GitHub release fetch (network)</h3>
+<pre><code>plan --manifest latest -&gt;   (fetched the real v0.3.5 release)
+          director  Install  install 0.3.5
+          cc-pdf    Install  install 0.3.5
+          cc-html   Install  install 0.3.5
+          cc-word   Install  install 0.3.5
+        </code></pre>
+<p><code>ReleaseSource.FetchLatestAsync</code> + parsing the real (legacy, no per-asset version)
+        manifest both work; missing per-asset versions correctly inherit <code>0.3.5</code>.</p>
+<h3>4.6 No-fallback failure path (honors the project rule)</h3>
+<p>A non-dry-run <code>update</code> against a LOCAL manifest (which has no download URLs) fails
+        loudly and clearly rather than silently degrading:</p>
+<pre><code>cc-pdf  Failed - No download URL for asset 'cc-pdf-win-x64.exe'. Use --manifest latest.
+        exit=1
+        </code></pre>
+<h3>4.7 Rollback (decision D8)</h3>
+<p>Seeded <code>bin/cc-pdf.exe</code> (bad) + <code>.old</code> (good), then <code>rollback cc-pdf</code>:</p>
+<pre><code>{ "component": "cc-pdf", "rolledBack": true, "pinnedAwayFrom": null }
+        cc-pdf.exe content after rollback: v1-good   (restored)
+        .old after rollback: absent                  (backup consumed)
+        </code></pre>
+<p><code>rollback</code> with no backup present reports clearly and exits 1.</p>
+<h3>4.8 Release manifest CI format</h3>
+<p>The exact <code>release.yml</code> manifest-generation bash was simulated locally; output is
+        valid JSON carrying the new per-asset <code>version</code> field, and the engine parsed it
+        via <code>plan</code>. YAML validated with <code>yaml.safe_load</code>.</p>
+<hr/>
+<h2>5. Per-phase status (honest)</h2>
+<table>
+<thead>
+<tr>
+<th>Phase</th>
+<th>Item</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>Headless engine extracted into a testable core</td>
+<td>DONE (implemented + 52 tests)</td>
+</tr>
+<tr>
+<td>1</td>
+<td>Rewire the WPF wizard to call the engine</td>
+<td>NOT DONE - deliberately deferred to avoid destabilizing the shipping installer; the CLI proves the shared engine</td>
+</tr>
+<tr>
+<td>2</td>
+<td>CLI front-end (install/update/rollback/status/...)</td>
+<td>DONE (implemented + 9 tests + live)</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Workstation vs Gateway role</td>
+<td>DONE in engine + CLI (<code>--role</code>); the UI toggle waits on the WPF rewire</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Independent-per-component versioning</td>
+<td>DONE (manifest per-asset version; planner judges each component independently; release.yml emits it)</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Orchestration entry point (<code>Orchestrator.RunAsync</code>)</td>
+<td>DONE (implemented + 2 tests)</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Wire the loop into the running Director/Gateway processes</td>
+<td>NOT DONE - integration into the live apps deferred</td>
+</tr>
+<tr>
+<td>6</td>
+<td>Rollback + <code>.old</code> backups (all components)</td>
+<td>DONE (implemented + tested + live)</td>
+</tr>
+<tr>
+<td>6</td>
+<td>Gateway self-update restart sequence</td>
+<td>DONE as a unit-tested command sequence; LIVE NSSM service swap deferred to the clean-machine run</td>
+</tr>
+<tr>
+<td>6</td>
+<td>Cockpit <code>.zip</code> extraction in the runner</td>
+<td>NOT DONE - reported as Skipped by the generic runner; belongs to the Gateway-side path</td>
+</tr>
+<tr>
+<td>7</td>
+<td>Docs: SmartScreen "Run anyway" walkthrough; signing copy</td>
+<td>NOT DONE</td>
+</tr>
+</tbody>
+</table>
+<hr/>
+<h2>6. Findings / notes for follow-up</h2>
+<ol>
+<li>
+<p>ASSET-NAME MISMATCH IN THE EXISTING WPF TOOL. The shipping
+        <code>tools/cc-director-setup/Services/ToolInstaller.cs</code> expects assets named
+        <code>cc-pdf.exe</code> / <code>&lt;tool&gt;.zip</code>, but <code>release.yml</code> actually publishes
+        <code>cc-pdf-win-x64.exe</code>. The new engine standardizes on the release-pipeline
+        naming (<code>&lt;id&gt;-win-x64.exe</code>). When the WPF tool is rewired onto the engine this
+        latent mismatch is resolved; until then the two disagree. Worth confirming the
+        current wizard actually installs tools today.</p>
+</li>
+<li>
+<p>DIRECTOR INSTALL PATH. The engine places the Director at
+        <code>%LOCALAPPDATA%\cc-director\app\cc-director.exe</code> (matching the plan and
+        <code>docs/install/install-prompt.md</code>), whereas the legacy <code>InstallDetector</code>/
+        <code>ToolInstaller</code> use <code>...\bin\cc-director.exe</code>. Standardize on <code>app\</code> during the
+        WPF rewire.</p>
+</li>
+<li>
+<p><code>jq</code> DEPENDENCY. The per-asset override map needs <code>jq</code> (preinstalled on
+        <code>ubuntu-latest</code>; absent on this dev box, so that one branch was not exercised
+        locally). The workflow now fails loudly if the map exists without <code>jq</code>.</p>
+</li>
+<li>
+<p>LIVE GATEWAY SELF-UPDATE is the one piece that genuinely needs the
+        empty/clean machine: stopping the LocalSystem service, swapping the locked exe
+        in <code>C:\cc-tools</code>, and confirming NSSM relaunches it. The command sequence is
+        built and unit-tested; the execution + detached-helper handoff is the clean-
+        machine item.</p>
+</li>
+</ol>
+<hr/>
+<h2>7. How to use it (answers "install pieces / list components")</h2>
+<pre><code># list the components for a role
+        cc-director-setup-cli components --role gateway
+        
+        # what is installed, and at what version
+        cc-director-setup-cli status --json
+        
+        # what would an update change (no download)
+        cc-director-setup-cli plan --manifest latest
+        
+        # update one component, or everything
+        cc-director-setup-cli update --component cc-pdf
+        cc-director-setup-cli update                 # all in scope
+        cc-director-setup-cli install --role gateway # role-scoped install
+        
+        # step back a bad build
+        cc-director-setup-cli rollback director
+        </code></pre>
+<hr/>
+<h2>8. Files</h2>
+<p>New (engine): <code>tools/cc-director-setup-engine/</code> - csproj + 18 source files.
+        New (engine tests): <code>tools/cc-director-setup-engine.Tests/</code> - csproj + 9 test files.
+        New (CLI): <code>tools/cc-director-setup-cli/</code> - csproj + 6 source files.
+        New (CLI tests): <code>tools/cc-director-setup-cli.Tests/</code> - csproj + 2 test files.
+        Changed: <code>.github/workflows/release.yml</code> (per-asset version in the manifest).
+        Plan reference: <code>docs/plans/install-autoupdate.md</code>.</p>
+<p>Nothing was committed. The shipping WPF installer and all other existing C# are
+        untouched.</p>
+</article>
+</body>
+</html>

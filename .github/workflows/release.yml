@@ -271,13 +271,29 @@ jobs:
               platform="unknown"
             fi
 
+            # Per-asset version enables independent-per-component updates: each
+            # component is judged on ITS OWN version. Default to the release
+            # version; an optional scripts/release-asset-versions.json (a flat
+            # {"asset-filename": "x.y.z"} map) overrides individual assets so a
+            # single tool can be bumped without a full release. No map => every
+            # asset inherits the release version (identical to prior behavior).
+            asset_version="$VERSION"
+            if [ -f scripts/release-asset-versions.json ]; then
+              if ! command -v jq >/dev/null 2>&1; then
+                echo "ERROR: scripts/release-asset-versions.json is present but jq is not available; cannot apply per-asset version overrides." >&2
+                exit 1
+              fi
+              override=$(jq -r --arg n "$filename" '.[$n] // empty' scripts/release-asset-versions.json)
+              if [ -n "$override" ]; then asset_version="$override"; fi
+            fi
+
             if [ "$first" = true ]; then
               first=false
             else
               echo "," >> "$MANIFEST"
             fi
 
-            printf "    \"%s\": {\"size\": %s, \"sha256\": \"%s\", \"platform\": \"%s\"}" "$filename" "$size" "$sha256" "$platform" >> "$MANIFEST"
+            printf "    \"%s\": {\"version\": \"%s\", \"size\": %s, \"sha256\": \"%s\", \"platform\": \"%s\"}" "$filename" "$asset_version" "$size" "$sha256" "$platform" >> "$MANIFEST"
           done
 
           echo "" >> "$MANIFEST"
