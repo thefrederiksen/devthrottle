@@ -120,11 +120,12 @@ body{background:var(--panel);color:var(--text);
 .right-empty{margin:auto;text-align:center;max-width:420px;padding:24px}
 .right-empty-title{font-size:16px;color:var(--text2);margin-bottom:8px}
 .right-empty-sub{font-size:12px;line-height:1.6}
-.detail-head{display:flex;align-items:center;gap:10px;padding:14px 18px;
-  border-bottom:1px solid var(--border);background:var(--sidebar)}
+.detail-head{display:flex;align-items:center;gap:10px;padding:14px 18px;flex-wrap:wrap;
+  row-gap:8px;border-bottom:1px solid var(--border);background:var(--sidebar)}
 .detail-dot{width:11px;height:11px;border-radius:50%;flex:none}
-.detail-name{font-size:16px;font-weight:600}
-.detail-meta{color:var(--text3);font-size:12px}
+.detail-name{font-size:16px;font-weight:600;min-width:0;flex:0 1 auto;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.detail-meta{color:var(--text3);font-size:12px;flex:none}
 .detail-state{margin-left:auto;font-size:11px;color:var(--text2);text-transform:uppercase;
   letter-spacing:.05em}
 .detail-body{padding:18px;overflow:auto}
@@ -138,18 +139,40 @@ body{background:var(--panel);color:var(--text);
 .term-wrap{flex:1;min-height:0;overflow:hidden;background:#1e1e1e;padding:6px 8px}
 .term-host{height:100%}
 
-/* dock: screenshots + queue + composer */
+/* detail split: terminal+composer center, optional screenshots/queue panel on the right */
+.detail-split{flex:1;min-height:0;display:flex}
+.center{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column}
+
+/* right panel (desktop parity): screenshots drop zone + queue, collapsible */
+.rightpanel{flex:none;width:280px;border-left:1px solid var(--border);background:var(--sidebar);
+  display:flex;flex-direction:column;min-height:0;overflow:auto}
+.rightpanel-collapsed{width:40px;overflow:hidden;align-items:center}
+.rightpanel-head{display:flex;align-items:center;gap:8px;padding:10px 12px 8px;flex:none}
+.rightpanel-title{flex:1;font-size:11px;font-weight:600;letter-spacing:.05em;color:var(--text2);
+  text-transform:uppercase}
+.right-collapse,.right-expand{flex:none;width:24px;height:24px;font-size:14px;line-height:1;cursor:pointer;
+  color:var(--text2);background:transparent;border:1px solid var(--border);border-radius:5px;
+  display:flex;align-items:center;justify-content:center;padding:0}
+.right-collapse:hover,.right-expand:hover{color:#fff;background:var(--button)}
+.right-expand{margin:10px auto 6px}
+.rail-qbadge{font-size:10px;color:#fff;background:var(--accent);border-radius:8px;padding:1px 6px}
+
+/* dock: composer only (screenshots + queue moved to the right panel) */
 .detail-dock{flex:none;border-top:1px solid var(--border);background:var(--sidebar)}
-.shots{display:flex;align-items:center;gap:12px;padding:8px 14px;border-bottom:1px solid var(--border)}
-.shots-drop{display:flex;align-items:center;gap:8px;border:1px dashed #4a4a4a;border-radius:8px;
-  padding:7px 12px;cursor:pointer;color:var(--text3);font-size:12px}
+
+/* screenshots: a tall drop box inside the right panel */
+.shots{display:flex;flex-direction:column;gap:8px;padding:12px 14px;border-bottom:1px solid var(--border)}
+.shots-drop{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;
+  border:1px dashed #4a4a4a;border-radius:8px;padding:18px 12px;min-height:96px;cursor:pointer;
+  color:var(--text3);font-size:12px;text-align:center}
 .shots-drop:hover{border-color:var(--accent);color:var(--text2)}
-.shots-file{max-width:200px;color:var(--text3);font-size:11px}
-.shots-hint{font-size:12px}
+.shots-file{max-width:100%;color:var(--text3);font-size:11px}
+.shots-hint{font-size:12px;line-height:1.4}
 .shots-status{font-size:12px;color:var(--green)}
 
-.queue{padding:8px 14px;border-bottom:1px solid var(--border)}
+.queue{padding:8px 14px}
 .queue-head{font-size:11px;letter-spacing:.06em;color:var(--text3);margin-bottom:6px}
+.queue-empty{font-size:11px;color:var(--text3);font-style:italic;line-height:1.5}
 .queue-item{display:flex;align-items:center;gap:8px;padding:4px 0}
 .queue-text{flex:1;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .qbtn{background:var(--button);color:var(--text);border:1px solid var(--border);border-radius:6px;
@@ -157,10 +180,15 @@ body{background:var(--panel);color:var(--text);
 .qbtn:hover{border-color:var(--accent);color:var(--accent)}
 .qdel:hover{border-color:var(--red);color:var(--red)}
 
-.composer{display:flex;gap:10px;align-items:flex-end;padding:12px 14px}
+.composer{display:flex;gap:10px;align-items:flex-end;padding:12px 14px;border-radius:8px}
 .composer textarea{flex:1;background:#1e1e1e;color:var(--text);border:1px solid var(--border);
   border-radius:8px;padding:9px 11px;font-family:inherit;font-size:14px;resize:none;height:46px}
 .composer textarea:focus{outline:none;border-color:var(--accent)}
+/* Hidden file sink that composer image-drops are routed into (cockpit-composer-drop.js). */
+.composer-drop-input{display:none}
+/* Highlight the composer while an image is dragged over it. */
+.composer.drag-over{outline:2px dashed var(--accent);outline-offset:2px;background:rgba(59,130,246,.06)}
+.composer.drag-over textarea{border-color:var(--accent)}
 .composer-btns{display:flex;gap:8px}
 .btn{background:var(--button);color:var(--text);border:1px solid var(--border);border-radius:8px;
   padding:9px 16px;font-size:13px;cursor:pointer;white-space:nowrap}
@@ -179,7 +207,7 @@ body{background:var(--panel);color:var(--text);
 
 /* ===== Phase 2: lifecycle + settings ===== */
 .btn.tb{padding:5px 11px;font-size:12px;border-radius:6px}
-.detail-actions{margin-left:auto;display:flex;gap:8px}
+.detail-actions{margin-left:auto;display:flex;gap:8px;flex:none}
 .rename-input{background:var(--panel);color:var(--text);border:1px solid var(--accent);
   border-radius:6px;padding:5px 8px;font-size:15px;min-width:240px}
 .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;

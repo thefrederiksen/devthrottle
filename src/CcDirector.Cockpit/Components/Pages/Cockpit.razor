@@ -130,55 +130,90 @@
                     </span>
                 </div>
 
-                <div class="term-wrap">
-                    <TerminalPane @key="Selected.SessionId" SessionId="@Selected.SessionId" DirectorBase="@Selected.TailnetEndpoint" />
-                </div>
+                <div class="detail-split">
+                    @* ---- Center column: live terminal + composer ---- *@
+                    <div class="center">
+                        <div class="term-wrap">
+                            <TerminalPane @key="Selected.SessionId" SessionId="@Selected.SessionId" DirectorBase="@Selected.TailnetEndpoint" />
+                        </div>
 
-                <div class="detail-dock">
-                    @* ---- Screenshots: drag image files onto here -> sent to Claude ---- *@
-                    <div class="shots">
-                        <label class="shots-drop">
-                            <InputFile OnChange="OnDropImages" multiple accept="image/*" class="shots-file" />
-                            <span class="shots-hint">Drag screenshots here (or click) &rarr; sent to Claude Code</span>
-                        </label>
-                        @if (!string.IsNullOrEmpty(_shotStatus))
-                        {
-                            <span class="shots-status">@_shotStatus</span>
-                        }
-                    </div>
-
-                    @* ---- Queue panel ---- *@
-                    @if (_queue.Count > 0)
-                    {
-                        <div class="queue">
-                            <div class="queue-head">QUEUE (@_queue.Count)</div>
-                            @foreach (var q in _queue)
-                            {
-                                <div class="queue-item">
-                                    <span class="queue-text">@q.Text</span>
-                                    <button class="qbtn" title="Send now" @onclick="() => SendQueued(q.Id)">send</button>
-                                    <button class="qbtn qdel" title="Remove" @onclick="() => RemoveQueued(q.Id)">&times;</button>
+                        <div class="detail-dock">
+                            @* ---- Composer: Speak / Send / Queue + Interrupt / Esc ---- *@
+                            <div class="composer">
+                                <textarea @bind="_compose" @bind:event="oninput" @onkeydown="OnComposerKey"
+                                          placeholder="Message this session... (Enter to send, Shift+Enter for newline; drop an image here)"></textarea>
+                                @* Drag an image straight onto the composer (desktop parity with the
+                                   prompt-box drop). A document-level handler (cockpit-composer-drop.js)
+                                   routes images dropped on .composer into this hidden input, which runs
+                                   the same OnDropImages upload+inject path - so it works even when the
+                                   right Screenshots panel is collapsed. Text drops fall through to the
+                                   textarea's native behaviour. *@
+                                <InputFile OnChange="OnDropImages" multiple accept="image/*" class="composer-drop-input" />
+                                <div class="composer-btns">
+                                    <button class="btn speak @(_dictating ? "on" : "")" @onclick="OpenDictate" title="Dictate" disabled="@_dictating">Speak</button>
+                                    <button class="btn send" @onclick="SendNow" disabled="@(_acting || string.IsNullOrWhiteSpace(_compose))">Send</button>
+                                    <button class="btn queue" @onclick="QueueIt" disabled="@(_acting || string.IsNullOrWhiteSpace(_compose))">Queue</button>
+                                    <button class="btn danger" @onclick="Interrupt" title="Ctrl+C">Interrupt</button>
+                                    <button class="btn danger" @onclick="Escape" title="Esc">Esc</button>
                                 </div>
+                            </div>
+                            @if (!string.IsNullOrEmpty(_actError))
+                            {
+                                <div class="act-error">@_actError</div>
                             }
                         </div>
-                    }
-
-                    @* ---- Composer: Speak / Send / Queue + Interrupt / Esc ---- *@
-                    <div class="composer">
-                        <textarea @bind="_compose" @bind:event="oninput" @onkeydown="OnComposerKey"
-                                  placeholder="Message this session... (Enter to send, Shift+Enter for newline)"></textarea>
-                        <div class="composer-btns">
-                            <button class="btn speak @(_dictating ? "on" : "")" @onclick="OpenDictate" title="Dictate" disabled="@_dictating">Speak</button>
-                            <button class="btn send" @onclick="SendNow" disabled="@(_acting || string.IsNullOrWhiteSpace(_compose))">Send</button>
-                            <button class="btn queue" @onclick="QueueIt" disabled="@(_acting || string.IsNullOrWhiteSpace(_compose))">Queue</button>
-                            <button class="btn danger" @onclick="Interrupt" title="Ctrl+C">Interrupt</button>
-                            <button class="btn danger" @onclick="Escape" title="Esc">Esc</button>
-                        </div>
                     </div>
-                    @if (!string.IsNullOrEmpty(_actError))
-                    {
-                        <div class="act-error">@_actError</div>
-                    }
+
+                    @* ---- Right panel: screenshots + queue (desktop parity), collapsible ---- *@
+                    <aside class="rightpanel @(_rightCollapsed ? "rightpanel-collapsed" : "")">
+                        @if (_rightCollapsed)
+                        {
+                            <button class="right-expand" title="Show screenshots & queue" @onclick="ToggleRight">&laquo;</button>
+                            @if (_queue.Count > 0)
+                            {
+                                <div class="rail-qbadge" title="@_queue.Count queued">@_queue.Count</div>
+                            }
+                        }
+                        else
+                        {
+                            <div class="rightpanel-head">
+                                <span class="rightpanel-title">Screenshots</span>
+                                <button class="right-collapse" title="Hide panel" @onclick="ToggleRight">&raquo;</button>
+                            </div>
+
+                            @* ---- Screenshots: drag image files onto here -> sent to Claude ---- *@
+                            <div class="shots">
+                                <label class="shots-drop">
+                                    <InputFile OnChange="OnDropImages" multiple accept="image/*" class="shots-file" />
+                                    <span class="shots-hint">Drag screenshots here (or click) &rarr; sent to Claude Code</span>
+                                </label>
+                                @if (!string.IsNullOrEmpty(_shotStatus))
+                                {
+                                    <span class="shots-status">@_shotStatus</span>
+                                }
+                            </div>
+
+                            @* ---- Queue panel ---- *@
+                            <div class="queue">
+                                <div class="queue-head">QUEUE (@_queue.Count)</div>
+                                @if (_queue.Count == 0)
+                                {
+                                    <div class="queue-empty">Nothing queued. Type a message and hit Queue to stage it here.</div>
+                                }
+                                else
+                                {
+                                    @foreach (var q in _queue)
+                                    {
+                                        <div class="queue-item">
+                                            <span class="queue-text">@q.Text</span>
+                                            <button class="qbtn" title="Send now" @onclick="() => SendQueued(q.Id)">send</button>
+                                            <button class="qbtn qdel" title="Remove" @onclick="() => RemoveQueued(q.Id)">&times;</button>
+                                        </div>
+                                    }
+                                }
+                            </div>
+                        }
+                    </aside>
                 </div>
             }
         </main>
@@ -507,12 +542,25 @@
         if (!firstRender) return;
         try
         {
+            // Wire composer drag-drop once via event delegation, so it survives every
+            // composer re-render (session switches) without re-binding. init() is idempotent.
+            _composerDropModule = await JS.InvokeAsync<IJSObjectReference>("import", "./js/cockpit-composer-drop.js");
+            await _composerDropModule.InvokeVoidAsync("init");
+        }
+        catch (Exception ex)
+        {
+            Log.LogDebug(ex, "Cockpit: wiring composer drop failed");
+        }
+        try
+        {
             var collapsed = await JS.InvokeAsync<string?>("localStorage.getItem", "cockpit.leftCollapsed");
             var mode = await JS.InvokeAsync<string?>("localStorage.getItem", "cockpit.viewMode");
+            var rightCollapsed = await JS.InvokeAsync<string?>("localStorage.getItem", "cockpit.rightCollapsed");
             var changed = false;
             if (collapsed == "1" && !_leftCollapsed) { _leftCollapsed = true; changed = true; }
             // Pattern match narrows `mode` to non-null, so no null-forgiving operator is needed.
             if (mode is "tree" or "triage" && mode != _viewMode) { _viewMode = mode; changed = true; }
+            if (rightCollapsed == "1" && !_rightCollapsed) { _rightCollapsed = true; changed = true; }
             if (changed) await InvokeAsync(StateHasChanged);
         }
         catch (Exception ex)
@@ -539,8 +587,14 @@
         }
     }
 
+    private bool _refreshing;
+
     private async Task RefreshAsync()
     {
+        // The 2s tick can fire again while a slow refresh is still in flight; skip overlapping
+        // runs so two GetSessions responses can't land out of order and flash stale data.
+        if (_refreshing) return;
+        _refreshing = true;
         try
         {
             var env = await Gateway.GetSessionsAsync(_cts.Token);
@@ -553,8 +607,15 @@
             if (_selectedId is not null && _sessions.All(s => s.SessionId != _selectedId))
                 _selectedId = null;
 
-            // Keep the queue panel current (catches external drains too).
-            await LoadQueueAsync();
+            // Show the fresh roster immediately - a slow per-Director queue load must never
+            // delay the fleet view (one slow Director can't stall the UI).
+            await InvokeAsync(StateHasChanged);
+
+            // Keep the queue panel current (catches external drains too), but not while the
+            // user is acting on the queue: the action's response is authoritative, and a poll
+            // load racing it could clobber a just-enqueued/removed item until the next tick.
+            if (!_acting)
+                await LoadQueueAsync();
         }
         catch (OperationCanceledException)
         {
@@ -564,6 +625,10 @@
         {
             _lastError = ex.Message;
             Log.LogWarning(ex, "Cockpit RefreshAsync failed against {Base}", Gateway.BaseUrl);
+        }
+        finally
+        {
+            _refreshing = false;
         }
         await InvokeAsync(StateHasChanged);
     }
@@ -591,54 +656,72 @@
 
     private async Task LoadQueueAsync()
     {
-        if (Selected is null || string.IsNullOrWhiteSpace(DirBase)) return;
-        try { _queue = await Director.GetQueueAsync(DirBase!, Selected.SessionId, _cts.Token); }
+        var sel = Selected; var dir = sel?.TailnetEndpoint;
+        if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
+        try
+        {
+            // Short cap so a hung /queue on the selected Director can't stall the poll loop for
+            // the client's full timeout. Linked to _cts so circuit teardown still cancels it.
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+            cts.CancelAfter(TimeSpan.FromSeconds(8));
+            _queue = await Director.GetQueueAsync(dir!, sel.SessionId, cts.Token);
+        }
         catch (OperationCanceledException) { }
         catch (Exception ex) { Log.LogDebug(ex, "LoadQueue failed"); }
     }
 
+    // Each action captures the selected session + its endpoint into locals BEFORE awaiting.
+    // `Selected`/`DirBase` are computed properties over `_sessions`, which the 2s poll loop
+    // replaces wholesale; re-reading them across an await can return null mid-action and throw
+    // a spurious NRE that surfaces as a misleading error banner. Capture once, use the locals.
     private async Task SendNow()
     {
-        if (Selected is null || string.IsNullOrWhiteSpace(_compose) || string.IsNullOrWhiteSpace(DirBase)) return;
+        var sel = Selected; var dir = sel?.TailnetEndpoint;
+        if (sel is null || string.IsNullOrWhiteSpace(_compose) || string.IsNullOrWhiteSpace(dir)) return;
         await Act(async () =>
         {
-            await Director.SendPromptAsync(DirBase!, Selected.SessionId, _compose, _cts.Token);
+            await Director.SendPromptAsync(dir!, sel.SessionId, _compose, _cts.Token);
             _compose = "";
         });
     }
 
     private async Task QueueIt()
     {
-        if (Selected is null || string.IsNullOrWhiteSpace(_compose) || string.IsNullOrWhiteSpace(DirBase)) return;
+        var sel = Selected; var dir = sel?.TailnetEndpoint;
+        if (sel is null || string.IsNullOrWhiteSpace(_compose) || string.IsNullOrWhiteSpace(dir)) return;
         await Act(async () =>
         {
-            _queue = await Director.EnqueueAsync(DirBase!, Selected.SessionId, _compose, _cts.Token);
+            _queue = await Director.EnqueueAsync(dir!, sel.SessionId, _compose, _cts.Token);
             _compose = "";
         });
     }
 
     private async Task SendQueued(string itemId)
     {
-        if (Selected is null || string.IsNullOrWhiteSpace(DirBase)) return;
-        await Act(async () => _queue = await Director.SendQueueItemAsync(DirBase!, Selected.SessionId, itemId, _cts.Token));
+        var sel = Selected; var dir = sel?.TailnetEndpoint;
+        if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
+        await Act(async () => _queue = await Director.SendQueueItemAsync(dir!, sel.SessionId, itemId, _cts.Token));
     }
 
     private async Task RemoveQueued(string itemId)
     {
-        if (Selected is null || string.IsNullOrWhiteSpace(DirBase)) return;
-        await Act(async () => _queue = await Director.DeleteQueueItemAsync(DirBase!, Selected.SessionId, itemId, _cts.Token));
+        var sel = Selected; var dir = sel?.TailnetEndpoint;
+        if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
+        await Act(async () => _queue = await Director.DeleteQueueItemAsync(dir!, sel.SessionId, itemId, _cts.Token));
     }
 
     private async Task Interrupt()
     {
-        if (Selected is null || string.IsNullOrWhiteSpace(DirBase)) return;
-        await Act(() => Director.InterruptAsync(DirBase!, Selected.SessionId, _cts.Token));
+        var sel = Selected; var dir = sel?.TailnetEndpoint;
+        if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
+        await Act(() => Director.InterruptAsync(dir!, sel.SessionId, _cts.Token));
     }
 
     private async Task Escape()
     {
-        if (Selected is null || string.IsNullOrWhiteSpace(DirBase)) return;
-        await Act(() => Director.EscapeAsync(DirBase!, Selected.SessionId, _cts.Token));
+        var sel = Selected; var dir = sel?.TailnetEndpoint;
+        if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
+        await Act(() => Director.EscapeAsync(dir!, sel.SessionId, _cts.Token));
     }
 
     private async Task OnComposerKey(KeyboardEventArgs e)
@@ -650,7 +733,8 @@
     // Drag-drop (or click) screenshots -> forwarded to the owning Director -> Claude Code.
     private async Task OnDropImages(InputFileChangeEventArgs e)
     {
-        if (Selected is null || string.IsNullOrWhiteSpace(DirBase)) return;
+        var sel = Selected; var dir = sel?.TailnetEndpoint;
+        if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
         var files = e.GetMultipleFiles(10);
         var sent = 0;
         foreach (var f in files)
@@ -658,18 +742,19 @@
             try
             {
                 await using var s = f.OpenReadStream(20 * 1024 * 1024, _cts.Token); // 20 MB cap
-                var path = await Director.UploadImageAsync(DirBase!, Selected.SessionId, s, f.Name, f.ContentType, _cts.Token);
+                var path = await Director.UploadImageAsync(dir!, sel.SessionId, s, f.Name, f.ContentType, _cts.Token);
 
                 // The upload endpoint only SAVES the image and returns its path; it does not
                 // hand it to Claude. Inject the saved path into the live prompt (no Enter, so the
                 // user adds their message and sends) - matching the desktop drag-drop, so Claude
                 // can actually read the image. A trailing space separates multiple images.
                 if (!string.IsNullOrWhiteSpace(path))
-                    await Director.SendInputAsync(DirBase!, Selected.SessionId, path + " ", _cts.Token);
+                    await Director.SendInputAsync(dir!, sel.SessionId, path + " ", _cts.Token);
 
                 sent++;
                 _shotStatus = $"attached {sent} image{(sent == 1 ? "" : "s")} to the prompt";
-                StateHasChanged();
+                // Off the dispatcher after the awaits above - must marshal back, not call directly.
+                await InvokeAsync(StateHasChanged);
             }
             catch (Exception ex)
             {
@@ -687,6 +772,7 @@
     // (drop into composer AND submit). _dictating guards against opening it twice.
     private bool _dictating;
     private DotNetObjectReference<Cockpit>? _dictateRef;
+    private IJSObjectReference? _composerDropModule;
 
     private async Task OpenDictate()
     {
@@ -697,6 +783,13 @@
             _actError = null;
             _dictateRef ??= DotNetObjectReference.Create(this);
             await JS.InvokeVoidAsync("cockpitDictate.start", _dictateRef, DictateWsUrl(DirBase!), "/js/dictate-worklet.js", "default");
+        }
+        catch (OperationCanceledException)
+        {
+            // Dialog dismissed / interop torn down - a user cancellation, not a failure.
+            // The dialog's own OnDictateCancel callback already resets _dictating; never
+            // surface this as a red error banner ("A task was canceled").
+            _dictating = false;
         }
         catch (Exception ex)
         {
@@ -770,6 +863,15 @@
     {
         _leftCollapsed = !_leftCollapsed;
         await SavePref("cockpit.leftCollapsed", _leftCollapsed ? "1" : "0");
+    }
+
+    // ===== Right panel: collapse (screenshots + queue), persisted to localStorage =====
+    private bool _rightCollapsed;
+
+    private async Task ToggleRight()
+    {
+        _rightCollapsed = !_rightCollapsed;
+        await SavePref("cockpit.rightCollapsed", _rightCollapsed ? "1" : "0");
     }
 
     private async Task SetViewMode(string mode)
@@ -920,8 +1022,18 @@
 
     private void CloseSettings() => _showSettings = false;
 
-    private string? SettingsEndpointFor(string directorId) =>
-        _directors.FirstOrDefault(d => d.DirectorId == directorId)?.TailnetEndpoint;
+    // Resolve a Director's reachable base URL. Prefer its cross-machine TailnetEndpoint, but
+    // fall back to the ControlEndpoint when that is null/empty - the contract documents that
+    // FSW-discovered (same-machine) Directors have a null TailnetEndpoint and the ControlEndpoint
+    // must be used instead (DirectorDto.cs). Without this fallback, Settings was unusable for the
+    // common loopback case ("that Director has no reachable endpoint"), even though the session
+    // DTOs already carry the same control-endpoint fallback for the terminal/Send/queue paths.
+    private string? SettingsEndpointFor(string directorId)
+    {
+        var d = _directors.FirstOrDefault(x => x.DirectorId == directorId);
+        if (d is null) return null;
+        return !string.IsNullOrWhiteSpace(d.TailnetEndpoint) ? d.TailnetEndpoint : d.ControlEndpoint;
+    }
 
     private async Task LoadSettings()
     {
@@ -1149,5 +1261,9 @@
         _cts.Cancel();
         _cts.Dispose();
         _dictateRef?.Dispose();
+        // Best-effort release of the JS module ref (sync Dispose can't await; the document
+        // listeners it set up are idempotent and harmless if they outlive the circuit).
+        if (_composerDropModule is not null)
+            _ = _composerDropModule.DisposeAsync().AsTask().ContinueWith(_ => { }, TaskScheduler.Default);
     }
 }
