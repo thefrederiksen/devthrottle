@@ -1,9 +1,15 @@
 # CC Director - Installation & Auto-Update (Windows)
 
+> **MASTER SPEC - AUTHORITATIVE.** This document defines where every CC Director
+> file is installed and how install/update works. It is the single source of
+> truth. If any code, script, README, comment, or other document says otherwise,
+> **that other source is wrong** and must be reconciled to this document. Do not
+> "work around" a disagreement - fix the offending source to match this spec.
+
 How CC Director installs onto a Windows machine, where every file lands, and how
-it keeps itself up to date. This is the authoritative reference for the
-install/update engine (`CcDirector.Setup.Engine`) and its headless front-end
-(`cc-director-setup-cli`).
+it keeps itself up to date. The install/update engine (`CcDirector.Setup.Engine`)
+and both its front-ends (the WPF installer UI and `cc-director-setup-cli`)
+implement exactly this layout.
 
 Scope: Windows only. macOS is manual-install and cannot host the Gateway.
 
@@ -17,55 +23,82 @@ the Workstation role.
 | Role | What it installs | Admin needed? |
 |------|------------------|---------------|
 | **Workstation** | Director app + CLI tools, entirely per-user | No - never |
-| **Gateway** | Everything a Workstation installs, PLUS the always-on Gateway service and the Cockpit it supervises | Yes, ONCE (to register the Windows service) |
+| **Gateway** | Everything a Workstation installs, PLUS the always-on Gateway service and the Cockpit it supervises | Yes, ONCE (first install only) |
 
 There is exactly one Gateway on a tailnet; it is usually someone's main
-workstation, not a headless box.
+workstation, not a headless box. A Gateway machine therefore has BOTH a per-user
+Workstation install (for the interactive user) AND the machine-wide service.
 
 ### The admin question, answered
 
-- A **Workstation** install is 100% per-user under `%LOCALAPPDATA%\cc-director`.
-  It needs **no administrator rights at all** and can be installed, updated, and
-  rolled back from a non-elevated session (including a cloud / CI session).
-- A **Gateway** install needs administrator rights **exactly once**: to register
-  the `cc-gateway-service` Windows service (LocalSystem) and write to
-  `C:\cc-tools`. That single step cannot be done unelevated.
-- After that one step, the Gateway **self-updates as LocalSystem with no further
-  UAC prompts** - it already owns its files and can restart its own service.
+Admin is required **exactly once, ever** - and only for the Gateway:
 
-So everything except the live service registration is testable and runnable
-without admin.
+- A **Workstation** install is 100% per-user under `%LOCALAPPDATA%\cc-director`.
+  It needs **no administrator rights at all** - install, update, and rollback all
+  run unelevated (including from a cloud / CI session).
+- A **Gateway** install needs administrator rights **once**, at first install
+  only: to write the service binaries under `%ProgramFiles%\CC Director` and
+  register the `cc-gateway-service` Windows service (LocalSystem).
+- **Every update after that needs no admin.** The Gateway service runs as
+  LocalSystem, which already owns its `%ProgramFiles%\CC Director` files, so it
+  swaps its own binary (and the Cockpit's) and restarts itself with no UAC.
+
+**Why updates are safe without admin:** the privileged service updates its own
+files. We do NOT place service-executed binaries anywhere a standard user can
+overwrite them - that would be a privilege-escalation hole. Machine-wide binaries
+live in Program Files (standard users cannot write there); only the already-
+privileged service modifies them.
 
 ---
 
-## 2. Where everything is placed
+## 2. Where everything is placed (canonical)
 
-### Per-user (Workstation; also present on a Gateway machine)
+Three roots, by trust level. Nothing lives anywhere else. (`C:\cc-tools` is
+retired and must not be used.)
 
-Root is `%LOCALAPPDATA%\cc-director` (i.e.
-`C:\Users\<you>\AppData\Local\cc-director`). The `CC_DIRECTOR_ROOT` environment
-variable overrides this root; the Gateway service sets it so a LocalSystem
-service still reads the interactive user's data.
+### 2.1 Per-user - `%LOCALAPPDATA%\cc-director\` (no admin, ever)
+
+`%LOCALAPPDATA%` = `C:\Users\<you>\AppData\Local`. This is the Workstation
+install; everything here installs and auto-updates with zero UAC (the same reason
+Chrome, VS Code, and Teams install per-user).
 
 | Path | Contents |
 |------|----------|
-| `app\cc-director.exe` | The Director desktop app |
-| `bin\<tool>.exe` | CLI tools (cc-pdf, cc-html, cc-word, ...), added to PATH |
-| `config\` | App configuration (`config\config.json`, etc.) |
+| `app\cc-director.exe` | The Director desktop app (in-place self-update by the user) |
+| `bin\<tool>.exe` | CLI tools (cc-pdf, cc-html, cc-word, ...), added to the USER PATH |
+| `config\` | Per-user app configuration (`config\config.json`) |
 | `config\setup\update-pins.json` | Rollback pins (versions to skip) |
-| `vault\` | Personal data store |
-| `logs\` | Director, gateway, and `setup-cli.log` |
+| `vault\` | The user's personal data store |
+| `logs\` | Director + `setup-cli.log` |
 
-Output documents land in `%USERPROFILE%\Documents\cc-director`.
+Generated output documents land in `%USERPROFILE%\Documents\cc-director\`.
 
-### Machine-wide (Gateway role only)
+### 2.2 Machine-wide service binaries - `%ProgramFiles%\CC Director\` (admin once)
 
-Root is `C:\cc-tools`, owned by the LocalSystem service.
+`%ProgramFiles%` = `C:\Program Files`. Gateway role only. Written once at first
+install (elevated); thereafter modified only by the LocalSystem service.
 
 | Path | Contents |
 |------|----------|
-| `cc-director-gateway\cc-director-gateway.exe` | The Gateway service (`cc-gateway-service`) |
-| `cc-director-cockpit\cc-director-cockpit.exe` | The Cockpit, supervised as a child of the Gateway service |
+| `gateway\cc-director-gateway.exe` | The Gateway service binary (`cc-gateway-service`, runs as LocalSystem) |
+| `cockpit\cc-director-cockpit.exe` | The Cockpit, supervised as a child of the Gateway service |
+
+### 2.3 Machine-wide data - `%ProgramData%\cc-director\` (all users)
+
+`%ProgramData%` = `C:\ProgramData`. Gateway role only. Shared, all-users-readable
+service data, written by the LocalSystem service. **Data only - never
+executables**, and ACL'd so standard users cannot write it.
+
+| Path | Contents |
+|------|----------|
+| `config\` | Gateway/service configuration |
+| `state\` | Service runtime state |
+| `logs\` | Gateway + Cockpit service logs |
+
+The Gateway serves the primary interactive user's personal `vault\`, which stays
+per-user under `%LOCALAPPDATA%`. The service reaches it via the `CC_DIRECTOR_ROOT`
+environment variable (pointed at that user's per-user root). Personal data is
+never copied into a machine-wide location.
 
 ---
 
@@ -90,10 +123,11 @@ without touching the Director, and vice versa. This is driven by a per-asset
 }
 ```
 
-The planner reads each installed component's version, compares it to that asset's
-`version` in the latest manifest, and updates **only the components that are
-behind**. Cutting a release that changed only `cc-pdf` re-stamps `cc-pdf`; nothing
-else is behind, so nothing else moves.
+All assets use the release-pipeline naming `<id>-win-x64.exe` (apps and tools
+alike). The planner reads each installed component's version, compares it to that
+asset's `version` in the latest manifest, and updates **only the components that
+are behind**. Cutting a release that changed only `cc-pdf` re-stamps `cc-pdf`;
+nothing else is behind, so nothing else moves.
 
 ### Cadence: silent and non-disruptive
 
@@ -145,8 +179,8 @@ guides rather than silently bundling it.
 
 ## 5. Using the CLI
 
-The headless front-end (`cc-director-setup-cli`) and the desktop UI share one
-engine, so a human and an agent install/update identically. Commands:
+The headless front-end (`cc-director-setup-cli`) and the WPF installer UI share
+one engine, so a human and an agent install/update identically. Commands:
 
 ```
 cc-director-setup-cli components               # list known components + roles + assets
@@ -167,8 +201,9 @@ Common options:
 | `--release-dir <dir>` | Use a local directory as the release (offline; see below) |
 | `--component <id\|all>` | Limit an update to one component |
 | `--tools <id,id,...>` | Override the tool set |
-| `--root <dir>` | Override the per-user install root (testing) |
-| `--service-root <dir>` | Override the service root (testing) |
+| `--root <dir>` | Override the per-user root (`%LOCALAPPDATA%\cc-director`) - testing |
+| `--program-files <dir>` | Override the service binaries root (`%ProgramFiles%\CC Director`) - testing |
+| `--program-data <dir>` | Override the service data root (`%ProgramData%\cc-director`) - testing |
 | `--dry-run` | Plan only; do not download or apply |
 | `--json` | Machine-readable output (for agents) |
 
@@ -233,5 +268,7 @@ the product ships to external users.
 - CLI source: `tools/cc-director-setup-cli/`
 - Release pipeline: `.github/workflows/release.yml`
 - Gateway service: `scripts/install-gateway-service.ps1`, `scripts/deploy-cockpit.ps1`
+
+> Reminder: this file is the master spec (see the banner at top). When you change
+> install behavior, change THIS document first, then make the code match it.
 </content>
-</invoke>
