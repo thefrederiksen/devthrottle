@@ -15,6 +15,8 @@ public partial class MainWindow : Window
     private int _installedCount;
     private int _skippedCount;
     private string _installPath = "";
+    private InstallRole _role = InstallRole.Workstation;
+    private string? _gatewayResultMessage;
 
     private readonly bool _isUpdate;
     private readonly string? _installedVersion;
@@ -292,8 +294,40 @@ public partial class MainWindow : Window
         _installStep?.SetStatus($"{verb} - {installed} installed, {skipped} skipped");
         SetupLog.Write($"[MainWindow] RunEngineApplyAsync: repair={repair}, installed={installed}, skipped={skipped}");
 
+        // Gateway role: the per-user work above is done non-elevated; now do the machine-scoped work
+        // (Gateway service + Cockpit) by shelling the elevated CLI. Updates refresh the per-user layer
+        // only; the resident service self-updates the machine layer (Phase 2).
+        if (_role == InstallRole.Gateway && !_isUpdate)
+            await RunGatewayServiceInstallAsync(prep);
+
         NextButton.Content = "Next";
         NextButton.IsEnabled = true;
+    }
+
+    private async Task RunGatewayServiceInstallAsync(EngineInstallRunner.Prep prep)
+    {
+        SetupLog.Write("[MainWindow] RunGatewayServiceInstallAsync: starting elevated handoff");
+        _installStep?.SetStatus("Installing the Gateway service (administrator approval required)...");
+
+        try
+        {
+            var launcher = new GatewayServiceLauncher(new ReleaseSource());
+            var result = await launcher.RunAsync(
+                prep.Release,
+                line => Dispatcher.BeginInvoke(() => _installStep?.SetStatus($"Gateway: {line}")));
+
+            _gatewayResultMessage = result.Message;
+            _installStep?.SetStatus(result.Success
+                ? "Gateway service installed - Cockpit live on http://localhost:7470"
+                : $"Gateway service NOT installed - {result.Message}");
+            SetupLog.Write($"[MainWindow] Gateway install success={result.Success}: {result.Message}");
+        }
+        catch (Exception ex)
+        {
+            _gatewayResultMessage = $"Gateway install error: {ex.Message}";
+            _installStep?.SetStatus(_gatewayResultMessage);
+            SetupLog.Write($"[MainWindow] RunGatewayServiceInstallAsync FAILED: {ex.Message}");
+        }
     }
 
     private Task<bool> OnProcessBlockingAsync(string processName)
@@ -333,9 +367,11 @@ public partial class MainWindow : Window
 
         if (_currentStep < StepComplete)
         {
-            // Leaving Welcome: rebuild all forward steps fresh.
+            // Leaving Welcome: capture the chosen role and rebuild all forward steps fresh.
             if (_currentStep == 1)
             {
+                _role = _welcomeStep?.SelectedRole ?? InstallRole.Workstation;
+                SetupLog.Write($"[MainWindow] role selected: {_role}");
                 _prerequisitesStep = null;
                 _skillsStep = null;
                 _installStep = null;

@@ -172,8 +172,21 @@ The installer detects whichever is present and, if none is found, prints the
 install link and exits with a distinct "prerequisite missing" code (3). It never
 runs the framework's own installer.
 
-The Director and Gateway also require the .NET runtime; the installer detects and
-guides rather than silently bundling it.
+No .NET runtime prerequisite: the Director, Gateway, and Cockpit all ship
+self-contained (the runtime is bundled in each release asset), so a clean machine
+needs nothing installed beyond the agent framework above. The CLI tools are
+self-contained PyInstaller exes for the same reason.
+
+A Gateway-role install has two extra requirements, checked up front and failed
+loudly (never half-installed):
+
+- It must run **elevated** - it writes `%ProgramFiles%\CC Director` and registers
+  the `cc-gateway-service` Windows service. The WPF wizard requests this with a
+  single UAC prompt by shelling the elevated CLI; from a shell, run the install
+  from an Administrator console.
+- **`OPENAI_API_KEY`** must be set in the user environment - the Gateway service
+  needs it to start. The installer reads it at install time and injects it into the
+  service environment.
 
 ---
 

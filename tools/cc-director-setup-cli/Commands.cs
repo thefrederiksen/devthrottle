@@ -121,6 +121,22 @@ internal static class Commands
 
     public static async Task<int> UpdateAsync(CliArgs args, InstallLayout layout, bool json, bool installMode)
     {
+        var role = Role(args);
+        var isGatewayInstall = installMode && role == InstallRole.Gateway && !args.HasFlag("dry-run");
+
+        // Gateway installs write %ProgramFiles% and register a Windows service: require elevation
+        // and the key the Gateway needs, and fail loudly (no silent degrade) before doing any work.
+        if (isGatewayInstall)
+        {
+            var preflight = GatewayPreflight();
+            if (preflight is not null)
+            {
+                if (json) Program.WriteJson(new { mode = "install", role = "gateway", failed = preflight });
+                else Console.Error.WriteLine(preflight);
+                return Error;
+            }
+        }
+
         var (plan, release) = await ComputePlanAsync(args, layout);
 
         // Optionally narrow to one component.
@@ -138,21 +154,73 @@ internal static class Commands
             return Ok;
         }
 
-        if (!plan.HasWork)
+        var components = ScopedComponents(args);
+        var source = new ReleaseSource();
+
+        var result = new UpdateRunResult { Results = Array.Empty<ApplyResult>() };
+        if (plan.HasWork)
+        {
+            var runner = new UpdateRunner(layout, components,
+                (item, ct) => source.DownloadAssetAsync(item.AssetName, release.DownloadUrls, ct));
+            result = await runner.ApplyAsync(plan);
+            PrintRun(result, installMode, json);
+        }
+        else if (!isGatewayInstall)
         {
             if (json) Program.WriteJson(new { mode = installMode ? "install" : "update", applied = Array.Empty<object>(), message = "nothing to do" });
             else Console.WriteLine("Nothing to do - all components up to date.");
             return Ok;
         }
 
-        var components = ScopedComponents(args);
-        var source = new ReleaseSource();
-        var runner = new UpdateRunner(layout, components,
-            (item, ct) => source.DownloadAssetAsync(item.AssetName, release.DownloadUrls, ct));
+        // The generic runner places the Gateway exe but skips the Cockpit .zip and never registers the
+        // service. On a Gateway install, finish the machine-scoped work here (extract Cockpit, register
+        // + start cc-gateway-service, wait for health).
+        if (isGatewayInstall && result.Failed == 0 && OperatingSystem.IsWindows())
+        {
+            var key = OpenAiKey()
+                ?? throw new InvalidOperationException("OPENAI_API_KEY missing after Gateway pre-flight passed.");
+            var installer = new GatewayServiceInstaller(layout);
+            var svc = await installer.InstallAsync(release, source, key);
+            if (json)
+                Program.WriteJson(new { gatewayService = new { success = svc.Success, message = svc.Message, steps = svc.Steps } });
+            else
+            {
+                Console.WriteLine();
+                Console.WriteLine(svc.Success ? "Gateway service:" : "Gateway service FAILED:");
+                foreach (var s in svc.Steps) Console.WriteLine($"  {s}");
+                Console.WriteLine($"  {svc.Message}");
+            }
+            if (!svc.Success) return Error;
+        }
 
-        var result = await runner.ApplyAsync(plan);
-        PrintRun(result, installMode, json);
         return result.Failed > 0 ? Error : Ok;
+    }
+
+    /// <summary>
+    /// Pre-flight checks for a Gateway install. Returns an error message to print, or null if OK.
+    /// Not a fallback: it stops the install with an exact fix rather than half-installing.
+    /// </summary>
+    private static string? GatewayPreflight()
+    {
+        if (!OperatingSystem.IsWindows())
+            return "ERROR: The Gateway role is Windows-only.";
+        if (!GatewayServiceInstaller.IsElevated())
+            return "ERROR: A Gateway install must run elevated (it writes %ProgramFiles% and registers a Windows service).\n" +
+                   "       Re-run this command from an Administrator console.";
+        if (string.IsNullOrWhiteSpace(OpenAiKey()))
+            return "ERROR: OPENAI_API_KEY is not set in your environment; the Gateway service needs it to start.\n" +
+                   "       Set it (User scope) and re-run, e.g.:\n" +
+                   "         setx OPENAI_API_KEY \"sk-...\"";
+        return null;
+    }
+
+    /// <summary>The OpenAI key from the process env, falling back to the User-scope env on Windows.</summary>
+    private static string? OpenAiKey()
+    {
+        var key = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
+        if (string.IsNullOrWhiteSpace(key) && OperatingSystem.IsWindows())
+            key = Environment.GetEnvironmentVariable("OPENAI_API_KEY", EnvironmentVariableTarget.User);
+        return string.IsNullOrWhiteSpace(key) ? null : key;
     }
 
     public static int Rollback(CliArgs args, InstallLayout layout, bool json)

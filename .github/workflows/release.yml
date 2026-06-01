@@ -83,11 +83,137 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------
+  # Job 1c: Build the CC Gateway service (Windows)
+  # ---------------------------------------------------------------
+  # The always-on service that supervises the Cockpit and brokers sessions.
+  # Ships only to the Gateway-role machine. AssemblyName is "cc-director-gateway",
+  # so the published single file is cc-director-gateway.exe; the create-release job
+  # renames it to the asset name the setup engine expects
+  # (ComponentRegistry.Gateway.WindowsAsset = cc-director-gateway-win-x64.exe).
+  # NOTE: CcDirector.GatewayApp (the cc-director-gateway-tray WinExe) is a separate,
+  # optional tray app and is intentionally NOT shipped here.
+  build-gateway-win:
+    name: Build CC Gateway (Windows)
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Publish Gateway for Windows x64
+        run: >
+          dotnet publish src/CcDirector.Gateway/CcDirector.Gateway.csproj
+          -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+
+      - name: Upload gateway artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gateway-win
+          path: src/CcDirector.Gateway/bin/Release/net10.0/win-x64/publish/cc-director-gateway.exe
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------
+  # Job 1d: Build the CC Cockpit web app (Windows)
+  # ---------------------------------------------------------------
+  # Blazor Server web UI (port 7470) supervised by the Gateway service. Unlike the
+  # single-file apps, the Cockpit is a folder of assemblies + wwwroot, so it ships
+  # as a .zip (ComponentRegistry.Cockpit.WindowsAsset = cc-director-cockpit-win-x64.zip).
+  # Published SELF-CONTAINED so the target machine does not need a matching .NET
+  # runtime installed. The setup engine's UpdateRunner deliberately skips .zip assets;
+  # unpacking is the Gateway service's job (Phase 2), so this job only PRODUCES the zip.
+  build-cockpit-win:
+    name: Build CC Cockpit (Windows)
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Publish Cockpit for Windows x64 (self-contained)
+        run: >
+          dotnet publish src/CcDirector.Cockpit/CcDirector.Cockpit.csproj
+          -c Release -r win-x64 --self-contained true
+          -o cockpit-publish
+
+      - name: Package Cockpit publish folder as zip
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path artifacts -Force | Out-Null
+          Compress-Archive -Path "cockpit-publish/*" -DestinationPath "artifacts/cc-director-cockpit-win-x64.zip" -Force
+
+      - name: Upload cockpit artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cockpit-win
+          path: artifacts/cc-director-cockpit-win-x64.zip
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------
   # Job 2: Build Python tools (Windows)
   # ---------------------------------------------------------------
+  # One job per tool (matrix) so a single heavyweight failure (torch, opencv,
+  # ffmpeg, playwright) is isolated and the ~26 PyInstaller builds run in parallel.
+  #
+  # Each tool's build.ps1 emits dist/<tool>.exe; this job copies it to an artifact
+  # named python-tool-<tool>, and create-release renames it to <tool>-win-x64.exe.
+  #
+  # Tool list is the VERIFIED set that cleanly emits dist/<dirname>.exe. Intentionally
+  # excluded (do not re-add without fixing the underlying issue):
+  #   - cc-director-setup  : has its own job (build-setup-wizard-win); would ship twice.
+  #   - cc-setup           : name mismatch (emits cc-director-setup.exe) AND its asset
+  #                          name would collide with the real setup wizard.
+  #   - cc-browser, cc-fox-browser, cc-websiteaudit, cc-brandingrecommendations,
+  #     cc-browser-archived : Node tools that emit a .cmd launcher, not a self-contained
+  #                          .exe; cannot satisfy the asset contract yet.
+  #
+  # "heavy: true" tools pull large/fragile native deps and are UNPROVEN in CI. They are
+  # marked continue-on-error for now so a failure does not red the whole release; a
+  # missing artifact simply drops that tool from the manifest. Remove continue-on-error
+  # per tool once it has built green on the runner.
   build-python-tools-win:
-    name: Build Python Tools (Windows)
+    name: Build Python Tool (${{ matrix.tool }})
     runs-on: windows-latest
+    continue-on-error: ${{ matrix.heavy || false }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { tool: cc-pdf }
+          - { tool: cc-html }
+          - { tool: cc-word }
+          - { tool: cc-docgen }
+          - { tool: cc-excel }
+          - { tool: cc-facebook }
+          - { tool: cc-gmail }
+          - { tool: cc-hardware }
+          - { tool: cc-outlook }
+          - { tool: cc-personresearch }
+          - { tool: cc-posthog }
+          - { tool: cc-powerpoint }
+          - { tool: cc-reddit }
+          - { tool: cc-settings }
+          - { tool: cc-spotify }
+          - { tool: cc-twitter }
+          - { tool: cc-vault }
+          - { tool: cc-voice }
+          - { tool: cc-youtube }
+          - { tool: cc-youtube-info }
+          - { tool: cc-whisper, heavy: true }
+          - { tool: cc-transcribe, heavy: true }
+          - { tool: cc-video, heavy: true }
+          - { tool: cc-image, heavy: true }
+          - { tool: cc-photos, heavy: true }
+          - { tool: cc-crawl4ai, heavy: true }
 
     steps:
       - uses: actions/checkout@v4
@@ -97,70 +223,30 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Create artifacts directory
-        run: New-Item -ItemType Directory -Path artifacts -Force
-
-      - name: Build Python tools
+      - name: Build ${{ matrix.tool }}
         shell: pwsh
         run: |
-          $tools = @(
-            "cc-pdf",
-            "cc-html",
-            "cc-word"
-          )
-
-          $failed = @()
-
-          foreach ($tool in $tools) {
-            $toolDir = "tools/$tool"
-            $buildScript = "$toolDir/build.ps1"
-
-            if (-not (Test-Path $buildScript)) {
-              Write-Host "[SKIP] $tool - no build.ps1" -ForegroundColor Yellow
-              continue
-            }
-
-            Write-Host ""
-            Write-Host "============================================" -ForegroundColor Cyan
-            Write-Host "Building $tool..." -ForegroundColor Cyan
-            Write-Host "============================================" -ForegroundColor Cyan
-
-            Push-Location $toolDir
-            try {
-              & powershell -ExecutionPolicy Bypass -File build.ps1
-              if ($LASTEXITCODE -ne 0) {
-                Write-Host "[FAIL] $tool build failed" -ForegroundColor Red
-                $failed += $tool
-                continue
-              }
-
-              $exeName = "$tool.exe"
-              $exePath = "dist/$exeName"
-              if (Test-Path $exePath) {
-                Copy-Item $exePath "../../artifacts/$exeName" -Force
-                Write-Host "[OK] $exeName" -ForegroundColor Green
-              } else {
-                Write-Host "[FAIL] $exeName not found after build" -ForegroundColor Red
-                $failed += $tool
-              }
-            } finally {
-              Pop-Location
-            }
-          }
-
-          $built = $tools.Count - $failed.Count
-          Write-Host ""
-          Write-Host "Python tools built: $built / $($tools.Count)" -ForegroundColor Cyan
-          if ($failed.Count -gt 0) {
-            Write-Host "Failed tools: $($failed -join ', ')" -ForegroundColor Red
+          $tool = "${{ matrix.tool }}"
+          Push-Location "tools/$tool"
+          & powershell -ExecutionPolicy Bypass -File build.ps1
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "[FAIL] $tool build.ps1 exited $LASTEXITCODE" -ForegroundColor Red
             exit 1
           }
+          if (-not (Test-Path "dist/$tool.exe")) {
+            Write-Host "[FAIL] dist/$tool.exe not found after build" -ForegroundColor Red
+            exit 1
+          }
+          Pop-Location
+          New-Item -ItemType Directory -Path artifacts -Force | Out-Null
+          Copy-Item "tools/$tool/dist/$tool.exe" "artifacts/$tool.exe" -Force
+          Write-Host "[OK] artifacts/$tool.exe" -ForegroundColor Green
 
-      - name: Upload Python tools artifact
+      - name: Upload ${{ matrix.tool }} artifact
         uses: actions/upload-artifact@v4
         with:
-          name: python-tools-win
-          path: artifacts/
+          name: python-tool-${{ matrix.tool }}
+          path: artifacts/${{ matrix.tool }}.exe
           if-no-files-found: error
 
   # ---------------------------------------------------------------
@@ -193,6 +279,23 @@ jobs:
           path: tools/cc-director-setup/bin/Release/net10.0-windows/win-x64/publish/cc-director-setup.exe
           if-no-files-found: error
 
+      # The headless CLI is shipped too: the WPF wizard downloads it to run the elevated, machine-scoped
+      # Gateway install (the wizard stays non-elevated; the CLI is the single source of truth, decision D2).
+      - name: Publish self-contained setup CLI
+        run: >
+          dotnet publish tools/cc-director-setup-cli/CcDirector.Setup.Cli.csproj
+          -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          --nologo
+
+      - name: Upload setup CLI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: setup-cli-win
+          path: tools/cc-director-setup-cli/bin/Release/net10.0/win-x64/publish/cc-director-setup-cli.exe
+          if-no-files-found: error
+
   # ---------------------------------------------------------------
   # Final Job: Create GitHub Release
   # ---------------------------------------------------------------
@@ -202,6 +305,8 @@ jobs:
     needs:
       - build-director-win
       - build-director-mac
+      - build-gateway-win
+      - build-cockpit-win
       - build-python-tools-win
       - build-setup-wizard-win
 
@@ -227,14 +332,25 @@ jobs:
           # macOS main app (already a .app zip; keep the name the updater expects)
           cp release-artifacts/cc-director-mac/cc-director-mac-arm64.zip "$RELEASE_DIR/cc-director-mac-arm64.zip"
 
-          # Windows Python tools
-          for exe in release-artifacts/python-tools-win/*.exe; do
+          # Windows Gateway service (publish emits cc-director-gateway.exe)
+          cp release-artifacts/gateway-win/cc-director-gateway.exe "$RELEASE_DIR/cc-director-gateway-win-x64.exe"
+
+          # Windows Cockpit web app (already the zip name the engine expects)
+          cp release-artifacts/cockpit-win/cc-director-cockpit-win-x64.zip "$RELEASE_DIR/cc-director-cockpit-win-x64.zip"
+
+          # Windows Python tools (one artifact dir per tool from the matrix; a
+          # continue-on-error heavyweight that failed simply has no artifact and is
+          # skipped here -- it just won't appear in the manifest).
+          for exe in release-artifacts/python-tool-*/*.exe; do
             name=$(basename "$exe" .exe)
             cp "$exe" "$RELEASE_DIR/${name}-win-x64.exe"
           done
 
           # Windows setup wizard
           cp release-artifacts/setup-wizard-win/cc-director-setup.exe "$RELEASE_DIR/cc-director-setup-win-x64.exe"
+
+          # Windows setup CLI (the wizard downloads this to run the elevated Gateway install)
+          cp release-artifacts/setup-cli-win/cc-director-setup-cli.exe "$RELEASE_DIR/cc-director-setup-cli-win-x64.exe"
 
           echo ""
           echo "Release files:"

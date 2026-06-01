@@ -6,21 +6,41 @@ namespace CcDirector.Setup.Engine.Tests;
 public class GatewayServiceCommandsTests
 {
     [Fact]
-    public void RestartSequence_IsStopThenStartThenStatus()
+    public void Stop_Start_Delete_UseScExe()
     {
-        var seq = GatewayServiceCommands.RestartSequence(@"C:\nssm.exe");
-        Assert.Equal(3, seq.Count);
-        Assert.Equal(["stop", "cc-gateway-service"], seq[0].Args);
-        Assert.Equal(["start", "cc-gateway-service"], seq[1].Args);
-        Assert.Equal(["status", "cc-gateway-service"], seq[2].Args);
-        Assert.All(seq, c => Assert.Equal(@"C:\nssm.exe", c.Exe));
+        Assert.Equal("sc.exe", GatewayServiceCommands.Stop().Exe);
+        Assert.Equal("stop cc-gateway-service", GatewayServiceCommands.Stop().Arguments);
+        Assert.Equal("start cc-gateway-service", GatewayServiceCommands.Start().Arguments);
+        Assert.Equal("delete cc-gateway-service", GatewayServiceCommands.Delete().Arguments);
+    }
+
+    [Fact]
+    public void Create_QuotesSpaceContainingExePathInsideBinPath()
+    {
+        var cmd = GatewayServiceCommands.Create(@"C:\Program Files\CC Director\gateway\cc-director-gateway.exe", 7878);
+        Assert.Equal("sc.exe", cmd.Exe);
+        // binPath wraps the exe path in inner escaped quotes and appends --port.
+        Assert.Contains(@"binPath= ""\""C:\Program Files\CC Director\gateway\cc-director-gateway.exe\"" --port 7878""", cmd.Arguments);
+        Assert.Contains("start= auto", cmd.Arguments);
+        Assert.Contains("obj= LocalSystem", cmd.Arguments);
+    }
+
+    [Fact]
+    public void SetEnvironment_WritesRegMultiSzWithExpectedVars()
+    {
+        var cmd = GatewayServiceCommands.SetEnvironment(
+            @"C:\Users\example\AppData\Local\cc-director", "sk-test", @"C:\Program Files\CC Director\cockpit\cc-director-cockpit.exe");
+        Assert.Equal("reg.exe", cmd.Exe);
+        Assert.Contains(@"HKLM\SYSTEM\CurrentControlSet\Services\cc-gateway-service", cmd.Arguments);
+        Assert.Contains("REG_MULTI_SZ", cmd.Arguments);
+        Assert.Contains(@"CC_DIRECTOR_ROOT=C:\Users\example\AppData\Local\cc-director\0OPENAI_API_KEY=sk-test\0CC_COCKPIT_MANAGED=1\0CC_COCKPIT_EXE=", cmd.Arguments);
     }
 
     [Fact]
     public void Commands_UseCustomServiceName()
     {
-        var stop = GatewayServiceCommands.Stop(@"C:\nssm.exe", "custom-svc");
-        Assert.Equal(["stop", "custom-svc"], stop.Args);
+        var stop = GatewayServiceCommands.Stop("custom-svc");
+        Assert.Equal("stop custom-svc", stop.Arguments);
         Assert.Contains("custom-svc", stop.Display);
     }
 }

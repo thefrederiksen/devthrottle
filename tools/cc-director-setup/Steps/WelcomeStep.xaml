@@ -39,6 +39,38 @@
                    Margin="0,16,0,0"
                    Visibility="Collapsed" />
 
+        <Border x:Name="RolePanel"
+                Margin="40,24,40,0"
+                Padding="16,12"
+                Background="#1A000000"
+                CornerRadius="6">
+            <StackPanel>
+                <TextBlock Text="Install type"
+                           Foreground="White"
+                           FontSize="13"
+                           FontWeight="SemiBold" />
+                <RadioButton x:Name="WorkstationRadio"
+                             GroupName="role"
+                             IsChecked="True"
+                             Margin="0,10,0,0"
+                             Foreground="{StaticResource TextForeground}">
+                    <TextBlock TextWrapping="Wrap">
+                        <Run Text="Workstation" FontWeight="SemiBold" Foreground="White" /><LineBreak />
+                        <Run Text="CC Director app + all CLI tools. Per-user, no administrator rights." FontSize="12" />
+                    </TextBlock>
+                </RadioButton>
+                <RadioButton x:Name="GatewayRadio"
+                             GroupName="role"
+                             Margin="0,10,0,0"
+                             Foreground="{StaticResource TextForeground}">
+                    <TextBlock TextWrapping="Wrap">
+                        <Run Text="Gateway" FontWeight="SemiBold" Foreground="White" /><LineBreak />
+                        <Run Text="Everything above, plus the always-on background service and the Cockpit web UI. Requires administrator approval once (UAC)." FontSize="12" />
+                    </TextBlock>
+                </RadioButton>
+            </StackPanel>
+        </Border>
+
         <TextBlock Text="Click Next to continue."
                    Foreground="{StaticResource DimText}"
                    FontSize="12"

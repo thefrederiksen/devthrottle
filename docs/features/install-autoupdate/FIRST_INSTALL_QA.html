@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>First-Install of All Components - QA Report</title>
+<style>
+        /* Boardroom Theme - Corporate, executive style with serif fonts */
+        
+        :root {
+            /* Colors */
+            --primary: #1A365D;
+            --primary-light: #2A4A7F;
+            --accent: #D69E2E;
+            --text: #2D3748;
+            --heading: #1A365D;
+            --background: #FFFFFF;
+            --code-bg: #EDF2F7;
+            --code-text: #1A365D;
+            --border: #CBD5E0;
+            --link: #2B6CB0;
+            --blockquote-text: #4A5568;
+            --blockquote-border: #D69E2E;
+            --blockquote-bg: #FFFFFF;
+            --table-header-bg: #1A365D;
+            --table-header-text: #FFFFFF;
+            --alt-row-bg: #F7FAFC;
+            --shadow-color: rgba(26, 54, 93, 0.08);
+        
+            /* Fonts */
+            --font-heading: "Palatino Linotype", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-body: "Georgia", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-code: "Courier New", "JetBrains Mono", "Fira Code", Consolas, monospace;
+        
+            /* Style */
+            --heading-letter-spacing: -0.02em;
+            --line-height: 1.7;
+            --radius: 4px;
+            --code-radius: 6px;
+            --shadow-sm: 0 1px 3px rgba(26, 54, 93, 0.08);
+            --shadow-md: 0 4px 12px rgba(26, 54, 93, 0.1);
+        }
+        
+        /* Base styles for all themes */
+        
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+        }
+        
+        html {
+            font-size: 16px;
+            line-height: var(--line-height);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: var(--font-body);
+            color: var(--text);
+            background: var(--background);
+        }
+        
+        .markdown-body {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 3rem 2.5rem;
+        }
+        
+        /* Typography */
+        h1, h2, h3, h4, h5, h6 {
+            font-family: var(--font-heading);
+            color: var(--heading);
+            margin-top: 1.8em;
+            margin-bottom: 0.6em;
+            font-weight: 600;
+            line-height: 1.25;
+            letter-spacing: var(--heading-letter-spacing);
+            orphans: 3;
+            widows: 3;
+        }
+        
+        h1 {
+            font-size: 2.25em;
+            margin-top: 0;
+        }
+        
+        h2 { font-size: 1.65em; }
+        h3 { font-size: 1.35em; }
+        h4 { font-size: 1.1em; }
+        h5 { font-size: 0.95em; }
+        h6 { font-size: 0.85em; color: var(--blockquote-text); }
+        
+        p {
+            margin: 1em 0;
+            orphans: 3;
+            widows: 3;
+        }
+        
+        /* Links */
+        a {
+            color: var(--link);
+            text-decoration: none;
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.2s ease;
+        }
+        
+        a:hover {
+            border-bottom-color: var(--link);
+        }
+        
+        /* Lists */
+        ul, ol {
+            margin: 1em 0;
+            padding-left: 2em;
+            line-height: var(--line-height);
+        }
+        
+        li {
+            margin: 0.35em 0;
+        }
+        
+        li > ul,
+        li > ol {
+            margin: 0.2em 0;
+        }
+        
+        /* Inline code */
+        code {
+            font-family: var(--font-code);
+            font-size: 0.875em;
+            padding: 0.15em 0.4em;
+            border-radius: var(--radius);
+            background: var(--code-bg);
+            color: var(--code-text);
+        }
+        
+        /* Code blocks */
+        pre {
+            margin: 1.5em 0;
+            padding: 1.25em 1.5em;
+            overflow-x: auto;
+            border-radius: var(--code-radius);
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow-sm);
+            position: relative;
+        }
+        
+        pre code {
+            padding: 0;
+            background: transparent;
+            border-radius: 0;
+            font-size: 0.875em;
+            line-height: 1.55;
+        }
+        
+        /* Blockquotes */
+        blockquote {
+            margin: 1.5em 0;
+            padding: 0.75em 1.25em;
+            border-left: 4px solid var(--blockquote-border);
+            background: var(--blockquote-bg);
+            color: var(--blockquote-text);
+            border-radius: 0 var(--radius) var(--radius) 0;
+        }
+        
+        blockquote p {
+            margin: 0.4em 0;
+        }
+        
+        blockquote p:first-child {
+            margin-top: 0;
+        }
+        
+        blockquote p:last-child {
+            margin-bottom: 0;
+        }
+        
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin: 1.5em 0;
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border);
+        }
+        
+        th, td {
+            padding: 0.75em 1em;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        th {
+            font-weight: 600;
+            background: var(--table-header-bg);
+            color: var(--table-header-text);
+        }
+        
+        tr:last-child td {
+            border-bottom: none;
+        }
+        
+        /* Horizontal rule */
+        hr {
+            border: none;
+            height: 2px;
+            max-width: 200px;
+            margin: 2.5em auto;
+            background: var(--border);
+            border-radius: 1px;
+        }
+        
+        /* Images */
+        img {
+            max-width: 100%;
+            height: auto;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        /* Task lists */
+        .task-list-item {
+            list-style-type: none;
+        }
+        
+        .task-list-item input[type="checkbox"] {
+            margin-right: 0.5em;
+        }
+        
+        /* Strong and emphasis */
+        strong {
+            font-weight: 700;
+        }
+        
+        /* Definition lists (if supported by parser) */
+        dt {
+            font-weight: 600;
+            margin-top: 1em;
+        }
+        
+        dd {
+            margin-left: 1.5em;
+            margin-bottom: 0.5em;
+        }
+        
+        
+        /* Boardroom: corporate authority with accent borders */
+        h1 {
+            border-bottom: 3px solid var(--accent);
+            padding-bottom: 0.5em;
+        }
+        
+        h2 {
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.3em;
+        }
+        
+        pre {
+            border-left: 4px solid var(--primary);
+            border-radius: 0 var(--code-radius) var(--code-radius) 0;
+        }
+        
+        pre::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--accent);
+            border-radius: 0;
+        }
+        
+        blockquote {
+            font-style: italic;
+        }
+        
+        hr {
+            background: var(--accent);
+            max-width: none;
+            height: 2px;
+        }
+        
+        tr:nth-child(even) td {
+            background: var(--alt-row-bg);
+        }
+        
+    </style>
+</head>
+<body>
+<article class="markdown-body">
+<h1>First-Install of All Components - QA Report</h1>
+<p><strong>Date:</strong> 2026-06-01
+        <strong>Scope:</strong> Make a clean Windows machine install every CC Director component from one GitHub
+        release - Workstation role (no admin) and Gateway role (service + Cockpit, admin once).
+        <strong>Plan:</strong> docs/plans/first-install.md (workstreams W1-W7).
+        <strong>Status:</strong> Code complete and locally verified. One gate remains: the live elevated
+        clean-machine Gateway run (requires admin + a fresh box), called out at the end (the
+        maintainer's step).</p>
+<hr/>
+<h2>1. Summary</h2>
+<p>All seven workstreams are implemented. Every locally-verifiable behavior passes:
+        69 unit tests (60 engine + 9 CLI), all four new/changed release components publish
+        self-contained, the offline install runs end-to-end through the shipping CLI binary, the
+        Gateway elevation guard refuses cleanly, and the <code>sc.exe</code> service command parses correctly.</p>
+<table>
+<thead>
+<tr>
+<th>Workstream</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>W1 Release ships every component</td>
+<td>DONE - release.yml builds Gateway, Cockpit, 26-tool matrix, setup wizard + CLI; valid YAML</td>
+</tr>
+<tr>
+<td>W2 Self-contained everywhere</td>
+<td>DONE - Gateway/Cockpit/CLI all publish self-contained; no .NET runtime prerequisite</td>
+</tr>
+<tr>
+<td>W3 Native service install (no NSSM)</td>
+<td>DONE - Gateway is a Windows service host; sc.exe/reg.exe install in the engine + CLI</td>
+</tr>
+<tr>
+<td>W4 Cockpit first-install extraction</td>
+<td>DONE - CockpitPackage extracts the zip with SHA-256 verify; 4 unit tests</td>
+</tr>
+<tr>
+<td>W5 WPF role selection + elevated handoff</td>
+<td>DONE - role picker + shells the elevated CLI, tails its log</td>
+</tr>
+<tr>
+<td>W6 Prerequisites (minimal, honest)</td>
+<td>DONE - framework check kept, no runtime check, Gateway requires OPENAI_API_KEY</td>
+</tr>
+<tr>
+<td>W7 Test + this report</td>
+<td>DONE (local); live elevated Gateway run is the remaining gate</td>
+</tr>
+</tbody>
+</table>
+<hr/>
+<h2>2. What changed (by workstream)</h2>
+<h3>W1 - Release pipeline (.github/workflows/release.yml)</h3>
+<ul>
+<li>New <code>build-gateway-win</code> job -&gt; <code>cc-director-gateway-win-x64.exe</code> (self-contained single file).</li>
+<li>New <code>build-cockpit-win</code> job -&gt; <code>cc-director-cockpit-win-x64.zip</code> (self-contained publish folder).</li>
+<li>Tools job converted to a 26-tool matrix (<code>fail-fast: false</code>); 6 heavyweight tools marked
+        <code>continue-on-error</code> until proven green. Excludes (<code>cc-setup</code>, the 5 Node tools) documented inline.</li>
+<li>Setup-wizard job now also publishes and ships the CLI as <code>cc-director-setup-cli-win-x64.exe</code>.</li>
+<li><code>create-release</code> wires all assets in; the manifest auto-discovers them with version + SHA-256.</li>
+</ul>
+<h3>W2 - Self-contained everywhere</h3>
+<ul>
+<li>Gateway, Cockpit, and CLI all publish <code>--self-contained true</code>. <a href="http://INSTALLATION.md">INSTALLATION.md</a> updated to state the
+        runtime is bundled, so a clean machine needs nothing but the agent framework.</li>
+</ul>
+<h3>W3 - Native Windows-service install (decision D1: no NSSM)</h3>
+<ul>
+<li><code>CcDirector.Gateway</code> now runs under the generic host with <code>AddWindowsService</code> (new
+        <code>GatewayWorker</code> BackgroundService wraps the existing GatewayHost + Cockpit supervisor). It is a
+        no-op outside a service, so dev <code>dotnet run</code> is unchanged.</li>
+<li><code>GatewayServiceCommands</code> rewritten from NSSM to <code>sc.exe</code> + <code>reg.exe</code> (create/describe/env/start/stop/delete).</li>
+<li>New <code>GatewayServiceInstaller</code> (engine): verifies the Gateway exe is placed, extracts the Cockpit,
+        registers the auto-start LocalSystem service, writes its environment (CC_DIRECTOR_ROOT,
+        OPENAI_API_KEY, CC_COCKPIT_MANAGED, CC_COCKPIT_EXE), starts it, and waits for 7878 + 7470 health.</li>
+<li>CLI <code>install --role gateway</code> runs that machine-scoped step after the file swap.</li>
+</ul>
+<h3>W4 - Cockpit first-install extraction</h3>
+<ul>
+<li>New <code>CockpitPackage.ExtractAsync</code>: downloads the <code>.zip</code>, verifies SHA-256, clears stale contents,
+        and extracts into <code>%ProgramFiles%\CC Director\cockpit</code>. The generic UpdateRunner still skips <code>.zip</code>
+        on the update path (service-owned); only first install extraction is new (the service isn't running yet).</li>
+</ul>
+<h3>W5 - WPF wizard (decisions D2 shell elevated CLI, D3 WPF only)</h3>
+<ul>
+<li>Welcome step has a Workstation/Gateway picker (<code>WelcomeStep.SelectedRole</code>).</li>
+<li>Workstation install is unchanged (per-user, no admin).</li>
+<li>Gateway: the wizard does the per-user work non-elevated, then <code>GatewayServiceLauncher</code> downloads the
+        CLI and shells <code>install --role gateway --component gateway</code> with one UAC prompt
+        (<code>Verb=runas</code>, hidden window), tailing the CLI's <code>--log-file</code> for live progress.</li>
+</ul>
+<h3>W6 - Prerequisites</h3>
+<ul>
+<li>Framework (Claude Code / Codex) check kept; no .NET runtime check (self-contained makes it moot).</li>
+<li>Gateway pre-flight requires elevation AND <code>OPENAI_API_KEY</code>, failing loudly with the exact fix.</li>
+</ul>
+<hr/>
+<h2>3. Test evidence (all local, this machine)</h2>
+<h3>Unit tests</h3>
+<ul>
+<li>Engine: <strong>60 passed, 0 failed</strong> (incl. 4 new CockpitPackage tests + reshaped sc.exe command tests).</li>
+<li>CLI: <strong>9 passed, 0 failed</strong>.</li>
+<li>Gateway: 89 passed; the 46 failures are the pre-existing <code>OPENAI_API_KEY</code> GatewayHost setup issue
+        (documented), identical with or without these changes - the changed files (<code>Program.cs</code>,
+        <code>GatewayWorker.cs</code>) are not touched by those tests.</li>
+</ul>
+<h3>Release components publish self-contained</h3>
+<ul>
+<li>Gateway: <code>cc-director-gateway.exe</code> produced (~112 MB self-contained single file).</li>
+<li>Cockpit: <code>cc-director-cockpit-win-x64.zip</code> produced (~47 MB); verified the zip's top-level layout is
+        the publish folder (<code>cc-director-cockpit.exe</code> + <code>wwwroot/</code>...), exactly what CockpitPackage expects.</li>
+<li>CLI: <code>cc-director-setup-cli.exe</code> produced (~73 MB self-contained single file).</li>
+</ul>
+<h3>Offline end-to-end install (real shipping CLI binary)</h3>
+<p>Ran <code>cc-director-setup-cli install --role workstation --release-dir &lt;fake release&gt; --root/-program-files/-program-data &lt;temp&gt;</code>:</p>
+<pre><code>Install complete:
+          director       Installed
+          cc-pdf         Installed
+          cc-html        Installed
+        installed=3 updated=0 failed=0 skipped=0
+        </code></pre>
+<p>Placed files: <code>&lt;root&gt;\app\cc-director.exe</code>, <code>&lt;root&gt;\bin\cc-pdf.exe</code>, <code>&lt;root&gt;\bin\cc-html.exe</code>.
+        This exercises the real ReleaseSource -&gt; UpdatePlanner -&gt; UpdateRunner -&gt; InstallSwapper -&gt; InstallLayout path.</p>
+<h3>Gateway elevation guard (not elevated)</h3>
+<p><code>install --role gateway</code> refused with exit 1:</p>
+<pre><code>ERROR: A Gateway install must run elevated (it writes %ProgramFiles% and registers a Windows service).
+               Re-run this command from an Administrator console.
+        </code></pre>
+<h3>--log-file tee</h3>
+<p><code>status --log-file &lt;path&gt;</code> wrote the console output to the file (the mechanism the wizard tails during
+        the elevated Gateway install).</p>
+<h3>sc.exe command quoting (live parse check, not elevated)</h3>
+<p>Ran the exact <code>sc create ... binPath= "\"...\cc-director-gateway.exe\" --port 7878" start= auto obj= LocalSystem ...</code>:
+        result was <code>OpenSCManager FAILED 5: Access is denied</code> - i.e. sc.exe <strong>parsed the command and quoting
+        correctly</strong> and only stopped on privilege. A malformed binPath would have produced a syntax/usage
+        error instead. So the command is well-formed and will succeed when run elevated.</p>
+<h3>YAML</h3>
+<p><code>release.yml</code> parses as valid YAML.</p>
+<hr/>
+<h2>4. The one remaining gate (requires a clean machine + admin)</h2>
+<p>Everything above is verified without elevation. The only thing that cannot be exercised here is the
+        actual privileged Gateway run end to end. On a fresh Windows box (or an elevated console):</p>
+<ol>
+<li>Download <code>cc-director-setup-win-x64.exe</code> from the release and run it.</li>
+<li>Workstation pass: Director launches from the Start Menu shortcut; tools run from a NEW shell (PATH).</li>
+<li>Gateway pass: pick Gateway, accept the single UAC prompt. Confirm:
+        <ul>
+<li><code>sc query cc-gateway-service</code> shows RUNNING and auto-start,</li>
+<li><code>http://localhost:7878/healthz</code> and <code>http://localhost:7470/</code> both answer,</li>
+<li>it survives a reboot.</li>
+</ul>
+</li>
+<li>Idempotency: re-run; it reports up to date and does not break the running service.</li>
+</ol>
+<p>It also requires cutting a real release tag (e.g. <code>v0.0.0-test1</code>) so the GitHub release exists for the
+        wizard to download from. Pushing a tag is an outward-facing action and was intentionally NOT done
+        automatically - it needs an explicit go-ahead.</p>
+<hr/>
+<h2>5. Status of work product</h2>
+<p>All code changes are in the working tree, <strong>uncommitted</strong>. No commit, push, or tag was made.</p>
+</article>
+</body>
+</html>

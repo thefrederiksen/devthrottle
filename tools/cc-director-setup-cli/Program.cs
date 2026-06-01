@@ -21,6 +21,10 @@ public static class Program
         var args = CliArgs.Parse(argv);
         var json = args.HasFlag("json");
 
+        // When launched elevated by the WPF wizard (a hidden console), tee stdout/stderr to a file
+        // so the non-elevated parent can tail live progress (UAC's runas verb forbids pipe redirection).
+        WireConsoleTee(args.Option("log-file"));
+
         // Resolve the install layout (roots overridable for testing) and route engine logs to a file.
         var layout = ResolveLayout(args);
         WireLogging(layout);
@@ -66,6 +70,24 @@ public static class Program
             programData ?? def.ProgramDataRoot);
     }
 
+    private static void WireConsoleTee(string? logFile)
+    {
+        if (string.IsNullOrWhiteSpace(logFile)) return;
+        try
+        {
+            var dir = Path.GetDirectoryName(Path.GetFullPath(logFile));
+            if (!string.IsNullOrEmpty(dir))
+                Directory.CreateDirectory(dir);
+            var fileWriter = new StreamWriter(File.Open(logFile, FileMode.Create, FileAccess.Write, FileShare.Read))
+            {
+                AutoFlush = true,
+            };
+            Console.SetOut(new TeeTextWriter(Console.Out, fileWriter));
+            Console.SetError(new TeeTextWriter(Console.Error, fileWriter));
+        }
+        catch { /* a missing tee must never block the install */ }
+    }
+
     private static void WireLogging(InstallLayout layout)
     {
         try
@@ -108,6 +130,7 @@ public static class Program
               --program-data <dir>           Override the service data root %ProgramData%\cc-director (testing)
               --dry-run                      Plan only; do not download or apply
               --json                         Machine-readable output
+              --log-file <path>              Also write console output to this file (live progress)
             """);
         return ExitOk;
     }
@@ -124,3 +147,13 @@ public static class Program
 
 /// <summary>Thrown for malformed command invocations; mapped to exit code 2.</summary>
 public sealed class UsageException(string message) : Exception(message);
+
+/// <summary>Writes to two TextWriters at once (console + a log file), so elevated runs stay tailable.</summary>
+internal sealed class TeeTextWriter(TextWriter a, TextWriter b) : TextWriter
+{
+    public override System.Text.Encoding Encoding => a.Encoding;
+    public override void Write(char value) { a.Write(value); b.Write(value); }
+    public override void Write(string? value) { a.Write(value); b.Write(value); }
+    public override void WriteLine(string? value) { a.WriteLine(value); b.WriteLine(value); }
+    public override void Flush() { a.Flush(); b.Flush(); }
+}

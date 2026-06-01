@@ -103,10 +103,11 @@ public static class ComponentRegistry
         const string suffix = "-win-x64.exe";
         var excluded = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            "cc-director",         // the Director app (its own component, not a tool)
-            "cc-director-gateway", // the Gateway app
-            "cc-director-cockpit", // the Cockpit app (ships as .zip anyway)
-            "cc-director-setup",   // the installer itself
+            "cc-director",          // the Director app (its own component, not a tool)
+            "cc-director-gateway",  // the Gateway app
+            "cc-director-cockpit",  // the Cockpit app (ships as .zip anyway)
+            "cc-director-setup",    // the installer wizard itself
+            "cc-director-setup-cli",// the installer CLI (downloaded by the wizard for elevated installs)
         };
 
         var ids = new List<string>();

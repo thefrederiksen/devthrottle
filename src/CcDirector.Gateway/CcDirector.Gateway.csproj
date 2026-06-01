@@ -12,6 +12,9 @@
 
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <!-- Lets the Gateway run as a first-class Windows service (SCM integration) without NSSM.
+         A no-op when launched from a console, so dev `dotnet run` is unchanged. -->
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.0" />
   </ItemGroup>
 
   <ItemGroup>

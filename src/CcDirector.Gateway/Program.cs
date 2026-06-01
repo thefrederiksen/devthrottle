@@ -1,6 +1,8 @@
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway;
-using CcDirector.Gateway.Cockpit;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Hosting.WindowsServices;
 
 FileLog.Start();
 FileLog.Write($"[Program] CC Director Gateway starting, log: {FileLog.CurrentLogPath}");
@@ -21,7 +23,10 @@ for (int i = 0; i < args.Length; i++)
         Console.WriteLine();
         Console.WriteLine("Usage: cc-director-gateway [--port N]");
         Console.WriteLine();
-        Console.WriteLine($"  --port N    Listen on 127.0.0.1:N (default {GatewayHost.DefaultPort})");
+        Console.WriteLine($"  --port N    Listen on 0.0.0.0:N (default {GatewayHost.DefaultPort})");
+        Console.WriteLine();
+        Console.WriteLine("Runs as the 'cc-gateway-service' Windows service when launched by the");
+        Console.WriteLine("Service Control Manager; runs as a console app otherwise (Ctrl+C to stop).");
         Console.WriteLine();
         Console.WriteLine("Endpoints:");
         Console.WriteLine("  GET    /healthz");
@@ -37,43 +42,29 @@ for (int i = 0; i < args.Length; i++)
     }
 }
 
-await using var host = new GatewayHost(port);
+// Generic host so the process talks to the Windows Service Control Manager when run as a service.
+// AddWindowsService is a no-op outside a service context, so dev `dotnet run` is unchanged and the
+// console lifetime still handles Ctrl+C.
+var builder = Host.CreateApplicationBuilder(args);
+builder.Services.AddWindowsService(options => options.ServiceName = "cc-gateway-service");
+builder.Services.AddSingleton(new GatewayWorker(port));
+builder.Services.AddHostedService(sp => sp.GetRequiredService<GatewayWorker>());
+
+if (WindowsServiceHelpers.IsWindowsService())
+    FileLog.Write("[Program] running as Windows service 'cc-gateway-service'");
 
 try
 {
-    await host.StartAsync();
+    var host = builder.Build();
+    host.Run();
 }
 catch (Exception ex)
 {
-    Console.Error.WriteLine($"Gateway failed to start: {ex.Message}");
+    Console.Error.WriteLine($"Gateway failed: {ex.Message}");
     FileLog.Write($"[Program] FAILED: {ex.Message}");
+    FileLog.Stop();
     return 1;
 }
 
-// Supervise the Cockpit UI (production only). In dev this is inert and the developer runs the
-// Cockpit themselves; the service installer sets CC_COCKPIT_MANAGED=1 to turn it on.
-using var cockpit = CockpitSupervisor.FromEnvironment();
-cockpit.Start();
-
-Console.WriteLine($"CC Director Gateway");
-Console.WriteLine($"  URL:   http://127.0.0.1:{host.Port}/");
-Console.WriteLine($"  Token: {host.Token}");
-Console.WriteLine($"  Log:   {FileLog.CurrentLogPath}");
-Console.WriteLine();
-Console.WriteLine($"Press Ctrl+C to stop.");
-
-// Block until Ctrl+C
-var stopped = new TaskCompletionSource();
-Console.CancelKeyPress += (_, e) =>
-{
-    e.Cancel = true;
-    stopped.TrySetResult();
-};
-AppDomain.CurrentDomain.ProcessExit += (_, _) => stopped.TrySetResult();
-
-await stopped.Task;
-
-Console.WriteLine("Stopping gateway...");
-await host.StopAsync();
 FileLog.Stop();
 return 0;
