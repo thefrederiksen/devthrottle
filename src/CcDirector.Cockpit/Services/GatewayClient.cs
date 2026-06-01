@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using CcDirector.Gateway.Contracts;
 
 namespace CcDirector.Cockpit.Services;
 
@@ -36,5 +37,52 @@ public sealed class GatewayClient
         _log.LogDebug("GetSessionsAsync: {Sessions} sessions, {Errors} unreachable directors",
             result.Sessions.Count, result.MachineErrors.Count);
         return result;
+    }
+
+    /// <summary>
+    /// List every Director the Gateway knows about (the "on which Director?" picker for a new
+    /// session). Reads aggregate through the Gateway, so this is a Gateway call.
+    /// </summary>
+    public async Task<List<DirectorDto>> GetDirectorsAsync(CancellationToken ct = default)
+    {
+        var d = await _http.GetFromJsonAsync<List<DirectorDto>>("directors", ct);
+        return d ?? new List<DirectorDto>();
+    }
+
+    /// <summary>
+    /// The repositories a given Director offers for a new session. The Gateway proxies this to
+    /// the Director's <c>GET /repos</c>, so the Cockpit never needs that Director's endpoint.
+    /// </summary>
+    public async Task<List<RepositoryDto>> GetReposAsync(string directorId, CancellationToken ct = default)
+    {
+        var r = await _http.GetFromJsonAsync<List<RepositoryDto>>($"directors/{directorId}/repos", ct);
+        return r ?? new List<RepositoryDto>();
+    }
+
+    /// <summary>
+    /// Create a session on a specific Director via the Gateway proxy
+    /// (<c>POST /directors/{id}/sessions</c>). Returns the created session.
+    /// </summary>
+    public async Task<SessionDto?> CreateSessionAsync(string directorId, NewSessionRequest req, CancellationToken ct = default)
+    {
+        var resp = await _http.PostAsJsonAsync($"directors/{directorId}/sessions", req, ct);
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadFromJsonAsync<SessionDto>(cancellationToken: ct);
+    }
+
+    /// <summary>
+    /// Hand a session's context over to a new or existing session (<c>POST /handover</c>). The
+    /// Gateway orchestrates: same-Director it proxies; cross-Director it reads the prose context
+    /// and spawns the target with it as a pre-prompt. Throws with the server error on failure.
+    /// </summary>
+    public async Task<HandoverResponse?> HandoverAsync(HandoverRequest req, CancellationToken ct = default)
+    {
+        var resp = await _http.PostAsJsonAsync("handover", req, ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            throw new HttpRequestException($"handover failed ({(int)resp.StatusCode}): {body}");
+        }
+        return await resp.Content.ReadFromJsonAsync<HandoverResponse>(cancellationToken: ct);
     }
 }

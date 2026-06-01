@@ -23,7 +23,10 @@ builder.Services.AddHttpClient<GatewayClient>(c =>
 // the default handler trusts it - no cert bypass needed.
 builder.Services.AddHttpClient<DirectorClient>(c =>
 {
-    c.Timeout = TimeSpan.FromSeconds(20);
+    // Generous: most Director calls return in milliseconds, but recap generation is an
+    // opus call that can take ~90s. A high ceiling lets that one call through without
+    // affecting the fast ones (it only bounds how long a hung call waits).
+    c.Timeout = TimeSpan.FromSeconds(150);
 });
 
 var app = builder.Build();

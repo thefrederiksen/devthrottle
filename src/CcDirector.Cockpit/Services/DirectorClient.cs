@@ -1,5 +1,6 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using CcDirector.Gateway.Contracts;
 
 namespace CcDirector.Cockpit.Services;
 
@@ -97,11 +98,14 @@ public sealed class DirectorClient
 
     /// <summary>
     /// Forward a dropped screenshot to the owning Director as multipart/form-data (field
-    /// "file"), which saves it and hands the path to Claude Code. The browser streams the
-    /// bytes to the Cockpit server (Blazor InputFile); the Cockpit forwards them here, so the
-    /// Director never needs CORS for a browser cross-origin upload.
+    /// "file"). The Director saves it to its Screenshots directory and returns the absolute
+    /// <c>path</c> on disk; we return that path so the caller can hand it to Claude (the
+    /// upload endpoint itself does NOT inject anything into the session). The browser streams
+    /// the bytes to the Cockpit server (Blazor InputFile); the Cockpit forwards them here, so
+    /// the Director never needs CORS for a browser cross-origin upload.
     /// </summary>
-    public async Task UploadImageAsync(string directorBase, string sid, Stream content, string fileName, string contentType, CancellationToken ct = default)
+    /// <returns>The absolute path the Director saved the image to (empty if not reported).</returns>
+    public async Task<string> UploadImageAsync(string directorBase, string sid, Stream content, string fileName, string contentType, CancellationToken ct = default)
     {
         _log.LogDebug("UploadImage sid={Sid} file={File}", sid, fileName);
         using var form = new MultipartFormDataContent();
@@ -110,5 +114,94 @@ public sealed class DirectorClient
         form.Add(fileContent, "file", fileName);
         var resp = await _http.PostAsync(Url(directorBase, $"sessions/{sid}/upload-image"), form, ct);
         resp.EnsureSuccessStatusCode();
+        var r = await resp.Content.ReadFromJsonAsync<UploadImageResponse>(cancellationToken: ct);
+        return r?.Path ?? "";
     }
+
+    /// <summary>Kill a session (<c>DELETE /sessions/{sid}</c>) on its owning Director.</summary>
+    public async Task DeleteSessionAsync(string directorBase, string sid, CancellationToken ct = default)
+    {
+        _log.LogDebug("DeleteSession sid={Sid}", sid);
+        var resp = await _http.DeleteAsync(Url(directorBase, $"sessions/{sid}"), ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
+    /// <summary>Rename a session (<c>PATCH /sessions/{sid}</c> with <c>{ name }</c>).</summary>
+    public async Task RenameSessionAsync(string directorBase, string sid, string name, CancellationToken ct = default)
+    {
+        _log.LogDebug("RenameSession sid={Sid} name={Name}", sid, name);
+        var resp = await _http.PatchAsJsonAsync(Url(directorBase, $"sessions/{sid}"), new { name }, ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
+    /// <summary>Read a Director's raw settings JSON (<c>GET /settings</c>).</summary>
+    public async Task<string> GetSettingsAsync(string directorBase, CancellationToken ct = default)
+        => await _http.GetStringAsync(Url(directorBase, "settings"), ct);
+
+    /// <summary>Write a Director's settings (<c>PUT /settings</c>) - the Director re-applies live.</summary>
+    public async Task PutSettingsAsync(string directorBase, string json, CancellationToken ct = default)
+    {
+        _log.LogDebug("PutSettings len={Len}", json.Length);
+        using var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+        var resp = await _http.PutAsync(Url(directorBase, "settings"), content, ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
+    // ===== Awareness (Phase 3): recap + turn summaries, read over REST =====
+
+    /// <summary>The cached "what's happening" recap (<c>GET /recap</c>). Status is "not_cached"
+    /// until one is generated. Fast/free - just reads the cache.</summary>
+    public async Task<RecapResponse?> GetRecapAsync(string directorBase, string sid, CancellationToken ct = default)
+        => await _http.GetFromJsonAsync<RecapResponse>(Url(directorBase, $"sessions/{sid}/recap"), ct);
+
+    /// <summary>Generate a fresh recap (<c>POST /recap</c>). SLOW - an opus call (~90s); the
+    /// caller shows progress and never blocks the live terminal (that is a separate stream).</summary>
+    public async Task<RecapResponse?> GenerateRecapAsync(string directorBase, string sid, CancellationToken ct = default)
+    {
+        _log.LogDebug("GenerateRecap sid={Sid}", sid);
+        var resp = await _http.PostAsync(Url(directorBase, $"sessions/{sid}/recap"), null, ct);
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadFromJsonAsync<RecapResponse>(cancellationToken: ct);
+    }
+
+    /// <summary>The session's turn-by-turn summaries (<c>GET /turn-summaries</c>) - the arc of
+    /// the session. Fast/free - reads cached summaries.</summary>
+    public async Task<TurnSummariesResponse?> GetTurnSummariesAsync(string directorBase, string sid, CancellationToken ct = default)
+        => await _http.GetFromJsonAsync<TurnSummariesResponse>(Url(directorBase, $"sessions/{sid}/turn-summaries"), ct);
+
+    /// <summary>The plain-text handover prompt that a target session would receive
+    /// (<c>GET /handover-context</c>) - shown as a preview before dispatching a handover.</summary>
+    public async Task<string> GetHandoverContextAsync(string directorBase, string sid, CancellationToken ct = default)
+        => await _http.GetStringAsync(Url(directorBase, $"sessions/{sid}/handover-context"), ct);
+
+    // ===== Power tools (Phase 4) =====
+
+    /// <summary>A read-only git summary for the session's repo (<c>GET /git</c>): branch,
+    /// dirty, ahead/behind, last commit. (Per-file status needs a Director endpoint that does
+    /// not exist yet.)</summary>
+    public async Task<GitSnapshot?> GetGitAsync(string directorBase, string sid, CancellationToken ct = default)
+        => await _http.GetFromJsonAsync<GitSnapshot>(Url(directorBase, $"sessions/{sid}/git"), ct);
+
+    /// <summary>
+    /// Broadcast a prompt to several sessions on ONE Director (<c>POST /fanout-local</c>). The
+    /// session ids must all belong to <paramref name="directorBase"/>; the Cockpit groups a
+    /// fleet-wide selection by Director and calls this once per Director. <c>waitForIdle:false</c>
+    /// returns as soon as the text is delivered, so the UI does not block.
+    /// </summary>
+    public async Task<FanoutResponse?> FanoutAsync(string directorBase, List<string> sessionIds, string text, CancellationToken ct = default)
+    {
+        _log.LogDebug("Fanout count={Count} len={Len}", sessionIds.Count, text.Length);
+        var resp = await _http.PostAsJsonAsync(Url(directorBase, "fanout-local"),
+            new { sessionIds, text, appendEnter = true, waitForIdle = false }, ct);
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadFromJsonAsync<FanoutResponse>(cancellationToken: ct);
+    }
+}
+
+/// <summary>The shape of <c>POST /sessions/{sid}/upload-image</c>: the absolute on-disk path
+/// the Director saved the image to, plus the generated file name.</summary>
+public sealed class UploadImageResponse
+{
+    public string Path { get; set; } = "";
+    public string FileName { get; set; } = "";
 }

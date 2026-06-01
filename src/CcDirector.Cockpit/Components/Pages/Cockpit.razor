@@ -23,6 +23,9 @@
         </span>
 
         <span class="topbar-right">
+            <button class="btn tb" @onclick="OpenNewSession" title="Start a new session on any Director">+ New session</button>
+            <button class="btn tb" @onclick="OpenFanout" title="Broadcast a prompt to several sessions">Fan-out</button>
+            <button class="btn tb" @onclick="OpenSettings" title="Edit a Director's settings">Settings</button>
             <span class="gw" title="Gateway base URL">@Gateway.BaseUrl</span>
             <span class="refreshed">@(_lastRefresh is null ? "connecting..." : $"updated {_lastRefresh:HH:mm:ss}")</span>
         </span>
@@ -65,9 +68,35 @@
             {
                 <div class="detail-head">
                     <span class="detail-dot" style="background:@DotColor(Selected.StatusColor)"></span>
-                    <span class="detail-name">@SessionTitle(Selected)</span>
+                    @if (_renaming)
+                    {
+                        <input class="rename-input" @bind="_renameText" @bind:event="oninput" @onkeydown="OnRenameKey" autofocus />
+                        <button class="btn tb" @onclick="SaveRename" disabled="@_acting">Save</button>
+                        <button class="btn tb" @onclick="() => _renaming = false">Cancel</button>
+                    }
+                    else
+                    {
+                        <span class="detail-name">@SessionTitle(Selected)</span>
+                    }
                     <span class="detail-meta">@Selected.MachineName / director @ShortId(Selected.DirectorId)</span>
                     <span class="detail-state">@Selected.ActivityState</span>
+                    <span class="detail-actions">
+                        @if (!_renaming)
+                        {
+                            <button class="btn tb" @onclick="OpenAwareness" title="Recap + turn summaries for this session">What's happening</button>
+                            <button class="btn tb" @onclick="OpenHandover" title="Hand this session's context to another session">Handover</button>
+                            <button class="btn tb" @onclick="StartRename" title="Rename this session">Rename</button>
+                        }
+                        @if (_killArmed)
+                        {
+                            <button class="btn tb danger" @onclick="KillSelected" disabled="@_acting">Confirm kill</button>
+                            <button class="btn tb" @onclick="() => _killArmed = false">Cancel</button>
+                        }
+                        else
+                        {
+                            <button class="btn tb danger" @onclick="() => _killArmed = true" title="Kill this session">Kill</button>
+                        }
+                    </span>
                 </div>
 
                 <div class="term-wrap">
@@ -108,7 +137,7 @@
                         <textarea @bind="_compose" @bind:event="oninput" @onkeydown="OnComposerKey"
                                   placeholder="Message this session... (Enter to send, Shift+Enter for newline)"></textarea>
                         <div class="composer-btns">
-                            <button class="btn speak @(_speaking ? "on" : "")" @onclick="ToggleSpeak" title="Dictate">@(_speaking ? "Stop" : "Speak")</button>
+                            <button class="btn speak @(_dictating ? "on" : "")" @onclick="OpenDictate" title="Dictate" disabled="@_dictating">Speak</button>
                             <button class="btn send" @onclick="SendNow" disabled="@(_acting || string.IsNullOrWhiteSpace(_compose))">Send</button>
                             <button class="btn queue" @onclick="QueueIt" disabled="@(_acting || string.IsNullOrWhiteSpace(_compose))">Queue</button>
                             <button class="btn danger" @onclick="Interrupt" title="Ctrl+C">Interrupt</button>
@@ -123,6 +152,302 @@
             }
         </main>
     </div>
+
+    @* ===== New session modal ===== *@
+    @if (_showNewSession)
+    {
+        <div class="modal-backdrop" @onclick="CloseNewSession">
+            <div class="modal" @onclick:stopPropagation="true">
+                <div class="modal-head">New session</div>
+                <div class="modal-body">
+                    <label class="fld">
+                        <span class="fld-label">Director</span>
+                        <select @bind="_nsDirectorId" @bind:after="OnNsDirectorChanged">
+                            @foreach (var d in _directors)
+                            {
+                                <option value="@d.DirectorId">@DirectorLabel(d)</option>
+                            }
+                        </select>
+                    </label>
+                    <label class="fld">
+                        <span class="fld-label">Repository</span>
+                        <select @bind="_nsRepoPath">
+                            <option value="">-- pick a repo, or type a path below --</option>
+                            @foreach (var r in _nsRepos)
+                            {
+                                <option value="@r.Path">@r.Name</option>
+                            }
+                        </select>
+                    </label>
+                    <label class="fld">
+                        <span class="fld-label">Or repo path</span>
+                        <input @bind="_nsRepoPathManual" @bind:event="oninput" placeholder="D:\path\to\repo" />
+                    </label>
+                    <label class="fld">
+                        <span class="fld-label">Agent</span>
+                        <select @bind="_nsAgent">
+                            <option>ClaudeCode</option>
+                            <option>Codex</option>
+                            <option>Gemini</option>
+                            <option>Pi</option>
+                            <option>OpenCode</option>
+                        </select>
+                    </label>
+                    @if (!string.IsNullOrEmpty(_nsError))
+                    {
+                        <div class="modal-error">@_nsError</div>
+                    }
+                </div>
+                <div class="modal-foot">
+                    <button class="btn" @onclick="CloseNewSession">Cancel</button>
+                    <button class="btn send" @onclick="CreateSession" disabled="@(_acting || string.IsNullOrWhiteSpace(EffectiveNsRepo))">Create</button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @* ===== Settings modal ===== *@
+    @if (_showSettings)
+    {
+        <div class="modal-backdrop" @onclick="CloseSettings">
+            <div class="modal modal-wide" @onclick:stopPropagation="true">
+                <div class="modal-head">Settings</div>
+                <div class="modal-body">
+                    <label class="fld">
+                        <span class="fld-label">Director</span>
+                        <select @bind="_setDirectorId" @bind:after="LoadSettings">
+                            @foreach (var d in _directors)
+                            {
+                                <option value="@d.DirectorId">@DirectorLabel(d)</option>
+                            }
+                        </select>
+                    </label>
+                    <textarea class="settings-json" @bind="_settingsJson" spellcheck="false"></textarea>
+                    @if (!string.IsNullOrEmpty(_setError))
+                    {
+                        <div class="modal-error">@_setError</div>
+                    }
+                    @if (!string.IsNullOrEmpty(_setStatus))
+                    {
+                        <div class="modal-status">@_setStatus</div>
+                    }
+                </div>
+                <div class="modal-foot">
+                    <button class="btn" @onclick="CloseSettings">Close</button>
+                    <button class="btn send" @onclick="SaveSettings" disabled="@(_acting || string.IsNullOrWhiteSpace(_settingsJson))">Save</button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @* ===== Awareness: "what's happening" (recap + turn summaries) ===== *@
+    @if (_showAwareness)
+    {
+        <div class="modal-backdrop" @onclick="CloseAwareness">
+            <div class="modal modal-wide" @onclick:stopPropagation="true">
+                <div class="modal-head">What's happening@(_awareTitle is null ? "" : $" - {_awareTitle}")</div>
+                <div class="modal-body">
+                    <div class="aware-section">
+                        <div class="aware-h"><span>GIT</span></div>
+                        @if (_git is null)
+                        {
+                            <div class="aware-muted">Loading...</div>
+                        }
+                        else if (_git.Status == "ok")
+                        {
+                            <div class="git-line">
+                                <span class="git-branch">@_git.Branch</span>
+                                <span class="@(_git.Dirty ? "git-dirty" : "git-clean")">@(_git.Dirty ? "dirty" : "clean")</span>
+                                @if (_git.Ahead > 0) { <span class="git-ab">ahead @_git.Ahead</span> }
+                                @if (_git.Behind > 0) { <span class="git-ab">behind @_git.Behind</span> }
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(_git.LastCommit))
+                            {
+                                <div class="git-commit">@_git.LastCommit</div>
+                            }
+                        }
+                        else
+                        {
+                            <div class="aware-muted">@(_git.Error ?? "no git info")</div>
+                        }
+                    </div>
+                    <div class="aware-section">
+                        <div class="aware-h">
+                            <span>RECAP</span>
+                            <button class="btn tb" @onclick="GenerateRecap" disabled="@_recapBusy">@(_recapBusy ? "generating (~90s)..." : "Generate fresh")</button>
+                        </div>
+                        @if (_recap is null)
+                        {
+                            <div class="aware-muted">Loading...</div>
+                        }
+                        else if (_recap.Status == "ok" && !string.IsNullOrWhiteSpace(_recap.Recap))
+                        {
+                            <div class="aware-recap">@_recap.Recap</div>
+                            <div class="aware-meta">@_recap.Model &middot; @(_recap.IsStale ? "stale (new turns since)" : "current") &middot; generated @(_recap.GeneratedAt?.ToLocalTime().ToString("HH:mm:ss"))</div>
+                        }
+                        else
+                        {
+                            <div class="aware-muted">@(_recap.Error ?? "No recap yet. Click Generate fresh.")</div>
+                        }
+                    </div>
+                    <div class="aware-section">
+                        <div class="aware-h"><span>TURN SUMMARIES (@_turns.Count)</span></div>
+                        @if (_turns.Count == 0)
+                        {
+                            <div class="aware-muted">No turn summaries yet for this session.</div>
+                        }
+                        else
+                        {
+                            @foreach (var t in _turns)
+                            {
+                                <div class="turn">
+                                    <div class="turn-headline">
+                                        @if (t.NeedsUser != "no")
+                                        {
+                                            <span class="turn-needs">needs you</span>
+                                        }
+                                        @t.Headline
+                                    </div>
+                                    @if (t.FilesTouched.Count > 0)
+                                    {
+                                        <div class="turn-meta">files: @string.Join(", ", t.FilesTouched.Take(6))</div>
+                                    }
+                                    <div class="turn-time">@t.GeneratedAt.ToLocalTime().ToString("HH:mm:ss")</div>
+                                </div>
+                            }
+                        }
+                    </div>
+                    @if (!string.IsNullOrEmpty(_awareError))
+                    {
+                        <div class="modal-error">@_awareError</div>
+                    }
+                </div>
+                <div class="modal-foot">
+                    <button class="btn" @onclick="CloseAwareness">Close</button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @* ===== Fan-out: broadcast a prompt to several sessions ===== *@
+    @if (_showFanout)
+    {
+        <div class="modal-backdrop" @onclick="CloseFanout">
+            <div class="modal modal-wide" @onclick:stopPropagation="true">
+                <div class="modal-head">Fan-out a prompt to multiple sessions</div>
+                <div class="modal-body">
+                    <div class="fanout-list">
+                        @foreach (var s in _sessions.Where(s => !string.IsNullOrWhiteSpace(s.TailnetEndpoint)))
+                        {
+                            var sid = s.SessionId;
+                            <label class="fanout-item">
+                                <input type="checkbox" checked="@_fanoutSelected.Contains(sid)" @onchange="e => ToggleFanout(sid, (bool)(e.Value ?? false))" />
+                                <span class="fanout-dot" style="background:@DotColor(s.StatusColor)"></span>
+                                <span class="fanout-name">@SessionTitle(s)</span>
+                                <span class="fanout-meta">@s.MachineName / @ShortId(s.DirectorId)</span>
+                            </label>
+                        }
+                    </div>
+                    <label class="fld">
+                        <span class="fld-label">Prompt to send to the @_fanoutSelected.Count selected session(s)</span>
+                        <textarea class="fanout-text" @bind="_fanoutText" @bind:event="oninput" spellcheck="false" placeholder="any prompt, e.g. 'commit your work and summarize what you did'"></textarea>
+                    </label>
+                    @if (_fanoutResults.Count > 0)
+                    {
+                        <div class="fanout-results">
+                            @foreach (var r in _fanoutResults)
+                            {
+                                <div class="fanout-result"><span class="@(r.Error is null ? "git-clean" : "git-dirty")">@(r.Error is null ? "delivered" : "failed")</span> &nbsp;@ShortId(r.SessionId) @r.Error</div>
+                            }
+                        </div>
+                    }
+                    @if (!string.IsNullOrEmpty(_fanoutError))
+                    {
+                        <div class="modal-error">@_fanoutError</div>
+                    }
+                </div>
+                <div class="modal-foot">
+                    <button class="btn" @onclick="CloseFanout">Cancel</button>
+                    <button class="btn send" @onclick="DoFanout" disabled="@(_fanoutBusy || _fanoutSelected.Count == 0 || string.IsNullOrWhiteSpace(_fanoutText))">@(_fanoutBusy ? "sending..." : $"Send to {_fanoutSelected.Count}")</button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @* ===== Handover: hand a session's context to a new or existing session ===== *@
+    @if (_showHandover && Selected is not null)
+    {
+        <div class="modal-backdrop" @onclick="CloseHandover">
+            <div class="modal modal-wide" @onclick:stopPropagation="true">
+                <div class="modal-head">Hand over - @SessionTitle(Selected)</div>
+                <div class="modal-body">
+                    <div class="aware-h"><span>CONTEXT PREVIEW (what the target session receives)</span></div>
+                    <div class="handover-preview">@(_handoverContext ?? "Loading...")</div>
+
+                    <label class="fld">
+                        <span class="fld-label">Hand over to</span>
+                        <select @bind="_hoMode">
+                            <option value="new">a new session</option>
+                            <option value="existing">an existing session (same Director)</option>
+                        </select>
+                    </label>
+
+                    @if (_hoMode == "new")
+                    {
+                        <label class="fld">
+                            <span class="fld-label">Director</span>
+                            <select @bind="_hoDirectorId">
+                                @foreach (var d in _directors)
+                                {
+                                    <option value="@d.DirectorId">@DirectorLabel(d)</option>
+                                }
+                            </select>
+                        </label>
+                        <label class="fld">
+                            <span class="fld-label">Repo path</span>
+                            <input @bind="_hoRepoPath" @bind:event="oninput" placeholder="D:/path/to/repo" />
+                        </label>
+                        <label class="fld">
+                            <span class="fld-label">Agent</span>
+                            <select @bind="_hoAgent">
+                                <option>ClaudeCode</option>
+                                <option>Codex</option>
+                                <option>Gemini</option>
+                                <option>Pi</option>
+                                <option>OpenCode</option>
+                            </select>
+                        </label>
+                    }
+                    else
+                    {
+                        <label class="fld">
+                            <span class="fld-label">Existing session</span>
+                            <select @bind="_hoToSessionId">
+                                <option value="">-- pick a session on the same Director --</option>
+                                @foreach (var s in _sessions.Where(s => s.SessionId != Selected.SessionId && s.DirectorId == Selected.DirectorId))
+                                {
+                                    <option value="@s.SessionId">@SessionTitle(s)</option>
+                                }
+                            </select>
+                        </label>
+                    }
+
+                    <label class="fld">
+                        <span class="fld-label">Extra context (optional)</span>
+                        <textarea class="fanout-text" @bind="_hoExtra" @bind:event="oninput" spellcheck="false" placeholder="anything else the target session should know"></textarea>
+                    </label>
+                    <label class="ho-check"><input type="checkbox" @bind="_hoArchive" /> Archive this handover to the vault</label>
+
+                    @if (!string.IsNullOrEmpty(_hoError)) { <div class="modal-error">@_hoError</div> }
+                    @if (!string.IsNullOrEmpty(_hoStatus)) { <div class="modal-status">@_hoStatus</div> }
+                </div>
+                <div class="modal-foot">
+                    <button class="btn" @onclick="CloseHandover">Cancel</button>
+                    <button class="btn send" @onclick="DoHandover" disabled="@(_hoBusy || !HandoverReady)">@(_hoBusy ? "handing over..." : "Hand over")</button>
+                </div>
+            </div>
+        </div>
+    }
 </div>
 
 @code {
@@ -194,7 +519,6 @@
     private string _compose = "";
     private List<QueueItem> _queue = new();
     private bool _acting;
-    private bool _speaking;
     private string? _actError;
     private string? _shotStatus;
 
@@ -204,6 +528,8 @@
         _compose = "";
         _actError = null;
         _shotStatus = null;
+        _renaming = false;
+        _killArmed = false;
         _queue = new();
         await LoadQueueAsync();
     }
@@ -279,9 +605,17 @@
             try
             {
                 await using var s = f.OpenReadStream(20 * 1024 * 1024, _cts.Token); // 20 MB cap
-                await Director.UploadImageAsync(DirBase!, Selected.SessionId, s, f.Name, f.ContentType, _cts.Token);
+                var path = await Director.UploadImageAsync(DirBase!, Selected.SessionId, s, f.Name, f.ContentType, _cts.Token);
+
+                // The upload endpoint only SAVES the image and returns its path; it does not
+                // hand it to Claude. Inject the saved path into the live prompt (no Enter, so the
+                // user adds their message and sends) - matching the desktop drag-drop, so Claude
+                // can actually read the image. A trailing space separates multiple images.
+                if (!string.IsNullOrWhiteSpace(path))
+                    await Director.SendInputAsync(DirBase!, Selected.SessionId, path + " ", _cts.Token);
+
                 sent++;
-                _shotStatus = $"sent {sent} image{(sent == 1 ? "" : "s")} to Claude";
+                _shotStatus = $"attached {sent} image{(sent == 1 ? "" : "s")} to the prompt";
                 StateHasChanged();
             }
             catch (Exception ex)
@@ -292,42 +626,71 @@
         }
     }
 
-    // Speak: browser dictation that fills the composer (start/stop). Uses the cockpit-speech
-    // JS module; the result is dropped into the textarea so the user reviews before Send/Queue.
-    private async Task ToggleSpeak()
+    // Speak: opens the desktop-parity Dictate dialog (cockpit-dictate.js), the browser twin
+    // of the Avalonia SpeakDialog. It streams the mic to the owning Director's /dictate
+    // pipeline (OpenAI + shared dictionary + verbatim cleanup) inside a modal with a mic
+    // selector, live equalizer, editable transcript, and Cancel / Pause / Insert / Send.
+    // It returns the cleaned text via OnDictateInsert (drop into composer) or OnDictateSend
+    // (drop into composer AND submit). _dictating guards against opening it twice.
+    private bool _dictating;
+    private DotNetObjectReference<Cockpit>? _dictateRef;
+
+    private async Task OpenDictate()
     {
+        if (Selected is null || string.IsNullOrWhiteSpace(DirBase) || _dictating) return;
         try
         {
-            if (!_speaking)
-            {
-                _speaking = true;
-                await JS.InvokeVoidAsync("cockpitSpeech.start", DotNetObjectReference.Create(this));
-            }
-            else
-            {
-                _speaking = false;
-                await JS.InvokeVoidAsync("cockpitSpeech.stop");
-            }
+            _dictating = true;
+            _actError = null;
+            _dictateRef ??= DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("cockpitDictate.start", _dictateRef, DictateWsUrl(DirBase!), "/js/dictate-worklet.js", "default");
         }
         catch (Exception ex)
         {
-            _speaking = false;
+            _dictating = false;
             _actError = $"dictation unavailable: {ex.Message}";
         }
     }
 
-    [JSInvokable]
-    public Task OnDictation(string text)
+    // https://host:port -> wss://host:port/dictate (the owning Director's dictation pipeline,
+    // fronted by Tailscale Serve as HTTPS, so the WS upgrade rides wss over the tailnet).
+    private static string DictateWsUrl(string directorBase)
     {
+        var b = directorBase.TrimEnd('/');
+        string ws = b.StartsWith("https://") ? "wss://" + b["https://".Length..]
+                  : b.StartsWith("http://") ? "ws://" + b["http://".Length..]
+                  : b;
+        return $"{ws}/dictate";
+    }
+
+    // Insert: the dialog finished and the user chose Insert - append the cleaned text to the
+    // composer for review (no auto-submit), mirroring the desktop dialog's Insert button.
+    [JSInvokable]
+    public Task OnDictateInsert(string text)
+    {
+        _dictating = false;
         if (!string.IsNullOrWhiteSpace(text))
             _compose = string.IsNullOrEmpty(_compose) ? text : _compose + " " + text;
         return InvokeAsync(StateHasChanged);
     }
 
+    // Send: the dialog finished and the user chose Send - append the cleaned text and submit
+    // immediately via the normal composer send path.
     [JSInvokable]
-    public Task OnDictationEnded()
+    public async Task OnDictateSend(string text)
     {
-        _speaking = false;
+        _dictating = false;
+        if (!string.IsNullOrWhiteSpace(text))
+            _compose = string.IsNullOrEmpty(_compose) ? text : _compose + " " + text;
+        await InvokeAsync(StateHasChanged);
+        await SendNow();
+    }
+
+    // Cancel / closed with no text.
+    [JSInvokable]
+    public Task OnDictateCancel()
+    {
+        _dictating = false;
         return InvokeAsync(StateHasChanged);
     }
 
@@ -343,6 +706,339 @@
             Log.LogWarning(ex, "Cockpit action failed");
         }
         finally { _acting = false; }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    // ===== Phase 2: session lifecycle (new / kill / rename) + settings =====
+    private bool _renaming;
+    private string _renameText = "";
+    private bool _killArmed;
+
+    private bool _showNewSession;
+    private List<DirectorDto> _directors = new();
+    private string _nsDirectorId = "";
+    private List<RepositoryDto> _nsRepos = new();
+    private string _nsRepoPath = "";
+    private string _nsRepoPathManual = "";
+    private string _nsAgent = "ClaudeCode";
+    private string? _nsError;
+    private string EffectiveNsRepo => string.IsNullOrWhiteSpace(_nsRepoPathManual) ? _nsRepoPath : _nsRepoPathManual.Trim();
+
+    private bool _showSettings;
+    private string _setDirectorId = "";
+    private string _settingsJson = "";
+    private string? _setError;
+    private string? _setStatus;
+
+    private static string DirectorLabel(DirectorDto d) =>
+        $"{(string.IsNullOrWhiteSpace(d.MachineName) ? "(this machine)" : d.MachineName)} - director {ShortId(d.DirectorId)}";
+
+    // ----- rename -----
+    private void StartRename()
+    {
+        if (Selected is null) return;
+        _renameText = Selected.Name ?? "";
+        _renaming = true;
+        _killArmed = false;
+    }
+
+    private async Task OnRenameKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await SaveRename();
+        else if (e.Key == "Escape") _renaming = false;
+    }
+
+    private async Task SaveRename()
+    {
+        if (Selected is null || string.IsNullOrWhiteSpace(DirBase)) { _renaming = false; return; }
+        var sid = Selected.SessionId;
+        var name = _renameText.Trim();
+        await Act(async () =>
+        {
+            await Director.RenameSessionAsync(DirBase!, sid, name, _cts.Token);
+            _renaming = false;
+            await RefreshAsync();
+        });
+    }
+
+    // ----- kill -----
+    private async Task KillSelected()
+    {
+        if (Selected is null || string.IsNullOrWhiteSpace(DirBase)) return;
+        var sid = Selected.SessionId;
+        await Act(async () =>
+        {
+            await Director.DeleteSessionAsync(DirBase!, sid, _cts.Token);
+            _killArmed = false;
+            _selectedId = null;
+            await RefreshAsync();
+        });
+    }
+
+    // ----- new session (created on a chosen Director via the Gateway proxy) -----
+    private async Task OpenNewSession()
+    {
+        _showNewSession = true;
+        _nsError = null;
+        _nsRepoPath = ""; _nsRepoPathManual = ""; _nsAgent = "ClaudeCode";
+        try
+        {
+            _directors = await Gateway.GetDirectorsAsync(_cts.Token);
+            _nsDirectorId = Selected?.DirectorId ?? _directors.FirstOrDefault()?.DirectorId ?? "";
+            await OnNsDirectorChanged();
+        }
+        catch (Exception ex) { _nsError = $"could not load Directors: {ex.Message}"; }
+    }
+
+    private void CloseNewSession() => _showNewSession = false;
+
+    private async Task OnNsDirectorChanged()
+    {
+        _nsRepos = new();
+        _nsRepoPath = "";
+        if (string.IsNullOrEmpty(_nsDirectorId)) return;
+        try { _nsRepos = await Gateway.GetReposAsync(_nsDirectorId, _cts.Token); }
+        catch (Exception ex) { _nsError = $"could not load repos: {ex.Message}"; }
+    }
+
+    private async Task CreateSession()
+    {
+        if (string.IsNullOrWhiteSpace(_nsDirectorId) || string.IsNullOrWhiteSpace(EffectiveNsRepo)) return;
+        _acting = true; _nsError = null;
+        try
+        {
+            var req = new NewSessionRequest { RepoPath = EffectiveNsRepo, Agent = _nsAgent, WingmanEnabled = false };
+            var created = await Gateway.CreateSessionAsync(_nsDirectorId, req, _cts.Token);
+            _showNewSession = false;
+            await RefreshAsync();
+            if (created is not null) await OnSelect(created.SessionId);
+        }
+        catch (Exception ex) { _nsError = ex.Message; Log.LogWarning(ex, "CreateSession failed"); }
+        finally { _acting = false; }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    // ----- settings (read/write a Director's config; the Director re-applies live) -----
+    private async Task OpenSettings()
+    {
+        _showSettings = true; _setError = null; _setStatus = null;
+        try
+        {
+            _directors = await Gateway.GetDirectorsAsync(_cts.Token);
+            _setDirectorId = Selected?.DirectorId ?? _directors.FirstOrDefault()?.DirectorId ?? "";
+            await LoadSettings();
+        }
+        catch (Exception ex) { _setError = $"could not load Directors: {ex.Message}"; }
+    }
+
+    private void CloseSettings() => _showSettings = false;
+
+    private string? SettingsEndpointFor(string directorId) =>
+        _directors.FirstOrDefault(d => d.DirectorId == directorId)?.TailnetEndpoint;
+
+    private async Task LoadSettings()
+    {
+        _setError = null; _setStatus = null; _settingsJson = "";
+        var ep = SettingsEndpointFor(_setDirectorId);
+        if (string.IsNullOrWhiteSpace(ep)) { _setError = "that Director has no reachable endpoint"; return; }
+        try
+        {
+            var raw = await Director.GetSettingsAsync(ep!, _cts.Token);
+            try
+            {
+                var node = System.Text.Json.Nodes.JsonNode.Parse(raw);
+                _settingsJson = node?.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }) ?? raw;
+            }
+            catch { _settingsJson = raw; }
+        }
+        catch (Exception ex) { _setError = $"could not load settings: {ex.Message}"; }
+    }
+
+    private async Task SaveSettings()
+    {
+        var ep = SettingsEndpointFor(_setDirectorId);
+        if (string.IsNullOrWhiteSpace(ep)) { _setError = "that Director has no reachable endpoint"; return; }
+        _acting = true; _setError = null; _setStatus = null;
+        try
+        {
+            System.Text.Json.JsonDocument.Parse(_settingsJson); // validate before sending
+            await Director.PutSettingsAsync(ep!, _settingsJson, _cts.Token);
+            _setStatus = "saved; the Director re-applied its settings";
+        }
+        catch (System.Text.Json.JsonException) { _setError = "not valid JSON - fix it before saving"; }
+        catch (Exception ex) { _setError = ex.Message; Log.LogWarning(ex, "SaveSettings failed"); }
+        finally { _acting = false; }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    // ===== Phase 3: awareness (recap + turn summaries) =====
+    private bool _showAwareness;
+    private string? _awareTitle;
+    private RecapResponse? _recap;
+    private List<TurnSummary> _turns = new();
+    private GitSnapshot? _git;
+    private bool _recapBusy;
+    private string? _awareError;
+
+    private async Task OpenAwareness()
+    {
+        if (Selected is null || string.IsNullOrWhiteSpace(DirBase)) return;
+        _showAwareness = true;
+        _awareError = null;
+        _recap = null;
+        _git = null;
+        _turns = new();
+        _awareTitle = SessionTitle(Selected);
+        var dir = DirBase!;
+        var sid = Selected.SessionId;
+        try
+        {
+            _git = await Director.GetGitAsync(dir, sid, _cts.Token);
+            _recap = await Director.GetRecapAsync(dir, sid, _cts.Token);
+            var ts = await Director.GetTurnSummariesAsync(dir, sid, _cts.Token);
+            _turns = ts?.Summaries ?? new List<TurnSummary>();
+        }
+        catch (Exception ex) { _awareError = ex.Message; Log.LogWarning(ex, "OpenAwareness failed"); }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void CloseAwareness() => _showAwareness = false;
+
+    private async Task GenerateRecap()
+    {
+        if (Selected is null || string.IsNullOrWhiteSpace(DirBase)) return;
+        _recapBusy = true;
+        _awareError = null;
+        await InvokeAsync(StateHasChanged);
+        try { _recap = await Director.GenerateRecapAsync(DirBase!, Selected.SessionId, _cts.Token); }
+        catch (Exception ex) { _awareError = $"recap failed: {ex.Message}"; Log.LogWarning(ex, "GenerateRecap failed"); }
+        finally { _recapBusy = false; }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    // ===== Phase 4: fan-out (broadcast a prompt to several sessions) =====
+    private bool _showFanout;
+    private HashSet<string> _fanoutSelected = new();
+    private string _fanoutText = "";
+    private List<FanoutResult> _fanoutResults = new();
+    private bool _fanoutBusy;
+    private string? _fanoutError;
+
+    private void OpenFanout()
+    {
+        _showFanout = true;
+        _fanoutError = null;
+        _fanoutResults = new();
+        _fanoutText = "";
+        _fanoutSelected = new();
+        if (Selected is not null && !string.IsNullOrWhiteSpace(Selected.TailnetEndpoint))
+            _fanoutSelected.Add(Selected.SessionId);
+    }
+
+    private void CloseFanout() => _showFanout = false;
+
+    private void ToggleFanout(string sid, bool on)
+    {
+        if (on) _fanoutSelected.Add(sid); else _fanoutSelected.Remove(sid);
+    }
+
+    private async Task DoFanout()
+    {
+        if (_fanoutSelected.Count == 0 || string.IsNullOrWhiteSpace(_fanoutText)) return;
+        _fanoutBusy = true;
+        _fanoutError = null;
+        _fanoutResults = new();
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            // Group the fleet-wide selection by owning Director endpoint - /fanout-local is
+            // per-Director (its session ids must be local), so we call it once per Director.
+            var groups = _sessions
+                .Where(s => _fanoutSelected.Contains(s.SessionId) && !string.IsNullOrWhiteSpace(s.TailnetEndpoint))
+                .GroupBy(s => s.TailnetEndpoint!);
+            var all = new List<FanoutResult>();
+            foreach (var g in groups)
+            {
+                var ids = g.Select(s => s.SessionId).ToList();
+                var resp = await Director.FanoutAsync(g.Key, ids, _fanoutText, _cts.Token);
+                if (resp?.Results is not null) all.AddRange(resp.Results);
+            }
+            _fanoutResults = all;
+            if (all.Count > 0 && all.All(r => r.Error is null)) _fanoutText = "";
+        }
+        catch (Exception ex) { _fanoutError = ex.Message; Log.LogWarning(ex, "Fanout failed"); }
+        finally { _fanoutBusy = false; }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    // ===== Phase 4: handover (hand a session's context to a new/existing session) =====
+    private bool _showHandover;
+    private string? _handoverContext;
+    private string _hoMode = "new";
+    private string _hoDirectorId = "";
+    private string _hoRepoPath = "";
+    private string _hoAgent = "ClaudeCode";
+    private string _hoToSessionId = "";
+    private string _hoExtra = "";
+    private bool _hoArchive = true;
+    private bool _hoBusy;
+    private string? _hoError;
+    private string? _hoStatus;
+
+    private bool HandoverReady => _hoMode == "new"
+        ? !string.IsNullOrWhiteSpace(_hoRepoPath)
+        : !string.IsNullOrWhiteSpace(_hoToSessionId);
+
+    private async Task OpenHandover()
+    {
+        if (Selected is null || string.IsNullOrWhiteSpace(DirBase)) return;
+        _showHandover = true;
+        _handoverContext = null;
+        _hoError = null; _hoStatus = null;
+        _hoMode = "new"; _hoRepoPath = ""; _hoToSessionId = ""; _hoExtra = ""; _hoArchive = true; _hoAgent = "ClaudeCode";
+        var dir = DirBase!;
+        var sid = Selected.SessionId;
+        try
+        {
+            _directors = await Gateway.GetDirectorsAsync(_cts.Token);
+            _hoDirectorId = Selected.DirectorId;
+            _handoverContext = await Director.GetHandoverContextAsync(dir, sid, _cts.Token);
+        }
+        catch (Exception ex) { _hoError = ex.Message; Log.LogWarning(ex, "OpenHandover failed"); }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void CloseHandover() => _showHandover = false;
+
+    private async Task DoHandover()
+    {
+        if (Selected is null || !HandoverReady) return;
+        _hoBusy = true; _hoError = null; _hoStatus = null;
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            var req = new HandoverRequest
+            {
+                FromSessionId = Selected.SessionId,
+                ExtraContext = string.IsNullOrWhiteSpace(_hoExtra) ? null : _hoExtra,
+                ArchiveToVault = _hoArchive,
+                ToAgent = _hoAgent,
+            };
+            if (_hoMode == "new") { req.ToRepoPath = _hoRepoPath.Trim(); req.ToDirectorId = _hoDirectorId; }
+            else { req.ToSessionId = _hoToSessionId; }
+
+            var resp = await Gateway.HandoverAsync(req, _cts.Token);
+            if (resp?.Accepted == true)
+            {
+                await RefreshAsync();
+                var target = resp.TargetSession?.SessionId;
+                _showHandover = false;
+                if (!string.IsNullOrEmpty(target)) await OnSelect(target!);
+            }
+            else { _hoError = resp?.Error ?? "handover was not accepted"; }
+        }
+        catch (Exception ex) { _hoError = ex.Message; Log.LogWarning(ex, "DoHandover failed"); }
+        finally { _hoBusy = false; }
         await InvokeAsync(StateHasChanged);
     }
 
@@ -365,5 +1061,6 @@
     {
         _cts.Cancel();
         _cts.Dispose();
+        _dictateRef?.Dispose();
     }
 }
