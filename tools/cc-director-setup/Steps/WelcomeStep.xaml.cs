@@ -1,18 +1,14 @@
 using System.Windows;
 using System.Windows.Controls;
-using CcDirectorSetup.Models;
 using CcDirectorSetup.Services;
 
 namespace CcDirectorSetup.Steps;
 
 public partial class WelcomeStep : UserControl
 {
-    public WelcomeStep(InstallProfile initial, Action<InstallProfile> onProfileChanged,
-        bool isUpdate, string? installedVersion)
+    public WelcomeStep(bool isUpdate, string? installedVersion)
     {
         InitializeComponent();
-
-        onProfileChanged(InstallProfile.Developer);
 
         if (isUpdate)
         {
@@ -55,16 +51,5 @@ public partial class WelcomeStep : UserControl
                 VersionInfoText.Visibility = Visibility.Visible;
             }
         });
-    }
-
-    public void UpdateProfile(ref InstallProfile profile)
-    {
-        profile = InstallProfile.Developer;
-    }
-
-    public void UpdateProfile(InstallProfile profile)
-    {
-        // Profile choice removed -- Developer is the only option.
-        SetupLog.Write("[WelcomeStep] UpdateProfile called; profile is forced to Developer");
     }
 }

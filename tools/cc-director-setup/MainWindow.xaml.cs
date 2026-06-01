@@ -11,8 +11,6 @@ namespace CcDirectorSetup;
 public partial class MainWindow : Window
 {
     private int _currentStep = 1;
-    private InstallProfile _selectedProfile = InstallProfile.Developer;
-    private List<string> _selectedGroups;
     private List<PrerequisiteInfo> _prerequisites = [];
     private int _installedCount;
     private int _skippedCount;
@@ -26,12 +24,15 @@ public partial class MainWindow : Window
 
     private WelcomeStep? _welcomeStep;
     private PrerequisitesStep? _prerequisitesStep;
-    private ToolsStep? _toolsStep;
     private SkillsStep? _skillsStep;
     private InstallStep? _installStep;
     private CompleteStep? _completeStep;
 
     private readonly record struct StepUI(Border Circle, TextBlock Label, TextBlock? Number);
+
+    // Wizard steps: 1 Welcome, 2 Prerequisites, 3 Skills, 4 Install, 5 Complete.
+    private const int StepInstall = 4;
+    private const int StepComplete = 5;
 
     public MainWindow()
     {
@@ -39,7 +40,6 @@ public partial class MainWindow : Window
 
         _isUpdate = InstallDetector.IsInstalled();
         _installedVersion = _isUpdate ? InstallDetector.GetInstalledVersion() : null;
-        _selectedGroups = ToolGroupRegistry.GetPresetGroupNames("Developer");
 
         SetupLog.Write($"[MainWindow] Started: isUpdate={_isUpdate}, installedVersion={_installedVersion}");
 
@@ -47,32 +47,17 @@ public partial class MainWindow : Window
         {
             Title = "CC Director Update";
             SubtitleText.Text = "Update";
-            Step5Label.Text = "Update";
+            Step4Label.Text = "Update";
         }
 
         Loaded += MainWindow_Loaded;
         ShowStep(1);
     }
 
-    private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
+    private void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
-        try
-        {
-            var saved = await Task.Run(() => ProfileStore.Load());
-            if (saved != null)
-            {
-                _selectedProfile = InstallProfile.Developer;
-                _selectedGroups = saved.Groups;
-                SetupLog.Write($"[MainWindow] Restored: profile=Developer (forced), groups={_selectedGroups.Count}");
-            }
-        }
-        catch (Exception ex)
-        {
-            SetupLog.Write($"[MainWindow] Failed to load saved settings: {ex.Message}");
-        }
-
         if (_isUpdate)
-            await FetchLatestVersionAsync();
+            _ = FetchLatestVersionAsync();
     }
 
     private async Task FetchLatestVersionAsync()
@@ -99,10 +84,9 @@ public partial class MainWindow : Window
         new(Step3Circle, Step3Label, Step3Num),
         new(Step4Circle, Step4Label, Step4Num),
         new(Step5Circle, Step5Label, Step5Num),
-        new(Step6Circle, Step6Label, Step6Num),
     ];
 
-    private Border[] GetLines() => [Line12, Line23, Line34, Line45, Line56];
+    private Border[] GetLines() => [Line12, Line23, Line34, Line45];
 
     private void ShowStep(int step)
     {
@@ -114,22 +98,21 @@ public partial class MainWindow : Window
 
         StepContent.Content = step switch
         {
-            1 => _welcomeStep ??= new WelcomeStep(_selectedProfile, p => _selectedProfile = p, _isUpdate, _installedVersion),
+            1 => _welcomeStep ??= new WelcomeStep(_isUpdate, _installedVersion),
             2 => _prerequisitesStep ??= new PrerequisitesStep(OnPrerequisitesChecked, _isUpdate),
-            3 => _toolsStep ??= new ToolsStep(_selectedGroups, g => _selectedGroups = g, _isUpdate),
-            4 => _skillsStep ??= new SkillsStep(_isUpdate),
-            5 => _installStep ??= new InstallStep(),
-            6 => _completeStep ??= new CompleteStep(_installedCount, _skippedCount, _installPath, _isUpdate, _alreadyUpToDate),
+            3 => _skillsStep ??= new SkillsStep(_isUpdate),
+            4 => _installStep ??= new InstallStep(),
+            5 => _completeStep ??= new CompleteStep(_installedCount, _skippedCount, _installPath, _isUpdate, _alreadyUpToDate),
             _ => null
         };
 
-        if (step == 5 && _isUpdate)
+        if (step == StepInstall && _isUpdate)
             _installStep?.SetUpdateMode();
 
         if (step == 2)
             _prerequisitesStep?.RunChecks();
 
-        if (step == 5)
+        if (step == StepInstall)
             _ = RunInstallAsync();
     }
 
@@ -175,14 +158,14 @@ public partial class MainWindow : Window
 
     private void UpdateNavButtons()
     {
-        BackButton.Visibility = _currentStep > 1 && _currentStep < 6
+        BackButton.Visibility = _currentStep > 1 && _currentStep < StepComplete
             ? Visibility.Visible : Visibility.Collapsed;
 
-        if (_currentStep == 6)
+        if (_currentStep == StepComplete)
         {
             NextButton.Content = "Close";
         }
-        else if (_currentStep == 5)
+        else if (_currentStep == StepInstall)
         {
             NextButton.Content = _isUpdate ? "Updating..." : "Installing...";
             NextButton.IsEnabled = false;
@@ -246,7 +229,6 @@ public partial class MainWindow : Window
         {
             SetupLog.Write($"[MainWindow] Already up to date: {prep.Version}");
             _alreadyUpToDate = true;
-            SaveSettingsSafe();
             _installStep?.SetUpToDate(prep.Version);
             if (_installStep != null)
                 _installStep.OnRepairRequested += OnRepairRequested;
@@ -306,8 +288,6 @@ public partial class MainWindow : Window
             _installStep?.UpdateSkillsStatus();
         }
 
-        SaveSettingsSafe();
-
         var verb = repair ? "Repair complete" : "Done";
         _installStep?.SetStatus($"{verb} - {installed} installed, {skipped} skipped");
         SetupLog.Write($"[MainWindow] RunEngineApplyAsync: repair={repair}, installed={installed}, skipped={skipped}");
@@ -316,27 +296,13 @@ public partial class MainWindow : Window
         NextButton.IsEnabled = true;
     }
 
-    private void SaveSettingsSafe()
-    {
-        try
-        {
-            var settings = new SavedSettings(_selectedProfile, _selectedGroups);
-            ProfileStore.Save(settings);
-            SetupLog.Write($"[MainWindow] SaveSettingsSafe: profile={_selectedProfile}, groups={_selectedGroups.Count}");
-        }
-        catch (Exception ex)
-        {
-            SetupLog.Write($"[MainWindow] SaveSettingsSafe FAILED: {ex.Message}");
-        }
-    }
-
     private Task<bool> OnProcessBlockingAsync(string processName)
     {
         var result = MessageBox.Show(
             this,
-            $"CC Director is currently running and cannot be updated.\n\n" +
-            $"Please close CC Director and click OK to retry,\n" +
-            $"or click Cancel to skip updating the main application.",
+            "CC Director is currently running and cannot be updated.\n\n" +
+            "Please close CC Director and click OK to retry,\n" +
+            "or click Cancel to skip updating the main application.",
             "CC Director is Running",
             MessageBoxButton.OKCancel,
             MessageBoxImage.Warning);
@@ -352,43 +318,33 @@ public partial class MainWindow : Window
 
     private void NextButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_currentStep == 6)
+        if (_currentStep == StepComplete)
         {
             Close();
             return;
         }
 
-        if (_currentStep == 5 && NextButton.Content?.ToString() == "Retry")
+        if (_currentStep == StepInstall && NextButton.Content?.ToString() == "Retry")
         {
             _installStep = null;
-            ShowStep(5);
+            ShowStep(StepInstall);
             return;
         }
 
-        if (_currentStep < 6)
+        if (_currentStep < StepComplete)
         {
-            // Reset forward steps when going forward from profile selection
+            // Leaving Welcome: rebuild all forward steps fresh.
             if (_currentStep == 1)
             {
-                _welcomeStep?.UpdateProfile(ref _selectedProfile);
                 _prerequisitesStep = null;
-                _toolsStep = null;
                 _skillsStep = null;
                 _installStep = null;
                 _completeStep = null;
             }
 
-            // Capture tool group selections before leaving step 3
-            if (_currentStep == 3)
-            {
-                _selectedGroups = _toolsStep?.GetEnabledGroups() ?? _selectedGroups;
-                _skillsStep = null;
-                _installStep = null;
+            // Leaving Install: rebuild Complete with the final counts.
+            if (_currentStep == StepInstall)
                 _completeStep = null;
-            }
-
-            if (_currentStep == 5)
-                _completeStep = null; // Rebuild with final counts
 
             ShowStep(_currentStep + 1);
         }
