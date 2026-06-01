@@ -321,10 +321,9 @@ public partial class SpeakDialog : Window
         // calibrated to a healthy level, so a short bar plus this hint together
         // tell the user to speak up rather than us scaling the meter to flatter
         // a faint signal.
-        bool tooQuiet = _stage == Stage.Recording
-                        && _recentPeakRms >= VoicePresentRms
-                        && _recentPeakRms < HealthyRms;
-        LevelHint.Text = tooQuiet ? "Speak a little louder or move closer to the mic" : "";
+        // Hint disabled for now: the "speak louder / move closer" nag fired too
+        // often and annoyed users, so we keep it hidden rather than show it.
+        LevelHint.Text = "";
     }
 
     private void StepEqualizer()
