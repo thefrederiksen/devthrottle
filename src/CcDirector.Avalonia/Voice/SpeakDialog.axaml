@@ -2,9 +2,10 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="CcDirector.Avalonia.Voice.SpeakDialog"
         Title="Dictate"
-        Width="540" Height="416"
+        Width="640" Height="560"
+        MinWidth="540" MinHeight="416"
         WindowStartupLocation="CenterOwner"
-        CanResize="False"
+        CanResize="True"
         ShowInTaskbar="False"
         Background="#1E1E1E">
 
@@ -105,75 +106,93 @@
                        Margin="0,0,0,8" />
 
             <!-- Transcript area (used both for live partials during recording AND
-                 final cleaned text after stop). -->
-            <Border Grid.Row="2"
-                    Background="#252526"
-                    BorderBrush="#3C3C3C" BorderThickness="1"
-                    CornerRadius="6"
-                    Padding="12,8">
-                <ScrollViewer>
-                    <TextBlock x:Name="TranscriptText"
-                               Text="(your words will appear here)"
-                               Foreground="#888888"
-                               FontFamily="Cascadia Mono,Consolas,monospace"
-                               FontSize="13"
-                               TextWrapping="Wrap" />
-                </ScrollViewer>
-            </Border>
+                 final cleaned text after stop). An editable TextBox: read-only
+                 while recording (RenderTranscript drives it), editable in the
+                 PAUSED/review stage so the user can fix mis-heard words before
+                 committing. AllowAutoHide="False" keeps the scrollbar pinned on
+                 overflow instead of Avalonia's collapsing overlay bar. -->
+            <TextBox x:Name="TranscriptText"
+                     Grid.Row="2"
+                     Watermark="(your words will appear here)"
+                     IsReadOnly="True"
+                     AcceptsReturn="True"
+                     TextWrapping="Wrap"
+                     Background="#252526"
+                     Foreground="#DDDDDD"
+                     BorderBrush="#3C3C3C" BorderThickness="1"
+                     CornerRadius="6"
+                     Padding="12,8"
+                     FontFamily="Cascadia Mono,Consolas,monospace"
+                     FontSize="13"
+                     VerticalContentAlignment="Top"
+                     ScrollViewer.VerticalScrollBarVisibility="Auto"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                     ScrollViewer.AllowAutoHide="False" />
         </Grid>
 
-        <!-- Action bar. State signalling comes from the StatusLabel + equalizer
+        <!-- Action bar. Split into two groups: recording controls / back-out
+             on the LEFT (Cancel, Pause/Resume) and commit actions on the RIGHT
+             (Insert, Send). The distance keeps Pause away from Send to avoid
+             mis-clicks. State signalling comes from the StatusLabel + equalizer
              dots up top (color shift Recording->Transcribing->Paused), so we
-             don't carry a separate hint TextBlock down here; it just cramped
-             the buttons. -->
-        <StackPanel Grid.Row="3"
-                    Orientation="Horizontal"
-                    HorizontalAlignment="Right"
-                    Margin="0,16,0,0"
-                    Spacing="10">
-            <Button x:Name="CancelButton"
-                    Content="Cancel"
-                    Width="84" Height="32"
-                    Background="#2D2D30"
-                    Foreground="#CCCCCC"
-                    HorizontalContentAlignment="Center"
-                    Click="CancelButton_Click" />
-            <!-- Pause: neutral chrome, two-bar pause glyph built from Rectangles
-                 so we avoid Unicode. PauseButton.Content is rebuilt in code
-                 (BuildPauseIcon / "Resume" text) when state changes. -->
-            <Button x:Name="PauseButton"
-                    Width="84" Height="32"
-                    Background="#2D2D30"
-                    Foreground="#CCCCCC"
-                    HorizontalContentAlignment="Center"
-                    Click="PauseButton_Click">
-                <StackPanel Orientation="Horizontal"
-                            HorizontalAlignment="Center"
-                            VerticalAlignment="Center"
-                            Spacing="5">
-                    <Rectangle Width="4" Height="14" Fill="#CCCCCC" />
-                    <Rectangle Width="4" Height="14" Fill="#CCCCCC" />
-                </StackPanel>
-            </Button>
-            <!-- Stop button kept its x:Name so existing code-behind references
-                 still resolve; the visible label is "Insert" (inserts the
-                 transcript at the caret without auto-submitting). -->
-            <Button x:Name="StopButton"
-                    Content="Insert"
-                    Width="84" Height="32"
-                    Background="#16A34A"
-                    Foreground="White"
-                    FontWeight="SemiBold"
-                    HorizontalContentAlignment="Center"
-                    Click="StopButton_Click" />
-            <Button x:Name="PrimaryButton"
-                    Content="Send"
-                    Width="100" Height="32"
-                    Background="#007ACC"
-                    Foreground="White"
-                    FontWeight="SemiBold"
-                    HorizontalContentAlignment="Center"
-                    Click="PrimaryButton_Click" />
-        </StackPanel>
+             don't carry a separate hint TextBlock down here. -->
+        <Grid Grid.Row="3" ColumnDefinitions="Auto,*,Auto" Margin="0,16,0,0">
+            <!-- Left group: control the recording / back out -->
+            <StackPanel Grid.Column="0"
+                        Orientation="Horizontal"
+                        HorizontalAlignment="Left"
+                        Spacing="10">
+                <Button x:Name="CancelButton"
+                        Content="Cancel"
+                        Width="84" Height="32"
+                        Background="#2D2D30"
+                        Foreground="#CCCCCC"
+                        HorizontalContentAlignment="Center"
+                        Click="CancelButton_Click" />
+                <!-- Pause: neutral chrome, two-bar pause glyph built from Rectangles
+                     so we avoid Unicode. PauseButton.Content is rebuilt in code
+                     (BuildPauseIcon / "Resume" text) when state changes. -->
+                <Button x:Name="PauseButton"
+                        Width="100" Height="32"
+                        Background="#2D2D30"
+                        Foreground="#CCCCCC"
+                        HorizontalContentAlignment="Center"
+                        Click="PauseButton_Click">
+                    <StackPanel Orientation="Horizontal"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                Spacing="5">
+                        <Rectangle Width="4" Height="14" Fill="#CCCCCC" />
+                        <Rectangle Width="4" Height="14" Fill="#CCCCCC" />
+                    </StackPanel>
+                </Button>
+            </StackPanel>
+
+            <!-- Right group: commit -->
+            <StackPanel Grid.Column="2"
+                        Orientation="Horizontal"
+                        HorizontalAlignment="Right"
+                        Spacing="10">
+                <!-- Stop button kept its x:Name so existing code-behind references
+                     still resolve; the visible label is "Insert" (inserts the
+                     transcript at the caret without auto-submitting). -->
+                <Button x:Name="StopButton"
+                        Content="Insert"
+                        Width="84" Height="32"
+                        Background="#16A34A"
+                        Foreground="White"
+                        FontWeight="SemiBold"
+                        HorizontalContentAlignment="Center"
+                        Click="StopButton_Click" />
+                <Button x:Name="PrimaryButton"
+                        Content="Send"
+                        Width="100" Height="32"
+                        Background="#007ACC"
+                        Foreground="White"
+                        FontWeight="SemiBold"
+                        HorizontalContentAlignment="Center"
+                        Click="PrimaryButton_Click" />
+            </StackPanel>
+        </Grid>
     </Grid>
 </Window>

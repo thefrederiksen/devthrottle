@@ -99,7 +99,12 @@ public partial class SpeakDialog : Window
         // user complete the whole dictation flow with the keyboard only:
         // Ctrl+H from the main window opens this dialog, talk, Enter sends.
         // Escape = Cancel for the same reason.
-        KeyDown += SpeakDialog_KeyDown;
+        //
+        // Registered on the TUNNEL phase so the window decides BEFORE the now-
+        // editable transcript TextBox: during recording (read-only box) Enter
+        // still sends, but while reviewing in the focused editable box we let
+        // Enter tunnel through to insert a newline instead of sending.
+        AddHandler(KeyDownEvent, SpeakDialog_KeyDown, RoutingStrategies.Tunnel);
     }
 
     private void SpeakDialog_KeyDown(object? sender, KeyEventArgs e)
@@ -108,6 +113,11 @@ public partial class SpeakDialog : Window
 
         if (e.Key == Key.Enter)
         {
+            // While reviewing edits in the focused transcript box, Enter inserts
+            // a newline (let it tunnel to the TextBox) rather than sending.
+            if (_stage == Stage.Paused && TranscriptText.IsFocused)
+                return;
+
             // Only fire when Send is actually actionable. During Transcribing
             // PrimaryButton is disabled; during the error path it is hidden.
             if (PrimaryButton.IsVisible && PrimaryButton.IsEnabled)
@@ -344,27 +354,12 @@ public partial class SpeakDialog : Window
 
     private void RenderTranscript()
     {
-        var combined = JoinText(_accumulatedText, _currentPartial);
-        if (string.IsNullOrEmpty(combined))
-        {
-            TranscriptText.Text = "(your words will appear here)";
-            TranscriptText.Foreground = new SolidColorBrush(Color.FromRgb(0x88, 0x88, 0x88));
-        }
-        else
-        {
-            TranscriptText.Text = combined;
-            TranscriptText.Foreground = new SolidColorBrush(Color.FromRgb(0xDD, 0xDD, 0xDD));
-        }
-    }
-
-    private static string JoinText(string left, string right)
-    {
-        if (string.IsNullOrEmpty(left)) return right ?? "";
-        if (string.IsNullOrEmpty(right)) return left;
-        var leftEndsWithSpace = char.IsWhiteSpace(left[^1]);
-        var rightStartsWithSpace = char.IsWhiteSpace(right[0]);
-        if (leftEndsWithSpace || rightStartsWithSpace) return left + right;
-        return left + " " + right;
+        // When empty, leave the box blank so the TextBox Watermark
+        // ("(your words will appear here)") shows through. Foreground stays the
+        // normal transcript color; the watermark renders in its own muted style.
+        var combined = DictationText.Join(_accumulatedText, _currentPartial);
+        TranscriptText.Text = combined;
+        TranscriptText.Foreground = new SolidColorBrush(Color.FromRgb(0xDD, 0xDD, 0xDD));
     }
 
     private void OnStateChanged(ConnectionState state)
@@ -401,8 +396,10 @@ public partial class SpeakDialog : Window
         }
         else if (_stage == Stage.Paused)
         {
-            // Already have the accumulated cleaned text; just close.
-            ResultText = string.IsNullOrWhiteSpace(_accumulatedText) ? null : _accumulatedText;
+            // Use the (possibly edited) text from the review box, not the raw
+            // accumulator, so the user's corrections are what gets sent.
+            var reviewed = TranscriptText.Text;
+            ResultText = string.IsNullOrWhiteSpace(reviewed) ? null : reviewed;
             ShouldSubmit = ResultText != null;
             Close();
         }
@@ -419,7 +416,9 @@ public partial class SpeakDialog : Window
         }
         else if (_stage == Stage.Paused)
         {
-            ResultText = string.IsNullOrWhiteSpace(_accumulatedText) ? null : _accumulatedText;
+            // Use the (possibly edited) text from the review box.
+            var reviewed = TranscriptText.Text;
+            ResultText = string.IsNullOrWhiteSpace(reviewed) ? null : reviewed;
             ShouldSubmit = false;
             Close();
         }
@@ -463,7 +462,7 @@ public partial class SpeakDialog : Window
             }
             var result = await svc.StopAsync();
             await DisposeServiceAsync();
-            _accumulatedText = JoinText(_accumulatedText, result.CleanedTranscript ?? "");
+            _accumulatedText = DictationText.Join(_accumulatedText, result.CleanedTranscript ?? "");
             ResultText = string.IsNullOrWhiteSpace(_accumulatedText) ? null : _accumulatedText;
             ShouldSubmit = submitOnClose && ResultText != null;
             Close();
@@ -507,7 +506,7 @@ public partial class SpeakDialog : Window
             }
             var result = await svc.StopAsync();
             await DisposeServiceAsync();
-            _accumulatedText = JoinText(_accumulatedText, result.CleanedTranscript ?? "");
+            _accumulatedText = DictationText.Join(_accumulatedText, result.CleanedTranscript ?? "");
             _currentPartial = "";
             SwitchToPaused();
         }
@@ -528,6 +527,13 @@ public partial class SpeakDialog : Window
         PauseButton.IsEnabled = false;
         StatusLabel.Text = "STARTING";
         StatusLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xDC, 0xDC, 0xAA));
+
+        // Re-seed the accumulator from the (possibly edited) text box so the
+        // user's corrections survive: new speech appends onto the edited text
+        // rather than the pre-edit cleaned transcript.
+        _accumulatedText = TranscriptText.Text ?? "";
+        _currentPartial = "";
+
         try
         {
             await StartNewServiceAsync();
@@ -551,6 +557,7 @@ public partial class SpeakDialog : Window
         StatusLabel.Text = "TRANSCRIBING";
         StatusLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xDC, 0xDC, 0xAA));
         TimerLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xDC, 0xDC, 0xAA));
+        TranscriptText.IsReadOnly = true;
         PrimaryButton.IsEnabled = false;
         StopButton.IsEnabled = false;
         MicSelector.IsEnabled = false;
@@ -562,7 +569,7 @@ public partial class SpeakDialog : Window
     private void SwitchToPaused()
     {
         _stage = Stage.Paused;
-        StatusLabel.Text = "PAUSED";
+        StatusLabel.Text = "PAUSED - reviewing";
         StatusLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xDC, 0xDC, 0xAA));
         TimerLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xDC, 0xDC, 0xAA));
         PauseButton.Content = "Resume";
@@ -575,6 +582,10 @@ public partial class SpeakDialog : Window
         foreach (var bar in _bars) bar.Background = new SolidColorBrush(Color.FromRgb(0x6A, 0x6A, 0x6A));
         LevelHint.Text = "";
         RenderTranscript();
+        // Now editable for review: let the user fix mis-heard words. Park the
+        // caret at the end so appended typing / Resume continues naturally.
+        TranscriptText.IsReadOnly = false;
+        TranscriptText.CaretIndex = TranscriptText.Text?.Length ?? 0;
     }
 
     private void SwitchToRecording()
@@ -583,6 +594,9 @@ public partial class SpeakDialog : Window
         StatusLabel.Text = "RECORDING";
         StatusLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xF4, 0x47, 0x47));
         TimerLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xF4, 0x47, 0x47));
+        // Read-only while recording: RenderTranscript drives the box from live
+        // partials, so the user can't edit until they pause.
+        TranscriptText.IsReadOnly = true;
         PauseButton.Content = BuildPauseIcon();
         PauseButton.IsEnabled = true;
         StopButton.IsEnabled = true;
