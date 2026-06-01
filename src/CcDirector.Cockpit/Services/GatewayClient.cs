@@ -71,6 +71,68 @@ public sealed class GatewayClient
     }
 
     /// <summary>
+    /// Create a GitHub Actions remote session on a Director via the Gateway proxy
+    /// (<c>POST /directors/{id}/sessions/github</c>). Returns the created session.
+    /// </summary>
+    public async Task<SessionDto?> CreateGitHubSessionAsync(string directorId, GitHubSessionRequest req, CancellationToken ct = default)
+    {
+        var resp = await _http.PostAsJsonAsync($"directors/{directorId}/sessions/github", req, ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            throw new HttpRequestException($"github session failed ({(int)resp.StatusCode}): {body}");
+        }
+        return await resp.Content.ReadFromJsonAsync<SessionDto>(cancellationToken: ct);
+    }
+
+    /// <summary>Remove a repo from a Director's recent list (<c>DELETE /directors/{id}/repos</c>).</summary>
+    public async Task RemoveRepoAsync(string directorId, string path, CancellationToken ct = default)
+    {
+        var resp = await _http.DeleteAsync($"directors/{directorId}/repos?path={Uri.EscapeDataString(path)}", ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
+    /// <summary>The Assistant/Coach quick-launch categories a Director offers, with resolved paths.</summary>
+    public async Task<List<CoachingCategoryDto>> GetCoachingCategoriesAsync(string directorId, CancellationToken ct = default)
+    {
+        var c = await _http.GetFromJsonAsync<List<CoachingCategoryDto>>($"directors/{directorId}/coaching/categories", ct);
+        return c ?? new List<CoachingCategoryDto>();
+    }
+
+    /// <summary>Resumable Claude Code sessions on a Director (Resume Session tab).</summary>
+    public async Task<List<ClaudeSessionDto>> GetClaudeSessionsAsync(string directorId, CancellationToken ct = default)
+    {
+        var s = await _http.GetFromJsonAsync<List<ClaudeSessionDto>>($"directors/{directorId}/claude-sessions", ct);
+        return s ?? new List<ClaudeSessionDto>();
+    }
+
+    /// <summary>Handover documents on a Director (Handovers tab).</summary>
+    public async Task<List<HandoverDto>> GetHandoversAsync(string directorId, CancellationToken ct = default)
+    {
+        var h = await _http.GetFromJsonAsync<List<HandoverDto>>($"directors/{directorId}/handovers", ct);
+        return h ?? new List<HandoverDto>();
+    }
+
+    /// <summary>Full text of one handover document for preview.</summary>
+    public async Task<HandoverContentDto?> GetHandoverContentAsync(string directorId, string path, CancellationToken ct = default)
+    {
+        return await _http.GetFromJsonAsync<HandoverContentDto>(
+            $"directors/{directorId}/handovers/content?path={Uri.EscapeDataString(path)}", ct);
+    }
+
+    /// <summary>
+    /// List sub-directories of <paramref name="path"/> on a Director's filesystem (Browse... button).
+    /// A null/empty path lists the drive roots. Returns null on transport failure.
+    /// </summary>
+    public async Task<DirectoryListingDto?> ListDirectoryAsync(string directorId, string? path, CancellationToken ct = default)
+    {
+        var url = string.IsNullOrWhiteSpace(path)
+            ? $"directors/{directorId}/fs/list"
+            : $"directors/{directorId}/fs/list?path={Uri.EscapeDataString(path)}";
+        return await _http.GetFromJsonAsync<DirectoryListingDto>(url, ct);
+    }
+
+    /// <summary>
     /// Hand a session's context over to a new or existing session (<c>POST /handover</c>). The
     /// Gateway orchestrates: same-Director it proxies; cross-Director it reads the prose context
     /// and spawns the target with it as a pre-prompt. Throws with the server error on failure.

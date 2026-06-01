@@ -17,6 +17,27 @@ public sealed class QueueResponse
     public List<QueueItem> Items { get; set; } = new();
 }
 
+/// <summary>One screenshot on a Director's machine, as returned by GET /screenshots. The
+/// Director pre-formats <see cref="TimeLabel"/> ("MMM d, h:mm tt") so the Cockpit shows the
+/// same label as the desktop without re-deriving it.</summary>
+public sealed class ScreenshotInfo
+{
+    public string FileName { get; set; } = "";
+    /// <summary>Absolute on-disk path on the Director's machine. Injected into the composer at
+    /// the cursor so the owning Claude session can read the image directly (no upload).</summary>
+    public string Path { get; set; } = "";
+    public string TimeLabel { get; set; } = "";
+    public DateTimeOffset LastWriteUtc { get; set; }
+    public long SizeBytes { get; set; }
+}
+
+/// <summary>The shape of GET /screenshots: the resolved folder + its image files, newest first.</summary>
+public sealed class ScreenshotsResponse
+{
+    public string Directory { get; set; } = "";
+    public List<ScreenshotInfo> Items { get; set; } = new();
+}
+
 /// <summary>
 /// Talks DIRECT to an owning Director (never through the Gateway) for the write/act path:
 /// prompts, interrupt, escape, the prompt queue, and image upload. The base URL is the
@@ -117,6 +138,37 @@ public sealed class DirectorClient
         var r = await resp.Content.ReadFromJsonAsync<UploadImageResponse>(cancellationToken: ct);
         return r?.Path ?? "";
     }
+
+    // ===== Screenshots gallery (folder lives on the Director's machine) =====
+
+    /// <summary>
+    /// List the screenshots in the Director's screenshots folder, newest first
+    /// (<c>GET /screenshots</c>). The folder is per-machine, not per-session, so this takes only
+    /// the Director base. The image bytes themselves are loaded browser-direct via
+    /// <see cref="ScreenshotUrl"/>; this call returns just the metadata + time labels.
+    /// </summary>
+    public async Task<List<ScreenshotInfo>> GetScreenshotsAsync(string directorBase, CancellationToken ct = default)
+    {
+        var r = await _http.GetFromJsonAsync<ScreenshotsResponse>(Url(directorBase, "screenshots"), ct);
+        return r?.Items ?? new List<ScreenshotInfo>();
+    }
+
+    /// <summary>Delete one screenshot file from the Director's disk (<c>DELETE /screenshots/file</c>).</summary>
+    public async Task DeleteScreenshotAsync(string directorBase, string fileName, CancellationToken ct = default)
+    {
+        _log.LogDebug("DeleteScreenshot file={File}", fileName);
+        var resp = await _http.DeleteAsync(Url(directorBase, $"screenshots/file?name={Uri.EscapeDataString(fileName)}"), ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
+    /// <summary>
+    /// The browser-facing URL for one screenshot's bytes (<c>GET /screenshots/file</c>), used as
+    /// an <c>&lt;img src&gt;</c> and by the Copy action. Points STRAIGHT at the owning Director's
+    /// tailnet endpoint - the same browser-direct path the live terminal's WebSocket uses - not
+    /// through the Cockpit, so thumbnails never round-trip the Blazor circuit.
+    /// </summary>
+    public static string ScreenshotUrl(string directorBase, string fileName)
+        => $"{directorBase.TrimEnd('/')}/screenshots/file?name={Uri.EscapeDataString(fileName)}";
 
     /// <summary>Kill a session (<c>DELETE /sessions/{sid}</c>) on its owning Director.</summary>
     public async Task DeleteSessionAsync(string directorBase, string sid, CancellationToken ct = default)

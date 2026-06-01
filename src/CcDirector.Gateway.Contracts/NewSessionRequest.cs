@@ -17,6 +17,13 @@ public sealed class NewSessionRequest
     public string? Args { get; set; }
 
     /// <summary>
+    /// Optional Claude session ID to resume. When set, the new session re-attaches to the
+    /// given Claude Code conversation instead of starting fresh. Used by the Resume Session
+    /// tab. Ignored by agents that don't support resume (e.g. Pi).
+    /// </summary>
+    public string? ResumeSessionId { get; set; }
+
+    /// <summary>
     /// Optional first prompt to send into the new session as soon as the agent is up
     /// and Idle. Used by handovers and by phone clients that want to launch a session
     /// already loaded with context. The Director waits up to PrePromptWaitMs for the

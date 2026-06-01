@@ -520,6 +520,75 @@ internal static class GatewayEndpoints
             return Results.Json(body, statusCode: 201);
         });
 
+        app.MapDelete("/directors/{id}/repos", async (string id, string? path) =>
+        {
+            var d = registry.Get(id);
+            if (d is null) return Results.NotFound(new { error = "director not found" });
+            if (string.IsNullOrWhiteSpace(path)) return Results.BadRequest(new { error = "path is required" });
+            var removed = await client.DeleteRepoAsync(d.ControlEndpoint, path);
+            return Results.Json(new { removed });
+        });
+
+        app.MapGet("/directors/{id}/coaching/categories", async (string id) =>
+        {
+            var d = registry.Get(id);
+            if (d is null) return Results.NotFound(new { error = "director not found" });
+            var cats = await client.ListCoachingCategoriesAsync(d.ControlEndpoint);
+            if (cats is null) return Results.StatusCode(StatusCodes.Status502BadGateway);
+            return Results.Json(cats);
+        });
+
+        app.MapGet("/directors/{id}/claude-sessions", async (string id) =>
+        {
+            var d = registry.Get(id);
+            if (d is null) return Results.NotFound(new { error = "director not found" });
+            var sessions = await client.ListClaudeSessionsAsync(d.ControlEndpoint);
+            if (sessions is null) return Results.StatusCode(StatusCodes.Status502BadGateway);
+            return Results.Json(sessions);
+        });
+
+        app.MapGet("/directors/{id}/handovers", async (string id) =>
+        {
+            var d = registry.Get(id);
+            if (d is null) return Results.NotFound(new { error = "director not found" });
+            var handovers = await client.ListHandoversAsync(d.ControlEndpoint);
+            if (handovers is null) return Results.StatusCode(StatusCodes.Status502BadGateway);
+            return Results.Json(handovers);
+        });
+
+        app.MapGet("/directors/{id}/handovers/content", async (string id, string? path) =>
+        {
+            var d = registry.Get(id);
+            if (d is null) return Results.NotFound(new { error = "director not found" });
+            if (string.IsNullOrWhiteSpace(path)) return Results.BadRequest(new { error = "path is required" });
+            var content = await client.GetHandoverContentAsync(d.ControlEndpoint, path);
+            if (content is null) return Results.StatusCode(StatusCodes.Status502BadGateway);
+            return Results.Json(content);
+        });
+
+        app.MapGet("/directors/{id}/fs/list", async (string id, string? path) =>
+        {
+            var d = registry.Get(id);
+            if (d is null) return Results.NotFound(new { error = "director not found" });
+            var listing = await client.ListDirectoryAsync(d.ControlEndpoint, path);
+            if (listing is null) return Results.StatusCode(StatusCodes.Status502BadGateway);
+            return Results.Json(listing);
+        });
+
+        app.MapPost("/directors/{id}/sessions/github", async (string id, GitHubSessionRequest req) =>
+        {
+            var d = registry.Get(id);
+            if (d is null) return Results.NotFound(new { error = "director not found" });
+            if (req is null || string.IsNullOrWhiteSpace(req.Owner) || string.IsNullOrWhiteSpace(req.Repo))
+                return Results.BadRequest(new { error = "owner and repo are required" });
+
+            FileLog.Write($"[GatewayEndpoints] POST /directors/{id}/sessions/github: {req.Owner}/{req.Repo} mode={req.TriggerMode}");
+            var (ok, body, err) = await client.CreateGitHubSessionAsync(d.ControlEndpoint, req);
+            if (!ok)
+                return Results.Problem(err ?? "failed", statusCode: StatusCodes.Status502BadGateway);
+            return Results.Json(body, statusCode: 201);
+        });
+
         app.MapDelete("/directors/{id}", async (string id, [FromBody] ShutdownDirectorRequest? body) =>
         {
             FileLog.Write($"[GatewayEndpoints] DELETE director: id={id}");

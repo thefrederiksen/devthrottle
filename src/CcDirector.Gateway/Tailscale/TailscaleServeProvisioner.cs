@@ -49,8 +49,17 @@ public sealed class TailscaleServeProvisioner : IDisposable
     {
         _registry = registry;
         _gatewayPort = gatewayPort;
-        _enabled = File.Exists(TailscaleExe);
-        if (!_enabled)
+
+        // Dev/test isolation: CC_GATEWAY_NO_TAILSCALE=1 lets a second Gateway run on this machine
+        // for local end-to-end testing WITHOUT touching the production Tailscale Serve mappings
+        // (notably the 443 front door). Explicit opt-in, logged; never the default.
+        var tailscaleDisabled = string.Equals(
+            Environment.GetEnvironmentVariable("CC_GATEWAY_NO_TAILSCALE"), "1", StringComparison.Ordinal);
+
+        _enabled = File.Exists(TailscaleExe) && !tailscaleDisabled;
+        if (tailscaleDisabled)
+            FileLog.Write("[TailscaleServeProvisioner] CC_GATEWAY_NO_TAILSCALE=1; Tailscale Serve auto-provisioning disabled (local test mode).");
+        else if (!_enabled)
             FileLog.Write($"[TailscaleServeProvisioner] tailscale.exe not found at {TailscaleExe}; remote HTTPS auto-provisioning disabled.");
     }
 

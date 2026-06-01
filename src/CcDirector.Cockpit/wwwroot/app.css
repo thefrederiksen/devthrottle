@@ -143,9 +143,10 @@ body{background:var(--panel);color:var(--text);
 .detail-split{flex:1;min-height:0;display:flex}
 .center{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column}
 
-/* right panel (desktop parity): screenshots drop zone + queue, collapsible */
-.rightpanel{flex:none;width:280px;border-left:1px solid var(--border);background:var(--sidebar);
-  display:flex;flex-direction:column;min-height:0;overflow:auto}
+/* right panel (desktop parity): tabbed Screenshots / Wingman / Queue / Director, collapsible.
+   Fixed tab strip up top, the active tab's body scrolls below it. */
+.rightpanel{flex:none;width:300px;border-left:1px solid var(--border);background:var(--sidebar);
+  display:flex;flex-direction:column;min-height:0;overflow:hidden}
 .rightpanel-collapsed{width:40px;overflow:hidden;align-items:center}
 .rightpanel-head{display:flex;align-items:center;gap:8px;padding:10px 12px 8px;flex:none}
 .rightpanel-title{flex:1;font-size:11px;font-weight:600;letter-spacing:.05em;color:var(--text2);
@@ -157,17 +158,50 @@ body{background:var(--panel);color:var(--text);
 .right-expand{margin:10px auto 6px}
 .rail-qbadge{font-size:10px;color:#fff;background:var(--accent);border-radius:8px;padding:1px 6px}
 
+/* tab strip */
+.right-tabs{flex:none;display:flex;align-items:stretch;gap:2px;padding:6px 6px 0;
+  border-bottom:1px solid var(--border)}
+.right-tab{flex:0 1 auto;background:transparent;color:var(--text3);border:none;border-bottom:2px solid transparent;
+  padding:7px 8px;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;
+  text-transform:uppercase;letter-spacing:.03em}
+.right-tab:hover{color:var(--text)}
+.right-tab.on{color:#fff;border-bottom-color:var(--accent)}
+.right-body{flex:1;min-height:0;overflow:auto}
+
+/* small text-link action button (Refresh / Clear All / View / Copy / Del) */
+.linkbtn{background:transparent;border:none;color:var(--accent);font-size:12px;cursor:pointer;padding:2px 4px}
+.linkbtn:hover{text-decoration:underline}
+.linkbtn:disabled{opacity:.4;cursor:default;text-decoration:none}
+.linkbtn.del{color:var(--red)}
+
+/* screenshots gallery: stacked cards, each a thumbnail + time + actions */
+.gallery{display:flex;flex-direction:column;gap:12px;padding:10px 14px 16px}
+.gallery-empty{font-size:12px;color:var(--text3);font-style:italic;padding:6px 0}
+.gallery-error{font-size:12px;color:#F1A0A0;padding:6px 0;line-height:1.4}
+.shot-card{border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--panel)}
+.shot-thumb{display:block;width:100%;max-height:150px;object-fit:cover;object-position:top;
+  background:#111;cursor:pointer}
+.shot-row{display:flex;align-items:center;gap:6px;padding:5px 8px}
+.shot-time{flex:1;font-size:11px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* wingman + director tabs */
+.wingman-tab{padding:4px 14px 16px}
+.dir-info{margin:0;padding:8px 14px 16px;display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:12px}
+.dir-info dt{color:var(--text3)}
+.dir-info dd{margin:0;color:var(--text);word-break:break-all}
+
 /* dock: composer only (screenshots + queue moved to the right panel) */
 .detail-dock{flex:none;border-top:1px solid var(--border);background:var(--sidebar)}
 
-/* screenshots: a tall drop box inside the right panel */
-.shots{display:flex;flex-direction:column;gap:8px;padding:12px 14px;border-bottom:1px solid var(--border)}
-.shots-drop{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;
-  border:1px dashed #4a4a4a;border-radius:8px;padding:18px 12px;min-height:96px;cursor:pointer;
-  color:var(--text3);font-size:12px;text-align:center}
-.shots-drop:hover{border-color:var(--accent);color:var(--text2)}
-.shots-file{max-width:100%;color:var(--text3);font-size:11px}
-.shots-hint{font-size:12px;line-height:1.4}
+/* screenshots: a thin action strip above the gallery (no native file widget) */
+.shots{display:flex;flex-direction:column;gap:6px;padding:8px 14px 10px;border-bottom:1px solid var(--border)}
+/* "Select image": a styled label that opens the picker; the real <input> is hidden inside it,
+   so there is no "Choose Files / No file chosen" control. */
+.btn-select-image{align-self:flex-start;display:inline-flex;align-items:center;gap:6px;cursor:pointer;
+  background:var(--button);color:var(--text);border:1px solid var(--border);border-radius:6px;
+  padding:5px 11px;font-size:12px}
+.btn-select-image:hover{border-color:var(--accent);color:var(--accent)}
+.btn-select-image input{display:none}
 .shots-status{font-size:12px;color:var(--green)}
 
 .queue{padding:8px 14px}
@@ -198,7 +232,10 @@ body{background:var(--panel);color:var(--text);
 .btn.send{background:var(--accent);color:#fff;border-color:var(--accent)}
 .btn.send:hover{color:#fff;filter:brightness(1.1)}
 .btn.queue{background:#2a3a4a;border-color:#345}
-.btn.speak.on{background:var(--red);color:#fff;border-color:var(--red)}
+/* Speak button is green, matching the desktop (MainWindow WingmanSpeakButton #16A34A). */
+.btn.speak{background:#16A34A;color:#fff;border-color:#16A34A}
+.btn.speak:hover{color:#fff;border-color:#16A34A;filter:brightness(1.1)}
+.btn.speak.on{background:#0F7A37;color:#fff;border-color:#0F7A37}
 .btn.danger:hover{border-color:var(--red);color:var(--red)}
 .act-error{color:#F1A0A0;font-size:12px;padding:0 14px 10px}
 .speak-status{display:flex;align-items:center;gap:8px;padding:6px 16px 0;font-size:12px;color:var(--text2)}
@@ -228,6 +265,91 @@ body{background:var(--panel);color:var(--text);
   font-family:"Cascadia Code",Consolas,monospace;font-size:12px;resize:vertical}
 .modal-error{color:var(--red);font-size:12px}
 .modal-status{color:var(--green);font-size:12px}
+
+/* ===== New session dialog (desktop parity) ===== */
+.modal-ns{width:860px;max-width:96vw;display:flex;flex-direction:column;max-height:90vh}
+.ns-head{display:flex;align-items:center;justify-content:space-between;gap:14px}
+.ns-dir{display:flex;align-items:center;gap:8px;font-weight:400}
+.ns-dir .fld-label{margin:0}
+.ns-dir select{background:var(--panel);color:var(--text);border:1px solid var(--border);
+  border-radius:6px;padding:5px 8px;font-size:12px;min-width:240px}
+.ns-tabs{display:flex;gap:2px;padding:0 18px;border-bottom:1px solid var(--border)}
+.ns-tab{background:transparent;color:var(--text2);border:none;border-bottom:2px solid transparent;
+  padding:9px 14px;font-size:13px;cursor:pointer}
+.ns-tab:hover{color:var(--text)}
+.ns-tab.on{color:var(--accent);border-bottom-color:var(--accent)}
+.ns-body{min-height:380px;overflow:auto}
+.ns-agents{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.ns-agents .fld-label{margin-right:4px}
+.chip{background:var(--button);color:var(--text);border:1px solid var(--border);border-radius:14px;
+  padding:4px 12px;font-size:12px;cursor:pointer}
+.chip:hover{border-color:var(--accent)}
+.chip.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+.ns-search{background:var(--panel);color:var(--text);border:1px solid var(--border);
+  border-radius:6px;padding:7px 9px;font-size:13px;width:100%}
+.ns-table{border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.ns-rows{max-height:230px;overflow:auto}
+.ns-row{display:grid;grid-template-columns:200px 1fr 90px 28px;align-items:center;
+  padding:5px 8px;font-size:12px;cursor:pointer;border-bottom:1px solid #2a2a2a}
+.ns-row:last-child{border-bottom:none}
+.ns-row:hover{background:var(--hover)}
+.ns-row.sel{background:var(--selected)}
+.ns-hd{background:#2D2D30;cursor:default;position:sticky;top:0}
+.ns-hd button{background:transparent;color:var(--text2);border:none;text-align:left;
+  font-size:11px;font-weight:600;cursor:pointer;padding:3px 0;white-space:pre}
+.ns-hd button:hover{color:var(--text)}
+.ns-c-name{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ns-c-path{color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ns-c-used{color:var(--text3)}
+.ns-c-x{background:transparent;border:none;color:var(--red);cursor:pointer;font-weight:700;
+  font-size:13px;text-align:center;opacity:.5}
+.ns-c-x:hover{opacity:1}
+.ns-empty{color:var(--text3);font-size:12px;font-style:italic;padding:14px;text-align:center}
+.ns-pathrow{display:flex;gap:8px}
+.ns-path{flex:1;background:var(--panel);color:var(--text);border:1px solid var(--border);
+  border-radius:6px;padding:7px 9px;font-size:13px}
+.ns-opts{display:flex;flex-wrap:wrap;gap:8px 22px}
+.ck{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text);cursor:pointer}
+.ck.off{color:var(--muted)}
+.ns-cards{display:flex;gap:12px;margin-top:4px}
+.ns-card{display:flex;flex-direction:column;align-items:flex-start;gap:2px;
+  background:var(--button);border:1px solid var(--border);border-radius:8px;
+  padding:10px 14px;min-width:200px;cursor:pointer;text-align:left}
+.ns-card:hover{background:var(--accent);border-color:var(--accent)}
+.ns-card:hover .ns-card-d{color:#e6f2fb}
+.ns-card-t{font-size:13px;font-weight:600;color:var(--text)}
+.ns-card-d{font-size:11px;color:var(--text3)}
+.ns-list{border:1px solid var(--border);border-radius:8px;max-height:330px;overflow:auto}
+.ns-litem{padding:8px 10px;border-bottom:1px solid #2a2a2a;cursor:pointer}
+.ns-litem:hover{background:var(--hover)}
+.ns-litem.sel{background:var(--selected)}
+.ns-litem-h{display:flex;justify-content:space-between;gap:10px}
+.ns-litem-name{font-size:13px;font-weight:600}
+.ns-litem-meta{font-size:11px;color:var(--text3);white-space:nowrap}
+.ns-litem-sum{font-size:11px;color:var(--green);margin-top:2px;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.ns-ho{display:grid;grid-template-columns:300px 1fr;gap:10px}
+.ns-ho-list{border:1px solid var(--border);border-radius:8px;max-height:330px;overflow:auto}
+.ns-ho-prev{border:1px solid var(--border);border-radius:8px;background:var(--panel);
+  max-height:330px;overflow:auto}
+.ns-ho-text{margin:0;padding:12px;font-family:"Cascadia Mono",Consolas,monospace;font-size:11px;
+  color:var(--text);white-space:pre-wrap;word-break:break-word}
+.ns-gh{display:flex;flex-direction:column;gap:10px}
+.ns-gh input,.ns-gh textarea{background:var(--panel);color:var(--text);border:1px solid var(--border);
+  border-radius:6px;padding:7px 9px;font-size:13px}
+.ns-gh-mode{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.ns-gh-thread{width:90px}
+.ns-gh-prompt{min-height:110px;resize:vertical;font-family:"Cascadia Mono",Consolas,monospace}
+.modal-browse{width:560px;display:flex;flex-direction:column;max-height:80vh}
+.ns-browse-back{z-index:60}
+.ns-browse-path{font-family:"Cascadia Mono",Consolas,monospace;font-size:12px;color:var(--text2);
+  background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:7px 9px;
+  word-break:break-all}
+.ns-browse-list{border:1px solid var(--border);border-radius:8px;max-height:340px;overflow:auto}
+.ns-browse-item{padding:7px 10px;font-size:12px;cursor:pointer;border-bottom:1px solid #2a2a2a}
+.ns-browse-item:last-child{border-bottom:none}
+.ns-browse-item:hover{background:var(--hover)}
+.ns-browse-item.up{color:var(--text3)}
 
 /* ===== Phase 3: awareness panel ===== */
 .aware-section{display:flex;flex-direction:column;gap:8px;padding-bottom:10px}

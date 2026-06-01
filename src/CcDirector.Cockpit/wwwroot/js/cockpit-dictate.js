@@ -146,10 +146,20 @@ window.cockpitDictate = (function () {
     // ---- persistent across segments ----
     let stage = 'starting';            // starting | recording | transcribing | paused | error
     let finalIntent = 'pause';         // what to do when 'final' arrives: pause | insert | send
+    let finalizing = false;            // guards the tail-drain window so finalize can't re-enter
     let accumulatedText = '';          // cleaned text from finalized segments
     let currentPartial = '';
     let selectedDeviceId = '';         // '' = system default
     let done = false;
+
+    // Trailing-audio drain window (web parity with the desktop DictationPipeline no-loss stop).
+    // The worklet posts a PCM frame every ~5ms via postMessage; those become queued main-thread
+    // tasks that ws.send each frame. Sending 'stop' synchronously on the click would (a) race
+    // ahead of already-queued-but-unsent frames and (b) miss the input-latency tail that has not
+    // reached the worklet yet - the server commits on 'stop', so both are lost. Keeping capture
+    // live for DRAIN_MS and sending 'stop' from a setTimeout guarantees every queued frame has
+    // flushed (the timer fires after them) and captures the trailing audio.
+    const DRAIN_MS = 250;
     let t0 = performance.now();
     let elapsedBeforeMs = 0;
     let timerHandle = null;
@@ -341,6 +351,7 @@ window.cockpitDictate = (function () {
 
     async function startSegment() {
       capture = createCaptureBuffer();
+      finalizing = false;
       setStage('starting');
       const ok = await bootCapture();   // mic up immediately (capture-first)...
       if (!ok) return;
@@ -350,8 +361,18 @@ window.cockpitDictate = (function () {
     // ---------- finalize / send-stop ----------
     function sendStop() { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'stop' })); setStage('transcribing'); }
 
-    // Recording -> stop -> wait for 'final', then dispatch by finalIntent.
-    function finalizeFromRecording(intent) { finalIntent = intent; sendStop(); }
+    // Recording -> drain the trailing audio -> stop -> wait for 'final', then dispatch by
+    // finalIntent. We keep the mic graph live for DRAIN_MS so the last words actually reach the
+    // server before it commits (see DRAIN_MS note above). Controls are frozen during the window
+    // (and 'finalizing' guards re-entry) so a second click cannot stack another stop.
+    function finalizeFromRecording(intent) {
+      if (finalizing) return;
+      finalizing = true;
+      finalIntent = intent;
+      pauseBtn.disabled = true; insertBtn.disabled = true; sendBtn.disabled = true; micSel.disabled = true;
+      hintEl.textContent = 'finishing...';
+      setTimeout(sendStop, DRAIN_MS);
+    }
 
     function finishWith(method) {
       const text = (transcriptEl.value || accumulatedText || '').trim();

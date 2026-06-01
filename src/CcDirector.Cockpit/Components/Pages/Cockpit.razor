@@ -140,7 +140,7 @@
                         <div class="detail-dock">
                             @* ---- Composer: Speak / Send / Queue + Interrupt / Esc ---- *@
                             <div class="composer">
-                                <textarea @bind="_compose" @bind:event="oninput" @onkeydown="OnComposerKey"
+                                <textarea @ref="_composerEl" @bind="_compose" @bind:event="oninput" @onkeydown="OnComposerKey"
                                           placeholder="Message this session... (Enter to send, Shift+Enter for newline; drop an image here)"></textarea>
                                 @* Drag an image straight onto the composer (desktop parity with the
                                    prompt-box drop). A document-level handler (cockpit-composer-drop.js)
@@ -164,11 +164,11 @@
                         </div>
                     </div>
 
-                    @* ---- Right panel: screenshots + queue (desktop parity), collapsible ---- *@
+                    @* ---- Right panel: tabbed (Screenshots / Wingman / Queue / Director), collapsible ---- *@
                     <aside class="rightpanel @(_rightCollapsed ? "rightpanel-collapsed" : "")">
                         @if (_rightCollapsed)
                         {
-                            <button class="right-expand" title="Show screenshots & queue" @onclick="ToggleRight">&laquo;</button>
+                            <button class="right-expand" title="Show panel" @onclick="ToggleRight">&laquo;</button>
                             @if (_queue.Count > 0)
                             {
                                 <div class="rail-qbadge" title="@_queue.Count queued">@_queue.Count</div>
@@ -176,40 +176,141 @@
                         }
                         else
                         {
-                            <div class="rightpanel-head">
-                                <span class="rightpanel-title">Screenshots</span>
+                            <div class="right-tabs">
+                                <button class="right-tab @(_rightTab == "shots" ? "on" : "")" @onclick='() => SetRightTab("shots")'>Screenshots</button>
+                                <button class="right-tab @(_rightTab == "wingman" ? "on" : "")" @onclick='() => SetRightTab("wingman")'>Wingman</button>
+                                <button class="right-tab @(_rightTab == "queue" ? "on" : "")" @onclick='() => SetRightTab("queue")'>Queue@(_queue.Count > 0 ? $" ({_queue.Count})" : "")</button>
+                                <button class="right-tab @(_rightTab == "director" ? "on" : "")" @onclick='() => SetRightTab("director")'>Director</button>
                                 <button class="right-collapse" title="Hide panel" @onclick="ToggleRight">&raquo;</button>
                             </div>
 
-                            @* ---- Screenshots: drag image files onto here -> sent to Claude ---- *@
-                            <div class="shots">
-                                <label class="shots-drop">
-                                    <InputFile OnChange="OnDropImages" multiple accept="image/*" class="shots-file" />
-                                    <span class="shots-hint">Drag screenshots here (or click) &rarr; sent to Claude Code</span>
-                                </label>
-                                @if (!string.IsNullOrEmpty(_shotStatus))
+                            <div class="right-body">
+                                @* ================= Screenshots tab ================= *@
+                                @if (_rightTab == "shots")
                                 {
-                                    <span class="shots-status">@_shotStatus</span>
-                                }
-                            </div>
+                                    <div class="rightpanel-head">
+                                        <span class="rightpanel-title">SCREENSHOTS</span>
+                                        <button class="linkbtn" @onclick="RefreshScreenshots" disabled="@_shotsBusy" title="Reload from the Director">Refresh</button>
+                                        <button class="linkbtn" @onclick="ClearScreenshots" title="Clear this list (does not delete files)">Clear All</button>
+                                    </div>
 
-                            @* ---- Queue panel ---- *@
-                            <div class="queue">
-                                <div class="queue-head">QUEUE (@_queue.Count)</div>
-                                @if (_queue.Count == 0)
-                                {
-                                    <div class="queue-empty">Nothing queued. Type a message and hit Queue to stage it here.</div>
+                                    @* Tap a thumbnail below to drop its path into the prompt (those images
+                                       already live on the Director). "Select image" is only for a file on
+                                       THIS device that isn't on the Director yet - it uploads, then drops the
+                                       saved path into the prompt the same way. The native file input is hidden
+                                       behind the styled label, so there is no raw "Choose Files" control. *@
+                                    <div class="shots">
+                                        <label class="btn-select-image" title="Pick an image from this device, upload it, and insert its path">
+                                            <InputFile OnChange="OnDropImages" multiple accept="image/*" />
+                                            Select image
+                                        </label>
+                                        @if (!string.IsNullOrEmpty(_shotStatus))
+                                        {
+                                            <span class="shots-status">@_shotStatus</span>
+                                        }
+                                    </div>
+
+                                    @* Gallery of captured screenshots on the Director's machine *@
+                                    <div class="gallery">
+                                        @if (!string.IsNullOrEmpty(_shotsError))
+                                        {
+                                            <div class="gallery-error">@_shotsError</div>
+                                        }
+                                        else if (_shotsBusy && _shots.Count == 0)
+                                        {
+                                            <div class="gallery-empty">Loading screenshots&hellip;</div>
+                                        }
+                                        else if (_shots.Count == 0)
+                                        {
+                                            <div class="gallery-empty">No screenshots in this Director's folder yet.</div>
+                                        }
+                                        else
+                                        {
+                                            @foreach (var s in _shots)
+                                            {
+                                                <div class="shot-card" @key="s.FileName">
+                                                    @* Tap the thumbnail to insert its Director-side path at the
+                                                       composer cursor - the web equivalent of dragging the image
+                                                       onto the prompt on desktop. View opens it full-size. *@
+                                                    <img class="shot-thumb" src="@ShotUrl(s.FileName)" alt="@s.FileName" loading="lazy"
+                                                         title="Click to insert into the prompt" @onclick="() => InsertScreenshot(s)" />
+                                                    <div class="shot-row">
+                                                        <span class="shot-time">@s.TimeLabel</span>
+                                                        <button class="linkbtn" @onclick="() => InsertScreenshot(s)" title="Insert path into the prompt">Insert</button>
+                                                        <button class="linkbtn" @onclick="() => ViewScreenshot(s.FileName)">View</button>
+                                                        <button class="linkbtn" @onclick="() => CopyScreenshot(s.FileName)">Copy</button>
+                                                        <button class="linkbtn del" @onclick="() => DeleteScreenshot(s.FileName)">Del</button>
+                                                    </div>
+                                                </div>
+                                            }
+                                        }
+                                    </div>
                                 }
-                                else
+                                @* ================= Queue tab ================= *@
+                                else if (_rightTab == "queue")
                                 {
-                                    @foreach (var q in _queue)
-                                    {
-                                        <div class="queue-item">
-                                            <span class="queue-text">@q.Text</span>
-                                            <button class="qbtn" title="Send now" @onclick="() => SendQueued(q.Id)">send</button>
-                                            <button class="qbtn qdel" title="Remove" @onclick="() => RemoveQueued(q.Id)">&times;</button>
-                                        </div>
-                                    }
+                                    <div class="rightpanel-head">
+                                        <span class="rightpanel-title">QUEUE (@_queue.Count)</span>
+                                    </div>
+                                    <div class="queue">
+                                        @if (_queue.Count == 0)
+                                        {
+                                            <div class="queue-empty">Nothing queued. Type a message and hit Queue to stage it here.</div>
+                                        }
+                                        else
+                                        {
+                                            @foreach (var q in _queue)
+                                            {
+                                                <div class="queue-item">
+                                                    <span class="queue-text">@q.Text</span>
+                                                    <button class="qbtn" title="Send now" @onclick="() => SendQueued(q.Id)">send</button>
+                                                    <button class="qbtn qdel" title="Remove" @onclick="() => RemoveQueued(q.Id)">&times;</button>
+                                                </div>
+                                            }
+                                        }
+                                    </div>
+                                }
+                                @* ================= Wingman tab ================= *@
+                                else if (_rightTab == "wingman")
+                                {
+                                    <div class="rightpanel-head">
+                                        <span class="rightpanel-title">WINGMAN</span>
+                                        <button class="linkbtn" @onclick="GenerateRecap" disabled="@_recapBusy">@(_recapBusy ? "generating (~90s)..." : "Generate fresh")</button>
+                                    </div>
+                                    <div class="wingman-tab">
+                                        @if (!string.IsNullOrEmpty(_awareError))
+                                        {
+                                            <div class="gallery-error">@_awareError</div>
+                                        }
+                                        @if (_recap is null)
+                                        {
+                                            <div class="aware-muted">Loading&hellip;</div>
+                                        }
+                                        else if (_recap.Status == "ok" && !string.IsNullOrWhiteSpace(_recap.Recap))
+                                        {
+                                            <div class="aware-recap">@_recap.Recap</div>
+                                            <div class="aware-meta">@_recap.Model &middot; @(_recap.IsStale ? "stale (new turns since)" : "current") &middot; generated @(_recap.GeneratedAt?.ToLocalTime().ToString("HH:mm:ss"))</div>
+                                        }
+                                        else
+                                        {
+                                            <div class="aware-muted">@(_recap.Error ?? "No recap yet. Click Generate fresh.")</div>
+                                        }
+                                    </div>
+                                }
+                                @* ================= Director tab ================= *@
+                                else if (_rightTab == "director")
+                                {
+                                    <div class="rightpanel-head">
+                                        <span class="rightpanel-title">DIRECTOR</span>
+                                    </div>
+                                    <dl class="dir-info">
+                                        <dt>Machine</dt><dd>@Selected.MachineName</dd>
+                                        <dt>Director ID</dt><dd class="mono">@Selected.DirectorId</dd>
+                                        <dt>Endpoint</dt><dd class="mono">@Selected.TailnetEndpoint</dd>
+                                        <dt>Agent</dt><dd>@Selected.Agent</dd>
+                                        <dt>Activity</dt><dd>@Selected.ActivityState</dd>
+                                        <dt>Repo</dt><dd class="mono">@Selected.RepoPath</dd>
+                                    </dl>
                                 }
                             </div>
                         }
@@ -219,14 +320,14 @@
         </main>
     </div>
 
-    @* ===== New session modal ===== *@
+    @* ===== New session dialog (desktop parity: tabs + repo table + browse) ===== *@
     @if (_showNewSession)
     {
         <div class="modal-backdrop" @onclick="CloseNewSession">
-            <div class="modal" @onclick:stopPropagation="true">
-                <div class="modal-head">New session</div>
-                <div class="modal-body">
-                    <label class="fld">
+            <div class="modal modal-ns" @onclick:stopPropagation="true">
+                <div class="modal-head ns-head">
+                    <span>New session</span>
+                    <label class="ns-dir">
                         <span class="fld-label">Director</span>
                         <select @bind="_nsDirectorId" @bind:after="OnNsDirectorChanged">
                             @foreach (var d in _directors)
@@ -235,41 +336,214 @@
                             }
                         </select>
                     </label>
-                    <label class="fld">
-                        <span class="fld-label">Repository</span>
-                        <select @bind="_nsRepoPath">
-                            <option value="">-- pick a repo, or type a path below --</option>
-                            @foreach (var r in _nsRepos)
+                </div>
+
+                <div class="ns-tabs">
+                    <button class="ns-tab @(_nsTab == "new" ? "on" : "")" @onclick='() => SetNsTab("new")'>New Session</button>
+                    <button class="ns-tab @(_nsTab == "resume" ? "on" : "")" @onclick='() => SetNsTab("resume")'>Resume Session</button>
+                    <button class="ns-tab @(_nsTab == "handovers" ? "on" : "")" @onclick='() => SetNsTab("handovers")'>Handovers</button>
+                    <button class="ns-tab @(_nsTab == "github" ? "on" : "")" @onclick='() => SetNsTab("github")'>GitHub (Remote)</button>
+                </div>
+
+                <div class="modal-body ns-body">
+                    @if (_nsTab == "new")
+                    {
+                        <div class="ns-agents">
+                            <span class="fld-label">Agent:</span>
+                            @foreach (var a in NsAgents)
                             {
-                                <option value="@r.Path">@r.Name</option>
+                                <button class="chip @(_nsAgent == a ? "on" : "")" @onclick="() => SetAgent(a)">@AgentLabel(a)</button>
                             }
-                        </select>
-                    </label>
-                    <label class="fld">
-                        <span class="fld-label">Or repo path</span>
-                        <input @bind="_nsRepoPathManual" @bind:event="oninput" placeholder="D:\path\to\repo" />
-                    </label>
-                    <label class="fld">
-                        <span class="fld-label">Agent</span>
-                        <select @bind="_nsAgent">
-                            <option>ClaudeCode</option>
-                            <option>Codex</option>
-                            <option>Gemini</option>
-                            <option>Pi</option>
-                            <option>OpenCode</option>
-                        </select>
-                    </label>
+                        </div>
+
+                        <input class="ns-search" @bind="_nsRepoFilter" @bind:event="oninput" placeholder="Filter repositories by name or path" />
+
+                        <div class="ns-table">
+                            <div class="ns-row ns-hd">
+                                <button class="ns-c-name" @onclick='() => SortRepos("Name")'>Name@(SortArrow("Name"))</button>
+                                <button class="ns-c-path" @onclick='() => SortRepos("Path")'>Path@(SortArrow("Path"))</button>
+                                <button class="ns-c-used" @onclick='() => SortRepos("LastUsed")'>Last Used@(SortArrow("LastUsed"))</button>
+                                <span class="ns-c-x"></span>
+                            </div>
+                            <div class="ns-rows">
+                                @foreach (var r in FilteredRepos)
+                                {
+                                    <div class="ns-row @(EffectiveNsRepo == r.Path ? "sel" : "")" @onclick="() => SelectRepo(r.Path)">
+                                        <span class="ns-c-name" title="@r.Name">@r.Name</span>
+                                        <span class="ns-c-path" title="@r.Path">@r.Path</span>
+                                        <span class="ns-c-used">@RelLastUsed(r.LastUsed)</span>
+                                        <button class="ns-c-x" title="Remove from list" @onclick:stopPropagation="true" @onclick="() => RemoveRepo(r.Path)">x</button>
+                                    </div>
+                                }
+                                @if (FilteredRepos.Count == 0)
+                                {
+                                    <div class="ns-empty">No repositories. Type a path below or Browse.</div>
+                                }
+                            </div>
+                        </div>
+
+                        <div class="ns-pathrow">
+                            <input class="ns-path" @bind="_nsRepoPathManual" @bind:event="oninput" placeholder="D:\path\to\repo" />
+                            <button class="btn" @onclick="OpenBrowse">Browse...</button>
+                        </div>
+
+                        <div class="ns-opts">
+                            <label class="ck @(_nsAgent != "ClaudeCode" ? "off" : "")">
+                                <input type="checkbox" @bind="_nsBypass" disabled="@(_nsAgent != "ClaudeCode")" /> Bypass permission prompts
+                            </label>
+                            <label class="ck @(_nsAgent != "ClaudeCode" ? "off" : "")">
+                                <input type="checkbox" @bind="_nsRemoteControl" disabled="@(_nsAgent != "ClaudeCode")" /> Enable Remote Control
+                            </label>
+                            <label class="ck">
+                                <input type="checkbox" @bind="_nsWingman" /> Wingman (auto-explain on turn-end + Voice tabs)
+                            </label>
+                        </div>
+
+                        @if (_nsCoaching.Count > 0)
+                        {
+                            <div class="ns-cards">
+                                @foreach (var c in _nsCoaching)
+                                {
+                                    <button class="ns-card" @onclick="() => StartCoaching(c)" disabled="@_acting">
+                                        <span class="ns-card-t">@c.Label</span>
+                                        <span class="ns-card-d">@c.Description</span>
+                                    </button>
+                                }
+                            </div>
+                        }
+                    }
+                    else if (_nsTab == "resume")
+                    {
+                        <input class="ns-search" @bind="_nsResumeFilter" @bind:event="oninput" placeholder="Filter sessions by name or path" />
+                        <div class="ns-list">
+                            @if (_nsBusy)
+                            {
+                                <div class="ns-empty">Loading sessions...</div>
+                            }
+                            else if (FilteredResume.Count == 0)
+                            {
+                                <div class="ns-empty">No resumable sessions found.</div>
+                            }
+                            else
+                            {
+                                @foreach (var s in FilteredResume)
+                                {
+                                    <div class="ns-litem @(_nsResumeSelectedId == s.ClaudeSessionId ? "sel" : "")" @onclick="() => SelectResume(s)">
+                                        <div class="ns-litem-h">
+                                            <span class="ns-litem-name">@ResumeName(s)</span>
+                                            <span class="ns-litem-meta">@(s.MessageCount > 0 ? s.MessageCount + " msgs " : "")@RelLastUsed(s.LastUsedUtc)</span>
+                                        </div>
+                                        <div class="ns-litem-sum">@s.Summary</div>
+                                    </div>
+                                }
+                            }
+                        </div>
+                    }
+                    else if (_nsTab == "handovers")
+                    {
+                        <input class="ns-search" @bind="_nsHandoverFilter" @bind:event="oninput" placeholder="Filter handovers by title, repo, or date" />
+                        <div class="ns-ho">
+                            <div class="ns-ho-list">
+                                @if (_nsBusy)
+                                {
+                                    <div class="ns-empty">Loading handovers...</div>
+                                }
+                                else if (FilteredHandovers.Count == 0)
+                                {
+                                    <div class="ns-empty">No handovers found.</div>
+                                }
+                                else
+                                {
+                                    @foreach (var h in FilteredHandovers)
+                                    {
+                                        <div class="ns-litem @(_nsHandoverSelected?.Path == h.Path ? "sel" : "")" @onclick="() => SelectHandover(h)">
+                                            <div class="ns-litem-name">@h.Title</div>
+                                            <div class="ns-litem-meta">@HandoverRepoName(h) @h.DateDisplay</div>
+                                        </div>
+                                    }
+                                }
+                            </div>
+                            <div class="ns-ho-prev">
+                                @if (_nsHandoverSelected is null)
+                                {
+                                    <div class="ns-empty">Select a handover to preview</div>
+                                }
+                                else
+                                {
+                                    <pre class="ns-ho-text">@_nsHandoverPreview</pre>
+                                }
+                            </div>
+                        </div>
+                    }
+                    else if (_nsTab == "github")
+                    {
+                        <div class="ns-gh">
+                            <label class="fld"><span class="fld-label">Owner / org</span><input @bind="_ghOwner" placeholder="thefrederiksen" /></label>
+                            <label class="fld"><span class="fld-label">Repository</span><input @bind="_ghRepo" placeholder="cc-director" /></label>
+                            <label class="fld"><span class="fld-label">Base branch</span><input @bind="_ghBranch" /></label>
+                            <div class="ns-gh-mode">
+                                <span class="fld-label">Thread:</span>
+                                <label class="ck"><input type="radio" name="ghmode" checked="@(_ghMode == "new")" @onchange='() => _ghMode = "new"' /> Create new issue</label>
+                                <label class="ck"><input type="radio" name="ghmode" checked="@(_ghMode == "existing")" @onchange='() => _ghMode = "existing"' /> Existing issue/PR #</label>
+                                <input class="ns-gh-thread" @bind="_ghThread" disabled="@(_ghMode != "existing")" placeholder="123" />
+                            </div>
+                            <label class="fld"><span class="fld-label">First task for @@claude</span><textarea class="ns-gh-prompt" @bind="_ghPrompt" placeholder="Describe the task. e.g. 'Add a --json flag and update the README.'"></textarea></label>
+                        </div>
+                    }
+
                     @if (!string.IsNullOrEmpty(_nsError))
                     {
                         <div class="modal-error">@_nsError</div>
                     }
                 </div>
+
                 <div class="modal-foot">
                     <button class="btn" @onclick="CloseNewSession">Cancel</button>
-                    <button class="btn send" @onclick="CreateSession" disabled="@(_acting || string.IsNullOrWhiteSpace(EffectiveNsRepo))">Create</button>
+                    <button class="btn send" @onclick="PrimaryAction" disabled="@(_acting || !CanPrimary)">@PrimaryLabel</button>
                 </div>
             </div>
         </div>
+
+        @if (_browseOpen)
+        {
+            <div class="modal-backdrop ns-browse-back" @onclick="CloseBrowse">
+                <div class="modal modal-browse" @onclick:stopPropagation="true">
+                    <div class="modal-head">Browse for a folder (on @DirectorShort)</div>
+                    <div class="modal-body">
+                        <div class="ns-browse-path">@(_browseListing?.CurrentPath ?? "(drives)")</div>
+                        <div class="ns-browse-list">
+                            @if (_browseBusy)
+                            {
+                                <div class="ns-empty">Loading...</div>
+                            }
+                            else
+                            {
+                                @if (_browseListing?.CurrentPath is not null)
+                                {
+                                    <div class="ns-browse-item up" @onclick="BrowseUp">.. (up)</div>
+                                }
+                                @foreach (var e in (_browseListing?.Entries ?? new List<DirEntryDto>()))
+                                {
+                                    <div class="ns-browse-item" @onclick="() => BrowseNavigate(e.Path)">@(e.IsDrive ? e.Path : e.Name)</div>
+                                }
+                                @if ((_browseListing?.Entries.Count ?? 0) == 0)
+                                {
+                                    <div class="ns-empty">No sub-folders here.</div>
+                                }
+                            }
+                        </div>
+                        @if (!string.IsNullOrEmpty(_browseError))
+                        {
+                            <div class="modal-error">@_browseError</div>
+                        }
+                    </div>
+                    <div class="modal-foot">
+                        <button class="btn" @onclick="CloseBrowse">Cancel</button>
+                        <button class="btn send" @onclick="BrowseSelect" disabled="@string.IsNullOrEmpty(_browseListing?.CurrentPath)">Select this folder</button>
+                    </div>
+                </div>
+            </div>
+        }
     }
 
     @* ===== Settings modal ===== *@
@@ -556,11 +830,13 @@
             var collapsed = await JS.InvokeAsync<string?>("localStorage.getItem", "cockpit.leftCollapsed");
             var mode = await JS.InvokeAsync<string?>("localStorage.getItem", "cockpit.viewMode");
             var rightCollapsed = await JS.InvokeAsync<string?>("localStorage.getItem", "cockpit.rightCollapsed");
+            var rightTab = await JS.InvokeAsync<string?>("localStorage.getItem", "cockpit.rightTab");
             var changed = false;
             if (collapsed == "1" && !_leftCollapsed) { _leftCollapsed = true; changed = true; }
             // Pattern match narrows `mode` to non-null, so no null-forgiving operator is needed.
             if (mode is "tree" or "triage" && mode != _viewMode) { _viewMode = mode; changed = true; }
             if (rightCollapsed == "1" && !_rightCollapsed) { _rightCollapsed = true; changed = true; }
+            if (rightTab is "shots" or "wingman" or "queue" or "director" && rightTab != _rightTab) { _rightTab = rightTab; changed = true; }
             if (changed) await InvokeAsync(StateHasChanged);
         }
         catch (Exception ex)
@@ -640,6 +916,11 @@
     private string? _actError;
     private string? _shotStatus;
 
+    // Screenshots gallery (the captured-screenshots list on the selected session's Director).
+    private List<ScreenshotInfo> _shots = new();
+    private bool _shotsBusy;
+    private string? _shotsError;
+
     private async Task OnSelect(string sessionId)
     {
         _selectedId = sessionId;
@@ -649,7 +930,13 @@
         _renaming = false;
         _killArmed = false;
         _queue = new();
+        _shots = new();
+        _shotsError = null;
+        _recap = null;
+        _awareError = null;
         await LoadQueueAsync();
+        // Load whatever the active right-panel tab needs for the newly-selected session.
+        await LoadRightTabAsync();
     }
 
     private string? DirBase => Selected?.TailnetEndpoint;
@@ -730,7 +1017,13 @@
             await SendNow();
     }
 
-    // Drag-drop (or click) screenshots -> forwarded to the owning Director -> Claude Code.
+    // The composer textarea, so screenshot inserts land at the caret (web equivalent of the
+    // desktop "drag the image onto the prompt").
+    private ElementReference _composerEl;
+
+    // "Select image" / composer file-drop: a file on THIS device that isn't on the Director yet.
+    // Upload it, then insert the saved Director-side path at the composer cursor (NOT into the
+    // PTY) - the same end state as tapping a gallery thumbnail. A trailing space separates images.
     private async Task OnDropImages(InputFileChangeEventArgs e)
     {
         var sel = Selected; var dir = sel?.TailnetEndpoint;
@@ -744,15 +1037,11 @@
                 await using var s = f.OpenReadStream(20 * 1024 * 1024, _cts.Token); // 20 MB cap
                 var path = await Director.UploadImageAsync(dir!, sel.SessionId, s, f.Name, f.ContentType, _cts.Token);
 
-                // The upload endpoint only SAVES the image and returns its path; it does not
-                // hand it to Claude. Inject the saved path into the live prompt (no Enter, so the
-                // user adds their message and sends) - matching the desktop drag-drop, so Claude
-                // can actually read the image. A trailing space separates multiple images.
                 if (!string.IsNullOrWhiteSpace(path))
-                    await Director.SendInputAsync(dir!, sel.SessionId, path + " ", _cts.Token);
+                    await InsertIntoComposer(path + " ");
 
                 sent++;
-                _shotStatus = $"attached {sent} image{(sent == 1 ? "" : "s")} to the prompt";
+                _shotStatus = $"inserted {sent} image{(sent == 1 ? "" : "s")} into the prompt";
                 // Off the dispatcher after the awaits above - must marshal back, not call directly.
                 await InvokeAsync(StateHasChanged);
             }
@@ -762,6 +1051,32 @@
                 Log.LogWarning(ex, "upload-image failed for {File}", f.Name);
             }
         }
+    }
+
+    // Tap-to-insert a gallery screenshot: it already lives on the Director, so just drop its
+    // absolute path into the composer at the cursor - no upload. This is the desktop-parity move.
+    private async Task InsertScreenshot(ScreenshotInfo s)
+    {
+        if (string.IsNullOrWhiteSpace(s.Path)) return;
+        try
+        {
+            await InsertIntoComposer(s.Path + " ");
+            _shotStatus = "inserted path into the prompt";
+        }
+        catch (Exception ex)
+        {
+            _shotStatus = $"insert failed: {ex.Message}";
+            Log.LogWarning(ex, "InsertScreenshot failed");
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    // Insert text into the composer textarea at the caret via JS, which fires 'input' so the
+    // bound _compose updates. Used by both gallery tap-to-insert and the upload path.
+    private async Task InsertIntoComposer(string text)
+    {
+        var mod = await ShotsModule();
+        await mod.InvokeVoidAsync("insertAtCursor", _composerEl, text);
     }
 
     // Speak: opens the desktop-parity Dictate dialog (cockpit-dictate.js), the browser twin
@@ -874,6 +1189,132 @@
         await SavePref("cockpit.rightCollapsed", _rightCollapsed ? "1" : "0");
     }
 
+    // ===== Right panel tabs (Screenshots / Wingman / Queue / Director) =====
+    private string _rightTab = "shots";
+
+    private async Task SetRightTab(string tab)
+    {
+        if (tab is not ("shots" or "wingman" or "queue" or "director")) return;
+        _rightTab = tab;
+        await SavePref("cockpit.rightTab", tab);
+        await LoadRightTabAsync();
+    }
+
+    // Lazy-load the data the active tab needs. Queue is already polled; Director is static
+    // session data. Screenshots and Wingman fetch on demand and are cleared on session switch.
+    private async Task LoadRightTabAsync()
+    {
+        if (_rightTab == "shots" && _shots.Count == 0) await LoadScreenshotsAsync();
+        else if (_rightTab == "wingman" && _recap is null) await LoadWingmanAsync();
+    }
+
+    // ===== Screenshots gallery =====
+    private string ShotUrl(string fileName)
+        => string.IsNullOrWhiteSpace(DirBase) ? "" : DirectorClient.ScreenshotUrl(DirBase!, fileName);
+
+    private async Task LoadScreenshotsAsync()
+    {
+        var sel = Selected; var dir = sel?.TailnetEndpoint;
+        if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
+        _shotsBusy = true;
+        _shotsError = null;
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+            cts.CancelAfter(TimeSpan.FromSeconds(10));
+            _shots = await Director.GetScreenshotsAsync(dir!, cts.Token);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            _shotsError = $"could not load screenshots: {ex.Message}";
+            Log.LogWarning(ex, "LoadScreenshots failed");
+        }
+        finally
+        {
+            _shotsBusy = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private Task RefreshScreenshots()
+    {
+        _shots = new();   // force a reload (LoadScreenshotsAsync replaces wholesale anyway)
+        return LoadScreenshotsAsync();
+    }
+
+    // Clear the displayed list only (does NOT delete files) - matches the desktop's "Clear All".
+    private void ClearScreenshots() => _shots = new();
+
+    // View: open the image full-size in a new browser tab, served browser-direct by the Director.
+    private async Task ViewScreenshot(string fileName)
+    {
+        var url = ShotUrl(fileName);
+        if (string.IsNullOrEmpty(url)) return;
+        try { await JS.InvokeVoidAsync("window.open", url, "_blank"); }
+        catch (Exception ex) { Log.LogDebug(ex, "ViewScreenshot open failed"); }
+    }
+
+    // Copy: put the actual image on the browser clipboard (the Director-side path is meaningless
+    // on whatever device is viewing the Cockpit). cockpit-shots.js fetches the bytes and writes a
+    // ClipboardItem, converting to PNG via canvas when needed.
+    private async Task CopyScreenshot(string fileName)
+    {
+        var url = ShotUrl(fileName);
+        if (string.IsNullOrEmpty(url)) return;
+        try
+        {
+            var mod = await ShotsModule();
+            var ok = await mod.InvokeAsync<bool>("copyImage", url);
+            _shotStatus = ok ? "copied image to clipboard" : "copy failed (clipboard blocked)";
+        }
+        catch (Exception ex)
+        {
+            _shotStatus = $"copy failed: {ex.Message}";
+            Log.LogWarning(ex, "CopyScreenshot failed");
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task DeleteScreenshot(string fileName)
+    {
+        var sel = Selected; var dir = sel?.TailnetEndpoint;
+        if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
+        try
+        {
+            await Director.DeleteScreenshotAsync(dir!, fileName, _cts.Token);
+            _shots = _shots.Where(s => s.FileName != fileName).ToList();
+        }
+        catch (Exception ex)
+        {
+            _shotsError = $"delete failed: {ex.Message}";
+            Log.LogWarning(ex, "DeleteScreenshot failed");
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private IJSObjectReference? _shotsJsModule;
+    private async Task<IJSObjectReference> ShotsModule()
+        => _shotsJsModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/cockpit-shots.js");
+
+    // ===== Wingman tab: load recap (reuses the awareness state/methods) =====
+    private async Task LoadWingmanAsync()
+    {
+        var sel = Selected; var dir = sel?.TailnetEndpoint;
+        if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
+        _awareError = null;
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+            cts.CancelAfter(TimeSpan.FromSeconds(10));
+            _recap = await Director.GetRecapAsync(dir!, sel.SessionId, cts.Token);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { _awareError = ex.Message; Log.LogWarning(ex, "LoadWingman failed"); }
+        await InvokeAsync(StateHasChanged);
+    }
+
     private async Task SetViewMode(string mode)
     {
         if (mode != "tree" && mode != "triage") return;
@@ -912,6 +1353,51 @@
     private string _nsAgent = "ClaudeCode";
     private string? _nsError;
     private string EffectiveNsRepo => string.IsNullOrWhiteSpace(_nsRepoPathManual) ? _nsRepoPath : _nsRepoPathManual.Trim();
+
+    // ----- new-session dialog: tabs, options, sub-lists (desktop parity) -----
+    private string _nsTab = "new";          // new | resume | handovers | github
+    private bool _nsBusy;                    // loading resume/handover lists
+    private string _nsRepoFilter = "";
+    private string _nsRepoSort = "LastUsed"; // Name | Path | LastUsed
+    private bool _nsRepoSortAsc;             // LastUsed defaults descending
+    private bool _nsBypass = true;
+    private bool _nsRemoteControl;
+    private bool _nsWingman;
+    private List<CoachingCategoryDto> _nsCoaching = new();
+
+    private List<ClaudeSessionDto> _nsResume = new();
+    private string _nsResumeFilter = "";
+    private string? _nsResumeSelectedId;
+    private string? _nsResumeSelectedRepo;
+
+    private List<HandoverDto> _nsHandovers = new();
+    private string _nsHandoverFilter = "";
+    private HandoverDto? _nsHandoverSelected;
+    private string? _nsHandoverPreview;
+
+    private string _ghOwner = "";
+    private string _ghRepo = "";
+    private string _ghBranch = "main";
+    private string _ghMode = "new";          // new | existing
+    private string _ghThread = "";
+    private string _ghPrompt = "";
+
+    private bool _browseOpen;
+    private DirectoryListingDto? _browseListing;
+    private bool _browseBusy;
+    private string? _browseError;
+
+    private static readonly string[] NsAgents = { "ClaudeCode", "Pi", "Codex", "Gemini", "OpenCode" };
+    private static string AgentLabel(string a) => a switch
+    {
+        "ClaudeCode" => "Claude Code",
+        "Gemini" => "Gemini CLI",
+        _ => a,
+    };
+
+    private string DirectorShort => string.IsNullOrEmpty(_nsDirectorId)
+        ? "Director"
+        : _directors.FirstOrDefault(d => d.DirectorId == _nsDirectorId) is { } d ? DirectorLabel(d) : "Director";
 
     private bool _showSettings;
     private string _setDirectorId = "";
@@ -969,7 +1455,11 @@
     {
         _showNewSession = true;
         _nsError = null;
+        _nsTab = "new";
         _nsRepoPath = ""; _nsRepoPathManual = ""; _nsAgent = "ClaudeCode";
+        _nsRepoFilter = ""; _nsResumeFilter = ""; _nsHandoverFilter = "";
+        _nsBypass = true; _nsRemoteControl = false; _nsWingman = false;
+        _browseOpen = false;
         try
         {
             _directors = await Gateway.GetDirectorsAsync(_cts.Token);
@@ -979,24 +1469,267 @@
         catch (Exception ex) { _nsError = $"could not load Directors: {ex.Message}"; }
     }
 
-    private void CloseNewSession() => _showNewSession = false;
+    private void CloseNewSession() { _showNewSession = false; _browseOpen = false; }
+
+    private async Task SetNsTab(string tab)
+    {
+        _nsTab = tab; _nsError = null;
+        if (tab == "resume" && _nsResume.Count == 0) await LoadResumeAsync();
+        else if (tab == "handovers" && _nsHandovers.Count == 0) await LoadHandoversAsync();
+    }
 
     private async Task OnNsDirectorChanged()
     {
+        _nsError = null;
         _nsRepos = new();
-        _nsRepoPath = "";
+        _nsRepoPath = ""; _nsRepoPathManual = "";
+        _nsCoaching = new();
+        _nsResume = new(); _nsResumeSelectedId = null; _nsResumeSelectedRepo = null;
+        _nsHandovers = new(); _nsHandoverSelected = null; _nsHandoverPreview = null;
         if (string.IsNullOrEmpty(_nsDirectorId)) return;
+
+        // Repos are the critical load; surface a failure here.
         try { _nsRepos = await Gateway.GetReposAsync(_nsDirectorId, _cts.Token); }
         catch (Exception ex) { _nsError = $"could not load repos: {ex.Message}"; }
+
+        // Coaching cards are optional chrome. If a Director predates these endpoints the call
+        // 502s; show no cards (truthful) rather than a scary banner that blocks the New tab.
+        try { _nsCoaching = await Gateway.GetCoachingCategoriesAsync(_nsDirectorId, _cts.Token); }
+        catch (Exception ex) { _nsCoaching = new(); Log.LogDebug(ex, "coaching categories unavailable"); }
+
+        if (_nsTab == "resume") await LoadResumeAsync();
+        else if (_nsTab == "handovers") await LoadHandoversAsync();
+    }
+
+    private void SetAgent(string a) => _nsAgent = a;
+
+    // ----- repo table: filter + sort + select + remove -----
+    private List<RepositoryDto> FilteredRepos
+    {
+        get
+        {
+            IEnumerable<RepositoryDto> q = _nsRepos;
+            var f = _nsRepoFilter?.Trim();
+            if (!string.IsNullOrEmpty(f))
+                q = q.Where(r => (r.Name?.Contains(f, StringComparison.OrdinalIgnoreCase) ?? false)
+                              || (r.Path?.Contains(f, StringComparison.OrdinalIgnoreCase) ?? false));
+            q = _nsRepoSort switch
+            {
+                "Name" => _nsRepoSortAsc ? q.OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase) : q.OrderByDescending(r => r.Name, StringComparer.OrdinalIgnoreCase),
+                "Path" => _nsRepoSortAsc ? q.OrderBy(r => r.Path, StringComparer.OrdinalIgnoreCase) : q.OrderByDescending(r => r.Path, StringComparer.OrdinalIgnoreCase),
+                _ => _nsRepoSortAsc ? q.OrderBy(r => r.LastUsed ?? DateTime.MinValue) : q.OrderByDescending(r => r.LastUsed ?? DateTime.MinValue),
+            };
+            return q.ToList();
+        }
+    }
+
+    private void SortRepos(string col)
+    {
+        if (_nsRepoSort == col) _nsRepoSortAsc = !_nsRepoSortAsc;
+        else { _nsRepoSort = col; _nsRepoSortAsc = col != "LastUsed"; }
+    }
+
+    private string SortArrow(string col) => _nsRepoSort == col ? (_nsRepoSortAsc ? "  ^" : "  v") : "";
+
+    private void SelectRepo(string path) { _nsRepoPath = path; _nsRepoPathManual = path; }
+
+    private async Task RemoveRepo(string path)
+    {
+        try
+        {
+            await Gateway.RemoveRepoAsync(_nsDirectorId, path, _cts.Token);
+            if (EffectiveNsRepo == path) { _nsRepoPath = ""; _nsRepoPathManual = ""; }
+            _nsRepos = await Gateway.GetReposAsync(_nsDirectorId, _cts.Token);
+        }
+        catch (Exception ex) { _nsError = $"could not remove repo: {ex.Message}"; }
+    }
+
+    private static string RelLastUsed(DateTime? utc)
+    {
+        if (utc is null || utc.Value == DateTime.MinValue) return "";
+        var span = DateTime.UtcNow - DateTime.SpecifyKind(utc.Value, DateTimeKind.Utc);
+        if (span.TotalMinutes < 1) return "just now";
+        if (span.TotalMinutes < 60) return $"{(int)span.TotalMinutes}m ago";
+        if (span.TotalHours < 24) return $"{(int)span.TotalHours}h ago";
+        if (span.TotalDays < 30) return $"{(int)span.TotalDays}d ago";
+        if (span.TotalDays < 365) return $"{(int)(span.TotalDays / 30)}mo ago";
+        return $"{(int)(span.TotalDays / 365)}y ago";
+    }
+
+    // Claude flags only; other agents take no extra args (mirrors the desktop dialog).
+    private string? BuildArgs()
+    {
+        if (_nsAgent != "ClaudeCode") return null;
+        var s = "";
+        if (_nsRemoteControl) s += "remote-control ";
+        if (_nsBypass) s += "--dangerously-skip-permissions ";
+        return string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+    }
+
+    // ----- Resume tab -----
+    private async Task LoadResumeAsync()
+    {
+        if (string.IsNullOrEmpty(_nsDirectorId)) return;
+        _nsBusy = true; await InvokeAsync(StateHasChanged);
+        try { _nsResume = await Gateway.GetClaudeSessionsAsync(_nsDirectorId, _cts.Token); }
+        catch (Exception ex) { _nsError = $"could not load sessions: {ex.Message}"; }
+        finally { _nsBusy = false; }
+    }
+
+    private List<ClaudeSessionDto> FilteredResume
+    {
+        get
+        {
+            var f = _nsResumeFilter?.Trim();
+            if (string.IsNullOrEmpty(f)) return _nsResume;
+            return _nsResume.Where(s =>
+                ResumeName(s).Contains(f, StringComparison.OrdinalIgnoreCase)
+                || (s.RepoPath?.Contains(f, StringComparison.OrdinalIgnoreCase) ?? false)
+                || (s.Summary?.Contains(f, StringComparison.OrdinalIgnoreCase) ?? false)).ToList();
+        }
+    }
+
+    private static string ResumeName(ClaudeSessionDto s) =>
+        !string.IsNullOrWhiteSpace(s.CustomName) ? s.CustomName! : (string.IsNullOrWhiteSpace(s.ProjectName) ? "Session" : s.ProjectName);
+
+    private void SelectResume(ClaudeSessionDto s) { _nsResumeSelectedId = s.ClaudeSessionId; _nsResumeSelectedRepo = s.RepoPath; }
+
+    // ----- Handovers tab -----
+    private async Task LoadHandoversAsync()
+    {
+        if (string.IsNullOrEmpty(_nsDirectorId)) return;
+        _nsBusy = true; await InvokeAsync(StateHasChanged);
+        try { _nsHandovers = await Gateway.GetHandoversAsync(_nsDirectorId, _cts.Token); }
+        catch (Exception ex) { _nsError = $"could not load handovers: {ex.Message}"; }
+        finally { _nsBusy = false; }
+    }
+
+    private List<HandoverDto> FilteredHandovers
+    {
+        get
+        {
+            var f = _nsHandoverFilter?.Trim();
+            if (string.IsNullOrEmpty(f)) return _nsHandovers;
+            return _nsHandovers.Where(h =>
+                h.Title.Contains(f, StringComparison.OrdinalIgnoreCase)
+                || (h.RepoPath?.Contains(f, StringComparison.OrdinalIgnoreCase) ?? false)
+                || h.DateDisplay.Contains(f, StringComparison.OrdinalIgnoreCase)).ToList();
+        }
+    }
+
+    private static string HandoverRepoName(HandoverDto h) =>
+        string.IsNullOrEmpty(h.RepoPath) ? "" : System.IO.Path.GetFileName(h.RepoPath!.TrimEnd('\\', '/'));
+
+    private async Task SelectHandover(HandoverDto h)
+    {
+        _nsHandoverSelected = h; _nsHandoverPreview = "Loading...";
+        try
+        {
+            var c = await Gateway.GetHandoverContentAsync(_nsDirectorId, h.Path, _cts.Token);
+            _nsHandoverPreview = c?.Content ?? "(empty)";
+        }
+        catch (Exception ex) { _nsHandoverPreview = $"(could not load: {ex.Message})"; }
+    }
+
+    // ----- primary action (label/enablement/dispatch depend on the active tab) -----
+    private string PrimaryLabel => _nsTab switch
+    {
+        "resume" => "Resume",
+        "handovers" => "Start from handover",
+        "github" => "Start remote",
+        _ => "Create",
+    };
+
+    private bool CanPrimary => _nsTab switch
+    {
+        "resume" => !string.IsNullOrEmpty(_nsResumeSelectedId) && !string.IsNullOrWhiteSpace(_nsResumeSelectedRepo),
+        "handovers" => _nsHandoverSelected is not null && !string.IsNullOrWhiteSpace(_nsHandoverSelected.RepoPath),
+        "github" => !string.IsNullOrWhiteSpace(_ghOwner) && !string.IsNullOrWhiteSpace(_ghRepo) && !string.IsNullOrWhiteSpace(_ghPrompt),
+        _ => !string.IsNullOrWhiteSpace(EffectiveNsRepo),
+    };
+
+    private async Task PrimaryAction()
+    {
+        switch (_nsTab)
+        {
+            case "resume": await ResumeSelected(); break;
+            case "handovers": await StartFromHandover(); break;
+            case "github": await StartRemote(); break;
+            default: await CreateSession(); break;
+        }
     }
 
     private async Task CreateSession()
     {
         if (string.IsNullOrWhiteSpace(_nsDirectorId) || string.IsNullOrWhiteSpace(EffectiveNsRepo)) return;
+        await CreateLocal(EffectiveNsRepo, BuildArgs(), null, null);
+    }
+
+    private async Task ResumeSelected()
+    {
+        if (string.IsNullOrEmpty(_nsResumeSelectedId) || string.IsNullOrWhiteSpace(_nsResumeSelectedRepo)) return;
+        _nsAgent = "ClaudeCode"; // resume is Claude Code only
+        await CreateLocal(_nsResumeSelectedRepo!, BuildArgs(), _nsResumeSelectedId, null);
+    }
+
+    private async Task StartFromHandover()
+    {
+        if (_nsHandoverSelected is null || string.IsNullOrWhiteSpace(_nsHandoverSelected.RepoPath)) return;
+        var content = _nsHandoverPreview;
+        if (string.IsNullOrWhiteSpace(content) || content == "Loading...")
+        {
+            var c = await Gateway.GetHandoverContentAsync(_nsDirectorId, _nsHandoverSelected.Path, _cts.Token);
+            content = c?.Content;
+        }
+        var prePrompt = string.IsNullOrWhiteSpace(content) ? null : "Resume from this handover document:\n\n" + content;
+        await CreateLocal(_nsHandoverSelected.RepoPath!, BuildArgs(), null, prePrompt);
+    }
+
+    private async Task StartRemote()
+    {
+        if (string.IsNullOrWhiteSpace(_ghOwner) || string.IsNullOrWhiteSpace(_ghRepo) || string.IsNullOrWhiteSpace(_ghPrompt)) return;
         _acting = true; _nsError = null;
         try
         {
-            var req = new NewSessionRequest { RepoPath = EffectiveNsRepo, Agent = _nsAgent, WingmanEnabled = false };
+            var req = new GitHubSessionRequest
+            {
+                Owner = _ghOwner.Trim(),
+                Repo = _ghRepo.Trim(),
+                BaseBranch = string.IsNullOrWhiteSpace(_ghBranch) ? "main" : _ghBranch.Trim(),
+                TriggerMode = _ghMode == "existing" ? "ExistingThread" : "NewIssue",
+                InitialPrompt = _ghPrompt.Trim(),
+                ThreadNumber = _ghMode == "existing" && long.TryParse(_ghThread, out var n) ? n : null,
+            };
+            var created = await Gateway.CreateGitHubSessionAsync(_nsDirectorId, req, _cts.Token);
+            _showNewSession = false;
+            await RefreshAsync();
+            if (created is not null) await OnSelect(created.SessionId);
+        }
+        catch (Exception ex) { _nsError = ex.Message; Log.LogWarning(ex, "StartRemote failed"); }
+        finally { _acting = false; }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task StartCoaching(CoachingCategoryDto c)
+    {
+        _nsAgent = "ClaudeCode";
+        await CreateLocal(c.Path, "--dangerously-skip-permissions", null, null);
+    }
+
+    private async Task CreateLocal(string repo, string? args, string? resumeId, string? prePrompt)
+    {
+        _acting = true; _nsError = null;
+        try
+        {
+            var req = new NewSessionRequest
+            {
+                RepoPath = repo,
+                Agent = _nsAgent,
+                Args = args,
+                ResumeSessionId = resumeId,
+                PrePrompt = prePrompt,
+                WingmanEnabled = _nsWingman,
+            };
             var created = await Gateway.CreateSessionAsync(_nsDirectorId, req, _cts.Token);
             _showNewSession = false;
             await RefreshAsync();
@@ -1005,6 +1738,38 @@
         catch (Exception ex) { _nsError = ex.Message; Log.LogWarning(ex, "CreateSession failed"); }
         finally { _acting = false; }
         await InvokeAsync(StateHasChanged);
+    }
+
+    // ----- Browse: remote folder picker over GET /fs/list -----
+    private async Task OpenBrowse()
+    {
+        _browseOpen = true; _browseError = null; _browseListing = null;
+        await LoadBrowse(null); // start at drive roots; navigate down
+    }
+
+    private void CloseBrowse() => _browseOpen = false;
+
+    private async Task LoadBrowse(string? path)
+    {
+        _browseBusy = true; _browseError = null; await InvokeAsync(StateHasChanged);
+        try { _browseListing = await Gateway.ListDirectoryAsync(_nsDirectorId, path, _cts.Token); }
+        catch (Exception ex) { _browseError = ex.Message; }
+        finally { _browseBusy = false; }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task BrowseNavigate(string path) => await LoadBrowse(path);
+
+    private async Task BrowseUp() => await LoadBrowse(_browseListing?.ParentPath);
+
+    private void BrowseSelect()
+    {
+        if (!string.IsNullOrEmpty(_browseListing?.CurrentPath))
+        {
+            _nsRepoPathManual = _browseListing!.CurrentPath!;
+            _nsRepoPath = _browseListing.CurrentPath!;
+        }
+        _browseOpen = false;
     }
 
     // ----- settings (read/write a Director's config; the Director re-applies live) -----
@@ -1265,5 +2030,7 @@
         // listeners it set up are idempotent and harmless if they outlive the circuit).
         if (_composerDropModule is not null)
             _ = _composerDropModule.DisposeAsync().AsTask().ContinueWith(_ => { }, TaskScheduler.Default);
+        if (_shotsJsModule is not null)
+            _ = _shotsJsModule.DisposeAsync().AsTask().ContinueWith(_ => { }, TaskScheduler.Default);
     }
 }

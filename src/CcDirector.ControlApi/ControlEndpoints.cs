@@ -1512,6 +1512,68 @@ internal static class ControlEndpoints
             return Results.Json(new { path = fullPath, fileName = name });
         });
 
+        // ===== REST: Screenshots gallery =====
+        // The screenshots folder (CcStorage.Screenshots()) lives on THIS Director's machine.
+        // The desktop UI reads it via a FileSystemWatcher; the remote Cockpit can't, so it reads
+        // the gallery over these endpoints. The browser loads thumbnails by pointing <img src>
+        // straight at GET /screenshots/file (the same browser-direct path the live terminal uses),
+        // so that endpoint is permissively CORS-open for image GETs on this single-user tailnet.
+
+        // List the screenshots, newest first, with a pre-formatted local time label so the
+        // Cockpit renders the same "MMM d, h:mm tt" as the desktop without re-deriving it.
+        app.MapGet("/screenshots", () =>
+        {
+            FileLog.Write("[ControlEndpoints] GET /screenshots");
+            var dir = CcStorage.Screenshots();
+            var items = ScreenshotFiles(dir)
+                .Select(f =>
+                {
+                    var info = new FileInfo(f);
+                    return new
+                    {
+                        fileName = info.Name,
+                        // Absolute on-disk path on THIS Director's machine. The Cockpit injects it
+                        // into the composer at the cursor (desktop parity: drop the path into the
+                        // prompt) - the owning Claude session reads it directly, no upload needed.
+                        path = info.FullName,
+                        timeLabel = info.LastWriteTime.ToString("MMM d, h:mm tt"),
+                        lastWriteUtc = info.LastWriteTimeUtc,
+                        sizeBytes = info.Length,
+                    };
+                })
+                .ToList();
+            return Results.Json(new { directory = dir, items });
+        });
+
+        // Serve one screenshot's bytes. Loaded browser-direct as an <img src> and fetched for the
+        // "Copy" clipboard action, so it sets Access-Control-Allow-Origin:* (single-user tailnet,
+        // no auth/security gating per the deployment model). Path-traversal safe: name must be a
+        // bare file that resolves inside the screenshots folder with an image extension.
+        app.MapGet("/screenshots/file", (HttpContext ctx, string name) =>
+        {
+            var full = ResolveScreenshot(name);
+            if (full is null)
+            {
+                FileLog.Write($"[ControlEndpoints] GET /screenshots/file rejected: name={name}");
+                return Results.NotFound(new { error = "screenshot not found" });
+            }
+            ctx.Response.Headers["Access-Control-Allow-Origin"] = "*";
+            ctx.Response.Headers["Cache-Control"] = "no-cache";
+            return Results.File(full, ScreenshotContentType(full), enableRangeProcessing: true);
+        });
+
+        // Delete one screenshot from disk (the per-card "Del" action). Mirrors the desktop, which
+        // deletes the file off disk. Path-traversal safe via ResolveScreenshot.
+        app.MapDelete("/screenshots/file", (string name) =>
+        {
+            var full = ResolveScreenshot(name);
+            if (full is null)
+                return Results.NotFound(new { error = "screenshot not found" });
+            FileLog.Write($"[ControlEndpoints] DELETE /screenshots/file: {full}");
+            File.Delete(full);
+            return Results.Json(new { deleted = true, fileName = Path.GetFileName(full) });
+        });
+
         // ===== REST: Fan-out within this Director =====
         app.MapPost("/fanout-local", async (FanoutRequest req) =>
         {
@@ -1613,6 +1675,149 @@ internal static class ControlEndpoints
             return Results.Json(repos);
         });
 
+        // ===== REST: Remove a repository from the recent list =====
+        app.MapDelete("/repos", (string? path) =>
+        {
+            FileLog.Write($"[ControlEndpoints] DELETE /repos: path={path}");
+            if (string.IsNullOrWhiteSpace(path))
+                return Results.BadRequest(new { error = "path is required" });
+            if (repositoryRegistry is null)
+                return Results.Json(new { removed = false });
+
+            var removed = repositoryRegistry.Remove(path);
+            return Results.Json(new { removed });
+        });
+
+        // ===== REST: Coaching quick-launch categories (Assistant / Coach cards) =====
+        app.MapGet("/coaching/categories", () =>
+        {
+            FileLog.Write("[ControlEndpoints] GET /coaching/categories");
+            var cats = new List<CoachingCategoryDto>
+            {
+                new()
+                {
+                    Key = "assistant",
+                    Label = "Assistant",
+                    Description = "Tasks, contacts, daily briefing",
+                    Path = CcStorage.CoachingCategory("assistant"),
+                },
+                new()
+                {
+                    Key = "coach",
+                    Label = "Coach",
+                    Description = "Life coaching across all domains",
+                    Path = CcStorage.CoachingCategory("coach"),
+                },
+            };
+            return Results.Json(cats);
+        });
+
+        // ===== REST: Resumable Claude Code sessions (Resume Session tab) =====
+        app.MapGet("/claude-sessions", () =>
+        {
+            FileLog.Write("[ControlEndpoints] GET /claude-sessions");
+
+            var claudeMeta = new Dictionary<string, ClaudeSessionMetadata>(StringComparer.Ordinal);
+            foreach (var cm in ClaudeSessionReader.ScanAllProjects())
+                claudeMeta.TryAdd(cm.SessionId, cm);
+
+            var history = new SessionHistoryStore().LoadAll();
+            var dtos = new List<ClaudeSessionDto>();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+
+            // History entries first (they carry custom name/color), enriched with Claude metadata.
+            foreach (var entry in history)
+            {
+                if (string.IsNullOrEmpty(entry.ClaudeSessionId) || !seen.Add(entry.ClaudeSessionId))
+                    continue;
+                claudeMeta.TryGetValue(entry.ClaudeSessionId, out var meta);
+                dtos.Add(new ClaudeSessionDto
+                {
+                    ClaudeSessionId = entry.ClaudeSessionId,
+                    RepoPath = entry.RepoPath,
+                    ProjectName = ProjectNameOf(entry.RepoPath),
+                    CustomName = entry.CustomName,
+                    CustomColor = entry.CustomColor,
+                    MessageCount = meta?.MessageCount ?? 0,
+                    Summary = meta?.Summary ?? meta?.FirstPrompt ?? entry.FirstPromptSnippet,
+                    LastUsedUtc = entry.LastUsedAt == default ? meta?.Modified : entry.LastUsedAt.UtcDateTime,
+                });
+            }
+
+            // Then any Claude sessions not tracked by a workspace history entry.
+            foreach (var meta in claudeMeta.Values)
+            {
+                if (string.IsNullOrEmpty(meta.SessionId) || !seen.Add(meta.SessionId))
+                    continue;
+                dtos.Add(new ClaudeSessionDto
+                {
+                    ClaudeSessionId = meta.SessionId,
+                    RepoPath = meta.ProjectPath ?? string.Empty,
+                    ProjectName = ProjectNameOf(meta.ProjectPath ?? string.Empty),
+                    MessageCount = meta.MessageCount,
+                    Summary = meta.Summary ?? meta.FirstPrompt,
+                    LastUsedUtc = meta.Modified == DateTime.MinValue ? null : meta.Modified,
+                });
+            }
+
+            var ordered = dtos
+                .OrderByDescending(d => d.LastUsedUtc ?? DateTime.MinValue)
+                .ToList();
+            return Results.Json(ordered);
+        });
+
+        // ===== REST: Handover documents (Handovers tab) =====
+        app.MapGet("/handovers", () =>
+        {
+            FileLog.Write("[ControlEndpoints] GET /handovers");
+            var dtos = HandoverScanner.ScanAll().Select(h => new HandoverDto
+            {
+                Path = h.Path,
+                Title = h.Title,
+                DateDisplay = h.DateDisplay,
+                DateUtc = h.DateUtc,
+                RepoPath = h.RepoPath,
+                RepoPaths = h.RepoPaths,
+                SessionName = h.SessionName,
+            }).ToList();
+            return Results.Json(dtos);
+        });
+
+        app.MapGet("/handovers/content", (string? path) =>
+        {
+            FileLog.Write($"[ControlEndpoints] GET /handovers/content: path={path}");
+            if (string.IsNullOrWhiteSpace(path))
+                return Results.BadRequest(new { error = "path is required" });
+            try
+            {
+                var content = HandoverScanner.ReadContent(path);
+                return Results.Json(new HandoverContentDto { Path = path, Content = content });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+            catch (FileNotFoundException)
+            {
+                return Results.NotFound(new { error = "handover not found" });
+            }
+        });
+
+        // ===== REST: Remote folder browser (Browse... button) =====
+        app.MapGet("/fs/list", (string? path) =>
+        {
+            FileLog.Write($"[ControlEndpoints] GET /fs/list: path={path}");
+            try
+            {
+                return Results.Json(ListDirectory(path));
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[ControlEndpoints] GET /fs/list FAILED: {ex.Message}");
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        });
+
         // ===== REST: Create a session =====
         app.MapPost("/sessions", (NewSessionRequest req) =>
         {
@@ -1645,7 +1850,7 @@ internal static class ControlEndpoints
                     agent,
                     req.Args,
                     SessionBackendType.ConPty,
-                    resumeSessionId: null);
+                    resumeSessionId: string.IsNullOrWhiteSpace(req.ResumeSessionId) ? null : req.ResumeSessionId);
             }
             catch (Exception ex)
             {
@@ -1772,6 +1977,62 @@ internal static class ControlEndpoints
         });
     }
 
+    /// <summary>Folder name of a repo path, for display fallback. Empty path -> "Unknown Project".</summary>
+    private static string ProjectNameOf(string repoPath)
+    {
+        if (string.IsNullOrEmpty(repoPath))
+            return "Unknown Project";
+        return Path.GetFileName(repoPath.TrimEnd('\\', '/'));
+    }
+
+    /// <summary>
+    /// List sub-directories of <paramref name="path"/> for the remote folder browser. A null or
+    /// empty path returns the drive roots. Solo-tailnet: no path sandboxing (see remote-experience-plan.md).
+    /// </summary>
+    private static DirectoryListingDto ListDirectory(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            var drives = DriveInfo.GetDrives()
+                .Where(d => d.IsReady)
+                .Select(d => new DirEntryDto
+                {
+                    Name = d.Name.TrimEnd('\\', '/'),
+                    Path = d.RootDirectory.FullName,
+                    IsDrive = true,
+                })
+                .OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            return new DirectoryListingDto { CurrentPath = null, ParentPath = null, Entries = drives };
+        }
+
+        var full = Path.GetFullPath(path);
+        if (!Directory.Exists(full))
+            throw new DirectoryNotFoundException($"directory not found: {full}");
+
+        var parent = Directory.GetParent(full.TrimEnd('\\', '/'))?.FullName;
+
+        var entries = Directory.EnumerateDirectories(full)
+            .Select(d =>
+            {
+                try
+                {
+                    // Skip hidden / system directories so the picker stays clean.
+                    var attr = File.GetAttributes(d);
+                    if (attr.HasFlag(FileAttributes.Hidden) || attr.HasFlag(FileAttributes.System))
+                        return null;
+                }
+                catch { return null; }
+                return new DirEntryDto { Name = Path.GetFileName(d), Path = d, IsDrive = false };
+            })
+            .Where(e => e is not null)
+            .Select(e => e!)
+            .OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return new DirectoryListingDto { CurrentPath = full, ParentPath = parent, Entries = entries };
+    }
+
     /// <summary>
     /// The session's ENTIRE terminal buffer, ANSI stripped, for the "Ask the Wingman"
     /// answer path. Unlike WingmanContextBuilder's tail (capped at 4000 chars for a
@@ -1866,4 +2127,53 @@ internal static class ControlEndpoints
             && next.StartsWith("/", StringComparison.Ordinal)
             && !next.StartsWith("//", StringComparison.Ordinal);
     }
+
+    // ===== Screenshots gallery helpers =====
+
+    private static readonly string[] ScreenshotExtensions = { ".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp" };
+
+    /// <summary>Image files in the screenshots folder, newest first. Empty if the folder is missing.</summary>
+    private static IEnumerable<string> ScreenshotFiles(string directory)
+    {
+        if (!Directory.Exists(directory))
+            return Array.Empty<string>();
+        return Directory.EnumerateFiles(directory)
+            .Where(f => ScreenshotExtensions.Contains(Path.GetExtension(f).ToLowerInvariant()))
+            .OrderByDescending(f => File.GetLastWriteTimeUtc(f))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Resolve a client-supplied screenshot name to an absolute path INSIDE the screenshots
+    /// folder, or null if it escapes the folder, is not a bare file name, has a non-image
+    /// extension, or does not exist. Defends GET/DELETE /screenshots/file against traversal.
+    /// </summary>
+    private static string? ResolveScreenshot(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return null;
+        // Reject anything that isn't a bare file name (no separators, no "..").
+        if (Path.GetFileName(name) != name)
+            return null;
+        if (!ScreenshotExtensions.Contains(Path.GetExtension(name).ToLowerInvariant()))
+            return null;
+
+        var dir = CcStorage.Screenshots();
+        var full = Path.GetFullPath(Path.Combine(dir, name));
+        // Confirm the resolved path is still under the screenshots folder.
+        var dirFull = Path.GetFullPath(dir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (!full.StartsWith(dirFull + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            return null;
+        return File.Exists(full) ? full : null;
+    }
+
+    private static string ScreenshotContentType(string path) => Path.GetExtension(path).ToLowerInvariant() switch
+    {
+        ".png" => "image/png",
+        ".jpg" or ".jpeg" => "image/jpeg",
+        ".gif" => "image/gif",
+        ".bmp" => "image/bmp",
+        ".webp" => "image/webp",
+        _ => "application/octet-stream",
+    };
 }

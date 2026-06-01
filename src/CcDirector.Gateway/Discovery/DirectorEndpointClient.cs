@@ -362,6 +362,108 @@ public sealed class DirectorEndpointClient : IDisposable
         }
     }
 
+    public async Task<bool> DeleteRepoAsync(string endpoint, string path, CancellationToken ct = default)
+    {
+        try
+        {
+            var resp = await _http.DeleteAsync($"{endpoint}/repos?path={Uri.EscapeDataString(path)}", ct);
+            return resp.IsSuccessStatusCode;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[DirectorEndpointClient] DeleteRepoAsync FAILED: endpoint={endpoint}, error={ex.Message}");
+            return false;
+        }
+    }
+
+    public async Task<List<CoachingCategoryDto>?> ListCoachingCategoriesAsync(string endpoint, CancellationToken ct = default)
+    {
+        try
+        {
+            return await _http.GetFromJsonAsync<List<CoachingCategoryDto>>($"{endpoint}/coaching/categories", ct);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[DirectorEndpointClient] ListCoachingCategoriesAsync FAILED: endpoint={endpoint}, error={ex.Message}");
+            return null;
+        }
+    }
+
+    public async Task<List<ClaudeSessionDto>?> ListClaudeSessionsAsync(string endpoint, CancellationToken ct = default)
+    {
+        try
+        {
+            return await _http.GetFromJsonAsync<List<ClaudeSessionDto>>($"{endpoint}/claude-sessions", ct);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[DirectorEndpointClient] ListClaudeSessionsAsync FAILED: endpoint={endpoint}, error={ex.Message}");
+            return null;
+        }
+    }
+
+    public async Task<List<HandoverDto>?> ListHandoversAsync(string endpoint, CancellationToken ct = default)
+    {
+        try
+        {
+            return await _http.GetFromJsonAsync<List<HandoverDto>>($"{endpoint}/handovers", ct);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[DirectorEndpointClient] ListHandoversAsync FAILED: endpoint={endpoint}, error={ex.Message}");
+            return null;
+        }
+    }
+
+    public async Task<HandoverContentDto?> GetHandoverContentAsync(string endpoint, string path, CancellationToken ct = default)
+    {
+        try
+        {
+            return await _http.GetFromJsonAsync<HandoverContentDto>($"{endpoint}/handovers/content?path={Uri.EscapeDataString(path)}", ct);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[DirectorEndpointClient] GetHandoverContentAsync FAILED: endpoint={endpoint}, error={ex.Message}");
+            return null;
+        }
+    }
+
+    public async Task<DirectoryListingDto?> ListDirectoryAsync(string endpoint, string? path, CancellationToken ct = default)
+    {
+        try
+        {
+            var url = string.IsNullOrWhiteSpace(path)
+                ? $"{endpoint}/fs/list"
+                : $"{endpoint}/fs/list?path={Uri.EscapeDataString(path)}";
+            return await _http.GetFromJsonAsync<DirectoryListingDto>(url, ct);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[DirectorEndpointClient] ListDirectoryAsync FAILED: endpoint={endpoint}, error={ex.Message}");
+            return null;
+        }
+    }
+
+    public async Task<(bool ok, SessionDto? body, string? error)> CreateGitHubSessionAsync(string endpoint, GitHubSessionRequest req, CancellationToken ct = default)
+    {
+        try
+        {
+            var resp = await _http.PostAsJsonAsync($"{endpoint}/sessions/github", req, ct);
+            if (!resp.IsSuccessStatusCode)
+            {
+                var body = await resp.Content.ReadAsStringAsync(ct);
+                return (false, null, $"director returned {(int)resp.StatusCode}: {body}");
+            }
+            var dto = await resp.Content.ReadFromJsonAsync<SessionDto>(cancellationToken: ct);
+            return (true, dto, null);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[DirectorEndpointClient] CreateGitHubSessionAsync FAILED: endpoint={endpoint}, error={ex.Message}");
+            return (false, null, ex.Message);
+        }
+    }
+
     public async Task<(bool ok, SessionDto? body, string? error)> CreateSessionAsync(string endpoint, NewSessionRequest req, CancellationToken ct = default)
     {
         try
