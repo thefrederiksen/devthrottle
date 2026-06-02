@@ -71,6 +71,13 @@ if ($null -eq $service) {
     $startMode = (Get-CimInstance -ClassName Win32_Service -Filter "Name='$svc'" -ErrorAction SilentlyContinue).StartMode
     Add-Result "Auto-start on boot" ($startMode -eq 'Auto') "StartMode=$startMode"
 
+    # 2b. Native service, not the old NSSM wrapper. This is a real check: a Gateway still
+    # running through NSSM means the native install/migration did NOT take effect, even though
+    # the endpoints below may answer (the old service is still serving). Do not give false confidence.
+    $binPath = (Get-CimInstance -ClassName Win32_Service -Filter "Name='$svc'" -ErrorAction SilentlyContinue).PathName
+    $isNssm = $binPath -and ($binPath -match 'nssm')
+    Add-Result "Native service (not NSSM)" (-not $isNssm) ("binPath=" + $binPath)
+
     # 3. Running (try to start it once if stopped, then re-check)
     if ($service.Status -ne 'Running') {
         Write-Host ("[INFO] service Status={0}; attempting Start-Service..." -f $service.Status)

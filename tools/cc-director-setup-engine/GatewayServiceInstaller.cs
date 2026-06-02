@@ -106,6 +106,11 @@ public sealed class GatewayServiceInstaller
             GatewayServiceCommands.SetEnvironment(_layout.LocalRoot, openAiKey, cockpitExe),
         };
 
+        // The SetEnvironment command embeds OPENAI_API_KEY; NEVER let it reach a log/step/UI.
+        // Redact the literal key value out of every string we record.
+        string Redact(string s) =>
+            string.IsNullOrEmpty(openAiKey) ? s : s.Replace(openAiKey, "***REDACTED***");
+
         // Stop/Delete are allowed to fail (no prior service); Create/Describe/SetEnvironment must succeed.
         for (int i = 0; i < commands.Length; i++)
         {
@@ -113,10 +118,11 @@ public sealed class GatewayServiceInstaller
             var (exit, output) = Run(cmd);
             var lenient = cmd.Arguments.StartsWith("stop ", StringComparison.Ordinal)
                        || cmd.Arguments.StartsWith("delete ", StringComparison.Ordinal);
-            steps.Add($"{cmd.Display} -> exit {exit}");
-            EngineLog.Write($"[GatewayServiceInstaller] {cmd.Display} -> exit {exit}; {Trim(output)}");
+            var safeDisplay = Redact(cmd.Display);
+            steps.Add($"{safeDisplay} -> exit {exit}");
+            EngineLog.Write($"[GatewayServiceInstaller] {safeDisplay} -> exit {exit}; {Redact(Trim(output))}");
             if (exit != 0 && !lenient)
-                return Fail(steps, $"Command failed ({exit}): {cmd.Display}. {Trim(output)}");
+                return Fail(steps, $"Command failed ({exit}): {safeDisplay}. {Redact(Trim(output))}");
             if (lenient) WaitBriefly();
         }
 
