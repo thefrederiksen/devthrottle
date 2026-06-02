@@ -9,6 +9,9 @@ public static class PrerequisiteChecker
     private static readonly bool IsWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
     private static readonly bool IsMacOS = RuntimeInformation.IsOSPlatform(OSPlatform.OSX);
 
+    private const string DocsBase =
+        "https://github.com/thefrederiksen/cc-director/blob/main/docs/public/getting-started/02-installation.md";
+
     public static List<PrerequisiteInfo> CreateChecklist()
     {
         return
@@ -18,28 +21,32 @@ public static class PrerequisiteChecker
                 Name = "Claude Code",
                 Description = "AI coding assistant CLI",
                 IsRequired = true,
-                InstallUrl = "https://docs.anthropic.com/en/docs/claude-code/overview"
+                InstallUrl = "https://docs.anthropic.com/en/docs/claude-code/overview",
+                DocsUrl = $"{DocsBase}#claude-code"
             },
             new PrerequisiteInfo
             {
                 Name = "Python",
                 Description = "Python 3.11 or higher",
                 IsRequired = true,
-                InstallUrl = "https://www.python.org/downloads/"
+                InstallUrl = "https://www.python.org/downloads/",
+                DocsUrl = $"{DocsBase}#python"
             },
             new PrerequisiteInfo
             {
                 Name = "Node.js",
                 Description = "Node.js 20+ (MCP servers, browser tools)",
                 IsRequired = true,
-                InstallUrl = "https://nodejs.org/"
+                InstallUrl = "https://nodejs.org/",
+                DocsUrl = $"{DocsBase}#nodejs"
             },
             new PrerequisiteInfo
             {
                 Name = "Brave Browser",
-                Description = "Browser engine for cc-browser (Chrome stable blocks extensions)",
-                IsRequired = true,
-                InstallUrl = "https://brave.com/download/"
+                Description = "Optional browser engine for cc-browser (Chrome stable blocks extensions)",
+                IsRequired = false,
+                InstallUrl = "https://brave.com/download/",
+                DocsUrl = $"{DocsBase}#brave-browser-optional"
             },
         ];
     }
@@ -274,6 +281,28 @@ public static class PrerequisiteChecker
         return [];
     }
 
+    /// <summary>
+    /// Builds the current machine+user PATH straight from the registry (Windows only).
+    /// A process snapshots PATH at launch, so a tool installed after the setup app
+    /// started would be invisible to its child checks until restart. Reading the
+    /// User/Machine targets pulls the live value (with %VAR% expansion) instead.
+    /// Returns null on non-Windows or when nothing could be read, leaving the
+    /// inherited process PATH in place.
+    /// </summary>
+    private static string? BuildRefreshedPath()
+    {
+        if (!IsWindows)
+            return null;
+
+        var machine = Environment.GetEnvironmentVariable("PATH", EnvironmentVariableTarget.Machine) ?? "";
+        var user = Environment.GetEnvironmentVariable("PATH", EnvironmentVariableTarget.User) ?? "";
+
+        var parts = new[] { machine, user }.Where(p => !string.IsNullOrWhiteSpace(p));
+        var combined = string.Join(";", parts);
+
+        return string.IsNullOrWhiteSpace(combined) ? null : combined;
+    }
+
     private static (bool found, string output) RunCommand(string fileName, string arguments)
     {
         try
@@ -287,6 +316,13 @@ public static class PrerequisiteChecker
                 UseShellExecute = false,
                 CreateNoWindow = true,
             };
+
+            // Re-read the live PATH from the registry so that tools added to PATH
+            // AFTER this setup app launched (e.g. a just-installed Claude Code) are
+            // visible to "where"/"which" on Re-check without restarting the app.
+            var refreshedPath = BuildRefreshedPath();
+            if (refreshedPath != null)
+                psi.Environment["PATH"] = refreshedPath;
 
             using var process = Process.Start(psi);
             if (process == null)

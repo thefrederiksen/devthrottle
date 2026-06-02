@@ -46,13 +46,38 @@
             </StackPanel>
         </Border>
 
-        <Button x:Name="RefreshButton" Content="Re-check"
-                Classes="setup"
-                DockPanel.Dock="Bottom"
-                HorizontalAlignment="Left"
-                Width="100"
-                Margin="0,12,0,0"
-                Click="RefreshButton_Click" />
+        <StackPanel DockPanel.Dock="Bottom"
+                    Orientation="Horizontal"
+                    Margin="0,12,0,0">
+            <Button x:Name="RefreshButton" Content="Re-check"
+                    Classes="setup"
+                    Width="100"
+                    VerticalAlignment="Top"
+                    Click="RefreshButton_Click" />
+            <StackPanel Margin="14,0,0,0" VerticalAlignment="Center">
+                <TextBlock Text="Just installed one of these? Click Re-check -- it re-reads your PATH."
+                           Foreground="#888888"
+                           FontSize="11" />
+                <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
+                    <TextBlock Text="Still not found after a re-check?"
+                               Foreground="#888888"
+                               FontSize="11" />
+                    <TextBlock Text="Setup help ->"
+                               Foreground="#007ACC"
+                               FontSize="11"
+                               Margin="6,0,0,0"
+                               Cursor="Hand"
+                               Tag="https://github.com/thefrederiksen/cc-director/blob/main/docs/public/getting-started/02-installation.md#if-a-tool-is-not-detected-after-installing-it"
+                               PointerPressed="InstallLink_PointerPressed">
+                        <TextBlock.TextDecorations>
+                            <TextDecorationCollection>
+                                <TextDecoration Location="Underline" />
+                            </TextDecorationCollection>
+                        </TextBlock.TextDecorations>
+                    </TextBlock>
+                </StackPanel>
+            </StackPanel>
+        </StackPanel>
 
         <ItemsControl x:Name="PrereqList">
             <ItemsControl.ItemTemplate>
@@ -77,9 +102,21 @@
                                             Padding="6,1"
                                             Margin="8,0,0,0"
                                             Background="#3A1B1B"
-                                            VerticalAlignment="Center">
+                                            VerticalAlignment="Center"
+                                            IsVisible="{Binding IsRequired}">
                                         <TextBlock Text="Required"
                                                    Foreground="#CC4444"
+                                                   FontSize="10"
+                                                   FontWeight="SemiBold" />
+                                    </Border>
+                                    <Border CornerRadius="3"
+                                            Padding="6,1"
+                                            Margin="8,0,0,0"
+                                            Background="#2A2F38"
+                                            VerticalAlignment="Center"
+                                            IsVisible="{Binding !IsRequired}">
+                                        <TextBlock Text="Optional"
+                                                   Foreground="#8AA0B8"
                                                    FontSize="10"
                                                    FontWeight="SemiBold" />
                                     </Border>
@@ -96,21 +133,36 @@
                                            Margin="0,2,0,0"
                                            IsVisible="{Binding Version, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
 
-                                <!-- Install link (shown when prerequisite is not found) -->
-                                <TextBlock Text="Download and install ->"
-                                           Foreground="#007ACC"
-                                           FontSize="11"
-                                           Margin="0,4,0,0"
-                                           Cursor="Hand"
-                                           Tag="{Binding InstallUrl}"
-                                           IsVisible="{Binding !IsFound}"
-                                           PointerPressed="InstallLink_PointerPressed">
-                                    <TextBlock.TextDecorations>
-                                        <TextDecorationCollection>
-                                            <TextDecoration Location="Underline" />
-                                        </TextDecorationCollection>
-                                    </TextBlock.TextDecorations>
-                                </TextBlock>
+                                <!-- Install + setup-help links (shown when prerequisite is not found) -->
+                                <StackPanel Orientation="Horizontal"
+                                            Margin="0,4,0,0"
+                                            IsVisible="{Binding !IsFound}">
+                                    <TextBlock Text="Download and install ->"
+                                               Foreground="#007ACC"
+                                               FontSize="11"
+                                               Cursor="Hand"
+                                               Tag="{Binding InstallUrl}"
+                                               PointerPressed="InstallLink_PointerPressed">
+                                        <TextBlock.TextDecorations>
+                                            <TextDecorationCollection>
+                                                <TextDecoration Location="Underline" />
+                                            </TextDecorationCollection>
+                                        </TextBlock.TextDecorations>
+                                    </TextBlock>
+                                    <TextBlock Text="Setup help ->"
+                                               Foreground="#007ACC"
+                                               FontSize="11"
+                                               Margin="16,0,0,0"
+                                               Cursor="Hand"
+                                               Tag="{Binding DocsUrl}"
+                                               PointerPressed="InstallLink_PointerPressed">
+                                        <TextBlock.TextDecorations>
+                                            <TextDecorationCollection>
+                                                <TextDecoration Location="Underline" />
+                                            </TextDecorationCollection>
+                                        </TextBlock.TextDecorations>
+                                    </TextBlock>
+                                </StackPanel>
                             </StackPanel>
 
                             <TextBlock Grid.Column="1"

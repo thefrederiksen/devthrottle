@@ -13,6 +13,9 @@ public class PrerequisiteInfo : INotifyPropertyChanged
     public required bool IsRequired { get; init; }
     public required string InstallUrl { get; init; }
 
+    /// <summary>Link to the CC Director install docs section for this prerequisite (setup help).</summary>
+    public required string DocsUrl { get; init; }
+
     public string Status
     {
         get => _status;

@@ -43,20 +43,20 @@ public partial class PrerequisitesStep : UserControl
 
         RefreshButton.IsEnabled = true;
 
-        var allMet = _items.All(p => p.IsFound);
-        if (allMet)
+        var allRequiredMet = _items.Where(p => p.IsRequired).All(p => p.IsFound);
+        if (allRequiredMet)
         {
-            SubtitleText.Text = "All prerequisites found.";
+            SubtitleText.Text = "All required prerequisites found. You can install now.";
             SuccessBanner.IsVisible = true;
         }
         else
         {
-            SubtitleText.Text = "Some prerequisites are missing. Install them and re-check.";
+            SubtitleText.Text = "Some required prerequisites are missing. Install them and re-check.";
             SuccessBanner.IsVisible = false;
         }
 
         _onChecksComplete?.Invoke(_items);
-        SetupLog.Write($"[PrerequisitesStep] RunChecks: complete, allMet={allMet}");
+        SetupLog.Write($"[PrerequisitesStep] RunChecks: complete, allRequiredMet={allRequiredMet}");
     }
 
     private void RefreshButton_Click(object? sender, RoutedEventArgs e)
