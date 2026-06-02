@@ -195,8 +195,9 @@ public partial class SettingsDialog : Window
 
             if (patch.Count == 0)
             {
-                StatusText.Text = "No changes to save.";
-                SaveButton.IsEnabled = true;
+                // Nothing changed - "Save and Close" just closes, same as Cancel.
+                FileLog.Write("[SettingsDialog] BtnSave_Click: no changes; closing");
+                Close();
                 return;
             }
 
@@ -226,21 +227,15 @@ public partial class SettingsDialog : Window
                 CcDirectorConfigService.ReadRaw().ToJsonString(
                     new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
 
-            StatusText.Text = (gatewayChanged, screenshotsChanged) switch
-            {
-                (true, true) => "Saved. Gateway re-applied and screenshots tab reloaded.",
-                (true, false) => "Saved. Gateway re-applied.",
-                (false, true) => "Saved. Screenshots tab reloaded.",
-                _ => "Saved.",
-            };
+            // Saved cleanly - closing the dialog is the user's confirmation it worked.
+            FileLog.Write("[SettingsDialog] BtnSave_Click: saved; closing");
+            Close();
         }
         catch (Exception ex)
         {
+            // On failure stay open so the user can see what went wrong and retry.
             FileLog.Write($"[SettingsDialog] BtnSave_Click FAILED: {ex.Message}");
             StatusText.Text = $"Save failed: {ex.Message}";
-        }
-        finally
-        {
             SaveButton.IsEnabled = true;
         }
     }

@@ -1,8 +1,8 @@
 <Window x:Class="CcDirector.Avalonia.HelpDialog"
         xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Claude Code Help"
-        Width="550" Height="500"
+        Title="About CC Director"
+        Width="600" Height="560"
         WindowStartupLocation="CenterOwner"
         CanResize="False"
         Background="#252526">
@@ -16,7 +16,7 @@
 
         <!-- Header -->
         <TextBlock Grid.Row="0"
-                   Text="Help - Commands and Shortcuts"
+                   Text="About CC Director"
                    Foreground="#CCCCCC"
                    FontSize="16"
                    FontWeight="SemiBold"
@@ -25,6 +25,20 @@
         <!-- Scrollable content -->
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
             <StackPanel>
+
+                <!-- About This Instance Section -->
+                <TextBlock Text="ABOUT THIS INSTANCE"
+                           Foreground="#007ACC"
+                           FontSize="12"
+                           FontWeight="SemiBold"
+                           Margin="0,0,0,8" />
+
+                <!-- Rows are populated from code-behind (HelpDialog.PopulateAboutSection) so the
+                     displayed values and the "Copy info" text are built from one source. -->
+                <StackPanel x:Name="AboutPanel" Margin="0,0,0,4" />
+
+                <!-- Separator -->
+                <Border BorderBrush="#3C3C3C" BorderThickness="0,1,0,0" Margin="0,12,0,12" />
 
                 <!-- Slash Commands Section -->
                 <TextBlock Text="SLASH COMMANDS"
@@ -266,9 +280,14 @@
             </StackPanel>
         </ScrollViewer>
 
-        <!-- Close button -->
+        <!-- Action buttons -->
         <StackPanel Grid.Row="2" Orientation="Horizontal"
                     HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button x:Name="BtnCopyInfo" Content="Copy info" Width="110" Height="28"
+                    Background="#3C3C3C" Foreground="#CCCCCC"
+                    BorderThickness="0" Cursor="Hand"
+                    Margin="0,0,8,0"
+                    Click="BtnCopyInfo_Click" />
             <Button Content="Close" Width="80" Height="28"
                     Background="#3C3C3C" Foreground="#CCCCCC"
                     BorderThickness="0" Cursor="Hand"
