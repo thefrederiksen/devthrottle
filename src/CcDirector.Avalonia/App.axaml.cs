@@ -215,21 +215,32 @@ public partial class App : Application
             _ = Task.Run(async () =>
             {
                 await Task.Delay(TimeSpan.FromSeconds(2));
-                await Updater.CheckAndStageAsync();
+                await Updater.CheckAndStageAsync();   // initial Director self-check (inert if !enabled)
+                if (!enabled) return;                 // dev/slot build: no periodic auto-update
 
-                // Silent tool auto-update (release builds only). Tools aren't locked, so they swap
-                // in place - no restart needed (unlike the Director self-update above). Failures only log.
-                if (enabled)
+                // Periodic silent auto-update of the per-user tier (Director self + tools), on the
+                // configured cadence. Tools aren't locked, so they swap in place; the Director self-update
+                // stages and applies at the next restart. All failures only log. Re-reads the config each
+                // cycle so toggling autoUpdate.enabled / intervalHours takes effect without a restart.
+                var layout = CcDirector.Setup.Engine.InstallLayout.Default();
+                while (true)
                 {
-                    try
+                    var cfg = CcDirector.Setup.Engine.AutoUpdateConfig.Load(layout);
+                    if (cfg.Enabled)
                     {
-                        var toolResult = await new CcDirector.Setup.Engine.ToolUpdater().RefreshAsync();
-                        FileLog.Write($"[App] tool auto-update: updated={toolResult.Updated}, failed={toolResult.Failed}");
+                        try
+                        {
+                            await Updater.CheckAndStageAsync();
+                            var toolResult = await new CcDirector.Setup.Engine.ToolUpdater(layout).RefreshAsync();
+                            FileLog.Write($"[App] tool auto-update: updated={toolResult.Updated}, failed={toolResult.Failed}");
+                        }
+                        catch (Exception ex)
+                        {
+                            FileLog.Write($"[App] auto-update cycle FAILED: {ex.Message}");
+                        }
                     }
-                    catch (Exception ex)
-                    {
-                        FileLog.Write($"[App] tool auto-update FAILED: {ex.Message}");
-                    }
+                    // When enabled, wait the configured interval; when disabled, re-poll the config hourly.
+                    await Task.Delay(cfg.Enabled ? cfg.Interval : TimeSpan.FromHours(1));
                 }
             });
         }

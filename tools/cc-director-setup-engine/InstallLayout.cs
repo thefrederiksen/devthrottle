@@ -62,6 +62,9 @@ public sealed class InstallLayout
     /// <summary>The installed-version manifest: component id -> the version actually placed on disk.</summary>
     public string InstalledManifestPath => Path.Combine(SetupStateDir, "installed.json");
 
+    /// <summary>The shared app config (%LOCALAPPDATA%\cc-director\config\config.json), incl. the autoUpdate section.</summary>
+    public string ConfigPath => Path.Combine(LocalRoot, "config", "config.json");
+
     // ---- machine-wide service binaries (ProgramFilesRoot) ------------------
     public string GatewayDir => Path.Combine(ProgramFilesRoot, "gateway");
     public string CockpitDir => Path.Combine(ProgramFilesRoot, "cockpit");

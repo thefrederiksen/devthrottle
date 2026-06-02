@@ -681,6 +681,9 @@ containers:
         files:
           - InstalledManifest.cs
           - PinStore.cs
+      - name: AutoUpdateConfig
+        description: Reads the config.json autoUpdate section (enabled, intervalHours) that gates the resident apps' silent auto-update cadence; CC_AUTOUPDATE=0 is a global kill switch
+        file: AutoUpdateConfig.cs
       - name: GatewayServiceInstaller / GatewayServiceCommands
         description: Registers cc-gateway-service as a native LocalSystem Windows service via sc.exe/reg.exe (no NSSM); NSSM->native migration; redacts secrets in logs
         files:
