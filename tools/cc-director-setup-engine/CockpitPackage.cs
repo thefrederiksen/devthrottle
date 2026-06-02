@@ -46,6 +46,19 @@ public static class CockpitPackage
             var exe = layout.PathFor(ComponentRegistry.Cockpit);
             if (!File.Exists(exe))
                 throw new InvalidOperationException($"Cockpit exe not found after extraction at {exe}.");
+
+            // Record the placed version so the planner has a reliable installed version for the Cockpit
+            // (it ships as a zip, so it never goes through UpdateRunner's bookkeeping). Best-effort.
+            try
+            {
+                var m = InstalledManifest.Load(layout);
+                m.Set(ComponentRegistry.Cockpit.Id, asset.Version);
+                m.Save(layout);
+            }
+            catch (Exception ex)
+            {
+                EngineLog.Write($"[CockpitPackage] recording Cockpit version failed: {ex.Message}");
+            }
             return exe;
         }
         finally

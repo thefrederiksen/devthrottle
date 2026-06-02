@@ -11,15 +11,18 @@ public sealed class InstalledStateReader
     private readonly InstallLayout _layout;
     private readonly Func<string, bool> _fileExists;
     private readonly Func<string, string?> _readVersion;
+    private readonly InstalledManifest _installed;
 
     public InstalledStateReader(
         InstallLayout layout,
         Func<string, bool>? fileExists = null,
-        Func<string, string?>? readVersion = null)
+        Func<string, string?>? readVersion = null,
+        InstalledManifest? installed = null)
     {
         _layout = layout ?? throw new ArgumentNullException(nameof(layout));
         _fileExists = fileExists ?? File.Exists;
         _readVersion = readVersion ?? DefaultReadVersion;
+        _installed = installed ?? InstalledManifest.Load(layout);
     }
 
     /// <summary>Inspect one component.</summary>
@@ -30,7 +33,10 @@ public sealed class InstalledStateReader
         if (!_fileExists(path))
             return new InstalledComponent(component.Id, Present: false, Version: null, Path: path);
 
-        var version = _readVersion(path);
+        // Prefer the version we recorded when we placed it (reliable for every component, incl. tools
+        // that carry no file-version stamp); fall back to the on-disk file version for installs that
+        // predate the manifest.
+        var version = _installed.Get(component.Id) ?? _readVersion(path);
         return new InstalledComponent(component.Id, Present: true, Version: version, Path: path);
     }
 

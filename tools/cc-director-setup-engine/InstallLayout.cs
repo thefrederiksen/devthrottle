@@ -56,6 +56,12 @@ public sealed class InstallLayout
     public string AppDir => Path.Combine(LocalRoot, "app");
     public string BinDir => Path.Combine(LocalRoot, "bin");
 
+    /// <summary>Per-user install bookkeeping (installed-version manifest, pins) - NOT user data.</summary>
+    public string SetupStateDir => Path.Combine(LocalRoot, "config", "setup");
+
+    /// <summary>The installed-version manifest: component id -> the version actually placed on disk.</summary>
+    public string InstalledManifestPath => Path.Combine(SetupStateDir, "installed.json");
+
     // ---- machine-wide service binaries (ProgramFilesRoot) ------------------
     public string GatewayDir => Path.Combine(ProgramFilesRoot, "gateway");
     public string CockpitDir => Path.Combine(ProgramFilesRoot, "cockpit");

@@ -76,6 +76,8 @@ public sealed class UpdateRunner
             results.Add(await ApplyOneAsync(item, component, ct));
         }
 
+        RecordInstalledVersions(results);
+
         EngineLog.Write($"[UpdateRunner] ApplyAsync done: installed={results.Count(r => r.Status == ApplyStatus.Installed)}, " +
                         $"updated={results.Count(r => r.Status == ApplyStatus.Updated)}, " +
                         $"failed={results.Count(r => r.Status == ApplyStatus.Failed)}, " +
@@ -110,6 +112,33 @@ public sealed class UpdateRunner
         {
             EngineLog.Write($"[UpdateRunner] {item.ComponentId} FAILED: {ex.Message}");
             return Fail(item, ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Persist the version we just placed for each successfully installed/updated component, so the
+    /// planner has a reliable installed version next time (esp. for tools with no file-version stamp).
+    /// Best-effort: a bookkeeping write must never fail a good install.
+    /// </summary>
+    private void RecordInstalledVersions(IReadOnlyList<ApplyResult> results)
+    {
+        try
+        {
+            var manifest = InstalledManifest.Load(_layout);
+            var changed = false;
+            foreach (var r in results)
+            {
+                if (r.Status is not (ApplyStatus.Installed or ApplyStatus.Updated)) continue;
+                var version = r.ToVersion;
+                if (string.IsNullOrWhiteSpace(version)) continue; // narrows version to non-null below
+                manifest.Set(r.ComponentId, version);
+                changed = true;
+            }
+            if (changed) manifest.Save(_layout);
+        }
+        catch (Exception ex)
+        {
+            EngineLog.Write($"[UpdateRunner] recording installed versions failed: {ex.Message}");
         }
     }
 

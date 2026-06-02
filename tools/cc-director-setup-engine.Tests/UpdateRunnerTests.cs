@@ -51,6 +51,22 @@ public class UpdateRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task Install_RecordsVersionInInstalledManifest()
+    {
+        const string content = "tool-v1";
+        var sha = Hashing.Sha256OfFile(WriteTemp(content));
+        var pdf = ComponentRegistry.ToolComponent("cc-pdf");
+        var runner = new UpdateRunner(_layout, [pdf], DownloaderWith(content));
+
+        var plan = PlanOf(new PlanItem("cc-pdf", PlanItemKind.Install, pdf.WindowsAsset, null, "1.4.2", sha));
+        await runner.ApplyAsync(plan);
+
+        // The placed version is recorded so the planner has a reliable installed version next time.
+        var manifest = InstalledManifest.Load(_layout);
+        Assert.Equal("1.4.2", manifest.Get("cc-pdf"));
+    }
+
+    [Fact]
     public async Task Update_KeepsBackupAndReportsUpdated()
     {
         var pdf = ComponentRegistry.ToolComponent("cc-pdf");
