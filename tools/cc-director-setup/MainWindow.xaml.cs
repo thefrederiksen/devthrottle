@@ -317,9 +317,8 @@ public partial class MainWindow : Window
                 line => Dispatcher.BeginInvoke(() => _installStep?.SetStatus($"Gateway: {line}")));
 
             _gatewayResultMessage = result.Message;
-            _installStep?.SetStatus(result.Success
-                ? "Gateway service installed - Cockpit live on http://localhost:7470"
-                : $"Gateway service NOT installed - {result.Message}");
+            // result.Message already carries the tailnet Cockpit URL (never localhost).
+            _installStep?.SetStatus(result.Message);
             SetupLog.Write($"[MainWindow] Gateway install success={result.Success}: {result.Message}");
         }
         catch (Exception ex)

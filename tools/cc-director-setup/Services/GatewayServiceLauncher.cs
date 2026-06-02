@@ -77,7 +77,7 @@ public sealed class GatewayServiceLauncher
             ok,
             proc.ExitCode,
             ok
-                ? "Gateway service installed; Cockpit live on http://localhost:7470."
+                ? $"Gateway service installed; Cockpit live at {TailnetResolver.Url(7470)}."
                 : $"Gateway install failed (exit {proc.ExitCode}). See {logPath}.");
     }
 

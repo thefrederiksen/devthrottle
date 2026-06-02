@@ -144,7 +144,7 @@ public sealed class GatewayServiceInstaller
             return Fail(steps, $"Gateway is up but the supervised Cockpit did not answer on 7470. Check {_layout.ServiceLogsDir}.");
 
         EngineLog.Write("[GatewayServiceInstaller] InstallAsync success");
-        return new GatewayInstallResult(true, "Gateway service installed and running; Cockpit live on 7470.", steps);
+        return new GatewayInstallResult(true, $"Gateway service installed and running; Cockpit live at {TailnetResolver.Url(7470)}.", steps);
     }
 
     // The Gateway's default port; kept here so the engine has no compile dependency on the Gateway exe.

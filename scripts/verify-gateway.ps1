@@ -108,11 +108,31 @@ $ckAt = if (Test-Path $ckExe) { 'present' } else { 'NOT at canonical path' }
 Write-Host ("[INFO] Gateway exe ({0}): {1}" -f $gwAt, $gwExe)
 Write-Host ("[INFO] Cockpit exe ({0}): {1}" -f $ckAt, $ckExe)
 
+# Resolve the Tailscale host so we show a URL that works from the phone / anywhere on the tailnet -
+# never localhost (localhost is useless off this machine).
+function Get-TailnetHost {
+    $ts = "C:\Program Files\Tailscale\tailscale.exe"
+    if (Test-Path $ts) {
+        try {
+            $dns = (& $ts status --json 2>$null | ConvertFrom-Json).Self.DNSName
+            if ($dns) { return $dns.TrimEnd('.') }
+        } catch { }
+        try { $ip = (& $ts ip -4 2>$null); if ($ip) { return ($ip | Select-Object -First 1).Trim() } } catch { }
+    }
+    return $null
+}
+
 Write-Host ""
 $failed = @($results | Where-Object { -not $_.Pass })
 if ($failed.Count -eq 0) {
+    $tnet = Get-TailnetHost
     Write-Host "RESULT: PASS - Gateway service installed and serving Gateway + Cockpit." -ForegroundColor Green
-    Write-Host ("Open the Cockpit: http://localhost:{0}" -f $CockpitPort)
+    if ($tnet) {
+        Write-Host ("Open the Cockpit: http://{0}:{1}" -f $tnet, $CockpitPort)
+        Write-Host ("Gateway:          http://{0}:{1}" -f $tnet, $GatewayPort)
+    } else {
+        Write-Host ("Open the Cockpit on the tailnet host on port {0} (Tailscale not detected to build the URL)." -f $CockpitPort)
+    }
     Write-Host "Reboot once and re-run this script to confirm the service comes back automatically."
     exit 0
 }
