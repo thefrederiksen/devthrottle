@@ -70,7 +70,31 @@ public sealed class GatewayServiceInstaller
             return Fail(steps, $"Cockpit extraction failed: {ex.Message}");
         }
 
-        // 2-3. Register + configure the service (idempotent: stop/delete any prior one first).
+        // 2. Detect an existing cc-gateway-service so the swap is explicit, never silent. An older
+        // install registered the service through NSSM (binPath = ...\nssm.exe); the stop/delete below
+        // removes it and Create stands up the native Windows service in its place.
+        var (qcExit, qcOut) = Run(GatewayServiceCommands.QueryConfig());
+        if (qcExit == 0)
+        {
+            var existingBin = GatewayServiceCommands.ParseBinaryPath(qcOut);
+            if (GatewayServiceCommands.IsNssmBinary(existingBin))
+            {
+                steps.Add($"migrating NSSM-wrapped service -> native Windows service (was: {existingBin})");
+                EngineLog.Write($"[GatewayServiceInstaller] migrating NSSM -> native; existing binPath={existingBin}");
+            }
+            else
+            {
+                steps.Add($"replacing existing cc-gateway-service (was: {existingBin ?? "unknown binPath"})");
+                EngineLog.Write($"[GatewayServiceInstaller] replacing existing service; binPath={existingBin}");
+            }
+        }
+        else
+        {
+            steps.Add("fresh install (no existing cc-gateway-service)");
+            EngineLog.Write("[GatewayServiceInstaller] no existing cc-gateway-service; fresh install");
+        }
+
+        // 3. Register + configure the service (idempotent: stop/delete any prior one first).
         Directory.CreateDirectory(_layout.ServiceLogsDir);
         var port = GatewayHostDefaultPort;
         var commands = new[]

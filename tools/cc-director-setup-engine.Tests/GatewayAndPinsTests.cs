@@ -43,6 +43,39 @@ public class GatewayServiceCommandsTests
         Assert.Equal("stop custom-svc", stop.Arguments);
         Assert.Contains("custom-svc", stop.Display);
     }
+
+    [Fact]
+    public void ParseBinaryPath_ExtractsPath_AndDetectsNssm()
+    {
+        // Real `sc qc` shape: an NSSM-wrapped service.
+        var nssmOut = string.Join('\n',
+            "[SC] QueryServiceConfig SUCCESS",
+            "SERVICE_NAME: cc-gateway-service",
+            "        TYPE               : 10  WIN32_OWN_PROCESS",
+            "        START_TYPE         : 2   AUTO_START",
+            "        BINARY_PATH_NAME   : C:\\Users\\example\\AppData\\Local\\Microsoft\\WinGet\\Links\\nssm.exe",
+            "        DISPLAY_NAME       : CC Gateway Service");
+        var bin = GatewayServiceCommands.ParseBinaryPath(nssmOut);
+        Assert.Equal(@"C:\Users\example\AppData\Local\Microsoft\WinGet\Links\nssm.exe", bin);
+        Assert.True(GatewayServiceCommands.IsNssmBinary(bin));
+    }
+
+    [Fact]
+    public void ParseBinaryPath_NativeService_IsNotNssm()
+    {
+        var nativeOut = "        BINARY_PATH_NAME   : \"C:\\Program Files\\CC Director\\gateway\\cc-director-gateway.exe\" --port 7878";
+        var bin = GatewayServiceCommands.ParseBinaryPath(nativeOut);
+        Assert.Contains("cc-director-gateway.exe", bin);
+        Assert.False(GatewayServiceCommands.IsNssmBinary(bin));
+    }
+
+    [Fact]
+    public void ParseBinaryPath_NoBinaryLine_ReturnsNull()
+    {
+        Assert.Null(GatewayServiceCommands.ParseBinaryPath("[SC] OpenService FAILED 1060"));
+        Assert.Null(GatewayServiceCommands.ParseBinaryPath(""));
+        Assert.False(GatewayServiceCommands.IsNssmBinary(null));
+    }
 }
 
 public class UpdatePinsTests

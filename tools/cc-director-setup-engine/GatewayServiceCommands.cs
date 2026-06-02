@@ -43,6 +43,33 @@ public static class GatewayServiceCommands
     public static ServiceCommand Query(string serviceName = ServiceName) =>
         new("sc.exe", $"query {serviceName}");
 
+    /// <summary>sc.exe qc &lt;svc&gt; (queries the service config, incl. BINARY_PATH_NAME).</summary>
+    public static ServiceCommand QueryConfig(string serviceName = ServiceName) =>
+        new("sc.exe", $"qc {serviceName}");
+
+    /// <summary>
+    /// Extract BINARY_PATH_NAME from `sc qc` output, or null if absent. Pure so the
+    /// NSSM-vs-native detection is unit-testable without a real service.
+    /// </summary>
+    public static string? ParseBinaryPath(string scQcOutput)
+    {
+        if (string.IsNullOrEmpty(scQcOutput)) return null;
+        foreach (var line in scQcOutput.Split('\n'))
+        {
+            var idx = line.IndexOf("BINARY_PATH_NAME", StringComparison.OrdinalIgnoreCase);
+            if (idx < 0) continue;
+            var colon = line.IndexOf(':', idx);            // first ':' after the label; the path's "C:" comes later
+            if (colon < 0) continue;
+            var value = line[(colon + 1)..].Trim();
+            return value.Length == 0 ? null : value;
+        }
+        return null;
+    }
+
+    /// <summary>True when the service's binary is NSSM (a wrapped service we are migrating off of).</summary>
+    public static bool IsNssmBinary(string? binaryPath) =>
+        binaryPath is not null && binaryPath.Contains("nssm", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>sc.exe delete &lt;svc&gt; (used to make first install idempotent).</summary>
     public static ServiceCommand Delete(string serviceName = ServiceName) =>
         new("sc.exe", $"delete {serviceName}");
