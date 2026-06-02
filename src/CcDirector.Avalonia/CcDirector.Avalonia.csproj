@@ -5,7 +5,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>0.3.7</Version>
+    <Version>0.3.8</Version>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <NoWarn>CS0618;CS0067;AVLN3001</NoWarn>
     <!-- CS0618: Avalonia clipboard API deprecation -->
