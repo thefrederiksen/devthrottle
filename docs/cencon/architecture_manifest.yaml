@@ -566,6 +566,7 @@ containers:
     dependencies:
       - CcDirector.Gateway.Contracts
       - CcDirector.Core
+      - CcDirector.Setup.Engine
     components:
       - name: GatewayHost
         description: Kestrel host runner; wires the registry, Tailscale provisioner and Director client; one instance per machine
@@ -691,6 +692,9 @@ containers:
       - name: ToolUpdater
         description: Silent auto-update of installed CLI tools (refresh-only, honors pins); driven by the resident Director
         file: ToolUpdater.cs
+      - name: CockpitUpdater
+        description: Silent in-place Cockpit update (refresh-only, pin-aware); driven by the Gateway's Cockpit supervisor before launch
+        file: CockpitUpdater.cs
       - name: Uninstaller
         description: Removes only install-owned files (preserves user data); service + machine dirs + per-user app/bin + PATH + shortcut
         file: Uninstaller.cs

@@ -1,5 +1,7 @@
 using System.Diagnostics;
+using System.Net.Http;
 using CcDirector.Core.Utilities;
+using CcDirector.Setup.Engine;
 
 namespace CcDirector.Gateway.Cockpit;
 
@@ -25,7 +27,9 @@ public sealed class CockpitSupervisor : IDisposable
         Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
         "CC Director", "cockpit", "cc-director-cockpit.exe");
     private const string CockpitProcessName = "cc-director-cockpit";
-    private const int DefaultPort = 7470;
+
+    /// <summary>Canonical Cockpit port. Overridable with <c>CC_COCKPIT_PORT</c> via <see cref="ResolvePort"/>.</summary>
+    public const int DefaultPort = 7470;
 
     private static readonly TimeSpan BaseBackoff = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan MaxBackoff = TimeSpan.FromSeconds(30);
@@ -60,12 +64,21 @@ public sealed class CockpitSupervisor : IDisposable
         var exe = Environment.GetEnvironmentVariable("CC_COCKPIT_EXE");
         if (string.IsNullOrWhiteSpace(exe)) exe = DefaultExe;
 
-        var port = DefaultPort;
+        return new CockpitSupervisor(enabled, exe, ResolvePort());
+    }
+
+    /// <summary>
+    /// The Cockpit's port: <c>CC_COCKPIT_PORT</c> when set to a valid value, else
+    /// <see cref="DefaultPort"/>. Shared by the supervisor (which launches the Cockpit on it)
+    /// and the Gateway (which provisions the Tailscale Serve mapping and advertises the URL for
+    /// it), so all three agree on one number.
+    /// </summary>
+    public static int ResolvePort()
+    {
         var portEnv = Environment.GetEnvironmentVariable("CC_COCKPIT_PORT");
         if (!string.IsNullOrWhiteSpace(portEnv) && int.TryParse(portEnv, out var p) && p is > 0 and < 65536)
-            port = p;
-
-        return new CockpitSupervisor(enabled, exe, port);
+            return p;
+        return DefaultPort;
     }
 
     public void Start()
@@ -87,6 +100,13 @@ public sealed class CockpitSupervisor : IDisposable
 
     private async Task SuperviseAsync(CancellationToken ct)
     {
+        // Apply any available Cockpit update ONCE, before the first launch (the child is not running, so
+        // its files are not locked). This is the silent "apply at next restart" path (D5): the Cockpit
+        // moves to the latest release whenever the Gateway service (re)starts. Never blocks startup on a
+        // slow/unreachable GitHub - it is time-boxed and all failures just fall through to launching the
+        // build already on disk.
+        await TryAutoUpdateAsync(ct);
+
         var backoff = BaseBackoff;
 
         while (!ct.IsCancellationRequested)
@@ -131,6 +151,35 @@ public sealed class CockpitSupervisor : IDisposable
         }
 
         StopChild();
+    }
+
+    /// <summary>
+    /// Time-boxed Cockpit auto-update: fetch the latest release and extract a newer Cockpit if one is
+    /// available (refresh-only, pin-aware). Called once before the first launch. All failures (offline,
+    /// slow GitHub, etc.) are swallowed so they can never block the Cockpit from starting; the build
+    /// already on disk launches as usual. Opt out with CC_COCKPIT_AUTOUPDATE=0 (full config is phase 5).
+    /// </summary>
+    private static async Task TryAutoUpdateAsync(CancellationToken ct)
+    {
+        if (Environment.GetEnvironmentVariable("CC_COCKPIT_AUTOUPDATE") == "0")
+        {
+            FileLog.Write("[CockpitSupervisor] Cockpit auto-update disabled (CC_COCKPIT_AUTOUPDATE=0)");
+            return;
+        }
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(15)); // never delay Cockpit startup on a slow/unreachable GitHub
+            var source = new ReleaseSource(new HttpClient { Timeout = TimeSpan.FromSeconds(12) });
+            var release = await source.FetchLatestAsync(cts.Token);
+            var newVersion = await new CockpitUpdater().ApplyAsync(release, source, cts.Token);
+            if (newVersion is not null)
+                FileLog.Write($"[CockpitSupervisor] auto-updated Cockpit to {newVersion} before launch");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[CockpitSupervisor] Cockpit update check skipped: {ex.Message}");
+        }
     }
 
     private static void KillOrphans()
