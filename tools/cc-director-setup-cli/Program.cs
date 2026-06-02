@@ -39,6 +39,7 @@ public static class Program
                 "plan" => await Commands.PlanAsync(args, layout, json),
                 "update" => await Commands.UpdateAsync(args, layout, json, installMode: false),
                 "install" => await Commands.UpdateAsync(args, layout, json, installMode: true),
+                "uninstall" => Commands.Uninstall(args, layout, json),
                 "rollback" => Commands.Rollback(args, layout, json),
                 "help" or "--help" => Help(),
                 _ => Unknown(args.Command),
@@ -117,6 +118,7 @@ public static class Program
               plan                       Show what an update/install would change
               update                     Download, verify, and apply updates
               install --role <r>         Install/update all components for a role
+              uninstall --role <r>       Remove install-owned files (preserves your data)
               rollback <component>       Restore the previous build and pin away from current
 
             Options:

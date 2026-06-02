@@ -255,6 +255,50 @@ internal static class Commands
         return Ok;
     }
 
+    public static int Uninstall(CliArgs args, InstallLayout layout, bool json)
+    {
+        var role = Role(args);
+        var uninstaller = new Uninstaller(layout);
+
+        if (args.HasFlag("dry-run"))
+        {
+            var plan = uninstaller.Plan(role);
+            if (json)
+            {
+                Program.WriteJson(plan.Select(t => new { kind = t.Kind.ToString(), t.Description, t.Path, t.Present }));
+            }
+            else
+            {
+                Console.WriteLine($"Uninstall plan (role '{role}') - removes ONLY install-owned files; your data is preserved:");
+                foreach (var t in plan)
+                    Console.WriteLine($"  [{(t.Present ? "x" : " ")}] {t.Kind,-10} {t.Description} ({t.Path})");
+            }
+            return Ok;
+        }
+
+        // Removing the Gateway service + %ProgramFiles% needs admin; fail loudly rather than half-uninstall.
+        if (role == InstallRole.Gateway && OperatingSystem.IsWindows() && !GatewayServiceInstaller.IsElevated())
+        {
+            const string msg = "ERROR: Uninstalling the Gateway must run elevated (it removes a Windows service and %ProgramFiles%).\n" +
+                               "       Re-run this command from an Administrator console.";
+            if (json) Program.WriteJson(new { failed = msg }); else Console.Error.WriteLine(msg);
+            return Error;
+        }
+
+        var report = uninstaller.Apply(role);
+        if (json)
+        {
+            Program.WriteJson(new { success = report.Success, steps = report.Steps, errors = report.Errors });
+        }
+        else
+        {
+            Console.WriteLine(report.Success ? "Uninstall complete:" : "Uninstall finished with errors:");
+            foreach (var s in report.Steps) Console.WriteLine($"  {s}");
+            foreach (var e in report.Errors) Console.WriteLine($"  ERROR: {e}");
+        }
+        return report.Success ? Ok : Error;
+    }
+
     // ---- shared helpers ----------------------------------------------------
 
     private static async Task<(UpdatePlan plan, ResolvedRelease release)> ComputePlanAsync(CliArgs args, InstallLayout layout)

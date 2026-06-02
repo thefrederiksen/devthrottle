@@ -150,23 +150,7 @@ public sealed class GatewayServiceInstaller
     // The Gateway's default port; kept here so the engine has no compile dependency on the Gateway exe.
     private const int GatewayHostDefaultPort = 7878;
 
-    private static (int exit, string output) Run(ServiceCommand cmd)
-    {
-        var psi = new ProcessStartInfo
-        {
-            FileName = cmd.Exe,
-            Arguments = cmd.Arguments,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
-        using var p = Process.Start(psi) ?? throw new InvalidOperationException($"Failed to start {cmd.Exe}.");
-        var stdout = p.StandardOutput.ReadToEnd();
-        var stderr = p.StandardError.ReadToEnd();
-        p.WaitForExit();
-        return (p.ExitCode, string.IsNullOrWhiteSpace(stderr) ? stdout : $"{stdout}\n{stderr}");
-    }
+    private static (int exit, string output) Run(ServiceCommand cmd) => ProcessRunner.Run(cmd);
 
     private static void WaitBriefly() => Thread.Sleep(1500);
 
