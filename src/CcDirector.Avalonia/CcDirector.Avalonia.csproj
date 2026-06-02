@@ -40,6 +40,8 @@
     <ProjectReference Include="..\CcDirector.Terminal.Avalonia\CcDirector.Terminal.Avalonia.csproj" />
     <ProjectReference Include="..\CcDirector.Gateway.Contracts\CcDirector.Gateway.Contracts.csproj" />
     <ProjectReference Include="..\CcDirector.ControlApi\CcDirector.ControlApi.csproj" />
+    <!-- Setup engine: the Director drives silent tool auto-update (ToolUpdater) on its update loop. -->
+    <ProjectReference Include="..\..\tools\cc-director-setup-engine\CcDirector.Setup.Engine.csproj" />
   </ItemGroup>
   <ItemGroup>
     <AvaloniaResource Include="app.ico" />

@@ -216,6 +216,21 @@ public partial class App : Application
             {
                 await Task.Delay(TimeSpan.FromSeconds(2));
                 await Updater.CheckAndStageAsync();
+
+                // Silent tool auto-update (release builds only). Tools aren't locked, so they swap
+                // in place - no restart needed (unlike the Director self-update above). Failures only log.
+                if (enabled)
+                {
+                    try
+                    {
+                        var toolResult = await new CcDirector.Setup.Engine.ToolUpdater().RefreshAsync();
+                        FileLog.Write($"[App] tool auto-update: updated={toolResult.Updated}, failed={toolResult.Failed}");
+                    }
+                    catch (Exception ex)
+                    {
+                        FileLog.Write($"[App] tool auto-update FAILED: {ex.Message}");
+                    }
+                }
             });
         }
         catch (Exception ex)

@@ -10,7 +10,7 @@ project:
   framework: ".NET 10"
   platform: "Windows 10/11 (Avalonia primary; WPF archived), Mac/Linux (experimental backend)"
 
-last_updated: "2026-06-01"
+last_updated: "2026-06-02"
 
 # C4 Level 1: System Context
 context:
@@ -153,6 +153,7 @@ containers:
       - CcDirector.Engine
       - CcDirector.Terminal.Core
       - CcDirector.Terminal.Avalonia
+      - CcDirector.Setup.Engine
     components:
       - name: MainWindow
         description: Primary window with session sidebar, content tabs, and right panel
@@ -647,6 +648,94 @@ containers:
         files:
           - RecordingManifest.cs
           - GoalAssessment.cs
+
+  - id: setup_engine
+    name: Setup / Install / Update Engine
+    technology: C# / .NET 10 (headless library)
+    description: Shared engine for first-time install, uninstall, and per-component auto-update from GitHub releases. Used by the setup CLI, the WPF wizard, and (for tool auto-update) the Director.
+    project: CcDirector.Setup.Engine
+    dependencies: []
+    components:
+      - name: InstallLayout
+        description: Canonical on-disk locations (per-user app/bin, machine ProgramFiles/ProgramData, setup-state dir)
+        file: InstallLayout.cs
+      - name: ComponentRegistry
+        description: Canonical component list (Director, Gateway, Cockpit, tools) and role mapping; discovers tools from the manifest
+        file: ComponentRegistry.cs
+      - name: ReleaseSource
+        description: Resolves a release (GitHub latest / local manifest / local dir), parses release-manifest.json, downloads + stages assets
+        file: ReleaseSource.cs
+      - name: UpdatePlanner / UpdatePins
+        description: Pure per-component decision (Install/Update/UpToDate/MissingAsset/Pinned) using independent per-asset versions
+        files:
+          - UpdatePlanner.cs
+          - UpdatePin.cs
+      - name: UpdateRunner / InstallSwapper
+        description: Download -> SHA-256 verify -> atomic swap with .old backup; records placed versions
+        files:
+          - UpdateRunner.cs
+          - InstallSwapper.cs
+      - name: InstalledManifest / PinStore
+        description: Per-user install bookkeeping - recorded installed versions (installed.json) and rollback pins (update-pins.json)
+        files:
+          - InstalledManifest.cs
+          - PinStore.cs
+      - name: GatewayServiceInstaller / GatewayServiceCommands
+        description: Registers cc-gateway-service as a native LocalSystem Windows service via sc.exe/reg.exe (no NSSM); NSSM->native migration; redacts secrets in logs
+        files:
+          - GatewayServiceInstaller.cs
+          - GatewayServiceCommands.cs
+      - name: CockpitPackage
+        description: Downloads, verifies, and extracts the Cockpit zip into the machine cockpit dir
+        file: CockpitPackage.cs
+      - name: ToolUpdater
+        description: Silent auto-update of installed CLI tools (refresh-only, honors pins); driven by the resident Director
+        file: ToolUpdater.cs
+      - name: Uninstaller
+        description: Removes only install-owned files (preserves user data); service + machine dirs + per-user app/bin + PATH + shortcut
+        file: Uninstaller.cs
+      - name: InstallFinalizer
+        description: Per-user finalization - adds bin to PATH and creates the Start Menu shortcut
+        file: InstallFinalizer.cs
+      - name: TailnetResolver
+        description: Resolves the Tailscale MagicDNS host so user-facing URLs use the tailnet, never localhost
+        file: TailnetResolver.cs
+
+  - id: setup_cli
+    name: Setup CLI
+    technology: C# / .NET 10 (console)
+    description: Headless front-end over the setup engine (components/status/plan/install/update/uninstall/rollback); the wizard shells it elevated for the Gateway install
+    project: CcDirector.Setup.Cli
+    dependencies:
+      - CcDirector.Setup.Engine
+    components:
+      - name: Program / Commands
+        description: Command dispatch, --log-file tee, JSON output
+        files:
+          - Program.cs
+          - Commands.cs
+      - name: FrameworkDetector
+        description: Checks for an agent framework (Claude Code / Codex) prerequisite
+        file: FrameworkDetector.cs
+
+  - id: setup_wizard
+    name: Setup Wizard (WPF)
+    technology: C# / WPF
+    description: Graphical installer with Workstation/Gateway role selection; does the per-user install and shells the elevated CLI for the Gateway service
+    project: CcDirector.Setup (cc-director-setup)
+    dependencies:
+      - CcDirector.Setup.Engine
+    components:
+      - name: Wizard steps
+        description: Welcome (role picker), Prerequisites, Skills, Install, Complete
+        files:
+          - Steps/WelcomeStep.xaml.cs
+          - Steps/InstallStep.xaml.cs
+      - name: EngineInstallRunner / GatewayServiceLauncher
+        description: Drives the engine for the per-user install; shells the elevated CLI (runas) for the Gateway machine install
+        files:
+          - Services/EngineInstallRunner.cs
+          - Services/GatewayServiceLauncher.cs
 
 # Data flows
 data_flows:
