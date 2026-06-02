@@ -11,11 +11,18 @@ internal static class Commands
 
     // ---- component scope helpers ------------------------------------------
 
-    private static IReadOnlyList<string> ToolIds(CliArgs args)
+    private static IReadOnlyList<string> ToolIds(CliArgs args, ReleaseManifest? manifest = null)
     {
         var raw = args.Option("tools");
-        if (string.IsNullOrWhiteSpace(raw)) return ComponentRegistry.DefaultToolIds;
-        return raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (!string.IsNullOrWhiteSpace(raw))
+            return raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        // Parity with the wizard: when --tools is not given, install exactly what the release ships
+        // (discovered from the manifest), not a hardcoded default. Only fall back to the small default
+        // set when no release is in hand (e.g. the offline 'components'/'status' commands).
+        return manifest is not null
+            ? ComponentRegistry.DiscoverToolIds(manifest)
+            : ComponentRegistry.DefaultToolIds;
     }
 
     private static InstallRole Role(CliArgs args)
@@ -29,8 +36,8 @@ internal static class Commands
         };
     }
 
-    private static IReadOnlyList<Component> ScopedComponents(CliArgs args) =>
-        ComponentRegistry.ForRole(ComponentRegistry.Build(ToolIds(args)), Role(args));
+    private static IReadOnlyList<Component> ScopedComponents(CliArgs args, ReleaseManifest? manifest = null) =>
+        ComponentRegistry.ForRole(ComponentRegistry.Build(ToolIds(args, manifest)), Role(args));
 
     // ---- commands ----------------------------------------------------------
 
@@ -114,7 +121,7 @@ internal static class Commands
 
     public static async Task<int> PlanAsync(CliArgs args, InstallLayout layout, bool json)
     {
-        var (plan, _) = await ComputePlanAsync(args, layout);
+        var (plan, _, _) = await ComputePlanAsync(args, layout);
         PrintPlan(plan, json);
         return Ok;
     }
@@ -137,7 +144,7 @@ internal static class Commands
             }
         }
 
-        var (plan, release) = await ComputePlanAsync(args, layout);
+        var (plan, release, components) = await ComputePlanAsync(args, layout);
 
         // Optionally narrow to one component.
         var only = args.Option("component");
@@ -154,7 +161,6 @@ internal static class Commands
             return Ok;
         }
 
-        var components = ScopedComponents(args);
         var source = new ReleaseSource();
 
         var result = new UpdateRunResult { Results = Array.Empty<ApplyResult>() };
@@ -191,6 +197,23 @@ internal static class Commands
                 Console.WriteLine($"  {svc.Message}");
             }
             if (!svc.Success) return Error;
+        }
+
+        // Per-user finalization (wizard parity): if the Director or any tool was placed, add the bin dir
+        // to PATH and create the Start Menu shortcut. Skipped when only machine components (gateway/
+        // cockpit) changed - e.g. a `--component gateway` call from the wizard, which does this itself.
+        var perUserTouched = result.Results.Any(r =>
+            r.Status is ApplyStatus.Installed or ApplyStatus.Updated &&
+            r.ComponentId is not ("gateway" or "cockpit"));
+        if (perUserTouched && OperatingSystem.IsWindows())
+        {
+            var pathChanged = InstallFinalizer.AddBinToPath(layout);
+            var shortcut = InstallFinalizer.CreateDirectorShortcut(layout);
+            if (!json)
+            {
+                Console.WriteLine(pathChanged ? $"PATH: added {layout.BinDir} (open a new terminal to use the tools)" : "PATH: already set");
+                Console.WriteLine(shortcut ? "Start Menu shortcut: created" : "Start Menu shortcut: skipped (Director not installed)");
+            }
         }
 
         return result.Failed > 0 ? Error : Ok;
@@ -301,15 +324,17 @@ internal static class Commands
 
     // ---- shared helpers ----------------------------------------------------
 
-    private static async Task<(UpdatePlan plan, ResolvedRelease release)> ComputePlanAsync(CliArgs args, InstallLayout layout)
+    private static async Task<(UpdatePlan plan, ResolvedRelease release, IReadOnlyList<Component> components)> ComputePlanAsync(CliArgs args, InstallLayout layout)
     {
-        var components = ScopedComponents(args);
+        // Resolve the release first so the tool set is discovered from ITS manifest (wizard parity),
+        // not a hardcoded default.
         var release = await ResolveReleaseAsync(args);
+        var components = ScopedComponents(args, release.Manifest);
         var reader = new InstalledStateReader(layout);
         var installed = reader.ReadAll(components);
         var pins = PinStore.Load(layout);
         var plan = UpdatePlanner.Plan(components, installed, release.Manifest, pins);
-        return (plan, release);
+        return (plan, release, components);
     }
 
     private static async Task<ResolvedRelease> ResolveReleaseAsync(CliArgs args)

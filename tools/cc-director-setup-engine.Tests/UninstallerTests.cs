@@ -102,4 +102,14 @@ public class UninstallerTests : IDisposable
     {
         Assert.Equal(expected, Uninstaller.ComputePathWithout(input, dir));
     }
+
+    [Theory]
+    [InlineData(@"C:\a;C:\b", @"C:\cc\bin", @"C:\a;C:\b;C:\cc\bin")]   // appended
+    [InlineData(@"C:\a;C:\cc\bin;C:\b", @"C:\cc\bin", @"C:\a;C:\cc\bin;C:\b")] // already present -> unchanged
+    [InlineData(@"C:\a;c:\CC\BIN\", @"C:\cc\bin", @"C:\a;c:\CC\BIN\")] // case/trailing-slash insensitive -> unchanged
+    [InlineData("", @"C:\cc\bin", @"C:\cc\bin")]                       // empty -> just the dir
+    public void ComputePathWith_AppendsUnlessPresent(string input, string dir, string expected)
+    {
+        Assert.Equal(expected, InstallFinalizer.ComputePathWith(input, dir));
+    }
 }
