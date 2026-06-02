@@ -695,6 +695,11 @@ containers:
       - name: CockpitUpdater
         description: Silent in-place Cockpit update (refresh-only, pin-aware); driven by the Gateway's Cockpit supervisor before launch
         file: CockpitUpdater.cs
+      - name: GatewayUpdater / GatewaySelfUpdate
+        description: Gateway self-update - stage the new exe, launch a detached LocalSystem helper (--apply-service-update) that stops the service, swaps the locked exe, restarts, health-checks, and AUTO-ROLLS-BACK + pins a bad build (DA-1)
+        files:
+          - GatewayUpdater.cs
+          - GatewaySelfUpdate.cs
       - name: Uninstaller
         description: Removes only install-owned files (preserves user data); service + machine dirs + per-user app/bin + PATH + shortcut
         file: Uninstaller.cs

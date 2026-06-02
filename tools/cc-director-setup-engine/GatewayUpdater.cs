@@ -1,0 +1,107 @@
+using System.Diagnostics;
+using System.Runtime.Versioning;
+
+namespace CcDirector.Setup.Engine;
+
+/// <summary>
+/// Drives a Gateway self-update: decide if a newer Gateway exe is available, stage it (download +
+/// verify) to a stable path, and launch the detached helper (the staged exe in
+/// <c>--apply-service-update</c> mode) that performs the stop -> swap -> start -> health -> rollback
+/// (<see cref="GatewaySelfUpdate"/>). The helper runs from the STAGED copy so the installed exe is free
+/// to overwrite once the service stops. Refresh-only and pin-aware.
+/// </summary>
+public sealed class GatewayUpdater
+{
+    private readonly InstallLayout _layout;
+
+    public GatewayUpdater(InstallLayout? layout = null)
+    {
+        _layout = layout ?? InstallLayout.Default();
+    }
+
+    /// <summary>The staging path the new Gateway exe is downloaded to before the swap.</summary>
+    public string StagedExePath => Path.Combine(_layout.ServiceStateDir, "staged", "cc-director-gateway.exe");
+
+    /// <summary>True when the release has a Gateway newer than the installed one (and it isn't pinned).</summary>
+    public bool IsUpdateAvailable(ResolvedRelease release)
+    {
+        ArgumentNullException.ThrowIfNull(release);
+        var asset = release.Manifest.TryGetAsset(ComponentRegistry.Gateway.WindowsAsset);
+        if (asset is null) return false;
+
+        var installed = new InstalledStateReader(_layout).Read(ComponentRegistry.Gateway);
+        if (!installed.Present) return false; // refresh-only
+
+        if (PinStore.Load(_layout).IsPinned(ComponentRegistry.Gateway.Id, asset.Version)) return false;
+        return VersionUtil.IsNewer(asset.Version, installed.Version);
+    }
+
+    /// <summary>
+    /// Download + SHA-256 verify the new Gateway exe to <see cref="StagedExePath"/>. Returns the staged
+    /// path and version, or null if no update is available. Throws on a hash mismatch (never stages a
+    /// corrupt build).
+    /// </summary>
+    public async Task<(string StagedPath, string Version)?> StageAsync(ResolvedRelease release, ReleaseSource source, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(release);
+        ArgumentNullException.ThrowIfNull(source);
+        if (!IsUpdateAvailable(release)) return null;
+
+        var asset = release.Manifest.TryGetAsset(ComponentRegistry.Gateway.WindowsAsset);
+        if (asset is null) return null;
+
+        var downloaded = await source.DownloadAssetAsync(asset.Name, release.DownloadUrls, ct);
+        try
+        {
+            if (!Hashing.Sha256Matches(downloaded, asset.Sha256))
+                throw new InvalidOperationException("Gateway asset SHA-256 mismatch; not staging.");
+
+            Directory.CreateDirectory(Path.GetDirectoryName(StagedExePath) ?? _layout.ServiceStateDir);
+            File.Copy(downloaded, StagedExePath, overwrite: true);
+            EngineLog.Write($"[GatewayUpdater] staged Gateway {asset.Version} -> {StagedExePath}");
+            return (StagedExePath, asset.Version);
+        }
+        finally
+        {
+            try { if (File.Exists(downloaded)) File.Delete(downloaded); } catch { /* best effort */ }
+        }
+    }
+
+    /// <summary>
+    /// Launch the detached helper that applies the staged update. It runs from the staged exe (not the
+    /// installed one), so it survives the service stopping and can overwrite the installed exe. Runs as
+    /// whatever account the caller has - inside the LocalSystem service, no UAC.
+    /// </summary>
+    [SupportedOSPlatform("windows")]
+    public Process LaunchDetachedUpdater(string stagedExePath, string newVersion, string serviceName = GatewayServiceCommands.ServiceName)
+    {
+        var target = _layout.PathFor(ComponentRegistry.Gateway);
+        var psi = new ProcessStartInfo
+        {
+            FileName = stagedExePath,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        psi.ArgumentList.Add("--apply-service-update");
+        psi.ArgumentList.Add("--new-version");
+        psi.ArgumentList.Add(newVersion);
+        psi.ArgumentList.Add("--target");
+        psi.ArgumentList.Add(target);
+        psi.ArgumentList.Add("--service");
+        psi.ArgumentList.Add(serviceName);
+
+        var p = Process.Start(psi) ?? throw new InvalidOperationException("Failed to launch the Gateway self-update helper.");
+        EngineLog.Write($"[GatewayUpdater] launched detached updater pid={p.Id} for {newVersion}");
+        return p;
+    }
+
+    /// <summary>Convenience: if an update is available, stage it and launch the detached helper. Returns the staged version, or null.</summary>
+    [SupportedOSPlatform("windows")]
+    public async Task<string?> CheckStageAndLaunchAsync(ResolvedRelease release, ReleaseSource source, CancellationToken ct = default)
+    {
+        var staged = await StageAsync(release, source, ct);
+        if (staged is null) return null;
+        LaunchDetachedUpdater(staged.Value.StagedPath, staged.Value.Version);
+        return staged.Value.Version;
+    }
+}

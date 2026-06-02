@@ -1,11 +1,54 @@
+using System.Diagnostics;
+using System.Net.Http;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway;
+using CcDirector.Setup.Engine;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Hosting.WindowsServices;
 
 FileLog.Start();
 FileLog.Write($"[Program] CC Director Gateway starting, log: {FileLog.CurrentLogPath}");
+
+// Detached self-update helper mode: this process is a STAGED copy of the new Gateway exe. It swaps
+// itself into the installed location and verifies the new build is healthy, rolling back to the .old
+// build (and pinning the bad version) if not. NEVER the normal startup path - it stops/starts the
+// service and exits. Launched by GatewayUpdater.LaunchDetachedUpdater. --service defaults to the live
+// service; tests pass a throwaway name so the live cc-gateway-service is never touched.
+if (Array.IndexOf(args, "--apply-service-update") >= 0)
+{
+    string Arg(string name) { var i = Array.IndexOf(args, name); return i >= 0 && i + 1 < args.Length ? args[i + 1] : ""; }
+    var suTarget = Arg("--target");
+    var suVersion = Arg("--new-version");
+    var suService = Arg("--service");
+    if (suService.Length == 0) suService = GatewayServiceCommands.ServiceName;
+    var suPort = int.TryParse(Arg("--port"), out var pp) ? pp : GatewayHost.DefaultPort;
+    var stagedSelf = Environment.ProcessPath ?? "";
+    FileLog.Write($"[Program] --apply-service-update: version={suVersion}, target={suTarget}, service={suService}, port={suPort}");
+
+    using var suHttp = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+    var su = await new GatewaySelfUpdate().ApplyAsync(
+        suTarget, stagedSelf, suVersion,
+        () => RunSc($"stop {suService}"),
+        () => RunSc($"start {suService}"),
+        async c => { try { return (await suHttp.GetAsync($"http://127.0.0.1:{suPort}/healthz", c)).IsSuccessStatusCode; } catch { return false; } },
+        TimeSpan.FromSeconds(30));
+
+    FileLog.Write($"[Program] self-update outcome={su.Outcome}: {su.Message}");
+    foreach (var step in su.Steps) FileLog.Write($"[Program]   {step}");
+    FileLog.Stop();
+    return su.Outcome == SelfUpdateOutcome.Updated ? 0 : 1;
+
+    static bool RunSc(string scArgs)
+    {
+        var psi = new ProcessStartInfo("sc.exe", scArgs)
+        { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+        using var p = Process.Start(psi);
+        if (p is null) return false;
+        p.WaitForExit();
+        return true; // best-effort; the health probe is the real verdict
+    }
+}
 
 int port = GatewayHost.DefaultPort;
 
