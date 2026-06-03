@@ -105,6 +105,9 @@ public static class PrerequisiteChecker
             return;
         }
 
+        var resolved = output.Trim().Split('\n')[0].Trim();
+        SetupLog.Write($"[PrerequisiteChecker] {item.Name}: resolved to {resolved}");
+
         var (versionFound, versionOutput) = RunCommand(exe, args);
         if (versionFound && !string.IsNullOrWhiteSpace(versionOutput))
         {
@@ -279,6 +282,24 @@ public static class PrerequisiteChecker
         SetupLog.Write("[PrerequisiteChecker] Brave: not found at any known location");
     }
 
+    /// <summary>
+    /// Builds the current machine+user PATH straight from the registry. A process snapshots
+    /// PATH at launch, so a tool on the USER PATH (e.g. Claude Code at %USERPROFILE%\.local\bin)
+    /// is invisible to child "where"/"--version" checks when the wizard inherited a stale PATH.
+    /// Reading the Machine/User targets pulls the live value (with %VAR% expansion). Returns null
+    /// when nothing could be read, leaving the inherited process PATH in place.
+    /// </summary>
+    private static string? BuildRefreshedPath()
+    {
+        var machine = Environment.GetEnvironmentVariable("PATH", EnvironmentVariableTarget.Machine) ?? "";
+        var user = Environment.GetEnvironmentVariable("PATH", EnvironmentVariableTarget.User) ?? "";
+
+        var parts = new[] { machine, user }.Where(p => !string.IsNullOrWhiteSpace(p));
+        var combined = string.Join(";", parts);
+
+        return string.IsNullOrWhiteSpace(combined) ? null : combined;
+    }
+
     private static (bool found, string output) RunCommand(string fileName, string arguments)
     {
         try
@@ -292,6 +313,13 @@ public static class PrerequisiteChecker
                 UseShellExecute = false,
                 CreateNoWindow = true,
             };
+
+            // Re-read the live PATH from the registry so a tool added to PATH after this wizard
+            // launched (or sitting on the USER PATH the process did not inherit) is visible to
+            // "where"/"--version" on Re-check without restarting the app.
+            var refreshedPath = BuildRefreshedPath();
+            if (refreshedPath != null)
+                psi.Environment["PATH"] = refreshedPath;
 
             using var process = Process.Start(psi);
             if (process == null)
