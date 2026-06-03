@@ -35,7 +35,7 @@ include `release-manifest.json` plus this OS's asset below. ALWAYS verify the do
 SHA-256 against the manifest's entry for that asset before installing; mismatch = STOP.
 
 == WINDOWS ==
-ASSET:  cc-director-win-x64.exe        (self-contained; no .NET needed)
+ASSET:  cc-director-win-x64.exe        (requires the .NET 10 runtime on the machine)
 TARGET: %LOCALAPPDATA%\cc-director\app\cc-director.exe   (user-writable -> auto-update needs no admin)
 1. Download cc-director-win-x64.exe + release-manifest.json to %TEMP%\ccd-install.
 2. Verify: Get-FileHash -Algorithm SHA256 == manifest sha256 for cc-director-win-x64.exe, else STOP.
@@ -62,7 +62,9 @@ TARGET: ~/Applications/CC Director.app  (user-writable, NOT /Applications -> aut
 6. Launch it once and confirm the running version matches the release tag (check the newest log under
    %LOCALAPPDATA%\cc-director\logs\director\ on Windows, or the app's log dir on macOS).
 7. Report: release tag installed, install path, the SHA you verified, and the shortcut/Dock entry.
-   Note the runtime prerequisites if not set up: a Claude subscription (for Claude Code) and an
+   Note the runtime prerequisites if not set up: on Windows the .NET 10 runtime must be installed
+   (the setup wizard can install it automatically; or get it from
+   https://dotnet.microsoft.com/download/dotnet/10.0), a Claude subscription (for Claude Code), and an
    OpenAI API key (audio/transcription/TTS) in the cc-director config dir
    (%LOCALAPPDATA%\cc-director\config\credentials.env on Windows; the equivalent config dir on macOS).
 
@@ -78,13 +80,13 @@ The one-prompt install above installs the Director app itself. On **Windows** yo
 
 [![Download CC Director Setup for Windows](https://img.shields.io/badge/Download-Setup%20for%20Windows-2EA44F?style=for-the-badge)](https://github.com/thefrederiksen/cc-director/releases/latest/download/cc-director-setup-win-x64.exe)
 
-Double-click the downloaded `.exe`. It checks your prerequisites (Claude Code, Python 3.11+, Node.js 20+, Brave Browser) and tells you exactly what to install if anything is missing. Self-contained -- no .NET runtime needed.
+Double-click the downloaded `.exe` (the wizard itself is self-contained and runs with no .NET installed). It checks your prerequisites -- the **.NET 10 runtime** (required; the wizard can install it for you via winget), Claude Code, Python 3.11+, Node.js 20+, and Brave Browser (optional) -- and tells you exactly what to install if anything is missing.
 
 **Choose your profile** -- **Standard** for core document tools, email, media, and vault, or **Developer** for the full suite including browser automation, LinkedIn, Reddit, social media, and code generation.
 
 ![Setup - Choose profile](images/setup-1-welcome.png)
 
-**Prerequisites check** -- the installer verifies Claude Code, Python 3.11+, Node.js 20+, and Brave Browser are installed and available.
+**Prerequisites check** -- the installer verifies the .NET 10 runtime (required; can be auto-installed), Claude Code, Python 3.11+, and Node.js 20+ are available; Brave Browser is optional.
 
 ![Setup - Prerequisites](images/setup-2-prerequisites.png)
 
@@ -101,7 +103,7 @@ Grab the app directly from the [latest release](https://github.com/thefrederikse
 
 | Platform | Download | Notes |
 |----------|----------|-------|
-| Windows x64 | [cc-director-win-x64.exe](https://github.com/thefrederiksen/cc-director/releases/latest/download/cc-director-win-x64.exe) | Self-contained app; no .NET runtime needed |
+| Windows x64 | [cc-director-win-x64.exe](https://github.com/thefrederiksen/cc-director/releases/latest/download/cc-director-win-x64.exe) | Requires the [.NET 10 runtime](https://dotnet.microsoft.com/download/dotnet/10.0) (the setup wizard can install it for you) |
 | macOS (Apple Silicon) | [cc-director-mac-arm64.zip](https://github.com/thefrederiksen/cc-director/releases/latest/download/cc-director-mac-arm64.zip) | Unzip to `CC Director.app`, move to `~/Applications` (user-writable, so auto-update needs no sudo). First launch: right-click -> Open, or `xattr -dr com.apple.quarantine "~/Applications/CC Director.app"` |
 
 This installs the Director app only -- the `cc-*` CLI tools and skills are Windows-only and come with the setup wizard above.

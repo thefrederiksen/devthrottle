@@ -13,6 +13,15 @@ public class PrerequisiteInfo : INotifyPropertyChanged
     public required bool IsRequired { get; init; }
     public required string InstallUrl { get; init; }
 
+    /// <summary>True when Setup can install this prerequisite itself (via winget).</summary>
+    public bool CanAutoInstall { get; init; }
+
+    /// <summary>The winget package id used by <see cref="Services.RuntimeInstaller"/> when <see cref="CanAutoInstall"/> is true.</summary>
+    public string? WingetId { get; init; }
+
+    /// <summary>Shows the "Install automatically" action only when auto-installable and not yet present.</summary>
+    public bool ShowAutoInstall => CanAutoInstall && !IsFound;
+
     public string Status
     {
         get => _status;
@@ -28,7 +37,7 @@ public class PrerequisiteInfo : INotifyPropertyChanged
     public bool IsFound
     {
         get => _isFound;
-        set { _isFound = value; OnPropertyChanged(nameof(IsFound)); OnPropertyChanged(nameof(StatusColor)); }
+        set { _isFound = value; OnPropertyChanged(nameof(IsFound)); OnPropertyChanged(nameof(StatusColor)); OnPropertyChanged(nameof(ShowAutoInstall)); }
     }
 
     public string StatusColor => IsFound ? "#22C55E" : (IsRequired ? "#CC4444" : "#888888");

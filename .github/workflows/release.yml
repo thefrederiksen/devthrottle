@@ -27,9 +27,11 @@ jobs:
           dotnet-version: "10.0.x"
 
       - name: Publish for Windows x64
+        # Framework-dependent: requires the .NET 10 runtime on the target (the
+        # installer detects + auto-installs it). Keeps a single small .exe asset.
         run: >
           dotnet publish src/CcDirector.Avalonia/CcDirector.Avalonia.csproj
-          -c Release -r win-x64 --self-contained true
+          -c Release -r win-x64 --self-contained false
           -p:PublishSingleFile=true
           -p:IncludeNativeLibrariesForSelfExtract=true
           -p:UpdaterEnabled=true
@@ -105,9 +107,10 @@ jobs:
           dotnet-version: "10.0.x"
 
       - name: Publish Gateway for Windows x64
+        # Framework-dependent: requires the .NET 10 ASP.NET Core runtime on the target.
         run: >
           dotnet publish src/CcDirector.Gateway/CcDirector.Gateway.csproj
-          -c Release -r win-x64 --self-contained true
+          -c Release -r win-x64 --self-contained false
           -p:PublishSingleFile=true
           -p:IncludeNativeLibrariesForSelfExtract=true
 
@@ -139,10 +142,11 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
-      - name: Publish Cockpit for Windows x64 (self-contained)
+      - name: Publish Cockpit for Windows x64 (framework-dependent)
+        # Framework-dependent: requires the .NET 10 ASP.NET Core runtime on the target.
         run: >
           dotnet publish src/CcDirector.Cockpit/CcDirector.Cockpit.csproj
-          -c Release -r win-x64 --self-contained true
+          -c Release -r win-x64 --self-contained false
           -o cockpit-publish
 
       - name: Package Cockpit publish folder as zip

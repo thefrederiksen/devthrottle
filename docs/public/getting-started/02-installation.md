@@ -4,16 +4,26 @@ CC Director runs on Windows and macOS (Apple Silicon) and requires a few prerequ
 
 ## Prerequisites
 
-The CC Director **Setup** app checks for these on its Prerequisites screen. Three are required; Brave is optional. Each tool below has a setup section with the exact install command and how to confirm it is on your `PATH`.
+The CC Director **Setup** app checks for these on its Prerequisites screen. Four are required; Brave is optional. Each tool below has a setup section with the exact install command and how to confirm it is on your `PATH`.
 
 | Tool | Required? | Minimum |
 |------|-----------|---------|
+| [.NET 10 Runtime](#net-10-runtime) | Required | 10.0 |
 | [Claude Code](#claude-code) | Required | latest |
 | [Python](#python) | Required | 3.11+ |
 | [Node.js](#nodejs) | Required | 20+ |
 | [Brave Browser](#brave-browser-optional) | Optional | latest |
 
 > **Just installed one of these and Setup still says "Not found"?** See [If a tool is not detected after installing it](#if-a-tool-is-not-detected-after-installing-it).
+
+### .NET 10 Runtime
+
+The Director, Gateway, and Cockpit are .NET 10 apps. They are shipped framework-dependent (small downloads), so the **ASP.NET Core Runtime 10** must be present on the machine.
+
+- **Windows:** the Setup app detects it and offers **Install automatically** (runs `winget install Microsoft.DotNet.AspNetCore.10`). Or install it yourself from [dotnet.microsoft.com/download/dotnet/10.0](https://dotnet.microsoft.com/download/dotnet/10.0).
+- **macOS:** the macOS Director app is self-contained and does **not** require a separate .NET install.
+
+Confirm: `dotnet --list-runtimes` includes a `Microsoft.AspNetCore.App 10.x` line.
 
 ### Claude Code
 

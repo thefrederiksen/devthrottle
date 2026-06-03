@@ -10,7 +10,7 @@ project:
   framework: ".NET 10"
   platform: "Windows 10/11 (Avalonia primary; WPF archived), Mac/Linux (experimental backend)"
 
-last_updated: "2026-06-02"
+last_updated: "2026-06-03"
 
 # C4 Level 1: System Context
 context:

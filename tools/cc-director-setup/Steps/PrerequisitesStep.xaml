@@ -72,8 +72,38 @@
                                             Margin="8,0,0,0"
                                             Background="#3A1B1B"
                                             VerticalAlignment="Center">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsRequired}" Value="True">
+                                                        <Setter Property="Visibility" Value="Visible" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
                                         <TextBlock Text="Required"
                                                    Foreground="#CC4444"
+                                                   FontSize="10"
+                                                   FontWeight="SemiBold" />
+                                    </Border>
+                                    <Border CornerRadius="3"
+                                            Padding="6,1"
+                                            Margin="8,0,0,0"
+                                            Background="#2A2A2A"
+                                            VerticalAlignment="Center">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsRequired}" Value="False">
+                                                        <Setter Property="Visibility" Value="Visible" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <TextBlock Text="Optional"
+                                                   Foreground="#888888"
                                                    FontSize="10"
                                                    FontWeight="SemiBold" />
                                     </Border>
@@ -118,6 +148,24 @@
                                         <Run Text="Download and install ->" />
                                     </Hyperlink>
                                 </TextBlock>
+
+                                <!-- Auto-install via winget (shown when supported and missing) -->
+                                <Button Content="Install automatically"
+                                        HorizontalAlignment="Left"
+                                        Margin="0,6,0,0"
+                                        Padding="10,4"
+                                        Click="InstallButton_Click">
+                                    <Button.Style>
+                                        <Style TargetType="Button">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding ShowAutoInstall}" Value="True">
+                                                    <Setter Property="Visibility" Value="Visible" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
+                                </Button>
                             </StackPanel>
 
                             <TextBlock Grid.Column="1"

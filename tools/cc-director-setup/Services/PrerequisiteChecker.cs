@@ -11,6 +11,15 @@ public static class PrerequisiteChecker
         [
             new PrerequisiteInfo
             {
+                Name = ".NET 10 Runtime",
+                Description = "ASP.NET Core Runtime 10 (runs the Director, Gateway, and Cockpit)",
+                IsRequired = true,
+                CanAutoInstall = true,
+                WingetId = "Microsoft.DotNet.AspNetCore.10",
+                InstallUrl = "https://dotnet.microsoft.com/download/dotnet/10.0"
+            },
+            new PrerequisiteInfo
+            {
                 Name = "Claude Code",
                 Description = "AI coding assistant CLI",
                 IsRequired = true,
@@ -33,8 +42,8 @@ public static class PrerequisiteChecker
             new PrerequisiteInfo
             {
                 Name = "Brave Browser",
-                Description = "Browser engine for cc-browser (Chrome stable blocks extensions)",
-                IsRequired = true,
+                Description = "Optional browser engine for cc-browser (Chrome stable blocks extensions); add it later if needed",
+                IsRequired = false,
                 InstallUrl = "https://brave.com/download/"
             },
         ];
@@ -60,6 +69,9 @@ public static class PrerequisiteChecker
         {
             switch (item.Name)
             {
+                case ".NET 10 Runtime":
+                    CheckDotNetRuntime(item);
+                    break;
                 case "Claude Code":
                     CheckExecutable(item, "claude", "--version");
                     break;
@@ -108,6 +120,48 @@ public static class PrerequisiteChecker
             item.IsFound = true;
             SetupLog.Write($"[PrerequisiteChecker] {item.Name}: found but no version output");
         }
+    }
+
+    private static void CheckDotNetRuntime(PrerequisiteInfo item)
+    {
+        var (found, _) = RunCommand("where", "dotnet");
+        if (!found)
+        {
+            item.Status = "Not found";
+            item.IsFound = false;
+            SetupLog.Write("[PrerequisiteChecker] .NET: dotnet not found on PATH");
+            return;
+        }
+
+        var (listed, output) = RunCommand("dotnet", "--list-runtimes");
+        if (!listed || string.IsNullOrWhiteSpace(output))
+        {
+            item.Status = "Not found";
+            item.IsFound = false;
+            return;
+        }
+
+        // A line looks like: "Microsoft.AspNetCore.App 10.0.8 [C:\Program Files\dotnet\shared\...]".
+        // Require the ASP.NET Core 10 shared framework; it is a superset that also installs
+        // Microsoft.NETCore.App 10 (what the Avalonia Director needs).
+        var lines = output.Split('\n');
+        var hit = lines.FirstOrDefault(l =>
+            l.TrimStart().StartsWith("Microsoft.AspNetCore.App 10.", StringComparison.Ordinal));
+
+        if (hit != null)
+        {
+            var parts = hit.Trim().Split(' ');
+            item.Version = parts.Length >= 2 ? $".NET {parts[1]}" : ".NET 10";
+            item.Status = "Found";
+            item.IsFound = true;
+        }
+        else
+        {
+            item.Status = "Not found (need .NET 10)";
+            item.IsFound = false;
+        }
+
+        SetupLog.Write($"[PrerequisiteChecker] .NET 10 Runtime: found={item.IsFound}, version={item.Version}");
     }
 
     private static void CheckPython(PrerequisiteInfo item)

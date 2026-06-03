@@ -80,10 +80,11 @@ G5. Cockpit first-install extraction is unowned. The Cockpit ships as a `.zip`;
 G6. The wizard cannot select the Gateway role. `EngineInstallRunner.Role` is hardcoded
     to Workstation; there is no UI for it and no admin-elevation flow.
 
-G7. .NET runtime prerequisite ambiguity. Today the script-published Cockpit is
-    framework-dependent. This plan makes every shipped binary self-contained (see W2),
-    which REMOVES the runtime prerequisite entirely. Lock that in so we never depend on
-    a runtime being present.
+G7. .NET runtime prerequisite ambiguity. RESOLVED 2026-06-03 (opposite of the original
+    W2 plan): the payload apps are framework-dependent again and the .NET 10 ASP.NET
+    Core runtime IS a required prerequisite. The Setup wizard detects it and offers a
+    one-click winget install (falls back to the manual download link). This trades a
+    bundled runtime for a ~440 MB smaller download.
 
 G8. Per-component version stamping for tools. PyInstaller exes may carry no file
     version resource, so installed-version detection is unreliable. This does NOT block
@@ -119,6 +120,14 @@ Remaining W1 tasks:
 3. Bring the 6 heavyweight tools green one at a time; remove their continue-on-error.
 
 ### W2 - Self-contained everywhere (kills the runtime prerequisite)
+
+> SUPERSEDED 2026-06-03: this was reversed. The Windows payload apps (Director,
+> Gateway, Cockpit) now publish **framework-dependent** (`--self-contained false`) to
+> cut ~440 MB off the download; the **.NET 10 ASP.NET Core runtime is a required
+> prerequisite** that the Setup wizard detects and can auto-install via winget. Only
+> the Setup wizard and Setup CLI stay self-contained (they bootstrap before .NET
+> exists). macOS Director stays self-contained. See the prereq item ".NET 10 Runtime"
+> in `tools/cc-director-setup/Services/PrerequisiteChecker.cs`.
 
 - Confirm Director and Gateway publish self-contained single-file (already in the
   release jobs).
