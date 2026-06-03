@@ -9,11 +9,13 @@ namespace CcDirectorSetup.Steps;
 public partial class CompleteStep : UserControl
 {
     private readonly string _installPath;
+    private readonly string _directorExePath;
 
-    public CompleteStep(int installed, int skipped, string installPath, bool isUpdate, bool alreadyUpToDate = false)
+    public CompleteStep(int installed, int skipped, string installPath, string directorExePath, bool isUpdate, bool alreadyUpToDate = false)
     {
         InitializeComponent();
         _installPath = installPath;
+        _directorExePath = directorExePath;
         InstalledText.Text = installed.ToString();
         SkippedText.Text = skipped.ToString();
         PathText.Text = installPath;
@@ -38,7 +40,8 @@ public partial class CompleteStep : UserControl
     {
         SetupLog.Write("[CompleteStep] LaunchButton_Click");
 
-        var exePath = Path.Combine(_installPath, "cc-director.exe");
+        // The Director installs to the app dir (app\cc-director.exe), not the tools bin dir.
+        var exePath = _directorExePath;
         if (!File.Exists(exePath))
         {
             SetupLog.Write($"[CompleteStep] cc-director.exe not found at {exePath}");

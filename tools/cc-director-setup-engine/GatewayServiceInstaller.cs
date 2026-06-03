@@ -58,23 +58,12 @@ public sealed class GatewayServiceInstaller
         if (!File.Exists(gatewayExe))
             return Fail(steps, $"Gateway exe not present at {gatewayExe}; the file swap must run first.");
 
-        // 1. Extract the Cockpit zip (the runner skips archive assets). The service supervises this exe.
-        string cockpitExe;
-        try
-        {
-            cockpitExe = await CockpitPackage.ExtractAsync(_layout, release, source, ct);
-            steps.Add($"extracted {CockpitPackage.AssetName} -> {_layout.CockpitDir}");
-        }
-        catch (Exception ex)
-        {
-            return Fail(steps, $"Cockpit extraction failed: {ex.Message}");
-        }
-
-        // 2. Detect an existing cc-gateway-service so the swap is explicit, never silent. An older
+        // 1. Detect an existing cc-gateway-service so the swap is explicit, never silent. An older
         // install registered the service through NSSM (binPath = ...\nssm.exe); the stop/delete below
         // removes it and Create stands up the native Windows service in its place.
         var (qcExit, qcOut) = Run(GatewayServiceCommands.QueryConfig());
-        if (qcExit == 0)
+        var serviceExisted = qcExit == 0;
+        if (serviceExisted)
         {
             var existingBin = GatewayServiceCommands.ParseBinaryPath(qcOut);
             if (GatewayServiceCommands.IsNssmBinary(existingBin))
@@ -94,7 +83,36 @@ public sealed class GatewayServiceInstaller
             EngineLog.Write("[GatewayServiceInstaller] no existing cc-gateway-service; fresh install");
         }
 
-        // 3. Register + configure the service (idempotent: stop/delete any prior one first).
+        // 2. Stop the existing service and kill the Cockpit child it supervises BEFORE extracting -
+        // otherwise the running Cockpit locks cc-director-cockpit.dll and the extract is denied. Only
+        // needed when a service is already present (a fresh install has nothing running).
+        if (serviceExisted)
+        {
+            var (stopExit, _) = Run(GatewayServiceCommands.Stop());
+            steps.Add($"sc stop cc-gateway-service -> exit {stopExit}");
+            KillCockpitProcesses(steps);
+            WaitBriefly();
+        }
+
+        // 3. Extract the Cockpit zip (the runner skips archive assets). The service supervises this exe.
+        // If extraction fails after we stopped a prior service, restart it so the machine is not left down.
+        string cockpitExe;
+        try
+        {
+            cockpitExe = await CockpitPackage.ExtractAsync(_layout, release, source, ct);
+            steps.Add($"extracted {CockpitPackage.AssetName} -> {_layout.CockpitDir}");
+        }
+        catch (Exception ex)
+        {
+            if (serviceExisted)
+            {
+                var (restartExit, _) = Run(GatewayServiceCommands.Start());
+                steps.Add($"restarted previous service after extraction failure -> exit {restartExit}");
+            }
+            return Fail(steps, $"Cockpit extraction failed: {ex.Message}");
+        }
+
+        // 4. Register + configure the service (idempotent: stop/delete any prior one first).
         Directory.CreateDirectory(_layout.ServiceLogsDir);
         var port = GatewayHostDefaultPort;
         var commands = new[]
@@ -126,7 +144,7 @@ public sealed class GatewayServiceInstaller
             if (lenient) WaitBriefly();
         }
 
-        // 4. Start and wait for health.
+        // 5. Start and wait for health.
         var start = GatewayServiceCommands.Start();
         var (startExit, startOut) = Run(start);
         steps.Add($"{start.Display} -> exit {startExit}");
@@ -153,6 +171,26 @@ public sealed class GatewayServiceInstaller
     private static (int exit, string output) Run(ServiceCommand cmd) => ProcessRunner.Run(cmd);
 
     private static void WaitBriefly() => Thread.Sleep(1500);
+
+    /// <summary>Kill any running Cockpit child so its files unlock before the zip is extracted.</summary>
+    private static void KillCockpitProcesses(List<string> steps)
+    {
+        try
+        {
+            var procs = Process.GetProcessesByName("cc-director-cockpit");
+            foreach (var p in procs)
+            {
+                try { p.Kill(entireProcessTree: true); p.WaitForExit(3000); }
+                catch { /* already gone */ }
+                finally { p.Dispose(); }
+            }
+            if (procs.Length > 0) steps.Add($"stopped {procs.Length} running Cockpit process(es) before extract");
+        }
+        catch (Exception ex)
+        {
+            EngineLog.Write($"[GatewayServiceInstaller] kill Cockpit failed: {ex.Message}");
+        }
+    }
 
     private async Task<bool> WaitForHttpAsync(string url, TimeSpan timeout, CancellationToken ct)
     {

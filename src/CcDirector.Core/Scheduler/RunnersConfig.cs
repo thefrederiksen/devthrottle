@@ -206,22 +206,12 @@ public static class RunnersConfig
 
     private static string DefaultSeedJson()
     {
+        // New installs start with no runners. A runner's Args point at a script on the
+        // user's own machine; seeding a personal example would reference a script that
+        // does not exist after install (see issue #164). Users add their own runners.
         var seed = new RunnersFile
         {
-            Runners = new List<RunnerEntry>
-            {
-                new()
-                {
-                    Name = "linkedin-connect",
-                    QueueFilter = "status='approved' AND platform='linkedin' AND type='message' AND tags LIKE '%connection-request%'",
-                    Command = "python",
-                    Args = new[] { "scripts/linkedin-connect-from-queue.py" },
-                    Schedule = new ScheduleEntry { Kind = "daily", TimeOfDay = "08:00" },
-                    RespectHumanCadence = true,
-                    MinIntervalBetweenFiresMinutes = 60,
-                    Enabled = true,
-                },
-            },
+            Runners = new List<RunnerEntry>(),
         };
         return JsonSerializer.Serialize(seed, JsonOptions);
     }

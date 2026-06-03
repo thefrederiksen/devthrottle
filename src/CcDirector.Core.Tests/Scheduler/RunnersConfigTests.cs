@@ -31,19 +31,19 @@ public sealed class RunnersConfigTests : IDisposable
     }
 
     [Fact]
-    public void LoadOrSeed_MissingFile_WritesDefaultSeed()
+    public void LoadOrSeed_MissingFile_WritesEmptyDefaultSeed()
     {
         Assert.False(File.Exists(_configPath));
 
-        // Use a search start under the repo so the linkedin-connect script lookup
-        // either succeeds (if the real repo contains it) or fails harmlessly.
-        // Seed contents are independent of whether the script resolves.
-        _ = RunnersConfig.LoadOrSeed(_configPath, _repoRoot, _log.Add);
+        // New installs seed an empty runners list (issue #164): a seeded runner would
+        // point at a script that does not exist after install. The file must still be
+        // written and parse as a valid, empty runners config.
+        var runners = RunnersConfig.LoadOrSeed(_configPath, _repoRoot, _log.Add);
 
         Assert.True(File.Exists(_configPath));
+        Assert.Empty(runners);
         var json = File.ReadAllText(_configPath);
-        Assert.Contains("linkedin-connect", json);
-        Assert.Contains("daily", json);
+        Assert.DoesNotContain("linkedin-connect", json);
     }
 
     [Fact]

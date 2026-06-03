@@ -15,6 +15,7 @@ public partial class MainWindow : Window
     private int _installedCount;
     private int _skippedCount;
     private string _installPath = "";
+    private string _directorExePath = "";
     private InstallRole _role = InstallRole.Workstation;
     private string? _gatewayResultMessage;
 
@@ -104,7 +105,7 @@ public partial class MainWindow : Window
             2 => _prerequisitesStep ??= new PrerequisitesStep(OnPrerequisitesChecked, _isUpdate),
             3 => _skillsStep ??= new SkillsStep(_isUpdate),
             4 => _installStep ??= new InstallStep(),
-            5 => _completeStep ??= new CompleteStep(_installedCount, _skippedCount, _installPath, _isUpdate, _alreadyUpToDate),
+            5 => _completeStep ??= new CompleteStep(_installedCount, _skippedCount, _installPath, _directorExePath, _isUpdate, _alreadyUpToDate),
             _ => null
         };
 
@@ -205,6 +206,7 @@ public partial class MainWindow : Window
 
         var runner = new EngineInstallRunner { OnProcessBlocking = OnProcessBlockingAsync };
         _installPath = runner.BinDir;
+        _directorExePath = runner.AppExePath;
 
         _installStep?.SetStatus("Fetching release info...");
         _installStep?.ShowProgress();
@@ -264,6 +266,7 @@ public partial class MainWindow : Window
 
         var runner = new EngineInstallRunner { OnProcessBlocking = OnProcessBlockingAsync };
         _installPath = runner.BinDir;
+        _directorExePath = runner.AppExePath;
 
         var prep = _cachedPrep ?? await runner.PrepareAsync();
         _cachedPrep = prep;
