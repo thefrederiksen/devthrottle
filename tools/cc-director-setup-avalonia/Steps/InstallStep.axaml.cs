@@ -1,7 +1,11 @@
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Text;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
+using CcDirector.Setup.Engine;
 using CcDirectorSetup.Models;
 using CcDirectorSetup.Services;
 
@@ -18,6 +22,68 @@ public partial class InstallStep : UserControl
         InitializeComponent();
         LogFooter.Text = $"Setup log: {SetupLog.Path}";
         SetupLog.Write("[InstallStep] Created");
+    }
+
+    private void OpenLogButton_Click(object? sender, RoutedEventArgs e)
+    {
+        SetupLog.Write("[InstallStep] OpenLogButton_Click");
+        try
+        {
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{SetupLog.Path}\"") { UseShellExecute = true });
+            else
+            {
+                var psi = new ProcessStartInfo(RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? "open" : "xdg-open");
+                psi.ArgumentList.Add(SetupLog.Dir);
+                Process.Start(psi);
+            }
+        }
+        catch (Exception ex) { SetupLog.Write($"[InstallStep] OpenLogButton_Click FAILED: {ex.Message}"); }
+    }
+
+    private void ReportButton_Click(object? sender, RoutedEventArgs e)
+    {
+        SetupLog.Write("[InstallStep] ReportButton_Click");
+        try
+        {
+            var os = RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? "macOS" : "Windows";
+            IssueReporter.Open(IssueReporter.BuildUrl($"[install] Setup stuck or failing on {os}", BuildIssueBody(os)));
+        }
+        catch (Exception ex) { SetupLog.Write($"[InstallStep] ReportButton_Click FAILED: {ex.Message}"); }
+    }
+
+    private string BuildIssueBody(string os)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("## What happened");
+        sb.AppendLine("<!-- e.g. the installer was stuck on a step, or a component failed. -->");
+        sb.AppendLine();
+        sb.AppendLine("## Environment");
+        sb.AppendLine($"- OS: {os} ({RuntimeInformation.OSDescription})");
+        sb.AppendLine($"- Arch: {RuntimeInformation.OSArchitecture}");
+        sb.AppendLine($"- Status when reported: {StatusText.Text}");
+        sb.AppendLine();
+        sb.AppendLine("## Setup log");
+        sb.AppendLine($"Full log (please attach it): `{SetupLog.Path}`");
+        sb.AppendLine();
+        sb.AppendLine("```");
+        sb.AppendLine(ReadLogTail(160));
+        sb.AppendLine("```");
+        return sb.ToString();
+    }
+
+    private static string ReadLogTail(int lines)
+    {
+        try
+        {
+            var all = File.ReadAllLines(SetupLog.Path);
+            var start = Math.Max(0, all.Length - lines);
+            return string.Join("\n", all[start..]);
+        }
+        catch (Exception ex)
+        {
+            return $"(could not read log: {ex.Message})";
+        }
     }
 
     public void SetItems(List<ToolDownloadItem> items)

@@ -1,6 +1,10 @@
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using CcDirector.Setup.Engine;
 using CcDirectorSetup.Models;
 using CcDirectorSetup.Services;
 
@@ -17,6 +21,63 @@ public partial class InstallStep : UserControl
         InitializeComponent();
         LogFooter.Text = $"Setup log: {SetupLog.Path}";
         SetupLog.Write("[InstallStep] Created");
+    }
+
+    private void OpenLogButton_Click(object sender, RoutedEventArgs e)
+    {
+        SetupLog.Write("[InstallStep] OpenLogButton_Click");
+        try { Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{SetupLog.Path}\"") { UseShellExecute = true }); }
+        catch (Exception ex) { SetupLog.Write($"[InstallStep] OpenLogButton_Click FAILED: {ex.Message}"); }
+    }
+
+    private void ReportButton_Click(object sender, RoutedEventArgs e)
+    {
+        SetupLog.Write("[InstallStep] ReportButton_Click");
+        try
+        {
+            IssueReporter.Open(IssueReporter.BuildUrl("[install] Setup stuck or failing on Windows", BuildIssueBody()));
+        }
+        catch (Exception ex)
+        {
+            SetupLog.Write($"[InstallStep] ReportButton_Click FAILED: {ex.Message}");
+            MessageBox.Show(
+                $"Could not open the browser. Please file an issue at {IssueReporter.NewIssueBase} and attach the log:\n{SetupLog.Path}",
+                "Report a problem", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+    }
+
+    private string BuildIssueBody()
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("## What happened");
+        sb.AppendLine("<!-- e.g. the installer was stuck on a step, or a component failed. -->");
+        sb.AppendLine();
+        sb.AppendLine("## Environment");
+        sb.AppendLine($"- OS: {RuntimeInformation.OSDescription}");
+        sb.AppendLine($"- Arch: {RuntimeInformation.OSArchitecture}");
+        sb.AppendLine($"- Status when reported: {StatusText.Text}");
+        sb.AppendLine();
+        sb.AppendLine("## Setup log");
+        sb.AppendLine($"Full log (please attach it): `{SetupLog.Path}`");
+        sb.AppendLine();
+        sb.AppendLine("```");
+        sb.AppendLine(ReadLogTail(160));
+        sb.AppendLine("```");
+        return sb.ToString();
+    }
+
+    private static string ReadLogTail(int lines)
+    {
+        try
+        {
+            var all = System.IO.File.ReadAllLines(SetupLog.Path);
+            var start = Math.Max(0, all.Length - lines);
+            return string.Join("\n", all[start..]);
+        }
+        catch (Exception ex)
+        {
+            return $"(could not read log: {ex.Message})";
+        }
     }
 
     public void SetItems(List<ToolDownloadItem> items)
