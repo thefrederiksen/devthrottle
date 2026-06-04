@@ -106,7 +106,7 @@ Grab the app directly from the [latest release](https://github.com/thefrederikse
 | Windows x64 | [cc-director-win-x64.exe](https://github.com/thefrederiksen/cc-director/releases/latest/download/cc-director-win-x64.exe) | Requires the [.NET 10 runtime](https://dotnet.microsoft.com/download/dotnet/10.0) (the setup wizard can install it for you) |
 | macOS (Apple Silicon) | [cc-director-mac-arm64.zip](https://github.com/thefrederiksen/cc-director/releases/latest/download/cc-director-mac-arm64.zip) | Unzip to `CC Director.app`, move to `~/Applications` (user-writable, so auto-update needs no sudo). First launch: right-click -> Open, or `xattr -dr com.apple.quarantine "~/Applications/CC Director.app"` |
 
-This installs the Director app only -- the `cc-*` CLI tools and skills are Windows-only and come with the setup wizard above.
+This installs the Director app only. The `cc-*` CLI tools and skills come with the **setup wizard** -- on Windows the `.exe` above, and on **macOS** the `CC Director Setup.app` (download `cc-director-setup-mac-arm64.zip` from the latest release, unzip, right-click -> Open). The macOS wizard installs the Director to `~/Applications`, installs every `cc-*` tool into one shared Python environment, and links them into `~/.local/bin` (added to your shell `PATH`).
 
 </details>
 
@@ -268,10 +268,9 @@ CC Director ships builds for **Windows 10/11** and **macOS (Apple Silicon)**. Th
 **Current macOS limitations:**
 
 - **Apple Silicon only** — there is no Intel (x64) macOS build yet.
-- **The macOS app is not code-signed**, so Gatekeeper quarantines it on first launch (see the install step above to clear it).
+- **The macOS apps are not code-signed**, so Gatekeeper quarantines them on first launch (the installer/updater strips the quarantine flag from what it places).
 - **The embedded native console** (`SessionBackendType.Embedded`) is Windows-only; macOS uses the cross-platform terminal.
-- **The Gateway dashboard is currently Windows-only.**
-- **The bundled `cc-*` CLI tools and the setup wizard are Windows-only** in the release pipeline -- the macOS release ships the Director app alone. (The Python tools can still be run from source on macOS.)
+- **The Gateway role is Windows-only** — macOS installs are Workstation-only (the Director app + the `cc-*` CLI tools). There is no Gateway service or Cockpit on macOS.
 
 Linux builds from source but is not yet packaged as a release.
 

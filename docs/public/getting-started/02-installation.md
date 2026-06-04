@@ -89,6 +89,10 @@ cc-setup
 
 This downloads all tools from GitHub releases, places them in `%LOCALAPPDATA%\cc-director\bin\`, and adds them to your PATH. No admin privileges required.
 
+### macOS
+
+On macOS, use the **CC Director Setup** app instead: download `cc-director-setup-mac-arm64.zip` from the [latest release](https://github.com/thefrederiksen/cc-director/releases/latest), unzip it, and right-click -> Open (it is ad-hoc-signed, so Gatekeeper asks once). The wizard installs the Director to `~/Applications`, installs every `cc-*` tool into one shared Python environment under `~/Library/Application Support/cc-director`, and symlinks the tools into `~/.local/bin` (added to your shell `PATH`). Apple Silicon only; Workstation-only (no Gateway on macOS).
+
 ### Verify installation
 
 After installation, open a new terminal and verify:
