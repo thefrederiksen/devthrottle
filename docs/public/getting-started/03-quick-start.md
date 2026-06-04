@@ -111,6 +111,10 @@ When something goes wrong mid-session, you can file a GitHub issue without leavi
 
 The **Copy** button on a screenshot copies the actual image to the clipboard (not the file path), so you can paste it into GitHub, Claude Code, or any image-aware app.
 
+## Opening the Cockpit
+
+The Cockpit is CC Director's web UI for all your machines' sessions, served by the Gateway over your Tailscale network. Open it with the **Cockpit** toolbar button in the desktop app, or **Open Cockpit** in the Gateway tray menu. Both resolve the Cockpit's tailnet URL (e.g. `https://your-host.your-tailnet.ts.net:7470`) so the link works from any device on your tailnet -- there is intentionally no localhost fallback. If Tailscale is down, the app tells you instead of opening a URL that would only work locally.
+
 ## Desktop Automation
 
 For tasks that require interacting with desktop applications:

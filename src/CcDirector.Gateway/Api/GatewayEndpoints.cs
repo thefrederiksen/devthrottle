@@ -1,6 +1,9 @@
 using System.Diagnostics;
 using System.Net.Http.Json;
+using System.Net.Sockets;
+using CcDirector.Core.Network;
 using CcDirector.Core.Utilities;
+using CcDirector.Gateway.Cockpit;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Discovery;
 using CcDirector.Gateway.Util;
@@ -132,6 +135,20 @@ internal static class GatewayEndpoints
                 Sessions = totalSessions,
                 Version = version,
                 ServerTime = DateTime.UtcNow,
+            });
+        });
+
+        // Where is this machine's Cockpit? Always answer with the Tailscale front-door URL so
+        // callers (the desktop "Open Cockpit" action) never hardcode a host or fall back to
+        // loopback. Url is null when Tailscale is unavailable; the caller surfaces that.
+        app.MapGet("/cockpit", async () =>
+        {
+            var port = CockpitSupervisor.ResolvePort();
+            return Results.Json(new CockpitInfoDto
+            {
+                Url = TailscaleIdentity.TryGetFrontDoorUrlForPort(port),
+                Port = port,
+                Up = await IsLoopbackPortOpenAsync(port),
             });
         });
 
@@ -992,6 +1009,26 @@ internal static class GatewayEndpoints
     internal static string DeriveGatewayBaseUrl(HttpContext ctx)
     {
         return $"{ctx.Request.Scheme}://{ctx.Request.Host.Value}";
+    }
+
+    // Quick liveness check: can we open a TCP connection to a loopback port? Used by
+    // /cockpit to report whether the Cockpit process is actually accepting connections,
+    // without a full HTTP round-trip. A 500ms ceiling keeps the endpoint snappy.
+    private static async Task<bool> IsLoopbackPortOpenAsync(int port)
+    {
+        try
+        {
+            using var tcp = new TcpClient();
+            using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
+            await tcp.ConnectAsync("127.0.0.1", port, cts.Token);
+            return tcp.Connected;
+        }
+        catch (Exception)
+        {
+            // A refused or timed-out connect IS the answer this probe exists to give
+            // (the Cockpit is not up); it is not an error to propagate.
+            return false;
+        }
     }
 
     private static string? ResolveDirectorExe()

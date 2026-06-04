@@ -131,4 +131,30 @@ public class TailscaleIdentityTests
 
         Assert.Equal(new[] { "lonely.ts.net" }, names);
     }
+
+    [Fact]
+    public void BuildFrontDoorUrlForPort_DnsNameAndPort_ComposesHttpsUrl()
+    {
+        var url = TailscaleIdentity.BuildFrontDoorUrlForPort("host.tailnet.ts.net", 7470);
+
+        Assert.Equal("https://host.tailnet.ts.net:7470", url);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void BuildFrontDoorUrlForPort_EmptyDnsName_Throws(string dnsName)
+    {
+        Assert.Throws<ArgumentException>(() => TailscaleIdentity.BuildFrontDoorUrlForPort(dnsName, 7470));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    [InlineData(65536)]
+    public void BuildFrontDoorUrlForPort_InvalidPort_Throws(int port)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => TailscaleIdentity.BuildFrontDoorUrlForPort("host.tailnet.ts.net", port));
+    }
 }

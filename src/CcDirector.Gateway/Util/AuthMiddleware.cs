@@ -18,6 +18,7 @@ internal static class AuthMiddleware
     private static readonly HashSet<string> PublicPaths = new(StringComparer.OrdinalIgnoreCase)
     {
         "/healthz",
+        "/cockpit",
         "/login",
         "/logout",
         "/favicon.ico",

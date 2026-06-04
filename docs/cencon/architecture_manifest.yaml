@@ -10,7 +10,7 @@ project:
   framework: ".NET 10"
   platform: "Windows 10/11 (Avalonia primary; WPF archived), Mac/Linux (experimental backend)"
 
-last_updated: "2026-06-03"
+last_updated: "2026-06-04"
 
 # C4 Level 1: System Context
 context:
@@ -572,7 +572,7 @@ containers:
         description: Kestrel host runner; wires the registry, Tailscale provisioner and Director client; one instance per machine
         file: GatewayHost.cs
       - name: GatewayEndpoints
-        description: Main HTTP surface mapping Directors/Sessions/Recordings/Handovers/Fanout/Events routes
+        description: Main HTTP surface mapping Directors/Sessions/Recordings/Handovers/Fanout/Events routes, plus GET /cockpit (unauthenticated) answering where this machine's Cockpit lives - always the Tailscale front-door URL (null when Tailscale is down, never a loopback fallback) with a 500ms TCP liveness probe
         file: Api/GatewayEndpoints.cs
       - name: RecordingEndpoints
         description: Phone-recorder ingest - register, upload audio chunks, complete, transcribe, promote, status, and dictionary endpoints
@@ -590,7 +590,7 @@ containers:
         description: HttpClient wrapper for each Director's Control API (prompts, sessions, kills, wingman asks, image upload, recap)
         file: Discovery/DirectorEndpointClient.cs
       - name: TailscaleServeProvisioner
-        description: Keeps `tailscale serve` HTTPS mappings in sync with the live Director set (443 -> gateway, per-Director ports)
+        description: Keeps `tailscale serve` HTTPS mappings in sync with the live Director set (443 -> gateway, per-Director ports, cockpit port -> Cockpit so the fleet UI is tailnet-reachable)
         file: Tailscale/TailscaleServeProvisioner.cs
       - name: TailscaleIdentity
         description: Resolves this machine's Magic DNS name via `tailscale status --json`
@@ -641,9 +641,10 @@ containers:
           - WingmanViewDto.cs
           - NewSessionRequest.cs
       - name: Cockpit parity DTOs
-        description: DTOs for the Cockpit's remote new-session dialog - coaching categories, resumable Claude sessions, handover list/content, and filesystem directory entries (Browse).
+        description: DTOs for the Cockpit's remote new-session dialog - coaching categories, resumable Claude sessions, handover list/content, and filesystem directory entries (Browse) - plus CockpitInfoDto (GET /cockpit - tailnet URL, port, liveness).
         files:
           - CockpitParityDtos.cs
+          - CockpitInfoDto.cs
       - name: Recording / Chat / state records
         description: RecordingManifest, ChatRequest/Response, TtsRequest, GoalAssessment and related agent-state DTOs
         files:

@@ -40,15 +40,17 @@ public sealed class TailscaleServeProvisioner : IDisposable
 
     private readonly DirectorRegistry _registry;
     private readonly int _gatewayPort;
+    private readonly int _cockpitPort;
     private readonly bool _enabled;
     private readonly object _cliGate = new();
     private readonly ConcurrentDictionary<string, int> _portsById = new();
     private bool _disposed;
 
-    public TailscaleServeProvisioner(DirectorRegistry registry, int gatewayPort)
+    public TailscaleServeProvisioner(DirectorRegistry registry, int gatewayPort, int cockpitPort)
     {
         _registry = registry;
         _gatewayPort = gatewayPort;
+        _cockpitPort = cockpitPort;
 
         // Dev/test isolation: CC_GATEWAY_NO_TAILSCALE=1 lets a second Gateway run on this machine
         // for local end-to-end testing WITHOUT touching the production Tailscale Serve mappings
@@ -79,6 +81,10 @@ public sealed class TailscaleServeProvisioner : IDisposable
 
         // Front door: https://<tailnet>/ -> gateway. Idempotent.
         QueueServeOn(FrontDoorHttpsPort, _gatewayPort, "gateway");
+
+        // Cockpit: https://<tailnet>:<cockpitPort>/ -> cockpit. The Cockpit is the single
+        // fleet UI and MUST be reachable over the tailnet, never only on loopback. Idempotent.
+        QueueServeOn(_cockpitPort, _cockpitPort, "cockpit");
 
         foreach (var d in _registry.ListDirectors())
             HandleAdded(d);

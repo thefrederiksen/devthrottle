@@ -110,6 +110,34 @@ public static class TailscaleIdentity
     }
 
     /// <summary>
+    /// The tailnet front-door URL for a specific backend port, e.g.
+    /// <c>https://soren-north.taildb08ed.ts.net:7470</c> for the Cockpit, or null if
+    /// Tailscale is unavailable. Tailscale Serve maps <c>https://&lt;magicdns&gt;:&lt;port&gt;</c>
+    /// to <c>http://localhost:&lt;port&gt;</c>, so the public URL keeps the same port number.
+    /// Callers MUST treat null as "remote URL unavailable" and refuse rather than substitute
+    /// a loopback URL: the tailnet is the trust boundary and a localhost URL only works on
+    /// the one machine.
+    /// </summary>
+    public static string? TryGetFrontDoorUrlForPort(int port)
+    {
+        var dnsName = TryGetMagicDnsName();
+        return dnsName is null ? null : BuildFrontDoorUrlForPort(dnsName, port);
+    }
+
+    /// <summary>
+    /// Compose the per-port front-door URL from a MagicDNS name. Pure - unit-tested.
+    /// </summary>
+    public static string BuildFrontDoorUrlForPort(string dnsName, int port)
+    {
+        if (string.IsNullOrWhiteSpace(dnsName))
+            throw new ArgumentException("MagicDNS name is required", nameof(dnsName));
+        if (port is <= 0 or > 65535)
+            throw new ArgumentOutOfRangeException(nameof(port), port, "Port must be 1-65535");
+
+        return $"https://{dnsName}:{port}";
+    }
+
+    /// <summary>
     /// Extract <c>Self.DNSName</c> from <c>tailscale status --json</c> output, stripped of its
     /// trailing dot. Returns null when the field is absent or empty. Pure - unit-tested.
     /// </summary>

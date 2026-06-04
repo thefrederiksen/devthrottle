@@ -9,6 +9,7 @@ using Avalonia.Threading;
 using CcDirector.Core.Network;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway;
+using CcDirector.Gateway.Cockpit;
 
 namespace CcDirector.GatewayApp;
 
@@ -62,6 +63,10 @@ public sealed class GatewayTrayController : IDisposable
         var openDashboard = new NativeMenuItem("Open Dashboard");
         openDashboard.Click += (_, _) => OpenDashboard();
         menu.Add(openDashboard);
+
+        var openCockpit = new NativeMenuItem("Open Cockpit");
+        openCockpit.Click += (_, _) => OpenCockpit();
+        menu.Add(openCockpit);
 
         var openLogs = new NativeMenuItem("Open Logs Folder");
         openLogs.Click += (_, _) => OpenLogsFolder();
@@ -211,29 +216,38 @@ public sealed class GatewayTrayController : IDisposable
     }
 
     private void OpenDashboard()
+        // The dashboard IS the gateway front door (https://<magicdns>/ -> :7878).
+        => OpenTailnetUrl(TailscaleIdentity.TryGetFrontDoorBaseUrl() is { } d ? d + "/" : null, "Dashboard");
+
+    private void OpenCockpit()
+        // The Cockpit lives on its own Tailscale port (https://<magicdns>:7470). The gateway
+        // owns the Cockpit port, so resolve it here directly rather than asking over HTTP.
+        => OpenTailnetUrl(TailscaleIdentity.TryGetFrontDoorUrlForPort(CockpitSupervisor.ResolvePort()), "Cockpit");
+
+    // Open a Tailscale URL in the browser. There is NO localhost fallback by design: every
+    // cc-director URL must be the tailnet URL so it works from any node, and a loopback URL
+    // would only work on this machine. When Tailscale is unavailable the URL is null; we
+    // refuse and say why rather than open a URL that is wrong everywhere but here.
+    private void OpenTailnetUrl(string? url, string label)
     {
-        // The Tailscale front-door call can block briefly, so resolve + launch off the UI thread.
+        // Resolving the front door shells the tailscale CLI, so do it off the UI thread.
         _ = Task.Run(() =>
         {
+            if (url is null)
+            {
+                FileLog.Write($"[GatewayTrayController] Open{label} REFUSED: Tailscale unavailable on this machine, so there is no tailnet URL to open. Bring Tailscale up and retry; cc-director never opens a localhost URL.");
+                return;
+            }
             try
             {
-                var url = ResolveDashboardUrl();
-                FileLog.Write($"[GatewayTrayController] OpenDashboard: {url}");
+                FileLog.Write($"[GatewayTrayController] Open{label}: {url}");
                 Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[GatewayTrayController] OpenDashboard FAILED: {ex.Message}");
+                FileLog.Write($"[GatewayTrayController] Open{label} FAILED: {ex.Message}");
             }
         });
-    }
-
-    private string ResolveDashboardUrl()
-    {
-        // Prefer the remotely reachable HTTPS front door; fall back to loopback for a
-        // machine with no Tailscale. Both point at this same in-process gateway.
-        var frontDoor = TailscaleIdentity.TryGetFrontDoorBaseUrl();
-        return frontDoor is not null ? frontDoor + "/" : $"http://127.0.0.1:{_port}/";
     }
 
     private void OpenLogsFolder()

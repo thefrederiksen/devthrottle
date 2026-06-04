@@ -39,7 +39,7 @@ public sealed class GatewayHost : IAsyncDisposable
         Registry = new DirectorRegistry();
         AuthEnabled = authEnabled;
         _client = new DirectorEndpointClient(Token);
-        _serveProvisioner = new TailscaleServeProvisioner(Registry, Port);
+        _serveProvisioner = new TailscaleServeProvisioner(Registry, Port, Cockpit.CockpitSupervisor.ResolvePort());
     }
 
     public async Task StartAsync()

@@ -118,6 +118,19 @@
                         </StackPanel>
                     </Button>
 
+                    <!-- Cockpit (asks the local gateway for the Tailscale URL, then opens it) -->
+                    <Button x:Name="BtnCockpit" Classes="toolbarBtn"
+                            Click="BtnCockpit_Click"
+                            ToolTip.Tip="Open the Cockpit (single fleet UI) over Tailscale">
+                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                            <Viewbox Width="15" Height="15">
+                                <Path Stroke="#CCCCCC" StrokeThickness="1.3" Fill="Transparent"
+                                      Data="M8,1 A7,7 0 1 1 7.99,1 M8,3 V8 L11.5,11.5 M3,8 H1 M15,8 H13 M8,3 V1" />
+                            </Viewbox>
+                            <TextBlock Text="Cockpit" FontSize="12" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+
                     <Border Width="1" Height="18" Background="#3C3C3C"
                             Margin="6,0" VerticalAlignment="Center" />
 

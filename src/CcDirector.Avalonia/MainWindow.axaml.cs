@@ -1,5 +1,7 @@
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Net.Http;
+using System.Net.Http.Json;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -1106,6 +1108,47 @@ public partial class MainWindow : Window
         var slug = _activeSession?.Session.RemoteRepo;
         if (string.IsNullOrEmpty(slug)) return;
         OpenUrlInBrowser($"https://github.com/{slug}/actions");
+    }
+
+    // Open the Cockpit. We ASK THE LOCAL GATEWAY (GET /cockpit) rather than hardcoding a
+    // host/port: the gateway owns the Cockpit port and returns its Tailscale front-door URL.
+    // There is NO localhost fallback by design -- if the gateway has no tailnet URL (Tailscale
+    // down) we say so and open nothing, never a loopback URL that only works on this machine.
+    // Both failure paths surface as a modal dialog: a toolbar button that silently does
+    // nothing is just confusing.
+    private async void BtnCockpit_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write("[MainWindow] BtnCockpit_Click: asking gateway for Cockpit URL");
+        try
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+            var info = await http.GetFromJsonAsync<global::CcDirector.Gateway.Contracts.CockpitInfoDto>(
+                Controls.DirectorView.DirectorView.DefaultGatewayUrl + "/cockpit");
+            if (info?.Url is { } url)
+            {
+                FileLog.Write($"[MainWindow] BtnCockpit_Click: opening {url} (up={info.Up})");
+                OpenUrlInBrowser(url);
+            }
+            else
+            {
+                FileLog.Write("[MainWindow] BtnCockpit_Click: gateway returned no Tailscale URL (Tailscale unavailable); opening nothing. cc-director never opens a localhost URL.");
+                await new MessageDialog(
+                    "Cannot Open Cockpit",
+                    "Tailscale is unavailable on this machine, so there is no tailnet URL for the " +
+                    "Cockpit. Bring Tailscale up and try again. CC Director never opens a localhost " +
+                    "URL because it would only work on this one machine.")
+                    .ShowDialog<bool?>(this);
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] BtnCockpit_Click FAILED: {ex.Message}");
+            await new MessageDialog(
+                "Cannot Open Cockpit",
+                $"Could not reach the local gateway at {Controls.DirectorView.DirectorView.DefaultGatewayUrl}: " +
+                $"{ex.Message}\n\nIs the cc-gateway-service running on this machine?")
+                .ShowDialog<bool?>(this);
+        }
     }
 
     private static void OpenUrlInBrowser(string? url)
