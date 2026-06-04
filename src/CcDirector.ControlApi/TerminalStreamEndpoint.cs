@@ -35,6 +35,10 @@ namespace CcDirector.ControlApi;
 /// </summary>
 internal static class TerminalStreamEndpoint
 {
+    /// <summary>Max bytes of history replayed on attach. See the cursor comment in
+    /// <see cref="StreamSessionAsync"/> - pairs with the attach nudge.</summary>
+    private const int ReplayCapBytes = 256 * 1024;
+
     public static void Map(IEndpointRouteBuilder app, SessionManager sessionManager)
     {
         // Vendored xterm.js assets (offline; no CDN -- the phone reaches the Director
@@ -63,7 +67,13 @@ internal static class TerminalStreamEndpoint
                 return;
             }
 
-            using var ws = await ctx.WebSockets.AcceptWebSocketAsync();
+            // permessage-deflate: ANSI terminal output compresses 5-10x, which matters when
+            // the client is another machine on the tailnet (possibly DERP-relayed). The
+            // "Dangerous" prefix is about BREACH-style attacks mixing secrets with
+            // attacker-controlled data in one compression context - not applicable on a
+            // single-user tailnet streaming the user's own terminal.
+            using var ws = await ctx.WebSockets.AcceptWebSocketAsync(
+                new WebSocketAcceptContext { DangerousEnableCompression = true });
             try
             {
                 await StreamSessionAsync(ws, sessionManager, guid, ctx.RequestAborted);
@@ -93,14 +103,25 @@ internal static class TerminalStreamEndpoint
         // or receive error cancels the send pump below.
         var receiveTask = ForwardClientInputAsync(ws, sessionManager, guid, cts);
 
-        // GetWrittenSince(0) returns the full retained history on the first call, then
-        // only the bytes appended since the previous call. One monotonic cursor drives
-        // both the initial replay and the live tail -- never a snapshot, never a frame
-        // boundary, so xterm renders a coherent screen.
+        // GetWrittenSince(cursor) returns the retained history from the cursor on the first
+        // call, then only the bytes appended since the previous call. One monotonic cursor
+        // drives both the initial replay and the live tail -- never a snapshot, never a
+        // frame boundary, so xterm renders a coherent screen.
+        //
+        // The initial cursor starts at most ReplayCapBytes behind the live tail rather than
+        // at byte 0: replaying the full 2MB ring per attach made remote (laptop/phone)
+        // attaches take seconds, and 256KB is still thousands of scrollback lines. Starting
+        // mid-stream can tear the first reconstructed screen, but the attach nudge below
+        // forces a full Claude repaint that heals it -- the cap and the nudge are a pair.
         long cursor = 0;
         short lastCols = -1;
         short lastRows = -1;
         var nudged = false;
+        {
+            var buffer0 = sessionManager.GetSession(guid)?.Buffer;
+            if (buffer0 is not null)
+                cursor = Math.Max(0, buffer0.TotalBytesWritten - ReplayCapBytes);
+        }
 
         while (!ct.IsCancellationRequested && ws.State == WebSocketState.Open)
         {

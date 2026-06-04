@@ -20,8 +20,24 @@
 
 const terms = new Map(); // id -> state
 
+// Directors built before the 2026-05-31 registration fix advertise their endpoint as
+// http://127.0.0.1:{port}. That host only resolves on the Director's own machine - from a
+// laptop on the tailnet it points at the LAPTOP and the terminal stays blank. Those old
+// Directors run for weeks (sessions never die), so map loopback to the host the browser
+// reached the Cockpit through: Tailscale Serve fronts every Director port on the same
+// machine name. New Directors advertise the real tailnet URL and pass through untouched.
+function resolveWsUrl(wsUrl) {
+  let u;
+  try { u = new URL(wsUrl); } catch (e) { return wsUrl; }
+  if (u.hostname !== "127.0.0.1" && u.hostname !== "localhost") return wsUrl;
+  u.hostname = location.hostname;
+  if (location.protocol === "https:") u.protocol = "wss:";
+  return u.toString();
+}
+
 export function connect(id, hostEl, wsUrl, dotNetRef) {
   dispose(id);
+  wsUrl = resolveWsUrl(wsUrl);
   if (typeof window.Terminal === "undefined") {
     hostEl.textContent = "Terminal renderer (xterm.js) failed to load.";
     return;
