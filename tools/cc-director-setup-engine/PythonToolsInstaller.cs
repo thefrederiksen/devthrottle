@@ -1,5 +1,4 @@
 using System.IO.Compression;
-using System.Runtime.Versioning;
 using System.Text.Json;
 
 namespace CcDirector.Setup.Engine;
@@ -10,20 +9,25 @@ public sealed record PythonToolsResult(
 
 /// <summary>
 /// Installs the Python cc-* tools as ONE shared venv, replacing the per-tool PyInstaller exes.
-/// Consumes the two release assets built by scripts/build-python-bundle.ps1:
-///   cc-python-win-x64.zip       -> a relocatable CPython, extracted to InstallLayout.PythonDir
-///   cc-tools-pyenv-win-x64.zip  -> wheelhouse/ + requirements.lock + tools-manifest.json
+/// Consumes the two release assets built by scripts/build-python-bundle.(ps1|sh):
+///   Windows: cc-python-win-x64.zip + cc-tools-pyenv-win-x64.zip
+///   macOS:   cc-python-macos-arm64.tar.gz + cc-tools-pyenv-macos-arm64.tar.gz
+/// Each carries a relocatable CPython and a de-duped wheelhouse + requirements.lock + tools-manifest.json.
 ///
 /// Flow: download + SHA-verify both assets, extract the python, create a venv with it, pip-install
-/// every tool OFFLINE (--no-index --find-links wheelhouse) from the de-duped wheelhouse, then write
-/// bin\&lt;script&gt;.cmd shims that forward to the venv's console-script exes. Windows-only; per-user,
-/// no admin. The whole thing is idempotent: each install rebuilds python\ and pyenv\ from scratch.
+/// every tool OFFLINE (--no-index --find-links wheelhouse), then create tool shims (bin\&lt;script&gt;.cmd
+/// on Windows; ~/.local/bin/&lt;script&gt; symlinks on macOS). Per-user, no admin. Idempotent: python\ and
+/// pyenv\ are rebuilt each run.
 /// </summary>
-[SupportedOSPlatform("windows")]
 public sealed class PythonToolsInstaller
 {
-    public const string PythonAsset = "cc-python-win-x64.zip";
-    public const string ToolsAsset = "cc-tools-pyenv-win-x64.zip";
+    /// <summary>The bundled-CPython asset for the current OS.</summary>
+    public static string PythonAsset =>
+        OperatingSystem.IsWindows() ? "cc-python-win-x64.zip" : "cc-python-macos-arm64.tar.gz";
+
+    /// <summary>The tools wheelhouse asset for the current OS.</summary>
+    public static string ToolsAsset =>
+        OperatingSystem.IsWindows() ? "cc-tools-pyenv-win-x64.zip" : "cc-tools-pyenv-macos-arm64.tar.gz";
 
     /// <summary>The component id the bundle's version is tracked under in installed.json.</summary>
     public const string ComponentId = "python-tools";
@@ -62,12 +66,16 @@ public sealed class PythonToolsInstaller
                 return Fail(steps, $"{ToolsAsset} SHA-256 mismatch; download rejected.");
 
             // 2. Extract the python (into the canonical location) and the tools bundle (into temp).
+            // The mac archives are .tar.gz extracted with tar so the standalone python's +x bits and
+            // symlinks survive (the bundle script lays the python out flat: PythonDir/bin/python3).
             Step("extracting bundled Python");
             ResetDir(_layout.PythonDir);
-            ZipFile.ExtractToDirectory(pyZip, _layout.PythonDir);
+            var (pyOk, pyExtractOut) = Extract(pyZip, _layout.PythonDir);
+            if (!pyOk) return Fail(steps, $"extracting {PythonAsset} failed: {Trim(pyExtractOut)}");
 
             bundleDir = Path.Combine(Path.GetTempPath(), $"cc-pytools-{Guid.NewGuid():N}");
-            ZipFile.ExtractToDirectory(toolsZip, bundleDir);
+            var (tOk, tExtractOut) = Extract(toolsZip, bundleDir);
+            if (!tOk) return Fail(steps, $"extracting {ToolsAsset} failed: {Trim(tExtractOut)}");
 
             var manifestPath = Path.Combine(bundleDir, "tools-manifest.json");
             var wheelhouse = Path.Combine(bundleDir, "wheelhouse");
@@ -75,8 +83,10 @@ public sealed class PythonToolsInstaller
             if (!Directory.Exists(wheelhouse)) return Fail(steps, "bundle is missing the wheelhouse.");
 
             var manifest = ToolsBundleManifest.Load(manifestPath);
-            var pythonExe = Path.Combine(_layout.PythonDir, "python.exe");
-            if (!File.Exists(pythonExe)) return Fail(steps, $"bundled python.exe not found at {pythonExe}.");
+            var pythonExe = OperatingSystem.IsWindows()
+                ? Path.Combine(_layout.PythonDir, "python.exe")
+                : Path.Combine(_layout.PythonDir, "bin", "python3");
+            if (!File.Exists(pythonExe)) return Fail(steps, $"bundled python not found at {pythonExe}.");
 
             // 3. Create the shared venv from the bundled python (on-target, so console-script paths are correct).
             Step("creating the shared Python venv");
@@ -86,7 +96,7 @@ public sealed class PythonToolsInstaller
 
             // 4. Install every tool OFFLINE from the wheelhouse.
             Step($"installing {manifest.Dists.Count} tools offline from the wheelhouse");
-            var venvPython = Path.Combine(_layout.PyenvScriptsDir, "python.exe");
+            var venvPython = Path.Combine(_layout.PyenvBinDir, OperatingSystem.IsWindows() ? "python.exe" : "python3");
             var distArgs = string.Join(" ", manifest.Dists.Select(d => $"\"{d}\""));
             var pipArgs = $"-m pip install --no-index --find-links \"{wheelhouse}\" --no-warn-script-location {distArgs}";
             var (pipExit, pipOut) = ProcessRunner.Run(venvPython, pipArgs);
@@ -114,11 +124,18 @@ public sealed class PythonToolsInstaller
         }
     }
 
+    /// <summary>Create the tool shims: bin\&lt;script&gt;.cmd on Windows, ~/.local/bin symlinks on macOS.</summary>
+    private void WriteShims(IReadOnlyList<string> scripts)
+    {
+        if (OperatingSystem.IsWindows()) WriteWindowsShims(scripts);
+        else WriteUnixShims(scripts);
+    }
+
     /// <summary>
     /// Each shim is a tiny .cmd in bin (already on PATH) that forwards to the venv's console-script
     /// exe via a path relative to bin, so the whole install tree stays movable as a unit.
     /// </summary>
-    private void WriteShims(IReadOnlyList<string> scripts)
+    private void WriteWindowsShims(IReadOnlyList<string> scripts)
     {
         Directory.CreateDirectory(_layout.BinDir);
         foreach (var script in scripts)
@@ -137,6 +154,43 @@ public sealed class PythonToolsInstaller
                      + $"\"%~dp0..\\pyenv\\Scripts\\{script}.exe\" %*\r\n";
             File.WriteAllText(cmd, body);
         }
+    }
+
+    /// <summary>
+    /// On macOS each shim is a symlink in ~/.local/bin pointing at the venv's console script. The
+    /// Director .app launcher already prepends ~/.local/bin to PATH, and InstallFinalizer ensures it
+    /// is on the user's shell PATH too. Replaces any existing entry of the same name (migration).
+    /// </summary>
+    private void WriteUnixShims(IReadOnlyList<string> scripts)
+    {
+        Directory.CreateDirectory(_layout.MacUserBinDir);
+        foreach (var script in scripts)
+        {
+            var link = Path.Combine(_layout.MacUserBinDir, script);
+            var target = Path.Combine(_layout.PyenvBinDir, script);
+            try
+            {
+                if (File.Exists(link) || Directory.Exists(link)) File.Delete(link);
+                File.CreateSymbolicLink(link, target);
+            }
+            catch (Exception ex)
+            {
+                EngineLog.Write($"[PythonToolsInstaller] could not link {script}: {ex.Message}");
+            }
+        }
+    }
+
+    /// <summary>Extract an archive: ZipFile on Windows; tar on macOS/Unix (preserves +x bits and symlinks).</summary>
+    private static (bool ok, string output) Extract(string archive, string destDir)
+    {
+        Directory.CreateDirectory(destDir);
+        if (OperatingSystem.IsWindows())
+        {
+            try { ZipFile.ExtractToDirectory(archive, destDir, overwriteFiles: true); return (true, ""); }
+            catch (Exception ex) { return (false, ex.Message); }
+        }
+        var (exit, output) = ProcessRunner.Run("/usr/bin/tar", $"-xzf \"{archive}\" -C \"{destDir}\"");
+        return (exit == 0, output);
     }
 
     private static void ResetDir(string dir)
@@ -173,8 +227,8 @@ internal sealed record ToolsBundleManifest(string BundleVersion, IReadOnlyList<s
     {
         using var doc = JsonDocument.Parse(File.ReadAllText(path));
         var root = doc.RootElement;
-        var version = root.TryGetProperty("bundleVersion", out var v) && v.ValueKind == JsonValueKind.String
-            ? v.GetString()!
+        var version = root.TryGetProperty("bundleVersion", out var v) && v.GetString() is { } bv
+            ? bv
             : throw new FormatException("tools-manifest.json has no 'bundleVersion'.");
 
         var dists = new List<string>();
@@ -183,11 +237,11 @@ internal sealed record ToolsBundleManifest(string BundleVersion, IReadOnlyList<s
         {
             foreach (var t in toolsEl.EnumerateArray())
             {
-                if (t.TryGetProperty("dist", out var d) && d.ValueKind == JsonValueKind.String)
-                    dists.Add(d.GetString()!);
+                if (t.TryGetProperty("dist", out var d) && d.GetString() is { } dist)
+                    dists.Add(dist);
                 if (t.TryGetProperty("scripts", out var s) && s.ValueKind == JsonValueKind.Array)
                     foreach (var sc in s.EnumerateArray())
-                        if (sc.ValueKind == JsonValueKind.String) scripts.Add(sc.GetString()!);
+                        if (sc.GetString() is { } script) scripts.Add(script);
             }
         }
         if (dists.Count == 0) throw new FormatException("tools-manifest.json lists no tools.");

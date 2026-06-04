@@ -75,8 +75,9 @@ public sealed class ToolUpdater
     {
         ArgumentNullException.ThrowIfNull(release);
         ArgumentNullException.ThrowIfNull(source);
-        if (!OperatingSystem.IsWindows()) return null;
 
+        // PythonToolsInstaller.ToolsAsset/PythonAsset are OS-aware, so this works on Windows and macOS;
+        // a release that lacks this OS's bundle assets simply skips below (TryGetAsset returns null).
         var toolsAsset = release.Manifest.TryGetAsset(PythonToolsInstaller.ToolsAsset);
         var pyAsset = release.Manifest.TryGetAsset(PythonToolsInstaller.PythonAsset);
         if (toolsAsset is null || pyAsset is null)

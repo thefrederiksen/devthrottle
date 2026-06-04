@@ -90,6 +90,10 @@ public sealed class Uninstaller
             RemovePathEntry(steps, errors);
             RemoveEmptyParents(role, steps);
         }
+        else
+        {
+            RemoveMacArtifacts(steps, errors);
+        }
 
         RemoveShortcut(steps, errors);
 
@@ -134,6 +138,64 @@ public sealed class Uninstaller
         var (delExit, delOut) = ProcessRunner.Run(GatewayServiceCommands.Delete());
         steps.Add($"sc delete {ServiceName} -> exit {delExit}");
         if (delExit != 0) errors.Add($"service delete failed ({delExit}): {delOut.Trim()}");
+    }
+
+    /// <summary>
+    /// macOS removals the cross-platform directory pass does not cover: the Director .app in
+    /// ~/Applications, the ~/.local/bin shim symlinks that point into our pyenv, and the PATH block
+    /// cc-director appended to the shell rc files. (PythonDir/PyenvDir are removed by RemoveDirectories.)
+    /// </summary>
+    private void RemoveMacArtifacts(List<string> steps, List<string> errors)
+    {
+        // 1. The Director .app.
+        var app = _layout.PathFor(ComponentRegistry.Director);
+        try
+        {
+            if (Directory.Exists(app)) { Directory.Delete(app, recursive: true); steps.Add($"removed Director app: {app}"); }
+            else steps.Add($"Director app: not present ({app})");
+        }
+        catch (Exception ex) { errors.Add($"Director app ({app}): {ex.Message}"); }
+
+        // 2. Our shim symlinks in ~/.local/bin (only those pointing into our pyenv).
+        var userBin = _layout.MacUserBinDir;
+        if (Directory.Exists(userBin))
+        {
+            foreach (var entry in Directory.EnumerateFileSystemEntries(userBin))
+            {
+                try
+                {
+                    var target = new FileInfo(entry).LinkTarget;
+                    if (target is not null && target.StartsWith(_layout.PyenvDir, StringComparison.Ordinal))
+                    {
+                        File.Delete(entry);
+                        steps.Add($"removed shim: {entry}");
+                    }
+                }
+                catch (Exception ex) { errors.Add($"shim ({entry}): {ex.Message}"); }
+            }
+        }
+
+        // 3. The PATH block in the shell rc files.
+        foreach (var rc in InstallFinalizer.MacShellRcFiles())
+            RemoveMacPathBlock(rc, steps, errors);
+    }
+
+    /// <summary>Strip the marker line + its following PATH line that EnsureMacUserBinOnPath appended.</summary>
+    private static void RemoveMacPathBlock(string rc, List<string> steps, List<string> errors)
+    {
+        if (!File.Exists(rc)) return;
+        try
+        {
+            var lines = File.ReadAllLines(rc).ToList();
+            var idx = lines.FindIndex(l => l.Trim() == InstallFinalizer.MacPathMarker);
+            if (idx < 0) { steps.Add($"PATH block: not present in {rc}"); return; }
+            // Remove the marker line and the export line that follows it.
+            var count = (idx + 1 < lines.Count) ? 2 : 1;
+            lines.RemoveRange(idx, count);
+            File.WriteAllLines(rc, lines);
+            steps.Add($"removed PATH block from {rc}");
+        }
+        catch (Exception ex) { errors.Add($"PATH block ({rc}): {ex.Message}"); }
     }
 
     [SupportedOSPlatform("windows")]

@@ -62,8 +62,19 @@ public sealed class InstallLayout
     /// <summary>The shared venv every cc-* Python tool installs into (from the wheelhouse).</summary>
     public string PyenvDir => Path.Combine(LocalRoot, "pyenv");
 
-    /// <summary>The shared venv's Scripts dir, where pip generates each tool's console-script exe.</summary>
+    /// <summary>The shared venv's Scripts dir (Windows), where pip generates each tool's console-script exe.</summary>
     public string PyenvScriptsDir => Path.Combine(PyenvDir, "Scripts");
+
+    /// <summary>The shared venv's executables dir: "Scripts" on Windows, "bin" on macOS/Unix.</summary>
+    public string PyenvBinDir => Path.Combine(PyenvDir, OperatingSystem.IsWindows() ? "Scripts" : "bin");
+
+    /// <summary>macOS user apps dir (~/Applications) - where the Director .app is placed (user-writable).</summary>
+    public string MacAppsDir => Path.Combine(HomeDir, "Applications");
+
+    /// <summary>macOS user bin (~/.local/bin) - where cc-* tool shim symlinks go (the .app launcher PATHs it).</summary>
+    public string MacUserBinDir => Path.Combine(HomeDir, ".local", "bin");
+
+    private static string HomeDir => Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
     /// <summary>Per-user install bookkeeping (installed-version manifest, pins) - NOT user data.</summary>
     public string SetupStateDir => Path.Combine(LocalRoot, "config", "setup");
@@ -87,6 +98,22 @@ public sealed class InstallLayout
     public string PathFor(Component component)
     {
         ArgumentNullException.ThrowIfNull(component);
+
+        // macOS is Workstation-only: the Director is a .app in ~/Applications (matching the manual
+        // install + UpdateInstaller.SwapMac); tools carry no .exe extension. Gateway/Cockpit are
+        // Windows-only roles and are never placed on mac.
+        if (!OperatingSystem.IsWindows())
+        {
+            return component.Kind switch
+            {
+                ComponentKind.Director => Path.Combine(MacAppsDir, "CC Director.app"),
+                ComponentKind.Tool => Path.Combine(BinDir, component.Id),
+                ComponentKind.Gateway => Path.Combine(GatewayDir, "cc-director-gateway"),
+                ComponentKind.Cockpit => Path.Combine(CockpitDir, "cc-director-cockpit"),
+                _ => throw new ArgumentOutOfRangeException(nameof(component), component.Kind, "Unknown component kind."),
+            };
+        }
+
         return component.Kind switch
         {
             ComponentKind.Director => Path.Combine(AppDir, "cc-director.exe"),

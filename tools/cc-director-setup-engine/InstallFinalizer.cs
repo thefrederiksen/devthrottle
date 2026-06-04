@@ -58,6 +58,41 @@ public static class InstallFinalizer
         return true;
     }
 
+    /// <summary>The marker line that brackets the PATH block cc-director appends to a shell rc file.</summary>
+    public const string MacPathMarker = "# cc-director: ensure ~/.local/bin on PATH";
+
+    /// <summary>
+    /// macOS: ensure ~/.local/bin (where the tool shim symlinks live) is on the user's shell PATH by
+    /// appending an idempotent, marker-bracketed block to ~/.zshrc (and ~/.bash_profile if it exists).
+    /// Returns true if any file changed. The marker lets <see cref="Uninstaller"/> remove the block.
+    /// </summary>
+    [SupportedOSPlatform("macos")]
+    public static bool EnsureMacUserBinOnPath()
+    {
+        var block = $"\n{MacPathMarker}\n" +
+                    "case \":$PATH:\" in *\":$HOME/.local/bin:\"*) ;; *) export PATH=\"$HOME/.local/bin:$PATH\" ;; esac\n";
+        var changed = false;
+        foreach (var rc in MacShellRcFiles())
+        {
+            var content = File.Exists(rc) ? File.ReadAllText(rc) : "";
+            if (content.Contains(MacPathMarker, StringComparison.Ordinal)) continue;
+            File.AppendAllText(rc, block);
+            EngineLog.Write($"[InstallFinalizer] added ~/.local/bin to PATH in {rc}");
+            changed = true;
+        }
+        return changed;
+    }
+
+    /// <summary>The shell rc files we manage on macOS: ~/.zshrc always; ~/.bash_profile only if present.</summary>
+    public static IReadOnlyList<string> MacShellRcFiles()
+    {
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var files = new List<string> { Path.Combine(home, ".zshrc") };
+        var bashProfile = Path.Combine(home, ".bash_profile");
+        if (File.Exists(bashProfile)) files.Add(bashProfile);
+        return files;
+    }
+
     /// <summary>Return <paramref name="path"/> with <paramref name="dir"/> appended unless already present. Pure.</summary>
     public static string ComputePathWith(string path, string dir)
     {
