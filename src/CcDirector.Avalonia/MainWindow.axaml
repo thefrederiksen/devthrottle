@@ -1164,7 +1164,17 @@
                                                                 Padding="4,2" />
                                                         <Button Content="Copy"
                                                                 Tag="{Binding FilePath}"
-                                                                Click="ScreenshotCopyPath_Click"
+                                                                Click="ScreenshotCopy_Click"
+                                                                ToolTip.Tip="Copy image to clipboard"
+                                                                Background="Transparent"
+                                                                Foreground="#CCCCCC"
+                                                                BorderThickness="0"
+                                                                FontSize="10" Cursor="Hand"
+                                                                Padding="4,2" />
+                                                        <Button Content="Issue"
+                                                                Tag="{Binding FilePath}"
+                                                                Click="ScreenshotCreateIssue_Click"
+                                                                ToolTip.Tip="Create GitHub issue with this screenshot"
                                                                 Background="Transparent"
                                                                 Foreground="#CCCCCC"
                                                                 BorderThickness="0"
@@ -1453,6 +1463,44 @@
                 </Border>
 
                 <controls:ToolsView x:Name="ToolsView" />
+            </DockPanel>
+        </Border>
+
+        <!-- ==================== PASTE-REMINDER CARD ====================
+             Floating card shown after "create GitHub issue from screenshot" opens
+             the browser: the screenshot is waiting on the clipboard for a manual
+             Ctrl+V (no application is allowed to paste into a browser page itself,
+             so this is the unavoidable manual step). Auto-hides after a while;
+             the X dismisses it immediately. -->
+        <Border x:Name="PasteCard"
+                Grid.Row="1" Grid.Column="2"
+                HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                Margin="0,0,24,24"
+                MaxWidth="400"
+                Background="#252526"
+                BorderBrush="#007ACC" BorderThickness="1"
+                CornerRadius="6"
+                ZIndex="20"
+                IsVisible="False">
+            <DockPanel Margin="14,10,8,12">
+                <Button DockPanel.Dock="Right"
+                        Content="X"
+                        Click="PasteCardClose_Click"
+                        VerticalAlignment="Top"
+                        Background="Transparent"
+                        Foreground="#888888"
+                        BorderThickness="0"
+                        FontSize="11" Cursor="Hand"
+                        Padding="6,2" />
+                <StackPanel Spacing="4" Margin="0,0,8,0">
+                    <TextBlock x:Name="PasteCardTitle"
+                               Foreground="#CCCCCC"
+                               FontSize="13" FontWeight="Bold" />
+                    <TextBlock x:Name="PasteCardBody"
+                               Foreground="#AAAAAA"
+                               FontSize="12"
+                               TextWrapping="Wrap" />
+                </StackPanel>
             </DockPanel>
         </Border>
 

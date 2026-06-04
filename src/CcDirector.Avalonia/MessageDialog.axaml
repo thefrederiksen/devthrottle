@@ -1,0 +1,23 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="CcDirector.Avalonia.MessageDialog"
+        Title="CC Director"
+        Width="420" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False"
+        Background="#252526">
+
+    <StackPanel Margin="20" Spacing="16">
+        <TextBlock x:Name="MessageText"
+                   Foreground="#CCCCCC"
+                   FontSize="14"
+                   TextWrapping="Wrap" />
+
+        <Button Content="OK" Width="80" Height="28"
+                HorizontalAlignment="Right"
+                Click="BtnOk_Click"
+                Background="#007ACC" Foreground="White"
+                BorderThickness="0"
+                Cursor="Hand" />
+    </StackPanel>
+</Window>

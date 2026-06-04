@@ -102,6 +102,15 @@ The workflow:
 
 This ensures no AI-generated message leaves your accounts without your explicit approval.
 
+## Filing GitHub Issues from the Desktop App
+
+When something goes wrong mid-session, you can file a GitHub issue without leaving CC Director. Both entry points open GitHub's new-issue form for the repository of the session, resolved from its `origin` remote:
+
+- **From a session:** open the session's `...` menu in the sidebar and pick **New GitHub Issue**. Your browser opens on the new-issue form for that session's repository.
+- **From a screenshot:** in the Screenshots panel, click **Issue** on any screenshot. The image is copied to the clipboard and the new-issue form opens for the active session's repository -- click into the issue body and press `Ctrl+V` to attach the screenshot.
+
+The **Copy** button on a screenshot copies the actual image to the clipboard (not the file path), so you can paste it into GitHub, Claude Code, or any image-aware app.
+
 ## Desktop Automation
 
 For tasks that require interacting with desktop applications:

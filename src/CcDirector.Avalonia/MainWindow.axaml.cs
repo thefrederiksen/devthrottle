@@ -743,6 +743,11 @@ public partial class MainWindow : Window
         var openVsCode = new MenuItem { Header = "Open in VS Code" };
         openVsCode.Click += (_, _) => OpenInVsCode(vm);
 
+        // Jumps straight to GitHub's "new issue" form for the session's repository
+        // (derived from the repo's origin remote) so a bug can be filed mid-session.
+        var newIssue = new MenuItem { Header = "New GitHub Issue" };
+        newIssue.Click += (_, _) => OpenNewGitHubIssue(vm);
+
         var relink = new MenuItem { Header = "Relink Session..." };
         relink.Click += (_, _) => _ = ShowRelinkDialog(vm);
 
@@ -772,6 +777,7 @@ public partial class MainWindow : Window
         menu.Items.Add(separator2);
         menu.Items.Add(openExplorer);
         menu.Items.Add(openVsCode);
+        menu.Items.Add(newIssue);
         menu.Items.Add(separatorHold);
         menu.Items.Add(hold);
         menu.Items.Add(wingman);
@@ -954,6 +960,31 @@ public partial class MainWindow : Window
             Arguments = $"\"{vm.Session.RepoPath}\"",
             UseShellExecute = true,
         });
+    }
+
+    /// <summary>
+    /// Opens the default browser on GitHub's "new issue" form for the session's
+    /// repository. The repo is resolved from the session repo's origin remote;
+    /// a clear notification is shown when the repo has no GitHub origin.
+    /// </summary>
+    private async void OpenNewGitHubIssue(SessionViewModel vm)
+    {
+        FileLog.Write($"[MainWindow] OpenNewGitHubIssue: repo={vm.Session.RepoPath}");
+        try
+        {
+            var url = await Task.Run(() => GitHubUrls.BuildNewIssueUrl(vm.Session.RepoPath));
+            FileLog.Write($"[MainWindow] OpenNewGitHubIssue: opening {url}");
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = url,
+                UseShellExecute = true,
+            });
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] OpenNewGitHubIssue FAILED: {ex.Message}");
+            ShowNotification(ex.Message);
+        }
     }
 
     private async Task CloseSessionAsync(SessionViewModel vm)
@@ -3264,6 +3295,41 @@ public partial class MainWindow : Window
         NotificationBar.IsVisible = false;
     }
 
+    // ==================== PASTE-REMINDER CARD ====================
+
+    private DispatcherTimer? _pasteCardTimer;
+    private const int PasteCardAutoHideSeconds = 15;
+
+    /// <summary>
+    /// Shows the floating bottom-right card (e.g. "Browser opened -- press Ctrl+V").
+    /// Unlike the thin notification bar, this is meant to still be on screen when
+    /// the user comes back from the browser. Auto-hides after
+    /// <see cref="PasteCardAutoHideSeconds"/>; the X dismisses it immediately.
+    /// </summary>
+    private void ShowPasteCard(string title, string body)
+    {
+        FileLog.Write($"[MainWindow] ShowPasteCard: {title}");
+        PasteCardTitle.Text = title;
+        PasteCardBody.Text = body;
+        PasteCard.IsVisible = true;
+
+        _pasteCardTimer?.Stop();
+        _pasteCardTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(PasteCardAutoHideSeconds) };
+        _pasteCardTimer.Tick += (_, _) =>
+        {
+            _pasteCardTimer?.Stop();
+            PasteCard.IsVisible = false;
+        };
+        _pasteCardTimer.Start();
+    }
+
+    private void PasteCardClose_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write("[MainWindow] PasteCardClose_Click");
+        _pasteCardTimer?.Stop();
+        PasteCard.IsVisible = false;
+    }
+
     // ==================== AUTO-UPDATE NOTICE ====================
 
     /// <summary>
@@ -3593,15 +3659,82 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void ScreenshotCopyPath_Click(object? sender, RoutedEventArgs e)
+    private async void ScreenshotCopy_Click(object? sender, RoutedEventArgs e)
     {
         if (sender is not Button btn || btn.Tag is not string filePath)
             return;
 
-        FileLog.Write($"[MainWindow] ScreenshotCopyPath_Click: {filePath}");
-        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
-        if (clipboard != null)
-            await clipboard.SetTextAsync(filePath);
+        FileLog.Write($"[MainWindow] ScreenshotCopy_Click: {filePath}");
+        try
+        {
+            // Copy the actual image (not the path) so it pastes into GitHub,
+            // Claude Code, Paint, etc. Dragging the thumbnail still gives the path.
+            await Task.Run(() => WindowsClipboardImage.CopyImageFile(filePath));
+            ShowNotification("Screenshot copied -- paste with Ctrl+V");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] ScreenshotCopy_Click FAILED: {ex.Message}");
+            ShowNotification($"Copy failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// One-click "file a bug from this screenshot": copies the image onto the
+    /// clipboard, then opens GitHub's new-issue form for the active session's repo
+    /// so the screenshot can be pasted straight into the issue body with Ctrl+V.
+    /// Hard failures (no session, no GitHub origin) surface as a modal dialog --
+    /// the bottom notification bar is too easy to miss for a refused action.
+    /// </summary>
+    private async void ScreenshotCreateIssue_Click(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Button btn || btn.Tag is not string filePath)
+            return;
+
+        FileLog.Write($"[MainWindow] ScreenshotCreateIssue_Click: {filePath}");
+        try
+        {
+            // Modal dialogs already block this button; this guards the one
+            // non-modal owned window (the startup restore-progress dialog).
+            if (OwnedWindows.Count > 0)
+            {
+                FileLog.Write("[MainWindow] ScreenshotCreateIssue_Click: refused, owned window open");
+                return;
+            }
+
+            var session = _activeSession;
+            if (session == null)
+            {
+                await new MessageDialog(
+                    "Select a Session First",
+                    "The GitHub issue is created in the repository of the active session. " +
+                    "Select or create a session, then click Issue again.")
+                    .ShowDialog<bool?>(this);
+                return;
+            }
+
+            var repoPath = session.Session.RepoPath;
+            var url = await Task.Run(() =>
+            {
+                WindowsClipboardImage.CopyImageFile(filePath);
+                return GitHubUrls.BuildNewIssueUrl(repoPath);
+            });
+
+            FileLog.Write($"[MainWindow] ScreenshotCreateIssue_Click: opening {url}");
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = url,
+                UseShellExecute = true,
+            });
+            ShowPasteCard(
+                "Browser opened -- one step left",
+                "The screenshot is on the clipboard. Click into the issue body and press Ctrl+V to attach it.");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] ScreenshotCreateIssue_Click FAILED: {ex.Message}");
+            await new MessageDialog("Cannot Create GitHub Issue", ex.Message).ShowDialog<bool?>(this);
+        }
     }
 
     private void ScreenshotDelete_Click(object? sender, RoutedEventArgs e)
