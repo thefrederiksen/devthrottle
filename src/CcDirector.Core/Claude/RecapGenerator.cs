@@ -58,10 +58,11 @@ public static class RecapGenerator
         psi.ArgumentList.Add("--print");
         psi.ArgumentList.Add("--model");
         psi.ArgumentList.Add(model);
-        // --bare strips hooks, LSP, plugin sync, attribution, auto-memory, CLAUDE.md
-        // auto-discovery, background prefetches, keychain reads. Perfect for a side-call
-        // that should have zero side effects and minimal latency.
-        psi.ArgumentList.Add("--bare");
+        // NOTE: --bare is intentionally NOT passed (issue #168). --bare disables keychain
+        // reads, which prevents the side-call from picking up the user's OAuth credentials
+        // and fails with "Not logged in" (printed to STDOUT, exit 1). --tools "" below
+        // already prevents tool use, which was the main safety reason for --bare. Same
+        // rationale as WingmanService.RunSideClaudeAsync.
         // Don't save the recap to the resume picker / session history.
         psi.ArgumentList.Add("--no-session-persistence");
         // Disable all tools. "" means "no tools enabled" per claude --help.
@@ -115,9 +116,12 @@ public static class RecapGenerator
 
         if (proc.ExitCode != 0)
         {
-            FileLog.Write($"[RecapGenerator] claude --print failed: exit={proc.ExitCode}, stderr={stderr.Substring(0, Math.Min(400, stderr.Length))}");
+            // claude --print writes some fatal errors (e.g. "Not logged in") to STDOUT
+            // with an empty stderr, so report both or the failure is undiagnosable.
+            var error = string.IsNullOrWhiteSpace(stderr) ? stdout.Trim() : stderr.Trim();
+            FileLog.Write($"[RecapGenerator] claude --print failed: exit={proc.ExitCode}, error={error.Substring(0, Math.Min(400, error.Length))}");
             throw new InvalidOperationException(
-                $"claude --print exited {proc.ExitCode}: {stderr.Trim()}");
+                $"claude --print exited {proc.ExitCode}: {error}");
         }
 
         FileLog.Write($"[RecapGenerator] done in {sw.ElapsedMilliseconds}ms, output chars={stdout.Length}");

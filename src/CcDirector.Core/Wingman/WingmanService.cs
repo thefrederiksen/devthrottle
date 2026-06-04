@@ -1771,8 +1771,11 @@ public static class WingmanService
 
         if (proc.ExitCode != 0)
         {
-            FileLog.Write($"[WingmanService] claude --print exit={proc.ExitCode} in {sw.ElapsedMilliseconds}ms, stderr={Truncate(stderr, 400)}");
-            throw new InvalidOperationException($"claude --print exited {proc.ExitCode}: {stderr.Trim()}");
+            // claude --print writes some fatal errors (e.g. "Not logged in") to STDOUT
+            // with an empty stderr, so report both or the failure is undiagnosable.
+            var error = string.IsNullOrWhiteSpace(stderr) ? stdout.Trim() : stderr.Trim();
+            FileLog.Write($"[WingmanService] claude --print exit={proc.ExitCode} in {sw.ElapsedMilliseconds}ms, error={Truncate(error, 400)}");
+            throw new InvalidOperationException($"claude --print exited {proc.ExitCode}: {error}");
         }
 
         FileLog.Write($"[WingmanService] side-call done in {sw.ElapsedMilliseconds}ms, output chars={stdout.Length}");
@@ -1860,8 +1863,10 @@ public static class WingmanService
 
             if (proc.ExitCode != 0)
             {
-                FileLog.Write($"[WingmanService] wingman session exit={proc.ExitCode} in {sw.ElapsedMilliseconds}ms, stderr={Truncate(stderr, 400)}");
-                throw new InvalidOperationException($"wingman session exited {proc.ExitCode}: {stderr.Trim()}");
+                // Same stdout-vs-stderr trap as RunSideClaudeAsync: report whichever has the error.
+                var error = string.IsNullOrWhiteSpace(stderr) ? stdout.Trim() : stderr.Trim();
+                FileLog.Write($"[WingmanService] wingman session exit={proc.ExitCode} in {sw.ElapsedMilliseconds}ms, error={Truncate(error, 400)}");
+                throw new InvalidOperationException($"wingman session exited {proc.ExitCode}: {error}");
             }
 
             FileLog.Write($"[WingmanService] wingman session done in {sw.ElapsedMilliseconds}ms (tools={allowedTools}, maxTurns={maxTurns}), output chars={stdout.Length}");
