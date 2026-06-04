@@ -15,4 +15,8 @@
     <PackageReference Include="Avalonia.Desktop" Version="11.*" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.*" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- Drive installs through the same shared engine the Windows wizard uses. -->
+    <ProjectReference Include="..\cc-director-setup-engine\CcDirector.Setup.Engine.csproj" />
+  </ItemGroup>
 </Project>

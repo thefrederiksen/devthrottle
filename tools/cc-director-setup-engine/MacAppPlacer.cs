@@ -13,12 +13,12 @@ public sealed record MacAppResult(bool Success, string Message, string? Version)
 /// ~/Applications, strips the Gatekeeper quarantine, and marks the launcher executable. Mirrors
 /// UpdateInstaller.SwapMac so a fresh install and an auto-update converge on the same on-disk result.
 /// </summary>
-[SupportedOSPlatform("macos")]
 public static class MacAppPlacer
 {
     public const string DirectorAsset = "cc-director-mac-arm64.zip";
     private const string AppName = "CC Director.app";
 
+    [SupportedOSPlatform("macos")]
     public static async Task<MacAppResult> PlaceAsync(
         InstallLayout layout, ResolvedRelease release, ReleaseSource source,
         Action<string>? log = null, CancellationToken ct = default)

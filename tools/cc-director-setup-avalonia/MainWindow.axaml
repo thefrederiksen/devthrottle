@@ -76,7 +76,7 @@
                             Background="#3C3C3C"
                             x:Name="Line23" />
 
-                    <!-- Step 3: Tools -->
+                    <!-- Step 3: Skills -->
                     <StackPanel Orientation="Horizontal">
                         <Border x:Name="Step3Circle" Width="28" Height="28" CornerRadius="14"
                                 Background="#3C3C3C">
@@ -85,7 +85,7 @@
                                        HorizontalAlignment="Center" VerticalAlignment="Center"
                                        x:Name="Step3Num" />
                         </Border>
-                        <TextBlock x:Name="Step3Label" Text="Tools"
+                        <TextBlock x:Name="Step3Label" Text="Skills"
                                    Foreground="#888888" FontSize="13"
                                    VerticalAlignment="Center" Margin="12,0,0,0" />
                     </StackPanel>
@@ -95,7 +95,7 @@
                             Background="#3C3C3C"
                             x:Name="Line34" />
 
-                    <!-- Step 4: Skills -->
+                    <!-- Step 4: Install -->
                     <StackPanel Orientation="Horizontal">
                         <Border x:Name="Step4Circle" Width="28" Height="28" CornerRadius="14"
                                 Background="#3C3C3C">
@@ -104,7 +104,7 @@
                                        HorizontalAlignment="Center" VerticalAlignment="Center"
                                        x:Name="Step4Num" />
                         </Border>
-                        <TextBlock x:Name="Step4Label" Text="Skills"
+                        <TextBlock x:Name="Step4Label" Text="Install"
                                    Foreground="#888888" FontSize="13"
                                    VerticalAlignment="Center" Margin="12,0,0,0" />
                     </StackPanel>
@@ -114,7 +114,7 @@
                             Background="#3C3C3C"
                             x:Name="Line45" />
 
-                    <!-- Step 5: Install -->
+                    <!-- Step 5: Complete -->
                     <StackPanel Orientation="Horizontal">
                         <Border x:Name="Step5Circle" Width="28" Height="28" CornerRadius="14"
                                 Background="#3C3C3C">
@@ -123,26 +123,7 @@
                                        HorizontalAlignment="Center" VerticalAlignment="Center"
                                        x:Name="Step5Num" />
                         </Border>
-                        <TextBlock x:Name="Step5Label" Text="Install"
-                                   Foreground="#888888" FontSize="13"
-                                   VerticalAlignment="Center" Margin="12,0,0,0" />
-                    </StackPanel>
-
-                    <Border Width="2" Height="24" Margin="13,0,0,0"
-                            HorizontalAlignment="Left"
-                            Background="#3C3C3C"
-                            x:Name="Line56" />
-
-                    <!-- Step 6: Complete -->
-                    <StackPanel Orientation="Horizontal">
-                        <Border x:Name="Step6Circle" Width="28" Height="28" CornerRadius="14"
-                                Background="#3C3C3C">
-                            <TextBlock Text="6" Foreground="#888888" FontSize="13"
-                                       FontWeight="SemiBold"
-                                       HorizontalAlignment="Center" VerticalAlignment="Center"
-                                       x:Name="Step6Num" />
-                        </Border>
-                        <TextBlock x:Name="Step6Label" Text="Complete"
+                        <TextBlock x:Name="Step5Label" Text="Complete"
                                    Foreground="#888888" FontSize="13"
                                    VerticalAlignment="Center" Margin="12,0,0,0" />
                     </StackPanel>
