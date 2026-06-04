@@ -31,6 +31,10 @@ public sealed class ToolUpdater
         ArgumentNullException.ThrowIfNull(release);
         ArgumentNullException.ThrowIfNull(source);
 
+        // The Python tools now ship as one shared-venv bundle; refresh it independently of the
+        // legacy per-tool exe path below (which no-ops for releases that ship only the bundle).
+        await RefreshPythonToolsAsync(release, source, ct);
+
         var tools = ComponentRegistry.DiscoverToolIds(release.Manifest)
             .Select(ComponentRegistry.ToolComponent)
             .ToList();
@@ -58,6 +62,42 @@ public sealed class ToolUpdater
             (item, innerCt) => source.DownloadAssetAsync(item.AssetName, release.DownloadUrls, innerCt));
         var result = await runner.ApplyAsync(new UpdatePlan { Items = updates }, ct);
         EngineLog.Write($"[ToolUpdater] done: updated={result.Updated}, failed={result.Failed}");
+        return result;
+    }
+
+    /// <summary>
+    /// Refresh the shared-venv Python tools bundle. Installs when the bundle is missing (migrating an
+    /// older machine off its per-tool exes - PythonToolsInstaller removes those stale exes) and when
+    /// the release's bundle version is newer than what is installed. Windows-only; returns null when
+    /// there is nothing to do (no bundle in the release, not Windows, or already current).
+    /// </summary>
+    public async Task<PythonToolsResult?> RefreshPythonToolsAsync(ResolvedRelease release, ReleaseSource source, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(release);
+        ArgumentNullException.ThrowIfNull(source);
+        if (!OperatingSystem.IsWindows()) return null;
+
+        var toolsAsset = release.Manifest.TryGetAsset(PythonToolsInstaller.ToolsAsset);
+        var pyAsset = release.Manifest.TryGetAsset(PythonToolsInstaller.PythonAsset);
+        if (toolsAsset is null || pyAsset is null)
+        {
+            EngineLog.Write("[ToolUpdater] release has no Python tools bundle; skipping bundle refresh");
+            return null;
+        }
+
+        var installedVer = InstalledManifest.Load(_layout).Get(PythonToolsInstaller.ComponentId);
+        var needs = installedVer is null  // missing => migrate from per-tool exes
+            || (VersionUtil.TryParse(installedVer) is { } iv
+                && VersionUtil.TryParse(toolsAsset.Version) is { } rv && rv > iv);
+        if (!needs)
+        {
+            EngineLog.Write($"[ToolUpdater] Python tools bundle up to date ({installedVer})");
+            return null;
+        }
+
+        EngineLog.Write($"[ToolUpdater] refreshing Python tools bundle: {installedVer ?? "none"} -> {toolsAsset.Version}");
+        var result = await new PythonToolsInstaller(_layout).InstallAsync(release, source, null, ct);
+        EngineLog.Write($"[ToolUpdater] Python tools bundle: success={result.Success}, count={result.ToolCount}");
         return result;
     }
 

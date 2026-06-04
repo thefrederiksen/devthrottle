@@ -39,6 +39,8 @@ public sealed class Uninstaller
         {
             ("Director app", _layout.AppDir),
             ("CLI tools", _layout.BinDir),
+            ("Python runtime", _layout.PythonDir),
+            ("Python tools venv", _layout.PyenvDir),
         };
         if (role == InstallRole.Gateway)
         {

@@ -123,6 +123,15 @@ public sealed class PythonToolsInstaller
         Directory.CreateDirectory(_layout.BinDir);
         foreach (var script in scripts)
         {
+            // Migration: a prior (PyInstaller) install may have left bin\<script>.exe. Windows
+            // PATHEXT prefers .exe over .cmd, so a leftover exe would shadow the new shim - remove it.
+            var staleExe = Path.Combine(_layout.BinDir, $"{script}.exe");
+            if (File.Exists(staleExe))
+            {
+                try { File.Delete(staleExe); EngineLog.Write($"[PythonToolsInstaller] removed stale {script}.exe (would shadow the shim)"); }
+                catch (Exception ex) { EngineLog.Write($"[PythonToolsInstaller] could not remove stale {script}.exe: {ex.Message}"); }
+            }
+
             var cmd = Path.Combine(_layout.BinDir, $"{script}.cmd");
             var body = "@echo off\r\n"
                      + $"\"%~dp0..\\pyenv\\Scripts\\{script}.exe\" %*\r\n";
