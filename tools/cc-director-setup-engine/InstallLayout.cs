@@ -56,6 +56,15 @@ public sealed class InstallLayout
     public string AppDir => Path.Combine(LocalRoot, "app");
     public string BinDir => Path.Combine(LocalRoot, "bin");
 
+    /// <summary>The bundled python-build-standalone CPython (from cc-python-win-x64.zip).</summary>
+    public string PythonDir => Path.Combine(LocalRoot, "python");
+
+    /// <summary>The shared venv every cc-* Python tool installs into (from the wheelhouse).</summary>
+    public string PyenvDir => Path.Combine(LocalRoot, "pyenv");
+
+    /// <summary>The shared venv's Scripts dir, where pip generates each tool's console-script exe.</summary>
+    public string PyenvScriptsDir => Path.Combine(PyenvDir, "Scripts");
+
     /// <summary>Per-user install bookkeeping (installed-version manifest, pins) - NOT user data.</summary>
     public string SetupStateDir => Path.Combine(LocalRoot, "config", "setup");
 
