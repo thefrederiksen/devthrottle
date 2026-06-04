@@ -27,6 +27,14 @@
             </StackPanel>
         </StackPanel>
 
+        <!-- Log location footer (visible during install, so a stuck/failed run can still be reported). -->
+        <TextBlock x:Name="LogFooter"
+                   DockPanel.Dock="Bottom"
+                   Foreground="#666666"
+                   FontSize="11"
+                   TextWrapping="Wrap"
+                   Margin="0,12,0,0" />
+
         <ScrollViewer>
             <StackPanel>
                 <!-- CC Director (main app) -->

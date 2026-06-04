@@ -15,6 +15,7 @@ public partial class InstallStep : UserControl
     public InstallStep()
     {
         InitializeComponent();
+        LogFooter.Text = $"Setup log: {SetupLog.Path}";
         SetupLog.Write("[InstallStep] Created");
     }
 
