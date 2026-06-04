@@ -33,6 +33,10 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --binary) BINARY="$2"; shift 2 ;;
         --out)    OUT_DIR="$2"; shift 2 ;;
+        --app-name) APP_NAME="$2"; shift 2 ;;   # e.g. "CC Director Setup"
+        --bin-name) BIN_NAME="$2"; shift 2 ;;    # the binary inside the bundle (matches AssemblyName)
+        --zip-name) ZIP_NAME="$2"; shift 2 ;;    # output asset name
+        --bid)      BID="$2"; shift 2 ;;          # CFBundleIdentifier (distinct per app)
         -h|--help) grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "Unknown argument: $1" >&2; exit 1 ;;
     esac
@@ -120,8 +124,10 @@ for d in "$HOME/.local/bin" "$HOME/.claude/local" "/opt/homebrew/bin" \
 done
 export PATH
 cd "$DIR"
-exec "$DIR/cc-director" "$@"
+exec "$DIR/@BIN@" "$@"
 LAUNCH
+# Substitute the real binary name (the heredoc is quoted so runtime $VARS stay literal).
+sed -i.bak "s#@BIN@#$BIN_NAME#" "$APP/Contents/MacOS/launch" && rm -f "$APP/Contents/MacOS/launch.bak"
 chmod +x "$APP/Contents/MacOS/launch"
 
 # ----------------------------------------------------------------------------
@@ -164,4 +170,4 @@ rm -f "$ZIP_PATH"
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP_PATH"
 rm -rf "$STAGE"
 
-echo "Packaged CC Director v$VERSION -> $ZIP_PATH"
+echo "Packaged $APP_NAME v$VERSION -> $ZIP_PATH"

@@ -85,6 +85,78 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------
+  # Job 1c: Build the macOS Python tools bundle (arm64)
+  # ---------------------------------------------------------------
+  # The mac analog of build-python-bundle-win: scripts/build-python-bundle.sh builds the
+  # shared-venv payload (cc-python-macos-arm64.tar.gz + cc-tools-pyenv-macos-arm64.tar.gz).
+  build-python-bundle-mac:
+    name: Build Python Tools Bundle (macOS arm64)
+    runs-on: macos-14
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build the macOS Python tools bundle
+        run: bash scripts/build-python-bundle.sh dist/python-bundle
+
+      - name: Upload macOS Python bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-bundle-mac
+          path: dist/python-bundle/*.tar.gz
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------
+  # Job 1d: Build the macOS setup wizard (.app)
+  # ---------------------------------------------------------------
+  # The cross-platform Avalonia wizard, published self-contained for osx-arm64 and packaged
+  # as an ad-hoc-signed "CC Director Setup.app" (same model as the Director app).
+  build-setup-mac:
+    name: Build Setup Wizard (macOS arm64)
+    runs-on: macos-14
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Publish setup wizard for macOS arm64
+        run: >
+          dotnet publish tools/cc-director-setup-avalonia/CcDirectorSetup.csproj
+          -c Release -r osx-arm64 --self-contained true
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:EnableCompressionInSingleFile=true
+
+      - name: Package distributable Setup .app bundle (zip)
+        run: >
+          scripts/package-mac-app.sh
+          --binary tools/cc-director-setup-avalonia/bin/Release/net10.0/osx-arm64/publish/cc-director-setup
+          --out artifacts-mac
+          --app-name "CC Director Setup"
+          --bin-name cc-director-setup
+          --zip-name cc-director-setup-mac-arm64.zip
+          --bid com.centerconsulting.ccdirectorsetup
+
+      - name: Upload macOS setup wizard artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: setup-mac
+          path: artifacts-mac/cc-director-setup-mac-arm64.zip
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------
   # Job 1c: Build the CC Gateway service (Windows)
   # ---------------------------------------------------------------
   # The always-on service that supervises the Cockpit and brokers sessions.
@@ -258,7 +330,9 @@ jobs:
       - build-gateway-win
       - build-cockpit-win
       - build-python-bundle-win
+      - build-python-bundle-mac
       - build-setup-wizard-win
+      - build-setup-mac
 
     steps:
       - uses: actions/checkout@v4
@@ -281,6 +355,11 @@ jobs:
 
           # macOS main app (already a .app zip; keep the name the updater expects)
           cp release-artifacts/cc-director-mac/cc-director-mac-arm64.zip "$RELEASE_DIR/cc-director-mac-arm64.zip"
+
+          # macOS Python tools bundle (shared venv) + setup wizard .app
+          cp release-artifacts/python-bundle-mac/cc-python-macos-arm64.tar.gz "$RELEASE_DIR/cc-python-macos-arm64.tar.gz"
+          cp release-artifacts/python-bundle-mac/cc-tools-pyenv-macos-arm64.tar.gz "$RELEASE_DIR/cc-tools-pyenv-macos-arm64.tar.gz"
+          cp release-artifacts/setup-mac/cc-director-setup-mac-arm64.zip "$RELEASE_DIR/cc-director-setup-mac-arm64.zip"
 
           # Windows Gateway service (publish emits cc-director-gateway.exe)
           cp release-artifacts/gateway-win/cc-director-gateway.exe "$RELEASE_DIR/cc-director-gateway-win-x64.exe"
@@ -318,6 +397,9 @@ jobs:
             cc-director-setup-cli-win-x64.exe
             cc-python-win-x64.zip
             cc-tools-pyenv-win-x64.zip
+            cc-python-macos-arm64.tar.gz
+            cc-tools-pyenv-macos-arm64.tar.gz
+            cc-director-setup-mac-arm64.zip
           )
 
           missing_required=()
@@ -363,7 +445,7 @@ jobs:
             # Determine platform from filename
             if echo "$filename" | grep -q "win-x64"; then
               platform="windows"
-            elif echo "$filename" | grep -q "mac-arm64"; then
+            elif echo "$filename" | grep -qE "mac.*arm64"; then
               platform="macos"
             else
               platform="unknown"
