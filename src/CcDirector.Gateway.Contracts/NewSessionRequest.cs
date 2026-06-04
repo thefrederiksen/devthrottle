@@ -53,3 +53,67 @@ public sealed class RepositoryDto
     public string Path { get; set; } = "";
     public DateTime? LastUsed { get; set; }
 }
+
+/// <summary>Body of POST /repos: register a repository explicitly (no session needed).</summary>
+public sealed class RepoAddRequest
+{
+    /// <summary>Required. Absolute path of the repository directory. Must exist on the Director.</summary>
+    public string Path { get; set; } = "";
+
+    /// <summary>Optional display name; defaults to the folder name.</summary>
+    public string? Name { get; set; }
+}
+
+/// <summary>Body of PATCH /repos: rename a registered repository (path is the identity).</summary>
+public sealed class RepoRenameRequest
+{
+    /// <summary>Required. Path of the registered repository to rename.</summary>
+    public string Path { get; set; } = "";
+
+    /// <summary>Required. New display name.</summary>
+    public string Name { get; set; } = "";
+}
+
+/// <summary>
+/// One repository with everything the repositories page needs, aggregated by the Director
+/// from the repo registry, live sessions, session history, Claude Code session metadata,
+/// and handover documents (returned by GET /repos/overview).
+/// </summary>
+public sealed class RepoOverviewDto
+{
+    public string Name { get; set; } = "";
+    public string Path { get; set; } = "";
+
+    /// <summary>When a session was last started in this repo (UTC, from the registry).</summary>
+    public DateTime? LastUsed { get; set; }
+
+    /// <summary>False when the registered directory no longer exists on disk.</summary>
+    public bool PathExists { get; set; }
+
+    /// <summary>Live (non-exited) Director sessions currently open in this repo.</summary>
+    public int LiveSessionCount { get; set; }
+
+    /// <summary>Display names of the live sessions (custom name or folder name).</summary>
+    public List<string> LiveSessionNames { get; set; } = new();
+
+    /// <summary>Resumable Claude Code sessions recorded for this repo (~/.claude/projects).</summary>
+    public int ResumableSessionCount { get; set; }
+
+    /// <summary>CC Director workspace-history entries for this repo.</summary>
+    public int HistorySessionCount { get; set; }
+
+    /// <summary>When the most recent session (history or Claude metadata) was active (UTC).</summary>
+    public DateTime? LastSessionAtUtc { get; set; }
+
+    /// <summary>One-line summary of the most recent session, when available.</summary>
+    public string? LastSessionSummary { get; set; }
+
+    /// <summary>Git branch recorded by the most recent Claude session in this repo.</summary>
+    public string? GitBranch { get; set; }
+
+    /// <summary>Handover documents referencing this repo.</summary>
+    public int HandoverCount { get; set; }
+
+    /// <summary>Date of the newest handover referencing this repo (UTC).</summary>
+    public DateTime? LastHandoverUtc { get; set; }
+}

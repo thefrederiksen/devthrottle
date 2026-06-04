@@ -56,19 +56,97 @@ public static class HandoverScanner
     /// <summary>Read the full content of a handover file. The path must live inside the handover folder.</summary>
     public static string ReadContent(string filePath)
     {
-        var folder = CcStorage.VaultHandovers();
-        var full = Path.GetFullPath(filePath);
-        var rootedFolder = Path.GetFullPath(folder);
-
-        if (!full.StartsWith(rootedFolder, StringComparison.OrdinalIgnoreCase))
-            throw new UnauthorizedAccessException("handover path is outside the handover folder");
+        var full = ResolveInsideHandoverFolder(filePath);
         if (!File.Exists(full))
             throw new FileNotFoundException("handover not found", full);
 
         return File.ReadAllText(full);
     }
 
-    internal static HandoverInfo Parse(string filePath)
+    /// <summary>
+    /// Write a new standalone handover document. Produces the same layout the /handover skill
+    /// and HandoverArchive use (yyyyMMdd_HHmm_slug.md + YAML frontmatter) so <see cref="Parse"/>
+    /// round-trips the title, date, repositories, and session name. Returns the file path.
+    /// </summary>
+    public static string WriteNew(string title, string content, IReadOnlyList<string>? repoPaths = null, string? sessionName = null)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+            throw new ArgumentException("title is required", nameof(title));
+        if (string.IsNullOrWhiteSpace(content))
+            throw new ArgumentException("content is required", nameof(content));
+
+        var folder = CcStorage.VaultHandovers();
+        Directory.CreateDirectory(folder);
+
+        var ts = DateTime.Now;
+        var slug = Slugify(title);
+        var path = Path.Combine(folder, $"{ts:yyyyMMdd_HHmm}_{slug}.md");
+        // Same-minute collision: suffix -2, -3, ... rather than overwrite.
+        for (var n = 2; File.Exists(path); n++)
+            path = Path.Combine(folder, $"{ts:yyyyMMdd_HHmm}_{slug}-{n}.md");
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("---");
+        sb.AppendLine($"title: {title}");
+        sb.AppendLine($"date: {ts:yyyy-MM-dd HH:mm}");
+        if (!string.IsNullOrEmpty(sessionName))
+            sb.AppendLine($"session_name: {sessionName}");
+        if (repoPaths is { Count: > 0 })
+        {
+            sb.AppendLine("repositories:");
+            foreach (var repo in repoPaths)
+                sb.AppendLine($"  - path: {repo}");
+        }
+        sb.AppendLine("---");
+        sb.AppendLine();
+        sb.AppendLine(content);
+
+        File.WriteAllText(path, sb.ToString());
+        FileLog.Write($"[HandoverScanner] WriteNew: wrote {path}");
+        return path;
+    }
+
+    /// <summary>Delete a handover file. The path must live inside the handover folder.</summary>
+    public static void Delete(string filePath)
+    {
+        var full = ResolveInsideHandoverFolder(filePath);
+        if (!File.Exists(full))
+            throw new FileNotFoundException("handover not found", full);
+
+        File.Delete(full);
+        FileLog.Write($"[HandoverScanner] Delete: removed {full}");
+    }
+
+    /// <summary>Resolve a path and verify it lives inside the handover folder.</summary>
+    private static string ResolveInsideHandoverFolder(string filePath)
+    {
+        var folder = CcStorage.VaultHandovers();
+        var full = Path.GetFullPath(filePath);
+        var rootedFolder = Path.GetFullPath(folder);
+
+        if (!full.StartsWith(rootedFolder, StringComparison.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException("handover path is outside the handover folder");
+        return full;
+    }
+
+    /// <summary>Lowercase-kebab slug for the handover filename (ASCII only, capped at 60 chars).</summary>
+    internal static string Slugify(string title)
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (var c in title.ToLowerInvariant())
+        {
+            if (char.IsAsciiLetterOrDigit(c))
+                sb.Append(c);
+            else if (sb.Length > 0 && sb[^1] != '-')
+                sb.Append('-');
+        }
+        var slug = sb.ToString().Trim('-');
+        if (slug.Length > 60)
+            slug = slug[..60].TrimEnd('-');
+        return slug.Length == 0 ? "handover" : slug;
+    }
+
+    public static HandoverInfo Parse(string filePath)
     {
         var info = new HandoverInfo { Path = filePath };
         var name = Path.GetFileNameWithoutExtension(filePath);

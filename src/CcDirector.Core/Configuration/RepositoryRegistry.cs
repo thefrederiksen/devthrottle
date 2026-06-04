@@ -89,6 +89,32 @@ public class RepositoryRegistry
         return true;
     }
 
+    /// <summary>
+    /// Rename a registered repository (display name only; the path is the identity).
+    /// Returns false when the path is not registered.
+    /// </summary>
+    public bool Rename(string folderPath, string newName)
+    {
+        if (string.IsNullOrWhiteSpace(newName))
+            throw new ArgumentException("name is required", nameof(newName));
+
+        var normalized = Path.GetFullPath(folderPath).TrimEnd('\\', '/');
+
+        var repo = _repositories.FirstOrDefault(r =>
+            string.Equals(
+                Path.GetFullPath(r.Path).TrimEnd('\\', '/'),
+                normalized,
+                StringComparison.OrdinalIgnoreCase));
+
+        if (repo is null)
+            return false;
+
+        repo.Name = newName.Trim();
+        Save();
+        FileLog.Write($"[RepositoryRegistry] Rename: {normalized} -> \"{repo.Name}\"");
+        return true;
+    }
+
     public void MarkUsed(string folderPath)
     {
         FileLog.Write($"[RepositoryRegistry] MarkUsed: {folderPath}");

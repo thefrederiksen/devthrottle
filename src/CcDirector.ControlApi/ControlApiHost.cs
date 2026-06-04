@@ -222,6 +222,12 @@ public sealed class ControlApiHost : IAsyncDisposable
         }
         FileLog.Write($"[ControlApiHost] Kestrel listening on http://127.0.0.1:{Port} (loopback only; remote access via Tailscale Serve)");
 
+        // Let the SessionManager stamp CC_DIRECTOR_API / CC_DIRECTOR_ID into every session
+        // it spawns from now on, so agents inside a session can call this Control API
+        // (e.g. GET $CC_DIRECTOR_API/sessions/$CC_SESSION_ID to find themselves).
+        _sessionManager.ControlApiBaseUrl = $"http://127.0.0.1:{Port}";
+        _sessionManager.DirectorId = DirectorId;
+
         _registration = new InstanceRegistration(DirectorId, Port, _version);
         _registration.Register();
 

@@ -1688,6 +1688,135 @@ internal static class ControlEndpoints
             return Results.Json(new { removed });
         });
 
+        // ===== REST: Register a repository explicitly (no session needed) =====
+        app.MapPost("/repos", (RepoAddRequest req) =>
+        {
+            FileLog.Write($"[ControlEndpoints] POST /repos: path={req?.Path}, name=\"{req?.Name}\"");
+            if (string.IsNullOrWhiteSpace(req?.Path))
+                return Results.BadRequest(new { error = "path is required" });
+            if (repositoryRegistry is null)
+                return Results.BadRequest(new { error = "repository registry not available" });
+            if (!Directory.Exists(req.Path))
+                return Results.BadRequest(new { error = $"directory not found: {req.Path}" });
+
+            var added = repositoryRegistry.TryAdd(req.Path);
+            if (!string.IsNullOrWhiteSpace(req.Name))
+                repositoryRegistry.Rename(req.Path, req.Name);
+
+            var wanted = NormalizeRepoPath(req.Path);
+            var repo = repositoryRegistry.Repositories.First(r => NormalizeRepoPath(r.Path) == wanted);
+            var dto = new RepositoryDto
+            {
+                Name = string.IsNullOrEmpty(repo.Name) ? Path.GetFileName(repo.Path.TrimEnd('\\', '/')) : repo.Name,
+                Path = repo.Path,
+                LastUsed = repo.LastUsed,
+            };
+            return Results.Json(new { added, repo = dto },
+                statusCode: added ? StatusCodes.Status201Created : StatusCodes.Status200OK);
+        });
+
+        // ===== REST: Rename a registered repository =====
+        app.MapPatch("/repos", (RepoRenameRequest req) =>
+        {
+            FileLog.Write($"[ControlEndpoints] PATCH /repos: path={req?.Path}, name=\"{req?.Name}\"");
+            if (string.IsNullOrWhiteSpace(req?.Path))
+                return Results.BadRequest(new { error = "path is required" });
+            if (string.IsNullOrWhiteSpace(req.Name))
+                return Results.BadRequest(new { error = "name is required" });
+            if (repositoryRegistry is null)
+                return Results.BadRequest(new { error = "repository registry not available" });
+
+            if (!repositoryRegistry.Rename(req.Path, req.Name))
+                return Results.NotFound(new { error = "repository not registered" });
+
+            var wanted = NormalizeRepoPath(req.Path);
+            var repo = repositoryRegistry.Repositories.First(r => NormalizeRepoPath(r.Path) == wanted);
+            return Results.Json(new RepositoryDto
+            {
+                Name = repo.Name,
+                Path = repo.Path,
+                LastUsed = repo.LastUsed,
+            });
+        });
+
+        // ===== REST: Enriched per-repo overview (repositories page) =====
+        app.MapGet("/repos/overview", () =>
+        {
+            FileLog.Write("[ControlEndpoints] GET /repos/overview");
+            if (repositoryRegistry is null)
+                return Results.Json(Array.Empty<RepoOverviewDto>());
+
+            // Aggregate every per-repo data source once, keyed by normalized path.
+            var liveByRepo = sessionManager.ListSessions()
+                .Where(s => s.ActivityState != ActivityState.Exited)
+                .GroupBy(s => NormalizeRepoPath(s.RepoPath))
+                .ToDictionary(g => g.Key, g => g.Select(s => s.CustomName ?? ProjectNameOf(s.RepoPath)).ToList());
+
+            var historyByRepo = new SessionHistoryStore().LoadAll()
+                .Where(h => !string.IsNullOrEmpty(h.RepoPath))
+                .GroupBy(h => NormalizeRepoPath(h.RepoPath))
+                .ToDictionary(g => g.Key, g => g.ToList());
+
+            var claudeByRepo = ClaudeSessionReader.ScanAllProjects()
+                .Where(m => !string.IsNullOrEmpty(m.ProjectPath))
+                .GroupBy(m => NormalizeRepoPath(m.ProjectPath!))
+                .ToDictionary(g => g.Key, g => g.ToList());
+
+            var handoversByRepo = HandoverScanner.ScanAll()
+                .SelectMany(h => h.RepoPaths.Select(p => (Repo: NormalizeRepoPath(p), Handover: h)))
+                .GroupBy(x => x.Repo)
+                .ToDictionary(g => g.Key, g => g.Select(x => x.Handover).ToList());
+
+            var overview = repositoryRegistry.Repositories.Select(r =>
+            {
+                var key = NormalizeRepoPath(r.Path);
+                liveByRepo.TryGetValue(key, out var liveNames);
+                historyByRepo.TryGetValue(key, out var history);
+                claudeByRepo.TryGetValue(key, out var claude);
+                handoversByRepo.TryGetValue(key, out var handovers);
+
+                var latestHistory = history?.OrderByDescending(h => h.LastUsedAt).FirstOrDefault();
+                var latestClaude = claude?.OrderByDescending(m => m.Modified).FirstOrDefault();
+
+                var lastHistoryAt = latestHistory is null || latestHistory.LastUsedAt == default
+                    ? (DateTime?)null
+                    : latestHistory.LastUsedAt.UtcDateTime;
+                var lastClaudeAt = latestClaude is null || latestClaude.Modified == DateTime.MinValue
+                    ? (DateTime?)null
+                    : latestClaude.Modified;
+
+                // Most recent activity wins; its summary describes the last session.
+                var lastSessionAt = (lastHistoryAt ?? DateTime.MinValue) >= (lastClaudeAt ?? DateTime.MinValue)
+                    ? lastHistoryAt ?? lastClaudeAt
+                    : lastClaudeAt;
+                var lastSummary = lastSessionAt == lastClaudeAt
+                    ? latestClaude?.Summary ?? latestClaude?.FirstPrompt ?? latestHistory?.FirstPromptSnippet
+                    : latestHistory?.FirstPromptSnippet ?? latestClaude?.Summary ?? latestClaude?.FirstPrompt;
+
+                return new RepoOverviewDto
+                {
+                    Name = string.IsNullOrEmpty(r.Name) ? Path.GetFileName(r.Path.TrimEnd('\\', '/')) : r.Name,
+                    Path = r.Path,
+                    LastUsed = r.LastUsed,
+                    PathExists = Directory.Exists(r.Path),
+                    LiveSessionCount = liveNames?.Count ?? 0,
+                    LiveSessionNames = liveNames ?? new List<string>(),
+                    ResumableSessionCount = claude?.Count ?? 0,
+                    HistorySessionCount = history?.Count ?? 0,
+                    LastSessionAtUtc = lastSessionAt,
+                    LastSessionSummary = lastSummary,
+                    GitBranch = claude?.OrderByDescending(m => m.Modified)
+                        .FirstOrDefault(m => !string.IsNullOrEmpty(m.GitBranch))?.GitBranch,
+                    HandoverCount = handovers?.Count ?? 0,
+                    LastHandoverUtc = handovers?.Max(h => h.DateUtc),
+                };
+            })
+            .OrderByDescending(r => r.LastUsed ?? DateTime.MinValue)
+            .ToList();
+
+            return Results.Json(overview);
+        });
+
         // ===== REST: Coaching quick-launch categories (Assistant / Coach cards) =====
         app.MapGet("/coaching/categories", () =>
         {
@@ -1713,9 +1842,9 @@ internal static class ControlEndpoints
         });
 
         // ===== REST: Resumable Claude Code sessions (Resume Session tab) =====
-        app.MapGet("/claude-sessions", () =>
+        app.MapGet("/claude-sessions", (string? repo) =>
         {
-            FileLog.Write("[ControlEndpoints] GET /claude-sessions");
+            FileLog.Write($"[ControlEndpoints] GET /claude-sessions: repo={repo}");
 
             var claudeMeta = new Dictionary<string, ClaudeSessionMetadata>(StringComparer.Ordinal);
             foreach (var cm in ClaudeSessionReader.ScanAllProjects())
@@ -1760,6 +1889,13 @@ internal static class ControlEndpoints
                 });
             }
 
+            if (!string.IsNullOrWhiteSpace(repo))
+            {
+                var wanted = NormalizeRepoPath(repo);
+                dtos = dtos.Where(d => !string.IsNullOrEmpty(d.RepoPath)
+                                       && NormalizeRepoPath(d.RepoPath) == wanted).ToList();
+            }
+
             var ordered = dtos
                 .OrderByDescending(d => d.LastUsedUtc ?? DateTime.MinValue)
                 .ToList();
@@ -1767,10 +1903,16 @@ internal static class ControlEndpoints
         });
 
         // ===== REST: Handover documents (Handovers tab) =====
-        app.MapGet("/handovers", () =>
+        app.MapGet("/handovers", (string? repo) =>
         {
-            FileLog.Write("[ControlEndpoints] GET /handovers");
-            var dtos = HandoverScanner.ScanAll().Select(h => new HandoverDto
+            FileLog.Write($"[ControlEndpoints] GET /handovers: repo={repo}");
+            var infos = HandoverScanner.ScanAll();
+            if (!string.IsNullOrWhiteSpace(repo))
+            {
+                var wanted = NormalizeRepoPath(repo);
+                infos = infos.Where(h => h.RepoPaths.Any(p => NormalizeRepoPath(p) == wanted)).ToList();
+            }
+            var dtos = infos.Select(h => new HandoverDto
             {
                 Path = h.Path,
                 Title = h.Title,
@@ -1781,6 +1923,51 @@ internal static class ControlEndpoints
                 SessionName = h.SessionName,
             }).ToList();
             return Results.Json(dtos);
+        });
+
+        app.MapPost("/handovers", (HandoverCreateRequest req) =>
+        {
+            // Standalone handover document: written to the vault handover folder so it
+            // shows up in the Handovers tab and GET /handovers. Unlike POST /handover,
+            // no target session is involved.
+            FileLog.Write($"[ControlEndpoints] POST /handovers: title=\"{req?.Title}\"");
+            if (string.IsNullOrWhiteSpace(req?.Title))
+                return Results.BadRequest(new { error = "title is required" });
+            if (string.IsNullOrWhiteSpace(req.Content))
+                return Results.BadRequest(new { error = "content is required" });
+
+            var path = HandoverScanner.WriteNew(req.Title, req.Content, req.RepoPaths, req.SessionName);
+            var h = HandoverScanner.Parse(path);
+            return Results.Json(new HandoverDto
+            {
+                Path = h.Path,
+                Title = h.Title,
+                DateDisplay = h.DateDisplay,
+                DateUtc = h.DateUtc,
+                RepoPath = h.RepoPath,
+                RepoPaths = h.RepoPaths,
+                SessionName = h.SessionName,
+            }, statusCode: StatusCodes.Status201Created);
+        });
+
+        app.MapDelete("/handovers", (string? path) =>
+        {
+            FileLog.Write($"[ControlEndpoints] DELETE /handovers: path={path}");
+            if (string.IsNullOrWhiteSpace(path))
+                return Results.BadRequest(new { error = "path is required" });
+            try
+            {
+                HandoverScanner.Delete(path);
+                return Results.Json(new { removed = true });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+            catch (FileNotFoundException)
+            {
+                return Results.NotFound(new { error = "handover not found" });
+            }
         });
 
         app.MapGet("/handovers/content", (string? path) =>
@@ -1983,6 +2170,17 @@ internal static class ControlEndpoints
         if (string.IsNullOrEmpty(repoPath))
             return "Unknown Project";
         return Path.GetFileName(repoPath.TrimEnd('\\', '/'));
+    }
+
+    /// <summary>
+    /// Canonical form for repo-path comparison across endpoints (?repo= filters, overview
+    /// grouping): full path, trailing separators trimmed, lowercased (Windows paths are
+    /// case-insensitive). Callers must filter null/empty first; Path.GetFullPath throws
+    /// only on empty or embedded-NUL input, which the global error envelope surfaces loudly.
+    /// </summary>
+    private static string NormalizeRepoPath(string path)
+    {
+        return Path.GetFullPath(path).TrimEnd('\\', '/').ToLowerInvariant();
     }
 
     /// <summary>

@@ -68,6 +68,25 @@ public sealed class HandoverContentDto
 }
 
 /// <summary>
+/// Request body for POST /handovers: create a standalone handover document in the vault
+/// handover folder (no target session involved, unlike POST /handover which dispatches).
+/// </summary>
+public sealed class HandoverCreateRequest
+{
+    /// <summary>Required. Becomes the filename slug and the frontmatter title.</summary>
+    public string Title { get; set; } = "";
+
+    /// <summary>Required. Markdown body of the handover (frontmatter is composed by the Director).</summary>
+    public string Content { get; set; } = "";
+
+    /// <summary>Repository paths this handover concerns (frontmatter "repositories" list).</summary>
+    public List<string> RepoPaths { get; set; } = new();
+
+    /// <summary>Optional source session name (frontmatter "session_name").</summary>
+    public string? SessionName { get; set; }
+}
+
+/// <summary>
 /// A coaching quick-launch category (returned by GET /coaching/categories). The Director
 /// resolves the on-disk path so the Cockpit can create a session there.
 /// </summary>

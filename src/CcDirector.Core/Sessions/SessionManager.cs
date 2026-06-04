@@ -21,6 +21,20 @@ public sealed class SessionManager : IDisposable
     public AgentOptions Options => _options;
 
     /// <summary>
+    /// Base URL of this Director's Control API (e.g. "http://127.0.0.1:7880"), injected into
+    /// every spawned session as CC_DIRECTOR_API so agents can call the REST API on their own
+    /// Director (look themselves up, list handovers, etc). Set by ControlApiHost.StartAsync
+    /// once Kestrel has bound; sessions spawned before the Control API starts won't have it.
+    /// </summary>
+    public string? ControlApiBaseUrl { get; set; }
+
+    /// <summary>
+    /// This Director's stable id, injected into spawned sessions as CC_DIRECTOR_ID.
+    /// Set by ControlApiHost.StartAsync alongside <see cref="ControlApiBaseUrl"/>.
+    /// </summary>
+    public string? DirectorId { get; set; }
+
+    /// <summary>
     /// Fired immediately after a session is added to the manager's internal dictionary,
     /// for EVERY session - whether created via the Avalonia UI, the web Control API,
     /// or restored from persistence at startup. Handlers must be idempotent: the
@@ -129,11 +143,17 @@ public sealed class SessionManager : IDisposable
 
         try
         {
-            // Inject CC_SESSION_ID so skills (e.g. /handover) can look up the session name
+            // Inject CC_SESSION_ID so skills (e.g. /handover) can look up the session name,
+            // plus the Control API endpoint so a session can find itself over REST:
+            //   GET $CC_DIRECTOR_API/sessions/$CC_SESSION_ID
             var envVars = new Dictionary<string, string>
             {
                 ["CC_SESSION_ID"] = id.ToString()
             };
+            if (!string.IsNullOrEmpty(ControlApiBaseUrl))
+                envVars["CC_DIRECTOR_API"] = ControlApiBaseUrl;
+            if (!string.IsNullOrEmpty(DirectorId))
+                envVars["CC_DIRECTOR_ID"] = DirectorId;
 
             // Resolve the agent command to a concrete executable path before spawning.
             // CreateProcess only appends ".exe" to a bare command name, so a CLI installed
