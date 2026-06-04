@@ -135,6 +135,69 @@ body{background:var(--panel);color:var(--text);
 .mono,.kv dd.mono{font-family:"Cascadia Mono",Consolas,monospace;color:var(--text2)}
 .detail-note{color:var(--muted);font-size:12px;line-height:1.6;max-width:640px}
 
+/* center tabs: Brief (default) | Terminal, + the needs-you conveyor */
+.center-tabs{display:flex;align-items:center;gap:2px;padding:4px 10px 0;border-bottom:1px solid var(--border);background:var(--sidebar)}
+.ctab{border:none;background:none;color:var(--text3);font-size:12px;font-weight:600;padding:7px 14px;cursor:pointer;
+  border-bottom:2px solid transparent;letter-spacing:.02em}
+.ctab.on{color:var(--text);border-bottom-color:#3B82F6}
+.ctab:hover{color:var(--text)}
+.center-tabs-spacer{flex:1}
+.ny-nav{display:flex;align-items:center;gap:6px;padding-bottom:4px}
+.ny-btn{border:1px solid var(--border);background:var(--panel);color:var(--text2);border-radius:4px;
+  font-size:10px;padding:3px 9px;cursor:pointer}
+.ny-btn:hover{color:var(--text);border-color:var(--text3)}
+.ny-count{color:#F14C4C;font-size:11.5px;font-weight:600;min-width:30px;text-align:center}
+
+/* the Brief: full-page session view (ASK / DID / NEEDS YOU) */
+.brief-scroll{flex:1;min-height:0;overflow-y:auto;background:var(--bg)}
+.brief{max-width:980px;margin:0 auto;padding:26px 40px 18px;font-size:14px;line-height:1.55}
+.brief .blabel{font-size:10px;font-weight:700;letter-spacing:.12em;color:var(--text3);margin-bottom:7px}
+.brief .blabel.red{color:#F14C4C}
+.brief-goal{display:flex;gap:12px;align-items:baseline;margin-bottom:22px;padding-bottom:14px;border-bottom:1px solid var(--border)}
+.brief-goal .blabel{margin-bottom:0}
+.brief-goal-text{color:var(--text2);font-size:13px}
+.brief-block{margin-bottom:24px}
+.brief-ask{color:var(--text);font-size:15px;white-space:pre-wrap}
+.brief-did{margin:0;padding-left:22px;color:var(--text)}
+.brief-did li{margin-bottom:5px}
+.brief-needsyou{border-left:3px solid #F14C4C;background:#2a1d1f;color:#f1d8d8;
+  padding:12px 16px;border-radius:0 6px 6px 0;font-size:15px;white-space:pre-wrap}
+.brief-verbatim-tag{font-weight:400;letter-spacing:0;text-transform:none;color:var(--muted);margin-left:8px;font-size:10px}
+.brief-cond-warn{font-weight:400;letter-spacing:0;color:#F59E0B;margin-left:8px;font-size:10px}
+.brief-working{color:var(--muted);font-size:13px;border:1px dashed var(--border);border-radius:6px;
+  padding:10px 14px;margin-bottom:24px}
+.brief-expand{border:none;background:none;color:#3B82F6;font-size:12px;cursor:pointer;padding:6px 0 0;display:block}
+.brief-expand:hover{text-decoration:underline}
+.brief-reply-md{margin-top:10px;padding:14px 18px;background:var(--panel);border:1px solid var(--border);
+  border-radius:6px;color:var(--text);overflow-x:auto}
+.brief-reply-md h1,.brief-reply-md h2,.brief-reply-md h3{font-size:15px;margin:14px 0 6px}
+.brief-reply-md p{margin:7px 0}
+.brief-reply-md pre{background:#15161a;padding:10px 12px;border-radius:5px;overflow-x:auto;
+  font-family:"Cascadia Mono",Consolas,monospace;font-size:12px}
+.brief-reply-md code{font-family:"Cascadia Mono",Consolas,monospace;font-size:12.5px;background:#15161a;
+  padding:1px 5px;border-radius:3px}
+.brief-reply-md pre code{padding:0;background:none}
+.brief-reply-md ul,.brief-reply-md ol{padding-left:24px}
+.brief-reply-md table{border-collapse:collapse}
+.brief-reply-md td,.brief-reply-md th{border:1px solid var(--border);padding:4px 10px;font-size:13px}
+.brief-foot{display:flex;align-items:center;gap:10px;border-top:1px solid var(--border);
+  padding-top:10px;margin-top:6px}
+.brief-foot .spacer{flex:1}
+.brief-refresh{border:none;background:none;color:var(--text3);font-size:11px;cursor:pointer}
+.brief-refresh:hover{color:var(--text)}
+.brief-open-term{margin-top:10px;border:1px solid #F14C4C;background:none;color:#F14C4C;border-radius:5px;
+  font-size:12.5px;font-weight:600;padding:8px 16px;cursor:pointer}
+.brief-open-term:hover{background:#2a1d1f}
+.brief-quick{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.brief-quick-btn{border:1px solid var(--border);background:var(--panel);color:var(--text);border-radius:5px;
+  font-size:12px;padding:8px 14px;cursor:pointer;text-align:left}
+.brief-quick-btn b{color:#22C55E;margin-right:6px}
+.brief-quick-btn:hover{border-color:#22C55E}
+.brief-quick-btn:disabled{opacity:.5;cursor:default}
+.brief-loading,.brief-error,.brief-status{padding:40px;color:var(--muted);font-size:13px}
+.brief-error-hint{margin-top:8px;color:var(--text3);font-size:12px}
+.brief-muted{color:var(--muted)}
+
 /* live terminal */
 .term-wrap{flex:1;min-height:0;overflow:hidden;background:#1e1e1e;padding:6px 8px}
 /* The xterm grid mirrors the PTY size exactly (cols AND rows - see cockpit-terminal.js),

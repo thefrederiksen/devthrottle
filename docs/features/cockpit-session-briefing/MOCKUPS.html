@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cockpit Session Briefing - Layout Options</title>
+<style>
+  :root{
+    --bg:#16181d; --panel:#1e2127; --panel2:#23272f; --border:#2a2e37;
+    --text:#d4d4d8; --text2:#a8adb8; --muted:#7c8190;
+    --green:#22C55E; --blue:#3B82F6; --yellow:#F59E0B; --red:#F14C4C;
+    --term-bg:#1e1e1e;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#0d0e11;color:var(--text);font-family:"Segoe UI",system-ui,sans-serif;padding:28px;line-height:1.45}
+  h1{font-size:22px;margin-bottom:4px}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:30px}
+  .option{margin-bottom:48px}
+  .option-head{margin-bottom:10px}
+  .option-head .tag{display:inline-block;background:var(--blue);color:#fff;font-size:11px;font-weight:600;
+    padding:2px 8px;border-radius:3px;letter-spacing:.06em;margin-right:8px;vertical-align:middle}
+  .option-head .tag.rec{background:var(--green)}
+  .option-head h2{display:inline;font-size:16px;vertical-align:middle}
+  .option-head p{color:var(--text2);font-size:12.5px;margin-top:6px;max-width:880px}
+  .mock{border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--bg);
+    width:1180px;max-width:100%;box-shadow:0 8px 30px rgba(0,0,0,.45)}
+
+  /* shared chrome */
+  .dhead{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border);background:var(--panel)}
+  .dot{width:9px;height:9px;border-radius:50%}
+  .dot.red{background:var(--red)} .dot.blue{background:var(--blue)}
+  .dname{font-weight:600;font-size:13.5px}
+  .dmeta{color:var(--muted);font-size:11px}
+  .spacer{flex:1}
+  .chip{font-size:10.5px;color:var(--text2);border:1px solid var(--border);border-radius:3px;padding:3px 9px;background:var(--panel2)}
+  .term{background:var(--term-bg);font-family:"Cascadia Mono",Consolas,monospace;font-size:11.5px;color:#b9bcc4;
+    padding:10px 14px;white-space:pre-wrap;line-height:1.45}
+  .term .dim{color:#6b6f7a}
+  .composer{display:flex;gap:8px;padding:10px 14px;border-top:1px solid var(--border);background:var(--panel)}
+  .composer .box{flex:1;border:1px solid var(--border);border-radius:5px;background:var(--panel2);
+    color:var(--muted);font-size:12px;padding:8px 12px}
+  .btn{border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:11.5px;
+    border-radius:4px;padding:7px 14px;white-space:nowrap}
+  .btn.primary{background:var(--green);border-color:var(--green);color:#08210f;font-weight:600}
+  .btn.send{background:#2f6fd0;border-color:#2f6fd0;color:#fff}
+
+  /* briefing pieces */
+  .blabel{font-size:9.5px;font-weight:700;letter-spacing:.12em;color:var(--muted);margin-bottom:5px}
+  .blabel.red{color:var(--red)}
+  .goal-line{font-size:13px;color:var(--text)}
+  .goal-line .when{color:var(--muted);font-size:11px;margin-left:8px}
+  .verbatim{border-left:3px solid var(--red);background:#2a1d1f;padding:9px 12px;border-radius:0 5px 5px 0;
+    font-size:13px;color:#f1d8d8}
+  .nowtext{font-size:12.5px;color:var(--text2)}
+
+  /* OPTION A strip */
+  .strip{display:grid;grid-template-columns:1fr 1fr 1.2fr;gap:0;border-bottom:1px solid var(--border);background:var(--panel)}
+  .strip > div{padding:12px 16px;border-right:1px solid var(--border)}
+  .strip > div:last-child{border-right:none}
+  .quick{display:flex;gap:6px;margin-top:9px}
+  .quick .btn{font-size:11px;padding:5px 11px}
+
+  /* OPTION B full page */
+  .bpage{padding:34px 60px 26px;background:var(--bg)}
+  .bpage .goal-big{font-size:15px;color:var(--text2);margin-bottom:26px}
+  .bpage .goal-big b{color:var(--text);font-weight:600}
+  .bpage .now-big{font-size:17px;margin-bottom:26px;max-width:860px}
+  .bpage .ask-big{border-left:4px solid var(--red);background:#2a1d1f;padding:16px 20px;border-radius:0 7px 7px 0;
+    font-size:16px;color:#f3dcdc;max-width:860px;margin-bottom:10px}
+  .bpage .opts{display:flex;gap:8px;margin:18px 0 30px}
+  .bpage .opts .btn{font-size:13px;padding:9px 18px}
+  .term-peek{border-top:1px solid var(--border);background:var(--term-bg);color:#6b6f7a;
+    font-family:"Cascadia Mono",Consolas,monospace;font-size:11px;padding:8px 16px;display:flex;justify-content:space-between}
+
+  /* OPTION C right rail */
+  .csplit{display:flex}
+  .cmain{flex:1;min-width:0}
+  .crail{width:330px;border-left:1px solid var(--border);background:var(--panel);display:flex;flex-direction:column}
+  .ctabs{display:flex;border-bottom:1px solid var(--border);font-size:10.5px;letter-spacing:.06em;color:var(--muted)}
+  .ctabs span{padding:9px 12px}
+  .ctabs .on{color:var(--text);border-bottom:2px solid var(--blue);font-weight:600}
+  .crail .sec{padding:12px 14px;border-bottom:1px solid var(--border)}
+  .timeline{font-size:11.5px;color:var(--text2)}
+  .timeline .t{display:flex;gap:9px;padding:5px 0;align-items:baseline}
+  .timeline .t .tt{color:var(--muted);font-size:10px;white-space:nowrap;width:38px}
+  .footer-note{color:var(--muted);font-size:11px;padding:9px 14px}
+</style>
+</head>
+<body>
+
+<h1>Cockpit: "where was I?" session briefing - 3 layout options</h1>
+<div class="sub">Goal: answer three questions in the first second - (1) what is this session FOR, (2) what just happened, (3) what does Claude need from me - with the least cognitive load. Content below is from the real "webapp - cards redesign" session.</div>
+
+<!-- ============ OPTION A ============ -->
+<div class="option" id="optA">
+  <div class="option-head">
+    <span class="tag rec">OPTION A - RECOMMENDED</span><h2>Briefing strip pinned above the terminal</h2>
+    <p>Three fixed slots: ASK -> LAST TURN -> NEEDS YOU. Always visible, never moves, so your eyes learn the spots.
+       Terminal keeps ~70% height. Red slot only lights up when Claude is actually waiting on you.</p>
+  </div>
+  <div class="mock">
+    <div class="dhead">
+      <span class="dot red"></span><span class="dname">webapp - cards redesign</span>
+      <span class="dmeta">DESK-1 / a3a971fa</span>
+      <span class="spacer"></span>
+      <span class="chip">WAITING FOR YOU - 14m</span>
+      <span class="btn">What's happening</span><span class="btn">Handover</span><span class="btn">Rename</span><span class="btn">Kill</span>
+    </div>
+    <div class="strip">
+      <div>
+        <div class="blabel">ORIGINAL ASK</div>
+        <div class="goal-line">Redesign the Create-New launcher: bigger cards with images, "Describe it in chat" first.<span class="when">started 2h ago</span></div>
+      </div>
+      <div>
+        <div class="blabel">LAST TURN</div>
+        <div class="nowtext">Proposed 3 changes: reorder describe-in-chat first, larger 3-column cards, keep the inline page. Nothing applied yet.</div>
+      </div>
+      <div>
+        <div class="blabel red">NEEDS YOU - verbatim</div>
+        <div class="verbatim">"Approve 1+2 (and your verdict on 3) and I'll make the changes while the server's up so you can refresh and re-judge."</div>
+        <div class="quick"><span class="btn primary">Approve 1+2</span><span class="btn">Reply...</span></div>
+      </div>
+    </div>
+    <div class="term">2. Make the cards own the page: larger cards filling the content width as a proper 3-column row,
+   bigger icons, hover lift, the card group centered with the title - kill the dead space
+3. Keep it an inline page (per #1 above) - if you'd still rather have the popup back, say so
+
+Approve 1+2 (and your verdict on 3) and I'll make the changes while the server's up.
+
+<span class="dim">* Brewed for 1m 0s</span>
+
+&gt; <span class="dim">_</span>
+
+<span class="dim">  &#9654;&#9654; bypass permissions on (shift+tab to cycle)</span></div>
+    <div class="composer"><span class="box">Message this session... (Enter to send)</span><span class="btn">Attach</span><span class="btn primary">Speak</span><span class="btn send">Send</span><span class="btn">Esc</span></div>
+  </div>
+</div>
+
+<!-- ============ OPTION B ============ -->
+<div class="option" id="optB">
+  <div class="option-head">
+    <span class="tag">OPTION B</span><h2>Briefing-first page, terminal on demand</h2>
+    <p>Selecting a session lands on a calm full-page brief - big type, one decision. The terminal is one click
+       (or scroll) away. Lowest possible cognitive load; best when triaging many sessions or on a small screen.
+       Risk: power users live in the terminal and will resent the extra click.</p>
+  </div>
+  <div class="mock">
+    <div class="dhead">
+      <span class="dot red"></span><span class="dname">webapp - cards redesign</span>
+      <span class="dmeta">DESK-1 / a3a971fa</span>
+      <span class="spacer"></span>
+      <span class="chip">WAITING FOR YOU - 14m</span>
+      <span class="btn">Rename</span><span class="btn">Kill</span>
+    </div>
+    <div class="bpage">
+      <div class="goal-big">You asked: <b>"Redesign the Create-New launcher: bigger cards with images, describe-it-in-chat first."</b> <span class="when" style="color:var(--muted);font-size:12px">- 2h ago, 9 turns</span></div>
+      <div class="blabel">WHAT JUST HAPPENED</div>
+      <div class="now-big">Claude analyzed your feedback and proposed 3 concrete changes - reorder "Describe it in chat" first, larger 3-column cards, keep the inline page. Nothing has been changed yet.</div>
+      <div class="blabel red">CLAUDE IS ASKING - verbatim</div>
+      <div class="ask-big">"Approve 1+2 (and your verdict on 3) and I'll make the changes while the server's up so you can refresh and re-judge."</div>
+      <div class="opts"><span class="btn primary">Approve 1+2</span><span class="btn">Approve all 3</span><span class="btn send">Type a reply</span><span class="btn">&#127908; Speak</span></div>
+    </div>
+    <div class="term-peek"><span>&gt; terminal - "Approve 1+2 (and your verdict on 3) and I'll make the..."</span><span>click to expand &#9650;</span></div>
+  </div>
+</div>
+
+<!-- ============ OPTION C ============ -->
+<div class="option" id="optC">
+  <div class="option-head">
+    <span class="tag">OPTION C</span><h2>Wingman tab becomes the situation rail</h2>
+    <p>Terminal untouched at full size; the right panel's WINGMAN tab is redesigned to hold the same three slots
+       plus a turn timeline. Zero cost to terminal real estate, but the briefing competes with Screenshots/Queue
+       for the rail and is narrower. Pairs well with Option A (A holds the top 3; C adds the timeline + recap).</p>
+  </div>
+  <div class="mock">
+    <div class="csplit">
+      <div class="cmain">
+        <div class="dhead">
+          <span class="dot red"></span><span class="dname">webapp - cards redesign</span>
+          <span class="dmeta">DESK-1 / a3a971fa</span>
+          <span class="spacer"></span><span class="chip">WAITING FOR YOU - 14m</span>
+        </div>
+        <div class="term" style="min-height:300px">3. Keep it an inline page (per #1 above) - if you'd still rather have the popup back, say so
+
+Approve 1+2 (and your verdict on 3) and I'll make the changes while the server's up.
+
+<span class="dim">* Brewed for 1m 0s</span>
+
+&gt; <span class="dim">_</span>
+
+<span class="dim">  &#9654;&#9654; bypass permissions on (shift+tab to cycle)</span></div>
+        <div class="composer"><span class="box">Message this session...</span><span class="btn primary">Speak</span><span class="btn send">Send</span></div>
+      </div>
+      <div class="crail">
+        <div class="ctabs"><span class="on">WINGMAN</span><span>SCREENSHOTS</span><span>QUEUE</span><span>DIRECTOR</span></div>
+        <div class="sec">
+          <div class="blabel">ORIGINAL ASK</div>
+          <div class="goal-line" style="font-size:12px">Redesign the Create-New launcher: bigger cards with images, describe-in-chat first.</div>
+        </div>
+        <div class="sec">
+          <div class="blabel red">NEEDS YOU - verbatim</div>
+          <div class="verbatim" style="font-size:12px">"Approve 1+2 (and your verdict on 3) and I'll make the changes while the server's up."</div>
+          <div class="quick"><span class="btn primary" style="font-size:10.5px;padding:4px 9px">Approve 1+2</span><span class="btn" style="font-size:10.5px;padding:4px 9px">Reply</span></div>
+        </div>
+        <div class="sec">
+          <div class="blabel">TURN TIMELINE</div>
+          <div class="timeline">
+            <div class="t"><span class="tt">14:51</span><span>Proposed 3 layout changes, asked for approval</span></div>
+            <div class="t"><span class="tt">14:38</span><span>Shipped 3 cards, deferred .bpmn upload card</span></div>
+            <div class="t"><span class="tt">14:10</span><span>Reviewed wireframe vs shipped launcher</span></div>
+            <div class="t"><span class="tt">13:42</span><span>Explored launcher code, mapped components</span></div>
+          </div>
+        </div>
+        <div class="footer-note">Recap (full) - generate &#8250;</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

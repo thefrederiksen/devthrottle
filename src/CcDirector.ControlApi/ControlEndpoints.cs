@@ -685,6 +685,122 @@ internal static class ControlEndpoints
             }
         });
 
+        // ===== REST: Brief - the Cockpit's full-page session view (ASK / DID / NEEDS YOU) =====
+        // Sourced from the Claude JSONL transcript, never the terminal screen. The DID bullets
+        // and verbatim NEEDS-YOU extraction come from a cached OpenAI condensation (one call
+        // per completed turn); the raw blocks are served even when the condenser is
+        // unavailable - explicit degrade, never a blank page.
+        // Plan: docs/plans/cockpit-brief-view.md
+        app.MapGet("/sessions/{sid}/brief", async (string sid, HttpContext ctx) =>
+        {
+            if (!Guid.TryParse(sid, out var guid))
+                return Results.BadRequest(new { error = "invalid session id format" });
+
+            var session = sessionManager.GetSession(guid);
+            if (session is null)
+                return Results.NotFound(new { error = "session not found" });
+
+            var resp = new BriefResponse
+            {
+                SessionId = sid,
+                ActivityState = session.ActivityState.ToString(),
+                CreatedAt = session.CreatedAt.UtcDateTime,
+            };
+
+            if (string.IsNullOrEmpty(session.ClaudeSessionId))
+            {
+                resp.Status = "no_session_id";
+                resp.Error = "Session has not been linked to a Claude session id yet.";
+                return Results.Json(resp);
+            }
+
+            try
+            {
+                var jsonl = ClaudeSessionReader.GetJsonlPath(session.ClaudeSessionId, session.RepoPath);
+                if (!File.Exists(jsonl))
+                {
+                    resp.Status = "no_jsonl";
+                    resp.Error = $"JSONL file not found at {jsonl}";
+                    return Results.Json(resp);
+                }
+
+                var messages = StreamMessageParser.ParseFile(jsonl);
+                var widgets = WidgetBuilder.BuildFromMessages(messages);
+                var extract = BriefBuilder.Extract(widgets);
+
+                resp.TurnCount = extract.TurnCount;
+                resp.Goal = TruncateForDisplay(extract.FirstUserPrompt, BriefBuilder.GoalMaxChars);
+                resp.LastAsk = TruncateForDisplay(extract.LastUserPrompt, BriefBuilder.LastAskMaxChars);
+                resp.FullReply = extract.LastAssistantText;
+                resp.ReplyPending = extract.ReplyPending;
+
+                // While the current turn's reply is missing from the transcript (mid-reply, or
+                // blocked in an on-screen interactive prompt), do NOT condense or fall back:
+                // the condensation would describe the PREVIOUS turn against the NEW ask, and a
+                // fallback needs-you would quote the wrong reply. The client routes the user
+                // to the Terminal tab instead.
+                if (extract.LastAssistantText is not null && !extract.ReplyPending)
+                {
+                    var cached = BriefCache.TryGetCurrent(guid, extract.TurnCount);
+                    if (cached is null)
+                    {
+                        using var condenser = BriefBuilder.TryCreate();
+                        if (condenser is not null)
+                        {
+                            var c = await condenser.CondenseAsync(
+                                extract.LastUserPrompt, extract.LastAssistantText, ctx.RequestAborted);
+                            if (c is not null)
+                            {
+                                cached = new BriefCache.Entry
+                                {
+                                    AtTurnCount = extract.TurnCount,
+                                    DidBullets = c.Bullets,
+                                    NeedsYouVerbatim = c.NeedsYouVerbatim,
+                                    Condenser = condenser.CondenserId,
+                                    GeneratedAt = DateTime.UtcNow,
+                                };
+                                BriefCache.Set(guid, cached);
+                            }
+                        }
+                    }
+
+                    if (cached is not null)
+                    {
+                        resp.DidBullets = cached.DidBullets;
+                        resp.Condenser = cached.Condenser;
+                        resp.GeneratedAt = cached.GeneratedAt;
+                        resp.NeedsYou = cached.NeedsYouVerbatim;
+                        resp.NeedsYouSource = cached.NeedsYouVerbatim is null ? null : "model";
+                    }
+
+                    // Verbatim-by-construction fallback: the reply's final paragraph. Applied
+                    // both when the condenser is unavailable AND when its extraction failed
+                    // validation but the session is visibly waiting on the user.
+                    if (resp.NeedsYou is null &&
+                        session.ActivityState == ActivityState.WaitingForInput)
+                    {
+                        resp.NeedsYou = BriefBuilder.FallbackNeedsYou(extract.LastAssistantText);
+                        resp.NeedsYouSource = resp.NeedsYou is null ? null : "fallback";
+                    }
+                }
+
+                resp.Status = "ok";
+                return Results.Json(resp);
+            }
+            catch (OperationCanceledException)
+            {
+                // Client navigated away mid-condensation. Normal.
+                return Results.StatusCode(StatusCodes.Status499ClientClosedRequest);
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[ControlEndpoints] /brief FAILED: {ex.Message}");
+                resp.Status = "parse_error";
+                resp.Error = ex.Message;
+                return Results.Json(resp);
+            }
+        });
+
         app.MapGet("/sessions/{sid}/handover-context", (string sid, string? extraContext) =>
         {
             // Return the plain-text prompt that would be sent to a target session on
@@ -2170,6 +2286,14 @@ internal static class ControlEndpoints
         if (string.IsNullOrEmpty(repoPath))
             return "Unknown Project";
         return Path.GetFileName(repoPath.TrimEnd('\\', '/'));
+    }
+
+    /// <summary>Display-cap for brief text blocks. Null-safe; marks the cut explicitly.</summary>
+    private static string? TruncateForDisplay(string? s, int max)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return null;
+        s = s.Trim();
+        return s.Length <= max ? s : s[..max] + "... [truncated]";
     }
 
     /// <summary>

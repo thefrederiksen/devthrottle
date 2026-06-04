@@ -13,4 +13,11 @@
     <ProjectReference Include="..\CcDirector.Gateway.Contracts\CcDirector.Gateway.Contracts.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Renders Claude's reply markdown in the Brief's [full reply] expander. Raw HTML in
+         the markdown is disabled at the pipeline level (DisableHtml) so a reply can never
+         inject markup into the page. -->
+    <PackageReference Include="Markdig" Version="0.41.0" />
+  </ItemGroup>
+
 </Project>

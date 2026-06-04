@@ -226,6 +226,36 @@ public sealed class DirectorClient
     public async Task<string> GetHandoverContextAsync(string directorBase, string sid, CancellationToken ct = default)
         => await _http.GetStringAsync(Url(directorBase, $"sessions/{sid}/handover-context"), ct);
 
+    // ===== Brief (the full-page session view: ASK / DID / NEEDS YOU) =====
+
+    /// <summary>
+    /// The session Brief (<c>GET /sessions/{sid}/brief</c>). Returns null on 404 - either an
+    /// old Director build without the endpoint or a session the Director no longer knows;
+    /// callers degrade to <see cref="GetSummaryAsync"/> (which disambiguates the two). The
+    /// first call after a new turn runs the Director-side condensation (~1-2s); subsequent
+    /// calls hit its cache.
+    /// </summary>
+    public async Task<BriefResponse?> GetBriefAsync(string directorBase, string sid, CancellationToken ct = default)
+    {
+        var resp = await _http.GetAsync(Url(directorBase, $"sessions/{sid}/brief"), ct);
+        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound) return null;
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadFromJsonAsync<BriefResponse>(cancellationToken: ct);
+    }
+
+    /// <summary>
+    /// The transcript summary (<c>GET /sessions/{sid}/summary</c>) - the Brief's degrade
+    /// target on old Directors (it ships LastUserPrompt/LastAssistantText since the final
+    /// build). Returns null on 404.
+    /// </summary>
+    public async Task<SessionSummaryDto?> GetSummaryAsync(string directorBase, string sid, CancellationToken ct = default)
+    {
+        var resp = await _http.GetAsync(Url(directorBase, $"sessions/{sid}/summary"), ct);
+        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound) return null;
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadFromJsonAsync<SessionSummaryDto>(cancellationToken: ct);
+    }
+
     // ===== Power tools (Phase 4) =====
 
     /// <summary>A read-only git summary for the session's repo (<c>GET /git</c>): branch,

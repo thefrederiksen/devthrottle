@@ -131,11 +131,42 @@
                 </div>
 
                 <div class="detail-split">
-                    @* ---- Center column: live terminal + composer ---- *@
+                    @* ---- Center column: Brief (default) or Terminal, + composer ---- *@
                     <div class="center">
-                        <div class="term-wrap">
-                            <TerminalPane @key="Selected.SessionId" SessionId="@Selected.SessionId" DirectorBase="@Selected.TailnetEndpoint" />
+                        <div class="center-tabs">
+                            <button class="ctab @(CenterTab == "brief" ? "on" : "")" @onclick="@(() => SetCenterTab("brief"))">Brief</button>
+                            <button class="ctab @(CenterTab == "term" ? "on" : "")" @onclick="@(() => SetCenterTab("term"))">Terminal</button>
+                            <span class="center-tabs-spacer"></span>
+                            @* Needs-you conveyor: flip through the sessions waiting on the user,
+                               in the same order the rail's triage view shows them. *@
+                            @if (NeedsYouOrdered.Count > 0)
+                            {
+                                <span class="ny-nav">
+                                    <button class="ny-btn" title="Previous session that needs you" @onclick="() => StepNeedsYou(-1)">&#9664;</button>
+                                    <span class="ny-count">@NeedsYouPosLabel</span>
+                                    <button class="ny-btn" title="Next session that needs you" @onclick="() => StepNeedsYou(1)">&#9654;</button>
+                                </span>
+                            }
                         </div>
+                        @if (CenterTab == "term")
+                        {
+                            @* Lazy: the stream socket only opens when the Terminal tab is opened,
+                               so flipping through briefs never pays the replay cost. *@
+                            <div class="term-wrap">
+                                <TerminalPane @key="Selected.SessionId" SessionId="@Selected.SessionId" DirectorBase="@Selected.TailnetEndpoint" />
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="brief-scroll">
+                                <BriefPane @key="Selected.SessionId" SessionId="@Selected.SessionId"
+                                           DirectorBase="@Selected.TailnetEndpoint"
+                                           ActivityState="@Selected.ActivityState"
+                                           OnOpenTerminal="@(() => SetCenterTab("term"))"
+                                           OnQuickReply="QuickReplyAsync"
+                                           Replying="@_quickReplying" />
+                            </div>
+                        }
 
                         <div class="detail-dock">
                             @* ---- Composer: Speak / Send / Queue + Interrupt / Esc ---- *@
@@ -694,6 +725,71 @@
 
     private int NeedsYou => _sessions.Count(s => s.StatusColor == "red");
     private SessionDto? Selected => _sessions.FirstOrDefault(s => s.SessionId == _selectedId);
+
+    // ----- center tab (Brief is the default; choice persists per session for the circuit) -----
+    private readonly Dictionary<string, string> _centerTabBySession = new();
+    private string CenterTab =>
+        Selected is not null && _centerTabBySession.TryGetValue(Selected.SessionId, out var t) ? t : "brief";
+    private void SetCenterTab(string tab)
+    {
+        if (Selected is null) return;
+        _centerTabBySession[Selected.SessionId] = tab;
+    }
+
+    // ----- needs-you conveyor: flip through red sessions in the rail's stable order -----
+    private List<SessionDto> NeedsYouOrdered =>
+        SessionOrdering.InDesktopOrder(_sessions).Where(s => s.StatusColor == "red").ToList();
+
+    private string NeedsYouPosLabel
+    {
+        get
+        {
+            var list = NeedsYouOrdered;
+            var idx = list.FindIndex(s => s.SessionId == _selectedId);
+            return idx >= 0 ? $"{idx + 1}/{list.Count}" : $"{list.Count}";
+        }
+    }
+
+    private async Task StepNeedsYou(int delta)
+    {
+        var list = NeedsYouOrdered;
+        if (list.Count == 0) return;
+        var idx = list.FindIndex(s => s.SessionId == _selectedId);
+        // Not on a needs-you session: jump to the first (or last when stepping back).
+        var next = idx < 0
+            ? (delta > 0 ? 0 : list.Count - 1)
+            : (idx + delta + list.Count) % list.Count;
+        await OnSelect(list[next].SessionId);
+    }
+
+    // One-click answer from the Brief's option buttons: send the key as the reply, then
+    // advance the conveyor to the next session that needs the user (FIFO behaviour).
+    private bool _quickReplying;
+    private async Task QuickReplyAsync(string text)
+    {
+        var sel = Selected;
+        var dir = DirBase;
+        if (sel is null || string.IsNullOrWhiteSpace(dir) || _quickReplying) return;
+        _quickReplying = true;
+        try
+        {
+            await Director.SendPromptAsync(dir, sel.SessionId, text, _cts.Token);
+            // Advance past the answered session when others are waiting. The answered one
+            // drops out of the needs-you list on the next poll.
+            var others = NeedsYouOrdered.Where(s => s.SessionId != sel.SessionId).ToList();
+            if (others.Count > 0)
+                await OnSelect(others[0].SessionId);
+        }
+        catch (Exception ex)
+        {
+            Log.LogWarning(ex, "quick reply failed for sid={Sid}", sel.SessionId);
+            _actError = $"Quick reply failed: {ex.Message}";
+        }
+        finally
+        {
+            _quickReplying = false;
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {
