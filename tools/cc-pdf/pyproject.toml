@@ -19,6 +19,7 @@ dependencies = [
     "PyMuPDF>=1.23.0",
     "typer>=0.9.0",
     "rich>=13.0.0",
+    "cc-shared",
 ]
 
 [project.optional-dependencies]
@@ -29,11 +30,13 @@ dev = [
 ]
 
 [project.scripts]
-cc-pdf = "src.cli:app"
+cc-pdf = "cc_pdf.cli:app"
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["src*"]
+[tool.setuptools]
+# The tool's code lives in src/ but installs as the unique import package "cc_pdf"
+# so all tools can coexist in one shared venv (see plan: shared-venv tool install).
+packages = ["cc_pdf"]
+package-dir = {"cc_pdf" = "src"}
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

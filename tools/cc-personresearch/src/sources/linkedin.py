@@ -6,8 +6,8 @@ import re
 import subprocess
 import sys
 
-from src.sources.base import BaseSource
-from src.models import SourceResult
+from cc_personresearch.sources.base import BaseSource
+from cc_personresearch.models import SourceResult
 
 logger = logging.getLogger(__name__)
 

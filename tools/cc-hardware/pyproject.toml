@@ -11,8 +11,13 @@ dependencies = [
 ]
 
 [project.scripts]
-cc-hardware = "src.cli:app"
+cc-hardware = "cc_hardware.cli:app"
 
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+# src/ installs as the unique import package so all tools share one venv.
+packages = ["cc_hardware"]
+package-dir = {"cc_hardware" = "src"}

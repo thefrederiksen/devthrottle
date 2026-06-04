@@ -3,8 +3,8 @@
 import time
 import urllib.parse
 
-from src.sources.base import BaseSource
-from src.models import SourceResult
+from cc_personresearch.sources.base import BaseSource
+from cc_personresearch.models import SourceResult
 
 
 class ThatSThemSource(BaseSource):

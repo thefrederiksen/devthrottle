@@ -19,6 +19,7 @@ dependencies = [
     "markdownify>=0.12.0",
     "typer>=0.9.0",
     "rich>=13.0.0",
+    "cc-shared",
 ]
 
 [project.optional-dependencies]
@@ -29,11 +30,12 @@ dev = [
 ]
 
 [project.scripts]
-cc-html = "src.cli:app"
+cc-html = "cc_html.cli:app"
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["src*"]
+[tool.setuptools]
+# src/ installs as the unique import package so all tools share one venv.
+packages = ["cc_html"]
+package-dir = {"cc_html" = "src"}
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -28,6 +28,7 @@ dependencies = [
     "markdown-it-py>=3.0.0",
     "typer>=0.9.0",
     "rich>=13.0.0",
+    "cc-shared",
 ]
 
 [project.optional-dependencies]
@@ -38,11 +39,12 @@ dev = [
 ]
 
 [project.scripts]
-cc-excel = "src.cli:app"
+cc-excel = "cc_excel.cli:app"
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["src*"]
+[tool.setuptools]
+# src/ installs as the unique import package so all tools share one venv.
+packages = ["cc_excel", "cc_excel.parsers", "cc_excel.themes"]
+package-dir = {"cc_excel" = "src"}
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

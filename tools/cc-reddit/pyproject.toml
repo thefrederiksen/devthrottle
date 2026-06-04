@@ -14,10 +14,13 @@ dependencies = [
     "rich>=13.0.0",
     "httpx>=0.25.0",
     "pydantic>=2.0.0",
+    "cc-storage",
 ]
 
 [project.scripts]
-cc-reddit = "src.cli:app"
+cc-reddit = "cc_reddit.cli:app"
 
-[tool.setuptools.packages.find]
-where = ["."]
+[tool.setuptools]
+# src/ installs as the unique import package so all tools share one venv.
+packages = ["cc_reddit"]
+package-dir = {"cc_reddit" = "src"}

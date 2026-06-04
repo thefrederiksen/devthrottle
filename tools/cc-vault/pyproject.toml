@@ -18,6 +18,7 @@ dependencies = [
     "tiktoken>=0.5.0",
     "jellyfish>=1.0.0",
     "rapidfuzz>=3.0.0",
+    "cc-storage",
 ]
 
 [project.optional-dependencies]
@@ -30,8 +31,9 @@ full = [
 dev = ["pytest>=7.0.0", "pyinstaller>=6.0.0"]
 
 [project.scripts]
-cc-vault = "src.cli:app"
+cc-vault = "cc_vault.cli:app"
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["src*"]
+[tool.setuptools]
+# src/ installs as the unique import package so all tools share one venv.
+packages = ["cc_vault"]
+package-dir = {"cc_vault" = "src"}

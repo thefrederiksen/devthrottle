@@ -21,8 +21,9 @@ dependencies = [
 dev = ["pytest>=7.0.0", "pyinstaller>=6.0.0"]
 
 [project.scripts]
-cc-whisper = "src.cli:app"
+cc-whisper = "cc_whisper.cli:app"
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["src*"]
+[tool.setuptools]
+# src/ installs as the unique import package so all tools share one venv.
+packages = ["cc_whisper"]
+package-dir = {"cc_whisper" = "src"}

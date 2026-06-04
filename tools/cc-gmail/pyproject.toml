@@ -19,14 +19,16 @@ dependencies = [
     "google-auth-oauthlib>=1.0.0",
     "google-auth-httplib2>=0.1.0",
     "keyring>=25.0.0",
+    "cc-storage",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=7.0.0", "pyinstaller>=6.0.0"]
 
 [project.scripts]
-cc-gmail = "src.cli:app"
+cc-gmail = "cc_gmail.cli:app"
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["src*"]
+[tool.setuptools]
+# src/ installs as the unique import package so all tools share one venv.
+packages = ["cc_gmail"]
+package-dir = {"cc_gmail" = "src"}

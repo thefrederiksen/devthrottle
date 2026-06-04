@@ -21,8 +21,9 @@ dependencies = [
 dev = ["pytest>=7.0.0", "pyinstaller>=6.0.0"]
 
 [project.scripts]
-cc-crawl4ai = "src.cli:app"
+cc-crawl4ai = "cc_crawl4ai.cli:app"
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["src*"]
+[tool.setuptools]
+# src/ installs as the unique import package so all tools share one venv.
+packages = ["cc_crawl4ai"]
+package-dir = {"cc_crawl4ai" = "src"}

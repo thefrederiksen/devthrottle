@@ -14,6 +14,7 @@ dependencies = [
     "openai>=1.0.0",
     "markdown-it-py>=3.0.0",
     "mdit-py-plugins>=0.4.0",
+    "cc-storage",
 ]
 
 [project.optional-dependencies]

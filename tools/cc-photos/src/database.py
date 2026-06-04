@@ -8,18 +8,9 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-# Add cc-vault to path
-try:
-    from cc_vault.src import db as vault_db
-    from cc_vault.src.config import get_config as get_vault_config
-except ImportError:
-    cc_vault_path = Path(__file__).parent.parent.parent.parent / "cc-vault"
-    if cc_vault_path.exists():
-        sys.path.insert(0, str(cc_vault_path))
-        from src import db as vault_db
-        from src.config import get_config as get_vault_config
-    else:
-        raise ImportError("cc-vault module not available. Install cc-vault first.")
+# cc-vault is a declared dependency; in the shared venv it installs as the cc_vault package.
+from cc_vault import db as vault_db
+from cc_vault.config import get_config as get_vault_config
 
 
 def init_db() -> None:

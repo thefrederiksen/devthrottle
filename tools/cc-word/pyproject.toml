@@ -21,6 +21,7 @@ dependencies = [
     "beautifulsoup4>=4.12.0",
     "typer>=0.9.0",
     "rich>=13.0.0",
+    "cc-shared",
 ]
 
 [project.optional-dependencies]
@@ -31,11 +32,12 @@ dev = [
 ]
 
 [project.scripts]
-cc-word = "src.cli:app"
+cc-word = "cc_word.cli:app"
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["src*"]
+[tool.setuptools]
+# src/ installs as the unique import package so all tools share one venv.
+packages = ["cc_word"]
+package-dir = {"cc_word" = "src"}
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

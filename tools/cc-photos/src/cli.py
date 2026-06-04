@@ -18,11 +18,11 @@ try:
     from .duplicates import find_duplicate_groups, get_duplicate_stats, delete_duplicates, format_file_size
     from .analyzer import analyze_photos
 except ImportError:
-    from src import __version__
-    from src import database as db
-    from src.scanner import scan_source, find_images, IMAGE_EXTENSIONS
-    from src.duplicates import find_duplicate_groups, get_duplicate_stats, delete_duplicates, format_file_size
-    from src.analyzer import analyze_photos
+    from cc_photos import __version__
+    from cc_photos import database as db
+    from cc_photos.scanner import scan_source, find_images, IMAGE_EXTENSIONS
+    from cc_photos.duplicates import find_duplicate_groups, get_duplicate_stats, delete_duplicates, format_file_size
+    from cc_photos.analyzer import analyze_photos
 
 
 app = typer.Typer(

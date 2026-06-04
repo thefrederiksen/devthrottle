@@ -9,28 +9,28 @@ from typing import Optional
 from rich.console import Console
 from rich.table import Table
 
-from src.browser_client import BrowserClient, BrowserError, ConnectionError, WorkspaceError
-from src.models import PersonReport, SearchParams, SourceResult
+from cc_personresearch.browser_client import BrowserClient, BrowserError, ConnectionError, WorkspaceError
+from cc_personresearch.models import PersonReport, SearchParams, SourceResult
 
 # API sources (no browser needed)
-from src.sources.gravatar import GravatarSource
-from src.sources.github_search import GitHubSource
-from src.sources.fec_donations import FECSource
-from src.sources.sec_edgar import SECEdgarSource
-from src.sources.wayback import WaybackSource
-from src.sources.whois_lookup import WhoisSource
+from cc_personresearch.sources.gravatar import GravatarSource
+from cc_personresearch.sources.github_search import GitHubSource
+from cc_personresearch.sources.fec_donations import FECSource
+from cc_personresearch.sources.sec_edgar import SECEdgarSource
+from cc_personresearch.sources.wayback import WaybackSource
+from cc_personresearch.sources.whois_lookup import WhoisSource
 
 # Browser sources
-from src.sources.google_dorking import GoogleDorkingSource
-from src.sources.thatsthem import ThatSThemSource
-from src.sources.truepeoplesearch import TruePeopleSearchSource
-from src.sources.zabasearch import ZabaSearchSource
-from src.sources.nuwber import NuwberSource
-from src.sources.company_website import CompanyWebsiteSource
-from src.sources.opencorporates import OpenCorporatesSource
+from cc_personresearch.sources.google_dorking import GoogleDorkingSource
+from cc_personresearch.sources.thatsthem import ThatSThemSource
+from cc_personresearch.sources.truepeoplesearch import TruePeopleSearchSource
+from cc_personresearch.sources.zabasearch import ZabaSearchSource
+from cc_personresearch.sources.nuwber import NuwberSource
+from cc_personresearch.sources.company_website import CompanyWebsiteSource
+from cc_personresearch.sources.opencorporates import OpenCorporatesSource
 
 # Tool sources
-from src.sources.linkedin import LinkedInSource
+from cc_personresearch.sources.linkedin import LinkedInSource
 
 console = Console()
 

@@ -4,8 +4,8 @@ import time
 from abc import ABC, abstractmethod
 from typing import Optional
 
-from src.browser_client import BrowserClient
-from src.models import SourceResult
+from cc_personresearch.browser_client import BrowserClient
+from cc_personresearch.models import SourceResult
 
 # Public email domains that don't indicate a company
 PUBLIC_EMAIL_DOMAINS = {

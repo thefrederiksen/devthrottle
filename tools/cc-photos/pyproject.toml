@@ -18,14 +18,16 @@ dependencies = [
     "rich>=13.0.0",
     "openai>=1.0.0",
     "cc-vault",
+    "cc-shared",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=7.0.0", "pyinstaller>=6.0.0"]
 
 [project.scripts]
-cc-photos = "src.cli:app"
+cc-photos = "cc_photos.cli:app"
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["src*"]
+[tool.setuptools]
+# src/ installs as the unique import package so all tools share one venv.
+packages = ["cc_photos"]
+package-dir = {"cc_photos" = "src"}

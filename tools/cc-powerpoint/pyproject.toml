@@ -28,6 +28,7 @@ dependencies = [
     "python-pptx>=1.0.0",
     "typer>=0.9.0",
     "rich>=13.0.0",
+    "cc-shared",
 ]
 
 [project.optional-dependencies]
@@ -38,11 +39,12 @@ dev = [
 ]
 
 [project.scripts]
-cc-powerpoint = "src.cli:app"
+cc-powerpoint = "cc_powerpoint.cli:app"
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["src*"]
+[tool.setuptools]
+# src/ installs as the unique import package so all tools share one venv.
+packages = ["cc_powerpoint", "cc_powerpoint.themes"]
+package-dir = {"cc_powerpoint" = "src"}
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

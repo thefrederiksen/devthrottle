@@ -3,7 +3,7 @@
 import re
 from typing import Optional
 
-from src.models import PersonReport
+from cc_personresearch.models import PersonReport
 
 
 def normalize_phone(phone: str) -> str:

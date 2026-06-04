@@ -18,7 +18,9 @@ dependencies = [
 ]
 
 [project.scripts]
-cc-personresearch = "src.cli:app"
+cc-personresearch = "cc_personresearch.cli:app"
 
-[tool.setuptools.packages.find]
-where = ["."]
+[tool.setuptools]
+# src/ installs as the unique import package so all tools share one venv.
+packages = ["cc_personresearch", "cc_personresearch.sources"]
+package-dir = {"cc_personresearch" = "src"}

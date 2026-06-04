@@ -1,0 +1,17 @@
+[project]
+name = "cc-storage"
+version = "0.1.0"
+description = "Centralized storage path resolution for cc-director tools"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [{name = "CC Director Contributors"}]
+dependencies = []
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+# Installs the flat modules here (storage.py, migrate.py) as the import package "cc_storage".
+packages = ["cc_storage"]
+package-dir = {"cc_storage" = "."}

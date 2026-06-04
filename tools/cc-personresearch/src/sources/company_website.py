@@ -2,8 +2,8 @@
 
 import time
 
-from src.sources.base import BaseSource, PUBLIC_EMAIL_DOMAINS
-from src.models import SourceResult
+from cc_personresearch.sources.base import BaseSource, PUBLIC_EMAIL_DOMAINS
+from cc_personresearch.models import SourceResult
 
 
 class CompanyWebsiteSource(BaseSource):

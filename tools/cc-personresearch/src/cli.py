@@ -10,9 +10,9 @@ from typing import Optional
 import typer
 from rich.console import Console
 
-from src.models import PersonReport
-from src.runner import run_search, print_summary, API_SOURCES, BROWSER_SOURCES, TOOL_SOURCES
-from src.aggregator import aggregate
+from cc_personresearch.models import PersonReport
+from cc_personresearch.runner import run_search, print_summary, API_SOURCES, BROWSER_SOURCES, TOOL_SOURCES
+from cc_personresearch.aggregator import aggregate
 
 app = typer.Typer(
     name="cc-personresearch",
