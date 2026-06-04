@@ -97,7 +97,7 @@ public sealed class ToolUpdater
         }
 
         EngineLog.Write($"[ToolUpdater] refreshing Python tools bundle: {installedVer ?? "none"} -> {toolsAsset.Version}");
-        var result = await new PythonToolsInstaller(_layout).InstallAsync(release, source, null, ct);
+        var result = await new PythonToolsInstaller(_layout).InstallAsync(release, source, ct: ct);
         EngineLog.Write($"[ToolUpdater] Python tools bundle: success={result.Success}, count={result.ToolCount}");
         return result;
     }

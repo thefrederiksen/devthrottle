@@ -128,8 +128,9 @@ public sealed class EngineInstallRunner
 
         if (item is not null) item.Status = "Installing tools...";
         var progress = new Progress<string>(m => { if (item is not null) item.Status = m; status?.Report(m); });
+        var percent = new Progress<int>(p => { if (item is not null) item.Progress = p; });
         // PythonToolsInstaller uses synchronous process calls (venv, pip); offload so the UI thread is free.
-        var res = await Task.Run(() => new PythonToolsInstaller(_layout).InstallAsync(prep.Release, _source, progress, ct), ct);
+        var res = await Task.Run(() => new PythonToolsInstaller(_layout).InstallAsync(prep.Release, _source, progress, percent, ct), ct);
         if (item is not null) { item.Status = res.Success ? "Done" : "Failed"; if (!res.Success) item.StatusDetail = res.Message; }
         return res.Success ? res.ToolCount : 0;
     }

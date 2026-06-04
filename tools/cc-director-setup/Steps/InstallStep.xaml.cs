@@ -120,13 +120,18 @@ public partial class InstallStep : UserControl
             };
         }
 
-        // Track overall tool progress
+        // Track overall tool progress. Status drives the summary text; Progress (set live by pip
+        // streaming inside PythonToolsInstaller) drives the bar so the user sees motion during
+        // the multi-minute python-tools step.
         foreach (var tool in _toolItems)
         {
-            tool.PropertyChanged += (_, e) =>
+            var capturedTool = tool;
+            capturedTool.PropertyChanged += (_, e) =>
             {
                 if (e.PropertyName == nameof(ToolDownloadItem.Status))
                     Dispatcher.BeginInvoke(UpdateToolsSummaryStatus);
+                else if (e.PropertyName == nameof(ToolDownloadItem.Progress))
+                    Dispatcher.BeginInvoke(() => ToolsOverallProgress.Value = capturedTool.Progress);
             };
         }
     }
@@ -207,9 +212,12 @@ public partial class InstallStep : UserControl
         }
         else
         {
-            var downloading = _toolItems.FirstOrDefault(t => t.Status == "Downloading");
-            ToolsStatus.Text = downloading != null ? $"Installing {downloading.Name}..." : "Installing...";
-            ToolsOverallProgress.Value = (double)processed / total * 100;
+            // Surface the bundle row's live Status (e.g. "Installing 5/23: scipy...") so the user sees
+            // motion even when the install details Expander is collapsed. Bar value is driven from the
+            // row's Progress property (set live by pip streaming) — don't overwrite it here.
+            var active = _toolItems.FirstOrDefault(
+                t => t.Status is not "Pending" and not "Done" and not "Failed" and not "Locked" and not "Skipped");
+            ToolsStatus.Text = active?.Status ?? "Installing...";
         }
     }
 }

@@ -38,7 +38,10 @@ public sealed class PythonToolsInstaller
         => _layout = layout ?? throw new ArgumentNullException(nameof(layout));
 
     public async Task<PythonToolsResult> InstallAsync(
-        ResolvedRelease release, ReleaseSource source, IProgress<string>? progress = null, CancellationToken ct = default)
+        ResolvedRelease release, ReleaseSource source,
+        IProgress<string>? progress = null,
+        IProgress<int>? percent = null,
+        CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(release);
         ArgumentNullException.ThrowIfNull(source);
@@ -88,19 +91,101 @@ public sealed class PythonToolsInstaller
                 : Path.Combine(_layout.PythonDir, "bin", "python3");
             if (!File.Exists(pythonExe)) return Fail(steps, $"bundled python not found at {pythonExe}.");
 
+            // 2b. Early-out: if the on-disk bundle is already at this version AND the venv looks healthy,
+            // skip the 5-8 minute venv-reset + offline-pip-install rebuild. Saves most update runs from
+            // the long stall when only the Director version (not the tools bundle) has changed. We can't
+            // check this before download because release-manifest.json does not yet expose the bundle
+            // version — the version lives inside tools-manifest.json, which only exists post-extract.
+            var installedBundle = InstalledManifest.Load(_layout).Get(ComponentId);
+            var venvPython = Path.Combine(_layout.PyenvBinDir, OperatingSystem.IsWindows() ? "python.exe" : "python3");
+            if (installedBundle == manifest.BundleVersion && File.Exists(venvPython))
+            {
+                Step($"Python tools bundle {manifest.BundleVersion} already installed; skipping rebuild");
+                percent?.Report(100);
+                return new PythonToolsResult(true,
+                    $"Python tools bundle {manifest.BundleVersion} already installed.",
+                    steps, manifest.Dists.Count, manifest.BundleVersion);
+            }
+
             // 3. Create the shared venv from the bundled python (on-target, so console-script paths are correct).
             Step("creating the shared Python venv");
             ResetDir(_layout.PyenvDir);
             var (venvExit, venvOut) = ProcessRunner.Run(pythonExe, $"-m venv \"{_layout.PyenvDir}\"");
             if (venvExit != 0) return Fail(steps, $"venv creation failed ({venvExit}): {Trim(venvOut)}");
 
-            // 4. Install every tool OFFLINE from the wheelhouse.
-            Step($"installing {manifest.Dists.Count} tools offline from the wheelhouse");
-            var venvPython = Path.Combine(_layout.PyenvBinDir, OperatingSystem.IsWindows() ? "python.exe" : "python3");
+            // 4. Install every tool OFFLINE from the wheelhouse. Two-phase progress for honest pacing:
+            //    a. Parse phase (~10 s): pip prints "Processing <wheel>" for all wheels in a burst.
+            //       Drives status+percent 0->25% so the user sees motion immediately.
+            //    b. Install phase (3-8 min, silent in pip's stdout): poll site-packages\*.dist-info
+            //       directory count on a 1.5 s timer — each installed package writes one .dist-info
+            //       dir, so that count IS real progress. Drives percent 30->95%.
+            //    Using "Processing" lines for the whole 0-100% (as we originally did) was misleading:
+            //    the bar shot to 99% in 10 s then sat there motionless for the 5-minute middle.
+            var wheelCount = Directory.GetFiles(wheelhouse, "*.whl").Length;
+            Step($"installing {manifest.Dists.Count} tools offline from the wheelhouse ({wheelCount} wheels)");
+            percent?.Report(0);
             var distArgs = string.Join(" ", manifest.Dists.Select(d => $"\"{d}\""));
-            var pipArgs = $"-m pip install --no-index --find-links \"{wheelhouse}\" --no-warn-script-location {distArgs}";
-            var (pipExit, pipOut) = ProcessRunner.Run(venvPython, pipArgs);
+            var pipArgs = $"-m pip install --no-index --find-links \"{wheelhouse}\" --no-warn-script-location --progress-bar=off {distArgs}";
+
+            // Where pip will land .dist-info dirs once it starts installing. Resolved relative to the
+            // venv layout: Lib\site-packages on Windows, lib\python*\site-packages on Unix.
+            var sitePackages = ResolveSitePackagesDir(_layout.PyenvDir);
+
+            var installing = false;
+            int processed = 0;
+            void OnPipLine(string line)
+            {
+                EngineLog.Write($"[pip] {line}");
+                if (line.StartsWith("Processing ", StringComparison.Ordinal))
+                {
+                    processed++;
+                    var pkg = ExtractWheelPackageName(line);
+                    progress?.Report(wheelCount > 0
+                        ? $"Parsing {processed}/{wheelCount}: {pkg}"
+                        : $"Parsing: {pkg}");
+                    if (wheelCount > 0) percent?.Report(Math.Min(25, processed * 25 / wheelCount));
+                }
+                else if (line.StartsWith("Installing collected packages", StringComparison.Ordinal))
+                {
+                    installing = true;
+                    progress?.Report(wheelCount > 0
+                        ? $"Installing {wheelCount} packages (this takes a few minutes)..."
+                        : "Installing packages (this takes a few minutes)...");
+                    percent?.Report(30);
+                }
+            }
+
+            // Background poller: count .dist-info dirs once pip enters the install phase. Real progress.
+            using var pollCts = new CancellationTokenSource();
+            var pollTask = Task.Run(async () =>
+            {
+                while (!pollCts.IsCancellationRequested)
+                {
+                    try { await Task.Delay(1500, pollCts.Token); }
+                    catch (OperationCanceledException) { break; }
+                    if (!installing || !Directory.Exists(sitePackages)) continue;
+                    try
+                    {
+                        var done = Directory.GetDirectories(sitePackages, "*.dist-info").Length;
+                        if (wheelCount > 0)
+                        {
+                            var p = Math.Min(95, 30 + (done * 65 / wheelCount));
+                            percent?.Report(p);
+                            progress?.Report($"Installing {done}/{wheelCount} packages...");
+                            EngineLog.Write($"[PythonToolsInstaller] install-progress: {done}/{wheelCount} ({p}%)");
+                        }
+                    }
+                    catch { /* polling must never throw; pip is the source of truth */ }
+                }
+            });
+
+            var (pipExit, pipOut) = ProcessRunner.Run(venvPython, pipArgs, OnPipLine);
+            pollCts.Cancel();
+            try { await pollTask; } catch { /* poller cancellation */ }
+
             if (pipExit != 0) return Fail(steps, $"offline pip install failed ({pipExit}): {Trim(pipOut)}");
+            percent?.Report(100);
+            progress?.Report($"Installed {wheelCount} packages");
 
             // 5. Write bin\<script>.cmd shims that forward to the venv's console scripts.
             Step($"writing {manifest.Scripts.Count} tool shims to bin");
@@ -212,6 +297,32 @@ public sealed class PythonToolsInstaller
     }
 
     private static string Trim(string s) => s.Length > 600 ? s[..600] : s;
+
+    /// <summary>Locate the venv's site-packages dir for progress polling. Windows: pyenv\Lib\site-packages.
+    /// Unix: pyenv\lib\python&lt;X.Y&gt;\site-packages (python version is bundle-determined, so we discover it).</summary>
+    private static string ResolveSitePackagesDir(string pyenvDir)
+    {
+        if (OperatingSystem.IsWindows()) return Path.Combine(pyenvDir, "Lib", "site-packages");
+        var libDir = Path.Combine(pyenvDir, "lib");
+        if (Directory.Exists(libDir))
+        {
+            var pyDir = Directory.GetDirectories(libDir, "python*").FirstOrDefault();
+            if (pyDir is not null) return Path.Combine(pyDir, "site-packages");
+        }
+        return Path.Combine(libDir, "site-packages");
+    }
+
+    /// <summary>Pull the distribution name out of a pip "Processing /path/scipy-1.14.0-cp312-...-win_amd64.whl" line.</summary>
+    private static string ExtractWheelPackageName(string processingLine)
+    {
+        const string prefix = "Processing ";
+        if (!processingLine.StartsWith(prefix, StringComparison.Ordinal)) return processingLine;
+        var path = processingLine[prefix.Length..].Trim();
+        var filename = Path.GetFileName(path);
+        if (filename.EndsWith(".whl", StringComparison.Ordinal)) filename = filename[..^4];
+        var dash = filename.IndexOf('-');
+        return dash > 0 ? filename[..dash] : filename;
+    }
 
     private static PythonToolsResult Fail(List<string> steps, string message)
     {
