@@ -137,7 +137,12 @@ body{background:var(--panel);color:var(--text);
 
 /* live terminal */
 .term-wrap{flex:1;min-height:0;overflow:hidden;background:#1e1e1e;padding:6px 8px}
-.term-host{height:100%}
+/* The xterm grid mirrors the PTY size exactly (cols AND rows - see cockpit-terminal.js),
+   so it is usually shorter than the pane. Anchor it to the bottom so the prompt sits where
+   a terminal prompt belongs; when the pane is SHORTER than the grid, the top clips and
+   xterm's own scrollback handles history. */
+.term-host{height:100%;display:flex;flex-direction:column;justify-content:flex-end}
+.term-host .xterm{flex:0 0 auto}
 
 /* detail split: terminal+composer center, optional screenshots/queue panel on the right */
 .detail-split{flex:1;min-height:0;display:flex}

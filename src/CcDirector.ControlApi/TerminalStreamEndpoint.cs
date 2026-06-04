@@ -100,6 +100,7 @@ internal static class TerminalStreamEndpoint
         long cursor = 0;
         short lastCols = -1;
         short lastRows = -1;
+        var nudged = false;
 
         while (!ct.IsCancellationRequested && ws.State == WebSocketState.Open)
         {
@@ -108,6 +109,26 @@ internal static class TerminalStreamEndpoint
             {
                 await SendJsonAsync(ws, new { type = "closed", reason = "session not found" }, ct);
                 break;
+            }
+
+            // One-time attach nudge, mirroring the desktop's attach behavior: on a
+            // long-running session the ring buffer has wrapped, so the replay starts at an
+            // arbitrary byte boundary and the reconstructed screen carries torn rows that
+            // Claude Code's incremental footer repaints never overwrite. A resize jiggle is
+            // the ConPty SIGWINCH-equivalent -- Claude repaints the WHOLE screen, and those
+            // bytes reach this client right after the backlog, healing the attach artifacts.
+            // SuppressActivityFor first, so the detector does not misread our repaint burst
+            // as agent work (the Wingman repaint-loop invariant); the unchanged-size guard
+            // in Session.Resize makes the restore a real second SIGWINCH, not a no-op pair.
+            if (!nudged && session.Status == SessionStatus.Running && session.CurrentRows > 2)
+            {
+                nudged = true;
+                var cols = session.CurrentCols;
+                var rows = session.CurrentRows;
+                FileLog.Write($"[TerminalStreamEndpoint] attach nudge: sid={guid}, jiggle {cols}x{rows} for full repaint");
+                session.SuppressActivityFor(TimeSpan.FromSeconds(2));
+                session.Resize(cols, (short)(rows - 1));
+                session.Resize(cols, rows);
             }
 
             // Report the current PTY size up front and whenever the desktop pane resizes

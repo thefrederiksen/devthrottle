@@ -12,7 +12,8 @@
 <body>
     <Routes @rendermode="new InteractiveServerRenderMode(prerender: false)" />
     <script src="lib/xterm.js"></script>
-    <script src="lib/xterm-addon-canvas.js"></script>
+    @* No canvas addon: the DOM renderer uses native ClearType, matching the desktop
+       terminal's text rendering (see cockpit-terminal.js header). *@
     <script src="js/cockpit-dictate.js"></script>
     <script src="_framework/blazor.web.js"></script>
 </body>
