@@ -54,14 +54,15 @@ public sealed class EngineInstallRunner
         var release = await _source.FetchLatestAsync(ct);
         var version = release.Manifest.Version;
 
-        var toolIds = ComponentRegistry.DiscoverToolIds(release.Manifest);
-        var components = ComponentRegistry.ForRole(ComponentRegistry.Build(toolIds), Role);
+        // Apps install individually (Director here; Gateway/Cockpit are the elevated CLI's job).
+        // Every cc-* Python tool now ships as ONE shared-venv bundle, shown as a single row.
+        var components = ComponentRegistry.ForRole(ComponentRegistry.Apps, Role);
 
         var items = new List<ToolDownloadItem>();
         var byId = new Dictionary<string, ToolDownloadItem>(StringComparer.OrdinalIgnoreCase);
         foreach (var c in components)
         {
-            // The InstallStep UI keys the Director row by Name == "cc-director"; tools by their id.
+            // The InstallStep UI keys the Director row by Name == "cc-director".
             var uiName = c.Kind == ComponentKind.Director ? "cc-director" : c.Id;
             var item = new ToolDownloadItem { Name = uiName, AssetName = c.WindowsAsset };
             var asset = release.Manifest.TryGetAsset(c.WindowsAsset);
@@ -70,6 +71,19 @@ public sealed class EngineInstallRunner
             items.Add(item);
             byId[c.Id] = item;
         }
+
+        // One row for all cc-* Python tools (the shared-venv bundle).
+        var bundleItem = new ToolDownloadItem
+        {
+            Name = PythonToolsInstaller.ComponentId,
+            AssetName = PythonToolsInstaller.ToolsAsset,
+        };
+        var pyAsset = release.Manifest.TryGetAsset(PythonToolsInstaller.PythonAsset);
+        var toolsAsset = release.Manifest.TryGetAsset(PythonToolsInstaller.ToolsAsset);
+        if (pyAsset is null || toolsAsset is null) { bundleItem.Status = "Skipped"; bundleItem.SizeText = "Not in release"; }
+        else bundleItem.SizeText = FormatSize(pyAsset.Size + toolsAsset.Size);
+        items.Add(bundleItem);
+        byId[PythonToolsInstaller.ComponentId] = bundleItem;
 
         var reader = new InstalledStateReader(_layout);
         var installedDirector = reader.Read(ComponentRegistry.Director).Version;
@@ -120,15 +134,53 @@ public sealed class EngineInstallRunner
             Set(prep, r.ComponentId, status, r.Error);
         }
 
+        // Install every Python tool as one shared venv (no-ops cleanly if the release has no bundle).
+        var toolCount = await InstallPythonToolsAsync(prep, ct);
+
         MigrateLegacyDirector();
         PathManager.AddToPath(_layout.BinDir);
         if (File.Exists(AppExePath))
             ShortcutCreator.CreateStartMenuShortcut(AppExePath);
 
-        var installed = result.Installed + result.Updated;
+        var installed = result.Installed + result.Updated + toolCount;
         var skipped = prep.Items.Count(i => i.Status is "Skipped" or "Failed");
         SetupLog.Write($"[EngineInstallRunner] ApplyAsync: installed={installed}, skipped={skipped}");
         return (installed, skipped);
+    }
+
+    /// <summary>
+    /// Install all cc-* Python tools as one shared venv via the engine's PythonToolsInstaller.
+    /// The pip work is synchronous and slow, so it runs on a background thread to keep the UI
+    /// responsive; progress messages flow back to the bundle's row through a Progress&lt;string&gt;.
+    /// Returns the number of tools installed (0 if the release has no bundle or the install fails).
+    /// </summary>
+    private async Task<int> InstallPythonToolsAsync(Prep prep, CancellationToken ct)
+    {
+        prep.ItemsByComponentId.TryGetValue(PythonToolsInstaller.ComponentId, out var bundleItem);
+
+        var pyAsset = prep.Release.Manifest.TryGetAsset(PythonToolsInstaller.PythonAsset);
+        var toolsAsset = prep.Release.Manifest.TryGetAsset(PythonToolsInstaller.ToolsAsset);
+        if (pyAsset is null || toolsAsset is null)
+        {
+            if (bundleItem is not null) { bundleItem.Status = "Skipped"; bundleItem.StatusDetail = "No tools bundle in this release"; }
+            SetupLog.Write("[EngineInstallRunner] no Python tools bundle in release; skipping tools");
+            return 0;
+        }
+
+        if (bundleItem is not null) bundleItem.Status = "Installing tools...";
+        var installer = new PythonToolsInstaller(_layout);
+        var progress = new Progress<string>(msg => { if (bundleItem is not null) bundleItem.Status = msg; });
+
+        // PythonToolsInstaller uses synchronous process calls (venv, pip); offload so the UI thread is free.
+        var result = await Task.Run(() => installer.InstallAsync(prep.Release, _source, progress, ct), ct);
+
+        if (bundleItem is not null)
+        {
+            bundleItem.Status = result.Success ? "Done" : "Failed";
+            if (!result.Success) bundleItem.StatusDetail = result.Message;
+        }
+        SetupLog.Write($"[EngineInstallRunner] Python tools: success={result.Success}, count={result.ToolCount}");
+        return result.Success ? result.ToolCount : 0;
     }
 
     private async Task<List<PlanItem>> HandleDirectorRunningAsync(Prep prep, List<PlanItem> planItems)

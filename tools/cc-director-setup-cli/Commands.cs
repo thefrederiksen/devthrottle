@@ -171,8 +171,10 @@ internal static class Commands
             result = await runner.ApplyAsync(plan);
             PrintRun(result, installMode, json);
         }
-        else if (!isGatewayInstall)
+        else if (!isGatewayInstall && !(installMode && Role(args) == InstallRole.Workstation))
         {
+            // A workstation install still (re)installs the Python tools bundle below even when the
+            // apps are current, so only short-circuit for update mode / Gateway here.
             if (json) Program.WriteJson(new { mode = installMode ? "install" : "update", applied = Array.Empty<object>(), message = "nothing to do" });
             else Console.WriteLine("Nothing to do - all components up to date.");
             return Ok;
@@ -199,10 +201,29 @@ internal static class Commands
             if (!svc.Success) return Error;
         }
 
-        // Per-user finalization (wizard parity): if the Director or any tool was placed, add the bin dir
-        // to PATH and create the Start Menu shortcut. Skipped when only machine components (gateway/
-        // cockpit) changed - e.g. a `--component gateway` call from the wizard, which does this itself.
-        var perUserTouched = result.Results.Any(r =>
+        // Per-user Python tools bundle (the shared venv with every cc-* tool). Only on a per-user
+        // (workstation) install - NOT an elevated Gateway-only install, which runs as admin while the
+        // venv belongs in the logged-in user's profile (the non-elevated workstation install owns it).
+        var toolsInstalled = false;
+        if (installMode && Role(args) == InstallRole.Workstation && !args.HasFlag("dry-run") && OperatingSystem.IsWindows())
+        {
+            var py = await new PythonToolsInstaller(layout).InstallAsync(release, source);
+            if (json)
+                Program.WriteJson(new { pythonTools = new { success = py.Success, message = py.Message, toolCount = py.ToolCount } });
+            else
+            {
+                Console.WriteLine();
+                Console.WriteLine(py.Success ? $"Python tools: {py.Message}" : $"Python tools FAILED: {py.Message}");
+                foreach (var s in py.Steps) Console.WriteLine($"  {s}");
+            }
+            if (!py.Success) return Error;
+            toolsInstalled = py.ToolCount > 0;
+        }
+
+        // Per-user finalization (wizard parity): if the Director, the tools bundle, or any other
+        // per-user component was placed, add the bin dir to PATH and create the Start Menu shortcut.
+        // Skipped when only machine components (gateway/cockpit) changed.
+        var perUserTouched = toolsInstalled || result.Results.Any(r =>
             r.Status is ApplyStatus.Installed or ApplyStatus.Updated &&
             r.ComponentId is not ("gateway" or "cockpit"));
         if (perUserTouched && OperatingSystem.IsWindows())

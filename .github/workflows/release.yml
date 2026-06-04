@@ -163,61 +163,19 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------
-  # Job 2: Build Python tools (Windows)
+  # Job 2: Build the Python tools bundle (Windows)
   # ---------------------------------------------------------------
-  # One job per tool (matrix) so a single heavyweight failure (torch, opencv,
-  # ffmpeg, playwright) is isolated and the ~26 PyInstaller builds run in parallel.
-  #
-  # Each tool's build.ps1 emits dist/<tool>.exe; this job copies it to an artifact
-  # named python-tool-<tool>, and create-release renames it to <tool>-win-x64.exe.
-  #
-  # Tool list is the VERIFIED set that cleanly emits dist/<dirname>.exe. Intentionally
-  # excluded (do not re-add without fixing the underlying issue):
-  #   - cc-director-setup  : has its own job (build-setup-wizard-win); would ship twice.
-  #   - cc-setup           : name mismatch (emits cc-director-setup.exe) AND its asset
-  #                          name would collide with the real setup wizard.
-  #   - cc-browser, cc-fox-browser, cc-websiteaudit, cc-brandingrecommendations,
-  #     cc-browser-archived : Node tools that emit a .cmd launcher, not a self-contained
-  #                          .exe; cannot satisfy the asset contract yet.
-  #
-  # "heavy: true" tools pull large/fragile native deps and are UNPROVEN in CI. They are
-  # marked continue-on-error for now so a failure does not red the whole release; a
-  # missing artifact simply drops that tool from the manifest. Remove continue-on-error
-  # per tool once it has built green on the runner.
-  build-python-tools-win:
-    name: Build Python Tool (${{ matrix.tool }})
+  # All cc-* Python tools now ship as ONE shared-venv bundle instead of ~26
+  # PyInstaller exes (cuts the download from ~1 GB to ~335 MB). This job runs
+  # scripts/build-python-bundle.ps1, which builds every tool wheel + a de-duped
+  # wheelhouse and bundles a python-build-standalone CPython, emitting two assets:
+  #   cc-python-win-x64.zip       (the runtime)
+  #   cc-tools-pyenv-win-x64.zip  (wheelhouse + requirements.lock + tools-manifest.json)
+  # The installer (PythonToolsInstaller) creates a venv from the bundled python and
+  # pip-installs every tool offline from the wheelhouse.
+  build-python-bundle-win:
+    name: Build Python Tools Bundle (Windows)
     runs-on: windows-latest
-    continue-on-error: ${{ matrix.heavy || false }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { tool: cc-pdf }
-          - { tool: cc-html }
-          - { tool: cc-word }
-          - { tool: cc-docgen }
-          - { tool: cc-excel }
-          - { tool: cc-facebook }
-          - { tool: cc-gmail }
-          - { tool: cc-hardware }
-          - { tool: cc-outlook }
-          - { tool: cc-personresearch }
-          - { tool: cc-posthog }
-          - { tool: cc-powerpoint }
-          - { tool: cc-reddit }
-          - { tool: cc-settings }
-          - { tool: cc-spotify }
-          - { tool: cc-twitter }
-          - { tool: cc-vault }
-          - { tool: cc-voice }
-          - { tool: cc-youtube }
-          - { tool: cc-youtube-info }
-          - { tool: cc-whisper, heavy: true }
-          - { tool: cc-transcribe, heavy: true }
-          - { tool: cc-video, heavy: true }
-          - { tool: cc-image, heavy: true }
-          - { tool: cc-photos }
-          - { tool: cc-crawl4ai, heavy: true }
 
     steps:
       - uses: actions/checkout@v4
@@ -227,30 +185,18 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Build ${{ matrix.tool }}
-        shell: pwsh
-        run: |
-          $tool = "${{ matrix.tool }}"
-          Push-Location "tools/$tool"
-          & powershell -ExecutionPolicy Bypass -File build.ps1
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host "[FAIL] $tool build.ps1 exited $LASTEXITCODE" -ForegroundColor Red
-            exit 1
-          }
-          if (-not (Test-Path "dist/$tool.exe")) {
-            Write-Host "[FAIL] dist/$tool.exe not found after build" -ForegroundColor Red
-            exit 1
-          }
-          Pop-Location
-          New-Item -ItemType Directory -Path artifacts -Force | Out-Null
-          Copy-Item "tools/$tool/dist/$tool.exe" "artifacts/$tool.exe" -Force
-          Write-Host "[OK] artifacts/$tool.exe" -ForegroundColor Green
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
 
-      - name: Upload ${{ matrix.tool }} artifact
+      - name: Build the Python tools bundle
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File scripts/build-python-bundle.ps1 -OutputDir dist/python-bundle
+
+      - name: Upload Python bundle artifact
         uses: actions/upload-artifact@v4
         with:
-          name: python-tool-${{ matrix.tool }}
-          path: artifacts/${{ matrix.tool }}.exe
+          name: python-bundle-win
+          path: dist/python-bundle/*.zip
           if-no-files-found: error
 
   # ---------------------------------------------------------------
@@ -311,7 +257,7 @@ jobs:
       - build-director-mac
       - build-gateway-win
       - build-cockpit-win
-      - build-python-tools-win
+      - build-python-bundle-win
       - build-setup-wizard-win
 
     steps:
@@ -342,13 +288,9 @@ jobs:
           # Windows Cockpit web app (already the zip name the engine expects)
           cp release-artifacts/cockpit-win/cc-director-cockpit-win-x64.zip "$RELEASE_DIR/cc-director-cockpit-win-x64.zip"
 
-          # Windows Python tools (one artifact dir per tool from the matrix; a
-          # continue-on-error heavyweight that failed simply has no artifact and is
-          # skipped here -- it just won't appear in the manifest).
-          for exe in release-artifacts/python-tool-*/*.exe; do
-            name=$(basename "$exe" .exe)
-            cp "$exe" "$RELEASE_DIR/${name}-win-x64.exe"
-          done
+          # Windows Python tools bundle (shared venv): two assets, names unchanged.
+          cp release-artifacts/python-bundle-win/cc-python-win-x64.zip "$RELEASE_DIR/cc-python-win-x64.zip"
+          cp release-artifacts/python-bundle-win/cc-tools-pyenv-win-x64.zip "$RELEASE_DIR/cc-tools-pyenv-win-x64.zip"
 
           # Windows setup wizard
           cp release-artifacts/setup-wizard-win/cc-director-setup.exe "$RELEASE_DIR/cc-director-setup-win-x64.exe"
@@ -360,9 +302,9 @@ jobs:
           echo "Release files:"
           ls -lh "$RELEASE_DIR/"
 
-      # No silent drops: a missing REQUIRED asset (apps/installer/CLI/mac) fails the release;
-      # a missing tool is loud (a ::warning:: + a line in the run summary) but tolerated, since
-      # a single fragile tool is allowed to drop. Keep EXPECTED_TOOLS in sync with the matrix above.
+      # No silent drops: a missing REQUIRED asset fails the release. The Python tools now ship as
+      # one bundle (cc-python + cc-tools-pyenv), so both are required - if either is missing the
+      # install has no tools at all, which is a hard failure (not a tolerable single-tool drop).
       - name: Verify release completeness
         run: |
           RELEASE_DIR="$(pwd)/release-files"
@@ -374,12 +316,8 @@ jobs:
             cc-director-cockpit-win-x64.zip
             cc-director-setup-win-x64.exe
             cc-director-setup-cli-win-x64.exe
-          )
-          expected_tools=(
-            cc-pdf cc-html cc-word cc-docgen cc-excel cc-facebook cc-gmail cc-hardware
-            cc-outlook cc-personresearch cc-posthog cc-powerpoint cc-reddit cc-settings
-            cc-spotify cc-twitter cc-vault cc-voice cc-youtube cc-youtube-info
-            cc-whisper cc-transcribe cc-video cc-image cc-photos cc-crawl4ai
+            cc-python-win-x64.zip
+            cc-tools-pyenv-win-x64.zip
           )
 
           missing_required=()
@@ -387,21 +325,10 @@ jobs:
             [ -f "$RELEASE_DIR/$a" ] || missing_required+=("$a")
           done
 
-          missing_tools=()
-          for t in "${expected_tools[@]}"; do
-            [ -f "$RELEASE_DIR/${t}-win-x64.exe" ] || missing_tools+=("$t")
-          done
-
           {
             echo "## Release completeness"
             echo "Required assets: $(( ${#required[@]} - ${#missing_required[@]} ))/${#required[@]} present"
-            echo "Tools: $(( ${#expected_tools[@]} - ${#missing_tools[@]} ))/${#expected_tools[@]} present"
           } >> "$GITHUB_STEP_SUMMARY"
-
-          for t in "${missing_tools[@]}"; do
-            echo "::warning title=Tool dropped from release::${t} did not build and is NOT in this release"
-            echo "- DROPPED tool: ${t}-win-x64.exe" >> "$GITHUB_STEP_SUMMARY"
-          done
 
           if [ ${#missing_required[@]} -gt 0 ]; then
             echo "::error title=Required asset missing::${missing_required[*]}"
@@ -409,7 +336,7 @@ jobs:
             echo "ERROR: required assets missing from the release: ${missing_required[*]}"
             exit 1
           fi
-          echo "Completeness check passed: all ${#required[@]} required assets present; ${#missing_tools[@]} tool(s) dropped."
+          echo "Completeness check passed: all ${#required[@]} required assets present."
 
       - name: Generate release manifest
         run: |
