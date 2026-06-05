@@ -111,6 +111,10 @@
                     }
                     <span class="detail-meta">@Selected.MachineName / director @ShortId(Selected.DirectorId)</span>
                     <span class="detail-state">@Selected.ActivityState</span>
+                    @if (Selected.BriefingState == "Briefing")
+                    {
+                        <span class="briefing-chip">wingman reading...</span>
+                    }
                     <span class="detail-actions">
                         @if (!_renaming)
                         {
@@ -134,7 +138,7 @@
                     @* ---- Center column: Brief (default) or Terminal, + composer ---- *@
                     <div class="center">
                         <div class="center-tabs">
-                            <button class="ctab @(CenterTab == "brief" ? "on" : "")" @onclick="@(() => SetCenterTab("brief"))">Brief</button>
+                            <button class="ctab @(CenterTab == "brief" ? "on" : "")" @onclick="@(() => SetCenterTab("brief"))">Wingman</button>
                             <button class="ctab @(CenterTab == "term" ? "on" : "")" @onclick="@(() => SetCenterTab("term"))">Terminal</button>
                             <span class="center-tabs-spacer"></span>
                             @* Needs-you conveyor: flip through the sessions waiting on the user,
@@ -162,6 +166,7 @@
                                 <BriefPane @key="Selected.SessionId" SessionId="@Selected.SessionId"
                                            DirectorBase="@Selected.TailnetEndpoint"
                                            ActivityState="@Selected.ActivityState"
+                                           BriefingState="@Selected.BriefingState"
                                            OnOpenTerminal="@(() => SetCenterTab("term"))"
                                            OnQuickReply="QuickReplyAsync"
                                            Replying="@_quickReplying" />
@@ -304,16 +309,66 @@
                                 {
                                     <div class="rightpanel-head">
                                         <span class="rightpanel-title">WINGMAN</span>
-                                        <button class="linkbtn" @onclick="GenerateRecap" disabled="@_recapBusy">@(_recapBusy ? "generating (~90s)..." : "Generate fresh")</button>
+                                        <button class="linkbtn" @onclick="GenerateRecap" disabled="@_recapBusy">@(_recapBusy ? "generating (~90s)..." : "Recap")</button>
                                     </div>
                                     <div class="wingman-tab">
                                         @if (!string.IsNullOrEmpty(_awareError))
                                         {
                                             <div class="gallery-error">@_awareError</div>
                                         }
-                                        @if (_recap is null)
+
+                                        @* ---- TURN TIMELINE: the session's story, from the TurnBriefStore ---- *@
+                                        <div class="tl-label">TURN TIMELINE</div>
+                                        @if (_turnTimeline is null)
                                         {
                                             <div class="aware-muted">Loading&hellip;</div>
+                                        }
+                                        else if (_turnTimeline.Count == 0)
+                                        {
+                                            <div class="aware-muted">No turn briefs yet (the wingman briefs each turn as it ends; old Directors need a relaunch).</div>
+                                        }
+                                        else
+                                        {
+                                            @foreach (var b in _turnTimeline)
+                                            {
+                                                <div class="tl-item @(b.Degraded ? "degraded" : "")">
+                                                    <div class="tl-head">
+                                                        <span class="tl-turn">turn @b.TurnNumber</span>
+                                                        <span class="tl-time">@b.GeneratedAtUtc.ToLocalTime().ToString("HH:mm")</span>
+                                                        <span class="tl-model">@b.Model</span>
+                                                    </div>
+                                                    <div class="tl-intent">@b.Intent</div>
+                                                    @if (b.NeedsYou is not null)
+                                                    {
+                                                        <div class="tl-rail">@b.NeedsYou.RailLine</div>
+                                                    }
+                                                    @if (b.Did.Count > 0)
+                                                    {
+                                                        <ul class="tl-did">
+                                                            @foreach (var d in b.Did.Take(3))
+                                                            {
+                                                                <li>@d</li>
+                                                            }
+                                                        </ul>
+                                                    }
+                                                </div>
+                                            }
+                                            @* ---- D7: "this brief is wrong" -> stored as a labeled example ---- *@
+                                            <div class="tl-feedback">
+                                                <input @bind="_briefFeedbackNote" placeholder="Latest brief wrong? Say why..." />
+                                                <button class="linkbtn" disabled="@(string.IsNullOrWhiteSpace(_briefFeedbackNote) || _briefFeedbackBusy)"
+                                                        @onclick="SendBriefFeedback">@(_briefFeedbackBusy ? "saving..." : "report")</button>
+                                            </div>
+                                            @if (!string.IsNullOrEmpty(_briefFeedbackStatus))
+                                            {
+                                                <div class="aware-muted">@_briefFeedbackStatus</div>
+                                            }
+                                        }
+
+                                        <div class="tl-label" style="margin-top:14px">RECAP</div>
+                                        @if (_recap is null)
+                                        {
+                                            <div class="aware-muted">No recap loaded.</div>
                                         }
                                         else if (_recap.Status == "ok" && !string.IsNullOrWhiteSpace(_recap.Recap))
                                         {
@@ -322,7 +377,7 @@
                                         }
                                         else
                                         {
-                                            <div class="aware-muted">@(_recap.Error ?? "No recap yet. Click Generate fresh.")</div>
+                                            <div class="aware-muted">@(_recap.Error ?? "No recap yet. Click Recap.")</div>
                                         }
                                     </div>
                                 }
@@ -922,6 +977,8 @@
         _queue = new();
         _shots = new();
         _shotsError = null;
+        _turnTimeline = null;
+        _briefFeedbackStatus = null;
         _recap = null;
         _awareError = null;
         await LoadQueueAsync();
@@ -1195,7 +1252,7 @@
     private async Task LoadRightTabAsync()
     {
         if (_rightTab == "shots" && _shots.Count == 0) await LoadScreenshotsAsync();
-        else if (_rightTab == "wingman" && _recap is null) await LoadWingmanAsync();
+        else if (_rightTab == "wingman" && (_recap is null || _turnTimeline is null)) await LoadWingmanAsync();
     }
 
     // ===== Screenshots gallery =====
@@ -1298,11 +1355,44 @@
         {
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
             cts.CancelAfter(TimeSpan.FromSeconds(10));
+            // The turn timeline (the session's story from the TurnBriefStore) loads first -
+            // it's the wingman tab's primary content; the cached recap rides along.
+            var briefs = await Director.GetTurnBriefsAsync(dir!, sel.SessionId, cts.Token);
+            _turnTimeline = briefs?.Items ?? new List<TurnBriefDto>();
             _recap = await Director.GetRecapAsync(dir!, sel.SessionId, cts.Token);
         }
         catch (OperationCanceledException) { }
         catch (Exception ex) { _awareError = ex.Message; Log.LogWarning(ex, "LoadWingman failed"); }
         await InvokeAsync(StateHasChanged);
+    }
+
+    // ----- D7 brief feedback ("this brief is wrong" -> labeled example on the Director) -----
+    private List<TurnBriefDto>? _turnTimeline;
+    private string _briefFeedbackNote = "";
+    private bool _briefFeedbackBusy;
+    private string? _briefFeedbackStatus;
+
+    private async Task SendBriefFeedback()
+    {
+        var sel = Selected; var dir = DirBase;
+        if (sel is null || string.IsNullOrWhiteSpace(dir) || string.IsNullOrWhiteSpace(_briefFeedbackNote)) return;
+        _briefFeedbackBusy = true;
+        _briefFeedbackStatus = null;
+        try
+        {
+            await Director.PostBriefFeedbackAsync(dir!, sel.SessionId, turnNumber: 0, _briefFeedbackNote.Trim(), _cts.Token);
+            _briefFeedbackStatus = "Saved as a labeled example - it feeds the wingman's prompt iteration.";
+            _briefFeedbackNote = "";
+        }
+        catch (Exception ex)
+        {
+            _briefFeedbackStatus = $"Feedback failed: {ex.Message}";
+            Log.LogWarning(ex, "brief feedback failed");
+        }
+        finally
+        {
+            _briefFeedbackBusy = false;
+        }
     }
 
     private async Task SetViewMode(string mode)

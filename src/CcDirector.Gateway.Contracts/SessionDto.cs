@@ -61,6 +61,15 @@ public sealed class SessionDto
     /// </summary>
     public string LastStatusReason { get; set; } = "";
 
+    /// <summary>Wingman briefing-pipeline state: "None" | "Briefing" | "Briefed" | "Failed".
+    /// Orthogonal to ActivityState (a session can ask AND keep working). "Briefing" renders
+    /// the rail's yellow "wingman reading..." chip. Defaults to None on old Directors.</summary>
+    public string BriefingState { get; set; } = "None";
+
+    /// <summary>The latest turn brief's needs-you one-liner (&lt;=8 words) for the rail /
+    /// FIFO / voice. Null when nothing is needed or no brief exists.</summary>
+    public string? RailLine { get; set; }
+
     /// <summary>Backend type: ConPty / UnixPty / Pipe / Studio / Embedded.</summary>
     public string BackendType { get; set; } = "";
 

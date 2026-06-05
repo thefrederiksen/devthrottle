@@ -2253,7 +2253,12 @@ internal static class ControlEndpoints
             try
             {
                 await sessionManager.KillSessionAsync(guid);
-                return Results.Json(new { killed = true });
+                // Kill AND remove: without removal the dead session lingered as a zombie row
+                // in every roster (status Exited but still listed), was persisted at Director
+                // shutdown, and RESURRECTED on relaunch. DELETE means gone - same as the
+                // desktop's close flow, which has always paired kill with removal.
+                sessionManager.RemoveSession(guid);
+                return Results.Json(new { killed = true, removed = true });
             }
             catch (KeyNotFoundException)
             {
@@ -2407,6 +2412,8 @@ internal static class ControlEndpoints
             SortOrder = s.SortOrder,
             StatusColor = s.StatusColor,
             LastStatusReason = s.LastStatusReason,
+            BriefingState = s.BriefingState.ToString(),
+            RailLine = s.LatestBriefRailLine,
             LastActivityAt = lastActivity,
             IdleSeconds = idleSeconds,
             QuietThresholdSeconds = CcDirector.Core.Wingman.TerminalStateDetector.QuietThreshold.TotalSeconds,

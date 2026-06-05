@@ -1,6 +1,6 @@
 # Wingman Turn Briefing - the architecture for understanding a turn
 
-**Status:** v2 - ARCHITECTURE AGREED + contract frozen against captured examples, not built (2026-06-04)
+**Status:** v2.1 - ARCHITECTURE AGREED + contract frozen against captured examples (incl. multi-select), not built (2026-06-04)
 **Supersedes:** the rule-based parts of the Brief view (docs/plans/cockpit-brief-view.md), which
 become this design's labeled degrade tier.
 **Related:** docs/wingman/CHARTER.md (the invariants this design must honor)
@@ -168,6 +168,11 @@ TurnBrief {
                  //        plan approval) - options carry the key sequence and the
                  //        one-tap button sends it through the raw-input path, so
                  //        even interactive menus are answerable WITHOUT the terminal
+    selectionMode: "single" | "multiple",
+                 // multiple = a "pick any that apply" checklist (captured live):
+                 // option buttons TOGGLE, and the separate `submit` send completes
+                 // the answer. single = one tap answers outright.
+    submit:     "\r" | null,   // the completing send for selectionMode: multiple
     options:    [ { key: "1 Terse", send: "3\r", note?: "standing grant" }, ... ],
                  // REAL choices the wingman decided exist. May be empty.
                  // A 'type something' affordance is allowed; fake choices are not.
@@ -313,6 +318,7 @@ the strong model - the quality bar). Full captures in `examples/capture-*.md`.
 | Plan-mode approval | `capture-planmode-approval.md` | PARTIALLY - pending ExitPlanMode tool + the plan body are in the transcript; the menu options are screen-only | keys | The brief fuses both sources: plan summary from the transcript, options from the grid. v1's fallback grabbed a mid-reply paragraph - Exhibit B for D6. |
 | Plain-text numbered choices | `capture-plaintext-numbered.md` | YES - fully | reply | The easy shape; v1 mostly held up. Lesson: proportionality (small turn -> short brief). Grid snapshots tear under active output - JSONL is truth when sighted. |
 | Soft decision / "thoughts" | `capture-ambiguous-thoughts.md` | YES | reply | The missing SEVERITY tier: nothing blocking, but a real decision exists -> `urgency: blocking/review/fyi`; fyi does NOT turn the rail red. |
+| Multi-select checklist ("pick any that apply") | `capture-multiselect-checklist.md` | NO - blind at 424 widgets (captured from a REAL work session, not staged) | keys | BROKE the v2 contract: toggling several options + a separate Submit cannot be one `send` -> `selectionMode: multiple` + `submit`. ALSO: the session was asking AND still working (spinner under the questionnaire) - blocking-question and active-work coexist; and the grid was torn while parked on the question (read-through-corruption robustness). |
 
 **Contract changes frozen from these captures** (now in section 4): `needsYou.answerVia`
 ("reply" | "keys"), `options[].send` (what one tap transmits - reply text or key sequence),
@@ -347,3 +353,4 @@ designed but unvalidated.
 | 2026-06-04 | claude (cc-director session) | v1: problem, position, lifecycle, TurnBrief contract, Example 1 (before screenshots + corrected brief), build plan, v2 caveat on interactive questionnaires. |
 | 2026-06-04 | claude (cc-director session) | v1.1: Mission section (the meat computer is the bottleneck; helpers exist to reduce cognitive load); prior-art section on the Director session view (take: distilled-question pattern, LLM quick replies, UserPromptSubmit hook, feedback widget; not the code); D6 no-regex/no-text-parsing law; D7 brief feedback loop; turn package + contract amendments. |
 | 2026-06-04 | claude (cc-director session) | v2: example catalog - five question shapes captured live (picker, permission prompt, plan approval, plain-text numbered, soft decision) with side-by-side grid/transcript/v1-output/correct-TurnBrief in examples/. Contract frozen: answerVia reply-or-keys (interactive menus answerable remotely via send key sequences), options[].send + options[].note, urgency blocking/review/fyi. Pipeline lessons: transcript-flush race, unsubmitted-composer boot gotcha, grid tearing. |
+| 2026-06-04 | claude (cc-director session) | v2.1: sixth shape captured from a LIVE real work session - the multi-select checklist ("pick any that apply"). It broke the v2 contract: added selectionMode single/multiple + submit send. New findings: a session can be blocking-on-a-question AND actively working simultaneously; grids tear even while parked on a question; transcript-blind holds at 424 widgets. |

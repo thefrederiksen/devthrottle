@@ -44,7 +44,18 @@
                     <span class="sess-dir">@ShortId(s.DirectorId)</span>
                 </span>
             </span>
-            @if (s.StatusColor == "red")
+            @* The wingman's railLine: WHAT the session wants, not just that it wants
+               something (TURN_BRIEFING.md). Falls back to the generic pill when no brief
+               exists (old Directors / brief pending). While the wingman reads, say so. *@
+            @if (s.BriefingState == "Briefing")
+            {
+                <span class="rail-line briefing">wingman reading...</span>
+            }
+            else if (s.StatusColor == "red" && !string.IsNullOrWhiteSpace(s.RailLine))
+            {
+                <span class="rail-line">@s.RailLine</span>
+            }
+            else if (s.StatusColor == "red")
             {
                 <span class="needs-pill">needs you</span>
             }

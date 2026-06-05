@@ -3,21 +3,21 @@
 @inject ILogger<BriefPane> Log
 @using Markdig
 
-@* The full-page session Brief (docs/plans/cockpit-brief-view.md): the conversation pair
-   first - YOU ASKED directly above NEEDS YOU - with CLAUDE DID below as supporting detail.
-   Sourced from the Claude transcript via the owning Director's /brief endpoint. The parent
-   keys this component by SessionId; ActivityState updates flow into the SAME instance, and
-   a Working -> not-Working transition (a turn completing) triggers a refresh so the page
-   follows the session live.
+@* The full-page session Brief. TIERED (TURN_BRIEFING.md):
+     1. WINGMAN TIER - the stored TurnBrief (strong-model interpretation generated at turn
+        end): YOU'RE DOING / YOU ASKED / NEEDS YOU (synthesized + verbatim receipts +
+        one-tap options, incl. multi-select toggle+Submit) / CLAUDE DID.
+     2. CONDENSER TIER - the v1 /brief (mini-model bullets + final-paragraph fallback).
+     3. RAW TIER - /summary fields.
+     4. The Terminal tab.
+   Every tier LABELS itself. NOTHING in this component parses model output - options come
+   structured from the wingman (D6: the regex option parser was deleted, as designed).
 
-   While the session WORKS, nothing stale masquerades as current: only YOU ASKED plus a
-   "Claude is working" panel with a live terminal tail (GET /buffer?lines=N - exists on
-   every Director build, polled only while this pane is visible and the session is busy).
-
-   Degrade ladder (never a blank page): /brief 404 -> /summary raw -> "use the Terminal tab". *@
+   While the session WORKS or the wingman is READING (yellow), nothing stale masquerades as
+   current: the ask plus a live terminal tail. *@
 
 <div class="brief">
-    @if (_loading && _brief is null && _summary is null && _error is null)
+    @if (_loading && _turnBrief is null && _brief is null && _summary is null && _error is null)
     {
         <div class="brief-loading">Loading brief...</div>
     }
@@ -28,7 +28,7 @@
             <div class="brief-error-hint">Use the Terminal tab to see this session.</div>
         </div>
     }
-    else if (_brief is not null && _brief.Status != "ok")
+    else if (_turnBrief is null && _brief is not null && _brief.Status != "ok")
     {
         <div class="brief-status">
             <div class="blabel">BRIEF UNAVAILABLE (@_brief.Status)</div>
@@ -42,7 +42,15 @@
     }
     else
     {
-        @if (Goal is not null)
+        @* ---- YOU'RE DOING (wingman rolling intent) or GOAL (degrade) ---- *@
+        @if (HasWingmanBrief)
+        {
+            <div class="brief-goal">
+                <span class="blabel">YOU'RE DOING</span>
+                <span class="brief-goal-text">@_turnBrief!.Intent</span>
+            </div>
+        }
+        else if (Goal is not null)
         {
             <div class="brief-goal">
                 <span class="blabel">GOAL</span>
@@ -62,16 +70,24 @@
             }
         </div>
 
-        @if (ReplyPending && ActivityState == "WaitingForInput")
+        @if (IsBriefing)
         {
-            @* The transcript cannot see an interactive on-screen prompt (option picker /
-               permission dialog) - show the terminal tail so the question is readable here,
-               but answering needs the terminal. *@
+            <div class="brief-block">
+                <div class="blabel yellow">WINGMAN IS READING THE TURN...</div>
+                @if (!string.IsNullOrWhiteSpace(_tail))
+                {
+                    <pre class="brief-tail">@_tail</pre>
+                }
+            </div>
+        }
+        else if (ReplyPending && ActivityState == "WaitingForInput" && !HasWingmanNeedsYou)
+        {
+            @* On-screen interactive prompt with no wingman brief yet (old Director or
+               brief pending): show the screen so the question is readable. *@
             <div class="brief-block">
                 <div class="blabel red">NEEDS YOU - ON-SCREEN PROMPT</div>
-                <div class="brief-needsyou">
-                    Claude is asking with an interactive prompt (an option picker or permission
-                    dialog) that only the terminal shows.
+                <div class="brief-needsyou urgency-blocking">
+                    Claude is asking with an interactive prompt that only the terminal shows.
                 </div>
                 @if (!string.IsNullOrWhiteSpace(_tail))
                 {
@@ -80,10 +96,8 @@
                 <button class="brief-open-term" @onclick="() => OnOpenTerminal.InvokeAsync()">Open the Terminal to answer</button>
             </div>
         }
-        else if (IsWorking || ReplyPending)
+        else if (IsWorking || (ReplyPending && !HasWingmanNeedsYou))
         {
-            @* Honest working state: no "Claude did" - last turn's content pretending to be
-               current is exactly the cognitive load this page exists to remove. *@
             <div class="brief-block">
                 <div class="blabel">CLAUDE IS WORKING</div>
                 @if (!string.IsNullOrWhiteSpace(_tail))
@@ -96,43 +110,103 @@
                 }
             </div>
         }
-        else
+        else if (HasWingmanNeedsYou)
         {
-            @if (NeedsYou is not null)
-            {
-                <div class="brief-block">
-                    <div class="blabel red">
-                        NEEDS YOU
-                        <span class="brief-verbatim-tag">@(_brief?.NeedsYouSource == "model" ? "Claude's words" : "reply's final paragraph")</span>
-                    </div>
-                    <div class="brief-needsyou">@NeedsYou</div>
-                    @if (_quickOptions.Count > 0)
+            var n = _turnBrief!.NeedsYou!;
+            <div class="brief-block">
+                <div class="blabel @(n.Urgency == "fyi" ? "" : "red")">
+                    @(n.Urgency == "fyi" ? "FYI" : "NEEDS YOU")
+                    <span class="brief-verbatim-tag">@TierLabel</span>
+                    @if (n.Confidence == "ambiguous")
                     {
-                        <div class="brief-quick">
-                            @foreach (var o in _quickOptions)
-                            {
-                                <button class="brief-quick-btn" disabled="@Replying"
-                                        title="Send &quot;@o.Key&quot; as the reply"
-                                        @onclick="() => OnQuickReply.InvokeAsync(o.Key)">
-                                    <b>@o.Key</b> @o.Label
-                                </button>
-                            }
-                        </div>
+                        <span class="brief-cond-warn">wingman unsure</span>
                     }
                 </div>
-            }
+                <div class="brief-needsyou urgency-@n.Urgency">@n.Statement</div>
 
+                @if (n.Options.Count > 0 && n.SelectionMode == "multiple")
+                {
+                    <div class="brief-quick">
+                        @foreach (var o in n.Options)
+                        {
+                            <button class="brief-quick-btn @(_toggled.Contains(o.Send) ? "toggled" : "")"
+                                    disabled="@_answering" title="@(o.Note ?? "toggle")"
+                                    @onclick="() => Toggle(o.Send)">
+                                <b>@(_toggled.Contains(o.Send) ? "[x]" : "[ ]")</b> @o.Key
+                                @if (o.Note is not null)
+                                {
+                                    <span class="brief-opt-note">@o.Note</span>
+                                }
+                            </button>
+                        }
+                        <button class="brief-quick-btn submit" disabled="@(_answering || _toggled.Count == 0)"
+                                @onclick="() => SubmitMultiAsync(n)">
+                            Submit @(_toggled.Count > 0 ? $"({_toggled.Count})" : "")
+                        </button>
+                    </div>
+                }
+                else if (n.Options.Count > 0)
+                {
+                    <div class="brief-quick">
+                        @foreach (var o in n.Options)
+                        {
+                            <button class="brief-quick-btn" disabled="@_answering"
+                                    title="@(o.Note ?? $"send: {o.Send}")"
+                                    @onclick="() => AnswerSingleAsync(n, o)">
+                                <b>@o.Key</b>
+                                @if (o.Note is not null)
+                                {
+                                    <span class="brief-opt-note">@o.Note</span>
+                                }
+                            </button>
+                        }
+                    </div>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(n.Evidence))
+                {
+                    <button class="brief-expand" @onclick="() => _showEvidence = !_showEvidence">
+                        @(_showEvidence ? "hide Claude's words" : "Claude's words (verbatim)")
+                    </button>
+                    @if (_showEvidence)
+                    {
+                        <div class="brief-evidence">@n.Evidence</div>
+                    }
+                }
+            </div>
+        }
+        else if (NeedsYou is not null)
+        {
+            @* Condenser/raw degrade tier: no wingman brief. NO option buttons - options
+               only ever come structured from the wingman (D6). *@
+            <div class="brief-block">
+                <div class="blabel red">
+                    NEEDS YOU
+                    <span class="brief-verbatim-tag">@(_brief?.NeedsYouSource == "model" ? "condenser tier - Claude's words" : "condenser tier - reply's final paragraph")</span>
+                </div>
+                <div class="brief-needsyou urgency-review">@NeedsYou</div>
+            </div>
+        }
+
+        @if (!IsWorking && !IsBriefing && !(ReplyPending && !HasWingmanNeedsYou))
+        {
             <div class="brief-divider"></div>
 
             <div class="brief-block">
                 <div class="blabel">
                     CLAUDE DID
-                    @if (_brief is not null && _brief.Condenser == "unavailable" && _brief.FullReply is not null)
-                    {
-                        <span class="brief-cond-warn" title="No condenser on this Director (OPENAI_API_KEY missing or call failed); showing the raw reply.">condenser unavailable</span>
-                    }
+                    <span class="brief-verbatim-tag">@TierLabel</span>
                 </div>
-                @if (_brief?.DidBullets.Count > 0)
+                @if (HasWingmanBrief && _turnBrief!.Did.Count > 0)
+                {
+                    <ul class="brief-did">
+                        @foreach (var b in _turnBrief.Did)
+                        {
+                            <li>@b</li>
+                        }
+                    </ul>
+                }
+                else if (_brief?.DidBullets.Count > 0)
                 {
                     <ul class="brief-did">
                         @foreach (var b in _brief.DidBullets)
@@ -143,7 +217,6 @@
                 }
                 else if (FullReply is not null)
                 {
-                    @* No condensation (old Director or no key): the reply itself, rendered. *@
                     <div class="brief-reply-md">@RenderMarkdown(FullReply)</div>
                 }
                 else
@@ -151,7 +224,7 @@
                     <div class="brief-muted">Claude has not replied yet.</div>
                 }
 
-                @if (_brief?.DidBullets.Count > 0 && FullReply is not null)
+                @if ((HasWingmanBrief || _brief?.DidBullets.Count > 0) && FullReply is not null)
                 {
                     <button class="brief-expand" @onclick="() => _showFull = !_showFull">
                         @(_showFull ? "hide full reply" : "full reply")
@@ -165,12 +238,16 @@
         }
 
         <div class="brief-foot">
-            @if (_summary is not null && _brief is null)
+            @if (_summary is not null && _brief is null && _turnBrief is null)
             {
-                <span class="brief-muted">Raw summary (this Director predates the Brief endpoint - relaunch it on a new build for condensed briefs).</span>
+                <span class="brief-muted">Raw summary tier (this Director predates the Brief endpoints - relaunch it on a new build).</span>
+            }
+            @if (!string.IsNullOrEmpty(_answerStatus))
+            {
+                <span class="brief-muted">@_answerStatus</span>
             }
             <span class="spacer"></span>
-            <button class="brief-refresh" @onclick="() => LoadAsync(force: true)" disabled="@_loading">@(_loading ? "refreshing..." : "refresh")</button>
+            <button class="brief-refresh" @onclick="() => LoadAsync()" disabled="@_loading">@(_loading ? "refreshing..." : "refresh")</button>
         </div>
     }
 </div>
@@ -179,25 +256,34 @@
     [Parameter] public string SessionId { get; set; } = "";
     [Parameter] public string DirectorBase { get; set; } = "";
     [Parameter] public string ActivityState { get; set; } = "";
-    /// <summary>Raised when the Brief cannot show the ask (interactive on-screen prompt) and
-    /// the user clicks through to the terminal; the parent switches the center tab.</summary>
+    /// <summary>"None"|"Briefing"|"Briefed"|"Failed" from the roster poll - drives the
+    /// yellow "wingman reading" window and the refresh-on-Briefed reload.</summary>
+    [Parameter] public string BriefingState { get; set; } = "None";
     [Parameter] public EventCallback OnOpenTerminal { get; set; }
-    /// <summary>One-click answer: the parent sends the string as the session's reply and
-    /// auto-advances the needs-you conveyor.</summary>
+    /// <summary>Typed-reply answer path (parent sends as a prompt and advances the conveyor).</summary>
     [Parameter] public EventCallback<string> OnQuickReply { get; set; }
-    /// <summary>True while the parent is sending a quick reply (disables the buttons).</summary>
     [Parameter] public bool Replying { get; set; }
 
+    private TurnBriefDto? _turnBrief;
     private BriefResponse? _brief;
-    private SessionSummaryDto? _summary;   // degrade payload when /brief is absent
+    private SessionSummaryDto? _summary;
     private string? _error;
     private bool _loading;
     private bool _showFull;
+    private bool _showEvidence;
+    private bool _answering;
+    private string? _answerStatus;
+    private readonly HashSet<string> _toggled = new(StringComparer.Ordinal);
     private string _lastSeenState = "";
+    private string _lastSeenBriefState = "";
     private CancellationTokenSource? _loadCts;
 
     private bool IsWorking => ActivityState == "Working";
+    private bool IsBriefing => BriefingState == "Briefing";
     private bool ReplyPending => _brief?.ReplyPending == true;
+    private bool HasWingmanBrief => _turnBrief is not null && !_turnBrief.Degraded;
+    private bool HasWingmanNeedsYou => HasWingmanBrief && _turnBrief!.NeedsYou is not null;
+    private string TierLabel => HasWingmanBrief ? _turnBrief!.Model : (_brief is not null ? "condenser tier" : "raw tier");
 
     private string? Goal => _brief?.Goal;
     private string? LastAsk => _brief?.LastAsk ?? _summary?.LastUserPrompt;
@@ -207,14 +293,76 @@
             ? Services.BriefFallback.FinalParagraph(_summary.LastAssistantText)
             : null);
 
-    // ===== live terminal tail (working / on-screen-prompt states) =====
+    // ===== answering =====
+
+    private void Toggle(string send)
+    {
+        if (!_toggled.Remove(send)) _toggled.Add(send);
+    }
+
+    /// <summary>Single-select answer: keys go raw to the PTY; replies go through the
+    /// parent's prompt path (which also advances the needs-you conveyor).</summary>
+    private async Task AnswerSingleAsync(TurnBriefNeedsYou n, TurnBriefOption o)
+    {
+        if (n.AnswerVia == "reply")
+        {
+            await OnQuickReply.InvokeAsync(o.Send);
+            return;
+        }
+        _answering = true;
+        _answerStatus = null;
+        try
+        {
+            await Director.SendInputAsync(DirectorBase, SessionId, o.Send);
+            _answerStatus = $"sent: {o.Key}";
+        }
+        catch (Exception ex)
+        {
+            Log.LogWarning(ex, "keys answer failed for sid={Sid}", SessionId);
+            _answerStatus = $"send failed: {ex.Message}";
+        }
+        finally
+        {
+            _answering = false;
+        }
+    }
+
+    /// <summary>Multi-select: send each toggled option's key (toggling the checklist),
+    /// then the submit sequence. Small gaps let the TUI repaint between toggles.</summary>
+    private async Task SubmitMultiAsync(TurnBriefNeedsYou n)
+    {
+        _answering = true;
+        _answerStatus = null;
+        try
+        {
+            foreach (var o in n.Options.Where(o => _toggled.Contains(o.Send)))
+            {
+                await Director.SendInputAsync(DirectorBase, SessionId, o.Send);
+                await Task.Delay(300);
+            }
+            if (!string.IsNullOrEmpty(n.Submit))
+                await Director.SendInputAsync(DirectorBase, SessionId, n.Submit);
+            _answerStatus = $"submitted {_toggled.Count} selection(s)";
+            _toggled.Clear();
+        }
+        catch (Exception ex)
+        {
+            Log.LogWarning(ex, "multi-select submit failed for sid={Sid}", SessionId);
+            _answerStatus = $"submit failed: {ex.Message}";
+        }
+        finally
+        {
+            _answering = false;
+        }
+    }
+
+    // ===== live terminal tail (working / briefing / on-screen-prompt states) =====
 
     private const int TailLines = 8;
     private string _tail = "";
     private CancellationTokenSource? _tailCts;
 
-    /// <summary>The tail is wanted while the session is busy or holding an on-screen prompt.</summary>
-    private bool TailWanted => IsWorking || ReplyPending;
+    private bool TailWanted => IsWorking || IsBriefing || (ReplyPending && !HasWingmanNeedsYou);
 
     private void SyncTailLoop()
     {
@@ -245,8 +393,6 @@
                 catch (OperationCanceledException) { throw; }
                 catch (Exception ex)
                 {
-                    // One failed poll must not kill the loop (Director briefly busy); next
-                    // tick retries. Persistent failure just leaves the static working note.
                     Log.LogDebug(ex, "tail poll failed for sid={Sid}", SessionId);
                 }
                 await Task.Delay(TimeSpan.FromSeconds(2), ct);
@@ -258,80 +404,7 @@
         }
     }
 
-    // ===== quick-reply options =====
-
-    /// <summary>One detected answer option: the key the button sends ("1", "A") + a short label.</summary>
-    public sealed record QuickOption(string Key, string Label);
-
-    /// <summary>Memoized option buttons - recomputed only when the brief loads or the
-    /// activity state changes, not per render (the parse runs regexes over the reply).</summary>
-    private List<QuickOption> _quickOptions = new();
-
-    /// <summary>
-    /// Conservative option detection for one-click answers (plan Phase 4). GATE first: the
-    /// ask itself must read like a choice (a digit, "option", or "which") - a numbered list
-    /// near a non-choosing ask (steps, findings, explanations) must NOT sprout buttons.
-    /// Then parse option LINES near the ask, falling back to parenthesized keys inside it.
-    /// Max 4; none parsed -> no buttons, the composer below always works.
-    /// </summary>
-    private List<QuickOption> ComputeQuickOptions()
-    {
-        var ask = NeedsYou;
-        if (ask is null) return new();
-
-        // The choice gate. Without it, any reply ending near a numbered list grows bogus
-        // buttons (seen live: an explanation's "1. / 2. / 3." became three buttons).
-        if (!System.Text.RegularExpressions.Regex.IsMatch(
-                ask, @"\d|\boption\b|\bwhich\b",
-                System.Text.RegularExpressions.RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(100)))
-            return new();
-
-        // Pass 1: numbered/lettered option LINES in the ask plus the reply just above it
-        // (options are usually listed above the closing question).
-        var hay = ask;
-        var reply = FullReply;
-        if (reply is not null)
-        {
-            var idx = reply.IndexOf(ask, StringComparison.Ordinal);
-            if (idx > 0) hay = reply[Math.Max(0, idx - 2500)..Math.Min(reply.Length, idx + ask.Length)];
-        }
-
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var opts = new List<QuickOption>();
-        foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(
-            hay, @"(?m)^\s*(?:[-*]\s*)?(?:#+\s*)?(?:[Oo]ption\s+)?([1-6]|[A-D])[.):）—-]\s+(\S.{2,79})",
-            System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromMilliseconds(100)))
-        {
-            var key = m.Groups[1].Value.ToUpperInvariant();
-            if (!seen.Add(key)) continue;
-            var label = StripMd(m.Groups[2].Value);
-            if (label.Length > 42) label = label[..42] + "...";
-            opts.Add(new QuickOption(key, label));
-            if (opts.Count == 4) break;
-        }
-
-        // Pass 2: parenthesized keys INSIDE the ask - "the minimal version (1) or the
-        // detailed version (2)?" - labels are the few words before the parenthesis.
-        if (opts.Count < 2)
-        {
-            seen.Clear();
-            opts.Clear();
-            foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(
-                ask, @"((?:[\w'-]+\s+){0,3}[\w'-]+)\s*\(([1-6]|[A-D])\)",
-                System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromMilliseconds(100)))
-            {
-                var key = m.Groups[2].Value.ToUpperInvariant();
-                if (!seen.Add(key)) continue;
-                opts.Add(new QuickOption(key, StripMd(m.Groups[1].Value)));
-                if (opts.Count == 4) break;
-            }
-        }
-
-        // A single "option" is a list bullet, not a choice. Buttons only for real choices.
-        return opts.Count >= 2 ? opts : new();
-    }
-
-    private static string StripMd(string s) => s.Replace("**", "").Replace("`", "").Trim();
+    // ===== markdown =====
 
     private static readonly MarkdownPipeline _mdPipeline =
         new MarkdownPipelineBuilder().UseAdvancedExtensions().DisableHtml().Build();
@@ -339,18 +412,30 @@
     private static MarkupString RenderMarkdown(string text)
         => (MarkupString)Markdown.ToHtml(text, _mdPipeline);
 
+    // ===== lifecycle =====
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender) return;
         _lastSeenState = ActivityState;
+        _lastSeenBriefState = BriefingState;
         await LoadAsync();
     }
 
     protected override async Task OnParametersSetAsync()
     {
-        // A turn just completed (Working -> anything else): the transcript has a new reply,
-        // so the cached brief is stale - refresh. Going INTO Working keeps the last brief
-        // data (the working layout only shows YOU ASKED + the live tail anyway).
+        // The wingman finished reading: the fresh brief is in the store - reload.
+        if (_lastSeenBriefState == "Briefing" && BriefingState is "Briefed" or "Failed" && !_loading)
+        {
+            _lastSeenBriefState = BriefingState;
+            _lastSeenState = ActivityState;
+            SyncTailLoop();
+            await LoadAsync();
+            return;
+        }
+        _lastSeenBriefState = BriefingState;
+
+        // A turn completed without a briefing transition (old Director / killed pipeline).
         if (_lastSeenState == "Working" && ActivityState != "Working" && !_loading)
         {
             _lastSeenState = ActivityState;
@@ -358,17 +443,11 @@
             await LoadAsync();
             return;
         }
-        if (_lastSeenState != ActivityState)
-        {
-            _lastSeenState = ActivityState;
-            // NeedsYou's degrade path depends on the state, so the buttons can change
-            // without a reload (e.g. old-Director summary mode flipping to WaitingForInput).
-            _quickOptions = ComputeQuickOptions();
-        }
+        _lastSeenState = ActivityState;
         SyncTailLoop();
     }
 
-    private async Task LoadAsync(bool force = false)
+    private async Task LoadAsync()
     {
         if (string.IsNullOrEmpty(SessionId) || string.IsNullOrEmpty(DirectorBase))
         {
@@ -385,22 +464,26 @@
         await InvokeAsync(StateHasChanged);
         try
         {
-            var brief = await Director.GetBriefAsync(DirectorBase, SessionId, ct);
-            if (brief is not null)
+            // Wingman tier and condenser tier load together: the TurnBrief drives the three
+            // blocks; /brief supplies YOU ASKED + the full reply markdown for the expander.
+            var turnBriefTask = Director.GetLatestTurnBriefAsync(DirectorBase, SessionId, ct);
+            var briefTask = Director.GetBriefAsync(DirectorBase, SessionId, ct);
+            _turnBrief = await turnBriefTask;
+            _brief = await briefTask;
+            _toggled.Clear();
+
+            if (_turnBrief is null && _brief is null)
             {
-                _brief = brief;
-                _summary = null;
-            }
-            else
-            {
-                // Old Director without /brief (or unknown session - /summary disambiguates).
-                Log.LogInformation("BriefPane: /brief 404 for sid={Sid}, degrading to /summary", SessionId);
+                Log.LogInformation("BriefPane: no turnbrief and no /brief for sid={Sid}, degrading to /summary", SessionId);
                 _summary = await Director.GetSummaryAsync(DirectorBase, SessionId, ct);
-                _brief = null;
                 if (_summary is null)
                     _error = "This Director does not know the session (or predates the summary endpoint).";
                 else if (_summary.Status != "ok")
                     _error = $"Transcript not readable: {_summary.Error ?? _summary.Status}";
+            }
+            else
+            {
+                _summary = null;
             }
         }
         catch (OperationCanceledException)
@@ -415,7 +498,6 @@
         finally
         {
             _loading = false;
-            _quickOptions = ComputeQuickOptions();
             SyncTailLoop();
             await InvokeAsync(StateHasChanged);
         }

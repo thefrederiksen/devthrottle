@@ -198,6 +198,38 @@ body{background:var(--panel);color:var(--text);
 .brief-quick-btn b{color:#22C55E;margin-right:6px}
 .brief-quick-btn:hover{border-color:#22C55E}
 .brief-quick-btn:disabled{opacity:.5;cursor:default}
+.brief-quick-btn.toggled{border-color:#22C55E;background:#11251a}
+.brief-quick-btn.submit{background:#22C55E;border-color:#22C55E;color:#08210f;font-weight:600}
+.brief-quick-btn.submit:disabled{background:var(--panel);color:var(--muted);font-weight:400}
+.brief-opt-note{display:block;color:#F59E0B;font-size:10px;margin-top:2px}
+.brief .blabel.yellow{color:#F59E0B}
+.brief-needsyou.urgency-blocking{border-left-color:#F14C4C}
+.brief-needsyou.urgency-review{border-left-color:#F14C4C}
+.brief-needsyou.urgency-fyi{border-left-color:#F59E0B;background:#262017;color:#e8dcc8}
+.brief-evidence{margin-top:8px;border-left:3px solid var(--border);background:var(--panel);
+  color:var(--text2);padding:10px 14px;border-radius:0 5px 5px 0;font-size:13px;white-space:pre-wrap}
+
+/* wingman turn timeline (right panel) */
+.tl-label{font-size:10px;font-weight:700;letter-spacing:.12em;color:var(--text3);margin:4px 0 8px}
+.tl-item{border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:8px;background:var(--panel)}
+.tl-item.degraded{opacity:.65}
+.tl-head{display:flex;gap:8px;font-size:10px;color:var(--muted);margin-bottom:4px}
+.tl-turn{font-weight:700;color:var(--text2)}
+.tl-model{margin-left:auto}
+.tl-intent{font-size:12px;color:var(--text);line-height:1.45}
+.tl-rail{font-size:11px;color:#F14C4C;font-weight:600;margin-top:4px}
+.tl-did{margin:6px 0 0;padding-left:18px;font-size:11px;color:var(--text2)}
+.tl-did li{margin-bottom:2px}
+.tl-feedback{display:flex;gap:6px;margin:6px 0 4px}
+.tl-feedback input{flex:1;background:var(--panel2,#23272f);border:1px solid var(--border);border-radius:4px;
+  color:var(--text);font-size:11px;padding:6px 8px}
+.briefing-chip{background:#F59E0B;color:#241a02;font-size:10px;font-weight:700;border-radius:3px;
+  padding:3px 8px;margin-left:8px;letter-spacing:.04em}
+
+/* the rail's wingman one-liner: WHAT the session wants */
+.rail-line{flex:none;max-width:46%;color:#F14C4C;font-size:10px;font-weight:600;text-align:right;
+  overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.rail-line.briefing{color:#F59E0B;font-weight:400}
 .brief-loading,.brief-error,.brief-status{padding:40px;color:var(--muted);font-size:13px}
 .brief-error-hint{margin-top:8px;color:var(--text3);font-size:12px}
 .brief-muted{color:var(--muted)}

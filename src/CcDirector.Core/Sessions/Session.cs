@@ -297,6 +297,33 @@ public sealed class Session : IDisposable
     /// <summary>Fires when ActivityState changes. Args: (oldState, newState).</summary>
     public event Action<ActivityState, ActivityState>? OnActivityStateChanged;
 
+    // ---------- Wingman turn briefing (TURN_BRIEFING.md; orthogonal to ActivityState) ----------
+
+    /// <summary>
+    /// The wingman briefing-pipeline state for the CURRENT turn. Orthogonal to
+    /// <see cref="ActivityState"/> (a session can ask AND keep working). Written only by
+    /// the TurnBriefOrchestrator; surfaced on SessionDto for the rail's yellow
+    /// "briefing..." chip. Transient - rebuilt from the TurnBriefStore on restart.
+    /// </summary>
+    public BriefingState BriefingState { get; private set; } = BriefingState.None;
+
+    /// <summary>Fires when <see cref="BriefingState"/> changes.</summary>
+    public event Action<BriefingState>? OnBriefingStateChanged;
+
+    internal void SetBriefingState(BriefingState state)
+    {
+        if (_disposed || BriefingState == state) return;
+        BriefingState = state;
+        OnBriefingStateChanged?.Invoke(state);
+    }
+
+    /// <summary>
+    /// The latest stored brief's railLine (the &lt;=8-word needs-you one-liner), kept on the
+    /// session so SessionDto mapping needs no store lookup per poll. Null when the latest
+    /// brief needs nothing. Written only by the TurnBriefOrchestrator.
+    /// </summary>
+    public string? LatestBriefRailLine { get; internal set; }
+
     // ---------- Mobile mode + proactive wingman explain (remote experience) ----------
 
     /// <summary>
