@@ -303,24 +303,24 @@ public partial class MainWindow : Window
         _installStep?.SetStatus($"{verb} - {installed} installed, {skipped} skipped");
         SetupLog.Write($"[MainWindow] RunEngineApplyAsync: repair={repair}, installed={installed}, skipped={skipped}");
 
-        // Gateway role: the per-user work above is done non-elevated; now do the machine-scoped work
-        // (Gateway service + Cockpit) by shelling the elevated CLI. Updates refresh the per-user layer
-        // only; the resident service self-updates the machine layer (Phase 2).
+        // Gateway role: finish with the Gateway tray app + Cockpit by shelling the CLI (decision D2:
+        // the CLI is the single source of truth). Per-user like everything else - no elevation, no
+        // UAC. Updates refresh the per-user layer only; the resident tray app self-updates itself.
         if (_role == InstallRole.Gateway && !_isUpdate)
-            await RunGatewayServiceInstallAsync(prep);
+            await RunGatewayTrayInstallAsync(prep);
 
         NextButton.Content = "Next";
         NextButton.IsEnabled = true;
     }
 
-    private async Task RunGatewayServiceInstallAsync(EngineInstallRunner.Prep prep)
+    private async Task RunGatewayTrayInstallAsync(EngineInstallRunner.Prep prep)
     {
-        SetupLog.Write("[MainWindow] RunGatewayServiceInstallAsync: starting elevated handoff");
-        _installStep?.SetStatus("Installing the Gateway service (administrator approval required)...");
+        SetupLog.Write("[MainWindow] RunGatewayTrayInstallAsync: shelling the CLI");
+        _installStep?.SetStatus("Installing the Gateway tray app...");
 
         try
         {
-            var launcher = new GatewayServiceLauncher(new ReleaseSource());
+            var launcher = new GatewayTrayLauncher(new ReleaseSource());
             var result = await launcher.RunAsync(
                 prep.Release,
                 line => Dispatcher.BeginInvoke(() => _installStep?.SetStatus($"Gateway: {line}")));
@@ -334,7 +334,7 @@ public partial class MainWindow : Window
         {
             _gatewayResultMessage = $"Gateway install error: {ex.Message}";
             _installStep?.SetStatus(_gatewayResultMessage);
-            SetupLog.Write($"[MainWindow] RunGatewayServiceInstallAsync FAILED: {ex.Message}");
+            SetupLog.Write($"[MainWindow] RunGatewayTrayInstallAsync FAILED: {ex.Message}");
         }
     }
 

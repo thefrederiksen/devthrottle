@@ -535,6 +535,10 @@ public partial class MainWindow : Window
 
         _activeSession = vm;
 
+        // Driver-capability action buttons (Stop / Interrupt / Clear context /
+        // History) follow the active session; null hides them all.
+        ActionBar.Configure(_sessionManager, vm?.Session);
+
         if (vm == null)
         {
             SetSessionHeaderVisible(false);
@@ -1177,7 +1181,7 @@ public partial class MainWindow : Window
             await new MessageDialog(
                 "Cannot Open Cockpit",
                 $"Could not reach the local gateway at {Controls.DirectorView.DirectorView.DefaultGatewayUrl}: " +
-                $"{ex.Message}\n\nIs the cc-gateway-service running on this machine?")
+                $"{ex.Message}\n\nIs the Gateway tray app (cc-director-gateway) running on this machine?")
                 .ShowDialog<bool?>(this);
         }
     }

@@ -5,10 +5,14 @@ using CcDirector.Core.Utilities;
 namespace CcDirector.Core.Configuration;
 
 /// <summary>
-/// Global alpha-features toggle. When enabled, alpha/experimental features (non-Claude
-/// agent CLIs, handover, FIFO, GitHub remote sessions, Assistant/Coach cards, wake-word
-/// test) are visible in the desktop UI. Default is OFF: alpha features are hidden until
-/// they have been verified well enough to graduate out from behind the flag.
+/// Global alpha-features toggle. When enabled, alpha/experimental features (handover,
+/// FIFO, GitHub remote sessions, Assistant/Coach cards, wake-word test) are visible in
+/// the desktop UI. Default is OFF: alpha features are hidden until they have been
+/// verified well enough to graduate out from behind the flag.
+/// GRADUATED out of alpha (2026-06-05): the agent picker, with Claude Code and Pi -
+/// the agents whose drivers are live-verified (docs/plans/agent-driver.md). The rule
+/// is "verified driver = shipped": agents still on GenericDriver (Codex, Gemini,
+/// opencode) remain alpha-only until their drivers are written and verified.
 /// Persisted in config.json as "alpha_mode": true/false via the single
 /// round-trip-preserving writer <see cref="CcDirectorConfigService"/>.
 /// </summary>

@@ -7,13 +7,13 @@ public enum SelfUpdateOutcome { Updated, RolledBack, Failed }
 public sealed record SelfUpdateResult(SelfUpdateOutcome Outcome, string Message, IReadOnlyList<string> Steps);
 
 /// <summary>
-/// Orchestrates the Gateway service replacing its own (file-locked) exe: stop -> swap -> start ->
+/// Orchestrates the Gateway tray app replacing its own (file-locked) exe: stop -> swap -> relaunch ->
 /// health-check, with AUTO-ROLLBACK to the .old build + a version pin if the new build does not come
-/// up (decision DA-1 - a bricked always-on service with no human present is the worst failure mode).
+/// up (decision DA-1 - a bricked always-on Gateway with no human present is the worst failure mode).
 ///
 /// Runs inside a detached helper process launched from a STAGED copy of the new exe, so the installed
-/// target is free to overwrite once the service has stopped. Service control and the health probe are
-/// injected as delegates so the rollback logic is unit-testable without a real service.
+/// target is free to overwrite once the running tray app has exited. Process control and the health
+/// probe are injected as delegates so the rollback logic is unit-testable without a real Gateway.
 /// </summary>
 public sealed class GatewaySelfUpdate
 {
@@ -34,8 +34,8 @@ public sealed class GatewaySelfUpdate
         string targetExePath,
         string stagedExePath,
         string newVersion,
-        Func<bool> stopService,
-        Func<bool> startService,
+        Func<bool> stopGateway,
+        Func<bool> startGateway,
         Func<CancellationToken, Task<bool>> isHealthy,
         TimeSpan healthTimeout,
         CancellationToken ct = default)
@@ -43,17 +43,19 @@ public sealed class GatewaySelfUpdate
         ArgumentException.ThrowIfNullOrWhiteSpace(targetExePath);
         ArgumentException.ThrowIfNullOrWhiteSpace(stagedExePath);
         ArgumentException.ThrowIfNullOrWhiteSpace(newVersion);
-        ArgumentNullException.ThrowIfNull(stopService);
-        ArgumentNullException.ThrowIfNull(startService);
+        ArgumentNullException.ThrowIfNull(stopGateway);
+        ArgumentNullException.ThrowIfNull(startGateway);
         ArgumentNullException.ThrowIfNull(isHealthy);
 
         var steps = new List<string>();
         var target = targetExePath;
         EngineLog.Write($"[GatewaySelfUpdate] applying {newVersion} -> {target}");
 
-        // 1. Stop the service so its exe unlocks, then swap.
-        stopService();
-        steps.Add("stopped cc-gateway-service");
+        // 1. Stop the running Gateway so its exe unlocks, then swap. The writability wait is the
+        // real exit barrier: a single-file exe stays locked until its process has fully exited
+        // (which also releases the tray app's single-instance mutex for the relaunch).
+        stopGateway();
+        steps.Add("stopped the running Gateway");
         if (!WaitUntilWritable(target))
             return Fail(steps, $"Gateway exe still locked after stop ({target}); aborting swap.");
 
@@ -65,13 +67,13 @@ public sealed class GatewaySelfUpdate
         }
         catch (Exception ex)
         {
-            startService(); // leave the service running on the old (still-installed) exe
+            startGateway(); // leave the Gateway running on the old (still-installed) exe
             return Fail(steps, $"swap failed: {ex.Message}");
         }
 
-        // 2. Start the new build and health-check it.
-        startService();
-        steps.Add("started cc-gateway-service (new build)");
+        // 2. Relaunch the new build and health-check it.
+        startGateway();
+        steps.Add("relaunched the Gateway (new build)");
         if (await WaitHealthyAsync(isHealthy, healthTimeout, ct))
         {
             RecordInstalled(newVersion);
@@ -83,11 +85,11 @@ public sealed class GatewaySelfUpdate
         // 3. DA-1: the new build did not come up -> roll back to .old and pin the bad version.
         steps.Add($"new build NOT healthy within {healthTimeout.TotalSeconds:F0}s; rolling back");
         EngineLog.Write($"[GatewaySelfUpdate] {newVersion} unhealthy; rolling back");
-        stopService();
+        stopGateway();
         WaitUntilWritable(target);
         var restored = InstallSwapper.Rollback(target);
         Pin(newVersion);
-        startService();
+        startGateway();
         var healthyAfter = await WaitHealthyAsync(isHealthy, healthTimeout, ct);
         steps.Add(restored
             ? $"rolled back to previous build (healthy={healthyAfter}); pinned away from {newVersion}"
@@ -110,7 +112,7 @@ public sealed class GatewaySelfUpdate
         return false;
     }
 
-    /// <summary>Wait until the target exe can be opened for write (i.e. the old service process released it).</summary>
+    /// <summary>Wait until the target exe can be opened for write (i.e. the old Gateway process exited and released it).</summary>
     private bool WaitUntilWritable(string path)
     {
         if (!File.Exists(path)) return true; // nothing to unlock (fresh)

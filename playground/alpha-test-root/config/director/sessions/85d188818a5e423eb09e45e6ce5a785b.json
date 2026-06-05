@@ -1,0 +1,19 @@
+{
+  "Id": "85d18881-8a5e-423e-b09e-45e6ce5a785b",
+  "CustomName": "mindzieWeb - Config Bugs",
+  "CustomColor": "#7C3AED",
+  "RepoPath": "C:\\ReposMindzie\\mindzieWeb",
+  "ClaudeSessionId": "292ed01b-e3b8-472c-b25f-a735bff10726",
+  "CreatedAt": "2026-02-20T16:33:30.3193087+00:00",
+  "LastUsedAt": "2026-02-20T19:37:00.6405697+00:00",
+  "FirstPromptSnippet": null,
+  "TurnSummaries": [
+    "Investigated freeze time selection not persisting in data wizard by entering plan mode, analyzing screenshots and codebase to confirm the issue stems from WizardState not saving the freeze time sel...",
+    "",
+    "I need more context to summarize turn #3. Could you provide the actual response or conversation from that turn? I can then create a concise 1-2 sentence summary focusing on what was done.",
+    "Fixed DatasetWizard.razor.cs by removing invalid nullable reference operator and corrected method signature to resolve build errors in mindzieStudio.sln.",
+    "Reviewed staged and unstaged code changes against CodingStyle.md to check for security issues and bugs before committing.",
+    "I don\u0027t see a complete commit session here. The user ran \u0060/commit\u0060 skill which triggered git log and status commands, but there\u0027s no information about what changes were actually committed or the co...",
+    "API Error: 401 {\u0022type\u0022:\u0022error\u0022,\u0022error\u0022:{\u0022type\u0022:\u0022authentication_error\u0022,\u0022message\u0022:\u0022OAuth token has expired. Please obtain a new token or refresh your existing token.\u0022},\u0022request_id\u0022:\u0022req_011CYKtFfcwA8..."
+  ]
+}

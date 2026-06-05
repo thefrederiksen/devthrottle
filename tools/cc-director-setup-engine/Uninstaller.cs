@@ -1,9 +1,10 @@
+using System.Diagnostics;
 using System.Runtime.Versioning;
 
 namespace CcDirector.Setup.Engine;
 
 /// <summary>The kind of thing an uninstall step removes.</summary>
-public enum UninstallKind { Service, Directory, PathEntry, Shortcut }
+public enum UninstallKind { Autostart, Directory, PathEntry, Shortcut }
 
 /// <summary>One thing the uninstaller would remove, with whether it is currently present.</summary>
 public sealed record UninstallTarget(UninstallKind Kind, string Description, string Path, bool Present);
@@ -14,17 +15,15 @@ public sealed record UninstallReport(bool Success, IReadOnlyList<string> Steps, 
 /// <summary>
 /// Removes exactly the files the installer creates - and nothing else. It only touches the canonical
 /// install locations from <see cref="InstallLayout"/> (the Director app dir, the tools bin dir, the
-/// Gateway/Cockpit binaries, the machine service data, the PATH entry, the Start Menu shortcut, and
-/// the cc-gateway-service). It NEVER deletes the per-user root itself, so user data that lives
+/// Gateway/Cockpit binaries, setup state, the PATH entry, the Start Menu shortcut, and the Gateway
+/// tray app's autostart Run key). It NEVER deletes the per-user root itself, so user data that lives
 /// alongside the install (vault, connections, config, coaches, dictation, logs) is preserved.
 ///
-/// Stale/orphaned artifacts from older tooling (e.g. a differently-named NSSM service) are out of
-/// scope by design - those are handled manually, with explicit approval, not by this uninstaller.
+/// Stale/orphaned artifacts from older tooling are out of scope by design - those are handled
+/// manually, with explicit approval, not by this uninstaller.
 /// </summary>
 public sealed class Uninstaller
 {
-    public const string ServiceName = GatewayServiceCommands.ServiceName;
-
     private readonly InstallLayout _layout;
 
     public Uninstaller(InstallLayout layout)
@@ -46,9 +45,7 @@ public sealed class Uninstaller
         {
             dirs.Add(("Gateway binaries", _layout.GatewayDir));
             dirs.Add(("Cockpit binaries", _layout.CockpitDir));
-            dirs.Add(("Service config", _layout.ServiceConfigDir));
-            dirs.Add(("Service state", _layout.ServiceStateDir));
-            dirs.Add(("Service logs", _layout.ServiceLogsDir));
+            dirs.Add(("Setup state", _layout.StateDir));
         }
         return dirs;
     }
@@ -61,8 +58,10 @@ public sealed class Uninstaller
     public IReadOnlyList<UninstallTarget> Plan(InstallRole role)
     {
         var targets = new List<UninstallTarget>();
-        if (role == InstallRole.Gateway)
-            targets.Add(new UninstallTarget(UninstallKind.Service, "Gateway service", ServiceName, ServiceExists()));
+        if (role == InstallRole.Gateway && OperatingSystem.IsWindows())
+            targets.Add(new UninstallTarget(
+                UninstallKind.Autostart, "Gateway autostart (HKCU Run key)",
+                GatewayAutostart.ValueName, GatewayAutostart.IsRegistered()));
 
         foreach (var (desc, path) in Directories(role))
             targets.Add(new UninstallTarget(UninstallKind.Directory, desc, path, Directory.Exists(path)));
@@ -81,14 +80,16 @@ public sealed class Uninstaller
         EngineLog.Write($"[Uninstaller] Apply role={role}");
 
         if (role == InstallRole.Gateway && OperatingSystem.IsWindows())
-            RemoveService(steps, errors);
+        {
+            StopGatewayTrayApp(steps);
+            RemoveAutostart(steps, errors);
+        }
 
         RemoveDirectories(role, steps, errors);
 
         if (OperatingSystem.IsWindows())
         {
             RemovePathEntry(steps, errors);
-            RemoveEmptyParents(role, steps);
         }
         else
         {
@@ -127,17 +128,51 @@ public sealed class Uninstaller
         }
     }
 
+    /// <summary>
+    /// Stop the INSTALLED Gateway tray app (and the Cockpit it supervises) so their exes unlock
+    /// before the directory delete. Scoped strictly to processes whose image lives under the
+    /// install-owned Gateway/Cockpit dirs - a dev gateway running from a repo is never touched.
+    /// </summary>
     [SupportedOSPlatform("windows")]
-    private void RemoveService(List<string> steps, List<string> errors)
+    private void StopGatewayTrayApp(List<string> steps)
     {
-        if (!ServiceExists()) { steps.Add($"service {ServiceName}: not present"); return; }
-        var (stopExit, _) = ProcessRunner.Run(GatewayServiceCommands.Stop());
-        steps.Add($"sc stop {ServiceName} -> exit {stopExit}");
-        // give the SCM a moment to release the exe before delete
-        Thread.Sleep(1500);
-        var (delExit, delOut) = ProcessRunner.Run(GatewayServiceCommands.Delete());
-        steps.Add($"sc delete {ServiceName} -> exit {delExit}");
-        if (delExit != 0) errors.Add($"service delete failed ({delExit}): {delOut.Trim()}");
+        var stopped = 0;
+        foreach (var name in new[] { "cc-director-gateway", "cc-director-cockpit" })
+        {
+            foreach (var p in Process.GetProcessesByName(name))
+            {
+                try
+                {
+                    var path = p.MainModule?.FileName ?? "";
+                    var inGateway = path.StartsWith(_layout.GatewayDir, StringComparison.OrdinalIgnoreCase);
+                    var inCockpit = path.StartsWith(_layout.CockpitDir, StringComparison.OrdinalIgnoreCase);
+                    if (!inGateway && !inCockpit) continue;
+                    p.Kill(entireProcessTree: true);
+                    p.WaitForExit(5000);
+                    stopped++;
+                }
+                catch (Exception ex) { EngineLog.Write($"[Uninstaller] stop {name} pid={p.Id}: {ex.Message}"); }
+                finally { p.Dispose(); }
+            }
+        }
+        steps.Add(stopped > 0
+            ? $"stopped {stopped} installed Gateway/Cockpit process(es)"
+            : "Gateway tray app: not running");
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static void RemoveAutostart(List<string> steps, List<string> errors)
+    {
+        try
+        {
+            steps.Add(GatewayAutostart.Unregister()
+                ? $"removed autostart Run key ({GatewayAutostart.ValueName})"
+                : "autostart Run key: not present");
+        }
+        catch (Exception ex)
+        {
+            errors.Add($"autostart Run key: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -223,24 +258,6 @@ public sealed class Uninstaller
         catch (Exception ex) { errors.Add($"shortcut ({lnk}): {ex.Message}"); }
     }
 
-    /// <summary>Remove the now-empty machine parent dirs (CC Director, cc-director) - but only if empty.</summary>
-    private void RemoveEmptyParents(InstallRole role, List<string> steps)
-    {
-        if (role != InstallRole.Gateway) return;
-        foreach (var dir in new[] { _layout.ProgramFilesRoot, _layout.ProgramDataRoot })
-        {
-            try
-            {
-                if (Directory.Exists(dir) && !Directory.EnumerateFileSystemEntries(dir).Any())
-                {
-                    Directory.Delete(dir);
-                    steps.Add($"removed empty {dir}");
-                }
-            }
-            catch { /* leaving a non-empty/locked parent is fine */ }
-        }
-    }
-
     /// <summary>Return <paramref name="path"/> with <paramref name="dir"/> removed (case-insensitive). Pure.</summary>
     public static string ComputePathWithout(string path, string dir)
     {
@@ -255,12 +272,5 @@ public sealed class Uninstaller
         if (!OperatingSystem.IsWindows()) return false;
         var current = Environment.GetEnvironmentVariable("Path", EnvironmentVariableTarget.User) ?? "";
         return ComputePathWithout(current, _layout.BinDir) != current;
-    }
-
-    private bool ServiceExists()
-    {
-        if (!OperatingSystem.IsWindows()) return false;
-        try { return ProcessRunner.Run(GatewayServiceCommands.Query()).exit == 0; }
-        catch { return false; }
     }
 }

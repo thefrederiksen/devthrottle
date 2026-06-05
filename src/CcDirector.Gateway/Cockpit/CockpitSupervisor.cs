@@ -21,11 +21,11 @@ namespace CcDirector.Gateway.Cockpit;
 /// </summary>
 public sealed class CockpitSupervisor : IDisposable
 {
-    // Canonical Cockpit location (master spec: docs/install/INSTALLATION.md):
-    // %ProgramFiles%\CC Director\cockpit\cc-director-cockpit.exe. CC_COCKPIT_EXE overrides it.
-    private static readonly string DefaultExe = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-        "CC Director", "cockpit", "cc-director-cockpit.exe");
+    // Canonical Cockpit location (master spec: docs/install/INSTALLATION.md): the per-user
+    // install layout's cockpit dir (%LOCALAPPDATA%\cc-director\cockpit\cc-director-cockpit.exe).
+    // CC_COCKPIT_EXE overrides it.
+    private static readonly string DefaultExe =
+        CcDirector.Setup.Engine.InstallLayout.Default().PathFor(CcDirector.Setup.Engine.ComponentRegistry.Cockpit);
     private const string CockpitProcessName = "cc-director-cockpit";
 
     /// <summary>Canonical Cockpit port. Overridable with <c>CC_COCKPIT_PORT</c> via <see cref="ResolvePort"/>.</summary>

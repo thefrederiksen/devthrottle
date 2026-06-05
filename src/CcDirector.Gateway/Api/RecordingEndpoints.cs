@@ -132,22 +132,9 @@ internal static class RecordingEndpoints
             }
         });
 
-        // ===== Voice Recorder pages (Transcripts + Dictionary tabs) =========
-
-        // /voice is the section entry point; it lands on the Transcripts tab.
-        app.MapGet("/voice", () => Results.Redirect("/transcripts"));
-
-        app.MapGet("/transcripts", () =>
-        {
-            var html = EmbeddedResources.Load("transcripts.html");
-            return Results.Content(html, "text/html; charset=utf-8");
-        });
-
-        app.MapGet("/dictionary", () =>
-        {
-            var html = EmbeddedResources.Load("dictionary.html");
-            return Results.Content(html, "text/html; charset=utf-8");
-        });
+        // The Transcripts and Dictionary PAGES are served by the Cockpit now (one-URL plan);
+        // /voice, /transcripts, /dictionary fall through the proxy to it. Only the data API
+        // below stays here.
 
         // ===== Dictionary data API ==========================================
         // The glossary is a single shared YAML file used by both phone-recording

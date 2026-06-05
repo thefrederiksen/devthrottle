@@ -1,0 +1,14 @@
+{
+  "Id": "f4ecd6c5-cc63-4d6a-a3fd-fa40aa0eabfe",
+  "CustomName": "mindzieWeb - conformance",
+  "CustomColor": "#DB2777",
+  "RepoPath": "C:\\ReposMindzie\\mindzieWeb",
+  "ClaudeSessionId": "17a2260f-991d-4953-82ec-e017cc743d72",
+  "CreatedAt": "2026-02-20T16:35:28.8813179+00:00",
+  "LastUsedAt": "2026-02-20T19:23:56.6903832+00:00",
+  "FirstPromptSnippet": null,
+  "TurnSummaries": [
+    "User investigated lost code changes in Conformance page by entering plan mode to review git history, commits, and codebase structure; explored recent commits, branches, and file changes to identify...",
+    "Searched codebase for hidden AI teammate implementations and found multiple AI teammate components (ConformanceTeammatePanel, EnrichmentAITeammate, AiTeammate) in Razor files, then asked user clari..."
+  ]
+}

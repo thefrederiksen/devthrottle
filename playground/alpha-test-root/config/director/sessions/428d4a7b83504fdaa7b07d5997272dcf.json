@@ -1,0 +1,15 @@
+{
+  "Id": "428d4a7b-8350-4fda-a7b0-7d5997272dcf",
+  "CustomName": "cc_consult - social media",
+  "CustomColor": "#EA580C",
+  "RepoPath": "D:\\ReposFred\\cc_consult",
+  "ClaudeSessionId": "bcda6bb0-432b-4d08-a6a1-c76722c1c49a",
+  "CreatedAt": "2026-02-20T16:11:31.2297743+00:00",
+  "LastUsedAt": "2026-02-20T16:18:44.2626895+00:00",
+  "FirstPromptSnippet": null,
+  "TurnSummaries": [
+    "Entered plan mode to develop comprehensive social media strategy document covering post coordination across three profiles (personal, sensor consulting, mindzie) with initial exploration of existin...",
+    "User discussed content distribution platforms (LinkedIn, Reddit, YouTube, Upwork, Medium, Twitter) and asked for clarification on strategy using AskUserQuestion tool to determine priorities.",
+    "Created new file cuddly-pondering-token.md for Center Consulting project with initial content structure."
+  ]
+}

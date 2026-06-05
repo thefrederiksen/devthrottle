@@ -296,10 +296,7 @@ public sealed class SessionStatusWingmanTests
         try
         {
             wingman.Start();
-            // Buffer-only session: with the wingman running, a real cmd.exe's exit (near
-            // instant on CI runners) repaints the badge gray mid-test and races these
-            // color assertions. The mapping under test is backend-independent.
-            var (session, _) = CreateBufferSession(manager);
+            var session = manager.CreateSession(Path.GetTempPath());
 
             session.ApplyTerminalActivityState(ActivityState.Working);
             Assert.Equal(StatusColor.Blue, session.StatusColor);
@@ -453,10 +450,7 @@ public sealed class SessionStatusWingmanTests
         var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
         try
         {
-            // Buffer-only session: a real cmd.exe can exit before wingman.Start() runs
-            // (near instant on CI runners), flipping the state to Exited and the badge
-            // to gray instead of the birth-state red this test asserts.
-            var (session, _) = CreateBufferSession(manager);
+            var session = manager.CreateSession(Path.GetTempPath());
 
             var wingman = new SessionStatusWingman(manager);
             wingman.Start();
@@ -499,9 +493,7 @@ public sealed class SessionStatusWingmanTests
             wingman.Start();
             try
             {
-                // Buffer-only session: a real cmd.exe exit between creation and the
-                // asserts repaints gray on CI runners (see Wingman_paints_blue above).
-                var (session, _) = CreateBufferSession(manager);
+                var session = manager.CreateSession(Path.GetTempPath());
                 // A brand-new session is born WaitingForInput, so the badge starts red.
                 // Wingman is silenced separately (cached "brand new session" greeting +
                 // ProactiveExplainService skipping IsBrandNew); no Opus call fires here.
@@ -534,12 +526,8 @@ public sealed class SessionStatusWingmanTests
         try
         {
             wingman.Start();
-            // Buffer-only session: a real ConPty cmd.exe races its banner/prompt output
-            // (and on CI its near-instant exit) onto the same grid as the frame below,
-            // which made this test environment-dependent. The watcher only needs a
-            // buffer; the stub backend gives a silent one.
-            var (session, _) = CreateBufferSession(manager);
-            if (session.Buffer is null) return; // no buffer; nothing to watch
+            var session = manager.CreateSession(Path.GetTempPath());
+            if (session.Buffer is null) return; // no buffer (e.g. Embedded backend); skip
 
             string? captured = null;
             string? capturedSource = null;
@@ -560,12 +548,7 @@ public sealed class SessionStatusWingmanTests
                 "  >> bypass permissions on (shift+tab to cycle)\r\n";
             session.Buffer.Write(System.Text.Encoding.UTF8.GetBytes(frame));
 
-            // Poll rather than a fixed delay: the watcher runs on a timer, and a slow CI
-            // runner can take well over a second to spin up the PTY and complete the
-            // first poll (this test failed on GitHub runners at a fixed 1500 ms).
-            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
-            while (captured is null && DateTime.UtcNow < deadline)
-                await Task.Delay(50);
+            await Task.Delay(TimeSpan.FromMilliseconds(1500));
 
             Assert.Equal("wingman", capturedSource);
             Assert.Equal("commit the cc-playwright changes too", captured);
@@ -680,9 +663,7 @@ public sealed class SessionStatusWingmanTests
         try
         {
             wingman.Start();
-            // Buffer-only session: a real cmd.exe's banner/exit output would land on the
-            // same grid as the synthetic frames (see the extraction test above).
-            var (session, _) = CreateBufferSession(manager);
+            var session = manager.CreateSession(Path.GetTempPath());
             if (session.Buffer is null) return;
 
             int pushCount = 0;
@@ -696,18 +677,12 @@ public sealed class SessionStatusWingmanTests
                 "> commit the cc-playwright changes too\r\n" +
                 "  >> bypass permissions on (shift+tab to cycle)\r\n";
             session.Buffer.Write(System.Text.Encoding.UTF8.GetBytes(frame));
+            await Task.Delay(TimeSpan.FromMilliseconds(1000));
 
-            // Poll for the first push (the watcher debounces 500ms; CI runners are slow).
-            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
-            while (pushCount == 0 && DateTime.UtcNow < deadline)
-                await Task.Delay(50);
-            Assert.Equal(1, pushCount);
-
-            // Append unrelated noise; the frame at the tail is unchanged. Proving the
-            // negative (no SECOND push) needs a settle window: 4x the debounce.
+            // Append unrelated noise; the frame at the tail is unchanged.
             session.Buffer.Write(System.Text.Encoding.UTF8.GetBytes(
                 "some background log line\r\n" + frame));
-            await Task.Delay(TimeSpan.FromMilliseconds(2000));
+            await Task.Delay(TimeSpan.FromMilliseconds(1000));
 
             Assert.Equal(1, pushCount);
         }

@@ -40,17 +40,17 @@ public sealed class TailscaleServeProvisioner : IDisposable
 
     private readonly DirectorRegistry _registry;
     private readonly int _gatewayPort;
-    private readonly int _cockpitPort;
+    private readonly int _legacyCockpitPort;
     private readonly bool _enabled;
     private readonly object _cliGate = new();
     private readonly ConcurrentDictionary<string, int> _portsById = new();
     private bool _disposed;
 
-    public TailscaleServeProvisioner(DirectorRegistry registry, int gatewayPort, int cockpitPort)
+    public TailscaleServeProvisioner(DirectorRegistry registry, int gatewayPort, int legacyCockpitPort)
     {
         _registry = registry;
         _gatewayPort = gatewayPort;
-        _cockpitPort = cockpitPort;
+        _legacyCockpitPort = legacyCockpitPort;
 
         // Dev/test isolation: CC_GATEWAY_NO_TAILSCALE=1 lets a second Gateway run on this machine
         // for local end-to-end testing WITHOUT touching the production Tailscale Serve mappings
@@ -79,12 +79,15 @@ public sealed class TailscaleServeProvisioner : IDisposable
         _registry.OnDirectorAdded += HandleAdded;
         _registry.OnDirectorRemoved += HandleRemoved;
 
-        // Front door: https://<tailnet>/ -> gateway. Idempotent.
+        // Front door: https://<tailnet>/ -> gateway. Idempotent. The Cockpit is reached
+        // THROUGH this front door (one-URL plan: the gateway fallback-proxies to it), so it
+        // no longer gets its own tailnet port.
         QueueServeOn(FrontDoorHttpsPort, _gatewayPort, "gateway");
 
-        // Cockpit: https://<tailnet>:<cockpitPort>/ -> cockpit. The Cockpit is the single
-        // fleet UI and MUST be reachable over the tailnet, never only on loopback. Idempotent.
-        QueueServeOn(_cockpitPort, _cockpitPort, "cockpit");
+        // One-time cleanup of the pre-one-URL world: drop the legacy direct Cockpit mapping
+        // (https://<tailnet>:7470) if this machine still carries one. Idempotent and safe
+        // when absent ("serve off" on a missing mapping is a no-op).
+        _ = Task.Run(() => ServeOff(_legacyCockpitPort, "legacy cockpit (one-URL: served via the front door)"));
 
         foreach (var d in _registry.ListDirectors())
             HandleAdded(d);
@@ -246,6 +249,8 @@ public sealed class TailscaleServeProvisioner : IDisposable
                 var (ok, _, message) = RunTailscale($"serve --https={httpsPort} off");
                 if (ok)
                     FileLog.Write($"[TailscaleServeProvisioner] removed --https={httpsPort} ({who})");
+                else if (message.Contains("does not exist", StringComparison.OrdinalIgnoreCase))
+                    FileLog.Write($"[TailscaleServeProvisioner] --https={httpsPort} already absent ({who})");
                 else
                     FileLog.Write($"[TailscaleServeProvisioner] FAILED to remove --https={httpsPort} ({who}): {message}");
             }

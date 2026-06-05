@@ -2,10 +2,13 @@
 # PW_RENDERFULLCONTENT (works for GPU/composited windows like Avalonia).
 # Finds the largest VISIBLE top-level window owned by the PID (Avalonia main window
 # is often not reported via .NET MainWindowHandle, so we enumerate directly).
-# Usage: capture-window.ps1 -TargetPid 12345 -OutPath C:\tmp\shot.png
+# Pass -TitleContains to pick a specific window instead (e.g. a modal dialog, which
+# is its own top-level window and is usually SMALLER than the main window).
+# Usage: capture-window.ps1 -TargetPid 12345 -OutPath C:\tmp\shot.png [-TitleContains "New Session"]
 param(
     [Parameter(Mandatory = $true)][int]$TargetPid,
-    [Parameter(Mandatory = $true)][string]$OutPath
+    [Parameter(Mandatory = $true)][string]$OutPath,
+    [string]$TitleContains
 )
 
 Add-Type @"
@@ -25,6 +28,8 @@ public class WinCap {
     public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
 
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
+
     public static IntPtr FindMainWindow(uint targetPid) {
         IntPtr best = IntPtr.Zero; int bestArea = 0;
         EnumWindows((h, l) => {
@@ -37,6 +42,22 @@ public class WinCap {
             return true;
         }, IntPtr.Zero);
         return best;
+    }
+
+    public static IntPtr FindWindowByTitle(uint targetPid, string titlePart) {
+        IntPtr found = IntPtr.Zero;
+        EnumWindows((h, l) => {
+            uint pid; GetWindowThreadProcessId(h, out pid);
+            if (pid != targetPid) return true;
+            if (!IsWindowVisible(h)) return true;
+            var sb = new StringBuilder(256);
+            GetWindowText(h, sb, sb.Capacity);
+            if (sb.ToString().IndexOf(titlePart, StringComparison.OrdinalIgnoreCase) >= 0) {
+                found = h; return false;
+            }
+            return true;
+        }, IntPtr.Zero);
+        return found;
     }
 
     public static Bitmap Capture(IntPtr hWnd) {
@@ -54,8 +75,9 @@ public class WinCap {
 }
 "@ -ReferencedAssemblies System.Drawing
 
-$h = [WinCap]::FindMainWindow([uint32]$TargetPid)
-if ($h -eq [IntPtr]::Zero) { Write-Output "NO_WINDOW: no visible top-level window for pid $TargetPid"; exit 1 }
+$h = if ($TitleContains) { [WinCap]::FindWindowByTitle([uint32]$TargetPid, $TitleContains) }
+     else { [WinCap]::FindMainWindow([uint32]$TargetPid) }
+if ($h -eq [IntPtr]::Zero) { Write-Output "NO_WINDOW: no visible top-level window for pid $TargetPid (title filter: '$TitleContains')"; exit 1 }
 [WinCap]::ShowWindow($h, 9) | Out-Null   # SW_RESTORE
 [WinCap]::SetForegroundWindow($h) | Out-Null
 Start-Sleep -Milliseconds 500

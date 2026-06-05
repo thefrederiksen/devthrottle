@@ -51,6 +51,4 @@ internal static class ProcessRunner
         var stderr = stderrBuf.ToString();
         return (p.ExitCode, string.IsNullOrWhiteSpace(stderr) ? stdout : $"{stdout}\n{stderr}");
     }
-
-    public static (int exit, string output) Run(ServiceCommand cmd) => Run(cmd.Exe, cmd.Arguments);
 }

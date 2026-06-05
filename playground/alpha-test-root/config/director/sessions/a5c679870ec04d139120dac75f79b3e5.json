@@ -1,0 +1,14 @@
+{
+  "Id": "a5c67987-0ec0-4d13-9120-dac75f79b3e5",
+  "CustomName": "mindzieWeb - ERP - knowledgebase",
+  "CustomColor": null,
+  "RepoPath": "C:\\ReposMindzie\\mindzieWeb",
+  "ClaudeSessionId": "7d15a68a-c4cd-4b11-a2b3-ee94ad530897",
+  "CreatedAt": "2026-02-22T23:09:25.2735282+00:00",
+  "LastUsedAt": "2026-02-23T16:21:51.8696394+00:00",
+  "FirstPromptSnippet": null,
+  "TurnSummaries": [
+    "Read ERP knowledge base document and created high-level plan for mapping mainstream ERP systems and their required tables for the design process system.",
+    "Read the master system list file and created a todo list with tasks to expand the systems inventory, review for completeness, and identify gaps before implementation."
+  ]
+}

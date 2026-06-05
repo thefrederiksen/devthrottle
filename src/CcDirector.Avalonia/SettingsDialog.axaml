@@ -120,7 +120,7 @@
                           Margin="0,4,0,0"
                           IsCheckedChanged="AlphaCheck_Changed"
                           ToolTip.Tip="Default: off. Shows untested features - no guarantees they work." />
-                <TextBlock Text="When enabled you get: other coding agents (Pi, Codex, Gemini, opencode), session handover, FIFO voice mode, GitHub remote sessions, Assistant/Coach quick-launch, and the wake-word test below."
+                <TextBlock Text="When enabled you get: unverified coding agents (Codex, Gemini, opencode), session handover, FIFO voice mode, GitHub remote sessions, Assistant/Coach quick-launch, and the wake-word test below. (Claude Code and Pi have verified drivers and are always available.)"
                            Foreground="#888888" FontSize="11" TextWrapping="Wrap" Margin="24,0,0,0" />
 
                 <!-- Voice wake-word sandbox: alpha-gated, follows the checkbox live

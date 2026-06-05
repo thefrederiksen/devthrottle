@@ -5,7 +5,7 @@ namespace CcDirector.Setup.Engine.Tests;
 
 public class InstallLayoutTests
 {
-    private static readonly InstallLayout Layout = new(@"C:\root", @"C:\Program Files\CC Director", @"C:\pd");
+    private static readonly InstallLayout Layout = new(@"C:\root");
 
     [Fact]
     public void PathFor_Director_IsInAppDir()
@@ -22,29 +22,29 @@ public class InstallLayoutTests
     }
 
     [Fact]
-    public void PathFor_GatewayAndCockpit_AreUnderProgramFiles()
+    public void PathFor_GatewayAndCockpit_AreUnderTheUserRoot()
     {
+        // The Gateway is a per-user tray app: everything lives under the one user root
+        // (docs/plans/gateway-tray-app.md) so install/update/uninstall never elevate.
         Assert.Equal(
-            Path.Combine(@"C:\Program Files\CC Director", "gateway", "cc-director-gateway.exe"),
+            Path.Combine(@"C:\root", "gateway", "cc-director-gateway.exe"),
             Layout.PathFor(ComponentRegistry.Gateway));
         Assert.Equal(
-            Path.Combine(@"C:\Program Files\CC Director", "cockpit", "cc-director-cockpit.exe"),
+            Path.Combine(@"C:\root", "cockpit", "cc-director-cockpit.exe"),
             Layout.PathFor(ComponentRegistry.Cockpit));
     }
 
     [Fact]
-    public void ServiceDataDirs_AreUnderProgramData()
+    public void StateAndLogsDirs_AreUnderTheUserRoot()
     {
-        Assert.Equal(Path.Combine(@"C:\pd", "config"), Layout.ServiceConfigDir);
-        Assert.Equal(Path.Combine(@"C:\pd", "state"), Layout.ServiceStateDir);
-        Assert.Equal(Path.Combine(@"C:\pd", "logs"), Layout.ServiceLogsDir);
+        Assert.Equal(Path.Combine(@"C:\root", "state"), Layout.StateDir);
+        Assert.Equal(Path.Combine(@"C:\root", "logs"), Layout.LogsDir);
     }
 
     [Fact]
-    public void Constructor_RejectsEmptyRoots()
+    public void Constructor_RejectsEmptyRoot()
     {
-        Assert.Throws<ArgumentException>(() => new InstallLayout("", @"C:\pf", @"C:\pd"));
-        Assert.Throws<ArgumentException>(() => new InstallLayout(@"C:\root", "", @"C:\pd"));
-        Assert.Throws<ArgumentException>(() => new InstallLayout(@"C:\root", @"C:\pf", ""));
+        Assert.Throws<ArgumentException>(() => new InstallLayout(""));
+        Assert.Throws<ArgumentException>(() => new InstallLayout("  "));
     }
 }

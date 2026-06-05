@@ -27,6 +27,7 @@ public sealed class ClaudeDriver : IAgentDriver
 
     private static readonly byte[] EscapeByte = [0x1B];
     private static readonly byte[] EnterByte = [0x0D];
+    private static readonly byte[] CtrlC = [0x03];
 
     private readonly ITranscriptReader _transcripts;
     private readonly TimeSpan _echoTimeout;
@@ -47,6 +48,8 @@ public sealed class ClaudeDriver : IAgentDriver
     public DriverCapabilities Capabilities =>
         DriverCapabilities.ClearContext
         | DriverCapabilities.Cancel
+        | DriverCapabilities.Interrupt
+        | DriverCapabilities.History
         | DriverCapabilities.TranscriptRead
         | DriverCapabilities.PreassignedSessionId;
 
@@ -233,6 +236,30 @@ public sealed class ClaudeDriver : IAgentDriver
         FileLog.Write("[ClaudeDriver] CancelAsync: sending Esc");
         backend.Write(EscapeByte);
         return Task.CompletedTask;
+    }
+
+    public Task InterruptAsync(ISessionBackend backend)
+    {
+        ArgumentNullException.ThrowIfNull(backend);
+        FileLog.Write("[ClaudeDriver] InterruptAsync: sending Ctrl+C");
+        backend.Write(CtrlC);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Claude's double-Esc: with an idle composer, two Esc presses open the Rewind
+    /// picker ("Restore the code and/or conversation to the point before..."). The gap
+    /// between the presses matters and was tuned LIVE: 120ms gets coalesced and no
+    /// picker appears; 350ms reliably registers as the deliberate double-press
+    /// (Director QA DQ-5, docs/features/director-drivers/QA_REPORT.html).
+    /// </summary>
+    public async Task ShowHistoryAsync(ISessionBackend backend)
+    {
+        ArgumentNullException.ThrowIfNull(backend);
+        FileLog.Write("[ClaudeDriver] ShowHistoryAsync: sending double-Esc (350ms gap)");
+        backend.Write(EscapeByte);
+        await Task.Delay(TimeSpan.FromMilliseconds(350));
+        backend.Write(EscapeByte);
     }
 
     public Task ClearContextAsync(ISessionBackend backend)

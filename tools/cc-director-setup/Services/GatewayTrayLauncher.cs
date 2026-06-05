@@ -1,4 +1,3 @@
-using System.ComponentModel;
 using System.Diagnostics;
 using System.Text;
 using CcDirector.Setup.Engine;
@@ -6,21 +5,20 @@ using CcDirector.Setup.Engine;
 namespace CcDirectorSetup.Services;
 
 /// <summary>
-/// Runs the privileged part of a Gateway install by shelling the elevated CLI (decision D2): the WPF
-/// stays non-elevated and does the per-user work itself, while this launches
-/// <c>cc-director-setup-cli install --role gateway --component gateway</c> with a single UAC prompt to
-/// place the Gateway exe in %ProgramFiles%, extract the Cockpit, and register + start the service.
-///
-/// UAC's "runas" verb requires UseShellExecute=true, which forbids stdout pipe redirection, so the
-/// elevated CLI tees its console to a --log-file that this tails for live progress.
+/// Runs the Gateway-role part of an install by shelling the CLI (decision D2: the CLI is the single
+/// source of truth): launches <c>cc-director-setup-cli install --role gateway --component gateway</c>,
+/// which places the Gateway exe under %LOCALAPPDATA%, extracts the Cockpit, and starts the tray app.
+/// Everything is per-user now (the Gateway is a tray app, not a service - docs/plans/gateway-tray-app.md),
+/// so NO elevation and NO UAC prompt. The CLI tees its console to a --log-file that this tails for
+/// live progress (keeps the proven tail mechanism; no pipe plumbing).
 /// </summary>
-public sealed class GatewayServiceLauncher
+public sealed class GatewayTrayLauncher
 {
     public const string CliAsset = "cc-director-setup-cli-win-x64.exe";
 
     private readonly ReleaseSource _source;
 
-    public GatewayServiceLauncher(ReleaseSource source)
+    public GatewayTrayLauncher(ReleaseSource source)
     {
         _source = source ?? throw new ArgumentNullException(nameof(source));
     }
@@ -33,9 +31,9 @@ public sealed class GatewayServiceLauncher
         ArgumentNullException.ThrowIfNull(onLine);
 
         if (!release.DownloadUrls.ContainsKey(CliAsset))
-            return new Result(false, -1, $"This release has no {CliAsset}; cannot run the elevated Gateway install.");
+            return new Result(false, -1, $"This release has no {CliAsset}; cannot run the Gateway install.");
 
-        SetupLog.Write("[GatewayServiceLauncher] downloading CLI for elevated handoff");
+        SetupLog.Write("[GatewayTrayLauncher] downloading CLI for the Gateway install");
         onLine("Downloading the installer CLI...");
         var cliPath = await _source.DownloadAssetAsync(CliAsset, release.DownloadUrls, ct);
 
@@ -46,22 +44,12 @@ public sealed class GatewayServiceLauncher
         {
             FileName = cliPath,
             Arguments = $"install --role gateway --component gateway --log-file \"{logPath}\"",
-            UseShellExecute = true,   // required for the runas elevation verb
-            Verb = "runas",
-            WindowStyle = ProcessWindowStyle.Hidden,
+            UseShellExecute = false,
+            CreateNoWindow = true,
         };
 
-        Process proc;
-        try
-        {
-            onLine("Requesting administrator approval (UAC)...");
-            proc = Process.Start(psi) ?? throw new InvalidOperationException("Process.Start returned null.");
-        }
-        catch (Win32Exception ex) when (ex.NativeErrorCode == 1223) // ERROR_CANCELLED
-        {
-            SetupLog.Write("[GatewayServiceLauncher] UAC declined");
-            return new Result(false, 1223, "Administrator approval was declined; the Gateway service was not installed.");
-        }
+        onLine("Installing the Gateway tray app...");
+        var proc = Process.Start(psi) ?? throw new InvalidOperationException("Process.Start returned null.");
 
         long pos = 0;
         while (!proc.HasExited)
@@ -72,12 +60,12 @@ public sealed class GatewayServiceLauncher
         EmitNewLines(logPath, pos, onLine);
 
         var ok = proc.ExitCode == 0;
-        SetupLog.Write($"[GatewayServiceLauncher] CLI exited {proc.ExitCode}");
+        SetupLog.Write($"[GatewayTrayLauncher] CLI exited {proc.ExitCode}");
         return new Result(
             ok,
             proc.ExitCode,
             ok
-                ? $"Gateway service installed; Cockpit live at {TailnetResolver.Url(7470)}."
+                ? $"Gateway tray app installed; Cockpit live at {TailnetResolver.FrontDoorUrl()}."
                 : $"Gateway install failed (exit {proc.ExitCode}). See {logPath}.");
     }
 

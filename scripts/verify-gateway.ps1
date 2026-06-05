@@ -4,14 +4,14 @@
 
 .DESCRIPTION
   Run this AFTER the setup wizard's Gateway install (or
-  `cc-director-setup-cli install --role gateway`). It checks that the
-  cc-gateway-service Windows service is installed, set to auto-start (so it
-  survives a reboot), and RUNNING, and that the Gateway (7878) and the
-  supervised Cockpit (7470) actually answer.
+  `cc-director-setup-cli install --role gateway`). It checks that the Gateway
+  tray app (cc-director-gateway.exe) is installed at the canonical per-user
+  location, registered to start at logon (HKCU Run key), RUNNING, and that the
+  Gateway (7878) and the supervised Cockpit (7470) actually answer.
 
-  Read-only and non-destructive. Does NOT require administrator rights (it will
-  try Start-Service if the service is stopped, which is a no-op if you lack the
-  right). Exit code 0 = every check passed, 1 = one or more failed.
+  Read-only and non-destructive; never needs administrator rights (the whole
+  Gateway lifecycle is per-user - docs/plans/gateway-tray-app.md).
+  Exit code 0 = every check passed, 1 = one or more failed.
 
 .PARAMETER GatewayPort
   Gateway health port (default 7878).
@@ -33,7 +33,6 @@ param(
 )
 
 $ErrorActionPreference = 'Continue'
-$svc = 'cc-gateway-service'
 $results = [System.Collections.Generic.List[object]]::new()
 
 function Add-Result([string]$name, [bool]$ok, [string]$detail) {
@@ -56,37 +55,26 @@ function Wait-Http([string]$url, [int]$timeoutSec) {
     return $false
 }
 
-Write-Host "=== CC Director Gateway verification ==="
-Write-Host ("service={0}  gateway=:{1}  cockpit=:{2}  timeout={3}s" -f $svc, $GatewayPort, $CockpitPort, $TimeoutSeconds)
+Write-Host "=== CC Director Gateway verification (tray app) ==="
+Write-Host ("gateway=:{0}  cockpit=:{1}  timeout={2}s" -f $GatewayPort, $CockpitPort, $TimeoutSeconds)
 Write-Host ""
 
-# 1. Service installed
-$service = Get-Service -Name $svc -ErrorAction SilentlyContinue
-if ($null -eq $service) {
-    Add-Result "Service installed" $false "$svc not found - run the Gateway install first"
-} else {
-    Add-Result "Service installed" $true "$svc found"
+# 1. Installed at the canonical per-user path (master spec: docs/install/INSTALLATION.md).
+$root  = Join-Path $env:LOCALAPPDATA 'cc-director'
+$gwExe = Join-Path $root 'gateway\cc-director-gateway.exe'
+$ckExe = Join-Path $root 'cockpit\cc-director-cockpit.exe'
+Add-Result "Gateway exe installed" (Test-Path $gwExe) $gwExe
+Add-Result "Cockpit exe installed" (Test-Path $ckExe) $ckExe
 
-    # 2. Auto-start (proxy for 'survives a reboot'; an actual reboot is the ultimate test)
-    $startMode = (Get-CimInstance -ClassName Win32_Service -Filter "Name='$svc'" -ErrorAction SilentlyContinue).StartMode
-    Add-Result "Auto-start on boot" ($startMode -eq 'Auto') "StartMode=$startMode"
+# 2. Autostart Run key (proxy for 'comes back at next logon'; an actual logoff/logon is the
+# ultimate test). The tray app registers itself on startup.
+$runVal = (Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'CcDirectorGateway' -ErrorAction SilentlyContinue).CcDirectorGateway
+Add-Result "Autostart Run key" ($null -ne $runVal) ("CcDirectorGateway=" + $runVal)
 
-    # 2b. Native service, not the old NSSM wrapper. This is a real check: a Gateway still
-    # running through NSSM means the native install/migration did NOT take effect, even though
-    # the endpoints below may answer (the old service is still serving). Do not give false confidence.
-    $binPath = (Get-CimInstance -ClassName Win32_Service -Filter "Name='$svc'" -ErrorAction SilentlyContinue).PathName
-    $isNssm = $binPath -and ($binPath -match 'nssm')
-    Add-Result "Native service (not NSSM)" (-not $isNssm) ("binPath=" + $binPath)
-
-    # 3. Running (try to start it once if stopped, then re-check)
-    if ($service.Status -ne 'Running') {
-        Write-Host ("[INFO] service Status={0}; attempting Start-Service..." -f $service.Status)
-        try { Start-Service -Name $svc -ErrorAction Stop } catch { Write-Host ("[INFO] Start-Service failed: {0}" -f $_.Exception.Message) }
-        Start-Sleep -Seconds 3
-        $service.Refresh()
-    }
-    Add-Result "Service running" ($service.Status -eq 'Running') ("Status={0}" -f $service.Status)
-}
+# 3. Tray app process running from the installed location.
+$proc = Get-Process -Name 'cc-director-gateway' -ErrorAction SilentlyContinue |
+    Where-Object { $_.Path -and $_.Path -ieq $gwExe } | Select-Object -First 1
+Add-Result "Tray app running" ($null -ne $proc) ($(if ($proc) { "pid=$($proc.Id)" } else { "no process from $gwExe" }))
 
 # 4. Gateway health endpoint
 $gwUrl = "http://127.0.0.1:$GatewayPort/healthz"
@@ -95,18 +83,6 @@ Add-Result "Gateway /healthz" (Wait-Http $gwUrl $TimeoutSeconds) $gwUrl
 # 5. Cockpit endpoint
 $ckUrl = "http://127.0.0.1:$CockpitPort/"
 Add-Result "Cockpit responding" (Wait-Http $ckUrl $TimeoutSeconds) $ckUrl
-
-# Informational only: where the new installer's canonical binaries live (master spec:
-# docs/install/INSTALLATION.md). A Gateway serving correctly from another path is still a
-# working Gateway, so this does NOT affect the verdict - it just tells you whether THIS install
-# is at the canonical location the new installer uses.
-$pf = [Environment]::GetFolderPath('ProgramFiles')
-$gwExe = Join-Path $pf 'CC Director\gateway\cc-director-gateway.exe'
-$ckExe = Join-Path $pf 'CC Director\cockpit\cc-director-cockpit.exe'
-$gwAt = if (Test-Path $gwExe) { 'present' } else { 'NOT at canonical path' }
-$ckAt = if (Test-Path $ckExe) { 'present' } else { 'NOT at canonical path' }
-Write-Host ("[INFO] Gateway exe ({0}): {1}" -f $gwAt, $gwExe)
-Write-Host ("[INFO] Cockpit exe ({0}): {1}" -f $ckAt, $ckExe)
 
 # Resolve the Tailscale host so we show a URL that works from the phone / anywhere on the tailnet -
 # never localhost (localhost is useless off this machine).
@@ -126,19 +102,19 @@ Write-Host ""
 $failed = @($results | Where-Object { -not $_.Pass })
 if ($failed.Count -eq 0) {
     $tnet = Get-TailnetHost
-    Write-Host "RESULT: PASS - Gateway service installed and serving Gateway + Cockpit." -ForegroundColor Green
+    Write-Host "RESULT: PASS - Gateway tray app installed and serving Gateway + Cockpit." -ForegroundColor Green
     if ($tnet) {
-        Write-Host ("Open the Cockpit: http://{0}:{1}" -f $tnet, $CockpitPort)
-        Write-Host ("Gateway:          http://{0}:{1}" -f $tnet, $GatewayPort)
+        # ONE URL: the Cockpit is served through the Gateway front door (fallback proxy).
+        Write-Host ("Open the Cockpit: https://{0}/" -f $tnet)
     } else {
-        Write-Host ("Open the Cockpit on the tailnet host on port {0} (Tailscale not detected to build the URL)." -f $CockpitPort)
+        Write-Host "Open the Cockpit at https://<tailnet-host>/ (Tailscale not detected to build the URL)."
     }
-    Write-Host "Reboot once and re-run this script to confirm the service comes back automatically."
+    Write-Host "Log off and back on once, then re-run this script to confirm the tray app comes back automatically."
     exit 0
 }
 
 Write-Host ("RESULT: FAIL - {0} check(s) failed:" -f $failed.Count) -ForegroundColor Red
 foreach ($f in $failed) { Write-Host ("  - {0}: {1}" -f $f.Check, $f.Detail) }
-$logDir = Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'cc-director\logs'
-Write-Host ("Service logs: {0}" -f $logDir)
+$logDir = Join-Path $root 'logs'
+Write-Host ("Gateway logs: {0}" -f $logDir)
 exit 1

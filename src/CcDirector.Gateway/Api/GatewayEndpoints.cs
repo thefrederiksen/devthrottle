@@ -16,8 +16,26 @@ namespace CcDirector.Gateway.Api;
 
 internal static class GatewayEndpoints
 {
-    public static void Map(IEndpointRouteBuilder app, DirectorRegistry registry, DirectorEndpointClient client, string version, string token, bool authEnabled = false)
+    public static void Map(IEndpointRouteBuilder app, DirectorRegistry registry, DirectorEndpointClient client, string version, string token, bool authEnabled = false, Func<bool>? requestShutdown = null)
     {
+        // Graceful exit for the self-update helper: answer first (so the caller gets its 200),
+        // then hand off to the host's shutdown handler shortly after. 501 when the hosting
+        // process wired no handler - this endpoint never half-stops the host on its own.
+        app.MapPost("/shutdown", () =>
+        {
+            FileLog.Write("[GatewayEndpoints] POST /shutdown");
+            if (requestShutdown is null)
+                return Results.Json(new { error = "shutdown not supported by this host" }, statusCode: StatusCodes.Status501NotImplemented);
+
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(250); // let the 200 flush before the host starts tearing down
+                if (!requestShutdown())
+                    FileLog.Write("[GatewayEndpoints] /shutdown: no handler registered; nothing stopped");
+            });
+            return Results.Json(new { shuttingDown = true });
+        });
+
         var logoutVisibility = authEnabled ? "" : "style=\"display:none\"";
 
         // Phone recorder ingest (offline-recorded audio -> transcription -> vault).
@@ -31,46 +49,9 @@ internal static class GatewayEndpoints
         ExesEndpoints.Map(app, registry, client);
 
         // ===== HTML pages =====
-        // Phase 1: the canonical "/" is the directory page. The legacy aggregator
-        // Director UI is still reachable at "/legacy-manager" for the embedded
-        // Avalonia DirectorView until it migrates to per-Director direct calls.
-        app.MapGet("/", (HttpContext ctx) =>
-        {
-            var accept = ctx.Request.Headers["Accept"].ToString();
-            if (!accept.Contains("text/html", StringComparison.OrdinalIgnoreCase))
-            {
-                return Results.Json(new
-                {
-                    name = "CC Director Gateway",
-                    version,
-                    directors = registry.ListDirectors().Count,
-                });
-            }
-            var html = EmbeddedResources.Load("directory.html")
-                .Replace("__LOGOUT_VISIBILITY__", logoutVisibility);
-            return Results.Content(html, "text/html; charset=utf-8");
-        });
-
-        app.MapGet("/legacy-manager", (HttpContext ctx) =>
-        {
-            var html = EmbeddedResources.Load("manager.html")
-                .Replace("__LOGOUT_VISIBILITY__", logoutVisibility);
-            return Results.Content(html, "text/html; charset=utf-8");
-        });
-
-        app.MapGet("/api", () =>
-        {
-            var html = EmbeddedResources.Load("api.html");
-            return Results.Content(html, "text/html; charset=utf-8");
-        });
-
-        app.MapGet("/exes", () =>
-        {
-            var html = EmbeddedResources.Load("exes.html")
-                .Replace("__LOGOUT_VISIBILITY__", logoutVisibility);
-            return Results.Content(html, "text/html; charset=utf-8");
-        });
-
+        // The Gateway serves NO UI pages anymore (docs/plans/one-url-cockpit.md): "/" and every
+        // other UI path fall through to the Cockpit via the fallback proxy. Only the token
+        // login/logout pair remains (it guards the Gateway itself when auth is enabled).
         app.MapGet("/login", (HttpContext ctx) =>
         {
             var next = ctx.Request.Query["next"].ToString();
@@ -138,15 +119,16 @@ internal static class GatewayEndpoints
             });
         });
 
-        // Where is this machine's Cockpit? Always answer with the Tailscale front-door URL so
-        // callers (the desktop "Open Cockpit" action) never hardcode a host or fall back to
-        // loopback. Url is null when Tailscale is unavailable; the caller surfaces that.
+        // Where is this machine's Cockpit? ONE URL: the Cockpit is served through the Gateway
+        // front door (fallback proxy), so the answer is the front-door base URL itself - never
+        // a :7470 URL. Url is null when Tailscale is unavailable; the caller surfaces that.
+        // Port/Up still describe the loopback child the supervisor runs (diagnostics).
         app.MapGet("/cockpit", async () =>
         {
             var port = CockpitSupervisor.ResolvePort();
             return Results.Json(new CockpitInfoDto
             {
-                Url = TailscaleIdentity.TryGetFrontDoorUrlForPort(port),
+                Url = TailscaleIdentity.TryGetFrontDoorBaseUrl() is { } b ? b + "/" : null,
                 Port = port,
                 Up = await IsLoopbackPortOpenAsync(port),
             });

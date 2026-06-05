@@ -164,14 +164,166 @@
                         }
                         else
                         {
-                            <div class="brief-scroll">
-                                <BriefPane @key="Selected.SessionId" SessionId="@Selected.SessionId"
-                                           DirectorBase="@Selected.TailnetEndpoint"
-                                           ActivityState="@Selected.ActivityState"
-                                           BriefingState="@Selected.BriefingState"
-                                           OnOpenTerminal="@(() => SetCenterTab("term"))"
-                                           OnQuickReply="QuickReplyAsync"
-                                           Replying="@_quickReplying" />
+                            @* The Wingman tab splits: brief on the left, the SESSION STORY as a
+                               FIXED right column - headline + tokens + turn cards stay on screen
+                               at all times while this tab is open (they never hide behind the
+                               shared right panel's tab flips). *@
+                            <div class="brief-split">
+                                <div class="brief-scroll">
+                                    <BriefPane @key="Selected.SessionId" SessionId="@Selected.SessionId"
+                                               DirectorBase="@Selected.TailnetEndpoint"
+                                               ActivityState="@Selected.ActivityState"
+                                               BriefingState="@Selected.BriefingState"
+                                               OnOpenTerminal="@(() => SetCenterTab("term"))"
+                                               OnQuickReply="QuickReplyAsync"
+                                               Replying="@_quickReplying" />
+                                </div>
+
+                                <aside class="story-col">
+                                    <div class="rightpanel-head">
+                                        <span class="rightpanel-title">SESSION STORY</span>
+                                        <button class="linkbtn" @onclick="GenerateRecap" disabled="@_recapBusy">@(_recapBusy ? "generating (~90s)..." : "Recap")</button>
+                                    </div>
+                                    <div class="story-body">
+                                        @if (!string.IsNullOrEmpty(_awareError))
+                                        {
+                                            <div class="gallery-error">@_awareError</div>
+                                        }
+
+                                        @* ---- HEADLINE: the session's newspaper front page (TurnBrief v2.2).
+                                           Re-judged by the wingman every turn, changed only when the story
+                                           changes - "since turn N" walks the stored briefs to the last change. ---- *@
+                                        @if (!string.IsNullOrEmpty(StoryHeadline))
+                                        {
+                                            <div class="story-headline">@StoryHeadline</div>
+                                            @if (HeadlineSinceTurn is int since)
+                                            {
+                                                <div class="story-since">headline since turn @since</div>
+                                            }
+                                        }
+                                        else if (_turnTimeline is { Count: > 0 })
+                                        {
+                                            @* Pre-v2.2 briefs carry no headline - fall back to the rolling intent. *@
+                                            <div class="story-headline story-headline-fallback">@_turnTimeline[0].Intent</div>
+                                        }
+
+                                        @* ---- TOKENS: session totals from the transcript's usage blocks ---- *@
+                                        @if (_usage is not null)
+                                        {
+                                            <div class="tl-label">TOKENS THIS SESSION</div>
+                                            <div class="story-tokens">
+                                                <span title="uncached input tokens (sum)">in @FmtTokens(_usage.InputTokens)</span>
+                                                <span title="output tokens (sum)">out @FmtTokens(_usage.OutputTokens)</span>
+                                                <span title="cache reads (sum)">cache @FmtTokens(_usage.CacheReadTokens)</span>
+                                                <span title="latest context size (input + cache)">ctx @FmtTokens(_usage.ContextTokens)</span>
+                                            </div>
+                                        }
+
+                                        @* ---- CHAPTERS: the things this session has worked on - one collapsed
+                                           card per chapter (wingman's explicit NewChapter signal, never a
+                                           string compare). Scanning beats reading: title only by default,
+                                           expand for the turn descriptions inside. ---- *@
+                                        <div class="tl-label">CHAPTERS</div>
+                                        @if (_turnTimeline is null)
+                                        {
+                                            <div class="aware-muted">Loading&hellip;</div>
+                                        }
+                                        else if (_turnTimeline.Count == 0)
+                                        {
+                                            <div class="aware-muted">No turn briefs yet (the wingman briefs each turn as it ends; old Directors need a relaunch).</div>
+                                        }
+                                        else
+                                        {
+                                            var chapters = Chapters;
+                                            @foreach (var (ch, ci) in chapters.Select((c, ci) => (c, ci)))
+                                            {
+                                                var open = _openChapters.Contains(ch.FirstTurn);
+                                                <div class="chap @(open ? "open" : "")">
+                                                    <button type="button" class="chap-row" @onclick="() => ToggleChapter(ch.FirstTurn)"
+                                                            title="@(open ? "Collapse" : "Show the turns in this chapter")">
+                                                        <span class="chap-caret">@(open ? "v" : ">")</span>
+                                                        <span class="chap-title">@ch.Title</span>
+                                                        @if (ci == 0)
+                                                        {
+                                                            <span class="chap-now">now</span>
+                                                        }
+                                                        <span class="chap-turns">@(ch.FirstTurn == ch.LastTurn ? $"t{ch.FirstTurn}" : $"t{ch.FirstTurn}-{ch.LastTurn}")</span>
+                                                    </button>
+                                                    @if (open)
+                                                    {
+                                                        <div class="chap-body">
+                                                            @foreach (var b in ch.Briefs)
+                                                            {
+                                                                var turnOpen = _openTurns.Contains(b.TurnNumber);
+                                                                <div class="chap-turn @(b.Degraded ? "degraded" : "")">
+                                                                    <button type="button" class="chap-turn-row" @onclick="() => ToggleTurn(b.TurnNumber)"
+                                                                            title="@(turnOpen ? "Collapse" : "Full turn description")">
+                                                                        <span class="tl-turn">@b.TurnNumber</span>
+                                                                        <span class="chap-turn-title">@(string.IsNullOrEmpty(b.TurnTitle) ? (b.Did.FirstOrDefault() ?? b.Intent) : b.TurnTitle)</span>
+                                                                        <span class="tl-time">@b.GeneratedAtUtc.ToLocalTime().ToString("HH:mm")</span>
+                                                                        @if (TurnTokens(b) is long tk)
+                                                                        {
+                                                                            <span class="tl-tokens" title="new tokens this turn">~@FmtTokens(tk)</span>
+                                                                        }
+                                                                    </button>
+                                                                    @if (b.NeedsYou is not null && !turnOpen)
+                                                                    {
+                                                                        <div class="tl-rail chap-rail">@b.NeedsYou.RailLine</div>
+                                                                    }
+                                                                    @if (turnOpen)
+                                                                    {
+                                                                        <div class="chap-turn-detail">
+                                                                            <div class="tl-intent">@b.Intent</div>
+                                                                            @if (b.NeedsYou is not null)
+                                                                            {
+                                                                                <div class="tl-rail">@b.NeedsYou.RailLine</div>
+                                                                            }
+                                                                            @if (b.Did.Count > 0)
+                                                                            {
+                                                                                <ul class="tl-did">
+                                                                                    @foreach (var d in b.Did)
+                                                                                    {
+                                                                                        <li>@d</li>
+                                                                                    }
+                                                                                </ul>
+                                                                            }
+                                                                            <div class="aware-meta">@b.Model</div>
+                                                                        </div>
+                                                                    }
+                                                                </div>
+                                                            }
+                                                        </div>
+                                                    }
+                                                </div>
+                                            }
+                                            @* ---- D7: "this brief is wrong" -> stored as a labeled example ---- *@
+                                            <div class="tl-feedback">
+                                                <input @bind="_briefFeedbackNote" placeholder="Latest brief wrong? Say why..." />
+                                                <button class="linkbtn" disabled="@(string.IsNullOrWhiteSpace(_briefFeedbackNote) || _briefFeedbackBusy)"
+                                                        @onclick="SendBriefFeedback">@(_briefFeedbackBusy ? "saving..." : "report")</button>
+                                            </div>
+                                            @if (!string.IsNullOrEmpty(_briefFeedbackStatus))
+                                            {
+                                                <div class="aware-muted">@_briefFeedbackStatus</div>
+                                            }
+                                        }
+
+                                        <div class="tl-label" style="margin-top:14px">RECAP</div>
+                                        @if (_recap is null)
+                                        {
+                                            <div class="aware-muted">No recap loaded.</div>
+                                        }
+                                        else if (_recap.Status == "ok" && !string.IsNullOrWhiteSpace(_recap.Recap))
+                                        {
+                                            <div class="aware-recap">@_recap.Recap</div>
+                                            <div class="aware-meta">@_recap.Model &middot; @(_recap.IsStale ? "stale (new turns since)" : "current") &middot; generated @(_recap.GeneratedAt?.ToLocalTime().ToString("HH:mm:ss"))</div>
+                                        }
+                                        else
+                                        {
+                                            <div class="aware-muted">@(_recap.Error ?? "No recap yet. Click Recap.")</div>
+                                        }
+                                    </div>
+                                </aside>
                             </div>
                         }
 
@@ -214,7 +366,9 @@
                         </div>
                     </div>
 
-                    @* ---- Right panel: tabbed (Screenshots / Wingman / Queue / Director), collapsible ---- *@
+                    @* ---- Right panel: tabbed (Screenshots / Queue / Director), collapsible.
+                       The Session Story is NOT here - it is a fixed column inside the Wingman
+                       center tab, so the title cards can never hide behind a tab flip. ---- *@
                     <aside class="rightpanel @(_rightCollapsed ? "rightpanel-collapsed" : "")">
                         @if (_rightCollapsed)
                         {
@@ -228,7 +382,6 @@
                         {
                             <div class="right-tabs">
                                 <button class="right-tab @(_rightTab == "shots" ? "on" : "")" @onclick='() => SetRightTab("shots")'>Screenshots</button>
-                                <button class="right-tab @(_rightTab == "wingman" ? "on" : "")" @onclick='() => SetRightTab("wingman")'>Wingman</button>
                                 <button class="right-tab @(_rightTab == "queue" ? "on" : "")" @onclick='() => SetRightTab("queue")'>Queue@(_queue.Count > 0 ? $" ({_queue.Count})" : "")</button>
                                 <button class="right-tab @(_rightTab == "director" ? "on" : "")" @onclick='() => SetRightTab("director")'>Director</button>
                                 <button class="right-collapse" title="Hide panel" @onclick="ToggleRight">&raquo;</button>
@@ -303,83 +456,6 @@
                                                     <button class="qbtn qdel" title="Remove" @onclick="() => RemoveQueued(q.Id)">&times;</button>
                                                 </div>
                                             }
-                                        }
-                                    </div>
-                                }
-                                @* ================= Wingman tab ================= *@
-                                else if (_rightTab == "wingman")
-                                {
-                                    <div class="rightpanel-head">
-                                        <span class="rightpanel-title">WINGMAN</span>
-                                        <button class="linkbtn" @onclick="GenerateRecap" disabled="@_recapBusy">@(_recapBusy ? "generating (~90s)..." : "Recap")</button>
-                                    </div>
-                                    <div class="wingman-tab">
-                                        @if (!string.IsNullOrEmpty(_awareError))
-                                        {
-                                            <div class="gallery-error">@_awareError</div>
-                                        }
-
-                                        @* ---- TURN TIMELINE: the session's story, from the TurnBriefStore ---- *@
-                                        <div class="tl-label">TURN TIMELINE</div>
-                                        @if (_turnTimeline is null)
-                                        {
-                                            <div class="aware-muted">Loading&hellip;</div>
-                                        }
-                                        else if (_turnTimeline.Count == 0)
-                                        {
-                                            <div class="aware-muted">No turn briefs yet (the wingman briefs each turn as it ends; old Directors need a relaunch).</div>
-                                        }
-                                        else
-                                        {
-                                            @foreach (var b in _turnTimeline)
-                                            {
-                                                <div class="tl-item @(b.Degraded ? "degraded" : "")">
-                                                    <div class="tl-head">
-                                                        <span class="tl-turn">turn @b.TurnNumber</span>
-                                                        <span class="tl-time">@b.GeneratedAtUtc.ToLocalTime().ToString("HH:mm")</span>
-                                                        <span class="tl-model">@b.Model</span>
-                                                    </div>
-                                                    <div class="tl-intent">@b.Intent</div>
-                                                    @if (b.NeedsYou is not null)
-                                                    {
-                                                        <div class="tl-rail">@b.NeedsYou.RailLine</div>
-                                                    }
-                                                    @if (b.Did.Count > 0)
-                                                    {
-                                                        <ul class="tl-did">
-                                                            @foreach (var d in b.Did.Take(3))
-                                                            {
-                                                                <li>@d</li>
-                                                            }
-                                                        </ul>
-                                                    }
-                                                </div>
-                                            }
-                                            @* ---- D7: "this brief is wrong" -> stored as a labeled example ---- *@
-                                            <div class="tl-feedback">
-                                                <input @bind="_briefFeedbackNote" placeholder="Latest brief wrong? Say why..." />
-                                                <button class="linkbtn" disabled="@(string.IsNullOrWhiteSpace(_briefFeedbackNote) || _briefFeedbackBusy)"
-                                                        @onclick="SendBriefFeedback">@(_briefFeedbackBusy ? "saving..." : "report")</button>
-                                            </div>
-                                            @if (!string.IsNullOrEmpty(_briefFeedbackStatus))
-                                            {
-                                                <div class="aware-muted">@_briefFeedbackStatus</div>
-                                            }
-                                        }
-
-                                        <div class="tl-label" style="margin-top:14px">RECAP</div>
-                                        @if (_recap is null)
-                                        {
-                                            <div class="aware-muted">No recap loaded.</div>
-                                        }
-                                        else if (_recap.Status == "ok" && !string.IsNullOrWhiteSpace(_recap.Recap))
-                                        {
-                                            <div class="aware-recap">@_recap.Recap</div>
-                                            <div class="aware-meta">@_recap.Model &middot; @(_recap.IsStale ? "stale (new turns since)" : "current") &middot; generated @(_recap.GeneratedAt?.ToLocalTime().ToString("HH:mm:ss"))</div>
-                                        }
-                                        else
-                                        {
-                                            <div class="aware-muted">@(_recap.Error ?? "No recap yet. Click Recap.")</div>
                                         }
                                     </div>
                                 }
@@ -793,10 +869,13 @@
     private readonly Dictionary<string, string> _centerTabBySession = new();
     private string CenterTab =>
         Selected is not null && _centerTabBySession.TryGetValue(Selected.SessionId, out var t) ? t : "brief";
-    private void SetCenterTab(string tab)
+    private async Task SetCenterTab(string tab)
     {
         if (Selected is null) return;
         _centerTabBySession[Selected.SessionId] = tab;
+        // Coming back to the Wingman tab re-shows the story column - make sure its data is
+        // there (cleared on session switch; cheap no-op when already loaded).
+        if (tab == "brief" && (_recap is null || _turnTimeline is null)) await LoadWingmanAsync();
     }
 
     // ----- needs-you conveyor: flip through red sessions in the rail's stable order -----
@@ -889,7 +968,9 @@
             // Pattern match narrows `mode` to non-null, so no null-forgiving operator is needed.
             if (mode is "tree" or "triage" && mode != _viewMode) { _viewMode = mode; changed = true; }
             if (rightCollapsed == "1" && !_rightCollapsed) { _rightCollapsed = true; changed = true; }
-            if (rightTab is "shots" or "wingman" or "queue" or "director" && rightTab != _rightTab) { _rightTab = rightTab; changed = true; }
+            // "wingman" is intentionally absent: the Session Story moved into the Wingman
+            // center tab, so a stale stored "wingman" pref falls back to the default.
+            if (rightTab is "shots" or "queue" or "director" && rightTab != _rightTab) { _rightTab = rightTab; changed = true; }
             if (changed) await InvokeAsync(StateHasChanged);
         }
         catch (Exception ex)
@@ -945,6 +1026,15 @@
             // load racing it could clobber a just-enqueued/removed item until the next tick.
             if (!_acting)
                 await LoadQueueAsync();
+
+            // Session story column: when the wingman finishes reading a turn (Briefing ->
+            // Briefed/Failed) while the Wingman center tab is showing, pull the fresh brief +
+            // usage so the headline and turn history never sit stale on screen.
+            var briefState = Selected?.BriefingState;
+            if (CenterTab == "brief"
+                && _lastSeenBriefingState == "Briefing" && briefState is "Briefed" or "Failed")
+                await LoadWingmanAsync();
+            _lastSeenBriefingState = briefState;
         }
         catch (OperationCanceledException)
         {
@@ -986,12 +1076,16 @@
         _shots = new();
         _shotsError = null;
         _turnTimeline = null;
+        _usage = null;
         _briefFeedbackStatus = null;
         _recap = null;
         _awareError = null;
         await LoadQueueAsync();
         // Load whatever the active right-panel tab needs for the newly-selected session.
         await LoadRightTabAsync();
+        // The Session Story column rides the Wingman center tab (the default), so its data
+        // loads on selection - not behind a right-panel tab flip.
+        if (CenterTab == "brief") await LoadWingmanAsync();
     }
 
     private string? DirBase => Selected?.TailnetEndpoint;
@@ -1244,23 +1338,22 @@
         await SavePref("cockpit.rightCollapsed", _rightCollapsed ? "1" : "0");
     }
 
-    // ===== Right panel tabs (Screenshots / Wingman / Queue / Director) =====
+    // ===== Right panel tabs (Screenshots / Queue / Director) =====
     private string _rightTab = "shots";
 
     private async Task SetRightTab(string tab)
     {
-        if (tab is not ("shots" or "wingman" or "queue" or "director")) return;
+        if (tab is not ("shots" or "queue" or "director")) return;
         _rightTab = tab;
         await SavePref("cockpit.rightTab", tab);
         await LoadRightTabAsync();
     }
 
     // Lazy-load the data the active tab needs. Queue is already polled; Director is static
-    // session data. Screenshots and Wingman fetch on demand and are cleared on session switch.
+    // session data. Screenshots fetch on demand and are cleared on session switch.
     private async Task LoadRightTabAsync()
     {
         if (_rightTab == "shots" && _shots.Count == 0) await LoadScreenshotsAsync();
-        else if (_rightTab == "wingman" && (_recap is null || _turnTimeline is null)) await LoadWingmanAsync();
     }
 
     // ===== Screenshots gallery =====
@@ -1353,7 +1446,7 @@
     private async Task<IJSObjectReference> ShotsModule()
         => _shotsJsModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/cockpit-shots.js");
 
-    // ===== Wingman tab: load recap (reuses the awareness state/methods) =====
+    // ===== Session Story column (Wingman center tab): headline + tokens + turn history + recap =====
     private async Task LoadWingmanAsync()
     {
         var sel = Selected; var dir = sel?.TailnetEndpoint;
@@ -1364,15 +1457,110 @@
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
             cts.CancelAfter(TimeSpan.FromSeconds(10));
             // The turn timeline (the session's story from the TurnBriefStore) loads first -
-            // it's the wingman tab's primary content; the cached recap rides along.
+            // it's the story column's primary content; the cached recap rides along.
             var briefs = await Director.GetTurnBriefsAsync(dir!, sel.SessionId, cts.Token);
             _turnTimeline = briefs?.Items ?? new List<TurnBriefDto>();
+            _usage = await Director.GetSessionUsageAsync(dir!, sel.SessionId, cts.Token);
             _recap = await Director.GetRecapAsync(dir!, sel.SessionId, cts.Token);
         }
         catch (OperationCanceledException) { }
         catch (Exception ex) { _awareError = ex.Message; Log.LogWarning(ex, "LoadWingman failed"); }
         await InvokeAsync(StateHasChanged);
     }
+
+    // ----- Session story: headline + token helpers -----
+    private SessionUsageDto? _usage;
+    private string? _lastSeenBriefingState;
+
+    /// The session's standing headline: the newest stored brief that carries one (stub and
+    /// pre-v2.2 briefs have an empty headline and are skipped).
+    private string? StoryHeadline
+        => _turnTimeline?.Select(b => b.Headline).FirstOrDefault(h => !string.IsNullOrWhiteSpace(h));
+
+    /// "since turn N": the current chapter's first turn.
+    private int? HeadlineSinceTurn => Chapters.FirstOrDefault()?.Briefs[^1].TurnNumber;
+
+    /// One chapter: a run of consecutive briefs covering ONE piece of work. Briefs are
+    /// newest-first inside, matching the timeline.
+    private sealed record Chapter(List<TurnBriefDto> Briefs)
+    {
+        /// The chapter title: the NEWEST title wording inside the chapter (the wingman may
+        /// refine wording as the work drifts), falling back to intent for pre-v2.2 briefs.
+        public string Title => Briefs.Select(b => b.Headline).FirstOrDefault(h => !string.IsNullOrWhiteSpace(h))
+                               ?? Briefs[0].Intent;
+        public int FirstTurn => Briefs[^1].TurnNumber;
+        public int LastTurn => Briefs[0].TurnNumber;
+    }
+
+    /// Group the timeline (newest first) into chapters. The boundary is the wingman's
+    /// EXPLICIT NewChapter flag (v2.3) - never a string comparison; a refined title is the
+    /// same chapter. Pre-v2.3 briefs (flag always false) fall back to title-change grouping
+    /// so old sessions still get a usable chapter list.
+    private List<Chapter> Chapters
+    {
+        get
+        {
+            var briefs = _turnTimeline;
+            if (briefs is null || briefs.Count == 0) return new();
+            var anyFlag = briefs.Any(b => b.NewChapter);
+            var chapters = new List<Chapter>();
+            var current = new List<TurnBriefDto>();
+            for (var i = 0; i < briefs.Count; i++) // newest -> oldest
+            {
+                var b = briefs[i];
+                current.Add(b);
+                // This brief STARTED a chapter -> close the group here (it is the group's
+                // oldest member). Legacy briefs (flag never set): a brief starts a chapter
+                // when the next-older titled brief carries a DIFFERENT title.
+                var breaks = anyFlag ? b.NewChapter : LegacyStartsChapter(briefs, i);
+                if (breaks)
+                {
+                    chapters.Add(new Chapter(current));
+                    current = new List<TurnBriefDto>();
+                }
+            }
+            if (current.Count > 0) chapters.Add(new Chapter(current));
+            return chapters;
+        }
+    }
+
+    private static bool LegacyStartsChapter(List<TurnBriefDto> briefs, int idx)
+    {
+        if (string.IsNullOrWhiteSpace(briefs[idx].Headline)) return false;
+        for (var i = idx + 1; i < briefs.Count; i++)
+            if (!string.IsNullOrWhiteSpace(briefs[i].Headline))
+                return briefs[i].Headline != briefs[idx].Headline;
+        return true; // oldest titled brief = the first chapter
+    }
+
+    // Expanded chapter cards (keyed by the chapter's first turn) and expanded turn rows
+    // (keyed by turn number). Collapsed by default: scanning beats reading.
+    private readonly HashSet<int> _openChapters = new();
+    private readonly HashSet<int> _openTurns = new();
+    private void ToggleChapter(int firstTurn)
+    {
+        if (!_openChapters.Remove(firstTurn)) _openChapters.Add(firstTurn);
+    }
+    private void ToggleTurn(int turnNumber)
+    {
+        if (!_openTurns.Remove(turnNumber)) _openTurns.Add(turnNumber);
+    }
+
+    /// New tokens for the turn a brief describes: the newest usage turn that ended at or
+    /// before the brief was generated (briefs generate right after turn end). Display-only
+    /// approximation; null hides the figure.
+    private long? TurnTokens(TurnBriefDto b)
+    {
+        var match = _usage?.Turns.LastOrDefault(t => t.EndedAtUtc <= b.GeneratedAtUtc);
+        return match?.NewTokens;
+    }
+
+    private static string FmtTokens(long n) => n switch
+    {
+        < 1_000 => n.ToString(),
+        < 1_000_000 => (n / 1_000.0).ToString("0.#") + "k",
+        _ => (n / 1_000_000.0).ToString("0.##") + "M",
+    };
 
     // ----- D7 brief feedback ("this brief is wrong" -> labeled example on the Director) -----
     private List<TurnBriefDto>? _turnTimeline;

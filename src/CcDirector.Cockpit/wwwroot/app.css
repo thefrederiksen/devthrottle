@@ -150,7 +150,15 @@ body{background:var(--panel);color:var(--text);
 .ny-count{color:#F14C4C;font-size:11.5px;font-weight:600;min-width:30px;text-align:center}
 
 /* the Brief: full-page session view (ASK / DID / NEEDS YOU) */
-.brief-scroll{flex:1;min-height:0;overflow-y:auto;background:var(--bg)}
+/* The Wingman center tab splits horizontally: brief left, the Session Story column right.
+   The story column is FIXED (always on screen with this tab) and scrolls independently. */
+.brief-split{flex:1;min-height:0;display:flex}
+.brief-scroll{flex:1;min-width:0;min-height:0;overflow-y:auto;background:var(--bg)}
+.story-col{flex:none;width:300px;min-height:0;display:flex;flex-direction:column;
+  border-left:1px solid var(--border);background:var(--sidebar);overflow:hidden}
+.story-body{flex:1;min-height:0;overflow-y:auto;padding:4px 14px 16px}
+/* Narrow viewports (phone): the brief wins; the story column yields. */
+@media (max-width: 1000px){ .story-col{display:none} }
 .brief{max-width:980px;margin:0 auto;padding:26px 40px 18px;font-size:14px;line-height:1.55}
 .brief .blabel{font-size:10px;font-weight:700;letter-spacing:.12em;color:var(--text3);margin-bottom:7px}
 .brief .blabel.red{color:#F14C4C}
@@ -210,7 +218,7 @@ body{background:var(--panel);color:var(--text);
 .brief-evidence{margin-top:8px;border-left:3px solid var(--border);background:var(--panel);
   color:var(--text2);padding:10px 14px;border-radius:0 5px 5px 0;font-size:13px;white-space:pre-wrap}
 
-/* wingman turn timeline (right panel) */
+/* wingman turn timeline (Session Story column) */
 .tl-label{font-size:10px;font-weight:700;letter-spacing:.12em;color:var(--text3);margin:4px 0 8px}
 .tl-item{border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:8px;background:var(--panel)}
 .tl-item.degraded{opacity:.65}
@@ -224,6 +232,41 @@ body{background:var(--panel);color:var(--text);
 .tl-feedback{display:flex;gap:6px;margin:6px 0 4px}
 .tl-feedback input{flex:1;background:var(--panel2,#23272f);border:1px solid var(--border);border-radius:4px;
   color:var(--text);font-size:11px;padding:6px 8px}
+
+/* Session story column (Wingman center tab): newspaper headline + tokens + turn cards */
+.story-headline{font-family:Georgia,"Times New Roman",serif;font-size:17px;font-weight:700;
+  color:var(--text);line-height:1.3;margin:2px 0 2px;border-bottom:2px solid var(--border);
+  padding-bottom:8px}
+/* Pre-v2.2 fallback shows the rolling intent, which can run long - clamp it to 2 lines. */
+.story-headline-fallback{font-style:italic;color:var(--text2);display:-webkit-box;
+  -webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.story-since{font-size:10px;color:var(--text3);letter-spacing:.05em;margin:4px 0 14px}
+.story-tokens{display:flex;flex-wrap:wrap;gap:6px 14px;font-family:"Cascadia Mono",Consolas,monospace;
+  font-size:11px;color:var(--text2);margin:0 0 16px}
+.story-tokens span{white-space:nowrap}
+.tl-title{font-size:12px;font-weight:700;color:var(--text);margin-bottom:2px}
+.tl-tokens{color:var(--text3)}
+
+/* CHAPTERS: one collapsed card per piece of work; expand for the turns inside */
+.chap{border:1px solid var(--border);border-radius:6px;margin-bottom:6px;background:var(--panel);overflow:hidden}
+.chap-row{display:flex;align-items:baseline;gap:7px;width:100%;text-align:left;background:none;border:none;
+  cursor:pointer;padding:8px 10px;color:var(--text)}
+.chap-row:hover{background:var(--button)}
+.chap-caret{flex:none;font-family:"Cascadia Mono",Consolas,monospace;font-size:10px;color:var(--text3);width:10px}
+.chap-title{flex:1;font-size:12.5px;font-weight:700;line-height:1.35}
+.chap-now{flex:none;font-size:9px;font-weight:700;letter-spacing:.06em;color:#22C55E;border:1px solid #22C55E;
+  border-radius:3px;padding:1px 5px;text-transform:uppercase}
+.chap-turns{flex:none;font-size:10px;color:var(--text3);font-family:"Cascadia Mono",Consolas,monospace}
+.chap-body{border-top:1px solid var(--border);padding:4px 10px 8px}
+.chap-turn{margin-top:4px}
+.chap-turn.degraded{opacity:.65}
+.chap-turn-row{display:flex;align-items:baseline;gap:8px;width:100%;text-align:left;background:none;border:none;
+  cursor:pointer;padding:3px 0;color:var(--text2)}
+.chap-turn-row:hover{color:var(--text)}
+.chap-turn-title{flex:1;font-size:11.5px;line-height:1.35;overflow:hidden;text-overflow:ellipsis;
+  display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical}
+.chap-rail{margin:0 0 2px 24px}
+.chap-turn-detail{margin:2px 0 6px 24px;padding:6px 8px;border-left:2px solid var(--border)}
 .briefing-chip{background:#F59E0B;color:#241a02;font-size:10px;font-weight:700;border-radius:3px;
   padding:3px 8px;margin-left:8px;letter-spacing:.04em}
 
@@ -248,7 +291,7 @@ body{background:var(--panel);color:var(--text);
 .detail-split{flex:1;min-height:0;display:flex}
 .center{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column}
 
-/* right panel (desktop parity): tabbed Screenshots / Wingman / Queue / Director, collapsible.
+/* right panel (desktop parity): tabbed Screenshots / Queue / Director, collapsible.
    Fixed tab strip up top, the active tab's body scrolls below it. */
 .rightpanel{flex:none;width:300px;border-left:1px solid var(--border);background:var(--sidebar);
   display:flex;flex-direction:column;min-height:0;overflow:hidden}
@@ -289,8 +332,7 @@ body{background:var(--panel);color:var(--text);
 .shot-row{display:flex;align-items:center;gap:6px;padding:5px 8px}
 .shot-time{flex:1;font-size:11px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
-/* wingman + director tabs */
-.wingman-tab{padding:4px 14px 16px}
+/* director tab */
 .dir-info{margin:0;padding:8px 14px 16px;display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:12px}
 .dir-info dt{color:var(--text3)}
 .dir-info dd{margin:0;color:var(--text);word-break:break-all}

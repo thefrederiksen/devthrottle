@@ -1,0 +1,14 @@
+{
+  "Id": "cd779e66-be88-4d68-9708-b2bdedfc36f6",
+  "CustomName": "cc_director - paste text",
+  "CustomColor": null,
+  "RepoPath": "D:\\ReposFred\\cc_director",
+  "ClaudeSessionId": "f7ef1a78-0250-445c-9ea2-7fdf40559574",
+  "CreatedAt": "2026-02-22T13:21:20.0149193+00:00",
+  "LastUsedAt": "2026-02-22T13:39:58.224234+00:00",
+  "FirstPromptSnippet": null,
+  "TurnSummaries": [
+    "Entered plan mode to design strategy for handling large text input to terminal. Explored codebase to understand text handling mechanisms and identified two approaches: throttle character sending or...",
+    "I need more context to summarize turn #2. Could you provide:\n\n1. What was actually discussed or investigated in turn #2?\n2. What Claude code documentation was looked up?\n3. What findings or results..."
+  ]
+}

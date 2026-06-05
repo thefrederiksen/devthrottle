@@ -19,7 +19,7 @@ public sealed class BundleRefreshGateTests : IDisposable
     {
         _dir = Path.Combine(Path.GetTempPath(), "cc-bundlegate-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_dir);
-        _layout = new InstallLayout(Path.Combine(_dir, "local"), Path.Combine(_dir, "pf"), Path.Combine(_dir, "pd"));
+        _layout = new InstallLayout(Path.Combine(_dir, "local"));
     }
 
     public void Dispose()

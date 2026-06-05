@@ -10,6 +10,7 @@ using CcDirector.Core.Agents;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Claude;
 using CcDirector.Core.Configuration;
+using CcDirector.Core.Drivers;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Storage;
 using CcDirector.Core.Utilities;
@@ -364,6 +365,12 @@ public partial class NewSessionDialog : Window
         }
     }
 
+    /// <summary>"Verified driver = shipped": an agent shows outside alpha only when its
+    /// driver is a real, live-verified implementation rather than the GenericDriver
+    /// placeholder for unverified CLIs.</summary>
+    private static bool HasVerifiedDriver(AgentKind kind) =>
+        AgentDrivers.For(kind) is not GenericDriver;
+
     public NewSessionDialog(RepositoryRegistry? registry = null, SessionHistoryStore? historyStore = null)
     {
         FileLog.Write("[NewSessionDialog] Constructor: initializing");
@@ -371,15 +378,25 @@ public partial class NewSessionDialog : Window
         _registry = registry;
         _historyStore = historyStore;
 
-        // Alpha gating: non-Claude agents, Handovers, GitHub remote sessions and the
-        // Assistant/Coach quick-launch cards are alpha features - hidden by default.
-        // The dialog is created fresh each time, so reading the flag once here is enough.
+        // Alpha gating: Handovers, GitHub remote sessions and the Assistant/Coach
+        // quick-launch cards are alpha features - hidden by default. The dialog is
+        // created fresh each time, so reading the flag once here is enough.
+        //
+        // The AGENT PICKER itself is NOT gated (2026-06-05): the Director is a wrapper
+        // around agent CLIs it did not build. Per AGENT the rule is "verified driver =
+        // shipped": an agent leaves alpha when it has a real, live-verified driver
+        // (ClaudeDriver, PiDriver - docs/plans/agent-driver.md). Agents still on
+        // GenericDriver are unverified and stay alpha-only; the day someone writes and
+        // verifies their driver, they graduate automatically.
         var alpha = AlphaMode.IsEnabled;
-        AgentPickerPanel.IsVisible = alpha;
+        AgentPickerPanel.IsVisible = true;
+        AgentRadioCodex.IsVisible = alpha || HasVerifiedDriver(AgentKind.Codex);
+        AgentRadioGemini.IsVisible = alpha || HasVerifiedDriver(AgentKind.Gemini);
+        AgentRadioOpenCode.IsVisible = alpha || HasVerifiedDriver(AgentKind.OpenCode);
         HandoversTab.IsVisible = alpha;
         GitHubTab.IsVisible = alpha;
         QuickLaunchPanel.IsVisible = alpha;
-        FileLog.Write($"[NewSessionDialog] Constructor: alphaFeatures={alpha}");
+        FileLog.Write($"[NewSessionDialog] Constructor: alphaFeatures={alpha}, agentPicker=always-on (verified drivers: Claude, Pi)");
 
         // Set dialog size to 80% of primary screen
         var screen = Screens.Primary;

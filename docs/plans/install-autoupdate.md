@@ -7,6 +7,11 @@ Scope: Windows only. macOS stays manual-install and cannot host the Gateway.
 > `docs/install/INSTALLATION.md`. Where this plan's older path examples (e.g.
 > `C:\cc-tools`, `app\`) differ, the master spec wins.
 
+> SUPERSEDED IN PART (2026-06-05): the Gateway is no longer a Windows service
+> (`cc-gateway-service` is retired). It ships as a per-user TRAY app under
+> `%LOCALAPPDATA%\cc-director\gateway`, started at logon - no elevation anywhere
+> in the lifecycle. See docs/plans/gateway-tray-app.md (v2).
+
 This document records the decisions Soren and I agreed and turns them into a
 concrete, phased implementation plan grounded in the code that exists today.
 

@@ -271,17 +271,9 @@ public sealed class SessionsAggregationTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
     }
 
-    // ---------- /api page ----------
-
-    [Fact]
-    public async Task Api_reference_page_serves_html()
-    {
-        var resp = await _http.GetAsync("/api");
-        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
-        var body = await resp.Content.ReadAsStringAsync();
-        Assert.Contains("Gateway API reference", body);
-        Assert.Contains("/sessions", body);
-    }
+    // The /api reference page was removed with every other Gateway-served UI page
+    // (docs/plans/one-url-cockpit.md): unmatched paths fall through the Cockpit proxy,
+    // covered by GatewayDirectoryRegistrationTests.Root_falls_through_to_the_cockpit_proxy.
 
     // ---------- helpers ----------
 

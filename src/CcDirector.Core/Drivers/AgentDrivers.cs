@@ -1,0 +1,23 @@
+using System.Collections.Concurrent;
+using CcDirector.Core.Agents;
+
+namespace CcDirector.Core.Drivers;
+
+/// <summary>
+/// The driver registry: one shared driver instance per CLI kind. Drivers are
+/// stateless behavior bundles, so singletons are safe. Kinds without a written-and-
+/// live-verified driver get a <see cref="GenericDriver"/> (today's exact keystrokes,
+/// minimal declared capabilities) - consumers read <see cref="IAgentDriver.Capabilities"/>
+/// to know what is actually available for a given session.
+/// </summary>
+public static class AgentDrivers
+{
+    private static readonly ConcurrentDictionary<AgentKind, IAgentDriver> Cache = new();
+
+    public static IAgentDriver For(AgentKind kind) => Cache.GetOrAdd(kind, k => k switch
+    {
+        AgentKind.ClaudeCode => new ClaudeDriver(),
+        AgentKind.Pi => new PiDriver(),
+        _ => new GenericDriver(k),
+    });
+}

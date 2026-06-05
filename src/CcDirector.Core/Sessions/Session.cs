@@ -1163,13 +1163,25 @@ public sealed class Session : IDisposable
         return false;
     }
 
-    /// <summary>Send text + Enter to the backend.</summary>
+    /// <summary>
+    /// Send text + Enter via the session's agent driver. For Claude this is the
+    /// ECHO-VERIFIED submit (type, verify the composer echo, then Enter - the fix for
+    /// the composer race where a stray "/" turned prompts into bogus slash commands);
+    /// unverified CLIs keep the pre-driver blind submit, byte for byte.
+    /// </summary>
     public async Task SendTextAsync(string text)
     {
         if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return;
 
-        FileLog.Write($"[Session] SendTextAsync: session={Id}, text=\"{(text.Length > 60 ? text[..60] + "..." : text)}\", len={text.Length}");
-        await _backend.SendTextAsync(text);
+        FileLog.Write($"[Session] SendTextAsync: session={Id}, driver={Driver.Kind}, text=\"{(text.Length > 60 ? text[..60] + "..." : text)}\", len={text.Length}");
+        // The driver's submit protocol targets the interactive TUI in a pseudoterminal
+        // (it reads the composer ECHO from the terminal byte stream). Non-PTY
+        // transports (Pipe/Studio's stream-json, Embedded, GitHub remote) have no TUI
+        // echo and own their submit semantics - they keep their backend path.
+        if (BackendType is SessionBackendType.ConPty)
+            await Driver.SubmitAsync(_backend, text);
+        else
+            await _backend.SendTextAsync(text);
         IsBrandNew = false;
         SetActivityState(ActivityState.Working);
     }
@@ -1187,6 +1199,89 @@ public sealed class Session : IDisposable
     {
         if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return;
         await _backend.SendEnterAsync();
+    }
+
+    // ===== Agent driver verbs =====
+    // The per-CLI interaction protocol (docs/plans/agent-driver.md): tool-specific
+    // keystrokes live in one driver class per CLI, resolved from this session's
+    // AgentKind. Claude gets ClaudeDriver, pi gets PiDriver, unverified tools get
+    // GenericDriver (the pre-driver bytes, minimal declared capabilities). UIs and
+    // endpoints read Driver.Capabilities to know which verbs this session supports.
+
+    /// <summary>The interaction driver for this session's CLI. Stateless singleton.</summary>
+    public Drivers.IAgentDriver Driver => Drivers.AgentDrivers.For(AgentKind);
+
+    /// <summary>Soft-stop the current turn (Esc for Claude and pi).</summary>
+    public async Task CancelTurnAsync()
+    {
+        if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return;
+        FileLog.Write($"[Session] CancelTurnAsync: session={Id}, driver={Driver.Kind}");
+        await Driver.CancelAsync(_backend);
+    }
+
+    /// <summary>Hard interrupt (Ctrl+C where the tool supports it; pi does NOT -
+    /// its driver throws because Ctrl+C twice quits pi).</summary>
+    public async Task InterruptAsync()
+    {
+        if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return;
+        FileLog.Write($"[Session] InterruptAsync: session={Id}, driver={Driver.Kind}");
+        await Driver.InterruptAsync(_backend);
+    }
+
+    /// <summary>Open the tool's in-terminal history picker (Claude's double-Esc).</summary>
+    public async Task ShowHistoryAsync()
+    {
+        if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return;
+        FileLog.Write($"[Session] ShowHistoryAsync: session={Id}, driver={Driver.Kind}");
+        await Driver.ShowHistoryAsync(_backend);
+    }
+
+    /// <summary>
+    /// Reset the conversation context in place via the driver (/clear for Claude,
+    /// /new for pi). For drivers with transcript access this also DISCOVERS the new
+    /// agent-internal session id (the post-/clear transcript file) - the caller must
+    /// then re-link via SessionManager.RelinkClaudeSession so the manager's id map and
+    /// metadata follow; this closes the stale-relink gap found in the issue #172 spike.
+    /// Returns the new id, or null when the tool has no readable transcripts.
+    /// </summary>
+    public async Task<string?> ClearContextAsync(CancellationToken ct = default)
+    {
+        if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed)
+            throw new InvalidOperationException($"ClearContextAsync: session {Id} is not running (status={Status})");
+        var driver = Driver;
+        if (!driver.Capabilities.HasFlag(Drivers.DriverCapabilities.ClearContext))
+            throw new NotSupportedException($"ClearContextAsync: the {driver.Kind} driver declares no context clear.");
+
+        var oldId = ClaudeSessionId;
+        FileLog.Write($"[Session] ClearContextAsync: session={Id}, driver={driver.Kind}, oldAgentSessionId={oldId ?? "(none)"}");
+        var t0 = DateTime.UtcNow;
+        await driver.ClearContextAsync(_backend);
+
+        if (!driver.Capabilities.HasFlag(Drivers.DriverCapabilities.TranscriptRead) || oldId is null)
+        {
+            FileLog.Write($"[Session] ClearContextAsync: no transcript tracking for {driver.Kind}, clear submitted");
+            return null;
+        }
+
+        // The post-clear transcript is the file that is both new (id differs) and
+        // recent; old transcripts in the same working directory must not match.
+        var deadline = t0.AddSeconds(60);
+        while (DateTime.UtcNow < deadline)
+        {
+            ct.ThrowIfCancellationRequested();
+            var candidate = driver.ListTranscripts(WorkingDirectory)
+                .FirstOrDefault(s => !string.IsNullOrEmpty(s.AgentSessionId)
+                                     && s.AgentSessionId != oldId
+                                     && s.LastWriteUtc >= t0.AddSeconds(-10));
+            if (!string.IsNullOrEmpty(candidate.AgentSessionId))
+            {
+                FileLog.Write($"[Session] ClearContextAsync: new transcript {candidate.AgentSessionId} after {(DateTime.UtcNow - t0).TotalSeconds:F1}s");
+                return candidate.AgentSessionId;
+            }
+            await Task.Delay(250, ct);
+        }
+        throw new InvalidOperationException(
+            $"ClearContextAsync: no new transcript appeared within 60s (session={Id}, oldId={oldId})");
     }
 
     private void SetActivityState(ActivityState newState)

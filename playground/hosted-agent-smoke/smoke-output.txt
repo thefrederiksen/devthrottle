@@ -1,0 +1,12 @@
+[smoke] host process pid=28012
+[smoke] starting brain A and brain B in parallel...
+[smoke] both ready in 2.5s
+[smoke] brain A: claude pid=100260, session=5af2710b-9895-4b3f-aa48-bfe5d9b2b3fe
+[smoke] brain B: claude pid=77764, session=5fdc694e-3d71-4785-967b-b4670292830f
+[smoke] asking both in parallel...
+Error: Input must be provided either through stdin or as a prompt argument when using --print
+Error: Input must be provided either through stdin or as a prompt argument when using --print
+Unhandled exception. CcDirector.AgentBrain.AgentBrainException: AskAsync: the hosted agent exited mid-turn (status=Exited (1)). RestartAsync to recover.
+   at CcDirector.HostedAgent.HostedAgent.AskAsync(String prompt, CancellationToken ct) in D:\ReposFred\cc-director\src\CcDirector.HostedAgent\HostedAgent.cs:line 148
+   at Program.<Main>$(String[] args) in D:\ReposFred\cc-director\playground\hosted-agent-smoke\Program.cs:line 36
+   at Program.<Main>(String[] args)

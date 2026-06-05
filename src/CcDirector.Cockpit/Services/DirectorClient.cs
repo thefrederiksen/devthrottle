@@ -300,6 +300,17 @@ public sealed class DirectorClient
         return await resp.Content.ReadFromJsonAsync<TurnBriefsResponse>(cancellationToken: ct);
     }
 
+    /// <summary>The session's token usage (<c>GET /sessions/{sid}/usage</c>): totals, current
+    /// context size, per-turn deltas - computed Director-side from the transcript JSONL. Null
+    /// on 404 (old Director, or no transcript yet); the panel hides the tokens block.</summary>
+    public async Task<SessionUsageDto?> GetSessionUsageAsync(string directorBase, string sid, CancellationToken ct = default)
+    {
+        var resp = await _http.GetAsync(Url(directorBase, $"sessions/{sid}/usage"), ct);
+        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound) return null;
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadFromJsonAsync<SessionUsageDto>(cancellationToken: ct);
+    }
+
     /// <summary>"This brief is wrong" (D7) - stores the report as a labeled example.</summary>
     public async Task PostBriefFeedbackAsync(string directorBase, string sid, int turnNumber, string note, CancellationToken ct = default)
     {

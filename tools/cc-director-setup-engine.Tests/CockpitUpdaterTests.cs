@@ -16,7 +16,7 @@ public class CockpitUpdaterTests : IDisposable
         _dir = Path.Combine(Path.GetTempPath(), "cc-ckupd-" + Guid.NewGuid().ToString("N"));
         _releaseDir = Path.Combine(_dir, "release");
         Directory.CreateDirectory(_releaseDir);
-        _layout = new InstallLayout(Path.Combine(_dir, "local"), Path.Combine(_dir, "pf"), Path.Combine(_dir, "pd"));
+        _layout = new InstallLayout(Path.Combine(_dir, "local"));
     }
 
     public void Dispose()

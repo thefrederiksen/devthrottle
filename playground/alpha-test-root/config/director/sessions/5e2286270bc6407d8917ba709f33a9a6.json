@@ -1,0 +1,23 @@
+{
+  "Id": "5e228627-0bc6-407d-8917-ba709f33a9a6",
+  "CustomName": "cc_director - Teams",
+  "CustomColor": null,
+  "RepoPath": "D:\\ReposFred\\cc_director",
+  "ClaudeSessionId": "e3a05e10-710e-40ca-b326-0b1ff162d31d",
+  "CreatedAt": "2026-02-21T18:06:57.7425732+00:00",
+  "LastUsedAt": "2026-02-21T18:26:45.4399323+00:00",
+  "FirstPromptSnippet": null,
+  "TurnSummaries": [
+    "I need to see what was actually done in this session. Could you provide more context about what coding work was completed? The text you\u0027ve shared appears to be the beginning of a PRD document, but ...",
+    "I need to see the actual conversation to summarize it. Could you provide the coding session turn #2 content, or let me know what was implemented and discussed?",
+    "Asked: A, just me personally",
+    "Asked: dev tunnels is fine for now",
+    "Asked: C, smart notifications",
+    "Asked: screenshot and text would be great",
+    "Asked: a",
+    "Asked: a",
+    "Asked: b, don\u0027t know my teams id",
+    "Asked: b",
+    "User clarified that they weren\u0027t sure what the /sum command does and thought it was for summarizing the current thread conversation."
+  ]
+}

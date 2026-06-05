@@ -1,0 +1,50 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="CcDirector.Avalonia.Controls.SessionActionBar">
+
+  <!-- Per-session action buttons rendered from the agent DRIVER's declared
+       capabilities (Session.Driver.Capabilities): a verb the session's CLI lacks is
+       simply absent - no per-agent special cases here. Lives inside the prompt bar,
+       so it inherits its visibility (only shown for an active session). -->
+  <StackPanel x:Name="ButtonRow" Orientation="Horizontal" Spacing="6">
+    <Button x:Name="BtnStopTurn"
+            Content="Stop"
+            Click="BtnStopTurn_Click"
+            IsVisible="False"
+            Height="24" Padding="10,2" FontSize="11" FontWeight="SemiBold"
+            Background="#7A2D2D" Foreground="White" BorderThickness="0" CornerRadius="3"
+            Cursor="Hand"
+            ToolTip.Tip="Stop the current turn (the driver's soft cancel - Esc for Claude and pi)" />
+    <Button x:Name="BtnInterrupt"
+            Content="Interrupt"
+            Click="BtnInterrupt_Click"
+            IsVisible="False"
+            Height="24" Padding="10,2" FontSize="11"
+            Background="{DynamicResource ButtonBackground}" Foreground="{DynamicResource TextForeground}"
+            BorderThickness="0" CornerRadius="3"
+            Cursor="Hand"
+            ToolTip.Tip="Hard interrupt (Ctrl+C) - stronger than Stop" />
+    <Button x:Name="BtnClearContext"
+            Content="Clear context"
+            Click="BtnClearContext_Click"
+            IsVisible="False"
+            Height="24" Padding="10,2" FontSize="11"
+            Background="{DynamicResource ButtonBackground}" Foreground="{DynamicResource TextForeground}"
+            BorderThickness="0" CornerRadius="3"
+            Cursor="Hand"
+            ToolTip.Tip="Reset the conversation in place (/clear for Claude, /new for pi) - the process keeps running" />
+    <Button x:Name="BtnHistory"
+            Content="History"
+            Click="BtnHistory_Click"
+            IsVisible="False"
+            Height="24" Padding="10,2" FontSize="11"
+            Background="{DynamicResource ButtonBackground}" Foreground="{DynamicResource TextForeground}"
+            BorderThickness="0" CornerRadius="3"
+            Cursor="Hand"
+            ToolTip.Tip="Open the in-terminal history picker (Claude's double-Esc)" />
+    <TextBlock x:Name="ActionStatus"
+               Text=""
+               Foreground="#888888" FontSize="11"
+               VerticalAlignment="Center" Margin="4,0,0,0" />
+  </StackPanel>
+</UserControl>

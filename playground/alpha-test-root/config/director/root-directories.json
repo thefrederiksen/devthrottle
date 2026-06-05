@@ -1,0 +1,16 @@
+[
+  {
+    "Label": "TheFrederiksen",
+    "Path": "D:\\ReposFred",
+    "Provider": "GitHub",
+    "AzureOrg": null,
+    "AzureProject": null
+  },
+  {
+    "Label": "mindzieStudio1",
+    "Path": "C:\\ReposMindzie",
+    "Provider": "AzureDevOps",
+    "AzureOrg": "https://dev.azure.com/",
+    "AzureProject": "mindzieStudio1"
+  }
+]

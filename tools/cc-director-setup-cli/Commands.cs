@@ -131,8 +131,8 @@ internal static class Commands
         var role = Role(args);
         var isGatewayInstall = installMode && role == InstallRole.Gateway && !args.HasFlag("dry-run");
 
-        // Gateway installs write %ProgramFiles% and register a Windows service: require elevation
-        // and the key the Gateway needs, and fail loudly (no silent degrade) before doing any work.
+        // Gateway installs are per-user (tray app, %LOCALAPPDATA%) - NO elevation. Still verify the
+        // key the Gateway needs, and fail loudly (no silent degrade) before doing any work.
         if (isGatewayInstall)
         {
             var preflight = GatewayPreflight();
@@ -180,25 +180,25 @@ internal static class Commands
             return Ok;
         }
 
-        // The generic runner places the Gateway exe but skips the Cockpit .zip and never registers the
-        // service. On a Gateway install, finish the machine-scoped work here (extract Cockpit, register
-        // + start cc-gateway-service, wait for health).
+        // The generic runner places the Gateway exe but skips the Cockpit .zip and never starts the
+        // tray app. On a Gateway install, finish the work here (extract Cockpit, start the tray app
+        // in managed mode, wait for health; the app registers its own autostart Run key).
         if (isGatewayInstall && result.Failed == 0 && OperatingSystem.IsWindows())
         {
             var key = OpenAiKey()
                 ?? throw new InvalidOperationException("OPENAI_API_KEY missing after Gateway pre-flight passed.");
-            var installer = new GatewayServiceInstaller(layout);
-            var svc = await installer.InstallAsync(release, source, key);
+            var installer = new GatewayTrayInstaller(layout);
+            var tray = await installer.InstallAsync(release, source, key);
             if (json)
-                Program.WriteJson(new { gatewayService = new { success = svc.Success, message = svc.Message, steps = svc.Steps } });
+                Program.WriteJson(new { gatewayTray = new { success = tray.Success, message = tray.Message, steps = tray.Steps } });
             else
             {
                 Console.WriteLine();
-                Console.WriteLine(svc.Success ? "Gateway service:" : "Gateway service FAILED:");
-                foreach (var s in svc.Steps) Console.WriteLine($"  {s}");
-                Console.WriteLine($"  {svc.Message}");
+                Console.WriteLine(tray.Success ? "Gateway tray app:" : "Gateway tray app FAILED:");
+                foreach (var s in tray.Steps) Console.WriteLine($"  {s}");
+                Console.WriteLine($"  {tray.Message}");
             }
-            if (!svc.Success) return Error;
+            if (!tray.Success) return Error;
         }
 
         // Per-user Python tools bundle (the shared venv with every cc-* tool). Only on a per-user
@@ -248,11 +248,8 @@ internal static class Commands
     {
         if (!OperatingSystem.IsWindows())
             return "ERROR: The Gateway role is Windows-only.";
-        if (!GatewayServiceInstaller.IsElevated())
-            return "ERROR: A Gateway install must run elevated (it writes %ProgramFiles% and registers a Windows service).\n" +
-                   "       Re-run this command from an Administrator console.";
         if (string.IsNullOrWhiteSpace(OpenAiKey()))
-            return "ERROR: OPENAI_API_KEY is not set in your environment; the Gateway service needs it to start.\n" +
+            return "ERROR: OPENAI_API_KEY is not set in your environment; the Gateway needs it to start.\n" +
                    "       Set it (User scope) and re-run, e.g.:\n" +
                    "         setx OPENAI_API_KEY \"sk-...\"";
         return null;
@@ -320,15 +317,7 @@ internal static class Commands
             return Ok;
         }
 
-        // Removing the Gateway service + %ProgramFiles% needs admin; fail loudly rather than half-uninstall.
-        if (role == InstallRole.Gateway && OperatingSystem.IsWindows() && !GatewayServiceInstaller.IsElevated())
-        {
-            const string msg = "ERROR: Uninstalling the Gateway must run elevated (it removes a Windows service and %ProgramFiles%).\n" +
-                               "       Re-run this command from an Administrator console.";
-            if (json) Program.WriteJson(new { failed = msg }); else Console.Error.WriteLine(msg);
-            return Error;
-        }
-
+        // The Gateway is a per-user tray app under %LOCALAPPDATA%: uninstall needs no elevation.
         var report = uninstaller.Apply(role);
         if (json)
         {

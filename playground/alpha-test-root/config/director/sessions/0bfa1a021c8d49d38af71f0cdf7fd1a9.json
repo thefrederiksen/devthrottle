@@ -1,0 +1,20 @@
+{
+  "Id": "0bfa1a02-1c8d-49d3-8af7-1f0cdf7fd1a9",
+  "CustomName": null,
+  "CustomColor": null,
+  "RepoPath": "D:\\ReposFred\\cc_computer",
+  "ClaudeSessionId": "8916458c-0e9d-460b-aec5-e39ac1bf699b",
+  "CreatedAt": "2026-02-21T13:37:34.7599221+00:00",
+  "LastUsedAt": "2026-02-21T18:21:05.7367484+00:00",
+  "FirstPromptSnippet": null,
+  "TurnSummaries": [
+    "Explored codebase to understand session creation flow and identified need to create custom dialog for new sessions that captures name, color, and dangerous mode permissions checkbox instead of usin...",
+    "Asked: what is this about - summarize",
+    "Created GitHub issue for cc_director new session feature and deleted temporary markdown file used for the dialog.",
+    "Asked: I also want to add another issue to same repos:",
+    "Created GitHub issue for template prompt feature allowing /# command injection in text fields to quickly use predefined sayings.",
+    "Added GitHub issue to display turn count in left panel for each session during coding.",
+    "",
+    "Created GitHub issue requesting improved terminal scroll functionality in Claude Code app while it\u0027s processing tasks."
+  ]
+}

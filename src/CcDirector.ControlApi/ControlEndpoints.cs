@@ -1534,7 +1534,10 @@ internal static class ControlEndpoints
             return Results.Json(new { items = ProjectQueue(session) });
         });
 
-        app.MapPost("/sessions/{sid}/interrupt", (string sid) =>
+        // Hard interrupt via the session's agent driver (Ctrl+C for Claude). Drivers
+        // own the per-CLI keystrokes now: pi for example has NO safe hard interrupt
+        // (Ctrl+C twice quits it) and its driver refuses with 409.
+        app.MapPost("/sessions/{sid}/interrupt", async (string sid) =>
         {
             FileLog.Write($"[ControlEndpoints] POST interrupt: sid={sid}");
 
@@ -1545,13 +1548,20 @@ internal static class ControlEndpoints
             if (session is null)
                 return Results.NotFound(new { error = "session not found" });
 
-            session.SendInput(new byte[] { 0x03 });
+            try
+            {
+                await session.InterruptAsync();
+            }
+            catch (NotSupportedException ex)
+            {
+                return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status409Conflict);
+            }
             return Results.Json(new { accepted = true });
         });
 
-        // Send a single Escape (0x1b) to the PTY. In Claude Code this interrupts the
-        // current turn (the soft stop), distinct from /interrupt's Ctrl+C (0x03).
-        app.MapPost("/sessions/{sid}/escape", (string sid) =>
+        // Soft-stop the current turn via the session's agent driver (Esc for Claude
+        // AND pi - but the driver owns that knowledge, not this endpoint).
+        app.MapPost("/sessions/{sid}/escape", async (string sid) =>
         {
             FileLog.Write($"[ControlEndpoints] POST escape: sid={sid}");
 
@@ -1562,8 +1572,70 @@ internal static class ControlEndpoints
             if (session is null)
                 return Results.NotFound(new { error = "session not found" });
 
-            session.SendInput(new byte[] { 0x1b });
+            try
+            {
+                await session.CancelTurnAsync();
+            }
+            catch (NotSupportedException ex)
+            {
+                return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status409Conflict);
+            }
             return Results.Json(new { accepted = true });
+        });
+
+        // Open the tool's in-terminal history picker (Claude's double-Esc). A
+        // visible-terminal feature: the desktop/Cockpit terminal must be on screen.
+        app.MapPost("/sessions/{sid}/history-picker", async (string sid) =>
+        {
+            FileLog.Write($"[ControlEndpoints] POST history-picker: sid={sid}");
+
+            if (!Guid.TryParse(sid, out var guid))
+                return Results.BadRequest(new { error = "invalid session id format" });
+
+            var session = sessionManager.GetSession(guid);
+            if (session is null)
+                return Results.NotFound(new { error = "session not found" });
+
+            try
+            {
+                await session.ShowHistoryAsync();
+            }
+            catch (NotSupportedException ex)
+            {
+                return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status409Conflict);
+            }
+            return Results.Json(new { accepted = true });
+        });
+
+        // Reset the conversation context in place (/clear for Claude, /new for pi) and,
+        // for transcript-capable drivers, re-link the Director to the NEW agent session
+        // id - closing the stale-relink gap after /clear (issue #172 spike finding).
+        app.MapPost("/sessions/{sid}/clear-context", async (string sid, CancellationToken ct) =>
+        {
+            FileLog.Write($"[ControlEndpoints] POST clear-context: sid={sid}");
+
+            if (!Guid.TryParse(sid, out var guid))
+                return Results.BadRequest(new { error = "invalid session id format" });
+
+            var session = sessionManager.GetSession(guid);
+            if (session is null)
+                return Results.NotFound(new { error = "session not found" });
+
+            var oldId = session.ClaudeSessionId;
+            string? newId;
+            try
+            {
+                newId = await session.ClearContextAsync(ct);
+            }
+            catch (NotSupportedException ex)
+            {
+                return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status409Conflict);
+            }
+
+            if (newId is not null)
+                sessionManager.RelinkClaudeSession(guid, newId);
+
+            return Results.Json(new { accepted = true, oldAgentSessionId = oldId, newAgentSessionId = newId });
         });
 
         // Resize the session's PTY grid so a remote terminal (the Cockpit) can use the full
@@ -2388,6 +2460,17 @@ internal static class ControlEndpoints
             .Select(i => (object)new { id = i.Id.ToString(), text = i.Text, createdAt = i.CreatedAt })
             .ToList();
 
+    /// <summary>The session driver's capability flags as names, for UIs to render
+    /// action buttons from (no per-agent special cases client-side).</summary>
+    private static List<string> CapabilityNames(Session s)
+    {
+        var caps = s.Driver.Capabilities;
+        return Enum.GetValues<Core.Drivers.DriverCapabilities>()
+            .Where(f => f != Core.Drivers.DriverCapabilities.None && caps.HasFlag(f))
+            .Select(f => f.ToString())
+            .ToList();
+    }
+
     private static SessionDto Map(Session s, string directorId, TurnSummaryCache? cache = null)
     {
         // Phase 3: StatusColor and LastStatusReason are owned by the SessionStatusWingman
@@ -2408,6 +2491,7 @@ internal static class ControlEndpoints
             CreatedAt = s.CreatedAt.UtcDateTime,
             TotalBufferBytes = s.Buffer?.TotalBytesWritten ?? 0,
             BackendType = s.BackendType.ToString(),
+            DriverCapabilities = CapabilityNames(s),
             Name = s.CustomName,
             SortOrder = s.SortOrder,
             StatusColor = s.StatusColor,

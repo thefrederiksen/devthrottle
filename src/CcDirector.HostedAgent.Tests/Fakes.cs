@@ -105,6 +105,10 @@ public sealed class FakeDriver : IAgentDriver
 
     public int CancelCount { get; private set; }
 
+    public int InterruptCount { get; private set; }
+
+    public int HistoryCount { get; private set; }
+
     public int ClearCount { get; private set; }
 
     /// <summary>Session ids handed out by BuildLaunchSpec, in order.</summary>
@@ -154,6 +158,18 @@ public sealed class FakeDriver : IAgentDriver
     public Task CancelAsync(ISessionBackend backend)
     {
         CancelCount++;
+        return Task.CompletedTask;
+    }
+
+    public Task InterruptAsync(ISessionBackend backend)
+    {
+        InterruptCount++;
+        return Task.CompletedTask;
+    }
+
+    public Task ShowHistoryAsync(ISessionBackend backend)
+    {
+        HistoryCount++;
         return Task.CompletedTask;
     }
 

@@ -74,6 +74,14 @@ public sealed class SessionDto
     public string BackendType { get; set; } = "";
 
     /// <summary>
+    /// The session's agent-driver capability names (e.g. "Cancel", "Interrupt",
+    /// "ClearContext", "History", "TranscriptRead"). UIs render action buttons from
+    /// this list verbatim - a verb a tool lacks is simply absent, never guessed.
+    /// Empty on Directors that predate the driver layer.
+    /// </summary>
+    public List<string> DriverCapabilities { get; set; } = new();
+
+    /// <summary>
     /// UTC timestamp of the most recent terminal-buffer write. Falls back to
     /// <see cref="CreatedAt"/> if the session has produced no output yet.
     /// Drives the "Idle Xm" freshness column in the Gateway directory view.

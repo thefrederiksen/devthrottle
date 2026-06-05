@@ -157,15 +157,15 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------
-  # Job 1c: Build the CC Gateway service (Windows)
+  # Job 1c: Build the CC Gateway tray app (Windows)
   # ---------------------------------------------------------------
-  # The always-on service that supervises the Cockpit and brokers sessions.
-  # Ships only to the Gateway-role machine. AssemblyName is "cc-director-gateway",
-  # so the published single file is cc-director-gateway.exe; the create-release job
-  # renames it to the asset name the setup engine expects
+  # THE Gateway: an Avalonia tray app that hosts the gateway in-process, supervises
+  # the Cockpit, and self-updates - per-user, started at logon, no Windows service
+  # (docs/plans/gateway-tray-app.md). AssemblyName is "cc-director-gateway", so the
+  # published single file is cc-director-gateway.exe; the create-release job renames
+  # it to the asset name the setup engine expects
   # (ComponentRegistry.Gateway.WindowsAsset = cc-director-gateway-win-x64.exe).
-  # NOTE: CcDirector.GatewayApp (the cc-director-gateway-tray WinExe) is a separate,
-  # optional tray app and is intentionally NOT shipped here.
+  # The old headless console host (CcDirector.Gateway) is the dev loop only.
   build-gateway-win:
     name: Build CC Gateway (Windows)
     runs-on: windows-latest
@@ -178,10 +178,10 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
-      - name: Publish Gateway for Windows x64
-        # Framework-dependent: requires the .NET 10 ASP.NET Core runtime on the target.
+      - name: Publish Gateway tray app for Windows x64
+        # Framework-dependent: requires the .NET 10 ASP.NET Core + desktop runtime on the target.
         run: >
-          dotnet publish src/CcDirector.Gateway/CcDirector.Gateway.csproj
+          dotnet publish src/CcDirector.GatewayApp/CcDirector.GatewayApp.csproj
           -c Release -r win-x64 --self-contained false
           -p:PublishSingleFile=true
           -p:IncludeNativeLibrariesForSelfExtract=true
@@ -190,7 +190,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: gateway-win
-          path: src/CcDirector.Gateway/bin/Release/net10.0/win-x64/publish/cc-director-gateway.exe
+          path: src/CcDirector.GatewayApp/bin/Release/net10.0-windows/win-x64/publish/cc-director-gateway.exe
           if-no-files-found: error
 
   # ---------------------------------------------------------------

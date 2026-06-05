@@ -1,0 +1,13 @@
+{
+  "Id": "3ab96845-28be-4c6f-8d5a-c6a5e8fcc105",
+  "CustomName": "cc_tools - code review",
+  "CustomColor": "#16A34A",
+  "RepoPath": "D:\\ReposFred\\cc_tools",
+  "ClaudeSessionId": "4c6234ab-cfee-4202-a38d-d38670c56abd",
+  "CreatedAt": "2026-02-21T13:17:43.2614669+00:00",
+  "LastUsedAt": "2026-02-21T23:47:26.4379935+00:00",
+  "FirstPromptSnippet": null,
+  "TurnSummaries": [
+    "Retrieved 10 latest GitHub issues from anthropics/claude-code repository using gh CLI."
+  ]
+}

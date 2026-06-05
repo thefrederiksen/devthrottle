@@ -1,23 +1,26 @@
-# Deploy the staged Cockpit build (DEV deploy: a user-driven file copy into the live service dir).
+# Deploy the staged Cockpit build (DEV deploy: a user-driven file copy into the live install dir).
 #
-# Stops the Gateway service, swaps the Cockpit files, starts the service (which relaunches the
+# Asks the Gateway tray app to exit (POST /shutdown - it supervises the Cockpit, so the Cockpit
+# goes down with it), swaps the Cockpit files, and relaunches the tray app (which relaunches the
 # new Cockpit on 7470).
 #
 # Canonical location (master spec: docs/install/INSTALLATION.md): the Cockpit binaries live under
-# %ProgramFiles%\CC Director\cockpit (the retired C:\cc-tools root must not be used). Because that
-# is a machine-wide location standard users cannot write, this dev deploy must run ELEVATED (or
-# after a one-time ACL grant on the CC Director folder). The PRODUCTION no-admin update path is the
-# LocalSystem Gateway service updating its own + the Cockpit's binaries - not this script.
+# %LOCALAPPDATA%\cc-director\cockpit and the Gateway tray app under %LOCALAPPDATA%\cc-director\gateway.
+# Everything is per-user: NO elevation, NO Windows service (docs/plans/gateway-tray-app.md).
+# The PRODUCTION no-admin update path is the tray app updating its own + the Cockpit's binaries -
+# not this script.
 
 $ErrorActionPreference = 'Stop'
-$svc    = 'cc-gateway-service'
-$stage  = 'D:\ReposFred\cc-director\local_builds\cockpit-publish'
-$target = "$env:ProgramFiles\CC Director\cockpit"
+$stage      = 'D:\ReposFred\cc-director\local_builds\cockpit-publish'
+$root       = "$env:LOCALAPPDATA\cc-director"
+$target     = "$root\cockpit"
+$gatewayExe = "$root\gateway\cc-director-gateway.exe"
 
 if (-not (Test-Path "$stage\cc-director-cockpit.dll")) { Write-Host "ERROR: cockpit build not staged at $stage." ; exit 1 }
+if (-not (Test-Path $gatewayExe)) { Write-Host "ERROR: Gateway tray app not installed at $gatewayExe." ; exit 1 }
 
-Write-Host "Stopping $svc (Directors + sessions are separate and survive)..."
-Stop-Service $svc -Force
+Write-Host "Asking the Gateway tray app to exit (Directors + sessions are separate and survive)..."
+try { Invoke-WebRequest 'http://127.0.0.1:7878/shutdown' -Method POST -UseBasicParsing -TimeoutSec 5 | Out-Null } catch {}
 for ($i = 0; $i -lt 20; $i++) {
   if (-not (Get-Process -Name cc-director-gateway,cc-director-cockpit -ErrorAction SilentlyContinue)) { break }
   Start-Sleep -Milliseconds 500
@@ -40,8 +43,8 @@ foreach ($f in @('cc-director-cockpit.deps.json','cc-director-cockpit.runtimecon
 Copy-Item "$stage\wwwroot\app.css" "$target\wwwroot\app.css" -Force
 Copy-Item "$stage\wwwroot\js\*"    "$target\wwwroot\js\" -Force -Recurse
 
-Write-Host "Starting $svc..."
-Start-Service $svc
+Write-Host "Relaunching the Gateway tray app..."
+Start-Process -FilePath $gatewayExe -ArgumentList '--managed' -WorkingDirectory "$root\gateway"
 
 $gwUp = $false; $ckUp = $false
 for ($i = 0; $i -lt 25; $i++) {

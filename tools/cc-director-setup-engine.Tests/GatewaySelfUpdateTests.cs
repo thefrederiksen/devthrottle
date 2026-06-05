@@ -15,7 +15,7 @@ public class GatewaySelfUpdateTests : IDisposable
     {
         _dir = Path.Combine(Path.GetTempPath(), "cc-gwsu-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_dir);
-        _layout = new InstallLayout(Path.Combine(_dir, "local"), Path.Combine(_dir, "pf"), Path.Combine(_dir, "pd"));
+        _layout = new InstallLayout(Path.Combine(_dir, "local"));
         var installedDir = Path.Combine(_dir, "installed");
         Directory.CreateDirectory(installedDir);
         _target = Path.Combine(installedDir, "cc-director-gateway.exe");
@@ -39,8 +39,8 @@ public class GatewaySelfUpdateTests : IDisposable
 
         var result = await su.ApplyAsync(
             _target, _staged, "0.4.0",
-            stopService: () => { stops++; return true; },
-            startService: () => { starts++; return true; },
+            stopGateway: () => { stops++; return true; },
+            startGateway: () => { starts++; return true; },
             isHealthy: _ => Task.FromResult(true),
             healthTimeout: TimeSpan.FromSeconds(2));
 
@@ -60,8 +60,8 @@ public class GatewaySelfUpdateTests : IDisposable
 
         var result = await su.ApplyAsync(
             _target, _staged, "0.4.0",
-            stopService: () => true,
-            startService: () => true,
+            stopGateway: () => true,
+            startGateway: () => true,
             isHealthy: _ => Task.FromResult(false),    // new build never comes up
             healthTimeout: TimeSpan.FromMilliseconds(200));
 
@@ -82,7 +82,7 @@ public class GatewayUpdaterTests : IDisposable
         _dir = Path.Combine(Path.GetTempPath(), "cc-gwupd-" + Guid.NewGuid().ToString("N"));
         _releaseDir = Path.Combine(_dir, "release");
         Directory.CreateDirectory(_releaseDir);
-        _layout = new InstallLayout(Path.Combine(_dir, "local"), Path.Combine(_dir, "pf"), Path.Combine(_dir, "pd"));
+        _layout = new InstallLayout(Path.Combine(_dir, "local"));
     }
 
     public void Dispose()

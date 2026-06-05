@@ -104,4 +104,20 @@ public sealed class GatewayClient
         }
         return await resp.Content.ReadFromJsonAsync<HandoverResponse>(cancellationToken: ct);
     }
+
+    /// <summary>
+    /// Rename a session (<c>PATCH /sessions/{sid}</c>; the Gateway proxies to the owning
+    /// Director). Returns the updated DTO. Throws with the server error on failure.
+    /// </summary>
+    public async Task<SessionDto?> RenameSessionAsync(string sessionId, string name, CancellationToken ct = default)
+    {
+        _log.LogInformation("RenameSessionAsync: {SessionId} -> \"{Name}\"", sessionId, name);
+        var resp = await _http.PatchAsJsonAsync($"sessions/{Uri.EscapeDataString(sessionId)}", new { name }, ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            throw new HttpRequestException($"rename failed ({(int)resp.StatusCode}): {body}");
+        }
+        return await resp.Content.ReadFromJsonAsync<SessionDto>(cancellationToken: ct);
+    }
 }

@@ -27,8 +27,10 @@ public sealed class GatewayDirectoryRegistrationTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
+        // cockpitProxyPort: a dead port so "/" hits the interstitial, never a real
+        // Cockpit that may be running on the dev machine.
         _gateway = new GatewayHost(port: FreePort(), token: "test-token", authEnabled: true,
-            instancesDirectory: _instancesDir);
+            instancesDirectory: _instancesDir, cockpitProxyPort: 1);
         await _gateway.StartAsync();
 
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
@@ -190,29 +192,19 @@ public sealed class GatewayDirectoryRegistrationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Directory_root_renders_html()
+    public async Task Root_falls_through_to_the_cockpit_proxy()
     {
+        // ONE URL (docs/plans/one-url-cockpit.md): the Gateway serves no UI pages. "/" (and
+        // every other unmatched path) falls through the fallback proxy to the loopback
+        // Cockpit. No Cockpit runs in this test, so the proxy answers the 503 "Cockpit
+        // starting..." interstitial - which proves the fallback route is wired.
         using var browser = new HttpClient { BaseAddress = _http.BaseAddress };
         browser.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "test-token");
         browser.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("text/html"));
         var resp = await browser.GetAsync("/");
-        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, resp.StatusCode);
         var body = await resp.Content.ReadAsStringAsync();
-        Assert.Contains("CC Director", body);
-        // Phase 2: the directory page is session-centric. It polls /sessions (with the
-        // envelope shape) to render cards/list and surface machineErrors.
-        Assert.Contains("/sessions", body);
-    }
-
-    [Fact]
-    public async Task Legacy_manager_still_reachable()
-    {
-        using var browser = new HttpClient { BaseAddress = _http.BaseAddress };
-        browser.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "test-token");
-        var resp = await browser.GetAsync("/legacy-manager");
-        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
-        var body = await resp.Content.ReadAsStringAsync();
-        Assert.Contains("CC Director", body);
+        Assert.Contains("Cockpit starting", body);
     }
 
     private static int FreePort()

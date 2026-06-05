@@ -137,6 +137,30 @@ public sealed class TurnPackageBuilderTests
         Assert.True(p.TranscriptDelta.Length <= TurnPackageBuilder.DeltaMaxChars + 16);
         Assert.True(p.ScreenTail.Length <= TurnPackageBuilder.ScreenTailMaxChars);
     }
+
+    [Fact]
+    public void Build_CurrentHeadline_NewestNonEmpty_SkipsStubBriefs()
+    {
+        var widgets = new List<TurnWidgetDto> { User("go"), Text("done") };
+        // Store order: newest first. Newest brief is a stub with no headline - the standing
+        // headline must come from the brief behind it, not vanish.
+        var recent = new List<TurnBriefDto>
+        {
+            new() { TurnNumber = 6, Intent = "stub", Headline = "" },
+            new() { TurnNumber = 4, Intent = "x", Headline = "Cockpit gets a session story panel" },
+            new() { TurnNumber = 2, Intent = "y", Headline = "Old headline" },
+        };
+        var p = TurnPackageBuilder.Build(Guid.NewGuid(), widgets, "", recent[0], recent);
+        Assert.Equal("Cockpit gets a session story panel", p.CurrentHeadline);
+    }
+
+    [Fact]
+    public void Build_CurrentHeadline_NullWhenNoBriefsCarryOne()
+    {
+        var widgets = new List<TurnWidgetDto> { User("go") };
+        var p = TurnPackageBuilder.Build(Guid.NewGuid(), widgets, "", null);
+        Assert.Null(p.CurrentHeadline);
+    }
 }
 
 // =====================================================================================
@@ -344,6 +368,90 @@ public sealed class TurnBriefGeneratorValidationTests
         Assert.Contains("selectionMode", prompt);          // contract
         Assert.Contains("pick any that apply", prompt);    // multi-select rule
         Assert.Contains("standing grant", prompt);         // permission-scope rule
+        Assert.Contains("headline", prompt);               // v2.2 contract field
+        Assert.Contains("turnTitle", prompt);              // v2.2 contract field
+        Assert.Contains("newChapter", prompt);             // v2.3 contract field
+    }
+
+    [Fact]
+    public void BuildPrompt_FeedsCurrentChapterTitle_AndChapterRule()
+    {
+        var p = Package() with { CurrentHeadline = "Cockpit gets a session story panel" };
+        var prompt = WingmanTurnBriefGenerator.BuildPrompt(p);
+        Assert.Contains("Current chapter title: Cockpit gets a session story panel", prompt);
+        Assert.Contains("KEEP the current title", prompt);
+        Assert.Contains("newChapter=false", prompt);
+    }
+
+    [Fact]
+    public void BuildPrompt_NoHeadlineYet_SaysWriteTheFirstOne()
+    {
+        var prompt = WingmanTurnBriefGenerator.BuildPrompt(Package());
+        Assert.Contains("(none yet - write the first one)", prompt);
+    }
+
+    [Fact]
+    public void Validate_ParsesHeadlineAndTurnTitle()
+    {
+        var json = """
+        { "headline": "Cockpit gets a session story panel",
+          "turnTitle": "Added the headline field",
+          "intent": "x", "did": ["y"], "needsYou": null }
+        """;
+        var brief = WingmanTurnBriefGenerator.ParseAndValidate(json, Package(), "wingman:test");
+        Assert.NotNull(brief);
+        Assert.Equal("Cockpit gets a session story panel", brief.Headline);
+        Assert.Equal("Added the headline field", brief.TurnTitle);
+    }
+
+    [Fact]
+    public void Validate_OmittedHeadline_CarriesCurrentForward()
+    {
+        var p = Package() with { CurrentHeadline = "The standing headline" };
+        var brief = WingmanTurnBriefGenerator.ParseAndValidate(
+            """{ "intent": "x", "did": [], "needsYou": null }""", p, "wingman:test");
+        Assert.NotNull(brief);
+        Assert.Equal("The standing headline", brief.Headline);
+        Assert.Equal("", brief.TurnTitle);
+    }
+
+    [Fact]
+    public void Validate_NewChapterTrue_Parsed()
+    {
+        var p = Package() with { CurrentHeadline = "Old chapter" };
+        var json = """{ "headline": "New piece of work", "newChapter": true, "intent": "x", "did": [], "needsYou": null }""";
+        var brief = WingmanTurnBriefGenerator.ParseAndValidate(json, p, "wingman:test");
+        Assert.NotNull(brief);
+        Assert.True(brief.NewChapter);
+    }
+
+    [Fact]
+    public void Validate_NewChapterOmitted_FalseWhenChapterExists()
+    {
+        var p = Package() with { CurrentHeadline = "Standing chapter" };
+        var json = """{ "headline": "Standing chapter", "intent": "x", "did": [], "needsYou": null }""";
+        var brief = WingmanTurnBriefGenerator.ParseAndValidate(json, p, "wingman:test");
+        Assert.NotNull(brief);
+        Assert.False(brief.NewChapter);
+    }
+
+    [Fact]
+    public void Validate_FirstTitle_MechanicallyStartsFirstChapter()
+    {
+        // No current title yet: whatever the model said, the first title IS a chapter start.
+        var json = """{ "headline": "First chapter", "newChapter": false, "intent": "x", "did": [], "needsYou": null }""";
+        var brief = WingmanTurnBriefGenerator.ParseAndValidate(json, Package(), "wingman:test");
+        Assert.NotNull(brief);
+        Assert.True(brief.NewChapter);
+    }
+
+    [Fact]
+    public void Validate_OverlongHeadline_Capped()
+    {
+        var json = $$"""{ "headline": "{{new string('h', 200)}}", "intent": "x", "did": [], "needsYou": null }""";
+        var brief = WingmanTurnBriefGenerator.ParseAndValidate(json, Package(), "wingman:test");
+        Assert.NotNull(brief);
+        Assert.Equal(60, brief.Headline.Length);
     }
 
     [Fact]
@@ -416,6 +524,20 @@ public sealed class TurnBriefGeneratorValidationTests
             "evidence": "", "urgency": "blocking", "confidence": "high", "railLine": "pick" } }
         """;
         Assert.Null(WingmanTurnBriefGenerator.ParseAndValidate(json, Package(), "wingman:test"));
+    }
+
+    [Fact]
+    public async Task Stub_CarriesHeadlineForward_NeverInvents()
+    {
+        var p = Package() with { CurrentHeadline = "The standing headline" };
+        var brief = await new StubTurnBriefGenerator().GenerateAsync(p, CancellationToken.None);
+        Assert.NotNull(brief);
+        Assert.Equal("The standing headline", brief.Headline);
+        Assert.False(brief.NewChapter); // a degrade tier never starts a chapter
+
+        var firstBrief = await new StubTurnBriefGenerator().GenerateAsync(Package(), CancellationToken.None);
+        Assert.Equal("", firstBrief!.Headline);
+        Assert.False(firstBrief.NewChapter);
     }
 
     [Fact]

@@ -35,6 +35,11 @@ public sealed class StubTurnBriefGenerator : ITurnBriefGenerator
             Model = Id,
             Degraded = true,
             DegradeTier = "stub",
+            // Carried forward, never invented: a failed wingman read must not amnesia the
+            // session's standing chapter title, and never starts a chapter (NewChapter=false).
+            Headline = package.CurrentHeadline ?? "",
+            NewChapter = false,
+            TurnTitle = "",
             Intent = package.RollingIntent ?? "(no brief yet - wingman unavailable)",
             Did = new List<string>(),
             NeedsYou = null,
@@ -109,6 +114,9 @@ public sealed class WingmanTurnBriefGenerator : ITurnBriefGenerator
         sb.AppendLine("Respond with ONLY a JSON object (no fences, no prose) in exactly this shape:");
         sb.AppendLine("""
 {
+  "headline": "<=6 words, newspaper-tight (e.g. 'Cockpit gets session story column'): the current CHAPTER's title - WHAT the session is working on, never how. Usually copied verbatim from the current title; refine the wording only if the same work drifted.",
+  "newChapter": false | true ONLY when this turn moved the session to a genuinely DIFFERENT piece of work (then headline is that new chapter's title),
+  "turnTitle": "<=8 words, past tense: what THIS turn did - a card header, not a sentence.",
   "intent": "1-2 sentences: what the USER is trying to get done, carried/updated across turns. NEVER the literal last message (a 'yes' must become what was approved).",
   "did": ["3-6 bullets, past tense, specific, <=15 words each. Proportional: trivial turn -> 1-2 bullets."],
   "needsYou": null OR {
@@ -140,8 +148,16 @@ public sealed class WingmanTurnBriefGenerator : ITurnBriefGenerator
         sb.AppendLine("- Unclear what the agent wants: confidence=ambiguous and SAY SO in the statement");
         sb.AppendLine("  ('unclear; likely X or Y'). Never invent certainty. Never invent options.");
         sb.AppendLine("- The screen may contain rendering tears (overdrawn lines); read through them.");
+        sb.AppendLine("- CHAPTERS: the headline is the current chapter's title - WHAT is being worked on,");
+        sb.AppendLine("  not how. Several turns share one chapter: questions, fix-ups, tests, reviews, and");
+        sb.AppendLine("  sub-steps of the same work are the SAME chapter (newChapter=false). Rewording the");
+        sb.AppendLine("  title because the same work drifted is NOT a new chapter. newChapter=true only");
+        sb.AppendLine("  when the session moved to a different piece of work (new feature, new bug, new");
+        sb.AppendLine("  goal) - returning to earlier work later IS a new chapter (same title is fine).");
+        sb.AppendLine("  When in doubt: newChapter=false and KEEP the current title.");
         sb.AppendLine();
         sb.AppendLine("=== SESSION CONTEXT ===");
+        sb.AppendLine($"Current chapter title: {(string.IsNullOrWhiteSpace(p.CurrentHeadline) ? "(none yet - write the first one)" : p.CurrentHeadline)}");
         sb.AppendLine($"Prior rolling intent: {p.RollingIntent ?? "(first brief of this session)"}");
         if (p.PriorRailLines.Count > 0)
             sb.AppendLine("Recent needs-you lines: " + string.Join(" | ", p.PriorRailLines));
@@ -193,6 +209,8 @@ public sealed class WingmanTurnBriefGenerator : ITurnBriefGenerator
                 GeneratedAtUtc = DateTime.UtcNow,
                 Model = generatorId,
                 Degraded = false,
+                Headline = Str(root, "headline"),
+                TurnTitle = Str(root, "turnTitle"),
                 Intent = root.TryGetProperty("intent", out var i) ? (i.GetString() ?? "").Trim() : "",
             };
             if (string.IsNullOrWhiteSpace(brief.Intent))
@@ -200,6 +218,21 @@ public sealed class WingmanTurnBriefGenerator : ITurnBriefGenerator
                 FileLog.Write("[TurnBriefGenerator] validation: missing intent");
                 return null;
             }
+
+            // Headline = chapter title (v2.3): an omitted headline carries the session's
+            // current one forward (mechanical carry, not invention) - the standing title must
+            // survive a model that skipped the field. Length caps are mechanical validation.
+            if (string.IsNullOrWhiteSpace(brief.Headline))
+                brief.Headline = package.CurrentHeadline ?? "";
+            if (brief.Headline.Length > 60) brief.Headline = brief.Headline[..60];
+            if (brief.TurnTitle.Length > 60) brief.TurnTitle = brief.TurnTitle[..60];
+
+            // Chapter break (v2.3): explicit wingman judgment, never string comparison.
+            brief.NewChapter = root.TryGetProperty("newChapter", out var nc) && nc.ValueKind == JsonValueKind.True;
+            // The session's FIRST title mechanically starts the first chapter, whatever the
+            // model said - a session with briefs but no chapter start renders nowhere.
+            if (string.IsNullOrWhiteSpace(package.CurrentHeadline) && !string.IsNullOrWhiteSpace(brief.Headline))
+                brief.NewChapter = true;
 
             if (root.TryGetProperty("did", out var did) && did.ValueKind == JsonValueKind.Array)
                 brief.Did = did.EnumerateArray()

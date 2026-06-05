@@ -1,5 +1,12 @@
 # CC Director - Install & Auto-Update Test Procedure (agent handover)
 
+> OUTDATED IN PART (2026-06-05): the Gateway is no longer a Windows service.
+> Every `cc-gateway-service` / `sc.exe` / elevation step below is obsolete: the
+> Gateway is a per-user TRAY app (HKCU Run key, POST /shutdown for stop, no
+> admin anywhere). Use `scripts/verify-gateway.ps1` for the new checks and see
+> docs/plans/gateway-tray-app.md (v2). The Workstation sections remain valid.
+> Rewrite this procedure on the next full install QA pass.
+
 **Audience:** an AI coding agent (like Claude Code) running on a **disposable Windows test machine**.
 **You may delete anything cc-director on this machine** - it is not anyone's daily driver.
 

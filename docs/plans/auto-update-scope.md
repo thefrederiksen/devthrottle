@@ -3,6 +3,12 @@
 Status: SCOPE (not built). Builds on the decisions in docs/plans/install-autoupdate.md
 (D1-D10) and the install/uninstall work shipped in v0.3.6/v0.3.7.
 
+> SUPERSEDED IN PART (2026-06-05): the Gateway is no longer a Windows service.
+> Wherever this document says `sc stop/start cc-gateway-service`, the shipped
+> mechanism is now process-based (POST /shutdown -> swap -> relaunch) on the
+> Gateway TRAY app. See docs/plans/gateway-tray-app.md (v2). The staged-copy,
+> health-check, auto-rollback, and pin design (DA-1) is unchanged.
+
 Goal: every installed component silently moves to the newest published release on its own,
 per-component, without killing live work - so a user never has to re-run an installer to
 get a new version.

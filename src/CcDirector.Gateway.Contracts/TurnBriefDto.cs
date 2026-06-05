@@ -2,7 +2,7 @@ namespace CcDirector.Gateway.Contracts;
 
 /// <summary>
 /// One wingman turn brief - the strong model's interpretation of a completed turn
-/// (docs/architecture/wingman/TURN_BRIEFING.md, contract v2.1). Generated eagerly at turn
+/// (docs/architecture/wingman/TURN_BRIEFING.md, contract v2.2). Generated eagerly at turn
 /// end by the Director, stored durably, and rendered verbatim by every consumer (Cockpit
 /// Brief page, rail, phone FIFO, voice). Consumers NEVER parse or post-process this -
 /// interpretation happened once, on the Director, with the best model available (D6).
@@ -24,6 +24,23 @@ public sealed class TurnBriefDto
 
     /// <summary>"stub" | "condenser" | null - which degrade tier produced it (when Degraded).</summary>
     public string? DegradeTier { get; set; }
+
+    /// <summary>The current CHAPTER's title (v2.3; introduced as the session headline in
+    /// v2.2): &lt;= 6 words naming WHAT the session is working on - never how. Several turns
+    /// share one chapter; the wingman may refine the title's wording as the work drifts
+    /// WITHOUT starting a new chapter. Empty on pre-v2.2 briefs and stub briefs with no
+    /// prior title to carry; consumers fall back to Intent.</summary>
+    public string Headline { get; set; } = "";
+
+    /// <summary>True when THIS turn started a new chapter (v2.3): the session moved to a
+    /// genuinely different piece of work. The wingman signals this explicitly - consumers
+    /// group briefs into chapter cards on this flag, never by comparing headline strings
+    /// (a refined title is the same chapter). Always false on degrade-tier briefs.</summary>
+    public bool NewChapter { get; set; }
+
+    /// <summary>One-line title of THIS turn (v2.2): &lt;= 8 words, past tense, the turn-card
+    /// header. Empty on pre-v2.2 briefs; consumers fall back to the first Did bullet.</summary>
+    public string TurnTitle { get; set; } = "";
 
     /// <summary>Rolling intent: what the user is trying to get done, carried and updated
     /// across turns - never the literal last message.</summary>

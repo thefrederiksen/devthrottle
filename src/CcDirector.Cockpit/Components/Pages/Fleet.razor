@@ -1,0 +1,292 @@
+@page "/fleet"
+@inject GatewayClient Gateway
+@inject ILogger<Fleet> Log
+@implements IDisposable
+
+@* The Cards dashboard, ported from the Gateway's embedded directory.html (one-URL plan:
+   docs/plans/one-url-cockpit.md). Same shape: machine groups, wingman-owned status dots,
+   inline rename, Open session. Phone-first: one column under 720px. *@
+
+<PageTitle>CC Director - Fleet</PageTitle>
+
+<div class="fl-root">
+<header class="fl-header">
+  <h1>CC DIRECTOR</h1>
+  <span class="fl-stats">
+    @($"{_sessions.Count} session{(_sessions.Count == 1 ? "" : "s")}")
+    @if (RedCount > 0)
+    {
+      <span class="fl-red">&middot; @RedCount red</span>
+    }
+    @if (YellowCount > 0)
+    {
+      <span class="fl-yellow">&middot; @YellowCount yellow</span>
+    }
+  </span>
+  <span class="fl-spacer"></span>
+  <a class="fl-link fl-link-accent" href="/">cockpit</a>
+  <a class="fl-link fl-link-accent" href="/transcripts">voice</a>
+  <a class="fl-link fl-link-accent" href="/exes">exes</a>
+</header>
+
+<main class="fl-main">
+  @if (_lastError is not null)
+  {
+    <div class="fl-error">Failed to fetch sessions: @_lastError</div>
+  }
+
+  @if (_sessions.Count == 0 && _errors.Count == 0)
+  {
+    <div class="fl-empty">
+      <p>No sessions registered anywhere on the fleet.</p>
+      <p class="fl-empty-sub">A session will appear here when a Director starts one. Make sure the Director has <code>gateway.url</code> configured if it is running on another machine.</p>
+    </div>
+  }
+  else
+  {
+    @foreach (var g in Groups())
+    {
+      <section class="fl-group">
+        <div class="fl-machine">
+          <span class="fl-mname">@g.Name</span>
+          @if (!string.IsNullOrEmpty(g.User))
+          {
+            <span class="fl-muser">&middot; @g.User</span>
+          }
+          <span class="fl-mcount">&middot; @g.Sessions.Count session@(g.Sessions.Count == 1 ? "" : "s")</span>
+          @if (g.Error is not null)
+          {
+            <span class="fl-munreachable">&middot; unreachable: @g.Error</span>
+          }
+        </div>
+
+        @if (g.Sessions.Count > 0)
+        {
+          <div class="fl-cards">
+            @foreach (var s in g.Sessions)
+            {
+              <article class="fl-card">
+                <div class="fl-card-head">
+                  <span class="fl-dot @ColorClass(s)" title="@DotTooltip(s)"></span>
+                  @if (_editingSid == s.SessionId)
+                  {
+                    <input class="fl-name-edit" @bind="_editName" @bind:event="oninput"
+                           @onkeydown="e => OnEditKey(e, s)" @onblur="() => CommitRename(s)"
+                           placeholder="Session name" maxlength="120" @ref="_editInput" />
+                  }
+                  else
+                  {
+                    <span class="fl-title @(string.IsNullOrWhiteSpace(s.Name) ? "fl-unnamed" : "")"
+                          title="Click to rename" @onclick="() => BeginRename(s)">
+                      @(string.IsNullOrWhiteSpace(s.Name) ? "(unnamed)" : s.Name)<span class="fl-pencil">&#9998;</span>
+                    </span>
+                  }
+                  <span class="fl-agent">@(string.IsNullOrWhiteSpace(s.Agent) ? "?" : s.Agent)</span>
+                </div>
+                <div class="fl-repo" title="@s.RepoPath">@RepoBasename(s.RepoPath)</div>
+                <div class="fl-state-row">
+                  <span class="fl-state">@HumanizeState(s.ActivityState)</span>
+                  <span class="fl-idle" title="last activity @s.LastActivityAt">@RelativeTime(s.LastActivityAt)</span>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(s.ViewUrl))
+                {
+                  <a class="fl-open" href="@s.ViewUrl">Open session &rarr;</a>
+                }
+              </article>
+            }
+          </div>
+        }
+      </section>
+    }
+  }
+</main>
+</div>
+
+@code {
+    private List<SessionDto> _sessions = new();
+    private List<MachineErrorDto> _errors = new();
+    private string? _lastError;
+    private string? _editingSid;
+    private string _editName = "";
+    private ElementReference _editInput;
+    private bool _focusPending;
+    private readonly CancellationTokenSource _cts = new();
+
+    private int RedCount => _sessions.Count(s => ColorClass(s) == "red");
+    private int YellowCount => _sessions.Count(s => ColorClass(s) == "yellow");
+
+    protected override void OnInitialized() => _ = RefreshLoopAsync();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_focusPending)
+        {
+            _focusPending = false;
+            try { await _editInput.FocusAsync(); } catch { /* element may have re-rendered away */ }
+        }
+    }
+
+    private async Task RefreshLoopAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
+        while (!_cts.IsCancellationRequested)
+        {
+            await RefreshAsync();
+            try { await timer.WaitForNextTickAsync(_cts.Token); }
+            catch (OperationCanceledException) { break; }
+        }
+    }
+
+    private async Task RefreshAsync()
+    {
+        if (_editingSid is not null) return; // never clobber an in-progress rename
+        try
+        {
+            var env = await Gateway.GetSessionsAsync(_cts.Token);
+            _sessions = env.Sessions;
+            _errors = env.MachineErrors;
+            _lastError = null;
+        }
+        catch (OperationCanceledException) { return; }
+        catch (Exception ex)
+        {
+            _lastError = ex.Message;
+            Log.LogWarning("Fleet refresh failed: {Error}", ex.Message);
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    // ---- grouping ----
+
+    private sealed record Group(string Name, string User, List<SessionDto> Sessions, string? Error);
+
+    private List<Group> Groups()
+    {
+        var byMachine = new Dictionary<string, (string user, List<SessionDto> list, string? error)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var s in _sessions)
+        {
+            var key = string.IsNullOrWhiteSpace(s.MachineName) ? "(unknown)" : s.MachineName;
+            if (!byMachine.TryGetValue(key, out var g))
+                byMachine[key] = g = (s.User ?? "", new List<SessionDto>(), null);
+            g.list.Add(s);
+        }
+        // Unreachable Directors still get a header (error-only machines).
+        foreach (var me in _errors)
+        {
+            var key = string.IsNullOrWhiteSpace(me.MachineName) ? "(unknown)" : me.MachineName;
+            if (byMachine.TryGetValue(key, out var g))
+                byMachine[key] = (g.user, g.list, me.Error);
+            else
+                byMachine[key] = ("", new List<SessionDto>(), me.Error);
+        }
+
+        // Stable card order: by creation time (a card must not jump when its color changes).
+        var groups = byMachine
+            .Select(kv => new Group(
+                kv.Key, kv.Value.user,
+                kv.Value.list.OrderBy(s => s.CreatedAt).ThenBy(s => s.SessionId, StringComparer.Ordinal).ToList(),
+                kv.Value.error))
+            .OrderBy(g => g.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        return groups;
+    }
+
+    // ---- rename ----
+
+    private void BeginRename(SessionDto s)
+    {
+        _editingSid = s.SessionId;
+        _editName = s.Name ?? "";
+        _focusPending = true;
+    }
+
+    private async Task OnEditKey(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs e, SessionDto s)
+    {
+        if (e.Key == "Enter") await CommitRename(s);
+        else if (e.Key == "Escape") _editingSid = null;
+    }
+
+    private async Task CommitRename(SessionDto s)
+    {
+        if (_editingSid != s.SessionId) return;
+        var trimmed = (_editName ?? "").Trim();
+        _editingSid = null;
+        if (trimmed == (s.Name ?? "")) return;
+        try
+        {
+            var dto = await Gateway.RenameSessionAsync(s.SessionId, trimmed);
+            s.Name = dto?.Name;
+        }
+        catch (Exception ex)
+        {
+            _lastError = $"Rename failed: {ex.Message}";
+            Log.LogWarning("Rename failed for {SessionId}: {Error}", s.SessionId, ex.Message);
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    // ---- display helpers (mirroring directory.html exactly) ----
+
+    // The status color is OWNED by the Director's SessionStatusWingman. We render exactly
+    // what it returns - no derivation, no fallback. Anything else renders gray "unknown".
+    private static string ColorClass(SessionDto s) => (s.StatusColor ?? "").ToLowerInvariant() switch
+    {
+        "red" or "yellow" or "green" or "blue" or "purple" => (s.StatusColor ?? "").ToLowerInvariant(),
+        _ => "unknown",
+    };
+
+    private static readonly Dictionary<string, string> ColorMeaning = new()
+    {
+        ["green"] = "Green - ready",
+        ["blue"] = "Blue - agent working",
+        ["yellow"] = "Yellow - warning",
+        ["red"] = "Red - needs you",
+        ["purple"] = "Purple - running in background",
+        ["unknown"] = "Gray - unknown / unreachable",
+    };
+
+    private static string DotTooltip(SessionDto s)
+    {
+        var meaning = ColorMeaning.GetValueOrDefault(ColorClass(s), ColorClass(s));
+        return string.IsNullOrWhiteSpace(s.LastStatusReason) ? meaning : $"{meaning}\n({s.LastStatusReason})";
+    }
+
+    private static string HumanizeState(string? state) => state switch
+    {
+        "WaitingForInput" => "Waiting for input",
+        "WaitingForPerm" => "Waiting for permission",
+        "Idle" => "Idle",
+        "Working" => "Working",
+        "Starting" => "Starting",
+        "Exited" => "Exited",
+        null or "" => "-",
+        _ => state,
+    };
+
+    private static string RepoBasename(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return "(no repo)";
+        var norm = path.Replace('\\', '/').TrimEnd('/');
+        var i = norm.LastIndexOf('/');
+        return i >= 0 ? norm[(i + 1)..] : norm;
+    }
+
+    private static string RelativeTime(DateTime? utc)
+    {
+        if (utc is null) return "-";
+        var seconds = Math.Max(0, (int)(DateTime.UtcNow - utc.Value).TotalSeconds);
+        if (seconds < 5) return "just now";
+        if (seconds < 60) return $"{seconds}s";
+        var mins = seconds / 60;
+        if (mins < 60) return $"{mins}m";
+        var hours = mins / 60;
+        if (hours < 24) return $"{hours}h";
+        return $"{hours / 24}d";
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}

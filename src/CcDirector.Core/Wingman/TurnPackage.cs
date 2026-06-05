@@ -18,7 +18,8 @@ public sealed record TurnPackage(
     string TranscriptDelta,
     string ScreenTail,
     string? RollingIntent,
-    IReadOnlyList<string> PriorRailLines);
+    IReadOnlyList<string> PriorRailLines,
+    string? CurrentHeadline = null);
 
 /// <summary>
 /// Builds a <see cref="TurnPackage"/> from the parsed transcript widgets, the current screen
@@ -67,6 +68,13 @@ public static class TurnPackageBuilder
             .Select(b => b.NeedsYou is { } n ? n.RailLine : "")
             .ToList();
 
+        // The session's standing headline (v2.2): the newest stored brief that carries one.
+        // Stub/degrade briefs may have an empty headline - skip past them so a single failed
+        // wingman read does not amnesia the headline.
+        var headline = (recentBriefs ?? Array.Empty<TurnBriefDto>())
+            .Select(b => b.Headline)
+            .FirstOrDefault(h => !string.IsNullOrWhiteSpace(h));
+
         return new TurnPackage(
             sessionId,
             extract.TurnCount,
@@ -77,7 +85,8 @@ public static class TurnPackageBuilder
             delta,
             tail,
             priorBrief?.Intent,
-            priorLines);
+            priorLines,
+            headline);
     }
 
     private static string Truncate(string s, int max)

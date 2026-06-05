@@ -1,6 +1,6 @@
 # Wingman Turn Briefing - the architecture for understanding a turn
 
-**Status:** v2.1 - ARCHITECTURE AGREED + contract frozen against captured examples (incl. multi-select), not built (2026-06-04)
+**Status:** v2.3 - BUILT (phases 1-3); contract frozen against captured examples (incl. multi-select), extended additively with the session headline + turn title (v2.2) and the chapter model - headline = chapter title + explicit `newChapter` boundary (v2.3, 2026-06-05)
 **Supersedes:** the rule-based parts of the Brief view (docs/plans/cockpit-brief-view.md), which
 become this design's labeled degrade tier.
 **Related:** docs/wingman/CHARTER.md (the invariants this design must honor)
@@ -153,6 +153,24 @@ wingman-opt-in coupling, and every instance of parsing model answers out of pros
 ```json
 TurnBrief {
   sessionId, turnNumber, generatedAtUtc, model,
+
+  headline:   "<= 6 words, newspaper-tight: the current CHAPTER's title (v2.3;
+               introduced as the session headline in v2.2) - WHAT the session is
+               working on, never how. Several turns share one chapter; the
+               wingman receives the current title in the turn package, usually
+               copies it verbatim, and may REFINE the wording when the same work
+               drifts (a reworded title is still the same chapter).",
+
+  newChapter: false | true (v2.3) - true ONLY when this turn moved the session
+               to a genuinely different piece of work. The EXPLICIT chapter
+               boundary: consumers group briefs into chapter cards on this flag,
+               never by comparing headline strings. The first stored title
+               mechanically starts the first chapter (validation enforces it);
+               degrade tiers never set it. Returning to earlier work later IS a
+               new chapter (the same title may recur).
+
+  turnTitle:  "<= 8 words, past tense: what THIS turn did (v2.2) - the turn row
+               inside a chapter card in the Cockpit's session story panel",
 
   intent:     "one or two sentences: what the user is trying to get done,
                carried and UPDATED across turns - never the literal message",
@@ -354,3 +372,5 @@ designed but unvalidated.
 | 2026-06-04 | claude (cc-director session) | v1.1: Mission section (the meat computer is the bottleneck; helpers exist to reduce cognitive load); prior-art section on the Director session view (take: distilled-question pattern, LLM quick replies, UserPromptSubmit hook, feedback widget; not the code); D6 no-regex/no-text-parsing law; D7 brief feedback loop; turn package + contract amendments. |
 | 2026-06-04 | claude (cc-director session) | v2: example catalog - five question shapes captured live (picker, permission prompt, plan approval, plain-text numbered, soft decision) with side-by-side grid/transcript/v1-output/correct-TurnBrief in examples/. Contract frozen: answerVia reply-or-keys (interactive menus answerable remotely via send key sequences), options[].send + options[].note, urgency blocking/review/fyi. Pipeline lessons: transcript-flush race, unsubmitted-composer boot gotcha, grid tearing. |
 | 2026-06-04 | claude (cc-director session) | v2.1: sixth shape captured from a LIVE real work session - the multi-select checklist ("pick any that apply"). It broke the v2 contract: added selectionMode single/multiple + submit send. New findings: a session can be blocking-on-a-question AND actively working simultaneously; grids tear even while parked on a question; transcript-blind holds at 424 widgets. |
+| 2026-06-05 | claude (cc-director session) | v2.2: additive contract extension for the Cockpit session story panel - `headline` (the session's newspaper headline: re-judged every turn, kept verbatim unless the story materially changed, "since turn N" computed by walking stored briefs) and `turnTitle` (<= 8 words, the turn-card header). Old briefs without the fields render via fallback (headline -> intent, turnTitle -> first did bullet). Companion (outside this contract): GET /sessions/{sid}/usage - per-session token totals + per-turn deltas computed mechanically from the transcript JSONL's usage blocks. |
+| 2026-06-05 | claude (cc-director session) | v2.3: the CHAPTER model (Soren's design: reduce cognitive load - the story column must scan in seconds). `headline` re-defined as the current chapter's title: WHAT the session is working on, never how; the wingman may refine its wording as the same work drifts. New `newChapter` bool: the EXPLICIT chapter boundary, wingman judgment - never string comparison (several turns share a chapter; the same title may recur as a later chapter; first stored title mechanically starts chapter 1; degrade tiers never set it). Cockpit renders CHAPTERS as collapsed title-only cards (expand for turn rows, expand a row for the full turn description); pre-v2.3 briefs group by title-change fallback. Headline tightened to <= 6 words / 60 chars. |

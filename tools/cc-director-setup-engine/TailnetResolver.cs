@@ -45,4 +45,14 @@ public static class TailnetResolver
             ? $"http://<your-tailnet-host>:{port}"
             : $"http://{host}:{port}";
     }
+
+    /// <summary>
+    /// The ONE URL: the Gateway's Tailscale Serve front door (https://&lt;host&gt;/), which serves
+    /// the Cockpit through the fallback proxy (docs/plans/one-url-cockpit.md).
+    /// </summary>
+    public static string FrontDoorUrl()
+    {
+        var host = HostName();
+        return host is null ? "https://<your-tailnet-host>/" : $"https://{host}/";
+    }
 }

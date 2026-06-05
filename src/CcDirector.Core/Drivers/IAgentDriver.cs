@@ -26,6 +26,15 @@ public enum DriverCapabilities
     /// <summary>The tool accepts a caller-chosen session id at launch (claude's
     /// --session-id), so the transcript location is known from birth.</summary>
     PreassignedSessionId = 8,
+
+    /// <summary>The tool survives a hard interrupt keystroke (Ctrl+C) without dying -
+    /// distinct from <see cref="Cancel"/>'s soft turn-abort.</summary>
+    Interrupt = 16,
+
+    /// <summary>The tool has an in-terminal history/rewind picker (claude's double-Esc
+    /// "jump to a previous message"). A VISIBLE-terminal feature: only meaningful when
+    /// a human is watching the rendered terminal.</summary>
+    History = 32,
 }
 
 /// <summary>
@@ -58,6 +67,14 @@ public interface IAgentDriver
 
     /// <summary>Abort the current turn (capability <see cref="DriverCapabilities.Cancel"/>).</summary>
     Task CancelAsync(ISessionBackend backend);
+
+    /// <summary>Hard interrupt (capability <see cref="DriverCapabilities.Interrupt"/>) -
+    /// Ctrl+C for every terminal CLI verified so far. Stronger than CancelAsync.</summary>
+    Task InterruptAsync(ISessionBackend backend);
+
+    /// <summary>Open the tool's in-terminal history/rewind picker (capability
+    /// <see cref="DriverCapabilities.History"/>) - claude's double-Esc.</summary>
+    Task ShowHistoryAsync(ISessionBackend backend);
 
     /// <summary>Reset the conversation context in place (capability
     /// <see cref="DriverCapabilities.ClearContext"/>). The host is responsible for

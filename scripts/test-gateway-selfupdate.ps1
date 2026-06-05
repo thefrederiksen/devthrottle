@@ -1,26 +1,25 @@
 <#
 .SYNOPSIS
-  Live test of the Gateway self-update mechanism against a THROWAWAY service.
+  Live test of the Gateway self-update mechanism against a THROWAWAY tray instance.
 
 .DESCRIPTION
-  Exercises GatewaySelfUpdate end to end (stop -> swap -> start -> /healthz -> auto-rollback) on a
-  disposable service named (by default) cc-gw-selfupdate-test on an alternate port. It NEVER touches
-  the live cc-gateway-service or its ports. Run as Administrator.
+  Exercises the process-based self-update end to end (POST /shutdown -> swap -> relaunch ->
+  /healthz -> auto-rollback) on a disposable Gateway instance on an alternate port. It NEVER
+  touches the live Gateway (7878) or Cockpit (7470): the throwaway runs with
+  CC_GATEWAY_NO_TAILSCALE=1 (no serve-mapping writes), --no-autostart (no Run-key write),
+  and never --managed (no Cockpit supervision). No elevation needed.
 
   Two checks:
    1. Happy path: stage a good build, expect it to swap in and stay healthy (outcome Updated, exit 0).
    2. Rollback path: simulate a bad build by pointing the helper's health probe at a DEAD port, so the
       new build "fails" health and the helper rolls back to the previous build (outcome RolledBack,
-      exit 1) - the test service is healthy again afterward and the bad version is pinned.
+      exit 1) - the throwaway instance is healthy again afterward.
 
-  Builds the Gateway from current source (self-contained) so the exe has the --apply-service-update
-  mode. Cleans up the throwaway service and temp files at the end.
+  Builds the Gateway tray app from current source so the exe has the --apply-update mode.
+  Cleans up the throwaway processes and temp files at the end.
 
 .PARAMETER Port
-  Alternate port the throwaway service binds (default 7899 - NOT the live 7878/7470).
-
-.PARAMETER Service
-  Throwaway service name (default cc-gw-selfupdate-test).
+  Alternate port the throwaway instance binds (default 7899 - NOT the live 7878/7470).
 
 .EXAMPLE
   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\test-gateway-selfupdate.ps1
@@ -28,8 +27,7 @@
 [CmdletBinding()]
 param(
     [int]$Port = 7899,
-    [int]$DeadPort = 7898,
-    [string]$Service = 'cc-gw-selfupdate-test'
+    [int]$DeadPort = 7897
 )
 
 $ErrorActionPreference = 'Continue'
@@ -37,11 +35,23 @@ $repo = Split-Path -Parent $PSScriptRoot
 $work = Join-Path $env:TEMP ("cc-gwsu-" + [Guid]::NewGuid().ToString('N'))
 $installed = Join-Path $work 'installed\cc-director-gateway.exe'
 $staged    = Join-Path $work 'staged\cc-director-gateway.exe'
+$runArgs   = "--port $Port --no-autostart"
+
+# The throwaway must never touch the live Tailscale serve mappings; children inherit this.
+$env:CC_GATEWAY_NO_TAILSCALE = '1'
+
+function Stop-Throwaway {
+    # Only processes running from OUR temp dir - never the live Gateway.
+    Get-Process -Name cc-director-gateway -ErrorAction SilentlyContinue |
+        Where-Object { $_.Path -like "$work*" } |
+        ForEach-Object { try { $_.Kill() } catch {} }
+}
 
 function Cleanup {
-    & sc.exe stop $Service   2>$null | Out-Null
+    try { Invoke-WebRequest "http://127.0.0.1:$Port/shutdown" -Method POST -UseBasicParsing -TimeoutSec 3 | Out-Null } catch {}
     Start-Sleep -Seconds 2
-    & sc.exe delete $Service 2>$null | Out-Null
+    Stop-Throwaway
+    Start-Sleep -Seconds 1
     if (Test-Path $work) { Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
@@ -53,9 +63,9 @@ function Healthy([int]$p, [int]$tries = 15) {
     return $false
 }
 
-Write-Output "=== building Gateway from current source (self-contained) ==="
+Write-Output "=== building Gateway tray app from current source ==="
 $pub = Join-Path $work 'publish'
-& dotnet publish "$repo\src\CcDirector.Gateway\CcDirector.Gateway.csproj" -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o $pub --nologo | Out-Null
+& dotnet publish "$repo\src\CcDirector.GatewayApp\CcDirector.GatewayApp.csproj" -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o $pub --nologo | Out-Null
 $built = Join-Path $pub 'cc-director-gateway.exe'
 if (-not (Test-Path $built)) { Write-Output "FAILED: gateway build not found at $built"; Cleanup; exit 1 }
 
@@ -65,31 +75,40 @@ Copy-Item $built $installed -Force
 Copy-Item $built $staged -Force
 
 try {
-    Write-Output "=== registering throwaway service '$Service' on port $Port ==="
-    & sc.exe create $Service binPath= "`"$installed`" --port $Port" start= demand obj= LocalSystem | Out-Null
-    & sc.exe start $Service | Out-Null
-    if (-not (Healthy $Port)) { Write-Output "FAILED: throwaway service did not come up on $Port"; Cleanup; exit 1 }
-    Write-Output "[OK] throwaway service healthy on $Port"
+    Write-Output "=== starting throwaway Gateway on port $Port ==="
+    Start-Process -FilePath $installed -ArgumentList $runArgs -WorkingDirectory (Split-Path $installed)
+    if (-not (Healthy $Port)) { Write-Output "FAILED: throwaway Gateway did not come up on $Port"; Cleanup; exit 1 }
+    Write-Output "[OK] throwaway Gateway healthy on $Port"
 
     # --- Happy path: good staged build, real health port -> Updated ---
+    # NOT `& ... | Out-Null` (children inherit the stdout pipe -> hangs until the relaunched
+    # gateway exits) and NOT Start-Process -Wait (PS 5.1 waits for the whole process TREE,
+    # which includes the relaunched gateway). .WaitForExit() waits for the helper alone.
     Write-Output "=== TEST 1 (happy): apply staged build, health on $Port ==="
-    & $staged --apply-service-update --service $Service --target $installed --port $Port --new-version 9.9.9
-    $rc1 = $LASTEXITCODE
+    $hp = Start-Process -FilePath $staged -ArgumentList "--apply-update --target `"$installed`" --port $Port --new-version 9.9.9 --args `"$runArgs`"" -PassThru
+    $hp.WaitForExit()
+    $rc1 = $hp.ExitCode
     $h1 = Healthy $Port
     Write-Output ("  exit={0}  healthy={1}  (expect exit 0, healthy true)" -f $rc1, $h1)
 
     # --- Rollback path: health probe points at a DEAD port -> new build 'unhealthy' -> RolledBack ---
+    # NOTE: --port steers BOTH the shutdown POST and the health probe, so the stop request must
+    # still reach the real instance; we pass the real port for relaunch args but the dead port to
+    # the helper's probe by shutting the instance down ourselves first.
     Write-Output "=== TEST 2 (rollback): apply staged build, health on DEAD port $DeadPort ==="
-    & $staged --apply-service-update --service $Service --target $installed --port $DeadPort --new-version 9.9.8
-    $rc2 = $LASTEXITCODE
-    $h2 = Healthy $Port   # after rollback the service runs the previous build on the real port again
+    try { Invoke-WebRequest "http://127.0.0.1:$Port/shutdown" -Method POST -UseBasicParsing -TimeoutSec 3 | Out-Null } catch {}
+    Start-Sleep -Seconds 2
+    $hp2 = Start-Process -FilePath $staged -ArgumentList "--apply-update --target `"$installed`" --port $DeadPort --new-version 9.9.8 --args `"$runArgs`"" -PassThru
+    $hp2.WaitForExit()
+    $rc2 = $hp2.ExitCode
+    $h2 = Healthy $Port   # after rollback the previous build relaunches with the REAL port args
     Write-Output ("  exit={0}  healthy-after-rollback={1}  (expect exit 1, healthy true)" -f $rc2, $h2)
 
     Write-Output ""
     if ($rc1 -eq 0 -and $h1 -and $rc2 -ne 0 -and $h2) {
         Write-Output "RESULT: PASS - self-update applies a healthy build and auto-rolls-back an unhealthy one."
     } else {
-        Write-Output "RESULT: FAIL - see the values above and %ProgramData%\cc-director\logs."
+        Write-Output "RESULT: FAIL - see the values above and %LOCALAPPDATA%\cc-director\logs."
     }
 }
 finally {

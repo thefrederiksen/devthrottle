@@ -1,0 +1,80 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="CcDirector.GatewayApp.SettingsWindow"
+        Title="CC Director Gateway"
+        Width="480" Height="460"
+        CanResize="False"
+        WindowStartupLocation="CenterScreen"
+        RequestedThemeVariant="Dark"
+        Background="#1E1E1E">
+
+  <DockPanel Margin="20">
+
+    <!-- Header -->
+    <StackPanel DockPanel.Dock="Top" Spacing="2">
+      <TextBlock Text="CC Director Gateway" FontSize="18" FontWeight="SemiBold" Foreground="#CCCCCC"/>
+      <TextBlock x:Name="VersionText" Text="" FontSize="11" Foreground="#888888"/>
+    </StackPanel>
+
+    <!-- Footer buttons -->
+    <DockPanel DockPanel.Dock="Bottom" Margin="0,16,0,0">
+      <Button x:Name="CloseButton" DockPanel.Dock="Right" Content="Close"
+              Background="#007ACC" Foreground="#FFFFFF" Padding="16,6" CornerRadius="2"/>
+      <StackPanel Orientation="Horizontal" Spacing="8">
+        <Button x:Name="OpenLogsButton" Content="Open Logs"
+                Background="#3C3C3C" Foreground="#CCCCCC" Padding="12,6" CornerRadius="2"/>
+        <Button x:Name="OpenConfigButton" Content="Open Config"
+                Background="#3C3C3C" Foreground="#CCCCCC" Padding="12,6" CornerRadius="2"/>
+      </StackPanel>
+    </DockPanel>
+
+    <!-- Body -->
+    <StackPanel Spacing="16" Margin="0,18,0,0">
+
+      <!-- Status panel -->
+      <Border Background="#252526" CornerRadius="3" Padding="14">
+        <StackPanel Spacing="10">
+          <TextBlock Text="STATUS" FontSize="11" FontWeight="SemiBold" Foreground="#888888"/>
+          <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" >
+            <Grid.Styles>
+              <Style Selector="TextBlock.label">
+                <Setter Property="FontSize" Value="12"/>
+                <Setter Property="Foreground" Value="#AAAAAA"/>
+                <Setter Property="Margin" Value="0,0,0,6"/>
+              </Style>
+              <Style Selector="TextBlock.value">
+                <Setter Property="FontSize" Value="12"/>
+                <Setter Property="Foreground" Value="#CCCCCC"/>
+                <Setter Property="Margin" Value="0,0,0,6"/>
+              </Style>
+            </Grid.Styles>
+            <TextBlock Grid.Row="0" Grid.Column="0" Classes="label" Text="State"/>
+            <TextBlock Grid.Row="0" Grid.Column="1" Classes="value" x:Name="StateText" Text="..."/>
+            <TextBlock Grid.Row="1" Grid.Column="0" Classes="label" Text="Port"/>
+            <TextBlock Grid.Row="1" Grid.Column="1" Classes="value" x:Name="PortText" Text="..."/>
+            <TextBlock Grid.Row="2" Grid.Column="0" Classes="label" Text="Uptime"/>
+            <TextBlock Grid.Row="2" Grid.Column="1" Classes="value" x:Name="UptimeText" Text="..."/>
+            <TextBlock Grid.Row="3" Grid.Column="0" Classes="label" Text="Directors"/>
+            <TextBlock Grid.Row="3" Grid.Column="1" Classes="value" x:Name="DirectorsText" Text="..."/>
+            <TextBlock Grid.Row="4" Grid.Column="0" Classes="label" Text="Cockpit"/>
+            <TextBlock Grid.Row="4" Grid.Column="1" Classes="value" x:Name="CockpitText" Text="..."/>
+            <TextBlock Grid.Row="5" Grid.Column="0" Classes="label" Text="Mode"/>
+            <TextBlock Grid.Row="5" Grid.Column="1" Classes="value" x:Name="ModeText" Text="..."/>
+          </Grid>
+        </StackPanel>
+      </Border>
+
+      <!-- Startup -->
+      <Border Background="#252526" CornerRadius="3" Padding="14">
+        <StackPanel Spacing="10">
+          <TextBlock Text="STARTUP" FontSize="11" FontWeight="SemiBold" Foreground="#888888"/>
+          <CheckBox x:Name="AutostartCheck" Foreground="#CCCCCC" FontSize="12"
+                    Content="Start the Gateway when I log in"/>
+          <TextBlock Text="Registers a Run entry under HKCU; the Gateway runs in your session so its agents run as you."
+                     FontSize="10" Foreground="#666666" TextWrapping="Wrap"/>
+        </StackPanel>
+      </Border>
+
+    </StackPanel>
+  </DockPanel>
+</Window>

@@ -1,109 +1,149 @@
-# Gateway Tray App - Implementation Plan
+# Gateway Tray App - v2: the tray app becomes THE Gateway (service retired)
 
-**Status:** Draft for review
-**Date:** 2026-05-24
-**Related:** [Gateway-Manager-Implementation.md](Gateway-Manager-Implementation.md), `src/CcDirector.Gateway/`
+**Status:** v2 PLAN agreed 2026-06-05 (Soren + agent), not built.
+**History:** v1 (2026-05-24, below this was originally written) built the tray app
+as `CcDirector.GatewayApp` (#140). The first-install work (2026-06-01) then moved
+the shipped Gateway to a native LocalSystem Windows service (first-install.md
+decision D1) and the tray app was shelved, unshipped. v2 reverses that: the tray
+app is promoted to the one shipped Gateway host and the service retires.
+**Supersedes:** decision D1 in docs/plans/first-install.md.
+**Blocks:** the Gateway-hosted Agent Brain and the Gateway Turn Brief agent
+(docs/plans/agent-brain.md follow-up; docs/architecture/wingman/TURN_BRIEFING.md;
+handover #173). Those need claude.exe running AS THE USER - this switch is what
+makes that true.
 
 ---
 
-## 1. Problem
+## 1. Why the service must go (decided, with reasoning)
 
-The gateway today is a foreground **console app** (`cc-director-gateway`, `OutputType=Exe`).
-Someone has to start it in a terminal and keep that window open. That is not sustainable
-for a process that is meant to always be running whenever the user is logged in.
+The Gateway is becoming the smart layer of the fleet: it will host a warm headless
+claude session (the Agent Brain) that stamps a Turn Brief for every turn. That
+claude must authenticate with Soren's Max OAuth credentials, which live in
+`%USERPROFILE%\.claude` - the USER's profile.
 
-A Windows Service is the wrong model: the gateway (and CC Director itself) depends on the
-logged-in user session - the user must be logged in for any of this to work. A service
-running under `svchost`/SYSTEM gains nothing and complicates the lifecycle.
+The shipped Gateway runs as `cc-gateway-service`, a LocalSystem service
+(`GatewayServiceCommands.cs: obj= LocalSystem`). LocalSystem has no claude
+credentials and lives in session 0 - the exact unverified context issue #172
+deferred. Alternatives weighed 2026-06-05:
 
-## 2. Solution
+- **Service under Soren's account:** requires the Windows password at install;
+  a later password change makes the service silently fail at next start (logon
+  failure) until re-entered. Rejected: silent time bomb.
+- **LocalSystem + redirecting claude's config dir to the user profile:**
+  fallback-flavored hack (ownership, ACLs, divergent transcript paths). Rejected.
+- **Tray app in the user session, started at logon:** claude runs as Soren with
+  zero ceremony. The fleet is already logon-bound (Directors are desktop apps),
+  so the service's only advantage - running before logon - protects a state
+  where everything the Gateway serves is dead anyway. **Chosen.**
 
-Wrap the existing gateway host in a small **Avalonia tray app** (system tray / notification
-area icon, lower-right of the taskbar). It runs quietly in the background, starts on login,
-and is never really "closed" - closing minimizes to the tray; only an explicit Quit stops it.
+Accepted cost: after a reboot the Gateway is down until logon. Mitigation:
+Windows' "use my sign-in info to finish setting up after an update" relaunches
+startup apps after patch reboots.
 
-This is a lifecycle swap, not a rewrite. The gateway is already cleanly factored:
+## 2. What already exists (the head start)
 
-- `GatewayHost` (`src/CcDirector.Gateway/GatewayHost.cs`) is a self-contained
-  `IAsyncDisposable` with `StartAsync()` / `StopAsync()`.
-- `Program.cs` does nothing but new up `GatewayHost`, start it, and block on Ctrl+C.
+`src/CcDirector.GatewayApp/` (#140, builds against current tree, NOT shipped):
 
-The tray app replaces "block on Ctrl+C" with "block on the Avalonia app lifetime, owning
-the same `GatewayHost`."
+- Avalonia tray app hosting `GatewayHost` in-process - so Cockpit supervision,
+  Director registry, comm queue, recordings, every REST endpoint come for free.
+- Tray menu: status line, Open Dashboard (tailnet), Open Cockpit (tailnet),
+  Open Logs Folder, Restart Gateway, Quit. Tailnet-only URLs by design.
+- `Autostart.cs`: idempotent HKCU Run-key registration (per-user, correct scope).
+- Session-scoped single-instance mutex; port-conflict diagnosis (distinguishes
+  "another gateway", "foreign app on port", "bind failed").
+- `Assets/tray.ico` from #140.
 
-## 3. Design decisions (agreed)
+What ships today instead: `CcDirector.Gateway` console exe registered via
+`sc create ... obj= LocalSystem` by `GatewayServiceInstaller`, self-updating via
+`GatewaySelfUpdate` with `sc stop/start` callbacks.
 
-| Decision | Choice |
-|---|---|
-| Hosting model | Wrap gateway in ONE process. Avalonia shell hosts `GatewayHost` in-process. |
-| UI framework | Avalonia (matches CC Director; built-in `TrayIcon` + `NativeMenu`). |
-| Autostart | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` registry entry, registered idempotently on first run. |
-| Single instance | Enforced via a named mutex. Second launch surfaces the existing instance and exits. |
-| Console exe | Kept. `cc-director-gateway` (headless console) stays for debug/CI/scripts. Both reference the same `GatewayHost`. |
-| Status window | Deferred. v1 is tray icon + right-click menu only. |
+## 3. Phase 1 - Promote the tray app to THE Gateway host
 
-## 4. Scope
+1. **Revive and verify.** Build `CcDirector.GatewayApp` against current
+   `GatewayHost`; run it; confirm Cockpit supervision (7470), /healthz, Director
+   registration, comm queue, recordings behave identically to the service.
+   (Note: full-solution builds are currently blocked by a running dev Gateway
+   holding bin\ file locks - Soren closes that process first.)
+2. **New identity.** New Gateway application icon + matching tray icon
+   (VisualStyle.md). The Gateway gets its own look, distinct from the Director.
+3. **Settings window.** Avalonia window from the tray menu ("Settings...").
+   v1 deliberately small:
+   - Status panel: lockstep version (+sha), port, uptime, registered Director
+     count, Cockpit state.
+   - Autostart toggle (wraps `Autostart.EnsureRegistered`/`Unregister`).
+   - Open logs / open config shortcuts.
+   Laid out to grow tabs later - Agent Brain controls land here next.
+4. **CLAUDE.md rules throughout:** responsive UI (<100ms feedback, async I/O),
+   enterprise logging on every public method, no fallbacks, tests.
 
-### In scope (v1)
-- New project `CcDirector.GatewayApp` - Avalonia, `OutputType=WinExe` (no console window flash).
-- Hosts `GatewayHost` in-process on a background task at startup.
-- Tray icon with status dot (running / stopped) and a right-click menu.
-- `ShutdownMode = OnExplicitShutdown` so closing a window never kills the process.
-- Named-mutex single-instance guard.
-- Idempotent `HKCU\...\Run` autostart registration.
-- Clean `StopAsync()` on Quit.
+## 4. Phase 2 - Installer / updater switch
 
-### Out of scope (later)
-- Status window (double-click the tray icon -> port, token, Tailscale state, log tail, director count).
-- "Start on login" toggle UI (the Run key is written unconditionally in v1).
-- Retiring the console exe.
+**No backward compatibility (Soren, 2026-06-05): the service Gateway has no real
+install base. The installer simply switches to the tray app; service code is
+DELETED, not migrated.** The only service instance anywhere is the dev one on
+soren-north - removed by hand once (`sc stop` + `sc delete cc-gateway-service`,
+delete the old install dir), not by product code.
 
-## 5. Tray menu (v1)
+1. **Install location (D-TRAY-1, locked):** `%LOCALAPPDATA%\cc-director\gateway\`.
+   Install AND self-update run unelevated - same model as the Director. The
+   elevated `setup-cli install --role gateway` requirement disappears entirely.
+2. **Engine:** `GatewayServiceInstaller` -> `GatewayTrayInstaller`:
+   copy exe -> write HKCU Run key -> start tray app -> /healthz probe.
+   `GatewayServiceCommands` (sc.exe builder) is deleted.
+3. **Self-update rework.** Keep staged-copy + .old rollback + health-probe +
+   bad-version pinning (`GatewaySelfUpdate`); swap service callbacks for process
+   ones: detached updater (`--apply-update`) asks the running tray app to exit
+   gracefully (shutdown endpoint; the single-instance mutex release confirms
+   exit), swaps the exe, relaunches, probes /healthz, rolls back + pins on
+   failure.
+4. **release.yml:** the gateway asset becomes the published `CcDirector.GatewayApp`
+   WinExe. Keep the existing asset name (`cc-director-gateway-win-x64.exe`) -
+   with no install base there is no in-the-wild service updater to protect, and
+   reusing the name means ComponentRegistry and create-release barely change.
+5. **Uninstaller:** quit tray app, remove Run key, delete install dir.
+6. **Reference sweep.** 23 files reference `cc-gateway-service`; each is updated
+   or deleted. Notables:
+   - `scripts/deploy-cockpit.ps1` (Stop-Service) -> tray-model deploy (graceful
+     stop via REST/process, swap Cockpit zip, restart).
+   - `scripts/install-gateway-service.ps1`, `grant-service-control.ps1`,
+     `redeploy-gateway.ps1`, `verify-gateway.ps1`, `test-gateway-selfupdate.ps1`
+     -> rewritten for the tray model or deleted.
+   - `CcDirector.Avalonia/MainWindow.axaml.cs` error text ("Is the
+     cc-gateway-service running...") -> tray wording.
+   - `CcDirector.Gateway/Program.cs`: console mode stays for dev (`dotnet run`);
+     the `AddWindowsService` branch and the `--apply-service-update` path are
+     deleted now (no installed service will ever invoke them).
+   - Docs: INSTALLATION.md, first-install.md (mark D1 superseded),
+     auto-update-scope.md, install-autoupdate-test-procedure.md.
+7. **Tests:** `GatewayAndPinsTests` sc-command expectations replaced by
+   tray-installer tests; self-update tests get process-based fakes; engine +
+   Gateway.Tests green.
 
-```
-[*] Gateway running on :7878      (status line, green/red dot)
-    Open Dashboard                (launches Tailscale HTTPS URL, or http://127.0.0.1:7878)
-    Open Logs Folder              (opens %LOCALAPPDATA%\cc-director\logs\gateway)
-    Restart Gateway               (StopAsync -> StartAsync)
-    ----
-    Quit                          (StopAsync, then app shutdown)
-```
+## 5. Phase 3 - Verify live
 
-## 6. Implementation steps
+1. On soren-north: hand-remove the dev service (`sc stop` + `sc delete
+   cc-gateway-service`, delete old install dir), run the unelevated tray
+   install; verify from the PHONE over the tailnet (Cockpit 7470 + gateway
+   front door). No localhost verification.
+2. Logoff/logon: tray auto-starts, gateway up, Cockpit supervised.
+3. Self-update cycle: stage old, update to new, health-verify; force a bad build
+   to prove rollback + pinning still work in the process model.
+4. Tray menu Quit/Restart behave; second launch hits the mutex, logs, exits.
+5. Enable "use my sign-in info to finish setting up after an update" on
+   soren-north so patch reboots come back without manual logon.
 
-1. **Create `CcDirector.GatewayApp`** Avalonia project (`WinExe`, `net10.0`),
-   referencing `CcDirector.Gateway`. Add to the solution.
-2. **App lifecycle** (`App.axaml` / `App.axaml.cs`):
-   - `ShutdownMode = OnExplicitShutdown`.
-   - On framework init: named-mutex guard; if already held, exit (optionally signal the
-     running instance to open the dashboard).
-   - Start `GatewayHost` on a background task; log start/failure via `FileLog`.
-3. **Tray icon + `NativeMenu`** with the menu above. Wire each item:
-   - Open Dashboard - resolve the best URL (Tailscale serve URL if present, else loopback)
-     and `Process.Start` it with `UseShellExecute = true`.
-   - Open Logs Folder - open the gateway log directory.
-   - Restart - `await StopAsync(); await StartAsync();` with status-dot update.
-   - Quit - `await StopAsync();` then `Shutdown()`.
-4. **Status dot** reflects host state (green when listening, red when stopped/failed).
-5. **Autostart**: write `HKCU\...\Run\CcDirectorGateway` = exe path on startup if missing
-   (idempotent; overwrite if the path changed).
-6. **Build/distribution**: add a build target/script so the tray exe lands alongside the
-   other artifacts. Decide install location (likely `%LOCALAPPDATA%\cc-director\bin` or the
-   app install dir).
-7. **Console exe untouched**: `cc-director-gateway` keeps working as-is.
+## 6. Out of scope (next plans, in order)
 
-## 7. Tests
+1. AgentBrain rework: REST-to-a-Director client -> in-process claude hosting
+   (ConPty + direct JSONL) so the Gateway owns its warm session outright.
+   Depends on this plan.
+2. Gateway Turn Brief agent on the reworked brain; Director push doorbell +
+   heartbeat; rawState/assessedState two-owner model (TURN_BRIEFING.md, #173).
+3. Director-side brief pipeline deletion.
 
-- Unit: autostart registry writer (idempotent; updates on path change). Mutex guard logic.
-- Unit/integration: tray app starts `GatewayHost` and `/healthz` responds; Quit calls
-  `StopAsync` and releases the port.
-- Manual: login autostart works; double-launch surfaces the single instance; closing any
-  window leaves the tray icon running.
+## 7. Decisions log
 
-## 8. Open questions
-
-- Install location for the tray exe and who writes the Run key (the app itself on first
-  run, or the setup tool `cc-director-setup-avalonia`)?
-- Icon asset: reuse a CC Director icon or a distinct gateway icon for the tray?
-- Should Restart also re-assert Tailscale serve mappings (it already does via
-  `GatewayHost.StartAsync` -> provisioner)?
+- **D-TRAY-1 (locked 2026-06-05):** gateway install dir is
+  `%LOCALAPPDATA%\cc-director\gateway` - fully unelevated lifecycle.
+- **No backward compatibility (locked 2026-06-05):** no install base exists; the
+  installer switches outright, service code is deleted, asset name is reused.

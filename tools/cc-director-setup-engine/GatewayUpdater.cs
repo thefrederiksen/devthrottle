@@ -5,10 +5,11 @@ namespace CcDirector.Setup.Engine;
 
 /// <summary>
 /// Drives a Gateway self-update: decide if a newer Gateway exe is available, stage it (download +
-/// verify) to a stable path, and launch the detached helper (the staged exe in
-/// <c>--apply-service-update</c> mode) that performs the stop -> swap -> start -> health -> rollback
-/// (<see cref="GatewaySelfUpdate"/>). The helper runs from the STAGED copy so the installed exe is free
-/// to overwrite once the service stops. Refresh-only and pin-aware.
+/// verify) to a stable path, and launch the detached helper (the staged exe in <c>--apply-update</c>
+/// mode) that performs the stop -> swap -> relaunch -> health -> rollback
+/// (<see cref="GatewaySelfUpdate"/>). The helper runs from the STAGED copy so the installed exe is
+/// free to overwrite once the running tray app exits. Refresh-only and pin-aware. Everything is
+/// per-user (no elevation): the Gateway is a tray app under %LOCALAPPDATA%.
 /// </summary>
 public sealed class GatewayUpdater
 {
@@ -20,7 +21,7 @@ public sealed class GatewayUpdater
     }
 
     /// <summary>The staging path the new Gateway exe is downloaded to before the swap.</summary>
-    public string StagedExePath => Path.Combine(_layout.ServiceStateDir, "staged", "cc-director-gateway.exe");
+    public string StagedExePath => Path.Combine(_layout.StateDir, "staged", "cc-director-gateway.exe");
 
     /// <summary>True when the release has a Gateway newer than the installed one (and it isn't pinned).</summary>
     public bool IsUpdateAvailable(ResolvedRelease release)
@@ -56,7 +57,7 @@ public sealed class GatewayUpdater
             if (!Hashing.Sha256Matches(downloaded, asset.Sha256))
                 throw new InvalidOperationException("Gateway asset SHA-256 mismatch; not staging.");
 
-            Directory.CreateDirectory(Path.GetDirectoryName(StagedExePath) ?? _layout.ServiceStateDir);
+            Directory.CreateDirectory(Path.GetDirectoryName(StagedExePath) ?? _layout.StateDir);
             File.Copy(downloaded, StagedExePath, overwrite: true);
             EngineLog.Write($"[GatewayUpdater] staged Gateway {asset.Version} -> {StagedExePath}");
             return (StagedExePath, asset.Version);
@@ -69,11 +70,10 @@ public sealed class GatewayUpdater
 
     /// <summary>
     /// Launch the detached helper that applies the staged update. It runs from the staged exe (not the
-    /// installed one), so it survives the service stopping and can overwrite the installed exe. Runs as
-    /// whatever account the caller has - inside the LocalSystem service, no UAC.
+    /// installed one), so it survives the running tray app exiting and can overwrite the installed exe.
     /// </summary>
     [SupportedOSPlatform("windows")]
-    public Process LaunchDetachedUpdater(string stagedExePath, string newVersion, string serviceName = GatewayServiceCommands.ServiceName)
+    public Process LaunchDetachedUpdater(string stagedExePath, string newVersion, int port = GatewayTrayInstaller.GatewayDefaultPort)
     {
         var target = _layout.PathFor(ComponentRegistry.Gateway);
         var psi = new ProcessStartInfo
@@ -82,13 +82,13 @@ public sealed class GatewayUpdater
             UseShellExecute = false,
             CreateNoWindow = true,
         };
-        psi.ArgumentList.Add("--apply-service-update");
+        psi.ArgumentList.Add("--apply-update");
         psi.ArgumentList.Add("--new-version");
         psi.ArgumentList.Add(newVersion);
         psi.ArgumentList.Add("--target");
         psi.ArgumentList.Add(target);
-        psi.ArgumentList.Add("--service");
-        psi.ArgumentList.Add(serviceName);
+        psi.ArgumentList.Add("--port");
+        psi.ArgumentList.Add(port.ToString());
 
         var p = Process.Start(psi) ?? throw new InvalidOperationException("Failed to launch the Gateway self-update helper.");
         EngineLog.Write($"[GatewayUpdater] launched detached updater pid={p.Id} for {newVersion}");

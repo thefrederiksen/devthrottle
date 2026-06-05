@@ -23,82 +23,53 @@ the Workstation role.
 | Role | What it installs | Admin needed? |
 |------|------------------|---------------|
 | **Workstation** | Director app + CLI tools, entirely per-user | No - never |
-| **Gateway** | Everything a Workstation installs, PLUS the always-on Gateway service and the Cockpit it supervises | Yes, ONCE (first install only) |
+| **Gateway** | Everything a Workstation installs, PLUS the Gateway tray app (starts at logon) and the Cockpit it supervises | No - never |
 
 There is exactly one Gateway on a tailnet; it is usually someone's main
-workstation, not a headless box. A Gateway machine therefore has BOTH a per-user
-Workstation install (for the interactive user) AND the machine-wide service.
+workstation, not a headless box. The Gateway is a **per-user tray app** that
+starts at logon and runs in the user's session - NOT a Windows service
+(decision history: docs/plans/gateway-tray-app.md). It runs in the user's
+session because everything it serves is logon-bound (Directors are desktop
+apps) and because its hosted agents (claude.exe) must authenticate as the user.
 
 ### The admin question, answered
 
-Admin is required **exactly once, ever** - and only for the Gateway:
-
-- A **Workstation** install is 100% per-user under `%LOCALAPPDATA%\cc-director`.
-  It needs **no administrator rights at all** - install, update, and rollback all
-  run unelevated (including from a cloud / CI session).
-- A **Gateway** install needs administrator rights **once**, at first install
-  only: to write the service binaries under `%ProgramFiles%\CC Director` and
-  register the `cc-gateway-service` Windows service (LocalSystem).
-- **Every update after that needs no admin.** The Gateway service runs as
-  LocalSystem, which already owns its `%ProgramFiles%\CC Director` files, so it
-  swaps its own binary (and the Cockpit's) and restarts itself with no UAC.
-
-**Why updates are safe without admin:** the privileged service updates its own
-files. We do NOT place service-executed binaries anywhere a standard user can
-overwrite them - that would be a privilege-escalation hole. Machine-wide binaries
-live in Program Files (standard users cannot write there); only the already-
-privileged service modifies them.
+Admin is required **never**. Both roles are 100% per-user under
+`%LOCALAPPDATA%\cc-director`: install, update, rollback, and uninstall all run
+unelevated (including from a cloud / CI session). The Gateway tray app swaps its
+own binary (and the Cockpit's) and relaunches itself with no UAC because
+everything it touches is user-writable by design.
 
 ---
 
 ## 2. Where everything is placed (canonical)
 
-Three roots, by trust level. Nothing lives anywhere else. (`C:\cc-tools` is
-retired and must not be used.)
+One per-user root. Nothing lives anywhere else. (`C:\cc-tools`,
+`%ProgramFiles%\CC Director`, and `%ProgramData%\cc-director` are retired and
+must not be used.)
 
-### 2.1 Per-user - `%LOCALAPPDATA%\cc-director\` (no admin, ever)
+### Per-user - `%LOCALAPPDATA%\cc-director\` (no admin, ever)
 
-`%LOCALAPPDATA%` = `C:\Users\<you>\AppData\Local`. This is the Workstation
-install; everything here installs and auto-updates with zero UAC (the same reason
-Chrome, VS Code, and Teams install per-user).
+`%LOCALAPPDATA%` = `C:\Users\<you>\AppData\Local`. Everything here installs and
+auto-updates with zero UAC (the same reason Chrome, VS Code, and Teams install
+per-user).
 
 | Path | Contents |
 |------|----------|
 | `app\cc-director.exe` | The Director desktop app (in-place self-update by the user) |
 | `bin\<tool>.exe` | CLI tools (cc-pdf, cc-html, cc-word, ...), added to the USER PATH |
+| `gateway\cc-director-gateway.exe` | The Gateway tray app (Gateway role only; starts at logon via the HKCU Run key `CcDirectorGateway`, runs with `--managed`) |
+| `cockpit\cc-director-cockpit.exe` | The Cockpit, supervised as a child of the Gateway tray app (Gateway role only) |
 | `config\` | Per-user app configuration (`config\config.json`) |
 | `config\setup\update-pins.json` | Rollback pins (versions to skip) |
+| `state\` | Setup/update scratch state (e.g. the staged Gateway exe during self-update) |
 | `vault\` | The user's personal data store |
-| `logs\` | Director + `setup-cli.log` |
+| `logs\` | Director + Gateway + `setup-cli.log` |
 
 Generated output documents land in `%USERPROFILE%\Documents\cc-director\`.
 
-### 2.2 Machine-wide service binaries - `%ProgramFiles%\CC Director\` (admin once)
-
-`%ProgramFiles%` = `C:\Program Files`. Gateway role only. Written once at first
-install (elevated); thereafter modified only by the LocalSystem service.
-
-| Path | Contents |
-|------|----------|
-| `gateway\cc-director-gateway.exe` | The Gateway service binary (`cc-gateway-service`, runs as LocalSystem) |
-| `cockpit\cc-director-cockpit.exe` | The Cockpit, supervised as a child of the Gateway service |
-
-### 2.3 Machine-wide data - `%ProgramData%\cc-director\` (all users)
-
-`%ProgramData%` = `C:\ProgramData`. Gateway role only. Shared, all-users-readable
-service data, written by the LocalSystem service. **Data only - never
-executables**, and ACL'd so standard users cannot write it.
-
-| Path | Contents |
-|------|----------|
-| `config\` | Gateway/service configuration |
-| `state\` | Service runtime state |
-| `logs\` | Gateway + Cockpit service logs |
-
-The Gateway serves the primary interactive user's personal `vault\`, which stays
-per-user under `%LOCALAPPDATA%`. The service reaches it via the `CC_DIRECTOR_ROOT`
-environment variable (pointed at that user's per-user root). Personal data is
-never copied into a machine-wide location.
+The Gateway serves the same user's personal `vault\` directly - same user, same
+root, no environment-variable indirection needed.
 
 ---
 
@@ -131,14 +102,16 @@ nothing else is behind, so nothing else moves.
 
 ### Cadence: silent and non-disruptive
 
-- Updates are silent and automatic. No banner, no prompt, no UAC after the first
-  install.
-- Resident apps orchestrate: the Director (while open) and the Gateway service
-  (always) periodically run the engine's "update all present components" routine.
+- Updates are silent and automatic. No banner, no prompt, no UAC - ever.
+- Resident apps orchestrate: the Director (while open) and the Gateway tray app
+  (in managed mode) periodically run the engine's "update all present components"
+  routine.
 - Applied so live work is never killed: the Director stages the new build and
   swaps it on next startup; a tool binary not currently running is replaced in
-  place and the next invocation picks it up; the Gateway service swaps and
-  restarts itself.
+  place and the next invocation picks it up; the Gateway tray app stages the new
+  build, exits gracefully (POST /shutdown from the detached helper), swaps, and
+  relaunches itself - with /healthz verification and auto-rollback + pin if the
+  new build does not come up.
 
 ### Each swap keeps a backup
 
@@ -172,21 +145,20 @@ The installer detects whichever is present and, if none is found, prints the
 install link and exits with a distinct "prerequisite missing" code (3). It never
 runs the framework's own installer.
 
-No .NET runtime prerequisite: the Director, Gateway, and Cockpit all ship
-self-contained (the runtime is bundled in each release asset), so a clean machine
-needs nothing installed beyond the agent framework above. The CLI tools are
-self-contained PyInstaller exes for the same reason.
+.NET runtime: the Director and Gateway ship framework-dependent (they need the
+.NET 10 runtime; the installer detects it and guides via winget when missing).
+The Cockpit ships self-contained inside its zip.
 
-A Gateway-role install has two extra requirements, checked up front and failed
+A Gateway-role install has one extra requirement, checked up front and failed
 loudly (never half-installed):
 
-- It must run **elevated** - it writes `%ProgramFiles%\CC Director` and registers
-  the `cc-gateway-service` Windows service. The WPF wizard requests this with a
-  single UAC prompt by shelling the elevated CLI; from a shell, run the install
-  from an Administrator console.
-- **`OPENAI_API_KEY`** must be set in the user environment - the Gateway service
-  needs it to start. The installer reads it at install time and injects it into the
-  service environment.
+- **`OPENAI_API_KEY`** must be set in the user environment - the Gateway needs
+  it to start (`setx OPENAI_API_KEY "sk-..."`). The tray app runs in the user's
+  session and inherits the user environment directly.
+
+No elevation: the Gateway is a per-user tray app; the installer extracts the
+Cockpit, starts the tray app with `--managed`, and the app registers its own
+HKCU Run-key autostart.
 
 ---
 
@@ -215,8 +187,6 @@ Common options:
 | `--component <id\|all>` | Limit an update to one component |
 | `--tools <id,id,...>` | Override the tool set |
 | `--root <dir>` | Override the per-user root (`%LOCALAPPDATA%\cc-director`) - testing |
-| `--program-files <dir>` | Override the service binaries root (`%ProgramFiles%\CC Director`) - testing |
-| `--program-data <dir>` | Override the service data root (`%ProgramData%\cc-director`) - testing |
 | `--dry-run` | Plan only; do not download or apply |
 | `--json` | Machine-readable output (for agents) |
 
@@ -276,11 +246,13 @@ the product ships to external users.
 
 ## 8. References
 
-- Plan / design decisions: `docs/plans/install-autoupdate.md`
+- Plan / design decisions: `docs/plans/install-autoupdate.md`,
+  `docs/plans/gateway-tray-app.md` (Gateway = tray app, service retired)
 - Engine source: `tools/cc-director-setup-engine/`
 - CLI source: `tools/cc-director-setup-cli/`
 - Release pipeline: `.github/workflows/release.yml`
-- Gateway service: `scripts/install-gateway-service.ps1`, `scripts/deploy-cockpit.ps1`
+- Gateway scripts: `scripts/verify-gateway.ps1`, `scripts/deploy-cockpit.ps1`,
+  `scripts/redeploy-gateway.ps1`, `scripts/test-gateway-selfupdate.ps1`
 
 > Reminder: this file is the master spec (see the banner at top). When you change
 > install behavior, change THIS document first, then make the code match it.

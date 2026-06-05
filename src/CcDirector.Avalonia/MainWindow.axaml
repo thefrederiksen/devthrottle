@@ -902,6 +902,11 @@
                         BorderBrush="#3C3C3C" BorderThickness="0,1,0,0"
                         Padding="8,6"
                         IsVisible="False">
+                  <StackPanel Spacing="6">
+                    <!-- Driver-capability action buttons (Stop / Interrupt / Clear
+                         context / History) - rendered from the active session's
+                         agent-driver flags, see Controls/SessionActionBar. -->
+                    <controls:SessionActionBar x:Name="ActionBar" />
                     <Panel>
                         <Grid ColumnDefinitions="*,Auto">
                             <TextBox x:Name="PromptInput"
@@ -1086,6 +1091,7 @@
                             </Border>
                         </Popup>
                     </Panel>
+                  </StackPanel>
                 </Border>
             </Grid>
 

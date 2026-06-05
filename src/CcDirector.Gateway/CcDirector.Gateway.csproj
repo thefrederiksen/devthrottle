@@ -3,7 +3,12 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
-    <AssemblyName>cc-director-gateway</AssemblyName>
+    <!-- The shipped Gateway exe name (cc-director-gateway) belongs to the TRAY app
+         (CcDirector.GatewayApp). This project is the gateway library + dev console host. -->
+    <AssemblyName>CcDirector.Gateway</AssemblyName>
+    <!-- Framework-dependent always, so the tray app (also framework-dependent) can publish
+         single-file while referencing this project (NETSDK1151 otherwise). -->
+    <SelfContained>false</SelfContained>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
@@ -12,9 +17,9 @@
 
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
-    <!-- Lets the Gateway run as a first-class Windows service (SCM integration) without NSSM.
-         A no-op when launched from a console, so dev `dotnet run` is unchanged. -->
-    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.0" />
+    <!-- Direct HTTP forwarding (IHttpForwarder) for the one-URL front door: every request no
+         explicit Gateway endpoint claims falls through to the loopback Cockpit. -->
+    <PackageReference Include="Yarp.ReverseProxy" Version="2.2.0" />
   </ItemGroup>
 
   <ItemGroup>
@@ -29,13 +34,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="Web\manager.html" />
+    <!-- The Gateway serves NO UI (one-URL plan: docs/plans/one-url-cockpit.md). Every page
+         lives in the Cockpit; only the token login page remains here. -->
     <EmbeddedResource Include="Web\login.html" />
-    <EmbeddedResource Include="Web\directory.html" />
-    <EmbeddedResource Include="Web\api.html" />
-    <EmbeddedResource Include="Web\transcripts.html" />
-    <EmbeddedResource Include="Web\dictionary.html" />
-    <EmbeddedResource Include="Web\exes.html" />
   </ItemGroup>
 
 </Project>

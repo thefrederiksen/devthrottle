@@ -1,5 +1,6 @@
 using CcDirector.Cockpit.Components;
 using CcDirector.Cockpit.Services;
+using Microsoft.AspNetCore.HttpOverrides;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -29,7 +30,23 @@ builder.Services.AddHttpClient<DirectorClient>(c =>
     c.Timeout = TimeSpan.FromSeconds(150);
 });
 
+// ONE URL (docs/plans/one-url-cockpit.md): the Cockpit sits behind the Gateway's loopback
+// fallback proxy. Honor the X-Forwarded headers it sends so generated URLs carry the
+// public Tailscale scheme/host, trusting only loopback as the proxy.
+builder.Services.Configure<ForwardedHeadersOptions>(o =>
+{
+    o.ForwardedHeaders = ForwardedHeaders.XForwardedFor
+                       | ForwardedHeaders.XForwardedProto
+                       | ForwardedHeaders.XForwardedHost;
+    o.KnownProxies.Clear();
+    o.KnownProxies.Add(System.Net.IPAddress.Loopback);
+    o.KnownProxies.Add(System.Net.IPAddress.IPv6Loopback);
+    o.KnownIPNetworks.Clear();
+});
+
 var app = builder.Build();
+
+app.UseForwardedHeaders();
 
 if (!app.Environment.IsDevelopment())
 {
@@ -38,6 +55,23 @@ if (!app.Environment.IsDevelopment())
 
 app.UseStaticFiles();
 app.UseAntiforgery();
+
+// Static tool pages that moved over from the Gateway (one-URL plan). They are plain
+// HTML+JS apps fetching the Gateway's REST with same-origin paths, which works because
+// the browser's origin is the Gateway front door for both the pages and the API.
+// Served through WebRootFileProvider (NOT a physical path): the static-web-assets
+// manifest resolves wwwroot correctly in dev, bin-run, and publish alike.
+IResult ServePage(string name)
+{
+    var file = app.Environment.WebRootFileProvider.GetFileInfo($"pages/{name}");
+    if (!file.Exists)
+        throw new InvalidOperationException($"Tool page missing from wwwroot: pages/{name}");
+    return Results.File(file.CreateReadStream(), "text/html; charset=utf-8");
+}
+app.MapGet("/exes", () => ServePage("exes.html"));
+app.MapGet("/transcripts", () => ServePage("transcripts.html"));
+app.MapGet("/dictionary", () => ServePage("dictionary.html"));
+app.MapGet("/voice", () => Results.Redirect("/transcripts"));
 
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();

@@ -63,14 +63,7 @@ public static class Program
     private static InstallLayout ResolveLayout(CliArgs args)
     {
         var root = args.Option("root");
-        var programFiles = args.Option("program-files");
-        var programData = args.Option("program-data");
-        if (root is null && programFiles is null && programData is null) return InstallLayout.Default();
-        var def = InstallLayout.Default();
-        return new InstallLayout(
-            root ?? def.LocalRoot,
-            programFiles ?? def.ProgramFilesRoot,
-            programData ?? def.ProgramDataRoot);
+        return root is null ? InstallLayout.Default() : new InstallLayout(root);
     }
 
     private static void WireConsoleTee(string? logFile)
@@ -143,8 +136,6 @@ public static class Program
               --component <id|all>           Limit update to one component (default all)
               --tools <id,id,...>            Override the tool set
               --root <dir>                   Override the per-user root %LOCALAPPDATA%\cc-director (testing)
-              --program-files <dir>          Override the service binaries root %ProgramFiles%\CC Director (testing)
-              --program-data <dir>           Override the service data root %ProgramData%\cc-director (testing)
               --dry-run                      Plan only; do not download or apply
               --json                         Machine-readable output
               --log-file <path>              Also write console output to this file (live progress)

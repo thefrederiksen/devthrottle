@@ -16,7 +16,20 @@ public static class GatewayAppOptions
     /// <summary>When true, register the HKCU Run-key autostart entry on startup. --no-autostart disables.</summary>
     public static bool RegisterAutostart { get; set; } = true;
 
-    /// <summary>Parse the supported flags: --port N, --no-autostart.</summary>
+    /// <summary>
+    /// Installed mode (--managed): supervise the Cockpit web app and run the periodic
+    /// self-update check. Off by default so a dev launch never fights the installed
+    /// Gateway for the Cockpit port or self-updates a repo build.
+    /// </summary>
+    public static bool Managed { get; set; }
+
+    /// <summary>Open the Settings window immediately on startup (--settings). Debug/QA convenience.</summary>
+    public static bool OpenSettingsOnStart { get; set; }
+
+    /// <summary>The arguments equivalent to the current options, for the autostart Run key.</summary>
+    public static string? AutostartArguments() => Managed ? "--managed" : null;
+
+    /// <summary>Parse the supported flags: --port N, --no-autostart, --managed, --settings.</summary>
     public static void Parse(string[] args)
     {
         for (int i = 0; i < args.Length; i++)
@@ -29,6 +42,14 @@ public static class GatewayAppOptions
             else if (args[i] == "--no-autostart")
             {
                 RegisterAutostart = false;
+            }
+            else if (args[i] == "--managed")
+            {
+                Managed = true;
+            }
+            else if (args[i] == "--settings")
+            {
+                OpenSettingsOnStart = true;
             }
         }
     }

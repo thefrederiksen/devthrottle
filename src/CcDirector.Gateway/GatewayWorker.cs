@@ -1,15 +1,14 @@
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Cockpit;
-using CcDirector.Setup.Engine;
 using Microsoft.Extensions.Hosting;
 
 namespace CcDirector.Gateway;
 
 /// <summary>
-/// Hosts the Gateway's Kestrel host and the Cockpit supervisor inside the generic host so the
-/// process integrates with the Windows Service Control Manager (start/stop) when launched as the
-/// <c>cc-gateway-service</c> Windows service. When run from a console (dev <c>dotnet run</c>), the
-/// generic host's console lifetime drives the same Start/Stop, so behavior is identical.
+/// Hosts the Gateway's Kestrel host (plus the env-gated Cockpit supervisor) inside the generic
+/// host for the DEV console loop (<c>dotnet run</c>, Ctrl+C to stop). The shipped Gateway is the
+/// tray app (CcDirector.GatewayApp), which owns Cockpit supervision and self-update in managed
+/// mode; this host deliberately has neither.
 /// </summary>
 public sealed class GatewayWorker : BackgroundService
 {
@@ -27,22 +26,22 @@ public sealed class GatewayWorker : BackgroundService
         FileLog.Write($"[GatewayWorker] ExecuteAsync: port={_port}");
 
         _host = new GatewayHost(_port);
+        // /shutdown support so the self-update flow is testable against a dev console gateway.
+        _host.OnShutdownRequested = () =>
+        {
+            FileLog.Write("[GatewayWorker] shutdown requested via /shutdown");
+            _ = StopAsync(CancellationToken.None).ContinueWith(_ => Environment.Exit(0));
+        };
         await _host.StartAsync();
 
-        // Supervise the Cockpit UI (production only). Inert unless CC_COCKPIT_MANAGED=1, which the
-        // service installer sets; in dev the developer runs the Cockpit themselves.
+        // Inert unless CC_COCKPIT_MANAGED=1 is set explicitly; in dev the developer runs the
+        // Cockpit themselves (dotnet run) for hot reload/debugging.
         _cockpit = CockpitSupervisor.FromEnvironment();
         _cockpit.Start();
 
         FileLog.Write($"[GatewayWorker] running on http://127.0.0.1:{_host.Port}");
 
-        // Periodic machine-tier auto-update: check for a newer Gateway and, if found, launch the
-        // detached self-update helper (stop -> swap -> start -> health -> auto-rollback). A Gateway
-        // self-update restarts the service, so the Cockpit picks up its update on relaunch too. Runs
-        // alongside the host; failures only log.
-        _ = RunUpdateLoopAsync(stoppingToken);
-
-        // Stay alive until the host signals shutdown (SCM stop, Ctrl+C, or ProcessExit).
+        // Stay alive until the host signals shutdown (Ctrl+C or ProcessExit).
         try
         {
             await Task.Delay(Timeout.Infinite, stoppingToken);
@@ -50,38 +49,6 @@ public sealed class GatewayWorker : BackgroundService
         catch (OperationCanceledException)
         {
             // expected on shutdown
-        }
-    }
-
-    private static async Task RunUpdateLoopAsync(CancellationToken ct)
-    {
-        var layout = InstallLayout.Default();
-        // Let the service settle before the first check; never compete with startup.
-        try { await Task.Delay(TimeSpan.FromMinutes(2), ct); } catch (OperationCanceledException) { return; }
-
-        while (!ct.IsCancellationRequested)
-        {
-            var cfg = AutoUpdateConfig.Load(layout);
-            if (cfg.Enabled && OperatingSystem.IsWindows())
-            {
-                try
-                {
-                    var source = new ReleaseSource();
-                    var release = await source.FetchLatestAsync(ct);
-                    var version = await new GatewayUpdater(layout).CheckStageAndLaunchAsync(release, source, ct);
-                    if (version is not null)
-                    {
-                        FileLog.Write($"[GatewayWorker] launched Gateway self-update to {version}; service will restart");
-                        return; // the detached helper will stop/swap/start this service
-                    }
-                }
-                catch (Exception ex)
-                {
-                    FileLog.Write($"[GatewayWorker] update check failed: {ex.Message}");
-                }
-            }
-            try { await Task.Delay(cfg.Enabled ? cfg.Interval : TimeSpan.FromHours(1), ct); }
-            catch (OperationCanceledException) { break; }
         }
     }
 

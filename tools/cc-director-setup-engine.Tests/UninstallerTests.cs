@@ -12,7 +12,7 @@ public class UninstallerTests : IDisposable
     {
         _dir = Path.Combine(Path.GetTempPath(), "cc-uninstall-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_dir);
-        _layout = new InstallLayout(Path.Combine(_dir, "local"), Path.Combine(_dir, "pf"), Path.Combine(_dir, "pd"));
+        _layout = new InstallLayout(Path.Combine(_dir, "local"));
     }
 
     public void Dispose()
@@ -21,7 +21,7 @@ public class UninstallerTests : IDisposable
     }
 
     [Fact]
-    public void Plan_Workstation_TargetsAppBinPathShortcut_NotGatewayOrService()
+    public void Plan_Workstation_TargetsAppBinPathShortcut_NotGatewayOrAutostart()
     {
         var plan = new Uninstaller(_layout).Plan(InstallRole.Workstation);
         var dirs = plan.Where(t => t.Kind == UninstallKind.Directory).Select(t => t.Path).ToList();
@@ -30,23 +30,24 @@ public class UninstallerTests : IDisposable
         Assert.Contains(_layout.BinDir, dirs);
         Assert.DoesNotContain(_layout.GatewayDir, dirs);
         Assert.DoesNotContain(_layout.CockpitDir, dirs);
-        Assert.DoesNotContain(plan, t => t.Kind == UninstallKind.Service);
+        Assert.DoesNotContain(plan, t => t.Kind == UninstallKind.Autostart);
         Assert.Contains(plan, t => t.Kind == UninstallKind.PathEntry);
         Assert.Contains(plan, t => t.Kind == UninstallKind.Shortcut);
     }
 
     [Fact]
-    public void Plan_Gateway_AddsServiceAndMachineDirs()
+    public void Plan_Gateway_AddsAutostartAndGatewayDirs()
     {
         var plan = new Uninstaller(_layout).Plan(InstallRole.Gateway);
         var dirs = plan.Where(t => t.Kind == UninstallKind.Directory).Select(t => t.Path).ToList();
 
-        Assert.Contains(plan, t => t.Kind == UninstallKind.Service);
+        if (OperatingSystem.IsWindows())
+            Assert.Contains(plan, t => t.Kind == UninstallKind.Autostart);
         Assert.Contains(_layout.GatewayDir, dirs);
         Assert.Contains(_layout.CockpitDir, dirs);
-        Assert.Contains(_layout.ServiceConfigDir, dirs);
-        Assert.Contains(_layout.ServiceStateDir, dirs);
-        Assert.Contains(_layout.ServiceLogsDir, dirs);
+        Assert.Contains(_layout.StateDir, dirs);
+        // Logs stay: they live with the user's other data under the root.
+        Assert.DoesNotContain(_layout.LogsDir, dirs);
     }
 
     [Fact]
@@ -83,7 +84,7 @@ public class UninstallerTests : IDisposable
     public void RemoveDirectories_NeverDeletesPerUserRoot()
     {
         // A pathological layout where bin == the root; the guard must refuse.
-        var bad = new InstallLayout(_layout.LocalRoot, _layout.ProgramFilesRoot, _layout.ProgramDataRoot);
+        var bad = new InstallLayout(_layout.LocalRoot);
         Directory.CreateDirectory(bad.LocalRoot);
         // Force a target equal to the root by checking the guard via AppDir? AppDir != root, so simulate
         // by asserting the guard logic indirectly: deleting AppDir leaves root intact.

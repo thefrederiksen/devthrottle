@@ -54,7 +54,7 @@ public sealed class PythonToolsInstallerTests : IDisposable
         File.WriteAllText(Path.Combine(releaseDir, "release-manifest.json"),
             $"{{\"version\":\"9.9.9\",\"assets\":{{{assetJson}}}}}");
 
-        var layout = new InstallLayout(Path.Combine(_root, "local"), Path.Combine(_root, "pf"), Path.Combine(_root, "pd"));
+        var layout = new InstallLayout(Path.Combine(_root, "local"));
         var release = ReleaseSource.LoadLocalReleaseDir(releaseDir);
         var installer = new PythonToolsInstaller(layout);
 

@@ -27,22 +27,38 @@ public sealed class GatewayHost : IAsyncDisposable
     public DirectorRegistry Registry { get; }
     public bool AuthEnabled { get; }
 
+    /// <summary>
+    /// Invoked when POST /shutdown is received (the self-update helper asking the running Gateway
+    /// to exit so its exe unlocks). The hosting process decides how to exit: the tray app stops the
+    /// host and shuts the Avalonia app down; the dev console host stops the generic host. When no
+    /// handler is set the endpoint answers 501 - it never half-stops the host on its own.
+    /// </summary>
+    public Action? OnShutdownRequested { get; set; }
+
     private readonly DirectorEndpointClient _client;
     private readonly TailscaleServeProvisioner _serveProvisioner;
     private WebApplication? _app;
     private bool _stopped;
 
+    private readonly int _cockpitProxyPort;
+
     /// <param name="instancesDirectory">
     /// Override the Director-discovery instances directory (see <see cref="DirectorRegistry"/>).
     /// Tests pass an isolated temp directory; production omits it for the shared default.
     /// </param>
-    public GatewayHost(int port = DefaultPort, string? token = null, bool authEnabled = false, string? instancesDirectory = null)
+    /// <param name="cockpitProxyPort">
+    /// Override the loopback port the fallback proxy forwards to (one-URL plan). Tests pass
+    /// a dead port so they never reach a real Cockpit running on the dev machine; production
+    /// omits it for <see cref="Cockpit.CockpitSupervisor.ResolvePort"/>.
+    /// </param>
+    public GatewayHost(int port = DefaultPort, string? token = null, bool authEnabled = false, string? instancesDirectory = null, int? cockpitProxyPort = null)
     {
         Port = port;
         Token = token ?? GatewayAuth.LoadOrCreate();
         Registry = new DirectorRegistry(instancesDirectory);
         AuthEnabled = authEnabled;
         _client = new DirectorEndpointClient(Token);
+        _cockpitProxyPort = cockpitProxyPort ?? Cockpit.CockpitSupervisor.ResolvePort();
         _serveProvisioner = new TailscaleServeProvisioner(Registry, Port, Cockpit.CockpitSupervisor.ResolvePort());
     }
 
@@ -78,6 +94,8 @@ public sealed class GatewayHost : IAsyncDisposable
         builder.Logging.ClearProviders();
         builder.Logging.SetMinimumLevel(LogLevel.Warning);
         builder.Services.AddRoutingCore();
+        // Direct forwarding for the one-URL front door (CockpitProxy fallback route).
+        builder.Services.AddHttpForwarder();
 
         // Honor X-Forwarded-Proto/Host/For from a Tailscale Serve front-end so
         // ctx.Request.Scheme reflects the public scheme the user actually used.
@@ -132,7 +150,11 @@ public sealed class GatewayHost : IAsyncDisposable
                 sw.Stop();
                 var path = ctx.Request.Path.Value ?? "";
                 if (!path.Equals("/healthz", StringComparison.OrdinalIgnoreCase)
-                    && !path.Equals("/favicon.ico", StringComparison.OrdinalIgnoreCase))
+                    && !path.Equals("/favicon.ico", StringComparison.OrdinalIgnoreCase)
+                    // Proxied Blazor plumbing (circuit + static assets) would flood the log.
+                    && !path.StartsWith("/_blazor", StringComparison.OrdinalIgnoreCase)
+                    && !path.StartsWith("/_framework", StringComparison.OrdinalIgnoreCase)
+                    && !path.StartsWith("/_content", StringComparison.OrdinalIgnoreCase))
                 {
                     var client = ctx.Connection.RemoteIpAddress?.ToString() ?? "?";
                     FileLog.Write($"[GatewayHost] {ctx.Request.Method} {path}{ctx.Request.QueryString} -> {ctx.Response.StatusCode} ({sw.ElapsedMilliseconds}ms) client={client} host={ctx.Request.Host}");
@@ -149,7 +171,18 @@ public sealed class GatewayHost : IAsyncDisposable
 
         // Product version stamped by Directory.Build.props; full form carries the commit SHA.
         var version = AppVersion.Full;
-        GatewayEndpoints.Map(_app, Registry, _client, version, Token, AuthEnabled);
+        GatewayEndpoints.Map(_app, Registry, _client, version, Token, AuthEnabled,
+            requestShutdown: () =>
+            {
+                var handler = OnShutdownRequested;
+                if (handler is null) return false;
+                handler();
+                return true;
+            });
+
+        // One URL: everything no explicit endpoint above claimed falls through to the
+        // loopback Cockpit (docs/plans/one-url-cockpit.md). Mapped LAST by design.
+        Cockpit.CockpitProxy.Map(_app, _cockpitProxyPort);
 
         await _app.StartAsync();
         FileLog.Write($"[GatewayHost] listening on http://127.0.0.1:{Port} (version {version})");

@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Gateway Tray App - Implementation QA Report</title>
+<style>
+        /* Boardroom Theme - Corporate, executive style with serif fonts */
+        
+        :root {
+            /* Colors */
+            --primary: #1A365D;
+            --primary-light: #2A4A7F;
+            --accent: #D69E2E;
+            --text: #2D3748;
+            --heading: #1A365D;
+            --background: #FFFFFF;
+            --code-bg: #EDF2F7;
+            --code-text: #1A365D;
+            --border: #CBD5E0;
+            --link: #2B6CB0;
+            --blockquote-text: #4A5568;
+            --blockquote-border: #D69E2E;
+            --blockquote-bg: #FFFFFF;
+            --table-header-bg: #1A365D;
+            --table-header-text: #FFFFFF;
+            --alt-row-bg: #F7FAFC;
+            --shadow-color: rgba(26, 54, 93, 0.08);
+        
+            /* Fonts */
+            --font-heading: "Palatino Linotype", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-body: "Georgia", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-code: "Courier New", "JetBrains Mono", "Fira Code", Consolas, monospace;
+        
+            /* Style */
+            --heading-letter-spacing: -0.02em;
+            --line-height: 1.7;
+            --radius: 4px;
+            --code-radius: 6px;
+            --shadow-sm: 0 1px 3px rgba(26, 54, 93, 0.08);
+            --shadow-md: 0 4px 12px rgba(26, 54, 93, 0.1);
+        }
+        
+        /* Base styles for all themes */
+        
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+        }
+        
+        html {
+            font-size: 16px;
+            line-height: var(--line-height);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: var(--font-body);
+            color: var(--text);
+            background: var(--background);
+        }
+        
+        .markdown-body {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 3rem 2.5rem;
+        }
+        
+        /* Typography */
+        h1, h2, h3, h4, h5, h6 {
+            font-family: var(--font-heading);
+            color: var(--heading);
+            margin-top: 1.8em;
+            margin-bottom: 0.6em;
+            font-weight: 600;
+            line-height: 1.25;
+            letter-spacing: var(--heading-letter-spacing);
+            orphans: 3;
+            widows: 3;
+        }
+        
+        h1 {
+            font-size: 2.25em;
+            margin-top: 0;
+        }
+        
+        h2 { font-size: 1.65em; }
+        h3 { font-size: 1.35em; }
+        h4 { font-size: 1.1em; }
+        h5 { font-size: 0.95em; }
+        h6 { font-size: 0.85em; color: var(--blockquote-text); }
+        
+        p {
+            margin: 1em 0;
+            orphans: 3;
+            widows: 3;
+        }
+        
+        /* Links */
+        a {
+            color: var(--link);
+            text-decoration: none;
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.2s ease;
+        }
+        
+        a:hover {
+            border-bottom-color: var(--link);
+        }
+        
+        /* Lists */
+        ul, ol {
+            margin: 1em 0;
+            padding-left: 2em;
+            line-height: var(--line-height);
+        }
+        
+        li {
+            margin: 0.35em 0;
+        }
+        
+        li > ul,
+        li > ol {
+            margin: 0.2em 0;
+        }
+        
+        /* Inline code */
+        code {
+            font-family: var(--font-code);
+            font-size: 0.875em;
+            padding: 0.15em 0.4em;
+            border-radius: var(--radius);
+            background: var(--code-bg);
+            color: var(--code-text);
+        }
+        
+        /* Code blocks */
+        pre {
+            margin: 1.5em 0;
+            padding: 1.25em 1.5em;
+            overflow-x: auto;
+            border-radius: var(--code-radius);
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow-sm);
+            position: relative;
+        }
+        
+        pre code {
+            padding: 0;
+            background: transparent;
+            border-radius: 0;
+            font-size: 0.875em;
+            line-height: 1.55;
+        }
+        
+        /* Blockquotes */
+        blockquote {
+            margin: 1.5em 0;
+            padding: 0.75em 1.25em;
+            border-left: 4px solid var(--blockquote-border);
+            background: var(--blockquote-bg);
+            color: var(--blockquote-text);
+            border-radius: 0 var(--radius) var(--radius) 0;
+        }
+        
+        blockquote p {
+            margin: 0.4em 0;
+        }
+        
+        blockquote p:first-child {
+            margin-top: 0;
+        }
+        
+        blockquote p:last-child {
+            margin-bottom: 0;
+        }
+        
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin: 1.5em 0;
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border);
+        }
+        
+        th, td {
+            padding: 0.75em 1em;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        th {
+            font-weight: 600;
+            background: var(--table-header-bg);
+            color: var(--table-header-text);
+        }
+        
+        tr:last-child td {
+            border-bottom: none;
+        }
+        
+        /* Horizontal rule */
+        hr {
+            border: none;
+            height: 2px;
+            max-width: 200px;
+            margin: 2.5em auto;
+            background: var(--border);
+            border-radius: 1px;
+        }
+        
+        /* Images */
+        img {
+            max-width: 100%;
+            height: auto;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        /* Task lists */
+        .task-list-item {
+            list-style-type: none;
+        }
+        
+        .task-list-item input[type="checkbox"] {
+            margin-right: 0.5em;
+        }
+        
+        /* Strong and emphasis */
+        strong {
+            font-weight: 700;
+        }
+        
+        /* Definition lists (if supported by parser) */
+        dt {
+            font-weight: 600;
+            margin-top: 1em;
+        }
+        
+        dd {
+            margin-left: 1.5em;
+            margin-bottom: 0.5em;
+        }
+        
+        
+        /* Boardroom: corporate authority with accent borders */
+        h1 {
+            border-bottom: 3px solid var(--accent);
+            padding-bottom: 0.5em;
+        }
+        
+        h2 {
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.3em;
+        }
+        
+        pre {
+            border-left: 4px solid var(--primary);
+            border-radius: 0 var(--code-radius) var(--code-radius) 0;
+        }
+        
+        pre::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--accent);
+            border-radius: 0;
+        }
+        
+        blockquote {
+            font-style: italic;
+        }
+        
+        hr {
+            background: var(--accent);
+            max-width: none;
+            height: 2px;
+        }
+        
+        tr:nth-child(even) td {
+            background: var(--alt-row-bg);
+        }
+        
+    </style>
+</head>
+<body>
+<article class="markdown-body">
+<h1>Gateway Tray App - Implementation QA Report</h1>
+<p><strong>Date:</strong> 2026-06-05
+        <strong>Plan:</strong> docs/plans/gateway-tray-app.md (v2)
+        <strong>Scope:</strong> The Gateway converted from a LocalSystem Windows service to a per-user
+        tray application. Service code deleted (no backward compatibility - no install
+        base). Everything per-user under <code>%LOCALAPPDATA%\cc-director</code>; no elevation
+        anywhere in the lifecycle.</p>
+<hr/>
+<h2>What was built</h2>
+<table>
+<thead>
+<tr>
+<th>Area</th>
+<th>Change</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>CcDirector.GatewayApp</code></td>
+<td>Promoted to THE Gateway (<code>AssemblyName cc-director-gateway</code>). Absorbs Cockpit supervision + the periodic self-update loop (managed mode). New <code>--managed</code>, <code>--settings</code> flags; port-scoped single-instance mutex.</td>
+</tr>
+<tr>
+<td>New icon</td>
+<td>New Gateway identity: accent-blue hub-and-spokes app icon + tray icon (replaces the Director-green chevron family).</td>
+</tr>
+<tr>
+<td>Settings window</td>
+<td>Avalonia, VisualStyle dark theme: live status (state/port/uptime/director count/Cockpit reachability/mode), autostart toggle (HKCU Run key), Open Logs / Open Config. Opens from tray menu, left-click, or <code>--settings</code>.</td>
+</tr>
+<tr>
+<td><code>GatewayHost</code></td>
+<td><code>OnShutdownRequested</code> hook + <code>POST /shutdown</code> endpoint (answers 200, then hands off; 501 when no handler).</td>
+</tr>
+<tr>
+<td>Self-update</td>
+<td><code>--apply-update</code> helper mode in the tray exe: POST /shutdown -&gt; exe-writability wait (the real exit barrier) -&gt; swap with <code>.old</code> backup -&gt; relaunch (<code>UseShellExecute=true</code>, no stdio inheritance) -&gt; /healthz -&gt; auto-rollback + version pin on failure. <code>GatewaySelfUpdate</code> delegates renamed (process, not service).</td>
+</tr>
+<tr>
+<td>Engine</td>
+<td><code>GatewayTrayInstaller</code> replaces <code>GatewayServiceInstaller</code> (Cockpit extract -&gt; OPENAI_API_KEY user-env check/write -&gt; start tray <code>--managed</code> -&gt; health + autostart verification). <code>GatewayAutostart</code> (shared HKCU Run-key helper). <code>GatewayServiceCommands</code> DELETED. <code>InstallLayout</code> reduced to ONE per-user root (ProgramFiles/ProgramData roots deleted). Uninstaller: stops installed tray/Cockpit (path-scoped), removes Run key + dirs.</td>
+</tr>
+<tr>
+<td>CLI / WPF wizard</td>
+<td>Gateway role: no elevation, no UAC; preflight = OPENAI_API_KEY only. <code>GatewayTrayLauncher</code> replaces the elevated handoff. Welcome step copy updated.</td>
+</tr>
+<tr>
+<td><code>CcDirector.Gateway</code></td>
+<td>Now the gateway library + DEV console host only (<code>AssemblyName CcDirector.Gateway</code>); <code>AddWindowsService</code> + <code>--apply-service-update</code> deleted; update loop removed (tray owns it).</td>
+</tr>
+<tr>
+<td>release.yml</td>
+<td><code>build-gateway-win</code> publishes <code>CcDirector.GatewayApp</code>; asset name unchanged (<code>cc-director-gateway-win-x64.exe</code>). Local single-file publish verified (33 MB framework-dependent WinExe).</td>
+</tr>
+<tr>
+<td>Scripts</td>
+<td><code>deploy-cockpit.ps1</code>, <code>redeploy-gateway.ps1</code>, <code>verify-gateway.ps1</code>, <code>test-gateway-selfupdate.ps1</code> rewritten for the tray model. <code>install-gateway-service.ps1</code>, <code>grant-service-control.ps1</code> DELETED.</td>
+</tr>
+<tr>
+<td>Docs</td>
+<td><a href="http://INSTALLATION.md">INSTALLATION.md</a> (master spec) rewritten to the one-root model; superseded banners on <a href="http://auto-update-scope.md">auto-update-scope.md</a>, <a href="http://install-autoupdate.md">install-autoupdate.md</a>, <a href="http://install-autoupdate-test-procedure.md">install-autoupdate-test-procedure.md</a>.</td>
+</tr>
+</tbody>
+</table>
+<h2>Test results</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Check</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>Engine tests (incl. new GatewayAutostart/TrayInstaller, single-root layout, uninstaller)</td>
+<td>PASS 107/107</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Gateway.Tests on HEAD + only-these-changes (isolated worktree graft)</td>
+<td>PASS 152/153 - the 1 failure (<code>ChatEndpointTests.RootPath_serves_cards_director</code>) also fails on PURE HEAD; pre-existing, unrelated</td>
+</tr>
+<tr>
+<td>3</td>
+<td>GatewayApp / CLI / WPF wizard / Gateway.Tests builds (Release)</td>
+<td>PASS, 0 warnings</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Single-file publish (release.yml command, run locally)</td>
+<td>PASS - <code>cc-director-gateway.exe</code> produced</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Live run (port 7899, <code>CC_GATEWAY_NO_TAILSCALE=1</code>)</td>
+<td>PASS - /healthz OK, saw the live fleet (3 Directors, 10 sessions)</td>
+</tr>
+<tr>
+<td>6</td>
+<td>Settings window live</td>
+<td>PASS - screenshot <code>settings-window.png</code>: version+sha, state, port, uptime, Director count, Cockpit reachability, mode, autostart toggle</td>
+</tr>
+<tr>
+<td>7</td>
+<td><code>POST /shutdown</code> graceful exit</td>
+<td>PASS - <code>{"shuttingDown":true}</code>, process exited</td>
+</tr>
+<tr>
+<td>8</td>
+<td>Self-update happy path (live, throwaway instance)</td>
+<td>PASS - outcome=Updated: stop -&gt; swap (<code>.old</code> kept) -&gt; relaunch -&gt; healthy on 9.9.9</td>
+</tr>
+<tr>
+<td>9</td>
+<td>Self-update rollback path (live, dead health port)</td>
+<td>PASS - exit=1 (RolledBack), instance healthy on the real port afterward</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Working-tree note:</strong> the shared checkout also carries ANOTHER session's in-flight
+        work (Director registration/heartbeat refactor: <code>GatewayClient.cs</code>,
+        <code>InstanceRegistration.cs</code>, rewritten Gateway test files). That session's suite
+        currently fails 46 tests on <code>OPENAI_API_KEY</code> in the full parallel run - confirmed
+        NOT caused by this work via the isolated-graft run in check #2.</p>
+<h2>Known limitations / follow-ups</h2>
+<ul>
+<li>The rollback live test simulates a bad build via a dead health port; the
+        rolled-back file swap under a crashed-at-startup build is covered by the
+        GatewaySelfUpdateTests unit fakes.</li>
+<li>The live machine (soren-north) still runs the OLD Program Files + service
+        install. Migration is manual (one elevated step), see below.</li>
+<li><code>docs/testing/install-autoupdate-test-procedure.md</code> needs a full rewrite on the
+        next clean-machine QA pass (banner added).</li>
+</ul>
+<h2>Migration of soren-north: DONE (2026-06-05)</h2>
+<p>Executed live, user-approved UAC for the one elevated step:</p>
+<ol>
+<li>Elevated: <code>sc stop</code> + <code>sc delete cc-gateway-service</code>; working Cockpit build
+        copied from Program Files into <code>%LOCALAPPDATA%\cc-director\cockpit</code>;
+        <code>C:\Program Files\CC Director</code> removed.</li>
+<li>Unelevated: published tray exe (built from HEAD f1daf1c + this work in an
+        isolated worktree, since the shared tree's Core was mid-edit by another
+        session) placed at <code>%LOCALAPPDATA%\cc-director\gateway</code>, started <code>--managed</code>.</li>
+<li><code>scripts/verify-gateway.ps1</code>: <strong>6/6 PASS</strong> - exe paths, autostart Run key
+        (<code>--managed</code>), tray process, /healthz (live fleet: 3 Directors), Cockpit
+        answering on 7470. Tailnet URLs resolved (<a href="http://soren-north.taildb08ed.ts.net">soren-north.taildb08ed.ts.net</a>).</li>
+</ol>
+<p>Leftover: <code>C:\ProgramData\cc-director</code> (old service logs) is ACL-locked and
+        needs one elevated delete if/when desired. Remaining user step: log off/on once
+        and re-run verify-gateway.ps1 to confirm logon autostart; check the Cockpit from
+        the phone.</p>
+<hr/>
+<h2>One URL: Cockpit behind the front door (same day, also DEPLOYED)</h2>
+<p>Plan: docs/plans/one-url-cockpit.md. Implemented and live:</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Check</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>Fallback proxy (YARP IHttpForwarder, <code>{*path}</code> pattern) Gateway -&gt; loopback Cockpit; explicit REST endpoints keep precedence</td>
+<td>PASS - /healthz + /sessions answer from the Gateway; everything else proxies</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Blazor circuit (WebSocket) through the proxy</td>
+<td>PASS - full Cockpit home live through :7899 and the tailnet front door (screenshot <code>cockpit-via-proxy.png</code>)</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Cards dashboard -&gt; Blazor <code>/fleet</code> page (machine groups, wingman status dots, rename, Open session, unreachable banner)</td>
+<td>PASS - live fleet data, styled (screenshot <code>fleet-page.png</code>)</td>
+</tr>
+<tr>
+<td>4</td>
+<td>exes/transcripts/dictionary moved to Cockpit-served pages (same paths; same-origin REST through the front door)</td>
+<td>PASS (screenshot <code>transcripts-via-proxy.png</code>)</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Gateway serves NO UI: directory/manager/api pages deleted; /voice redirect moved</td>
+<td>PASS - root test asserts the proxy fallback</td>
+</tr>
+<tr>
+<td>6</td>
+<td>Cockpit-down interstitial ("Cockpit starting...", auto-refresh, 503)</td>
+<td>PASS - verified by killing the test Cockpit</td>
+</tr>
+<tr>
+<td>7</td>
+<td>Tailscale: front door only; legacy :7470 mapping removed (provisioner cleanup)</td>
+<td>PASS - <code>tailscale serve status</code> shows only 443 -&gt; 7878 for cc-director</td>
+</tr>
+<tr>
+<td>8</td>
+<td>Tests</td>
+<td>Engine 107/107; GatewayDirectoryRegistration + CockpitParity 23/23 (incl. the new root-proxy test with an injectable dead cockpit port)</td>
+</tr>
+<tr>
+<td>9</td>
+<td>LIVE deploy</td>
+<td>PASS - new gateway exe + cockpit publish deployed to <code>%LOCALAPPDATA%</code>; <code>https://soren-north.taildb08ed.ts.net/{,fleet,exes,transcripts,healthz}</code> all 200 over the tailnet</td>
+</tr>
+</tbody>
+</table>
+<p>Gotchas recorded for posterity:</p>
+<ul>
+<li><code>MapFallback()</code> without a pattern uses <code>{*path:nonfile}</code> - it silently skips
+        file-like paths, 404ing every CSS/JS asset. Use <code>MapFallback("{*path}", ...)</code>.</li>
+<li>Scoped CSS (<code>.razor.css</code>) needs the <code>&lt;AssemblyName&gt;.styles.css</code> link in
+        App.razor - this project had never used CSS isolation before.</li>
+<li><code>WebRootFileProvider</code>, not physical wwwroot paths, for files served out of
+        wwwroot (works across dev / bin-run / publish).</li>
+</ul>
+<p>Phone bookmark change: the Cockpit is now just <code>https://soren-north.taildb08ed.ts.net/</code>
+        (the :7470 bookmark is dead); the Cards view lives at <code>/fleet</code>.</p>
+</article>
+</body>
+</html>

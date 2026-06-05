@@ -1,0 +1,153 @@
+/* The Cards dashboard, ported 1:1 from the Gateway's directory.html palette. */
+
+.fl-root {
+    min-height: 100vh;
+    background: #1e1e1e;
+    color: #dddddd;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 14px;
+}
+
+.fl-header {
+    padding: 10px 14px;
+    border-bottom: 1px solid #3c3c3c;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    background: #252526;
+    position: sticky; top: 0; z-index: 10;
+    flex-wrap: wrap;
+}
+.fl-header h1 { font-size: 14px; margin: 0; letter-spacing: 0.5px; font-weight: 700; }
+.fl-stats { color: #888888; font-size: 12px; }
+.fl-red { color: #ef4444; }
+.fl-yellow { color: #eab308; }
+.fl-spacer { flex: 1; }
+.fl-link {
+    color: #0e639c; text-decoration: none; font-size: 13px;
+    padding: 6px 10px; border-radius: 6px;
+}
+.fl-link:hover { background: rgba(14,99,156,0.15); }
+.fl-link-accent { background: #0e639c; color: white; font-weight: 600; }
+.fl-link-accent:hover { background: #1177bb; }
+
+.fl-main { padding: 16px 14px 40px; max-width: 1400px; margin: 0 auto; }
+
+.fl-error {
+    margin: 0 0 14px 0;
+    padding: 10px 12px;
+    background: rgba(244,71,71,0.10);
+    border: 1px solid rgba(244,71,71,0.4);
+    border-radius: 6px;
+    color: #ef4444;
+    font-size: 13px;
+}
+
+.fl-empty {
+    margin-top: 40px;
+    padding: 28px;
+    text-align: center;
+    color: #888888;
+    border: 1px dashed #3c3c3c;
+    border-radius: 8px;
+}
+.fl-empty-sub { color: #6a6a6a; font-size: 12px; }
+.fl-empty code {
+    background: #1e1e1e; padding: 2px 6px; border-radius: 3px;
+    color: #dddddd; font-family: "Cascadia Code", Consolas, monospace;
+}
+
+.fl-group { margin-bottom: 24px; }
+.fl-machine {
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 4px 8px 4px; margin-bottom: 10px;
+    border-bottom: 1px solid #3c3c3c;
+    color: #888888; font-size: 12px; letter-spacing: 0.3px;
+}
+.fl-mname { color: #dddddd; font-weight: 700; font-size: 13px; }
+.fl-muser, .fl-mcount { color: #6a6a6a; }
+.fl-munreachable { color: #ef4444; font-weight: 600; }
+
+.fl-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 12px;
+}
+.fl-card {
+    background: #252526;
+    border: 1px solid #3c3c3c;
+    border-radius: 8px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    transition: border-color 120ms;
+}
+.fl-card:hover { border-color: #6a6a6a; }
+.fl-card-head { display: flex; align-items: center; gap: 10px; }
+
+.fl-dot {
+    flex-shrink: 0;
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.06);
+    cursor: help;
+}
+.fl-dot.red { background: #ef4444; }
+.fl-dot.yellow { background: #eab308; }
+.fl-dot.green { background: #22c55e; }
+.fl-dot.blue { background: #3b82f6; }
+.fl-dot.purple { background: #a855f7; }
+.fl-dot.unknown { background: #6a6a6a; }
+
+.fl-title {
+    font-weight: 600; font-size: 14px; flex: 1; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    cursor: text;
+}
+.fl-title.fl-unnamed { color: #888888; font-style: italic; font-weight: 500; }
+.fl-pencil { opacity: 0; margin-left: 6px; color: #6a6a6a; font-size: 12px; transition: opacity 120ms; }
+.fl-card:hover .fl-pencil { opacity: 1; }
+
+.fl-name-edit {
+    background: #1e1e1e; color: #dddddd;
+    border: 1px solid #0e639c; border-radius: 4px;
+    padding: 2px 6px; font: inherit; font-weight: 600;
+    width: 100%; max-width: 240px; outline: none;
+}
+
+.fl-agent {
+    flex-shrink: 0;
+    background: #2d2d2e; color: #888888;
+    border: 1px solid #3c3c3c; border-radius: 10px;
+    padding: 2px 8px; font-size: 10px;
+    text-transform: capitalize; letter-spacing: 0.3px; font-weight: 600;
+}
+
+.fl-repo {
+    color: #888888; font-size: 12px;
+    font-family: "Cascadia Code", Consolas, monospace;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.fl-state-row {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 8px; color: #888888; font-size: 12px;
+}
+.fl-state { color: #dddddd; }
+.fl-idle { color: #6a6a6a; }
+
+.fl-open {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    margin-top: 2px;
+    background: #0e639c; color: white;
+    text-decoration: none;
+    padding: 8px 12px; border-radius: 6px;
+    font-size: 13px; font-weight: 600;
+    transition: background 120ms;
+}
+.fl-open:hover { background: #1177bb; }
+
+@media (max-width: 720px) {
+    .fl-cards { grid-template-columns: 1fr; }
+}

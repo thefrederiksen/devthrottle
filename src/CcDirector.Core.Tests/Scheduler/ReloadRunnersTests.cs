@@ -38,10 +38,9 @@ public sealed class ReloadRunnersTests : IDisposable
         s.RegisterRunner(Make("a"));
         s.RegisterRunner(Make("b"));
 
-        // Fire 'a' so it gets a real LastFiredAt. Generous wait: the fire runs a real
-        // `dotnet --version` subprocess, which can take several seconds on a loaded machine.
+        // Fire 'a' so it gets a real LastFiredAt.
         s.RunNow("a");
-        Assert.True(WaitFor(() => !s.GetSnapshot().Single(r => r.Name == "a").IsFiring, TimeSpan.FromSeconds(15)));
+        Assert.True(WaitFor(() => !s.GetSnapshot().Single(r => r.Name == "a").IsFiring, TimeSpan.FromSeconds(5)));
         var beforeReload = s.GetSnapshot().Single(r => r.Name == "a").LastFiredAtUtc;
         Assert.NotEqual(DateTime.MinValue, beforeReload);
 
@@ -58,7 +57,7 @@ public sealed class ReloadRunnersTests : IDisposable
         var s = new CommQueueScheduler(_fakeDbPath, _statePath);
         s.RegisterRunner(Make("existing"));
         s.RunNow("existing");
-        Assert.True(WaitFor(() => !s.GetSnapshot()[0].IsFiring, TimeSpan.FromSeconds(15)));
+        Assert.True(WaitFor(() => !s.GetSnapshot()[0].IsFiring, TimeSpan.FromSeconds(5)));
 
         s.ReloadRunners(new[] { Make("existing"), Make("brand-new") });
 

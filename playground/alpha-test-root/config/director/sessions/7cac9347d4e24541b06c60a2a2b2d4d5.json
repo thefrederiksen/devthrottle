@@ -1,0 +1,11 @@
+{
+  "Id": "7cac9347-d4e2-4541-b06c-60a2a2b2d4d5",
+  "CustomName": "cc-director - fixes",
+  "CustomColor": "#D97706",
+  "RepoPath": "D:\\ReposFred\\cc-director",
+  "ClaudeSessionId": "bf1b8fb8-3df9-425e-89ae-990fd71a0ad1",
+  "CreatedAt": "2026-02-25T00:03:31.4189318+00:00",
+  "LastUsedAt": "2026-02-26T17:29:15.4577542+00:00",
+  "FirstPromptSnippet": "Implement the following plan:  # CC Director Panel Segmentation Plan\r \r ## Summary\r \r Change the header from amber/orange to blue accent, and add always-visible 1px borders around all panels for bette\u2026",
+  "TurnSummaries": null
+}

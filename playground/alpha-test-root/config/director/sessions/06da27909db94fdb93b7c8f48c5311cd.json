@@ -1,0 +1,14 @@
+{
+  "Id": "06da2790-9db9-4fdb-93b7-c8f48c5311cd",
+  "CustomName": "cc_comunication_manager",
+  "CustomColor": null,
+  "RepoPath": "D:\\ReposFred\\cc_comunication_manager",
+  "ClaudeSessionId": "44e04bd4-4d62-4bd1-8829-338897eed5b3",
+  "CreatedAt": "2026-02-22T16:58:18.2258322+00:00",
+  "LastUsedAt": "2026-02-22T17:05:14.8365294+00:00",
+  "FirstPromptSnippet": null,
+  "TurnSummaries": [
+    "Located and executed the cc_comunication_manager build and run batch file at D:\\ReposFred\\cc_comunication_manager\\run.bat, which compiles the .NET application and starts the service.",
+    ""
+  ]
+}
