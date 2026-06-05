@@ -226,6 +226,8 @@ public sealed class ControlApiHost : IAsyncDisposable
         DictationEndpoint.Map(_app, _sessionManager.Options);
         TerminalStreamEndpoint.Map(_app, _sessionManager);
         TurnBriefEndpoints.Map(_app, _sessionManager, turnBriefing.Store);
+        SessionUsageEndpoint.Map(_app, _sessionManager);
+        ClaudeTranscriptsEndpoint.Map(_app);
         SettingsEndpoint.Map(_app, ReapplyGatewayAsync, () => Port);
         ToolsEndpoint.Map(_app);
         WorkspacesEndpoint.Map(_app);

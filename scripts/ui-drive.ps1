@@ -11,7 +11,10 @@ param(
     [int]$SelectSessionIndex = -1,
     [string]$InvokeAutomationId,
     [string]$InvokeName,
-    [string]$ToggleAutomationId
+    [string]$ToggleAutomationId,
+    [string]$SetTextAutomationId,
+    [string]$Text,
+    [string]$ReadAutomationId
 )
 
 Add-Type -AssemblyName UIAutomationClient
@@ -85,6 +88,24 @@ if ($ToggleAutomationId) {
     $tog = $el.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
     $tog.Toggle()
     Write-Output "TOGGLED $ToggleAutomationId"
+}
+
+if ($SetTextAutomationId) {
+    $el = Find-ByAutomationId $win $SetTextAutomationId
+    if (-not $el) { Write-Output "AutomationId '$SetTextAutomationId' not found"; exit 1 }
+    $val = $el.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+    $val.SetValue($Text)
+    Write-Output "SET_TEXT $SetTextAutomationId len=$($Text.Length)"
+}
+
+if ($ReadAutomationId) {
+    $el = Find-ByAutomationId $win $ReadAutomationId
+    if (-not $el) { Write-Output "AutomationId '$ReadAutomationId' not found"; exit 1 }
+    # Inputs expose text via ValuePattern; TextBlocks expose it as Name.
+    $txt = $null
+    try { $txt = $el.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).Current.Value } catch {}
+    if ($null -eq $txt -or $txt -eq "") { $txt = $el.Current.Name }
+    Write-Output "READ ${ReadAutomationId}: $txt"
 }
 
 Write-Output "OK"

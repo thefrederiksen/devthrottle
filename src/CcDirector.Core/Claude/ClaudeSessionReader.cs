@@ -66,6 +66,27 @@ public static class ClaudeSessionReader
     }
 
     /// <summary>
+    /// List the repo's transcript FILES (newest first) straight from the projects
+    /// directory. This is the authoritative source for "which claude session ids exist
+    /// right now": sessions-index.json (which /claude-sessions is built from) is written
+    /// lazily by claude.exe and lags behind reality - in particular it does NOT yet
+    /// contain the transcript /clear just created, which external brain drivers need to
+    /// relink to (issue #172).
+    /// </summary>
+    public static List<(string ClaudeSessionId, DateTime LastWriteUtc)> ListTranscripts(string repoPath)
+    {
+        FileLog.Write($"[ClaudeSessionReader] ListTranscripts: repo={repoPath}");
+        var projectFolder = GetProjectFolderPath(repoPath);
+        if (!Directory.Exists(projectFolder))
+            return new List<(string, DateTime)>();
+
+        return Directory.GetFiles(projectFolder, "*.jsonl")
+            .Select(f => (Path.GetFileNameWithoutExtension(f), File.GetLastWriteTimeUtc(f)))
+            .OrderByDescending(t => t.Item2)
+            .ToList();
+    }
+
+    /// <summary>
     /// Read session metadata from sessions-index.json for a specific session ID.
     /// </summary>
     public static ClaudeSessionMetadata? ReadSessionMetadata(string claudeSessionId, string repoPath)

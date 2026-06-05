@@ -1,0 +1,84 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="CcDirector.AgentBrain.Panel.MainWindow"
+        Title="Agent Brain Panel"
+        Width="1180" Height="760"
+        Background="#1E1E1E">
+
+  <Grid RowDefinitions="Auto,*,Auto" Margin="12">
+
+    <!-- ===== Top bar: connection ===== -->
+    <Border Grid.Row="0" Background="#252526" CornerRadius="4" Padding="12" Margin="0,0,0,10">
+      <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
+        <TextBlock Grid.Column="0" Text="DIRECTOR" Foreground="#888888" FontWeight="SemiBold"
+                   FontSize="12" VerticalAlignment="Center" Margin="0,0,10,0" />
+        <TextBox Grid.Column="1" x:Name="DirectorUrlBox" Text="http://127.0.0.1:7886"
+                 FontSize="14" VerticalContentAlignment="Center" />
+        <Button Grid.Column="2" x:Name="ConnectButton" Classes="action primary" Content="CONNECT"
+                Width="160" Margin="10,0,0,0" Click="OnConnectClick" />
+        <Ellipse Grid.Column="3" x:Name="HealthDot" Width="16" Height="16" Fill="#666666"
+                 Margin="14,0,8,0" VerticalAlignment="Center" />
+        <TextBlock Grid.Column="4" x:Name="DirectorInfoText" Text="not connected"
+                   Foreground="#AAAAAA" FontSize="12" VerticalAlignment="Center" MinWidth="170" />
+      </Grid>
+    </Border>
+
+    <!-- ===== Main area ===== -->
+    <Grid Grid.Row="1" ColumnDefinitions="240,*">
+
+      <!-- Left: the big verb buttons -->
+      <StackPanel Grid.Column="0" Spacing="10" Margin="0,0,10,0">
+        <Button x:Name="CreateButton" Classes="action primary" Content="CREATE SESSION" Click="OnCreateClick" IsEnabled="False" />
+        <Button x:Name="HealthButton" Classes="action" Content="HEALTH CHECK" Click="OnHealthClick" IsEnabled="False" />
+        <Button x:Name="ClearButton" Classes="action" Content="CLEAR CONTEXT" Click="OnClearClick" IsEnabled="False" />
+        <Button x:Name="RestartButton" Classes="action" Content="RESTART" Click="OnRestartClick" IsEnabled="False" />
+        <Button x:Name="KillButton" Classes="action danger" Content="KILL SESSION" Click="OnKillClick" IsEnabled="False" />
+
+        <Border Background="#252526" CornerRadius="4" Padding="10" Margin="0,8,0,0">
+          <StackPanel Spacing="6">
+            <CheckBox x:Name="AutoClearCheck" Foreground="#CCCCCC" FontSize="12"
+                      Content="Clear after every ask" />
+            <TextBlock Text="The warm turn-brief pattern: each question starts from an empty context."
+                       Foreground="#888888" FontSize="11" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+
+        <Border Background="#252526" CornerRadius="4" Padding="10">
+          <StackPanel Spacing="4">
+            <TextBlock Text="SESSION" Foreground="#888888" FontWeight="SemiBold" FontSize="11" />
+            <SelectableTextBlock x:Name="SessionIdText" Text="none" Foreground="#666666" FontSize="10"
+                       FontFamily="Cascadia Mono,Consolas" TextWrapping="Wrap" />
+            <TextBlock x:Name="ActivityText" Text="-" Foreground="#CCCCCC" FontSize="13" FontWeight="Medium" />
+            <TextBlock x:Name="IdleText" Text="-" Foreground="#AAAAAA" FontSize="11" />
+            <TextBlock x:Name="TokensText" Text="-" Foreground="#AAAAAA" FontSize="11" />
+          </StackPanel>
+        </Border>
+      </StackPanel>
+
+      <!-- Right: conversation -->
+      <Grid Grid.Column="1" RowDefinitions="*,Auto">
+        <Border Grid.Row="0" Background="#252526" CornerRadius="4" Padding="2">
+          <ScrollViewer x:Name="LogScroll" Padding="10">
+            <SelectableTextBlock x:Name="LogText" Foreground="#CCCCCC" FontSize="13"
+                                 FontFamily="Cascadia Mono,Consolas,Courier New"
+                                 TextWrapping="Wrap"
+                                 Text="Connect to a Director, create a session, and ask away.&#x0a;" />
+          </ScrollViewer>
+        </Border>
+
+        <Grid Grid.Row="1" ColumnDefinitions="*,Auto" Margin="0,10,0,0">
+          <TextBox Grid.Column="0" x:Name="PromptBox" Watermark="Type a question for the agent..."
+                   FontSize="14" MinHeight="56" MaxHeight="120" AcceptsReturn="True" TextWrapping="Wrap"
+                   VerticalContentAlignment="Center" KeyDown="OnPromptKeyDown" />
+          <Button Grid.Column="1" x:Name="AskButton" Classes="action primary" Content="ASK"
+                  Width="140" Margin="10,0,0,0" Click="OnAskClick" IsEnabled="False" />
+        </Grid>
+      </Grid>
+    </Grid>
+
+    <!-- ===== Status bar ===== -->
+    <Border Grid.Row="2" Background="#252526" CornerRadius="4" Padding="10,6" Margin="0,10,0,0">
+      <TextBlock x:Name="StatusText" Text="Ready." Foreground="#AAAAAA" FontSize="12" />
+    </Border>
+  </Grid>
+</Window>

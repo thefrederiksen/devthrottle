@@ -10,7 +10,7 @@ project:
   framework: ".NET 10"
   platform: "Windows 10/11 (Avalonia primary; WPF archived), Mac/Linux (experimental backend)"
 
-last_updated: "2026-06-04"
+last_updated: "2026-06-05"
 
 # C4 Level 1: System Context
 context:
@@ -548,6 +548,12 @@ containers:
       - name: HandoverArchive
         description: Archives session handover context to the vault on /handover
         file: HandoverArchive.cs
+      - name: SessionUsageEndpoint
+        description: GET /sessions/{sid}/usage - token usage computed mechanically from the session's Claude JSONL transcript (session totals, current context size, per-turn deltas)
+        file: SessionUsageEndpoint.cs
+      - name: ClaudeTranscriptsEndpoint
+        description: GET /claude-transcripts?repo= - the repo's transcript files (claude session ids + last-write times, newest first) read directly from the claude projects directory; the deterministic relink source for external brain drivers (sessions-index.json lags)
+        file: ClaudeTranscriptsEndpoint.cs
       - name: Web UI assets
         description: Embedded HTML/JS served by the Control API (manager grid, per-session view, browser login, live dictation capture)
         files:
@@ -650,6 +656,36 @@ containers:
         files:
           - RecordingManifest.cs
           - GoalAssessment.cs
+
+  - id: agent_brain
+    name: Agent Brain Client Library
+    technology: C# / .NET 10
+    description: Reusable REST-only client for a warm, headless Claude Code session owned by a Director (issue #172). Encodes the three determinism rules from the headless-brain spike - quiet-gate sends on the server-side idle clock, JSONL transcript as the answer channel (/turns + /usage, never the terminal screen), relink after /clear via /claude-transcripts. Consumed by any C# program that needs ask/clear/restart/kill/health against a brain session; the gateway turn-brief agent is the intended primary consumer.
+    project: CcDirector.AgentBrain
+    dependencies:
+      - CcDirector.Gateway.Contracts
+    components:
+      - name: AgentBrainClient
+        description: The client - ConnectAsync, CreateSessionAsync, AttachAsync, AskAsync (full reply text + latency + context tokens), ClearAsync (clear + relink + verified reset), RestartAsync, KillAsync, GetHealthAsync
+        file: AgentBrainClient.cs
+      - name: AgentBrainOptions
+        description: Configuration - Director URL, repo path, quiet/timeout/poll tuning, optional bearer token and log sink
+        file: AgentBrainOptions.cs
+      - name: BrainLog
+        description: Default daily-file log sink under %LOCALAPPDATA%\cc-director\logs\agent-brain (the library cannot depend on Core's FileLog)
+        file: BrainLog.cs
+
+  - id: agent_brain_panel
+    name: Agent Brain Control Panel
+    technology: C# / Avalonia
+    description: Desktop test application for the AgentBrain library - one window with a large button per library verb (connect, create, ask, clear, restart, kill, health), a conversation log, an auto-clear-after-every-ask toggle and a live health strip. The library's first consumer and its manual QA harness (docs/features/agent-brain/QA_REPORT.html).
+    project: CcDirector.AgentBrain.Panel
+    dependencies:
+      - CcDirector.AgentBrain
+    components:
+      - name: MainWindow
+        description: The whole panel - async button handlers (entry-point try-catch), 1.5s background health poll, status-line driven so UI Automation QA can wait on real completion signals
+        file: MainWindow.axaml / MainWindow.axaml.cs
 
   - id: setup_engine
     name: Setup / Install / Update Engine

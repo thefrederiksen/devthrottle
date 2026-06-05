@@ -1,0 +1,31 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="CcDirector.AgentBrain.Panel.App"
+             RequestedThemeVariant="Dark">
+  <Application.Styles>
+    <FluentTheme />
+
+    <!-- Large action buttons: the whole point of this panel. -->
+    <Style Selector="Button.action">
+      <Setter Property="Height" Value="56" />
+      <Setter Property="FontSize" Value="15" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="Background" Value="#3C3C3C" />
+      <Setter Property="Foreground" Value="#CCCCCC" />
+      <Setter Property="CornerRadius" Value="4" />
+    </Style>
+    <Style Selector="Button.action:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="#505050" />
+    </Style>
+    <Style Selector="Button.primary">
+      <Setter Property="Background" Value="#007ACC" />
+      <Setter Property="Foreground" Value="#FFFFFF" />
+    </Style>
+    <Style Selector="Button.danger">
+      <Setter Property="Background" Value="#7A2D2D" />
+      <Setter Property="Foreground" Value="#FFFFFF" />
+    </Style>
+  </Application.Styles>
+</Application>
