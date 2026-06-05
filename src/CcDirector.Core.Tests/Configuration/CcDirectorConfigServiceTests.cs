@@ -12,6 +12,7 @@ namespace CcDirector.Core.Tests.Configuration;
 /// untouched block survives a targeted patch. All methods share an isolated
 /// CC_DIRECTOR_ROOT set in the constructor; xUnit runs a class's methods sequentially.
 /// </summary>
+[Collection("CcStorageRoot")] // serializes all classes that mutate the process-wide CC_DIRECTOR_ROOT
 public sealed class CcDirectorConfigServiceTests : IDisposable
 {
     private readonly string _root;
@@ -33,7 +34,9 @@ public sealed class CcDirectorConfigServiceTests : IDisposable
     private static void SeedConfig(string json)
     {
         var path = CcStorage.ConfigJson();
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var dir = Path.GetDirectoryName(path);
+        Assert.NotNull(dir);
+        Directory.CreateDirectory(dir);
         File.WriteAllText(path, json);
     }
 
@@ -49,15 +52,19 @@ public sealed class CcDirectorConfigServiceTests : IDisposable
 
         var patch = new JsonObject
         {
-            ["screenshots"] = new JsonObject { ["source_directory"] = "/Users/soren/Desktop" },
+            ["screenshots"] = new JsonObject { ["source_directory"] = "/Users/username/Desktop" },
         };
         CcDirectorConfigService.MergePatch(patch);
 
         var result = CcDirectorConfigService.ReadRaw();
-        Assert.Equal("/Users/soren/Desktop", (string?)result["screenshots"]!["source_directory"]);
+        var screenshots = result["screenshots"];
+        Assert.NotNull(screenshots);
+        Assert.Equal("/Users/username/Desktop", (string?)screenshots["source_directory"]);
         // The untouched gateway block must survive intact.
-        Assert.Equal("http://gw.example:7878", (string?)result["gateway"]!["url"]);
-        Assert.Equal("abc", (string?)result["gateway"]!["token"]);
+        var gateway = result["gateway"];
+        Assert.NotNull(gateway);
+        Assert.Equal("http://gw.example:7878", (string?)gateway["url"]);
+        Assert.Equal("abc", (string?)gateway["token"]);
     }
 
     [Fact]
@@ -75,8 +82,10 @@ public sealed class CcDirectorConfigServiceTests : IDisposable
         CcDirectorConfigService.MergePatch(patch);
 
         var result = CcDirectorConfigService.ReadRaw();
-        Assert.Equal("http://new.example:7878", (string?)result["gateway"]!["url"]);
-        Assert.Equal("keep-me", (string?)result["gateway"]!["token"]);
+        var gateway = result["gateway"];
+        Assert.NotNull(gateway);
+        Assert.Equal("http://new.example:7878", (string?)gateway["url"]);
+        Assert.Equal("keep-me", (string?)gateway["token"]);
     }
 
     [Fact]
@@ -91,8 +100,12 @@ public sealed class CcDirectorConfigServiceTests : IDisposable
         CcDirectorConfigService.MergePatch(patch);
 
         var result = CcDirectorConfigService.ReadRaw();
-        Assert.Equal("http://gw.example:7878", (string?)result["gateway"]!["url"]);
-        Assert.Equal("claude_code", (string?)result["llm"]!["default_provider"]);
+        var gateway = result["gateway"];
+        Assert.NotNull(gateway);
+        Assert.Equal("http://gw.example:7878", (string?)gateway["url"]);
+        var llm = result["llm"];
+        Assert.NotNull(llm);
+        Assert.Equal("claude_code", (string?)llm["default_provider"]);
     }
 
     [Fact]
@@ -107,7 +120,9 @@ public sealed class CcDirectorConfigServiceTests : IDisposable
 
         Assert.True(File.Exists(CcStorage.ConfigJson()));
         var result = CcDirectorConfigService.ReadRaw();
-        Assert.Equal("/tmp/shots", (string?)result["screenshots"]!["source_directory"]);
+        var screenshots = result["screenshots"];
+        Assert.NotNull(screenshots);
+        Assert.Equal("/tmp/shots", (string?)screenshots["source_directory"]);
     }
 
     [Fact]

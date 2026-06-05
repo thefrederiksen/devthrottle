@@ -56,6 +56,23 @@ Claude Code (LLM)
             +-- cc-vault (personal data)
 ```
 
+## Alpha Features
+
+CC Director ships with some features hidden behind an **alpha flag**. These are features we are still testing: they may break, change, or disappear without notice, and no support is provided while they are in alpha.
+
+Alpha features are **off by default**. To see them, open **Settings** in the desktop app and check **Enable alpha features** under the Alpha Features section. Turning the flag on takes effect immediately -- no restart needed.
+
+Currently behind the alpha flag:
+
+- **Other coding agents** -- running sessions with Pi, OpenAI Codex, Gemini CLI, or opencode instead of Claude Code
+- **Session handover** -- handing one session's context to another
+- **FIFO voice mode** -- stepping through every session that needs your input
+- **GitHub remote sessions** -- running tasks on GitHub-hosted runners
+- **Assistant / Coach quick-launch cards** in the New Session dialog
+- **Voice wake-word test** in Settings
+
+Features graduate out of alpha once they have been verified to work reliably.
+
 ## Open Source
 
 CC Director is fully open source. You can browse the code, submit issues, and contribute at [github.com/cc-director/cc-director](https://github.com/cc-director/cc-director).

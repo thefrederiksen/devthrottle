@@ -371,6 +371,16 @@ public partial class NewSessionDialog : Window
         _registry = registry;
         _historyStore = historyStore;
 
+        // Alpha gating: non-Claude agents, Handovers, GitHub remote sessions and the
+        // Assistant/Coach quick-launch cards are alpha features - hidden by default.
+        // The dialog is created fresh each time, so reading the flag once here is enough.
+        var alpha = AlphaMode.IsEnabled;
+        AgentPickerPanel.IsVisible = alpha;
+        HandoversTab.IsVisible = alpha;
+        GitHubTab.IsVisible = alpha;
+        QuickLaunchPanel.IsVisible = alpha;
+        FileLog.Write($"[NewSessionDialog] Constructor: alphaFeatures={alpha}");
+
         // Set dialog size to 80% of primary screen
         var screen = Screens.Primary;
         if (screen != null)

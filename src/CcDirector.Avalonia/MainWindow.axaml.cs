@@ -145,7 +145,33 @@ public partial class MainWindow : Window
         SessionList.AddHandler(DragDrop.DropEvent, SessionList_Drop);
         SessionList.AddHandler(PointerPressedEvent, SessionList_PointerPressed, global::Avalonia.Interactivity.RoutingStrategies.Tunnel);
 
+        // Alpha gating: Start FIFO and Handover are alpha features, hidden by default.
+        // Re-gate live when the flag is toggled in the Settings dialog.
+        ApplyAlphaFeatureVisibility();
+        AlphaMode.Changed += OnAlphaModeChanged;
+        Closed += (_, _) => AlphaMode.Changed -= OnAlphaModeChanged;
+
         BuildNativeMenu();
+    }
+
+    private void OnAlphaModeChanged()
+    {
+        // The flag could be toggled off the UI thread (e.g. a future REST write); always hop to it.
+        // BuildNativeMenu is rebuilt too because the Session menu's Start FIFO item is alpha-gated.
+        Dispatcher.UIThread.Post(() =>
+        {
+            ApplyAlphaFeatureVisibility();
+            BuildNativeMenu();
+        });
+    }
+
+    /// <summary>Show or hide the alpha-gated toolbar/prompt-bar buttons per the alpha flag.</summary>
+    private void ApplyAlphaFeatureVisibility()
+    {
+        var alpha = AlphaMode.IsEnabled;
+        BtnStartFifo.IsVisible = alpha;
+        BtnHandover.IsVisible = alpha;
+        FileLog.Write($"[MainWindow] ApplyAlphaFeatureVisibility: alphaFeatures={alpha}");
     }
 
     private void MainWindow_Activated(object? sender, EventArgs e)
@@ -1901,7 +1927,8 @@ public partial class MainWindow : Window
         // ===== Session =====
         var session = new NativeMenuItem("Session") { Menu = new NativeMenu() };
         session.Menu.Items.Add(Item("New Session", () => BtnNewSession_Click(this, new RoutedEventArgs())));
-        session.Menu.Items.Add(Item("Start FIFO", () => BtnFifo_Click(this, new RoutedEventArgs())));
+        if (AlphaMode.IsEnabled) // Start FIFO is an alpha feature
+            session.Menu.Items.Add(Item("Start FIFO", () => BtnFifo_Click(this, new RoutedEventArgs())));
         session.Menu.Items.Add(new NativeMenuItemSeparator());
         session.Menu.Items.Add(Item("Repositories...", async () =>
         {

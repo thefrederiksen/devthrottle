@@ -59,8 +59,10 @@
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
-                    <!-- Agent picker (radio buttons - all options visible) -->
-                    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,12">
+                    <!-- Agent picker (radio buttons). Non-Claude agents are alpha features:
+                         the whole picker is hidden unless alpha mode is on, leaving
+                         Claude Code as the only (implicit) agent. -->
+                    <StackPanel x:Name="AgentPickerPanel" Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,12">
                         <TextBlock Text="Agent:"
                                    Foreground="#CCCCCC" FontSize="14"
                                    VerticalAlignment="Center" Margin="0,0,16,0" />
@@ -218,8 +220,8 @@
                               Margin="0,8,0,0"
                               ToolTip.Tip="When checked, the session auto-runs the Wingman briefing on every turn-end and shows Voice/Wingman tabs. Uncheck for a plain terminal-only session." />
 
-                    <!-- Quick-launch cards -->
-                    <StackPanel Grid.Row="8" Orientation="Horizontal" Margin="0,16,0,0">
+                    <!-- Quick-launch cards (alpha feature - hidden unless alpha mode is on) -->
+                    <StackPanel x:Name="QuickLaunchPanel" Grid.Row="8" Orientation="Horizontal" Margin="0,16,0,0">
                         <!-- Assistant card -->
                         <Button Tag="assistant" Classes="quickLaunchCard"
                                 Click="BtnCoaching_Click"
@@ -341,8 +343,10 @@
                 </Grid>
             </TabItem>
 
-            <!-- Handovers Tab (third) -->
-            <TabItem Header="Handovers">
+            <!-- Handovers Tab (third; alpha feature - hidden unless alpha mode is on).
+                 Hiding the TabItem keeps it in Items, so the hardcoded tab indexes
+                 (0/1/2/GitHubTabIndex) stay valid either way. -->
+            <TabItem x:Name="HandoversTab" Header="Handovers">
                 <Grid Margin="12">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
@@ -438,8 +442,8 @@
                 </Grid>
             </TabItem>
 
-            <!-- GitHub (Remote) Tab (fourth) -->
-            <TabItem Header="GitHub (Remote)">
+            <!-- GitHub (Remote) Tab (fourth; alpha feature - hidden unless alpha mode is on) -->
+            <TabItem x:Name="GitHubTab" Header="GitHub (Remote)">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="12" Spacing="10">
                         <TextBlock Text="Run this task on a GitHub-hosted runner"

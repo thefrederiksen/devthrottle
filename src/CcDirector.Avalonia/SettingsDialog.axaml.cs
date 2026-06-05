@@ -33,6 +33,7 @@ public partial class SettingsDialog : Window
     private string _loadedGatewayUrl = "";
     private string _loadedGatewayAdvertised = "";
     private string _loadedGatewayToken = "";
+    private bool _loadedAlpha;
 
     public SettingsDialog() : this(null, 0, null) { }
 
@@ -61,11 +62,13 @@ public partial class SettingsDialog : Window
             _loadedGatewayUrl = url;
             _loadedGatewayAdvertised = advertised;
             _loadedGatewayToken = token;
+            _loadedAlpha = AlphaMode.IsEnabled;
 
             ScreenshotsDirBox.Text = screenshots;
             GatewayUrlBox.Text = url;
             GatewayAdvertisedBox.Text = advertised;
             GatewayTokenBox.Text = token;
+            AlphaFeaturesCheck.IsChecked = _loadedAlpha;
             RawConfigBox.Text = raw;
 
             LoadingText.IsVisible = false;
@@ -193,7 +196,10 @@ public partial class SettingsDialog : Window
                 };
             }
 
-            if (patch.Count == 0)
+            var alpha = AlphaFeaturesCheck.IsChecked == true;
+            var alphaChanged = alpha != _loadedAlpha;
+
+            if (patch.Count == 0 && !alphaChanged)
             {
                 // Nothing changed - "Save and Close" just closes, same as Cancel.
                 FileLog.Write("[SettingsDialog] BtnSave_Click: no changes; closing");
@@ -201,8 +207,16 @@ public partial class SettingsDialog : Window
                 return;
             }
 
-            await Task.Run(() => CcDirectorConfigService.MergePatch(patch));
-            FileLog.Write($"[SettingsDialog] BtnSave_Click: saved sections={patch.Count}, gatewayChanged={gatewayChanged}");
+            if (patch.Count > 0)
+                await Task.Run(() => CcDirectorConfigService.MergePatch(patch));
+
+            // Persist the alpha flag and notify long-lived windows (MainWindow re-gates its
+            // alpha buttons via AlphaMode.Changed). Persisted off the UI thread; the Changed
+            // handler in MainWindow posts back to the UI thread itself.
+            if (alphaChanged)
+                await Task.Run(() => AlphaMode.SetEnabled(alpha));
+
+            FileLog.Write($"[SettingsDialog] BtnSave_Click: saved sections={patch.Count}, gatewayChanged={gatewayChanged}, alphaChanged={alphaChanged}");
 
             // Re-register with the gateway live so a URL/endpoint/token change takes effect now.
             if (gatewayChanged && _reapplyGateway is not null)
@@ -223,6 +237,7 @@ public partial class SettingsDialog : Window
             _loadedGatewayUrl = url;
             _loadedGatewayAdvertised = advertised;
             _loadedGatewayToken = token;
+            _loadedAlpha = alpha;
             RawConfigBox.Text = await Task.Run(() =>
                 CcDirectorConfigService.ReadRaw().ToJsonString(
                     new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
@@ -350,6 +365,12 @@ public partial class SettingsDialog : Window
         GatewayTestStatus.Foreground = error
             ? global::Avalonia.Media.Brushes.IndianRed
             : global::Avalonia.Media.Brushes.MediumSeaGreen;
+    }
+
+    /// <summary>The alpha-gated wake-word section follows the checkbox live (before Save).</summary>
+    private void AlphaCheck_Changed(object? sender, RoutedEventArgs e)
+    {
+        AlphaVoicePanel.IsVisible = AlphaFeaturesCheck.IsChecked == true;
     }
 
     private void BtnClose_Click(object? sender, RoutedEventArgs e)

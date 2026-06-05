@@ -14,6 +14,7 @@ namespace CcDirector.Core.Tests.Storage;
 /// flip). All methods share an isolated CC_DIRECTOR_ROOT, set in the constructor; xUnit runs
 /// the methods of one class sequentially so the shared env var is safe within the class.
 /// </summary>
+[Collection("CcStorageRoot")] // serializes all classes that mutate the process-wide CC_DIRECTOR_ROOT
 public sealed class TurnReviewLogTests : IDisposable
 {
     private readonly string _root;

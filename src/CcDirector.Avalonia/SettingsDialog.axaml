@@ -41,7 +41,7 @@
                     <TextBox x:Name="ScreenshotsDirBox" Grid.Column="0"
                              Background="#1E1E1E" Foreground="#CCCCCC" CaretBrush="#CCCCCC"
                              BorderBrush="#3C3C3C" BorderThickness="1" Padding="8,6"
-                             Watermark="e.g. /Users/soren/Desktop" />
+                             Watermark="e.g. /Users/username/Desktop" />
                     <Button x:Name="DetectScreenshotsButton" Grid.Column="1" Content="Detect"
                             Height="30" Margin="8,0,0,0" Padding="12,0"
                             Background="#3C3C3C" Foreground="#CCCCCC"
@@ -108,17 +108,36 @@
                          BorderBrush="#3C3C3C" BorderThickness="1" Padding="8,6"
                          Watermark="only if the gateway requires one" />
 
-                <!-- ============ Voice (experimental) ============ -->
-                <TextBlock Text="Voice (experimental)" Foreground="#CCCCCC" FontSize="14"
+                <!-- ============ Alpha Features ============ -->
+                <TextBlock Text="Alpha Features" Foreground="#CCCCCC" FontSize="14"
                            FontWeight="SemiBold" Margin="0,12,0,0" />
-                <TextBlock Text="Sandbox for tuning the hands-free wake-word grammar: say &quot;wingman&quot; to start, dictate, then &quot;wingman send&quot; or &quot;wingman cancel&quot;. Emits to an on-screen box only, never to a live session."
+                <TextBlock Text="Unfinished features we are still testing. They may break, change, or disappear without notice, and no support is provided while they are in alpha. Turning this on shows them everywhere in the app."
                            Foreground="#888888" FontSize="11" TextWrapping="Wrap" />
-                <Button x:Name="WakeWordTestButton" Content="Open Wake-Word Test"
-                        Height="30" Margin="0,2,0,0" Padding="14,0"
-                        HorizontalAlignment="Left"
-                        Background="#3C3C3C" Foreground="#CCCCCC"
-                        BorderThickness="0" Cursor="Hand"
-                        Click="BtnWakeWordTest_Click" />
+                <CheckBox x:Name="AlphaFeaturesCheck"
+                          Content="Enable alpha features"
+                          IsChecked="False"
+                          Foreground="#CCCCCC" FontSize="13"
+                          Margin="0,4,0,0"
+                          IsCheckedChanged="AlphaCheck_Changed"
+                          ToolTip.Tip="Default: off. Shows untested features - no guarantees they work." />
+                <TextBlock Text="When enabled you get: other coding agents (Pi, Codex, Gemini, opencode), session handover, FIFO voice mode, GitHub remote sessions, Assistant/Coach quick-launch, and the wake-word test below."
+                           Foreground="#888888" FontSize="11" TextWrapping="Wrap" Margin="24,0,0,0" />
+
+                <!-- Voice wake-word sandbox: alpha-gated, follows the checkbox live
+                     (AlphaCheck_Changed in code-behind). -->
+                <StackPanel x:Name="AlphaVoicePanel" Spacing="6" Margin="24,8,0,0"
+                            IsVisible="False">
+                    <TextBlock Text="Voice wake-word test" Foreground="#CCCCCC" FontSize="12"
+                               FontWeight="SemiBold" />
+                    <TextBlock Text="Sandbox for tuning the hands-free wake-word grammar: say &quot;wingman&quot; to start, dictate, then &quot;wingman send&quot; or &quot;wingman cancel&quot;. Emits to an on-screen box only, never to a live session."
+                               Foreground="#888888" FontSize="11" TextWrapping="Wrap" />
+                    <Button x:Name="WakeWordTestButton" Content="Open Wake-Word Test"
+                            Height="30" Margin="0,2,0,0" Padding="14,0"
+                            HorizontalAlignment="Left"
+                            Background="#3C3C3C" Foreground="#CCCCCC"
+                            BorderThickness="0" Cursor="Hand"
+                            Click="BtnWakeWordTest_Click" />
+                </StackPanel>
 
                 <!-- ============ Advanced ============ -->
                 <TextBlock Text="Advanced: full config.json (read-only)" Foreground="#CCCCCC" FontSize="14"
