@@ -218,6 +218,10 @@ public partial class InstallStep : UserControl
             var active = _toolItems.FirstOrDefault(
                 t => t.Status is not "Pending" and not "Done" and not "Failed" and not "Locked" and not "Skipped");
             ToolsStatus.Text = active?.Status ?? "Installing...";
+            // Reset the brush too - a Repair run arrives here with the green "Up to date"
+            // foreground left over from SetUpToDate.
+            ToolsStatus.Foreground = new SolidColorBrush(
+                (Color)ColorConverter.ConvertFromString(active?.StatusColor ?? "#CCCCCC"));
         }
     }
 }
