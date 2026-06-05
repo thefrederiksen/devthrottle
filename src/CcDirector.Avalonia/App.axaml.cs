@@ -301,7 +301,8 @@ public partial class App : Application
     {
         try
         {
-            var version = typeof(App).Assembly.GetName().Version?.ToString() ?? "0.0.0";
+            // Clean semver on the wire (gateway registration / status surfaces).
+            var version = AppVersion.Semver;
             Func<Task> requestShutdown = () =>
             {
                 global::Avalonia.Threading.Dispatcher.UIThread.Post(() =>

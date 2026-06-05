@@ -337,6 +337,19 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # The tag is the release version; Directory.Build.props is the version
+      # stamped into every binary. They MUST agree (see docs/architecture/VERSIONING.md).
+      # new-release.ps1 keeps them in sync; this guard catches hand-made tags.
+      - name: Verify tag matches Directory.Build.props
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PROPS_VERSION=$(sed -n 's/.*<Version>\(.*\)<\/Version>.*/\1/p' Directory.Build.props)
+          echo "Tag: $TAG_VERSION | Directory.Build.props: $PROPS_VERSION"
+          if [ "$TAG_VERSION" != "$PROPS_VERSION" ]; then
+            echo "::error title=Version mismatch::Tag $GITHUB_REF_NAME does not match Directory.Build.props <Version>$PROPS_VERSION</Version>. Use scripts/new-release.ps1 to cut releases."
+            exit 1
+          fi
+
       - name: Download all artifacts
         uses: actions/download-artifact@v7
         with:

@@ -282,18 +282,23 @@ public partial class MainWindow : Window
     {
         try
         {
+            // Product version front and center ("v0.6.3 (1cc1abd)"); the build
+            // timestamp stays in the tooltip - it is still the fastest way to
+            // confirm a local slot build actually deployed.
+            BuildInfoText.Text = AppVersion.Display;
+            var tip = $"Version: {AppVersion.Full}";
             var exePath = Environment.ProcessPath;
             if (exePath != null && File.Exists(exePath))
             {
                 var buildTime = File.GetLastWriteTime(exePath);
-                BuildInfoText.Text = $"Build: {buildTime:HH:mm:ss}";
-                ToolTip.SetTip(BuildInfoText, $"Built: {buildTime:yyyy-MM-dd HH:mm:ss}\nPath: {exePath}");
+                tip += $"\nBuilt: {buildTime:yyyy-MM-dd HH:mm:ss}\nPath: {exePath}";
             }
+            ToolTip.SetTip(BuildInfoText, tip);
         }
         catch (Exception ex)
         {
             FileLog.Write($"[MainWindow] SetBuildInfo FAILED: {ex.Message}");
-            BuildInfoText.Text = "Build: unknown";
+            BuildInfoText.Text = "v?";
         }
     }
 

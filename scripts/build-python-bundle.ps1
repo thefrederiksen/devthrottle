@@ -169,7 +169,8 @@ Copy-Item -Recurse -Force $pyRoot $pyStage
 
 # ---- 6. Write the tools manifest -------------------------------------------------------
 Step "writing tools-manifest.json"
-$bundleVersion = (Get-Content (Join-Path $repoRoot "src/CcDirector.Avalonia/CcDirector.Avalonia.csproj") -Raw | Select-String "<Version>(.*?)</Version>").Matches[0].Groups[1].Value
+# Product version lives in Directory.Build.props (single source, see docs/architecture/VERSIONING.md)
+$bundleVersion = (Get-Content (Join-Path $repoRoot "Directory.Build.props") -Raw | Select-String "<Version>(.*?)</Version>").Matches[0].Groups[1].Value
 $toolEntries = foreach ($t in $pyTools) {
     $pp = Get-Content (Join-Path (ToolDir $t) "pyproject.toml") -Raw
     $scriptsBlock = ""

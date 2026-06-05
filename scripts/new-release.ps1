@@ -1,16 +1,19 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Bumps version, commits, tags, and pushes to trigger a GitHub Actions release.
+    Bumps the product version, commits, tags, and pushes to trigger a GitHub Actions release.
 
 .DESCRIPTION
-    Updates the version in 5 locations (Avalonia csproj, Setup WPF csproj, Setup WPF XAML,
-    Setup Avalonia csproj, Setup Avalonia AXAML), commits the changes, creates a git tag,
-    and pushes to origin. The existing GitHub Actions workflow handles building and
-    creating the GitHub Release for both Windows and macOS.
+    The product version lives in EXACTLY ONE file: Directory.Build.props at the
+    repo root (see docs/architecture/VERSIONING.md). MSBuild stamps that version
+    into every .NET binary in the release (Director, Gateway, Cockpit, setup
+    wizards, setup CLI); all UIs read it from their assembly at runtime, so no
+    other file needs to change.
 
-    Note: CcDirector.Avalonia is the cross-platform main app, published for win-x64 and
-    osx-arm64. The legacy CcDirector.Wpf project was archived in commit c557e58c.
+    This script bumps Directory.Build.props, commits, creates the vX.Y.Z git tag,
+    and pushes. The GitHub Actions release workflow builds and publishes the
+    release for Windows and macOS; a workflow guard fails the release if the tag
+    and Directory.Build.props ever disagree.
 
 .EXAMPLE
     .\scripts\new-release.ps1
@@ -32,18 +35,17 @@ if ($status) {
     exit 1
 }
 
-# --- Version file paths ---
-$avaloniaCsproj   = Join-Path $repoRoot "src\CcDirector.Avalonia\CcDirector.Avalonia.csproj"
-$setupCsproj      = Join-Path $repoRoot "tools\cc-director-setup\CcDirectorSetup.csproj"
-$setupXaml        = Join-Path $repoRoot "tools\cc-director-setup\MainWindow.xaml"
-$setupAvCsproj    = Join-Path $repoRoot "tools\cc-director-setup-avalonia\CcDirectorSetup.csproj"
-$setupAvAxaml     = Join-Path $repoRoot "tools\cc-director-setup-avalonia\MainWindow.axaml"
+# --- The single version source ---
+$propsPath = Join-Path $repoRoot "Directory.Build.props"
+if (-not (Test-Path $propsPath)) {
+    Write-Error "Directory.Build.props not found at $propsPath"
+    exit 1
+}
 
-# --- Read current version (from Avalonia, the canonical main app csproj) ---
-[xml]$csproj = Get-Content $avaloniaCsproj
-$currentVersion = $csproj.SelectSingleNode("//Version").InnerText
+[xml]$props = Get-Content $propsPath
+$currentVersion = $props.SelectSingleNode("//Version").InnerText
 if (-not $currentVersion) {
-    Write-Error "Could not read <Version> from $avaloniaCsproj"
+    Write-Error "Could not read <Version> from $propsPath"
     exit 1
 }
 
@@ -70,39 +72,24 @@ if ($existingTag) {
     exit 1
 }
 
-# --- Update files ---
+# --- Guard: no .csproj may carry its own <Version> (it would silently override the props file) ---
+$strayVersions = Get-ChildItem $repoRoot -Recurse -Filter *.csproj |
+    Where-Object { $_.FullName -notmatch '\\archived\\' } |
+    Where-Object { (Get-Content $_.FullName -Raw) -match '<Version>' }
+if ($strayVersions) {
+    Write-Host ""
+    Write-Host "ERROR: These .csproj files declare their own <Version>, which overrides Directory.Build.props:" -ForegroundColor Red
+    $strayVersions | ForEach-Object { Write-Host "  - $($_.FullName)" -ForegroundColor Red }
+    Write-Host "Remove the <Version> element(s); the props file is the single source of truth." -ForegroundColor Red
+    exit 1
+}
+
+# --- Update the one file ---
 Write-Host ""
 Write-Host "Updating version to $newVersion..." -ForegroundColor Cyan
-
-# 1. Avalonia csproj (main app, cross-platform)
-[xml]$avaloniaXml = Get-Content $avaloniaCsproj
-$avaloniaXml.SelectSingleNode("//Version").InnerText = $newVersion
-$avaloniaXml.Save($avaloniaCsproj)
-Write-Host "  [+] $avaloniaCsproj" -ForegroundColor Gray
-
-# 2. Setup csproj (Windows)
-[xml]$setupXml = Get-Content $setupCsproj
-$setupXml.SelectSingleNode("//Version").InnerText = $newVersion
-$setupXml.Save($setupCsproj)
-Write-Host "  [+] $setupCsproj" -ForegroundColor Gray
-
-# 3. Setup XAML (Windows -- replace version text like v1.2.0)
-$xamlContent = Get-Content $setupXaml -Raw
-$xamlContent = $xamlContent -replace 'Text="v[0-9]+\.[0-9]+\.[0-9]+(-rc[0-9]+)?"', "Text=`"v$newVersion`""
-Set-Content $setupXaml $xamlContent -NoNewline
-Write-Host "  [+] $setupXaml" -ForegroundColor Gray
-
-# 4. Setup Avalonia csproj (macOS)
-[xml]$setupAvXml = Get-Content $setupAvCsproj
-$setupAvXml.SelectSingleNode("//Version").InnerText = $newVersion
-$setupAvXml.Save($setupAvCsproj)
-Write-Host "  [+] $setupAvCsproj" -ForegroundColor Gray
-
-# 5. Setup Avalonia AXAML (macOS -- replace version text like v1.2.0)
-$axamlContent = Get-Content $setupAvAxaml -Raw
-$axamlContent = $axamlContent -replace 'Text="v[0-9]+\.[0-9]+\.[0-9]+(-rc[0-9]+)?"', "Text=`"v$newVersion`""
-Set-Content $setupAvAxaml $axamlContent -NoNewline
-Write-Host "  [+] $setupAvAxaml" -ForegroundColor Gray
+$props.SelectSingleNode("//Version").InnerText = $newVersion
+$props.Save($propsPath)
+Write-Host "  [+] $propsPath" -ForegroundColor Gray
 
 # --- Determine pre-release ---
 $isPreRelease = $newVersion -match '-rc\d+$'
@@ -118,29 +105,22 @@ if ($isPreRelease) {
     Write-Host "  Type    : Stable release" -ForegroundColor Green
 }
 Write-Host ""
-Write-Host "Files changed:" -ForegroundColor Yellow
-Write-Host "  Main app (Avalonia, cross-platform):"
-Write-Host "  - src\CcDirector.Avalonia\CcDirector.Avalonia.csproj"
-Write-Host "  Setup wizard (Windows, WPF):"
-Write-Host "  - tools\cc-director-setup\CcDirectorSetup.csproj"
-Write-Host "  - tools\cc-director-setup\MainWindow.xaml"
-Write-Host "  Setup wizard (macOS, Avalonia):"
-Write-Host "  - tools\cc-director-setup-avalonia\CcDirectorSetup.csproj"
-Write-Host "  - tools\cc-director-setup-avalonia\MainWindow.axaml"
+Write-Host "File changed:" -ForegroundColor Yellow
+Write-Host "  - Directory.Build.props (the single version source)"
 Write-Host ""
 
 $confirm = Read-Host "Commit, tag, and push? (Y/N)"
 if ($confirm -ne 'Y' -and $confirm -ne 'y') {
     Write-Host ""
-    Write-Host "Aborted. Files were updated but not committed." -ForegroundColor Yellow
-    Write-Host "Run 'git checkout -- .' to undo." -ForegroundColor Yellow
+    Write-Host "Aborted. The file was updated but not committed." -ForegroundColor Yellow
+    Write-Host "Run 'git checkout -- Directory.Build.props' to undo." -ForegroundColor Yellow
     exit 0
 }
 
 # --- Git operations ---
 Write-Host ""
 Write-Host "Committing..." -ForegroundColor Cyan
-git -C $repoRoot add $avaloniaCsproj $setupCsproj $setupXaml $setupAvCsproj $setupAvAxaml
+git -C $repoRoot add $propsPath
 git -C $repoRoot commit -m "release: v$newVersion"
 
 Write-Host "Tagging $tagName..." -ForegroundColor Cyan

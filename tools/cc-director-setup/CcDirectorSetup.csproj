@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
-    <Version>0.6.4</Version>
+    <!-- Version comes from Directory.Build.props at the repo root (single source of truth). -->
     <PublishSingleFile>true</PublishSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>

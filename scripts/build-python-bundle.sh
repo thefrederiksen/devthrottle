@@ -130,7 +130,8 @@ cp -R "$PYROOT/." "$PYSTAGE/"   # flat copy so the archive extracts to PythonDir
 
 # ---- 6. Write the tools manifest -------------------------------------------------------------
 step "writing tools-manifest.json"
-BUNDLE_VERSION="$(grep -oE '<Version>[^<]+</Version>' src/CcDirector.Avalonia/CcDirector.Avalonia.csproj | head -1 | sed -E 's#</?Version>##g')"
+# Product version lives in Directory.Build.props (single source, see docs/architecture/VERSIONING.md)
+BUNDLE_VERSION="$(grep -oE '<Version>[^<]+</Version>' Directory.Build.props | head -1 | sed -E 's#</?Version>##g')"
 python3 - "$WORK/tools-manifest.json" "$BUNDLE_VERSION" "$EXACTVER" <<'PY'
 import json, os, sys, tomllib
 out, bundle, pyver = sys.argv[1], sys.argv[2], sys.argv[3]

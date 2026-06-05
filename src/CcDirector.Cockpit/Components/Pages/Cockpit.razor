@@ -1,4 +1,5 @@
 @page "/"
+@using System.Reflection
 @inject GatewayClient Gateway
 @inject DirectorClient Director
 @inject IJSRuntime JS
@@ -27,6 +28,7 @@
             <button class="btn tb" @onclick="OpenFanout" title="Broadcast a prompt to several sessions">Fan-out</button>
             <button class="btn tb" @onclick="OpenSettings" title="Edit a Director's settings">Settings</button>
             <span class="gw" title="Gateway base URL">@Gateway.BaseUrl</span>
+            <span class="ver" title="@VersionFull">@VersionDisplay</span>
             <span class="refreshed">@(_lastRefresh is null ? "connecting..." : $"updated {_lastRefresh:HH:mm:ss}")</span>
         </span>
     </header>
@@ -771,6 +773,12 @@
 </div>
 
 @code {
+    // Product version stamped by Directory.Build.props ("0.6.3+sha", SourceLink suffix).
+    // Cockpit does not reference Core, so parse inline (mirror of AppVersion).
+    private static readonly string VersionFull =
+        typeof(Cockpit).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0.0.0";
+    private static readonly string VersionDisplay = $"v{VersionFull.Split('+')[0]}";
+
     private List<SessionDto> _sessions = new();
     private List<MachineErrorDto> _errors = new();
     private string? _selectedId;

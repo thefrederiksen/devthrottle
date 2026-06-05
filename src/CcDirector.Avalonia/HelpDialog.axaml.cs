@@ -47,7 +47,7 @@ public partial class HelpDialog : Window
         var app = global::Avalonia.Application.Current as App;
         var host = app?.ControlApiHost;
 
-        var version = typeof(App).Assembly.GetName().Version?.ToString() ?? "0.0.0";
+        var version = AppVersion.Display;
         var processPath = Environment.ProcessPath ?? "(unknown)";
 
         // DirectorId / Port / endpoint / instance file only exist once the Control API

@@ -210,10 +210,10 @@
 
                 <!-- New Session and Start FIFO moved to the top toolbar. -->
 
-                <!-- Build info footer (very bottom). -->
+                <!-- Version footer (very bottom): "v0.6.3 (1cc1abd)", build time in tooltip. -->
                 <Border DockPanel.Dock="Bottom" Padding="8,4">
                     <TextBlock x:Name="BuildInfoText"
-                               Text="Build: --"
+                               Text=""
                                Foreground="#555555"
                                FontSize="10"
                                HorizontalAlignment="Center" />

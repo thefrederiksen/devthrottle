@@ -29,10 +29,10 @@
                                Margin="0,2,0,0" />
                 </StackPanel>
 
-                <!-- Version at bottom -->
+                <!-- Version at bottom (set at runtime from the assembly stamp, see ctor) -->
                 <TextBlock x:Name="VersionText"
                            DockPanel.Dock="Bottom"
-                           Text="v0.6.4"
+                           Text=""
                            Foreground="#666666"
                            FontSize="11"
                            Margin="0,0,0,4" />

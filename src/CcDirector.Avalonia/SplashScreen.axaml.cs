@@ -1,6 +1,6 @@
 using System;
-using System.Reflection;
 using Avalonia.Controls;
+using CcDirector.Core.Utilities;
 
 namespace CcDirector.Avalonia;
 
@@ -10,10 +10,7 @@ public partial class SplashScreen : Window
     {
         InitializeComponent();
 
-        var version = Assembly.GetExecutingAssembly().GetName().Version;
-        var versionText = version is not null ? $"v{version.Major}.{version.Minor}.{version.Build}" : "v1.0.0";
-
-        VersionText.Text = $"Version {versionText}";
+        VersionText.Text = $"Version v{AppVersion.Semver}";
         DateText.Text = DateTime.Now.ToString("MMMM d, yyyy");
     }
 }

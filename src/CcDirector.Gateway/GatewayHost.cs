@@ -147,11 +147,12 @@ public sealed class GatewayHost : IAsyncDisposable
         }
         _app.UseRouting();
 
-        var version = typeof(GatewayHost).Assembly.GetName().Version?.ToString() ?? "0.0.0";
+        // Product version stamped by Directory.Build.props; full form carries the commit SHA.
+        var version = AppVersion.Full;
         GatewayEndpoints.Map(_app, Registry, _client, version, Token, AuthEnabled);
 
         await _app.StartAsync();
-        FileLog.Write($"[GatewayHost] listening on http://127.0.0.1:{Port}");
+        FileLog.Write($"[GatewayHost] listening on http://127.0.0.1:{Port} (version {version})");
     }
 
     public async Task StopAsync()

@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Text.Json;
 using CcDirector.Setup.Engine;
 
@@ -41,6 +42,7 @@ public static class Program
                 "install" => await Commands.UpdateAsync(args, layout, json, installMode: true),
                 "uninstall" => Commands.Uninstall(args, layout, json),
                 "rollback" => Commands.Rollback(args, layout, json),
+                "version" or "--version" => VersionCommand(json),
                 "help" or "--help" => Help(),
                 _ => Unknown(args.Command),
             };
@@ -105,6 +107,18 @@ public static class Program
         catch { /* logging setup must never block the command */ }
     }
 
+    /// <summary>Print this CLI's own product version (stamped from Directory.Build.props).</summary>
+    private static int VersionCommand(bool json)
+    {
+        var info = typeof(Program).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0.0.0";
+        if (json)
+            WriteJson(new { version = info.Split('+')[0], full = info });
+        else
+            Console.WriteLine(info);
+        return ExitOk;
+    }
+
     private static int Help()
     {
         Console.WriteLine(
@@ -120,6 +134,7 @@ public static class Program
               install --role <r>         Install/update all components for a role
               uninstall --role <r>       Remove install-owned files (preserves your data)
               rollback <component>       Restore the previous build and pin away from current
+              version                    Print this CLI's product version
 
             Options:
               --role workstation|gateway     Install type (default workstation)

@@ -1,0 +1,21 @@
+<Project>
+  <!--
+    THE single source of truth for the CC Director product version.
+
+    MSBuild auto-imports this file into every .csproj in the repo, and the SDK
+    derives AssemblyVersion / FileVersion / InformationalVersion from <Version>,
+    so every binary (Director, Gateway, Cockpit, setup wizard, setup CLI, ...)
+    is stamped with the same product version. The SDK also appends the git
+    commit SHA to InformationalVersion (SourceLink, on by default), so binaries
+    self-identify as e.g. "0.6.3+1cc1abd...".
+
+    Rules (see docs/architecture/VERSIONING.md):
+      - Bump ONLY here, via scripts/new-release.ps1 (it commits + tags vX.Y.Z).
+      - No .csproj may declare its own <Version> (it would silently override
+        this file). Exception: archived/.
+      - UIs read the version from their assembly at runtime - never hardcode it.
+  -->
+  <PropertyGroup>
+    <Version>0.6.4</Version>
+  </PropertyGroup>
+</Project>

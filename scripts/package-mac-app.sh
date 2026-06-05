@@ -49,9 +49,10 @@ done
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# Read <Version> from the Avalonia csproj for the bundle metadata.
-CSPROJ="$REPO_ROOT/src/CcDirector.Avalonia/CcDirector.Avalonia.csproj"
-VERSION="$(grep -oE '<Version>[^<]+</Version>' "$CSPROJ" | head -1 | sed -E 's/<\/?Version>//g' || echo "0.0.0")"
+# Read <Version> from Directory.Build.props (single source, see docs/architecture/VERSIONING.md).
+PROPS="$REPO_ROOT/Directory.Build.props"
+VERSION="$(grep -oE '<Version>[^<]+</Version>' "$PROPS" | head -1 | sed -E 's/<\/?Version>//g')"
+[[ -n "$VERSION" ]] || { echo "ERROR: could not read <Version> from $PROPS" >&2; exit 1; }
 
 # ----------------------------------------------------------------------------
 # Build AppIcon.icns from a 256px+ source (SVG preferred) -- same approach as

@@ -86,9 +86,10 @@ esac
 
 BIN_PATH="$BIN_DIR/$BIN"
 
-# Read version from the Avalonia csproj for the bundle metadata.
-CSPROJ="$REPO_ROOT/src/CcDirector.Avalonia/CcDirector.Avalonia.csproj"
-VERSION="$(grep -oE '<Version>[^<]+</Version>' "$CSPROJ" | head -1 | sed -E 's/<\/?Version>//g' || echo "0.0.0")"
+# Read version from Directory.Build.props (single source, see docs/architecture/VERSIONING.md).
+PROPS="$REPO_ROOT/Directory.Build.props"
+VERSION="$(grep -oE '<Version>[^<]+</Version>' "$PROPS" | head -1 | sed -E 's/<\/?Version>//g')"
+[[ -n "$VERSION" ]] || { echo "ERROR: could not read <Version> from $PROPS" >&2; exit 1; }
 
 # Detect the dotnet install dir to bake into the launcher (Finder/launchd do not
 # inherit your shell PATH, so a framework-dependent build needs DOTNET_ROOT set).

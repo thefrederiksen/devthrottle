@@ -29,6 +29,7 @@ body{background:var(--panel);color:var(--text);
   border-radius:10px;padding:1px 8px}
 .topbar-right{margin-left:auto;display:flex;gap:14px;align-items:center}
 .gw{color:var(--muted);font-size:11px;font-family:"Cascadia Mono",Consolas,monospace}
+.ver{color:var(--text3);font-size:11px}
 .refreshed{color:var(--text3);font-size:11px}
 
 .banner-error{flex:none;background:#3A1B1B;color:#F1A0A0;border-bottom:1px solid #5A2A2A;

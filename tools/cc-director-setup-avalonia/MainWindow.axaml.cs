@@ -1,3 +1,4 @@
+using System.Reflection;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Media;
@@ -39,6 +40,11 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+
+        // Version stamped by Directory.Build.props - read at runtime, never hardcoded in XAML.
+        var info = typeof(MainWindow).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0.0.0";
+        VersionText.Text = $"v{info.Split('+')[0]}";
 
         _isUpdate = InstallDetector.IsInstalled();
         _installedVersion = _isUpdate ? InstallDetector.GetInstalledVersion() : null;

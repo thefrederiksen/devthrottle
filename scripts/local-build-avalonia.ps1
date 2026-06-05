@@ -39,11 +39,12 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $projectPath = Join-Path $repoRoot "src\CcDirector.Avalonia\CcDirector.Avalonia.csproj"
 $corePath = Join-Path $repoRoot "src\CcDirector.Core\CcDirector.Core.csproj"
 
-# Read version from csproj
-[xml]$csproj = Get-Content $projectPath
-$version = $csproj.Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+# Read version from Directory.Build.props (the single version source, see docs/architecture/VERSIONING.md)
+$propsPath = Join-Path $repoRoot "Directory.Build.props"
+[xml]$props = Get-Content $propsPath
+$version = $props.Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
 if (-not $version) {
-    Write-Error "Could not read <Version> from $projectPath"
+    Write-Error "Could not read <Version> from $propsPath"
     exit 1
 }
 
