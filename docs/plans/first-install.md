@@ -1,6 +1,16 @@
 # First-Time Install of All Pieces (from a GitHub Release)
 
-Status: PLAN. Not built. This is the single, end-to-end plan for getting a clean
+Status: WORKSTATION VERIFIED / GATEWAY SUPERSEDED.
+
+- **Workstation outcome: VERIFIED WORKING 2026-06-05.** The v0.6.5 release wizard
+  was run end-to-end on a clean second machine: Director + tools + skills installed,
+  and the lockstep product version (docs/architecture/VERSIONING.md) displayed
+  correctly in the wizard and the Director status bar.
+- **Gateway outcome: SUPERSEDED.** Decision D1 (LocalSystem Windows service) is
+  replaced by the tray-app model - see docs/plans/gateway-tray-app.md (v2). The
+  Gateway install path below is kept for history only.
+
+This is the single, end-to-end plan for getting a clean
 Windows machine from "nothing installed" to "every CC Director component installed
 and running" by downloading one published GitHub release.
 
