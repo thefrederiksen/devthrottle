@@ -1,0 +1,92 @@
+# Capture: picker-askuserquestion
+
+Session 60b72bb7-93e2-40a6-9982-ce6911f5c0ac, Director :7887, state at capture: WaitingForInput
+
+## What the USER SEES (screen grid, last 25 rows)
+
+```
+?                                                    ? Tips for getting started                                        ?
+?                 Welcome back!                     ? Run /init to create a CLAUDE.md file with instructions for Cla? ?
+?                                                    ? ??????????????????????????????????????????????????????????????? ?
+?                       ???????                      ? What's new                                                      ?
+?                      ?????????                     ? Added `requiredMinimumVersion` and `requiredMaximumVersion` ma? ?
+?                        ?? ??                       ? Added `/plugin list` command to list installed plugins, with `? ?
+?    Opus 4.8 (1M context) ? Claude Max ?            ? Added a "c to copy" shortcut to `/btw` that copies the raw mar? ?
+?    user@example.com's Organization    ? /release-notes for more                                         ?
+?        D:\ReposFred\cc-director-qa-scratch         ?                                                                 ?
+????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
+? We are improving this scratch repo's README. Use your AskUserQuestion tool (the interactive option picker) to ask me    which tone the README should have: playful, formal, or terse. Use the tool - do not ask in plain t
+ext.                his scratch repo's README. Use your AskUserQuestion tool (the interactive option picker) to ask me
+???????????????????????????????????????????????????????????????????????????????????????????????????????????????????????? ? README tone
+? Puttering? (6s ? ? 146 tokens ? thinking)
+Which tone should the README have?
+? 1. Playful
+     Light, fun, conversational - jokes and personality welcome
+  2. Formal
+     Professional, structured documentation style
+  3. Terse
+     Minimal, just the facts - short sentences, no fluff
+  4. Type something.
+????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
+  5. Chat about this
+Enter to select ? ?/? to navigate ? Esc to cancel
+```
+
+## What the TRANSCRIPT knows (parsed widgets)
+
+```
+  0. UserMessage: We are improving this scratch repo's README. Use your AskUserQuestion tool (the interactive option p
+```
+
+## What Brief v1 made of it (GET /brief)
+
+```json
+{
+  "status": "ok",
+  "activityState": "WaitingForInput",
+  "replyPending": true,
+  "goal": "We are improving this scratch repo's README. Use your AskUserQuestion tool (the interactive option picker) to ask me which tone the README should have: playful, formal, or terse. Use the tool - do not ask in plain text.",
+  "lastAsk": "We are improving this scratch repo's README. Use your AskUserQuestion tool (the interactive option picker) to ask me which tone the README should have: playful, formal, or terse. Use the tool - do not ask in plain text.",
+  "didBullets": [],
+  "needsYou": null,
+  "needsYouSource": null,
+  "condenser": "unavailable"
+}
+```
+
+## Correct TurnBrief (authored by the strong model - the quality bar)
+
+```json
+{
+  "intent": "Improving the scratch repo's README; you asked Claude to use its option
+             picker to ask you for the tone.",
+  "did": [ "Opened an interactive picker asking which tone the README should have" ],
+  "needsYou": {
+    "statement": "Pick the README tone in the on-screen picker: 1 Playful (fun,
+                  conversational), 2 Formal (professional docs), 3 Terse (just the
+                  facts) - or type your own.",
+    "answerVia": "keys",
+    "options": [
+      { "key": "1 Playful", "send": "1\r" },
+      { "key": "2 Formal",  "send": "2\r" },
+      { "key": "3 Terse",   "send": "3\r" }
+    ],
+    "evidence": "Which tone should the README have? / 1. Playful - Light, fun,
+                 conversational... / 2. Formal - Professional, structured... /
+                 3. Terse - Minimal, just the facts...",
+    "urgency": "blocking",
+    "confidence": "high",
+    "railLine": "Pick README tone: playful / formal / terse"
+  }
+}
+```
+
+## Findings
+
+- The transcript is COMPLETELY blind (one widget: the user message). The screen grid has
+  EVERYTHING: question, options, per-option descriptions, key bindings. The turn package's
+  screen tail is the only viable source for this shape.
+- The picker is answerable by KEYSTROKES (number + Enter) through the existing raw-input
+  path - so the brief's options can carry a `send` key sequence and the one-tap answer works
+  REMOTELY, no terminal tab needed. This kills the v1 "go to the terminal" cop-out for
+  pickers. -> contract: `answerVia: "keys"`, `options[].send`.

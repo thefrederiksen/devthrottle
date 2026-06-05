@@ -256,6 +256,28 @@ public sealed class DirectorClient
         return await resp.Content.ReadFromJsonAsync<SessionSummaryDto>(cancellationToken: ct);
     }
 
+    /// <summary>
+    /// The last lines of the session's CURRENT SCREEN - the Brief's live "what is Claude
+    /// doing right now" peek while a session works. Reads the server-side parsed grid
+    /// (<c>GET /buffer/html</c>, on every Director build) rather than the linear cleaned
+    /// byte stream, because the TUI's constant repaints flatten into "spinner spinner
+    /// spinner" noise in the stream while the grid is always the coherent screen.
+    /// </summary>
+    public async Task<string> GetScreenTailAsync(string directorBase, string sid, int lines, CancellationToken ct = default)
+    {
+        var r = await _http.GetFromJsonAsync<BufferHtmlResponse>(
+            Url(directorBase, $"sessions/{sid}/buffer/html"), ct);
+        if (string.IsNullOrEmpty(r?.GridHtml)) return "";
+
+        var rows = r.GridHtml
+            .Split("<div class=\"line\">", StringSplitOptions.RemoveEmptyEntries)
+            .Select(row => System.Net.WebUtility.HtmlDecode(
+                System.Text.RegularExpressions.Regex.Replace(row, "<[^>]+>", "",
+                    System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromMilliseconds(100))).TrimEnd())
+            .Where(t => !string.IsNullOrWhiteSpace(t));
+        return string.Join("\n", rows.TakeLast(lines));
+    }
+
     // ===== Power tools (Phase 4) =====
 
     /// <summary>A read-only git summary for the session's repo (<c>GET /git</c>): branch,
@@ -286,4 +308,11 @@ public sealed class UploadImageResponse
 {
     public string Path { get; set; } = "";
     public string FileName { get; set; } = "";
+}
+
+/// <summary>The slice of <c>GET /sessions/{sid}/buffer/html</c> the Brief's screen tail
+/// needs: the parsed CURRENT-SCREEN grid as one &lt;div class="line"&gt; per row.</summary>
+public sealed class BufferHtmlResponse
+{
+    public string GridHtml { get; set; } = "";
 }

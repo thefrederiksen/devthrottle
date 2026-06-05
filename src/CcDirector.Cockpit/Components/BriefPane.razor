@@ -1,12 +1,18 @@
+@implements IDisposable
 @inject DirectorClient Director
 @inject ILogger<BriefPane> Log
 @using Markdig
 
-@* The full-page session Brief (docs/plans/cockpit-brief-view.md): three fixed blocks -
-   YOU ASKED / CLAUDE DID / NEEDS YOU - sourced from the Claude transcript via the owning
-   Director's /brief endpoint. The parent keys this component by SessionId; ActivityState
-   updates flow into the SAME instance, and a Working -> not-Working transition (a turn
-   completing) triggers a refresh so the page follows the session live.
+@* The full-page session Brief (docs/plans/cockpit-brief-view.md): the conversation pair
+   first - YOU ASKED directly above NEEDS YOU - with CLAUDE DID below as supporting detail.
+   Sourced from the Claude transcript via the owning Director's /brief endpoint. The parent
+   keys this component by SessionId; ActivityState updates flow into the SAME instance, and
+   a Working -> not-Working transition (a turn completing) triggers a refresh so the page
+   follows the session live.
+
+   While the session WORKS, nothing stale masquerades as current: only YOU ASKED plus a
+   "Claude is working" panel with a live terminal tail (GET /buffer?lines=N - exists on
+   every Director build, polled only while this pane is visible and the session is busy).
 
    Degrade ladder (never a blank page): /brief 404 -> /summary raw -> "use the Terminal tab". *@
 
@@ -56,86 +62,104 @@
             }
         </div>
 
-        <div class="brief-block">
-            <div class="blabel">
-                @(IsWorking || ReplyPending ? "CLAUDE DID (last completed turn)" : "CLAUDE DID")
-                @* Suppress the warn while a reply is pending: condensation is intentionally
-                   skipped then (it would describe the previous turn against the new ask). *@
-                @if (_brief is not null && _brief.Condenser == "unavailable" && _brief.FullReply is not null && !ReplyPending)
-                {
-                    <span class="brief-cond-warn" title="No condenser on this Director (OPENAI_API_KEY missing or call failed); showing the raw reply.">condenser unavailable</span>
-                }
-            </div>
-            @if (_brief?.DidBullets.Count > 0)
-            {
-                <ul class="brief-did">
-                    @foreach (var b in _brief.DidBullets)
-                    {
-                        <li>@b</li>
-                    }
-                </ul>
-            }
-            else if (FullReply is not null)
-            {
-                @* No condensation (old Director or no key): the reply itself, rendered. *@
-                <div class="brief-reply-md">@RenderMarkdown(FullReply)</div>
-            }
-            else
-            {
-                <div class="brief-muted">Claude has not replied yet.</div>
-            }
-
-            @if (_brief?.DidBullets.Count > 0 && FullReply is not null)
-            {
-                <button class="brief-expand" @onclick="() => _showFull = !_showFull">
-                    @(_showFull ? "hide full reply" : "full reply")
-                </button>
-                @if (_showFull)
-                {
-                    <div class="brief-reply-md">@RenderMarkdown(FullReply)</div>
-                }
-            }
-        </div>
-
         @if (ReplyPending && ActivityState == "WaitingForInput")
         {
             @* The transcript cannot see an interactive on-screen prompt (option picker /
-               permission dialog) - the only honest move is sending the user to the terminal. *@
+               permission dialog) - show the terminal tail so the question is readable here,
+               but answering needs the terminal. *@
             <div class="brief-block">
                 <div class="blabel red">NEEDS YOU - ON-SCREEN PROMPT</div>
                 <div class="brief-needsyou">
                     Claude is asking with an interactive prompt (an option picker or permission
                     dialog) that only the terminal shows.
                 </div>
+                @if (!string.IsNullOrWhiteSpace(_tail))
+                {
+                    <pre class="brief-tail">@_tail</pre>
+                }
                 <button class="brief-open-term" @onclick="() => OnOpenTerminal.InvokeAsync()">Open the Terminal to answer</button>
             </div>
         }
         else if (IsWorking || ReplyPending)
         {
-            <div class="brief-working">
-                Claude is @(ReplyPending ? "writing its reply" : "working") - nothing needed from you right now.
+            @* Honest working state: no "Claude did" - last turn's content pretending to be
+               current is exactly the cognitive load this page exists to remove. *@
+            <div class="brief-block">
+                <div class="blabel">CLAUDE IS WORKING</div>
+                @if (!string.IsNullOrWhiteSpace(_tail))
+                {
+                    <pre class="brief-tail">@_tail</pre>
+                }
+                else
+                {
+                    <div class="brief-working">Claude is @(ReplyPending ? "writing its reply" : "working") - nothing needed from you right now.</div>
+                }
             </div>
         }
-        else if (NeedsYou is not null)
+        else
         {
-            <div class="brief-block">
-                <div class="blabel red">
-                    NEEDS YOU
-                    <span class="brief-verbatim-tag">@(_brief?.NeedsYouSource == "model" ? "Claude's words" : "reply's final paragraph")</span>
-                </div>
-                <div class="brief-needsyou">@NeedsYou</div>
-                @if (_quickOptions.Count > 0)
-                {
-                    <div class="brief-quick">
-                        @foreach (var o in _quickOptions)
-                        {
-                            <button class="brief-quick-btn" disabled="@Replying"
-                                    title="Send &quot;@o.Key&quot; as the reply"
-                                    @onclick="() => OnQuickReply.InvokeAsync(o.Key)">
-                                <b>@o.Key</b> @o.Label
-                            </button>
-                        }
+            @if (NeedsYou is not null)
+            {
+                <div class="brief-block">
+                    <div class="blabel red">
+                        NEEDS YOU
+                        <span class="brief-verbatim-tag">@(_brief?.NeedsYouSource == "model" ? "Claude's words" : "reply's final paragraph")</span>
                     </div>
+                    <div class="brief-needsyou">@NeedsYou</div>
+                    @if (_quickOptions.Count > 0)
+                    {
+                        <div class="brief-quick">
+                            @foreach (var o in _quickOptions)
+                            {
+                                <button class="brief-quick-btn" disabled="@Replying"
+                                        title="Send &quot;@o.Key&quot; as the reply"
+                                        @onclick="() => OnQuickReply.InvokeAsync(o.Key)">
+                                    <b>@o.Key</b> @o.Label
+                                </button>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+
+            <div class="brief-divider"></div>
+
+            <div class="brief-block">
+                <div class="blabel">
+                    CLAUDE DID
+                    @if (_brief is not null && _brief.Condenser == "unavailable" && _brief.FullReply is not null)
+                    {
+                        <span class="brief-cond-warn" title="No condenser on this Director (OPENAI_API_KEY missing or call failed); showing the raw reply.">condenser unavailable</span>
+                    }
+                </div>
+                @if (_brief?.DidBullets.Count > 0)
+                {
+                    <ul class="brief-did">
+                        @foreach (var b in _brief.DidBullets)
+                        {
+                            <li>@b</li>
+                        }
+                    </ul>
+                }
+                else if (FullReply is not null)
+                {
+                    @* No condensation (old Director or no key): the reply itself, rendered. *@
+                    <div class="brief-reply-md">@RenderMarkdown(FullReply)</div>
+                }
+                else
+                {
+                    <div class="brief-muted">Claude has not replied yet.</div>
+                }
+
+                @if (_brief?.DidBullets.Count > 0 && FullReply is not null)
+                {
+                    <button class="brief-expand" @onclick="() => _showFull = !_showFull">
+                        @(_showFull ? "hide full reply" : "full reply")
+                    </button>
+                    @if (_showFull)
+                    {
+                        <div class="brief-reply-md">@RenderMarkdown(FullReply)</div>
+                    }
                 }
             </div>
         }
@@ -183,6 +207,59 @@
             ? Services.BriefFallback.FinalParagraph(_summary.LastAssistantText)
             : null);
 
+    // ===== live terminal tail (working / on-screen-prompt states) =====
+
+    private const int TailLines = 8;
+    private string _tail = "";
+    private CancellationTokenSource? _tailCts;
+
+    /// <summary>The tail is wanted while the session is busy or holding an on-screen prompt.</summary>
+    private bool TailWanted => IsWorking || ReplyPending;
+
+    private void SyncTailLoop()
+    {
+        if (TailWanted && _tailCts is null)
+        {
+            _tailCts = new CancellationTokenSource();
+            _ = PollTailAsync(_tailCts.Token);
+        }
+        else if (!TailWanted && _tailCts is not null)
+        {
+            _tailCts.Cancel();
+            _tailCts = null;
+            _tail = "";
+        }
+    }
+
+    private async Task PollTailAsync(CancellationToken ct)
+    {
+        try
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                try
+                {
+                    _tail = await Director.GetScreenTailAsync(DirectorBase, SessionId, TailLines, ct);
+                    await InvokeAsync(StateHasChanged);
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex)
+                {
+                    // One failed poll must not kill the loop (Director briefly busy); next
+                    // tick retries. Persistent failure just leaves the static working note.
+                    Log.LogDebug(ex, "tail poll failed for sid={Sid}", SessionId);
+                }
+                await Task.Delay(TimeSpan.FromSeconds(2), ct);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // state changed or pane disposed; normal.
+        }
+    }
+
+    // ===== quick-reply options =====
+
     /// <summary>One detected answer option: the key the button sends ("1", "A") + a short label.</summary>
     public sealed record QuickOption(string Key, string Label);
 
@@ -191,16 +268,23 @@
     private List<QuickOption> _quickOptions = new();
 
     /// <summary>
-    /// Conservative option detection for one-click answers (plan Phase 4). Only parses
-    /// numbered/lettered OPTION LINES ("1. ...", "Option B - ...") found in the needs-you
-    /// text or the reply's tail near it - a generic numbered list elsewhere in the reply
-    /// (steps, findings) must NOT sprout buttons. Max 4; none parsed -> no buttons, the
-    /// composer below always works.
+    /// Conservative option detection for one-click answers (plan Phase 4). GATE first: the
+    /// ask itself must read like a choice (a digit, "option", or "which") - a numbered list
+    /// near a non-choosing ask (steps, findings, explanations) must NOT sprout buttons.
+    /// Then parse option LINES near the ask, falling back to parenthesized keys inside it.
+    /// Max 4; none parsed -> no buttons, the composer below always works.
     /// </summary>
     private List<QuickOption> ComputeQuickOptions()
     {
         var ask = NeedsYou;
         if (ask is null) return new();
+
+        // The choice gate. Without it, any reply ending near a numbered list grows bogus
+        // buttons (seen live: an explanation's "1. / 2. / 3." became three buttons).
+        if (!System.Text.RegularExpressions.Regex.IsMatch(
+                ask, @"\d|\boption\b|\bwhich\b",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(100)))
+            return new();
 
         // Pass 1: numbered/lettered option LINES in the ask plus the reply just above it
         // (options are usually listed above the closing question).
@@ -266,10 +350,11 @@
     {
         // A turn just completed (Working -> anything else): the transcript has a new reply,
         // so the cached brief is stale - refresh. Going INTO Working keeps the last brief
-        // on screen (it labels itself "last completed turn").
+        // data (the working layout only shows YOU ASKED + the live tail anyway).
         if (_lastSeenState == "Working" && ActivityState != "Working" && !_loading)
         {
             _lastSeenState = ActivityState;
+            SyncTailLoop();
             await LoadAsync();
             return;
         }
@@ -280,6 +365,7 @@
             // without a reload (e.g. old-Director summary mode flipping to WaitingForInput).
             _quickOptions = ComputeQuickOptions();
         }
+        SyncTailLoop();
     }
 
     private async Task LoadAsync(bool force = false)
@@ -330,7 +416,14 @@
         {
             _loading = false;
             _quickOptions = ComputeQuickOptions();
+            SyncTailLoop();
             await InvokeAsync(StateHasChanged);
         }
+    }
+
+    public void Dispose()
+    {
+        _loadCts?.Cancel();
+        _tailCts?.Cancel();
     }
 }
