@@ -32,11 +32,15 @@ public sealed class GatewayHost : IAsyncDisposable
     private WebApplication? _app;
     private bool _stopped;
 
-    public GatewayHost(int port = DefaultPort, string? token = null, bool authEnabled = false)
+    /// <param name="instancesDirectory">
+    /// Override the Director-discovery instances directory (see <see cref="DirectorRegistry"/>).
+    /// Tests pass an isolated temp directory; production omits it for the shared default.
+    /// </param>
+    public GatewayHost(int port = DefaultPort, string? token = null, bool authEnabled = false, string? instancesDirectory = null)
     {
         Port = port;
         Token = token ?? GatewayAuth.LoadOrCreate();
-        Registry = new DirectorRegistry();
+        Registry = new DirectorRegistry(instancesDirectory);
         AuthEnabled = authEnabled;
         _client = new DirectorEndpointClient(Token);
         _serveProvisioner = new TailscaleServeProvisioner(Registry, Port, Cockpit.CockpitSupervisor.ResolvePort());

@@ -44,6 +44,13 @@ public sealed class GatewayClient : IDisposable
     // null we retry, so a Director that starts before the tailscale daemon still picks it up.
     private string? _cachedDnsName;
 
+    /// <summary>
+    /// Test seam: resolving the MagicDNS name shells the tailscale CLI, which makes the
+    /// result environment-dependent. Tests pin this to simulate a node with or without a
+    /// tailnet identity; production always uses the real resolver.
+    /// </summary>
+    internal Func<string?> MagicDnsResolver { get; set; } = TailscaleIdentity.TryGetMagicDnsName;
+
     public bool IsEnabled => _config.IsEnabled;
     public bool IsRegistered => _registered;
 
@@ -238,7 +245,7 @@ public sealed class GatewayClient : IDisposable
         // could never reach loopback). This single value drives both Gateway fan-out reads and
         // the Cockpit's direct terminal WebSocket (wss://<magicdns>:<port>/sessions/{sid}/stream).
         if (_cachedDnsName is null)
-            _cachedDnsName = TailscaleIdentity.TryGetMagicDnsName();
+            _cachedDnsName = MagicDnsResolver();
         if (!string.IsNullOrWhiteSpace(_cachedDnsName))
             return $"https://{_cachedDnsName}:{_port}";
 

@@ -28,14 +28,20 @@ public sealed class InstanceRegistration : IDisposable
     public string FilePath { get; }
     public DirectorDto Dto { get; }
 
+    private readonly string _instancesDirectory;
     private bool _disposed;
     private Timer? _heartbeat;
 
-    public InstanceRegistration(string directorId, int port, string version)
+    /// <param name="instancesDirectory">
+    /// Override the shared instances directory. Tests pass an isolated temp directory so test
+    /// Directors never appear in a real Gateway's discovery (and vice versa). Production omits it.
+    /// </param>
+    public InstanceRegistration(string directorId, int port, string version, string? instancesDirectory = null)
     {
         DirectorId = directorId;
         Port = port;
-        FilePath = Path.Combine(InstancesDirectory, $"{directorId}.json");
+        _instancesDirectory = instancesDirectory ?? InstancesDirectory;
+        FilePath = Path.Combine(_instancesDirectory, $"{directorId}.json");
 
         Dto = new DirectorDto
         {
@@ -72,7 +78,7 @@ public sealed class InstanceRegistration : IDisposable
 
     private void WriteOnce()
     {
-        Directory.CreateDirectory(InstancesDirectory);
+        Directory.CreateDirectory(_instancesDirectory);
         var json = JsonSerializer.Serialize(Dto, new JsonSerializerOptions { WriteIndented = true });
         File.WriteAllText(FilePath, json);
     }

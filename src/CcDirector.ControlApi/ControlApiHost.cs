@@ -62,6 +62,7 @@ public sealed class ControlApiHost : IAsyncDisposable
     // Resolved lazily at request time: the scheduler is created AFTER the Control API host
     // (StartControlApi runs before StartScheduler), so we capture an accessor, not the instance.
     private readonly Func<Core.Scheduler.SchedulerService?>? _schedulerAccessor;
+    private readonly string? _instancesDirectory;
     private bool _stopped;
 
     /// <summary>
@@ -75,7 +76,7 @@ public sealed class ControlApiHost : IAsyncDisposable
     /// If true, bearer-token or cookie auth is required for all routes except /healthz/login/logout.
     /// If false (default), the Director is completely open. The Tailscale tailnet is the trust boundary.
     /// </param>
-    public ControlApiHost(SessionManager sessionManager, string version, Func<Task> requestShutdownAsync, bool useEphemeralPort = false, bool authEnabled = false, RepositoryRegistry? repositoryRegistry = null, string? directorId = null, Func<Core.Scheduler.SchedulerService?>? schedulerAccessor = null)
+    public ControlApiHost(SessionManager sessionManager, string version, Func<Task> requestShutdownAsync, bool useEphemeralPort = false, bool authEnabled = false, RepositoryRegistry? repositoryRegistry = null, string? directorId = null, Func<Core.Scheduler.SchedulerService?>? schedulerAccessor = null, string? instancesDirectory = null)
     {
         _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));
         _version = version ?? "0.0.0";
@@ -84,6 +85,9 @@ public sealed class ControlApiHost : IAsyncDisposable
         _authEnabled = authEnabled;
         _repositoryRegistry = repositoryRegistry;
         _schedulerAccessor = schedulerAccessor;
+        // Tests pass an isolated instances directory so test Directors never appear in a real
+        // Gateway's discovery (and a real Director never appears in a test Gateway's).
+        _instancesDirectory = instancesDirectory;
 
         // Production: persisted id (same across restarts so the Gateway recognizes us).
         // Tests: inject a fresh id per fixture so parallel runs don't collide on the
@@ -242,7 +246,7 @@ public sealed class ControlApiHost : IAsyncDisposable
         _sessionManager.ControlApiBaseUrl = $"http://127.0.0.1:{Port}";
         _sessionManager.DirectorId = DirectorId;
 
-        _registration = new InstanceRegistration(DirectorId, Port, _version);
+        _registration = new InstanceRegistration(DirectorId, Port, _version, _instancesDirectory);
         _registration.Register();
 
         // Phase 1: if gateway.url is configured, register with the Gateway over HTTP and

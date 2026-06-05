@@ -13,11 +13,14 @@ namespace CcDirector.Core.Tests.Storage;
 /// the disposal lifecycle. The hot-path back-pressure test is deliberately omitted -
 /// the bounded-channel drop policy is the relevant Channels API behavior, not ours.
 /// </summary>
+[Collection("CcStorageRoot")] // CcStorage.Root() is resolved at WRITE time, so this class must
+                              // never overlap a class that mutates CC_DIRECTOR_ROOT (the writer
+                              // would land in - and lose - the other fixture's temp root).
 public sealed class SessionLogWriterTests : IDisposable
 {
     // We write to the real production path (%LOCALAPPDATA%\cc-director\session-logs\<sid>)
     // and clean up the per-session dir at the end. Using a CC_DIRECTOR_ROOT env-var
-    // override would race against other test classes that read CcStorage.Root().
+    // override of our own would race the same way other mutators race us.
     private readonly List<Guid> _createdSessionDirs = new();
     private readonly SessionManager _manager;
 
@@ -120,12 +123,14 @@ public sealed class SessionLogWriterTests : IDisposable
     public async Task Writer_restart_appends_rather_than_truncating()
     {
         var session = CreateTrackedSession();
+        var path = SessionLogPaths.WingmanEventsJsonl(session.Id);
 
-        // First "boot"
+        // First "boot". The writer drains a channel on a background task, so poll for
+        // the line to land instead of racing it with a fixed delay (flaked under load).
         var writer1 = new SessionLogWriter(session);
         writer1.Start();
         session.SetStatusColor("blue", "working");
-        await Task.Delay(200);
+        Assert.True(await WaitForLinesAsync(path, 1), "first color change should be persisted");
         writer1.Dispose();
 
         // Second "boot" - simulate a Director restart by constructing a new writer for
@@ -133,12 +138,40 @@ public sealed class SessionLogWriterTests : IDisposable
         var writer2 = new SessionLogWriter(session);
         writer2.Start();
         session.SetStatusColor("green", "done");
-        await Task.Delay(200);
+        Assert.True(await WaitForLinesAsync(path, 2), "second color change should append");
         writer2.Dispose();
 
-        var lines = File.ReadAllLines(SessionLogPaths.WingmanEventsJsonl(session.Id));
+        var lines = File.ReadAllLines(path);
         Assert.True(lines.Length >= 2);
         var last = JsonDocument.Parse(lines[^1]).RootElement;
         Assert.Equal("green", last.GetProperty("newColor").GetString());
+    }
+
+    /// <summary>Poll until the JSONL file has at least <paramref name="minLines"/> lines.
+    /// The writer still holds the file open for WRITE, so the reader must declare
+    /// FileShare.ReadWrite (File.ReadAllLines would throw a sharing violation).</summary>
+    private static async Task<bool> WaitForLinesAsync(string path, int minLines)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (DateTime.UtcNow < deadline)
+        {
+            try
+            {
+                if (File.Exists(path) && CountLines(path) >= minLines)
+                    return true;
+            }
+            catch (IOException) { /* writer mid-flush; retry until deadline */ }
+            await Task.Delay(50);
+        }
+        return false;
+    }
+
+    private static int CountLines(string path)
+    {
+        using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        using var sr = new StreamReader(fs);
+        var count = 0;
+        while (sr.ReadLine() is not null) count++;
+        return count;
     }
 }

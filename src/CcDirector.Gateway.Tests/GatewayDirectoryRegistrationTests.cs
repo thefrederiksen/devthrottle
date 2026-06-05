@@ -20,9 +20,15 @@ public sealed class GatewayDirectoryRegistrationTests : IAsyncLifetime
     private GatewayHost _gateway = null!;
     private HttpClient _http = null!;
 
+    // Isolated discovery dir so a real Director running on the dev machine never appears
+    // in this test Gateway's registry.
+    private readonly string _instancesDir =
+        Path.Combine(Path.GetTempPath(), "cc-instances-" + Guid.NewGuid().ToString("N"));
+
     public async Task InitializeAsync()
     {
-        _gateway = new GatewayHost(port: FreePort(), token: "test-token", authEnabled: true);
+        _gateway = new GatewayHost(port: FreePort(), token: "test-token", authEnabled: true,
+            instancesDirectory: _instancesDir);
         await _gateway.StartAsync();
 
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
@@ -33,6 +39,8 @@ public sealed class GatewayDirectoryRegistrationTests : IAsyncLifetime
     {
         _http.Dispose();
         await _gateway.StopAsync();
+        try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); }
+        catch { }
     }
 
     [Fact]

@@ -31,9 +31,15 @@ public sealed class SessionsAggregationTests : IAsyncLifetime
     private HttpClient _http = null!;
     private readonly List<FakeDirector> _fakes = new();
 
+    // Isolated discovery dir so a real Director running on the dev machine never leaks
+    // its sessions into these aggregation assertions.
+    private readonly string _instancesDir =
+        Path.Combine(Path.GetTempPath(), "cc-instances-" + Guid.NewGuid().ToString("N"));
+
     public async Task InitializeAsync()
     {
-        _gateway = new GatewayHost(port: FreePort(), token: "test-token", authEnabled: true);
+        _gateway = new GatewayHost(port: FreePort(), token: "test-token", authEnabled: true,
+            instancesDirectory: _instancesDir);
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
         _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "test-token");
@@ -44,6 +50,8 @@ public sealed class SessionsAggregationTests : IAsyncLifetime
         _http.Dispose();
         foreach (var f in _fakes) await f.DisposeAsync();
         await _gateway.StopAsync();
+        try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); }
+        catch { }
     }
 
     // ---------- field stamping ----------
@@ -63,7 +71,9 @@ public sealed class SessionsAggregationTests : IAsyncLifetime
         Assert.Equal("MACHINE_A", s.MachineName);
         Assert.Equal("alice", s.User);
         Assert.Equal(fake.BaseUrl, s.TailnetEndpoint);
-        Assert.Equal($"{fake.BaseUrl}/sessions/s1/view", s.ViewUrl);
+        // ViewUrl carries the gateway address as a ?gw= deep-link param (the session
+        // view uses it for its "back to Gateway" menu item).
+        Assert.StartsWith($"{fake.BaseUrl}/sessions/s1/view?gw=", s.ViewUrl);
     }
 
     [Fact]
@@ -229,7 +239,7 @@ public sealed class SessionsAggregationTests : IAsyncLifetime
         var sessions = await GetSessions();
         var s = Assert.Single(sessions);
         Assert.DoesNotContain("//sessions", s.ViewUrl);
-        Assert.EndsWith("/sessions/only/view", s.ViewUrl);
+        Assert.Contains("/sessions/only/view?gw=", s.ViewUrl);
     }
 
     // ---------- single-session lookup ----------
@@ -247,7 +257,8 @@ public sealed class SessionsAggregationTests : IAsyncLifetime
         Assert.Equal("MACHINE_X", s!.MachineName);
         Assert.Equal("carol", s.User);
         Assert.Equal(fake.BaseUrl, s.TailnetEndpoint);
-        Assert.Equal($"{fake.BaseUrl}/sessions/only/view", s.ViewUrl);
+        // Same ?gw= deep-link param as the aggregator (see above).
+        Assert.StartsWith($"{fake.BaseUrl}/sessions/only/view?gw=", s.ViewUrl);
     }
 
     [Fact]

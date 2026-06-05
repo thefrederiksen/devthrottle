@@ -16,13 +16,20 @@ public sealed class FanoutAndEventsTests : IAsyncLifetime
     private GatewayHost _gateway = null!;
     private HttpClient _http = null!;
 
+    // Isolated discovery dir: the test Director and Gateway find each other here, and a real
+    // Director running on the dev machine can never leak into (or see) these test hosts.
+    private readonly string _instancesDir =
+        Path.Combine(Path.GetTempPath(), "cc-instances-" + Guid.NewGuid().ToString("N"));
+
     public async Task InitializeAsync()
     {
         _sm = new SessionManager(new AgentOptions());
-        _director = new ControlApiHost(_sm, "1.0.0-test", () => Task.CompletedTask, useEphemeralPort: true);
+        _director = new ControlApiHost(_sm, "1.0.0-test", () => Task.CompletedTask, useEphemeralPort: true,
+            instancesDirectory: _instancesDir);
         await _director.StartAsync();
 
-        _gateway = new GatewayHost(port: AllocateFreePort(), token: "test-token", authEnabled: true);
+        _gateway = new GatewayHost(port: AllocateFreePort(), token: "test-token", authEnabled: true,
+            instancesDirectory: _instancesDir);
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
 
@@ -41,11 +48,7 @@ public sealed class FanoutAndEventsTests : IAsyncLifetime
         await _gateway.StopAsync();
         await _director.StopAsync();
         _sm.Dispose();
-        try
-        {
-            var f = Path.Combine(InstanceRegistration.InstancesDirectory, $"{_director.DirectorId}.json");
-            if (File.Exists(f)) File.Delete(f);
-        }
+        try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); }
         catch { }
     }
 
@@ -114,15 +117,20 @@ public sealed class FanoutAndEventsTests : IAsyncLifetime
     [Fact]
     public async Task Events_endpoint_streams_director_events()
     {
-        // Connect to SSE stream
-        using var ctsClient = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        // Connect to the SSE stream and AWAIT the response headers BEFORE booting the
+        // second director: only then is the subscription provably active, so the
+        // director.added event (which is not replayed) cannot fire before we listen.
+        // Generous read budget: within it we boot a whole second Kestrel host AND wait
+        // for FSW discovery, which can take many seconds on a loaded machine/CI runner.
+        // The happy path returns as soon as the event arrives.
+        using var ctsClient = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        using var req = new HttpRequestMessage(HttpMethod.Get, "events");
+        req.Headers.Add("Authorization", "Bearer test-token");
+        using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ctsClient.Token);
+        Assert.Equal("text/event-stream", resp.Content.Headers.ContentType?.MediaType);
+
         var streamTask = Task.Run(async () =>
         {
-            using var req = new HttpRequestMessage(HttpMethod.Get, "events");
-            req.Headers.Add("Authorization", "Bearer test-token");
-            var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ctsClient.Token);
-            Assert.Equal("text/event-stream", resp.Content.Headers.ContentType?.MediaType);
-
             using var stream = await resp.Content.ReadAsStreamAsync(ctsClient.Token);
             using var reader = new StreamReader(stream);
             var buffer = new System.Text.StringBuilder();
@@ -140,11 +148,10 @@ public sealed class FanoutAndEventsTests : IAsyncLifetime
             return buffer.ToString();
         });
 
-        await Task.Delay(200);
-
         // Create a SECOND director to trigger a director.added event
         using var sm2 = new SessionManager(new AgentOptions());
-        var d2 = new ControlApiHost(sm2, "1.0.0-test", () => Task.CompletedTask, useEphemeralPort: true);
+        var d2 = new ControlApiHost(sm2, "1.0.0-test", () => Task.CompletedTask, useEphemeralPort: true,
+            instancesDirectory: _instancesDir);
         await d2.StartAsync();
 
         try
@@ -155,12 +162,6 @@ public sealed class FanoutAndEventsTests : IAsyncLifetime
         finally
         {
             await d2.StopAsync();
-            try
-            {
-                var f = Path.Combine(InstanceRegistration.InstancesDirectory, $"{d2.DirectorId}.json");
-                if (File.Exists(f)) File.Delete(f);
-            }
-            catch { }
         }
     }
 

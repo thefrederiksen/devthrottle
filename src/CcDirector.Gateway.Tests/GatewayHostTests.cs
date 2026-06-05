@@ -23,15 +23,22 @@ public sealed class GatewayHostTests : IAsyncLifetime
     private HttpClient _http = null!;
     private int _gatewayPort;
 
+    // Isolated discovery dir: the test Director and Gateway find each other here, and a real
+    // Director running on the dev machine can never leak into (or see) these test hosts.
+    private readonly string _instancesDir =
+        Path.Combine(Path.GetTempPath(), "cc-instances-" + Guid.NewGuid().ToString("N"));
+
     public async Task InitializeAsync()
     {
         // Boot a director
         _sm = new SessionManager(new AgentOptions());
-        _director = new ControlApiHost(_sm, "1.0.0-test", () => Task.CompletedTask, useEphemeralPort: true);
+        _director = new ControlApiHost(_sm, "1.0.0-test", () => Task.CompletedTask, useEphemeralPort: true,
+            instancesDirectory: _instancesDir);
         await _director.StartAsync();
 
         // Boot a gateway on an ephemeral port (port 0)
-        _gateway = new GatewayHost(port: AllocateFreePort(), token: "test-token-12345", authEnabled: true);
+        _gateway = new GatewayHost(port: AllocateFreePort(), token: "test-token-12345", authEnabled: true,
+            instancesDirectory: _instancesDir);
         await _gateway.StartAsync();
         _gatewayPort = _gateway.Port;
 
@@ -49,12 +56,7 @@ public sealed class GatewayHostTests : IAsyncLifetime
         await _director.StopAsync();
         _sm.Dispose();
 
-        // Cleanup director registration file
-        try
-        {
-            var f = Path.Combine(InstanceRegistration.InstancesDirectory, $"{_director.DirectorId}.json");
-            if (File.Exists(f)) File.Delete(f);
-        }
+        try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); }
         catch { }
     }
 

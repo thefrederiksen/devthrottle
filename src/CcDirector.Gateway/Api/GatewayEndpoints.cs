@@ -876,6 +876,11 @@ internal static class GatewayEndpoints
             registry.OnDirectorAdded += OnAdded;
             registry.OnDirectorRemoved += OnRemoved;
 
+            // Flush the response start NOW (SSE convention): events are not replayed,
+            // so a subscriber must be able to treat "headers received" as "attached".
+            // Without this Kestrel holds the headers until the first event is written.
+            await ctx.Response.Body.FlushAsync(ct);
+
             try
             {
                 await foreach (var ev in queue.Reader.ReadAllAsync(ct))

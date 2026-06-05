@@ -548,7 +548,12 @@ public sealed class SessionStatusWingmanTests
                 "  >> bypass permissions on (shift+tab to cycle)\r\n";
             session.Buffer.Write(System.Text.Encoding.UTF8.GetBytes(frame));
 
-            await Task.Delay(TimeSpan.FromMilliseconds(1500));
+            // Poll rather than a fixed delay: the watcher runs on a timer, and a slow CI
+            // runner can take well over a second to spin up the PTY and complete the
+            // first poll (this test failed on GitHub runners at a fixed 1500 ms).
+            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+            while (captured is null && DateTime.UtcNow < deadline)
+                await Task.Delay(50);
 
             Assert.Equal("wingman", capturedSource);
             Assert.Equal("commit the cc-playwright changes too", captured);

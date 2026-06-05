@@ -28,6 +28,19 @@ public sealed class DirectorRegistry : IDisposable
     public static string InstancesDirectory { get; } =
         Path.Combine(CcStorage.Config(), "director", "instances");
 
+    /// <summary>The directory this registry actually watches (the shared default in production).</summary>
+    public string WatchDirectory { get; }
+
+    /// <param name="instancesDirectory">
+    /// Override the watched instances directory. Tests pass an isolated temp directory so a
+    /// real Director running on the dev machine is never discovered by (or polluted with)
+    /// test hosts. Production omits it and uses the shared <see cref="InstancesDirectory"/>.
+    /// </param>
+    public DirectorRegistry(string? instancesDirectory = null)
+    {
+        WatchDirectory = instancesDirectory ?? InstancesDirectory;
+    }
+
     /// <summary>If an HTTP-registered Director has not heartbeat for this long, it gets swept.</summary>
     public static TimeSpan HttpHeartbeatTimeout { get; } = TimeSpan.FromSeconds(60);
 
@@ -138,12 +151,12 @@ public sealed class DirectorRegistry : IDisposable
     /// <summary>Begin watching the instances directory and start the stale sweeper.</summary>
     public void Start()
     {
-        FileLog.Write($"[DirectorRegistry] Start: watching {InstancesDirectory}");
-        Directory.CreateDirectory(InstancesDirectory);
+        FileLog.Write($"[DirectorRegistry] Start: watching {WatchDirectory}");
+        Directory.CreateDirectory(WatchDirectory);
 
         LoadExisting();
 
-        _watcher = new FileSystemWatcher(InstancesDirectory, "*.json")
+        _watcher = new FileSystemWatcher(WatchDirectory, "*.json")
         {
             NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.CreationTime,
             EnableRaisingEvents = true,
@@ -208,7 +221,7 @@ public sealed class DirectorRegistry : IDisposable
     {
         try
         {
-            foreach (var f in Directory.EnumerateFiles(InstancesDirectory, "*.json"))
+            foreach (var f in Directory.EnumerateFiles(WatchDirectory, "*.json"))
                 TryParseAndAdd(f);
         }
         catch (Exception ex)
@@ -338,7 +351,7 @@ public sealed class DirectorRegistry : IDisposable
                 }
 
                 // FSW path: file gone or PID dead.
-                var f = Path.Combine(InstancesDirectory, $"{kv.Key}.json");
+                var f = Path.Combine(WatchDirectory, $"{kv.Key}.json");
                 if (!File.Exists(f))
                 {
                     if (_directors.TryRemove(kv.Key, out _))

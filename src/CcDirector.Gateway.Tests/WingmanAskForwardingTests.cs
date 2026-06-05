@@ -23,14 +23,21 @@ public sealed class WingmanAskForwardingTests : IAsyncLifetime
     private GatewayHost _gateway = null!;
     private HttpClient _http = null!;
 
+    // Isolated discovery dir: the test Director and Gateway find each other here, and a real
+    // Director running on the dev machine can never leak into (or see) these test hosts.
+    private readonly string _instancesDir =
+        Path.Combine(Path.GetTempPath(), "cc-instances-" + Guid.NewGuid().ToString("N"));
+
     public async Task InitializeAsync()
     {
         // ClaudePath empty -> AskAboutSessionAsync returns no_claude without spawning.
         _sm = new SessionManager(new AgentOptions { ClaudePath = "" });
-        _director = new ControlApiHost(_sm, "1.0.0-test", () => Task.CompletedTask, useEphemeralPort: true);
+        _director = new ControlApiHost(_sm, "1.0.0-test", () => Task.CompletedTask, useEphemeralPort: true,
+            instancesDirectory: _instancesDir);
         await _director.StartAsync();
 
-        _gateway = new GatewayHost(port: AllocateFreePort(), token: "test-token", authEnabled: false);
+        _gateway = new GatewayHost(port: AllocateFreePort(), token: "test-token", authEnabled: false,
+            instancesDirectory: _instancesDir);
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
 
@@ -49,11 +56,7 @@ public sealed class WingmanAskForwardingTests : IAsyncLifetime
         await _gateway.StopAsync();
         await _director.StopAsync();
         _sm.Dispose();
-        try
-        {
-            var f = Path.Combine(InstanceRegistration.InstancesDirectory, $"{_director.DirectorId}.json");
-            if (File.Exists(f)) File.Delete(f);
-        }
+        try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); }
         catch { }
     }
 

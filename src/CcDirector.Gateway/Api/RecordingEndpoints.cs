@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using CcDirector.Core.Dictation;
 using CcDirector.Core.Dictation.Models;
 using CcDirector.Core.Network;
@@ -44,7 +44,12 @@ internal static class RecordingEndpoints
 
     public static void Map(IEndpointRouteBuilder app)
     {
-        var service = BuildService();
+        // Lazily built on FIRST USE, not at host startup: constructing the service resolves
+        // the OpenAI API key (the transcriber needs it), and the Gateway must boot on machines
+        // without that key. A missing key then fails the individual recording request loudly
+        // (500 with the explicit "OPENAI_API_KEY ... not set" message) instead of preventing
+        // the entire Gateway host from starting.
+        var lazyService = new Lazy<RecordingIngestService>(BuildService);
 
         app.MapPost("/ingest/recording", async (HttpContext ctx) =>
         {
@@ -54,7 +59,7 @@ internal static class RecordingEndpoints
                     ctx.Request.Body, JsonOpts, ctx.RequestAborted);
                 if (req is null || string.IsNullOrWhiteSpace(req.RecordingId))
                     return Results.BadRequest(new { error = "RecordingId is required" });
-                var status = service.Register(req);
+                var status = lazyService.Value.Register(req);
                 return Results.Json(status);
             }
             catch (JsonException ex)
@@ -75,7 +80,7 @@ internal static class RecordingEndpoints
                 if (bytes.Length == 0)
                     return Results.BadRequest(new { error = "empty chunk body" });
 
-                await service.StoreChunkAsync(id, index, bytes, sha, ctx.RequestAborted);
+                await lazyService.Value.StoreChunkAsync(id, index, bytes, sha, ctx.RequestAborted);
                 return Results.Json(new { ok = true, index, bytes = bytes.Length });
             }
             catch (InvalidOperationException ex)
@@ -98,7 +103,7 @@ internal static class RecordingEndpoints
                 // the length of a transcription - a long recording can no longer
                 // be killed by a request/proxy timeout. The phone polls
                 // GET .../status to watch progress.
-                var status = await service.CompleteAsync(id, manifest, ctx.RequestAborted);
+                var status = await lazyService.Value.CompleteAsync(id, manifest, ctx.RequestAborted);
                 return Results.Json(status, statusCode: StatusCodes.Status202Accepted);
             }
             catch (JsonException ex)
@@ -119,7 +124,7 @@ internal static class RecordingEndpoints
         {
             try
             {
-                return Results.Json(service.GetStatus(id));
+                return Results.Json(lazyService.Value.GetStatus(id));
             }
             catch (InvalidOperationException)
             {
@@ -227,11 +232,11 @@ internal static class RecordingEndpoints
             }
         });
 
-        app.MapGet("/ingest/recordings", () => Results.Json(service.ListAll()));
+        app.MapGet("/ingest/recordings", () => Results.Json(lazyService.Value.ListAll()));
 
         app.MapGet("/ingest/recording/{id}/transcript", (string id) =>
         {
-            var text = service.GetTranscript(id);
+            var text = lazyService.Value.GetTranscript(id);
             return text is null
                 ? Results.NotFound(new { error = "no transcript" })
                 : Results.Text(text, "text/plain; charset=utf-8");
@@ -239,7 +244,7 @@ internal static class RecordingEndpoints
 
         app.MapGet("/ingest/recording/{id}/audio/{index:int}", (string id, int index) =>
         {
-            var audio = service.GetAudioFile(id, index);
+            var audio = lazyService.Value.GetAudioFile(id, index);
             return audio is null
                 ? Results.NotFound(new { error = "no such segment" })
                 : Results.File(audio.Value.path, audio.Value.contentType, enableRangeProcessing: true);
@@ -249,7 +254,7 @@ internal static class RecordingEndpoints
         {
             try
             {
-                service.DeleteRecording(id);
+                lazyService.Value.DeleteRecording(id);
                 return Results.Json(new { ok = true, id });
             }
             catch (InvalidOperationException ex)
@@ -263,7 +268,7 @@ internal static class RecordingEndpoints
         {
             try
             {
-                var status = await service.PromoteToVaultAsync(id);
+                var status = await lazyService.Value.PromoteToVaultAsync(id);
                 return Results.Json(status);
             }
             catch (InvalidOperationException ex)
@@ -288,7 +293,7 @@ internal static class RecordingEndpoints
                     ctx.Request.Body, JsonOpts, ctx.RequestAborted);
                 if (update is null)
                     return Results.BadRequest(new { error = "meta body required" });
-                var item = service.UpdateMeta(id, update);
+                var item = lazyService.Value.UpdateMeta(id, update);
                 return Results.Json(item);
             }
             catch (JsonException ex)

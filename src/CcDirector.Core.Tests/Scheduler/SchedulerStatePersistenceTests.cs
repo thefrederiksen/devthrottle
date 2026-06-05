@@ -69,9 +69,14 @@ public sealed class SchedulerStatePersistenceTests : IDisposable
         {
             var snap = first.GetSnapshot();
             return !snap[0].IsFiring && snap[0].LastFiredAtUtc != DateTime.MinValue;
-        }, TimeSpan.FromSeconds(5)), "First scheduler should finish fire and persist state");
+        }, TimeSpan.FromSeconds(10)), "First scheduler should finish fire and persist state");
 
-        Assert.True(File.Exists(_statePath));
+        // MarkFireCompleted clears IsFiring inside the gate lock but persists to disk
+        // AFTER releasing it (deliberately - no disk I/O under the lock), so the
+        // in-memory predicate above can become true before the file lands. Wait for
+        // the file separately instead of asserting its existence instantly.
+        Assert.True(WaitFor(() => File.Exists(_statePath), TimeSpan.FromSeconds(10)),
+            "scheduler-state.json should be persisted shortly after the fire completes");
         var persistedAt = File.GetLastWriteTimeUtc(_statePath);
 
         // Second scheduler: load state and verify LastFiredAt was restored.
@@ -102,7 +107,7 @@ public sealed class SchedulerStatePersistenceTests : IDisposable
 
         // Fire once to set in-memory state to "now".
         s.RunNow("a");
-        Assert.True(WaitFor(() => !s.GetSnapshot()[0].IsFiring, TimeSpan.FromSeconds(5)));
+        Assert.True(WaitFor(() => !s.GetSnapshot()[0].IsFiring, TimeSpan.FromSeconds(15)));
         var inMemoryAfterFire = s.GetSnapshot()[0].LastFiredAtUtc;
 
         // Loading should NOT overwrite our newer in-memory state with the older disk value.

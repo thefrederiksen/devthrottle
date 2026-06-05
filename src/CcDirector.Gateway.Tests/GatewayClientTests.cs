@@ -17,15 +17,23 @@ public sealed class GatewayClientTests : IAsyncLifetime
 {
     private GatewayHost _gateway = null!;
 
+    // Isolated discovery dir so a real Director running on the dev machine never appears
+    // in this test Gateway's registry.
+    private readonly string _instancesDir =
+        Path.Combine(Path.GetTempPath(), "cc-instances-" + Guid.NewGuid().ToString("N"));
+
     public async Task InitializeAsync()
     {
-        _gateway = new GatewayHost(port: FreePort(), token: "", authEnabled: false);
+        _gateway = new GatewayHost(port: FreePort(), token: "", authEnabled: false,
+            instancesDirectory: _instancesDir);
         await _gateway.StartAsync();
     }
 
     public async Task DisposeAsync()
     {
         await _gateway.StopAsync();
+        try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); }
+        catch { }
     }
 
     [Fact]
@@ -40,16 +48,21 @@ public sealed class GatewayClientTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Start_registers_and_appears_in_directory()
+    public async Task Start_with_tailscale_identity_registers_magicdns_endpoint()
     {
         var id = Guid.NewGuid().ToString();
         var cfg = new GatewayConfig
         {
             Url = $"http://127.0.0.1:{_gateway.Port}",
             Token = "",
-            TailnetEndpoint = "http://test-machine:65500",
+            // The MagicDNS identity must always win over a configured override, so a stale
+            // shared override cannot poison a multi-Director box (see ResolveTailnetEndpoint).
+            TailnetEndpoint = "http://stale-override:1",
         };
-        using var client = new GatewayClient(cfg, id, port: 65500, version: "9.9.9-test");
+        using var client = new GatewayClient(cfg, id, port: 65500, version: "9.9.9-test")
+        {
+            MagicDnsResolver = () => "test-node.test-tailnet.ts.net",
+        };
         client.Start();
 
         // The first register attempt is fire-and-forget; wait briefly for it to complete.
@@ -58,8 +71,11 @@ public sealed class GatewayClientTests : IAsyncLifetime
         var dto = _gateway.Registry.Get(id);
         Assert.NotNull(dto);
         Assert.Equal("http", dto!.Source);
-        Assert.Equal("http://test-machine:65500", dto.TailnetEndpoint);
+        Assert.Equal("https://test-node.test-tailnet.ts.net:65500", dto.TailnetEndpoint);
         Assert.Equal("9.9.9-test", dto.Version);
+        // The registry entry appears (server side) just before the client flips its own
+        // flag; wait for both rather than racing the register task's last line.
+        await WaitFor(() => client.IsRegistered, TimeSpan.FromSeconds(2));
         Assert.True(client.IsRegistered);
 
         await client.StopAsync();
@@ -69,7 +85,34 @@ public sealed class GatewayClientTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Tailnet_endpoint_defaults_to_machine_name_when_unset()
+    public async Task Start_without_identity_uses_configured_override()
+    {
+        var id = Guid.NewGuid().ToString();
+        var cfg = new GatewayConfig
+        {
+            Url = $"http://127.0.0.1:{_gateway.Port}",
+            Token = "",
+            TailnetEndpoint = "http://test-machine:65500",
+        };
+        using var client = new GatewayClient(cfg, id, port: 65500, version: "9.9.9-test")
+        {
+            MagicDnsResolver = () => null, // no Tailscale on this node
+        };
+        client.Start();
+
+        await WaitFor(() => _gateway.Registry.Get(id) is not null, TimeSpan.FromSeconds(5));
+
+        var dto = _gateway.Registry.Get(id);
+        Assert.NotNull(dto);
+        Assert.Equal("http://test-machine:65500", dto!.TailnetEndpoint);
+        await WaitFor(() => client.IsRegistered, TimeSpan.FromSeconds(2));
+        Assert.True(client.IsRegistered);
+
+        await client.StopAsync();
+    }
+
+    [Fact]
+    public async Task Start_without_identity_or_override_stays_local_only()
     {
         var id = Guid.NewGuid().ToString();
         var cfg = new GatewayConfig
@@ -78,13 +121,17 @@ public sealed class GatewayClientTests : IAsyncLifetime
             Token = "",
             // TailnetEndpoint deliberately unset
         };
-        using var client = new GatewayClient(cfg, id, port: 7880, version: "1.0.0");
+        using var client = new GatewayClient(cfg, id, port: 7880, version: "1.0.0")
+        {
+            MagicDnsResolver = () => null,
+        };
         client.Start();
 
-        await WaitFor(() => _gateway.Registry.Get(id) is not null, TimeSpan.FromSeconds(5));
-
-        var dto = _gateway.Registry.Get(id)!;
-        Assert.Equal($"http://{Environment.MachineName}:7880", dto.TailnetEndpoint);
+        // Policy is tailnet-or-nothing: with no identity and no override the client must
+        // NOT register (a loopback URL would be undialable for any remote caller).
+        await Task.Delay(TimeSpan.FromSeconds(1));
+        Assert.Null(_gateway.Registry.Get(id));
+        Assert.False(client.IsRegistered);
 
         await client.StopAsync();
     }

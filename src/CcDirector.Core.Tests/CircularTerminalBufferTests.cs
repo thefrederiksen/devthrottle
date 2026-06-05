@@ -220,11 +220,15 @@ public class CircularTerminalBufferTests
         {
             var data = new byte[10];
             Array.Fill(data, (byte)(i + 1));
-            while (!cts.Token.IsCancellationRequested)
+            // do-while: on a starved threadpool this task may only get scheduled AFTER
+            // the 2s token has fired; each writer must still write at least once so the
+            // TotalBytesWritten sanity assert below cannot fail on scheduling alone.
+            do
             {
                 try { buffer.Write(data); }
                 catch (Exception ex) { lock (exceptions) exceptions.Add(ex); return; }
             }
+            while (!cts.Token.IsCancellationRequested);
         })).ToArray();
 
         var readers = Enumerable.Range(0, 4).Select(_ => Task.Run(() =>
