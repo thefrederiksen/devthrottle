@@ -19,10 +19,10 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup .NET 10
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: "10.0.x"
 
@@ -37,7 +37,7 @@ jobs:
           -p:UpdaterEnabled=true
 
       - name: Upload cc-director artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: cc-director-win
           path: src/CcDirector.Avalonia/bin/Release/net10.0/win-x64/publish/cc-director.exe
@@ -55,10 +55,10 @@ jobs:
     runs-on: macos-14
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup .NET 10
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: "10.0.x"
 
@@ -78,7 +78,7 @@ jobs:
           --out artifacts-mac
 
       - name: Upload cc-director mac artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: cc-director-mac
           path: artifacts-mac/cc-director-mac-arm64.zip
@@ -94,21 +94,21 @@ jobs:
     runs-on: macos-14
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
       - name: Setup uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
 
       - name: Build the macOS Python tools bundle
         run: bash scripts/build-python-bundle.sh dist/python-bundle
 
       - name: Upload macOS Python bundle artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: python-bundle-mac
           path: dist/python-bundle/*.tar.gz
@@ -124,10 +124,10 @@ jobs:
     runs-on: macos-14
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup .NET 10
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: "10.0.x"
 
@@ -150,7 +150,7 @@ jobs:
           --bid com.centerconsulting.ccdirectorsetup
 
       - name: Upload macOS setup wizard artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: setup-mac
           path: artifacts-mac/cc-director-setup-mac-arm64.zip
@@ -171,10 +171,10 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup .NET 10
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: "10.0.x"
 
@@ -187,7 +187,7 @@ jobs:
           -p:IncludeNativeLibrariesForSelfExtract=true
 
       - name: Upload gateway artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: gateway-win
           path: src/CcDirector.Gateway/bin/Release/net10.0/win-x64/publish/cc-director-gateway.exe
@@ -207,10 +207,10 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup .NET 10
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: "10.0.x"
 
@@ -228,7 +228,7 @@ jobs:
           Compress-Archive -Path "cockpit-publish/*" -DestinationPath "artifacts/cc-director-cockpit-win-x64.zip" -Force
 
       - name: Upload cockpit artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: cockpit-win
           path: artifacts/cc-director-cockpit-win-x64.zip
@@ -250,22 +250,22 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
       - name: Setup uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
 
       - name: Build the Python tools bundle
         shell: pwsh
         run: powershell -ExecutionPolicy Bypass -File scripts/build-python-bundle.ps1 -OutputDir dist/python-bundle
 
       - name: Upload Python bundle artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: python-bundle-win
           path: dist/python-bundle/*.zip
@@ -279,10 +279,10 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup .NET 10
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: "10.0.x"
 
@@ -295,7 +295,7 @@ jobs:
           --nologo
 
       - name: Upload setup wizard artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: setup-wizard-win
           path: tools/cc-director-setup/bin/Release/net10.0-windows/win-x64/publish/cc-director-setup.exe
@@ -312,7 +312,7 @@ jobs:
           --nologo
 
       - name: Upload setup CLI artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: setup-cli-win
           path: tools/cc-director-setup-cli/bin/Release/net10.0/win-x64/publish/cc-director-setup-cli.exe
@@ -335,10 +335,10 @@ jobs:
       - build-setup-mac
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           path: release-artifacts
 
@@ -488,7 +488,7 @@ jobs:
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           name: CC Director v${{ steps.version.outputs.version }}
           draft: false
