@@ -10,10 +10,11 @@
     <PublishSingleFile>true</PublishSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <ApplicationIcon>app.ico</ApplicationIcon>
+    <ApplicationIcon>setup.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
-    <Resource Include="app.ico" />
+    <Resource Include="setup.ico" />
+    <Resource Include="Assets\cc-logo.png" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\cc-director-setup-engine\CcDirector.Setup.Engine.csproj" />
