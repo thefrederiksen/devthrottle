@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- WinExe: a console host with redirected stdio breaks the ConPty claude spawn
+         (live finding, see Program.cs header). Output goes to smoke-output.txt. -->
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CcDirector.HostedAgent\CcDirector.HostedAgent.csproj" />
+  </ItemGroup>
+
+</Project>

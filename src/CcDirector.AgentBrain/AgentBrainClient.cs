@@ -19,7 +19,7 @@ namespace CcDirector.AgentBrain;
 ///   3. Relink after /clear - /clear starts a new claude-internal session id; the
 ///      Director is repointed via /relink before any further reads.
 /// </summary>
-public sealed class AgentBrainClient : IDisposable
+public sealed class AgentBrainClient : IAgentBrain
 {
     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
     private static readonly string[] ReadyStates = ["Idle", "WaitingForInput"];
@@ -187,6 +187,19 @@ public sealed class AgentBrainClient : IDisposable
             ReplySeconds = replySeconds,
             ContextTokens = usage?.ContextTokens ?? 0,
         };
+    }
+
+    /// <summary>
+    /// Abort the current turn via the Director's escape endpoint (sends Esc into the
+    /// session's PTY). The session stays alive and prompt-ready.
+    /// </summary>
+    public async Task CancelAsync(CancellationToken ct = default)
+    {
+        var sid = RequireSession();
+        _log($"[AgentBrain] CancelAsync: sid={sid}");
+        var resp = await _http.PostAsync($"sessions/{sid}/escape", content: null, ct);
+        if (resp.StatusCode != HttpStatusCode.OK)
+            throw new AgentBrainException($"CancelAsync: POST /escape returned {(int)resp.StatusCode}");
     }
 
     /// <summary>

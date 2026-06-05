@@ -295,8 +295,16 @@ containers:
         description: Remote repository info model
         file: Git/RemoteRepoInfo.cs
       - name: ClaudeSessionReader
-        description: Session verification via .jsonl transcript matching
+        description: Session verification via .jsonl transcript matching; ListTranscripts reads the transcript files straight off disk (the deterministic source - sessions-index.json lags)
         file: Claude/ClaudeSessionReader.cs
+      - name: IAgentDriver / DriverCapabilities
+        description: The per-CLI interaction protocol layer - one driver class per agent CLI encoding how THAT tool is driven inside a terminal (submit semantics, cancel keystrokes, context reset, transcript access). Stateless behavior bundles on top of ISessionBackend; capability flags declare what each tool supports, unsupported verbs throw NotSupported (never emulated). Consumed by the hosted_agent container today, the Director's Session migration later (docs/plans/agent-driver.md)
+        file: Drivers/IAgentDriver.cs
+      - name: ClaudeDriver
+        description: The Claude Code driver - launch args (--dangerously-skip-permissions, preassigned --session-id / --resume), ECHO-VERIFIED submit (type without Enter, verify the composer echo in the terminal byte stream incl. stray-"/" corruption detection, then Enter; one Esc-and-retype recovery, then fail loud with the ANSI-stripped terminal tail), Esc (0x1B) cancel, /clear context reset, JSONL transcript reads via the ITranscriptReader seam
+        files:
+          - Drivers/ClaudeDriver.cs
+          - Drivers/ITranscriptReader.cs
       - name: ClaudeClient
         description: Helper library for Claude CLI interactions
         file: Claude/ClaudeClient.cs
@@ -660,13 +668,16 @@ containers:
   - id: agent_brain
     name: Agent Brain Client Library
     technology: C# / .NET 10
-    description: Reusable REST-only client for a warm, headless Claude Code session owned by a Director (issue #172). Encodes the three determinism rules from the headless-brain spike - quiet-gate sends on the server-side idle clock, JSONL transcript as the answer channel (/turns + /usage, never the terminal screen), relink after /clear via /claude-transcripts. Consumed by any C# program that needs ask/clear/restart/kill/health against a brain session; the gateway turn-brief agent is the intended primary consumer.
+    description: REST client implementation of the brain contract - remote-controls a warm, headless Claude Code session owned by a Director (issue #172). Encodes the three determinism rules from the headless-brain spike - quiet-gate sends on the server-side idle clock, JSONL transcript as the answer channel (/turns + /usage, never the terminal screen), relink after /clear via /claude-transcripts. Also home of the shared IAgentBrain contract (Ask / Cancel / Clear / Restart / Kill / Health) implemented by both this client and the hosted_agent container, so consumers code against the interface and do not care where the session lives.
     project: CcDirector.AgentBrain
     dependencies:
       - CcDirector.Gateway.Contracts
     components:
+      - name: IAgentBrain
+        description: The shared brain contract - AskAsync, CancelAsync, ClearAsync, RestartAsync, KillAsync, GetHealthAsync + SessionId. Implemented by AgentBrainClient (REST) and HostedAgent (in-process)
+        file: IAgentBrain.cs
       - name: AgentBrainClient
-        description: The client - ConnectAsync, CreateSessionAsync, AttachAsync, AskAsync (full reply text + latency + context tokens), ClearAsync (clear + relink + verified reset), RestartAsync, KillAsync, GetHealthAsync
+        description: The REST client - ConnectAsync, CreateSessionAsync, AttachAsync, AskAsync (full reply text + latency + context tokens), CancelAsync (POST /escape), ClearAsync (clear + relink + verified reset), RestartAsync, KillAsync, GetHealthAsync
         file: AgentBrainClient.cs
       - name: AgentBrainOptions
         description: Configuration - Director URL, repo path, quiet/timeout/poll tuning, optional bearer token and log sink
@@ -675,16 +686,33 @@ containers:
         description: Default daily-file log sink under %LOCALAPPDATA%\cc-director\logs\agent-brain (the library cannot depend on Core's FileLog)
         file: BrainLog.cs
 
+  - id: hosted_agent
+    name: Hosted Agent Library
+    technology: C# / .NET 10
+    description: In-process implementation of the brain contract - HOSTS its own agent CLI (claude.exe) inside an embedded ConPty pseudoconsole and drives it through an agent driver. No Director, no HTTP, zero external process dependency; many instances per host process, one CLI child each. Layering (docs/plans/agent-driver.md) - ISessionBackend is the terminal transport, IAgentDriver is the tool's protocol, this host owns lifecycle (spawn, readiness on the buffer's byte-quiet clock, restart-on-crash, health). Host process caveats are documented on the class - hosting from inside a Claude Code ConPty, from a console process with redirected stdio, or with working dirs outside a trusted tree all break the spawned CLI (live findings, docs/features/hosted-agent/QA_REPORT.html).
+    project: CcDirector.HostedAgent
+    dependencies:
+      - CcDirector.Core
+      - CcDirector.AgentBrain
+    components:
+      - name: HostedAgent
+        description: The host - StartAsync (driver launch spec, preassigned session id), AskAsync (echo of IAgentBrain over the driver + transcript), CancelAsync, ClearAsync (in-place reset, new transcript id tracked from disk), RestartAsync, KillAsync, GetHealthAsync; HostedAgent.For(AgentKind) factory that fails loud for kinds without a verified driver
+        file: HostedAgent.cs
+      - name: HostedAgentOptions
+        description: Configuration - working directory, executable override, agent args, pseudoconsole size, quiet/timeout/poll tuning, log sink
+        file: HostedAgentOptions.cs
+
   - id: agent_brain_panel
     name: Agent Brain Control Panel
     technology: C# / Avalonia
-    description: Desktop test application for the AgentBrain library - one window with a large button per library verb (connect, create, ask, clear, restart, kill, health), a conversation log, an auto-clear-after-every-ask toggle and a live health strip. The library's first consumer and its manual QA harness (docs/features/agent-brain/QA_REPORT.html).
+    description: Desktop test application for the brain libraries - one window with a large button per IAgentBrain verb (create, ask, cancel turn, clear, restart, kill, health), a conversation log, an auto-clear-after-every-ask toggle and a live health strip. A mode picker switches between Hosted (the panel process owns claude.exe via CcDirector.HostedAgent) and Director (REST via AgentBrainClient). The libraries' first consumer and their manual QA harness (docs/features/hosted-agent/QA_REPORT.html).
     project: CcDirector.AgentBrain.Panel
     dependencies:
       - CcDirector.AgentBrain
+      - CcDirector.HostedAgent
     components:
       - name: MainWindow
-        description: The whole panel - async button handlers (entry-point try-catch), 1.5s background health poll, status-line driven so UI Automation QA can wait on real completion signals
+        description: The whole panel - async button handlers (entry-point try-catch), CANCEL TURN usable while an ask is in flight, 1.5s background health poll, status-line driven so UI Automation QA can wait on real completion signals
         file: MainWindow.axaml / MainWindow.axaml.cs
 
   - id: setup_engine

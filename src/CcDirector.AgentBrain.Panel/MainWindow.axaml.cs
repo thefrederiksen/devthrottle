@@ -3,13 +3,23 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
+using CcDirector.AgentBrain;
 
 namespace CcDirector.AgentBrain.Panel;
 
 /// <summary>
-/// Control panel for one warm headless Claude session: every AgentBrainClient verb
-/// gets a large button. All I/O is async (responsive-UI rule: immediate feedback,
-/// never block the UI thread); a background timer keeps the health strip live.
+/// Control panel for one warm Claude brain: every IAgentBrain verb gets a large
+/// button. Two modes share the whole body:
+///
+///   Hosted (default) - the panel process OWNS claude.exe via CcDirector.HostedAgent
+///     (embedded ConPty). HOST PROCESS WARNING: launch the panel from a clean process
+///     (Task Scheduler / desktop), never from inside a Claude Code terminal, or the
+///     hosted claude dies on the nested-ConPty trap.
+///   Director (REST) - remote-controls a session in a running CC Director via
+///     AgentBrainClient.
+///
+/// All I/O is async (responsive-UI rule: immediate feedback, never block the UI
+/// thread); a background timer keeps the health strip live.
 /// </summary>
 public partial class MainWindow : Window
 {
@@ -18,12 +28,22 @@ public partial class MainWindow : Window
     private static readonly IBrush DotBusy = new SolidColorBrush(Color.Parse("#3B82F6"));
     private static readonly IBrush DotDead = new SolidColorBrush(Color.Parse("#E5484D"));
 
-    private AgentBrainClient? _brain;
+    private const string DefaultDirectorUrl = "http://127.0.0.1:7886";
+
+    private IAgentBrain? _brain;
     private readonly DispatcherTimer _healthTimer;
     private bool _busy;
 
+    /// <summary>Cancellation for the in-flight AskAsync, so CANCEL TURN can abort the
+    /// panel's wait as well as the agent's generation.</summary>
+    private CancellationTokenSource? _askCts;
+
     /// <summary>Working directory for brain sessions; settable via --repo for tests.</summary>
     private readonly string _repoPath;
+
+    private readonly string _directorUrl;
+
+    private bool IsHostedMode => ModeCombo.SelectedIndex == 0;
 
     public MainWindow()
     {
@@ -36,8 +56,12 @@ public partial class MainWindow : Window
             : Path.Combine(Path.GetTempPath(), "agent-brain-sandbox");
 
         var urlIdx = Array.IndexOf(args, "--director");
-        if (urlIdx >= 0 && urlIdx + 1 < args.Length)
-            DirectorUrlBox.Text = args[urlIdx + 1];
+        _directorUrl = urlIdx >= 0 && urlIdx + 1 < args.Length ? args[urlIdx + 1] : DefaultDirectorUrl;
+
+        if (Array.IndexOf(args, "--mode-director") >= 0)
+            ModeCombo.SelectedIndex = 1;
+
+        ApplyModeToTopBar();
 
         _healthTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
         _healthTimer.Tick += async (_, _) => await RefreshHealthAsync();
@@ -45,26 +69,95 @@ public partial class MainWindow : Window
     }
 
     // ------------------------------------------------------------- handlers
-    // Try-catch lives HERE (entry points) per CodingStyle - the library throws,
+    // Try-catch lives HERE (entry points) per CodingStyle - the libraries throw,
     // the panel reports.
+
+    private void OnModeChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        // Fires during InitializeComponent before the named controls exist.
+        if (TargetBox is null) return;
+        ApplyModeToTopBar();
+    }
+
+    private void ApplyModeToTopBar()
+    {
+        if (IsHostedMode)
+        {
+            TargetLabel.Text = "WORK DIR";
+            TargetBox.Text = _repoPath;
+            ConnectButton.Content = "START HOST";
+        }
+        else
+        {
+            TargetLabel.Text = "DIRECTOR";
+            TargetBox.Text = _directorUrl;
+            ConnectButton.Content = "CONNECT";
+        }
+    }
 
     private async void OnConnectClick(object? sender, RoutedEventArgs e)
     {
         if (_busy) return;
+        if (IsHostedMode)
+            await StartHostedAsync();
+        else
+            await ConnectDirectorAsync();
+    }
+
+    private async Task StartHostedAsync()
+    {
+        SetBusy("Spawning claude.exe (hosted)...");
+        try
+        {
+            _brain?.Dispose();
+            var workDir = TargetBox.Text?.Trim() ?? "";
+            Directory.CreateDirectory(workDir);
+            var hosted = new CcDirector.HostedAgent.HostedAgent(new CcDirector.HostedAgent.HostedAgentOptions
+            {
+                WorkingDirectory = workDir,
+            });
+            _brain = hosted;
+
+            var t0 = DateTime.UtcNow;
+            await hosted.StartAsync();
+            DirectorInfoText.Text = $"hosted - pid {hosted.ProcessId}";
+            HealthDot.Fill = DotAlive;
+            AppendLog($"[hosted] claude.exe pid={hosted.ProcessId} spawned as MY child in {(DateTime.UtcNow - t0).TotalSeconds:F1}s");
+            AppendLog($"[hosted] claude session {hosted.SessionId}, workdir {workDir}");
+            SetStatus("Session ready.");
+        }
+        catch (Exception ex)
+        {
+            _brain?.Dispose();
+            _brain = null;
+            DirectorInfoText.Text = "host start failed";
+            HealthDot.Fill = DotDead;
+            AppendLog($"[ERROR] host start failed: {ex.Message}");
+            SetStatus("Host start failed - see log.");
+        }
+        finally
+        {
+            ClearBusy();
+        }
+    }
+
+    private async Task ConnectDirectorAsync()
+    {
         SetBusy("Connecting...");
         try
         {
             _brain?.Dispose();
-            _brain = await AgentBrainClient.ConnectAsync(new AgentBrainOptions
+            var client = await AgentBrainClient.ConnectAsync(new AgentBrainOptions
             {
-                DirectorUrl = DirectorUrlBox.Text?.Trim() ?? "",
+                DirectorUrl = TargetBox.Text?.Trim() ?? "",
                 RepoPath = _repoPath,
             });
-            var health = await _brain.GetDirectorHealthAsync();
+            _brain = client;
+            var health = await client.GetDirectorHealthAsync();
             var version = health.TryGetProperty("version", out var v) ? v.GetString() : "?";
             DirectorInfoText.Text = $"connected - v{version}";
             HealthDot.Fill = DotAlive;
-            AppendLog($"[connected] {DirectorUrlBox.Text} (Director v{version})");
+            AppendLog($"[connected] {TargetBox.Text} (Director v{version})");
             AppendLog($"[info] session working dir: {_repoPath}");
             SetStatus("Connected. Create a session to start.");
         }
@@ -88,10 +181,21 @@ public partial class MainWindow : Window
         SetBusy("Creating session (waiting for the agent to come up)...");
         try
         {
-            Directory.CreateDirectory(_repoPath);
             var t0 = DateTime.UtcNow;
-            await _brain.CreateSessionAsync();
-            AppendLog($"[session created] {_brain.SessionId} in {(DateTime.UtcNow - t0).TotalSeconds:F1}s");
+            switch (_brain)
+            {
+                case CcDirector.HostedAgent.HostedAgent hosted:
+                    await hosted.StartAsync();
+                    AppendLog($"[session created] hosted pid={hosted.ProcessId}, claude session {hosted.SessionId} in {(DateTime.UtcNow - t0).TotalSeconds:F1}s");
+                    break;
+                case AgentBrainClient client:
+                    Directory.CreateDirectory(_repoPath);
+                    await client.CreateSessionAsync();
+                    AppendLog($"[session created] {client.SessionId} in {(DateTime.UtcNow - t0).TotalSeconds:F1}s");
+                    break;
+                default:
+                    throw new InvalidOperationException($"Unknown brain type: {_brain.GetType().Name}");
+            }
             SetStatus("Session ready.");
         }
         catch (Exception ex)
@@ -126,9 +230,10 @@ public partial class MainWindow : Window
         SetBusy("Asking...");
         AppendLog($"\n>>> YOU: {prompt}");
         PromptBox.Text = "";
+        _askCts = new CancellationTokenSource();
         try
         {
-            var result = await _brain.AskAsync(prompt);
+            var result = await _brain.AskAsync(prompt, _askCts.Token);
             AppendLog($"<<< AGENT ({result.ReplySeconds:F1}s, context {result.ContextTokens:N0} tokens):");
             AppendLog(result.Text);
 
@@ -141,6 +246,11 @@ public partial class MainWindow : Window
             }
             SetStatus("Reply received.");
         }
+        catch (OperationCanceledException)
+        {
+            AppendLog("[cancelled] turn aborted by CANCEL TURN");
+            SetStatus("Turn cancelled - session stays usable.");
+        }
         catch (Exception ex)
         {
             AppendLog($"[ERROR] ask failed: {ex.Message}");
@@ -148,7 +258,26 @@ public partial class MainWindow : Window
         }
         finally
         {
+            _askCts?.Dispose();
+            _askCts = null;
             ClearBusy();
+        }
+    }
+
+    private async void OnCancelClick(object? sender, RoutedEventArgs e)
+    {
+        // Deliberately NOT gated on _busy: cancelling an in-flight turn is the whole point.
+        if (_brain?.SessionId is null) return;
+        try
+        {
+            AppendLog("[cancel] sending the driver's cancel keystroke (Esc)");
+            await _brain.CancelAsync();
+            _askCts?.Cancel();
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"[ERROR] cancel failed: {ex.Message}");
+            SetStatus("Cancel failed - see log.");
         }
     }
 
@@ -182,7 +311,8 @@ public partial class MainWindow : Window
         {
             var old = _brain.SessionId;
             await _brain.RestartAsync();
-            AppendLog($"[restarted] {old ?? "none"} -> {_brain.SessionId}");
+            var pidNote = _brain is CcDirector.HostedAgent.HostedAgent h ? $" (new pid {h.ProcessId})" : "";
+            AppendLog($"[restarted] {old ?? "none"} -> {_brain.SessionId}{pidNote}");
             SetStatus("Fresh session ready.");
         }
         catch (Exception ex)
@@ -220,7 +350,7 @@ public partial class MainWindow : Window
 
     private async void OnHealthClick(object? sender, RoutedEventArgs e)
     {
-        if (_busy || _brain?.SessionId is null) return;
+        if (_busy || _brain is null) return;
         SetBusy("Checking health...");
         try
         {
@@ -244,7 +374,7 @@ public partial class MainWindow : Window
 
     private async Task RefreshHealthAsync()
     {
-        if (_brain?.SessionId is null)
+        if (_brain is null || _brain.SessionId is null)
         {
             ActivityText.Text = "-";
             IdleText.Text = "-";
@@ -263,7 +393,7 @@ public partial class MainWindow : Window
             IdleText.Text = $"idle {h.IdleSeconds:F0}s";
             TokensText.Text = $"context {h.ContextTokens:N0} tokens";
             HealthDot.Fill = !h.IsAlive ? DotDead
-                : h.ActivityState == "Working" ? DotBusy
+                : h.ActivityState is "Working" or "Active" ? DotBusy
                 : DotAlive;
         }
         catch
@@ -280,12 +410,14 @@ public partial class MainWindow : Window
         var connected = _brain is not null;
         var hasSession = _brain?.SessionId is not null;
         ConnectButton.IsEnabled = !_busy;
+        ModeCombo.IsEnabled = !_busy && !connected;
         CreateButton.IsEnabled = !_busy && connected && !hasSession;
+        CancelButton.IsEnabled = hasSession;   // usable WHILE busy - that is its job
         AskButton.IsEnabled = !_busy && hasSession;
         ClearButton.IsEnabled = !_busy && hasSession;
         RestartButton.IsEnabled = !_busy && connected;
         KillButton.IsEnabled = !_busy && hasSession;
-        HealthButton.IsEnabled = !_busy && hasSession;
+        HealthButton.IsEnabled = !_busy && connected;
     }
 
     private void SetBusy(string status)

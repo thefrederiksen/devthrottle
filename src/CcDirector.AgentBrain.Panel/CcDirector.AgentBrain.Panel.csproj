@@ -19,6 +19,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\CcDirector.AgentBrain\CcDirector.AgentBrain.csproj" />
+    <ProjectReference Include="..\CcDirector.HostedAgent\CcDirector.HostedAgent.csproj" />
   </ItemGroup>
 
 </Project>

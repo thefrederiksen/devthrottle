@@ -177,6 +177,23 @@ public class AgentBrainClientTests
         await Assert.ThrowsAsync<AgentBrainException>(() => client.AskAsync("q"));
     }
 
+    // -------------------------------------------------------------- Cancel
+
+    [Fact]
+    public async Task CancelAsync_PostsToTheEscapeEndpoint()
+    {
+        var fake = new FakeDirectorHandler();
+        fake.OnJson("POST", "sessions", HttpStatusCode.Created, SessionJson());
+        fake.OnJson("GET", $"sessions/{Sid}", HttpStatusCode.OK, SessionJson());
+        fake.OnJson("POST", $"sessions/{Sid}/escape", HttpStatusCode.OK, "{\"accepted\":true}");
+
+        var client = await ConnectAsync(fake);
+        await client.CreateSessionAsync();
+        await client.CancelAsync();
+
+        Assert.Contains($"POST sessions/{Sid}/escape", fake.Requests);
+    }
+
     // -------------------------------------------------------------- Clear
 
     [Fact]

@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Core supplies the engine pieces we embed: ConPtyBackend (spawn + typing
+         semantics), ClaudeSessionReader (transcript paths/listing), the JSONL
+         parser/widget builder, and SessionTokenUsage. -->
+    <ProjectReference Include="..\CcDirector.Core\CcDirector.Core.csproj" />
+    <!-- AgentBrain supplies the shared contract + result models (IAgentBrain,
+         AskResult, ClearResult, BrainHealth, AgentBrainException, BrainLog). -->
+    <ProjectReference Include="..\CcDirector.AgentBrain\CcDirector.AgentBrain.csproj" />
+  </ItemGroup>
+
+</Project>
