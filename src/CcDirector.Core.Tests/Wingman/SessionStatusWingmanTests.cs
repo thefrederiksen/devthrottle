@@ -526,8 +526,12 @@ public sealed class SessionStatusWingmanTests
         try
         {
             wingman.Start();
-            var session = manager.CreateSession(Path.GetTempPath());
-            if (session.Buffer is null) return; // no buffer (e.g. Embedded backend); skip
+            // Buffer-only session: a real ConPty cmd.exe races its banner/prompt output
+            // (and on CI its near-instant exit) onto the same grid as the frame below,
+            // which made this test environment-dependent. The watcher only needs a
+            // buffer; the stub backend gives a silent one.
+            var (session, _) = CreateBufferSession(manager);
+            if (session.Buffer is null) return; // no buffer; nothing to watch
 
             string? captured = null;
             string? capturedSource = null;
