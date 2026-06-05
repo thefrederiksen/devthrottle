@@ -95,8 +95,12 @@ public sealed class ReleaseSource
     /// either an http(s) URL (latest/online mode) or a local file path
     /// (release-dir mode); each is handled explicitly. Throws when no source is
     /// known for the asset.
+    /// Byte-level progress (downloaded, total) is reported roughly once per MiB;
+    /// total is 0 when the server sends no Content-Length. A final report is
+    /// always made on completion.
     /// </summary>
-    public async Task<string> DownloadAssetAsync(string assetName, IReadOnlyDictionary<string, string> urls, CancellationToken ct)
+    public async Task<string> DownloadAssetAsync(string assetName, IReadOnlyDictionary<string, string> urls, CancellationToken ct,
+        IProgress<(long downloaded, long total)>? progress = null)
     {
         if (!urls.TryGetValue(assetName, out var source))
             throw new InvalidOperationException($"No source for asset '{assetName}'. Use latest or a release dir.");
@@ -108,9 +112,31 @@ public sealed class ReleaseSource
         {
             using var resp = await _http.GetAsync(source, HttpCompletionOption.ResponseHeadersRead, ct);
             resp.EnsureSuccessStatusCode();
+            var total = resp.Content.Headers.ContentLength ?? 0;
             await using var src = await resp.Content.ReadAsStreamAsync(ct);
             await using var fs = File.Create(dest);
-            await src.CopyToAsync(fs, ct);
+
+            if (progress is null)
+            {
+                await src.CopyToAsync(fs, ct);
+                return dest;
+            }
+
+            var buffer = new byte[81920];
+            long downloaded = 0, lastReported = 0;
+            const long reportEvery = 1024 * 1024; // ~1 MiB between reports keeps UI marshaling cheap
+            int read;
+            while ((read = await src.ReadAsync(buffer, ct)) > 0)
+            {
+                await fs.WriteAsync(buffer.AsMemory(0, read), ct);
+                downloaded += read;
+                if (downloaded - lastReported >= reportEvery)
+                {
+                    lastReported = downloaded;
+                    progress.Report((downloaded, total));
+                }
+            }
+            progress.Report((downloaded, total > 0 ? total : downloaded));
             return dest;
         }
 
@@ -118,6 +144,8 @@ public sealed class ReleaseSource
         if (!File.Exists(source))
             throw new FileNotFoundException($"Local asset not found: {source}", source);
         File.Copy(source, dest, overwrite: true);
+        var size = new FileInfo(dest).Length;
+        progress?.Report((size, size));
         return dest;
     }
 }

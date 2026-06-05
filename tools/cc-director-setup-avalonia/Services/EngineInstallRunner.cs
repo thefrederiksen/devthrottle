@@ -105,7 +105,20 @@ public sealed class EngineInstallRunner
         var runner = new UpdateRunner(_layout, ComponentRegistry.Apps, (planItem, innerCt) =>
         {
             if (item is not null) item.Status = "Downloading";
-            return _source.DownloadAssetAsync(planItem.AssetName, prep.Release.DownloadUrls, innerCt);
+
+            // Live byte progress: drive the row's bar and turn its size label into a
+            // "12.3 MB / 45.6 MB" counter while the download runs (restored when done).
+            var download = new Progress<(long downloaded, long total)>(p =>
+            {
+                if (item is null) return;
+                var total = p.total > 0 ? p.total : asset.Size;
+                if (total <= 0) return;
+                item.Progress = Math.Min(100.0, p.downloaded * 100.0 / total);
+                item.SizeText = p.downloaded >= total
+                    ? FormatSize(total)
+                    : $"{FormatSize(p.downloaded)} / {FormatSize(total)}";
+            });
+            return _source.DownloadAssetAsync(planItem.AssetName, prep.Release.DownloadUrls, innerCt, download);
         });
         var result = await runner.ApplyAsync(plan, ct);
         var ok = result.Results.Any(r => r.ComponentId == ComponentRegistry.Director.Id

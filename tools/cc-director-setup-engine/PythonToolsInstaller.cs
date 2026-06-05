@@ -57,14 +57,38 @@ public sealed class PythonToolsInstaller
         string? pyZip = null, toolsZip = null, bundleDir = null;
         try
         {
-            // 1. Download + verify both assets.
-            Step($"downloading {PythonAsset}");
-            pyZip = await source.DownloadAssetAsync(PythonAsset, release.DownloadUrls, ct);
+            // 1. Download + verify both assets. Byte-level progress drives the row's status text
+            //    ("Downloading 118.2 MB / 334.5 MB") and the 0-20% band of the bar. Both zips share
+            //    one combined total (matching the size shown on the UI row) so the bar never resets
+            //    between the two downloads. Reports arrive ~once per MiB (throttled in ReleaseSource).
+            var totalDownload = pyAsset.Size + toolsAsset.Size;
+            var downloadGate = new object();
+            long reportedDownload = 0;
+            void ReportDownload(long overall)
+            {
+                if (totalDownload <= 0) return;
+                // Progress<T> posts its callbacks asynchronously, so a late report from the
+                // first zip can arrive after the second download has started. Never let the
+                // counter move backwards.
+                var current = Math.Min(overall, totalDownload);
+                lock (downloadGate)
+                {
+                    if (current <= reportedDownload) return;
+                    reportedDownload = current;
+                }
+                percent?.Report((int)(current * 20 / totalDownload));
+                progress?.Report($"Downloading {FormatMb(current)} / {FormatMb(totalDownload)}");
+            }
+
+            Step($"downloading {PythonAsset} ({FormatMb(pyAsset.Size)})");
+            pyZip = await source.DownloadAssetAsync(PythonAsset, release.DownloadUrls, ct,
+                new Progress<(long downloaded, long total)>(p => ReportDownload(p.downloaded)));
             if (!Hashing.Sha256Matches(pyZip, pyAsset.Sha256))
                 return Fail(steps, $"{PythonAsset} SHA-256 mismatch; download rejected.");
 
-            Step($"downloading {ToolsAsset}");
-            toolsZip = await source.DownloadAssetAsync(ToolsAsset, release.DownloadUrls, ct);
+            Step($"downloading {ToolsAsset} ({FormatMb(toolsAsset.Size)})");
+            toolsZip = await source.DownloadAssetAsync(ToolsAsset, release.DownloadUrls, ct,
+                new Progress<(long downloaded, long total)>(p => ReportDownload(pyAsset.Size + p.downloaded)));
             if (!Hashing.Sha256Matches(toolsZip, toolsAsset.Sha256))
                 return Fail(steps, $"{ToolsAsset} SHA-256 mismatch; download rejected.");
 
@@ -72,6 +96,7 @@ public sealed class PythonToolsInstaller
             // The mac archives are .tar.gz extracted with tar so the standalone python's +x bits and
             // symlinks survive (the bundle script lays the python out flat: PythonDir/bin/python3).
             Step("extracting bundled Python");
+            percent?.Report(20);
             ResetDir(_layout.PythonDir);
             var (pyOk, pyExtractOut) = Extract(pyZip, _layout.PythonDir);
             if (!pyOk) return Fail(steps, $"extracting {PythonAsset} failed: {Trim(pyExtractOut)}");
@@ -79,6 +104,7 @@ public sealed class PythonToolsInstaller
             bundleDir = Path.Combine(Path.GetTempPath(), $"cc-pytools-{Guid.NewGuid():N}");
             var (tOk, tExtractOut) = Extract(toolsZip, bundleDir);
             if (!tOk) return Fail(steps, $"extracting {ToolsAsset} failed: {Trim(tExtractOut)}");
+            percent?.Report(25);
 
             var manifestPath = Path.Combine(bundleDir, "tools-manifest.json");
             var wheelhouse = Path.Combine(bundleDir, "wheelhouse");
@@ -113,17 +139,18 @@ public sealed class PythonToolsInstaller
             var (venvExit, venvOut) = ProcessRunner.Run(pythonExe, $"-m venv \"{_layout.PyenvDir}\"");
             if (venvExit != 0) return Fail(steps, $"venv creation failed ({venvExit}): {Trim(venvOut)}");
 
-            // 4. Install every tool OFFLINE from the wheelhouse. Two-phase progress for honest pacing:
+            // 4. Install every tool OFFLINE from the wheelhouse. Percent bands across the whole
+            //    bundle install: download 0-20 (byte-level, above), extract 20-25, then two-phase
+            //    pip progress for honest pacing:
             //    a. Parse phase (~10 s): pip prints "Processing <wheel>" for all wheels in a burst.
-            //       Drives status+percent 0->25% so the user sees motion immediately.
+            //       Drives status+percent 25->40% so the user sees motion immediately.
             //    b. Install phase (3-8 min, silent in pip's stdout): poll site-packages\*.dist-info
             //       directory count on a 1.5 s timer — each installed package writes one .dist-info
-            //       dir, so that count IS real progress. Drives percent 30->95%.
+            //       dir, so that count IS real progress. Drives percent 40->95%.
             //    Using "Processing" lines for the whole 0-100% (as we originally did) was misleading:
             //    the bar shot to 99% in 10 s then sat there motionless for the 5-minute middle.
             var wheelCount = Directory.GetFiles(wheelhouse, "*.whl").Length;
             Step($"installing {manifest.Dists.Count} tools offline from the wheelhouse ({wheelCount} wheels)");
-            percent?.Report(0);
             var distArgs = string.Join(" ", manifest.Dists.Select(d => $"\"{d}\""));
             var pipArgs = $"-m pip install --no-index --find-links \"{wheelhouse}\" --no-warn-script-location --progress-bar=off {distArgs}";
 
@@ -143,7 +170,7 @@ public sealed class PythonToolsInstaller
                     progress?.Report(wheelCount > 0
                         ? $"Parsing {processed}/{wheelCount}: {pkg}"
                         : $"Parsing: {pkg}");
-                    if (wheelCount > 0) percent?.Report(Math.Min(25, processed * 25 / wheelCount));
+                    if (wheelCount > 0) percent?.Report(Math.Min(40, 25 + processed * 15 / wheelCount));
                 }
                 else if (line.StartsWith("Installing collected packages", StringComparison.Ordinal))
                 {
@@ -151,7 +178,7 @@ public sealed class PythonToolsInstaller
                     progress?.Report(wheelCount > 0
                         ? $"Installing {wheelCount} packages (this takes a few minutes)..."
                         : "Installing packages (this takes a few minutes)...");
-                    percent?.Report(30);
+                    percent?.Report(40);
                 }
             }
 
@@ -169,7 +196,7 @@ public sealed class PythonToolsInstaller
                         var done = Directory.GetDirectories(sitePackages, "*.dist-info").Length;
                         if (wheelCount > 0)
                         {
-                            var p = Math.Min(95, 30 + (done * 65 / wheelCount));
+                            var p = Math.Min(95, 40 + (done * 55 / wheelCount));
                             percent?.Report(p);
                             progress?.Report($"Installing {done}/{wheelCount} packages...");
                             EngineLog.Write($"[PythonToolsInstaller] install-progress: {done}/{wheelCount} ({p}%)");
@@ -297,6 +324,8 @@ public sealed class PythonToolsInstaller
     }
 
     private static string Trim(string s) => s.Length > 600 ? s[..600] : s;
+
+    private static string FormatMb(long bytes) => $"{bytes / (1024.0 * 1024.0):F1} MB";
 
     /// <summary>Locate the venv's site-packages dir for progress polling. Windows: pyenv\Lib\site-packages.
     /// Unix: pyenv\lib\python&lt;X.Y&gt;\site-packages (python version is bundle-determined, so we discover it).</summary>

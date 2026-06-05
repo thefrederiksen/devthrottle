@@ -105,7 +105,7 @@ public partial class MainWindow : Window
             2 => _prerequisitesStep ??= new PrerequisitesStep(OnPrerequisitesChecked, _isUpdate),
             3 => _skillsStep ??= new SkillsStep(_isUpdate),
             4 => _installStep ??= new InstallStep(),
-            5 => _completeStep ??= new CompleteStep(_installedCount, _skippedCount, _installPath, _directorExePath, _isUpdate, _alreadyUpToDate),
+            5 => _completeStep ??= new CompleteStep(_installedCount, _skippedCount, _installPath, _directorExePath, _isUpdate, _alreadyUpToDate, _cachedPrep?.Version),
             _ => null
         };
 

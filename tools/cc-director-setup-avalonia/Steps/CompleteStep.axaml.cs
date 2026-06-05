@@ -23,7 +23,7 @@ public partial class CompleteStep : UserControl
         InitializeComponent();
     }
 
-    public CompleteStep(int installed, int skipped, string installPath, bool isUpdate, bool alreadyUpToDate = false)
+    public CompleteStep(int installed, int skipped, string installPath, bool isUpdate, bool alreadyUpToDate = false, string? version = null)
     {
         InitializeComponent();
         _installPath = installPath;
@@ -35,26 +35,44 @@ public partial class CompleteStep : UserControl
         PathText.Text = installPath;
         LogPathBox.Text = SetupLog.Path;
 
-        if (skipped > 0)
-        {
-            ReportHeading.Text = $"{skipped} component(s) did not install - please report this";
-            ReportHeading.Foreground = new SolidColorBrush(Color.FromRgb(0xE0, 0xA0, 0x30));
-        }
+        var versionSuffix = string.IsNullOrEmpty(version) ? "" : $" · v{version.TrimStart('v')}";
 
         if (alreadyUpToDate)
         {
-            HeadingText.Text = "Already Up to Date";
+            HeadingText.Text = "✓  Already Up to Date";
             DescriptionText.Text = "CC Director is already running the latest version.";
+            SummaryLine.Text = $"Nothing to do{versionSuffix}";
             PathNote.IsVisible = false;
         }
         else if (isUpdate)
         {
-            HeadingText.Text = "Update Complete";
-            DescriptionText.Text = "CC Director tools have been updated successfully.";
+            HeadingText.Text = "✓  Update Complete";
+            DescriptionText.Text = "Everything went perfectly. You're up to date.";
+            SummaryLine.Text = $"{installed} components updated{versionSuffix}";
             PathNote.IsVisible = false;
         }
+        else
+        {
+            SummaryLine.Text = $"{installed} components installed{versionSuffix}";
+        }
 
-        SetupLog.Write($"[CompleteStep] Created: installed={installed}, skipped={skipped}, isUpdate={isUpdate}, alreadyUpToDate={alreadyUpToDate}");
+        // Failure path: surface the problem loudly - amber heading, full summary box,
+        // and the details/report expander forced open. On success all of that stays
+        // out of the way behind the small collapsed expander at the bottom.
+        if (skipped > 0)
+        {
+            var amber = new SolidColorBrush(Color.FromRgb(0xE0, 0xA0, 0x30));
+            HeadingText.Text = isUpdate ? "Update finished with problems" : "Setup finished with problems";
+            HeadingText.Foreground = amber;
+            DescriptionText.Text = $"{skipped} component(s) did not install. CC Director may still work, but please report this.";
+            SummaryLine.IsVisible = false;
+            FailurePanel.IsVisible = true;
+            DetailsHeader.Text = $"{skipped} component(s) did not install - please report this";
+            DetailsHeader.Foreground = amber;
+            DetailsExpander.IsExpanded = true;
+        }
+
+        SetupLog.Write($"[CompleteStep] Created: installed={installed}, skipped={skipped}, isUpdate={isUpdate}, alreadyUpToDate={alreadyUpToDate}, version={version}");
     }
 
     private void OpenLogButton_Click(object? sender, RoutedEventArgs e)

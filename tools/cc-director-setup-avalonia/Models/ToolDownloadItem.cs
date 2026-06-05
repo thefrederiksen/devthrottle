@@ -39,10 +39,12 @@ public class ToolDownloadItem : INotifyPropertyChanged
     public string StatusColor => Status switch
     {
         "Done" => "#22C55E",
-        "Downloading" => "#007ACC",
         "Skipped" => "#888888",
         "Failed" => "#CC4444",
         "Locked" => "#E5A100",
+        // Live download statuses carry a byte counter (e.g. "Downloading 12.3 MB / 45.6 MB"),
+        // so match the prefix rather than the exact word.
+        _ when Status.StartsWith("Downloading", StringComparison.OrdinalIgnoreCase) => "#007ACC",
         _ => "#CCCCCC"
     };
 

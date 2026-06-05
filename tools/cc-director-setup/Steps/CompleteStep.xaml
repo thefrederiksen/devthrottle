@@ -1,123 +1,140 @@
 <UserControl x:Class="CcDirectorSetup.Steps.CompleteStep"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <StackPanel>
-        <TextBlock x:Name="HeadingText"
-                   Text="Setup Complete"
-                   Foreground="#22C55E"
-                   FontSize="22"
-                   FontWeight="SemiBold" />
-
-        <TextBlock x:Name="DescriptionText"
-                   Text="CC Director tools have been installed successfully."
-                   Foreground="{StaticResource TextForeground}"
-                   FontSize="13"
-                   Margin="0,12,0,24"
-                   LineHeight="20" />
-
-        <!-- Summary -->
-        <Border Background="#2A2D2E" CornerRadius="6" Padding="16" Margin="0,0,0,16">
-            <StackPanel>
-                <TextBlock Text="Summary"
-                           Foreground="White"
-                           FontSize="15"
-                           FontWeight="SemiBold"
-                           Margin="0,0,0,12" />
-
-                <Grid Margin="0,0,0,6">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="140" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
-                    <TextBlock Text="Tools installed:"
-                               Foreground="#888888" FontSize="13" />
-                    <TextBlock x:Name="InstalledText"
-                               Grid.Column="1"
-                               Foreground="#22C55E" FontSize="13" FontWeight="SemiBold" />
-                </Grid>
-
-                <Grid Margin="0,0,0,6">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="140" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
-                    <TextBlock Text="Skipped:"
-                               Foreground="#888888" FontSize="13" />
-                    <TextBlock x:Name="SkippedText"
-                               Grid.Column="1"
-                               Foreground="#888888" FontSize="13" />
-                </Grid>
-
-                <Grid Margin="0,0,0,0">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="140" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
-                    <TextBlock Text="Install path:"
-                               Foreground="#888888" FontSize="13" />
-                    <TextBlock x:Name="PathText"
-                               Grid.Column="1"
-                               Foreground="#AAAAAA" FontSize="12"
-                               TextWrapping="Wrap" />
-                </Grid>
-            </StackPanel>
-        </Border>
-
-        <!-- Launch button -->
-        <Button x:Name="LaunchButton"
-                Height="44"
-                HorizontalAlignment="Stretch"
-                Margin="0,8,0,16"
-                Cursor="Hand"
-                Click="LaunchButton_Click">
-            <Button.Template>
-                <ControlTemplate TargetType="Button">
-                    <Border Background="#22C55E" CornerRadius="6"
-                            Padding="20,0">
-                        <TextBlock Text="Launch CC Director"
-                                   Foreground="White"
-                                   FontSize="16"
-                                   FontWeight="SemiBold"
-                                   HorizontalAlignment="Center"
-                                   VerticalAlignment="Center" />
-                    </Border>
-                    <ControlTemplate.Triggers>
-                        <Trigger Property="IsMouseOver" Value="True">
-                            <Setter Property="Opacity" Value="0.9" />
-                        </Trigger>
-                    </ControlTemplate.Triggers>
-                </ControlTemplate>
-            </Button.Template>
-        </Button>
-
-        <!-- Note about terminal PATH -->
-        <TextBlock x:Name="PathNote"
-                   Text="NOTE: Open a new terminal for cc-* commands to be available on PATH."
-                   Foreground="#666666"
-                   FontSize="11"
-                   TextWrapping="Wrap" />
-
-        <!-- Troubleshooting / report a problem (always available; emphasized on failure) -->
-        <Border x:Name="ReportPanel" Background="#2A2D2E" CornerRadius="6" Padding="16" Margin="0,16,0,0">
-            <StackPanel>
-                <TextBlock x:Name="ReportHeading"
-                           Text="Something not working?"
-                           Foreground="White" FontSize="14" FontWeight="SemiBold" />
-                <TextBlock Text="The full setup log is saved here:"
-                           Foreground="#888888" FontSize="12" Margin="0,8,0,4" />
-                <TextBox x:Name="LogPathBox" IsReadOnly="True" FontSize="11"
-                         Background="#1E1E1E" Foreground="#AAAAAA" BorderThickness="0"
-                         TextWrapping="Wrap" Padding="6" />
-                <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                    <Button x:Name="OpenLogButton" Content="Open log folder" Padding="10,4"
-                            Margin="0,0,8,0" Click="OpenLogButton_Click" />
-                    <Button x:Name="ReportButton" Content="Report a problem on GitHub" Padding="10,4"
-                            Click="ReportButton_Click" />
+    <DockPanel>
+        <!-- Setup details & log: a small collapsed expander on success; auto-expanded and
+             emphasized when components were skipped/failed. -->
+        <Expander x:Name="DetailsExpander"
+                  DockPanel.Dock="Bottom"
+                  Margin="0,16,0,0"
+                  IsExpanded="False">
+            <Expander.Header>
+                <TextBlock x:Name="DetailsHeader"
+                           Text="Setup details &amp; log"
+                           Foreground="#888888"
+                           FontSize="12" />
+            </Expander.Header>
+            <Border Background="#2A2D2E" CornerRadius="6" Padding="16" Margin="0,8,0,0">
+                <StackPanel>
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="90" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Install path:"
+                                   Foreground="#888888" FontSize="12" />
+                        <TextBlock x:Name="PathText"
+                                   Grid.Column="1"
+                                   Foreground="#AAAAAA" FontSize="12"
+                                   TextWrapping="Wrap" />
+                    </Grid>
+                    <TextBlock Text="The full setup log is saved here:"
+                               Foreground="#888888" FontSize="12" Margin="0,0,0,4" />
+                    <TextBox x:Name="LogPathBox" IsReadOnly="True" FontSize="11"
+                             Background="#1E1E1E" Foreground="#AAAAAA" BorderThickness="0"
+                             TextWrapping="Wrap" Padding="6" />
+                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                        <Button x:Name="OpenLogButton" Content="Open log folder" Padding="10,4"
+                                Margin="0,0,8,0" Click="OpenLogButton_Click" />
+                        <Button x:Name="ReportButton" Content="Report a problem on GitHub" Padding="10,4"
+                                Click="ReportButton_Click" />
+                    </StackPanel>
+                    <TextBlock x:Name="ReportHint"
+                               Text="Opens a pre-filled GitHub issue (review and click Submit). Please attach the log file above."
+                               Foreground="#666666" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0" />
                 </StackPanel>
-                <TextBlock x:Name="ReportHint"
-                           Text="Opens a pre-filled GitHub issue (review and click Submit). Please attach the log file above."
-                           Foreground="#666666" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0" />
-            </StackPanel>
-        </Border>
-    </StackPanel>
+            </Border>
+        </Expander>
+
+        <StackPanel>
+            <TextBlock x:Name="HeadingText"
+                       Text="&#x2713;  Setup Complete"
+                       Foreground="#22C55E"
+                       FontSize="22"
+                       FontWeight="SemiBold" />
+
+            <TextBlock x:Name="DescriptionText"
+                       Text="Everything went perfectly. You're ready to go."
+                       Foreground="{StaticResource TextForeground}"
+                       FontSize="13"
+                       Margin="0,12,0,24"
+                       LineHeight="20" />
+
+            <!-- Launch button: the hero of the happy path -->
+            <Button x:Name="LaunchButton"
+                    Height="44"
+                    HorizontalAlignment="Stretch"
+                    Margin="0,0,0,12"
+                    Cursor="Hand"
+                    Click="LaunchButton_Click">
+                <Button.Template>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="#22C55E" CornerRadius="6"
+                                Padding="20,0">
+                            <TextBlock Text="Launch CC Director"
+                                       Foreground="White"
+                                       FontSize="16"
+                                       FontWeight="SemiBold"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Opacity" Value="0.9" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Button.Template>
+            </Button>
+
+            <!-- One quiet summary line on success -->
+            <TextBlock x:Name="SummaryLine"
+                       Foreground="#888888"
+                       FontSize="13"
+                       Margin="0,0,0,12" />
+
+            <!-- Full summary box: only shown when something was skipped/failed -->
+            <Border x:Name="FailurePanel" Background="#2A2D2E" CornerRadius="6" Padding="16"
+                    Margin="0,0,0,12" Visibility="Collapsed">
+                <StackPanel>
+                    <TextBlock Text="Summary"
+                               Foreground="White"
+                               FontSize="15"
+                               FontWeight="SemiBold"
+                               Margin="0,0,0,12" />
+
+                    <Grid Margin="0,0,0,6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="140" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Installed:"
+                                   Foreground="#888888" FontSize="13" />
+                        <TextBlock x:Name="InstalledText"
+                                   Grid.Column="1"
+                                   Foreground="#22C55E" FontSize="13" FontWeight="SemiBold" />
+                    </Grid>
+
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="140" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Skipped / failed:"
+                                   Foreground="#888888" FontSize="13" />
+                        <TextBlock x:Name="SkippedText"
+                                   Grid.Column="1"
+                                   Foreground="#E0A030" FontSize="13" FontWeight="SemiBold" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- Note about terminal PATH -->
+            <TextBlock x:Name="PathNote"
+                       Text="NOTE: Open a new terminal for cc-* commands to be available on PATH."
+                       Foreground="#666666"
+                       FontSize="11"
+                       TextWrapping="Wrap" />
+        </StackPanel>
+    </DockPanel>
 </UserControl>
