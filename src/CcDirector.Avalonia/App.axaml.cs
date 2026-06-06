@@ -26,6 +26,13 @@ public partial class App : Application
     public RepositoryRegistry RepositoryRegistry { get; private set; } = null!;
     public RootDirectoryStore RootDirectoryStore { get; private set; } = null!;
     public SessionStateStore SessionStateStore { get; private set; } = null!;
+
+    /// <summary>
+    /// Durable crash journal of this Director's live sessions (issue #212 L5). Null until the
+    /// Control API has started and a DirectorId is known. Updated whenever the session set
+    /// changes; deleted on clean shutdown, so a surviving file means an abnormal death.
+    /// </summary>
+    public DirectorCrashJournal? CrashJournal { get; private set; }
     public RecentSessionStore RecentSessionStore { get; private set; } = null!;
     public SessionHistoryStore SessionHistoryStore { get; private set; } = null!;
     public NulFileWatcher? NulFileWatcher { get; private set; }
@@ -102,6 +109,23 @@ public partial class App : Application
         FileLog.Start();
 
         DetectAbnormalTermination();
+
+        // Crash-recovery roster (issue #212 L5): claim any crash journal left by a Director
+        // that died abnormally, so its interrupted sessions are recorded for recovery instead
+        // of vanishing (as ten did on 2026-06-06). Detection only logs + preserves here; the
+        // Cockpit "Interrupted sessions" surface and restore skill (later workstreams) consume
+        // the claimed .dirty.json files.
+        try
+        {
+            var dirty = DirectorCrashJournal.DetectAndClaim(Environment.ProcessId);
+            if (dirty.Count > 0)
+                FileLog.Write($"[App] Crash recovery: {dirty.Count} Director(s) died abnormally with " +
+                    $"{dirty.Sum(d => d.Data.Sessions.Count)} recoverable session(s) total. See [DirectorCrashJournal] lines above.");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[App] Crash-journal detection FAILED: {ex.Message}");
+        }
 
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>
         {
@@ -321,6 +345,14 @@ public partial class App : Application
                 {
                     var port = await ControlApiHost.StartAsync();
                     log($"Control API listening on http://127.0.0.1:{port} (directorId={ControlApiHost.DirectorId})");
+
+                    // Open this Director's crash journal now that its id is known (issue #212 L5).
+                    // Seed it immediately so even a session-less Director records its presence;
+                    // PersistSessionState refreshes the roster on every change after that.
+                    CrashJournal = new DirectorCrashJournal(
+                        ControlApiHost.DirectorId, Environment.ProcessId,
+                        Environment.MachineName, Environment.UserName, DateTimeOffset.UtcNow);
+                    CrashJournal.Update(Array.Empty<DirectorCrashJournalSession>());
                 }
                 catch (Exception ex)
                 {
@@ -402,6 +434,11 @@ public partial class App : Application
                 try { Scheduler.Stop(); Scheduler.Dispose(); }
                 catch (Exception ex) { log($"Scheduler stop error: {ex.Message}"); }
             }
+
+            // Clean shutdown: delete the crash journal so this exit is NOT seen as a crash
+            // by the next Director's recovery scan (issue #212 L5).
+            try { CrashJournal?.MarkClean(); }
+            catch (Exception ex) { log($"CrashJournal MarkClean error: {ex.Message}"); }
 
             ClaudeUsageService?.Dispose();
             BackupCleaner?.Dispose();

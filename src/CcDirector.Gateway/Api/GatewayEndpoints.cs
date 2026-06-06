@@ -681,7 +681,11 @@ internal static class GatewayEndpoints
                 body = new ShutdownDirectorRequest();
             }
 
-            var caller = ctx.Connection.RemoteIpAddress?.ToString() ?? "?";
+            // Identify the caller: the tailnet IP for remote callers (phone), and additionally
+            // the owning process for loopback callers like the Cockpit (issue #212 L3).
+            var ip = ctx.Connection.RemoteIpAddress?.ToString() ?? "?";
+            var localPeer = Core.Network.LoopbackPeerResolver.Resolve(ctx.Connection.RemotePort, ctx.Connection.LocalPort);
+            var caller = localPeer is null ? ip : $"{ip} [{localPeer}]";
             FileLog.Write($"[GatewayEndpoints] DELETE director: id={id} force={body.Force} " +
                 $"confirmSessions={(body.ConfirmSessions?.ToString() ?? "-")} reason=\"{Truncate(body.Reason)}\" client={caller}");
 

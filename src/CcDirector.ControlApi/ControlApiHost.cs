@@ -129,9 +129,16 @@ public sealed class ControlApiHost : IAsyncDisposable
 
         _app = builder.Build();
 
-        // Global exception envelope so the browser sees a readable 500 instead of a hung connection.
+        // Global exception envelope + access log (issue #212 L2). The Director Control API
+        // previously logged only what each endpoint happened to mention, so many requests -
+        // including state-changing ones - left no trace; the 2026-06-06 post-mortem had to
+        // reconstruct who-called-what from indirect evidence. We now log every MUTATING
+        // request (POST/PUT/PATCH/DELETE) and any request that errors (>=400), with method,
+        // path, status, elapsed, and client. Successful GET/HEAD are skipped because the
+        // Director is polled hard (GET /sessions every 2s per viewer) and would flood the log.
         _app.Use(async (ctx, next) =>
         {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             try { await next(); }
             catch (Exception ex)
             {
@@ -141,6 +148,18 @@ public sealed class ControlApiHost : IAsyncDisposable
                     ctx.Response.StatusCode = StatusCodes.Status500InternalServerError;
                     ctx.Response.ContentType = "text/plain; charset=utf-8";
                     await ctx.Response.WriteAsync($"{ex.GetType().Name}: {ex.Message}");
+                }
+            }
+            finally
+            {
+                sw.Stop();
+                var method = ctx.Request.Method;
+                var isMutation = method is "POST" or "PUT" or "PATCH" or "DELETE";
+                if (isMutation || ctx.Response.StatusCode >= 400)
+                {
+                    var client = ctx.Connection.RemoteIpAddress?.ToString() ?? "?";
+                    FileLog.Write($"[ControlApiHost] {method} {ctx.Request.Path}{ctx.Request.QueryString} " +
+                        $"-> {ctx.Response.StatusCode} ({sw.ElapsedMilliseconds}ms) client={client}");
                 }
             }
         });

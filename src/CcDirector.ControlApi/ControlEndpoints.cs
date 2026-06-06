@@ -2363,9 +2363,12 @@ internal static class ControlEndpoints
         });
 
         // ===== REST: Kill a session =====
-        app.MapDelete("/sessions/{sid}", async (string sid) =>
+        app.MapDelete("/sessions/{sid}", async (HttpContext ctx, string sid) =>
         {
-            FileLog.Write($"[ControlEndpoints] DELETE /sessions/{sid}");
+            // Name the local caller (issue #212 L3): a loopback DELETE could be any agent
+            // on this machine, and "127.0.0.1" alone is useless for forensics.
+            var caller = Core.Network.LoopbackPeerResolver.Describe(ctx.Connection.RemotePort, ctx.Connection.LocalPort);
+            FileLog.Write($"[ControlEndpoints] DELETE /sessions/{sid} caller={caller}");
 
             if (!Guid.TryParse(sid, out var guid))
                 return Results.BadRequest(new { error = "invalid session id format" });
@@ -2392,9 +2395,13 @@ internal static class ControlEndpoints
         });
 
         // ===== Shutdown =====
-        app.MapPost("/shutdown", () =>
+        app.MapPost("/shutdown", (HttpContext ctx) =>
         {
-            FileLog.Write($"[ControlEndpoints] POST shutdown requested");
+            // Name the local caller (issue #212 L3). This endpoint stops the whole Director
+            // and every claude.exe under it; the 2026-06-06 post-mortem could not tell whether
+            // an agent had triggered a shutdown because the caller was never recorded.
+            var caller = Core.Network.LoopbackPeerResolver.Describe(ctx.Connection.RemotePort, ctx.Connection.LocalPort);
+            FileLog.Write($"[ControlEndpoints] POST shutdown requested caller={caller}");
             _ = Task.Run(async () =>
             {
                 await Task.Delay(100);

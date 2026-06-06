@@ -1109,6 +1109,19 @@ public partial class MainWindow : Window
                 SortOrder = i,
             });
             app.SessionStateStore.Save(persisted);
+
+            // Mirror the live roster into the durable crash journal (issue #212 L5). Same
+            // snapshot, but keyed per-Director and preserved across an abnormal death so the
+            // sessions can be recovered (unlike sessions.json, which is cleared every startup).
+            app.CrashJournal?.Update(_sessions.Select(vm => new DirectorCrashJournalSession
+            {
+                SessionId = vm.Session.Id.ToString(),
+                Name = vm.Session.CustomName,
+                RepoPath = vm.Session.RepoPath,
+                Agent = vm.Session.AgentKind.ToString(),
+                ClaudeSessionId = vm.Session.ClaudeSessionId,
+                CreatedAtUtc = vm.Session.CreatedAt,
+            }));
         }
         catch (Exception ex)
         {
@@ -3992,7 +4005,11 @@ public partial class MainWindow : Window
 
     protected override async void OnClosing(WindowClosingEventArgs e)
     {
-        FileLog.Write("[MainWindow] OnClosing");
+        // Log WHY the window is closing (issue #212 L1). The 2026-06-06 post-mortem
+        // could not tell an OS shutdown from a user "End task" from a programmatic close
+        // because OnClosing logged nothing but the bare event. CloseReason answers it:
+        // WindowClosing (user X/Alt+F4), OSShutdown, ApplicationShutdown, OwnerWindowClosing.
+        FileLog.Write($"[MainWindow] OnClosing: reason={e.CloseReason}, programmatic={e.IsProgrammatic}, sessions={_sessions.Count}");
 
         // Check for working sessions and show close dialog
         if (!_closeConfirmed)
