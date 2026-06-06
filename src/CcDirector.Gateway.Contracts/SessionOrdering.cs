@@ -40,11 +40,14 @@ public static class SessionOrdering
 
     /// <summary>
     /// True while a user-initiated "I am lost - explain" deep dive runs for the session
-    /// (issue #217). Same raw-activity rule as <see cref="IsBriefing"/>: if a NEW turn is
-    /// already running (blue), raw activity wins and no orange shows.
+    /// (issue #217). Unlike <see cref="IsBriefing"/> there is NO raw-activity gate: the
+    /// user pressed the button just now, so the orange must show regardless of whether
+    /// the session is working, quiet, or red - suppressing it (the original red-gated
+    /// implementation) left the rail blue while the brief pane said "explaining", the
+    /// exact cross-surface contradiction issue #196 forbids.
     /// </summary>
     public static bool IsExplaining(SessionDto s) =>
-        s.BriefingState == "Explaining" && string.Equals(s.StatusColor, "red", StringComparison.OrdinalIgnoreCase);
+        s.BriefingState == "Explaining";
 
     /// <summary>
     /// The ONE effective status color every client renders and triages on (issue #196).

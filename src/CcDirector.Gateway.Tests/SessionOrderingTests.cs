@@ -116,6 +116,37 @@ public sealed class SessionOrderingTests
         Assert.False(SessionOrdering.IsBriefing(S("x", color: "red", briefingState: "None")));
     }
 
+    // ----- effective color while a user-requested deep dive runs (issue #217) -----
+
+    [Fact]
+    public void IsExplaining_AnyRawColor_TrueWhileExplaining()
+    {
+        // Explain is USER-initiated: the orange must show no matter what the session is
+        // doing underneath (the original red gate suppressed it on working sessions and
+        // left the rail contradicting the brief pane).
+        Assert.True(SessionOrdering.IsExplaining(S("x", color: "blue", briefingState: "Explaining")));
+        Assert.True(SessionOrdering.IsExplaining(S("x", color: "red", briefingState: "Explaining")));
+        Assert.True(SessionOrdering.IsExplaining(S("x", color: "green", briefingState: "Explaining")));
+        Assert.False(SessionOrdering.IsExplaining(S("x", color: "red", briefingState: "Briefing")));
+        Assert.False(SessionOrdering.IsExplaining(S("x", color: "blue", briefingState: "None")));
+    }
+
+    [Fact]
+    public void EffectiveColor_WhileExplaining_IsOrange_EvenWhenWorking()
+    {
+        Assert.Equal("orange", SessionOrdering.EffectiveColor(S("x", color: "blue", briefingState: "Explaining")));
+        Assert.Equal("orange", SessionOrdering.EffectiveColor(S("x", color: "red", briefingState: "Explaining")));
+    }
+
+    [Fact]
+    public void Classify_RedWhileExplaining_IsActive_NotNeedsYou()
+    {
+        // Same #196 rule as briefing: while the deep dive runs the session must not sit
+        // in NEEDS YOU - red may only return after the report lands.
+        Assert.Equal(SessionOrdering.TriageBucket.Active,
+            SessionOrdering.Classify(S("x", color: "red", briefingState: "Explaining")));
+    }
+
     [Fact]
     public void Classify_RedWhileBriefing_IsActive_NotNeedsYou()
     {

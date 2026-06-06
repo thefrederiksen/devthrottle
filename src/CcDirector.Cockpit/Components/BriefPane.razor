@@ -46,24 +46,30 @@
     {
         @* ---- "I am lost - explain" (issue #217): one tap and the wingman re-reads the
              WHOLE session in its own round; the session shows ORANGE while it works. The
-             newest report stays pinned here until the next explain. *@
-        <div class="explain-row">
-            @if (IsExplainingNow)
-            {
-                <span class="explain-working">wingman explaining the session...</span>
-            }
-            else
-            {
+             newest report stays pinned here until the next explain. The banner flips ON
+             in the same render as the click (optimistic, before the POST even leaves) -
+             user-action feedback never waits on the roster poll. *@
+        @if (IsExplainingNow)
+        {
+            <div class="explain-banner">
+                <span class="explain-banner-dot"></span>
+                <span><strong>Wingman is re-reading this whole session.</strong>
+                    The explain report will appear here when it is ready - usually well under a minute.</span>
+            </div>
+        }
+        else
+        {
+            <div class="explain-row">
                 <button class="explain-btn" disabled="@_explainBusy" @onclick="RequestExplainAsync"
                         title="The wingman re-reads the whole session and answers: what happened, what we did, what next.">
                     I am lost - explain
                 </button>
-            }
-            @if (_explainStatus is not null)
-            {
-                <span class="brief-muted">@_explainStatus</span>
-            }
-        </div>
+                @if (_explainStatus is not null)
+                {
+                    <span class="brief-muted">@_explainStatus</span>
+                }
+            </div>
+        }
         @if (_explain is not null)
         {
             <div class="explain-report">
@@ -419,6 +425,10 @@
     /// through the SAME path as the rail kebab's Close. Invoked only after the two-step
     /// confirm in this pane - the click IS the approval.</summary>
     [Parameter] public EventCallback OnCloseSession { get; set; }
+    /// <summary>Optimistic explain notification (issue #217 reactivity): true the instant
+    /// the explain button is clicked (parent paints the rail orange immediately), false if
+    /// the POST fails. The Gateway's polled BriefingState reconciles afterwards.</summary>
+    [Parameter] public EventCallback<bool> OnExplainPending { get; set; }
 
     private TurnBriefDto? _turnBrief;
     private BriefResponse? _brief;
@@ -478,29 +488,43 @@
     private ExplainReportDto? _explain;
     private bool _explainBusy;
     private string? _explainStatus;
+    /// <summary>Optimistic "explaining" presentation, set in the SAME render as the click
+    /// (issue #217 reactivity): the banner must appear within milliseconds of the button
+    /// press, never after the next roster poll. Cleared when the Gateway's authoritative
+    /// BriefingState confirms, on POST failure, or by the stale-guard in
+    /// <see cref="OnParametersSetAsync"/>.</summary>
+    private bool _explainOptimistic;
+    private DateTime _explainOptimisticAt;
 
     /// <summary>The Gateway is running the user-requested deep dive (issue #217): the
-    /// session presents ORANGE and the button yields to the working indicator.</summary>
-    private bool IsExplainingNow => BriefingState == "Explaining";
+    /// session presents ORANGE and the button yields to the working banner. Optimistic
+    /// local state ORs in so the flip never waits on the parent's poll.</summary>
+    private bool IsExplainingNow => BriefingState == "Explaining" || _explainOptimistic;
 
-    /// <summary>The explain button (issue #217): queue the deep dive on the Gateway. The
-    /// orange state arrives via the parent's session poll; the report lands via the
-    /// Explaining-&gt;done transition reload.</summary>
+    /// <summary>The explain button (issue #217): flip the banner and the parent's rail
+    /// orange FIRST (optimistic), then queue the deep dive on the Gateway. The roster
+    /// poll confirms; the report lands via the Explaining-&gt;done transition reload.</summary>
     private async Task RequestExplainAsync()
     {
         if (_explainBusy || string.IsNullOrEmpty(SessionId)) return;
         _explainBusy = true;
-        _explainStatus = "Asking the wingman...";
+        _explainStatus = null;
+        _explainOptimistic = true;
+        _explainOptimisticAt = DateTime.UtcNow;
         await InvokeAsync(StateHasChanged);
         try
         {
+            // Parent stamps the in-memory roster so the rail dot/chip go orange in the
+            // same UI cycle - before the network round-trip below.
+            await OnExplainPending.InvokeAsync(true);
             await Gateway.PostExplainAsync(SessionId);
-            _explainStatus = null;
         }
         catch (Exception ex)
         {
             Log.LogWarning(ex, "BriefPane explain request failed for sid={Sid}", SessionId);
+            _explainOptimistic = false;
             _explainStatus = $"explain failed: {ex.Message}";
+            await OnExplainPending.InvokeAsync(false);
         }
         finally
         {
@@ -778,6 +802,27 @@
 
     protected override async Task OnParametersSetAsync()
     {
+        // The Gateway confirmed the deep dive (the roster poll caught up with the click):
+        // the authoritative BriefingState drives from here - drop the optimistic overlay.
+        if (_explainOptimistic && BriefingState == "Explaining")
+        {
+            _explainOptimistic = false;
+        }
+        // Stale-guard: the POST flips the Gateway's pending state synchronously, so the
+        // FIRST poll after a successful POST must report Explaining. If 8s (4 poll
+        // cycles) pass unconfirmed, the dive either died upstream or finished between
+        // polls - drop the overlay and reload to pick up whatever landed.
+        else if (_explainOptimistic && !_explainBusy && !_loading
+                 && DateTime.UtcNow - _explainOptimisticAt > TimeSpan.FromSeconds(8))
+        {
+            _explainOptimistic = false;
+            _lastSeenBriefState = BriefingState;
+            _lastSeenState = ActivityState;
+            SyncTailLoop();
+            await LoadAsync();
+            return;
+        }
+
         // The deep dive finished (issue #217): the explain report is in the store - reload.
         if (_lastSeenBriefState == "Explaining" && BriefingState != "Explaining" && !_loading)
         {

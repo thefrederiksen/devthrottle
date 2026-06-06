@@ -404,6 +404,13 @@ body{background:var(--panel);color:var(--text);
 .explain-btn:hover{background:#241a12}
 .explain-btn:disabled{opacity:.5;cursor:default}
 .explain-working{color:#F97316;font-size:12px;font-weight:600}
+.explain-banner{display:flex;gap:10px;align-items:center;border:1px solid #F97316;border-left:3px solid #F97316;
+  background:#241a12;border-radius:0 6px 6px 0;padding:10px 14px;margin-bottom:14px;
+  color:#e8d8c8;font-size:13px;line-height:1.45}
+.explain-banner strong{color:#F97316}
+.explain-banner-dot{width:9px;height:9px;border-radius:50%;background:#F97316;flex:none;
+  animation:explain-pulse 1.2s ease-in-out infinite}
+@keyframes explain-pulse{0%,100%{opacity:1}50%{opacity:.25}}
 .explain-report{border:1px solid var(--border);border-left:3px solid #F97316;background:#241a12;
   border-radius:0 6px 6px 0;padding:12px 16px;margin-bottom:24px}
 .explain-report .blabel{color:#F97316}

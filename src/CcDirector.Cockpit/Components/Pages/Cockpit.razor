@@ -190,7 +190,8 @@
                                                OnOpenTerminal="@(() => SetCenterTab("term"))"
                                                OnQuickReply="QuickReplyAsync"
                                                Replying="@_quickReplying"
-                                               OnCloseSession="CloseSelectedFromBriefAsync" />
+                                               OnCloseSession="CloseSelectedFromBriefAsync"
+                                               OnExplainPending="OnExplainPending" />
                                 </div>
 
                                 <aside class="story-col">
@@ -898,6 +899,44 @@
     private int NeedsYou => _sessions.Count(s => SessionOrdering.EffectiveColor(s) == "red");
     private SessionDto? Selected => _sessions.FirstOrDefault(s => s.SessionId == _selectedId);
 
+    // ----- optimistic explain overlay (issue #217 reactivity) -----
+
+    /// <summary>Session the user just requested an explain for. The in-memory roster is
+    /// stamped BriefingState=Explaining immediately (rail dot + chip + brief pane all flip
+    /// in the same render as the click), and re-stamped across roster swaps in
+    /// <see cref="RefreshAsync"/> until the Gateway's polled state confirms.</summary>
+    private string? _explainPendingSid;
+    private DateTime _explainPendingAt;
+    /// <summary>The session's last server-reported BriefingState before the optimistic
+    /// stamp overwrote it, so a failed POST restores the truth (e.g. "Briefed") instead
+    /// of blanking to "None" until the next poll.</summary>
+    private string _explainPriorBriefState = "None";
+
+    /// <summary>BriefPane's explain click (true) or POST failure (false). The stamp makes
+    /// every surface that folds through SessionOrdering - dot, chip, triage bucket - go
+    /// orange NOW instead of after the next 2s poll.</summary>
+    private void OnExplainPending(bool active)
+    {
+        if (active && Selected is not null)
+        {
+            _explainPendingSid = Selected.SessionId;
+            _explainPendingAt = DateTime.UtcNow;
+            _explainPriorBriefState = Selected.BriefingState;
+            Selected.BriefingState = "Explaining";
+            Log.LogInformation("Cockpit: optimistic explain stamp for sid={Sid}", _explainPendingSid);
+        }
+        else
+        {
+            // POST failed: un-stamp so the rail does not lie about a dive that never queued.
+            if (_explainPendingSid is not null)
+            {
+                var dto = _sessions.FirstOrDefault(s => s.SessionId == _explainPendingSid);
+                if (dto is not null && dto.BriefingState == "Explaining") dto.BriefingState = _explainPriorBriefState;
+            }
+            _explainPendingSid = null;
+        }
+    }
+
     // ----- center tab (Brief is the default; choice persists per session for the circuit) -----
     private readonly Dictionary<string, string> _centerTabBySession = new();
     private string CenterTab =>
@@ -1069,6 +1108,27 @@
             _errors = env.MachineErrors;
             _lastError = null;
             _lastRefresh = DateTime.Now;
+
+            // Optimistic explain overlay (issue #217): keep the just-requested session
+            // orange across roster swaps until the Gateway confirms. The POST flips the
+            // Gateway's pending state synchronously, so the first poll completing after
+            // it must confirm; 10s unconfirmed means the request died - stop overriding.
+            if (_explainPendingSid is not null)
+            {
+                var pending = _sessions.FirstOrDefault(s => s.SessionId == _explainPendingSid);
+                if (pending is null || pending.BriefingState == "Explaining"
+                    || DateTime.UtcNow - _explainPendingAt > TimeSpan.FromSeconds(10))
+                {
+                    _explainPendingSid = null;
+                }
+                else
+                {
+                    // Remember the freshest server truth before overwriting, so a failed
+                    // POST restores it instead of blanking the state until the next poll.
+                    _explainPriorBriefState = pending.BriefingState;
+                    pending.BriefingState = "Explaining";
+                }
+            }
 
             // Rail group headers show per-Director version + uptime from the registry.
             // The registry is near-static (start/stop events only), so refresh it at most
