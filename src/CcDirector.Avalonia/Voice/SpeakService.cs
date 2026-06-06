@@ -40,6 +40,15 @@ public sealed class SpeakService : IAsyncDisposable
     private bool _stopped;
     private bool _disposed;
 
+    // Session-record state so the desktop path leaves the same JSONL audit
+    // trail as the /dictate endpoint (issue #190: the 2026-06-06 incidents
+    // went through this path and their raw transcripts were lost because
+    // nothing here logged them).
+    private readonly string _sessionId = Guid.NewGuid().ToString("N");
+    private string _profile = "default";
+    private DateTime _sessionStartUtc;
+    private System.Diagnostics.Stopwatch? _recordingStopwatch;
+
     public event Action<double[]>? OnAudioBands;
     public event Action<double>? OnInputRms;
     public event Action<string>? OnPartial;
@@ -96,6 +105,9 @@ public sealed class SpeakService : IAsyncDisposable
         _pipeline.OnConnected += () => OnConnected?.Invoke();
 
         await _pipeline.StartAsync(profile, ct);
+        _profile = string.IsNullOrWhiteSpace(profile) ? "default" : profile;
+        _sessionStartUtc = DateTime.UtcNow;
+        _recordingStopwatch = System.Diagnostics.Stopwatch.StartNew();
         _started = true;
     }
 
@@ -115,7 +127,38 @@ public sealed class SpeakService : IAsyncDisposable
         // The pipeline stops capture, drains every captured chunk to the
         // provider, then commits. It owns mic stop; we do not stop the mic
         // separately or we would race the drain.
-        return await _pipeline.StopAsync(ct);
+        _recordingStopwatch?.Stop();
+        var stopWatch = System.Diagnostics.Stopwatch.StartNew();
+        var result = await _pipeline.StopAsync(ct);
+        stopWatch.Stop();
+
+        // Same JSONL audit record the /dictate endpoint writes, so a desktop
+        // dictation incident keeps its raw text for forensics. Fire-and-forget
+        // off the UI-facing path; failures are logged inside TryAppend.
+        if (_dictionary is null)
+            throw new InvalidOperationException("Dictionary is null after Start - should be unreachable");
+        var dict = _dictionary.Current;
+        var record = new DictationSessionRecord(
+            TimestampUtc: _sessionStartUtc.ToString("o"),
+            SessionId: _sessionId,
+            Profile: _profile,
+            VocabularyTermCount: dict.Vocabulary.Count,
+            MistranscriptionPatternCount: dict.CommonMistranscriptions.Count,
+            RecordingDurationMs: _recordingStopwatch?.ElapsedMilliseconds ?? 0,
+            StopToTranscribedMs: stopWatch.ElapsedMilliseconds,
+            StopToCleanedMs: stopWatch.ElapsedMilliseconds,
+            AudioBytesReceived: 0, // mic bytes are not tracked on this path
+            RawTranscript: result.RawTranscript,
+            CleanedTranscript: result.CleanedTranscript,
+            CleanupApplied: result.CleanupApplied,
+            CleanupReason: result.CleanupFailureReason,
+            CleanupModel: _options.DictationCleanupModel,
+            RemoteIp: null,
+            ClientError: null,
+            Source: "desktop-speak");
+        _ = Task.Run(() => DictationSessionLog.TryAppend(record));
+
+        return result;
     }
 
     public async ValueTask DisposeAsync()

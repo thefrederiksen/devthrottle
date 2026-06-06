@@ -71,4 +71,5 @@ public sealed record DictationSessionRecord(
     string? CleanupReason,
     string CleanupModel,
     string? RemoteIp,
-    string? ClientError);
+    string? ClientError,
+    string? Source = null);

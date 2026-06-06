@@ -385,7 +385,8 @@ internal static class DictationEndpoint
             CleanupReason: transcript?.CleanupFailureReason,
             CleanupModel: options.DictationCleanupModel,
             RemoteIp: remoteIp,
-            ClientError: clientError);
+            ClientError: clientError,
+            Source: "endpoint");
 
         // Off the WebSocket hot path; never block the close-out on disk I/O.
         Task.Run(() => DictationSessionLog.TryAppend(record));
