@@ -116,9 +116,16 @@ public sealed class BriefBuilder : IDisposable
             switch (w.Kind)
             {
                 case "UserMessage":
-                    first ??= w.Content;
-                    lastUser = w.Content;
+                    // Any user-side message (typed or harness-injected) starts a turn, so it
+                    // counts for ReplyPending. But injected content (<task-notification>,
+                    // <system-reminder>, command wrappers...) is NOT something the user asked -
+                    // it must never surface as the YOU ASKED text.
                     lastUserIdx = i;
+                    if (w.Content is not null && !ClaudeSessionReader.IsSystemInjectedContent(w.Content))
+                    {
+                        first ??= w.Content;
+                        lastUser = w.Content;
+                    }
                     break;
                 case "Text":
                     lastText = w.Content;

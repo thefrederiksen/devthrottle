@@ -417,7 +417,11 @@
                                         }
                                         else
                                         {
-                                            @foreach (var s in _shots)
+                                            @* Only the newest _shotsShown thumbnails render; each <img> is the
+                                               full-size file fetched from the Director, so rendering all 1000+
+                                               folder entries at once would melt the tab. Show more grows the
+                                               list from the already-fetched metadata - no network call. *@
+                                            @foreach (var s in _shots.Take(_shotsShown))
                                             {
                                                 <div class="shot-card" @key="s.FileName">
                                                     @* Click the thumbnail to VIEW full-size. Insert is the explicit
@@ -430,6 +434,19 @@
                                                         <button class="linkbtn" @onclick="() => CopyScreenshot(s.FileName)">Copy</button>
                                                         <button class="linkbtn del" @onclick="() => DeleteScreenshot(s.FileName)">Del</button>
                                                     </div>
+                                                </div>
+                                            }
+                                            @if (_shots.Count > _shotsShown)
+                                            {
+                                                <button class="gallery-more" @onclick="ShowMoreShots">
+                                                    Show @Math.Min(ShotsShowMoreStep, _shots.Count - _shotsShown) more
+                                                    (@(_shotsTotal - _shotsShown) older)
+                                                </button>
+                                            }
+                                            else if (_shotsTotal > _shots.Count)
+                                            {
+                                                <div class="gallery-footnote">
+                                                    Newest @_shots.Count of @_shotsTotal - older files stay on the Director's disk.
                                                 </div>
                                             }
                                         }
@@ -1060,7 +1077,15 @@
     private string? _shotStatus;
 
     // Screenshots gallery (the captured-screenshots list on the selected session's Director).
+    // The folder can hold THOUSANDS of images and each thumbnail is the full-size file fetched
+    // over the tailnet, so the gallery is deliberately incremental: fetch metadata for the
+    // newest ShotsFetchCount only, render ShotsInitialShown thumbnails, and grow on demand.
+    private const int ShotsFetchCount = 100;
+    private const int ShotsInitialShown = 12;
+    private const int ShotsShowMoreStep = 24;
     private List<ScreenshotInfo> _shots = new();
+    private int _shotsTotal;                       // full folder count reported by the Director
+    private int _shotsShown = ShotsInitialShown;   // thumbnails currently rendered
     private bool _shotsBusy;
     private string? _shotsError;
 
@@ -1074,6 +1099,8 @@
         _killArmed = false;
         _queue = new();
         _shots = new();
+        _shotsTotal = 0;
+        _shotsShown = ShotsInitialShown;
         _shotsError = null;
         _turnTimeline = null;
         _usage = null;
@@ -1371,7 +1398,12 @@
         {
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
             cts.CancelAfter(TimeSpan.FromSeconds(10));
-            _shots = await Director.GetScreenshotsAsync(dir!, cts.Token);
+            var r = await Director.GetScreenshotsAsync(dir!, ShotsFetchCount, cts.Token);
+            _shots = r.Items;
+            // Old Directors ignore ?count and report Total=0: everything came back, so the
+            // list itself is the total.
+            _shotsTotal = Math.Max(r.Total, r.Items.Count);
+            _shotsShown = ShotsInitialShown;
         }
         catch (OperationCanceledException) { }
         catch (Exception ex)
@@ -1393,7 +1425,15 @@
     }
 
     // Clear the displayed list only (does NOT delete files) - matches the desktop's "Clear All".
-    private void ClearScreenshots() => _shots = new();
+    private void ClearScreenshots()
+    {
+        _shots = new();
+        _shotsTotal = 0;
+        _shotsShown = ShotsInitialShown;
+    }
+
+    // Reveal the next batch of already-fetched thumbnails (no network call).
+    private void ShowMoreShots() => _shotsShown += ShotsShowMoreStep;
 
     // View: open the image full-size in a new browser tab, served browser-direct by the Director.
     private async Task ViewScreenshot(string fileName)

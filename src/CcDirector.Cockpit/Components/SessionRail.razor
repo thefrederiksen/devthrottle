@@ -42,23 +42,25 @@
                         <span class="tag tag-voice">voice</span>
                     }
                     <span class="sess-dir">@ShortId(s.DirectorId)</span>
+                    @* Generic fallback pill when no brief exists (old Directors / brief
+                       pending) - small enough to stay on the state line. *@
+                    @if (s.StatusColor == "red" && s.BriefingState != "Briefing" && string.IsNullOrWhiteSpace(s.RailLine))
+                    {
+                        <span class="needs-pill">needs you</span>
+                    }
                 </span>
+                @* The wingman's railLine: WHAT the session wants, not just that it wants
+                   something (TURN_BRIEFING.md). Rendered UNDER the name/state so it never
+                   squeezes the session name. While the wingman reads, say so. *@
+                @if (s.BriefingState == "Briefing")
+                {
+                    <span class="rail-line briefing">wingman reading...</span>
+                }
+                else if (s.StatusColor == "red" && !string.IsNullOrWhiteSpace(s.RailLine))
+                {
+                    <span class="rail-line">@s.RailLine</span>
+                }
             </span>
-            @* The wingman's railLine: WHAT the session wants, not just that it wants
-               something (TURN_BRIEFING.md). Falls back to the generic pill when no brief
-               exists (old Directors / brief pending). While the wingman reads, say so. *@
-            @if (s.BriefingState == "Briefing")
-            {
-                <span class="rail-line briefing">wingman reading...</span>
-            }
-            else if (s.StatusColor == "red" && !string.IsNullOrWhiteSpace(s.RailLine))
-            {
-                <span class="rail-line">@s.RailLine</span>
-            }
-            else if (s.StatusColor == "red")
-            {
-                <span class="needs-pill">needs you</span>
-            }
         </button>;
     }
 

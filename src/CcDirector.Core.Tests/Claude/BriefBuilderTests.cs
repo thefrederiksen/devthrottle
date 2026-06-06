@@ -100,6 +100,39 @@ public sealed class BriefBuilderTests
         Assert.False(e.ReplyPending);
     }
 
+    [Fact]
+    public void Extract_SystemInjectedUserMessage_NeverShownAsAsk()
+    {
+        // Regression: the harness injects <task-notification> (and friends) into the JSONL as
+        // USER messages. They are not something the user asked - the Cockpit's YOU ASKED was
+        // rendering the raw tag block.
+        var e = BriefBuilder.Extract(new List<TurnWidgetDto>
+        {
+            User("ship the gateway tray"),
+            Text("done, queued the status email"),
+            User("<task-notification>\n<task id=\"abc\">completed</task>\n</task-notification>"),
+            Text("Everything looks as expected."),
+        });
+        Assert.Equal("ship the gateway tray", e.LastUserPrompt);
+        Assert.Equal("ship the gateway tray", e.FirstUserPrompt);
+        Assert.Equal("Everything looks as expected.", e.LastAssistantText);
+    }
+
+    [Fact]
+    public void Extract_SystemInjectedUserMessage_StillCountsForReplyPending()
+    {
+        // A task-notification with no assistant text after it means a turn IS in flight -
+        // the brief must not condense yet, even though the notification is hidden from the ask.
+        var e = BriefBuilder.Extract(new List<TurnWidgetDto>
+        {
+            User("real ask"),
+            Text("reply"),
+            User("<task-notification>\n<task id=\"abc\">completed</task>\n</task-notification>"),
+        });
+        Assert.True(e.ReplyPending);
+        Assert.Equal("real ask", e.LastUserPrompt);
+    }
+
     // ===== FallbackNeedsYou =====
 
     [Fact]

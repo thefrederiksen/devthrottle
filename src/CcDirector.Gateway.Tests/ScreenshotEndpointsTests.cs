@@ -78,7 +78,7 @@ public sealed class ScreenshotEndpointsTests : IAsyncLifetime
     }
 
     private sealed record ShotItem(string FileName, string Path, string TimeLabel, DateTimeOffset LastWriteUtc, long SizeBytes);
-    private sealed record ShotList(string Directory, List<ShotItem> Items);
+    private sealed record ShotList(string Directory, int Total, List<ShotItem> Items);
 
     [Fact]
     public async Task List_returns_only_images_newest_first_with_labels()
@@ -86,6 +86,7 @@ public sealed class ScreenshotEndpointsTests : IAsyncLifetime
         var list = await _client.GetFromJsonAsync<ShotList>("screenshots");
         Assert.NotNull(list);
         Assert.Equal(2, list!.Items.Count);                       // notes.txt excluded
+        Assert.Equal(2, list.Total);
         Assert.Equal("shot-newer.png", list.Items[0].FileName);   // newest first
         Assert.Equal("shot-older.png", list.Items[1].FileName);
         Assert.All(list.Items, i => Assert.False(string.IsNullOrWhiteSpace(i.TimeLabel)));
@@ -95,13 +96,58 @@ public sealed class ScreenshotEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task File_serves_image_bytes_with_cors_header()
+    public async Task List_count_caps_items_but_total_reports_the_folder()
+    {
+        var list = await _client.GetFromJsonAsync<ShotList>("screenshots?count=1");
+        Assert.NotNull(list);
+        Assert.Single(list!.Items);                               // capped to the newest one
+        Assert.Equal("shot-newer.png", list.Items[0].FileName);
+        Assert.Equal(2, list.Total);                              // folder count, not the cap
+    }
+
+    [Theory]
+    [InlineData("screenshots?count=0")]    // <=0 falls back to the default cap
+    [InlineData("screenshots?count=-5")]
+    [InlineData("screenshots?count=999")]  // cap above the folder size
+    public async Task List_count_edge_values_are_safe(string url)
+    {
+        var list = await _client.GetFromJsonAsync<ShotList>(url);
+        Assert.Equal(2, list!.Items.Count);
+        Assert.Equal(2, list.Total);
+    }
+
+    [Fact]
+    public async Task List_omitted_count_caps_at_default_and_ignores_older_files()
+    {
+        // Seed enough images to exceed the default cap; all OLDER than the two fixtures so
+        // the newest-first cap keeps the fixtures and drops the tail.
+        var extra = ControlEndpoints.DefaultScreenshotCount + 3;
+        for (var i = 0; i < extra; i++)
+        {
+            var p = Path.Combine(_shotsDir, $"bulk-{i:D3}.png");
+            await File.WriteAllBytesAsync(p, OnePngBytes);
+            File.SetLastWriteTimeUtc(p, DateTime.UtcNow.AddMinutes(-60 - i));
+        }
+
+        var list = await _client.GetFromJsonAsync<ShotList>("screenshots");
+        Assert.NotNull(list);
+        Assert.Equal(ControlEndpoints.DefaultScreenshotCount, list!.Items.Count); // capped
+        Assert.Equal(extra + 2, list.Total);                                      // full folder count
+        Assert.Equal("shot-newer.png", list.Items[0].FileName);                   // newest still first
+    }
+
+    [Fact]
+    public async Task File_serves_image_bytes_with_cors_and_cache_headers()
     {
         var resp = await _client.GetAsync("screenshots/file?name=shot-newer.png");
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
         Assert.Equal("image/png", resp.Content.Headers.ContentType?.MediaType);
         Assert.True(resp.Headers.TryGetValues("Access-Control-Allow-Origin", out var acao));
         Assert.Equal("*", acao!.Single());
+        // Screenshot files are immutable once written - the browser may cache thumbnails so
+        // session switches don't re-download the same bytes.
+        Assert.True(resp.Headers.TryGetValues("Cache-Control", out var cache));
+        Assert.Equal("public, max-age=3600", cache!.Single());
         var bytes = await resp.Content.ReadAsByteArrayAsync();
         Assert.Equal(OnePngBytes.Length, bytes.Length);
     }

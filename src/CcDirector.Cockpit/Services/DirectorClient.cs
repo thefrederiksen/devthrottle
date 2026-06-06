@@ -35,6 +35,9 @@ public sealed class ScreenshotInfo
 public sealed class ScreenshotsResponse
 {
     public string Directory { get; set; } = "";
+    /// <summary>Full folder count, regardless of any ?count cap on Items. 0 on Directors that
+    /// predate the field - treat Items.Count as the total then.</summary>
+    public int Total { get; set; }
     public List<ScreenshotInfo> Items { get; set; } = new();
 }
 
@@ -146,11 +149,14 @@ public sealed class DirectorClient
     /// (<c>GET /screenshots</c>). The folder is per-machine, not per-session, so this takes only
     /// the Director base. The image bytes themselves are loaded browser-direct via
     /// <see cref="ScreenshotUrl"/>; this call returns just the metadata + time labels.
+    /// <paramref name="count"/> caps the items (the folder can hold thousands); &lt;=0 fetches
+    /// everything. Old Directors ignore the param and return all items with Total=0.
     /// </summary>
-    public async Task<List<ScreenshotInfo>> GetScreenshotsAsync(string directorBase, CancellationToken ct = default)
+    public async Task<ScreenshotsResponse> GetScreenshotsAsync(string directorBase, int count = 0, CancellationToken ct = default)
     {
-        var r = await _http.GetFromJsonAsync<ScreenshotsResponse>(Url(directorBase, "screenshots"), ct);
-        return r?.Items ?? new List<ScreenshotInfo>();
+        var path = count > 0 ? $"screenshots?count={count}" : "screenshots";
+        var r = await _http.GetFromJsonAsync<ScreenshotsResponse>(Url(directorBase, path), ct);
+        return r ?? new ScreenshotsResponse();
     }
 
     /// <summary>Delete one screenshot file from the Director's disk (<c>DELETE /screenshots/file</c>).</summary>
