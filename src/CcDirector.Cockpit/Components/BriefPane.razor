@@ -176,7 +176,40 @@
                 }
             </div>
         }
-        else if (NeedsYou is not null)
+        @if (HasSuggestedClose)
+        {
+            @* MISSION COMPLETE (v2.4, issue #201): the wingman judged the session's goal
+               delivered - the real action is closing the session. Suggestion only: the
+               two-step click below IS the approval; nothing ever auto-closes. Hidden the
+               moment the session works or the wingman reads again (stale suggestions
+               must not outlive new activity). *@
+            <div class="brief-block brief-mission-complete">
+                <div class="blabel">MISSION COMPLETE<span class="brief-verbatim-tag">wingman suggestion</span></div>
+                <div class="brief-needsyou urgency-fyi">@_turnBrief!.SuggestedAction!.Reason</div>
+                <div class="brief-quick">
+                    @if (!_closeArmed)
+                    {
+                        <button class="brief-quick-btn brief-close-btn" disabled="@_closing"
+                                @onclick="() => _closeArmed = true">
+                            Close this session
+                        </button>
+                    }
+                    else
+                    {
+                        <button class="brief-quick-btn brief-close-btn armed" disabled="@_closing"
+                                @onclick="ConfirmCloseAsync">
+                            @(_closing ? "closing..." : "Confirm close")
+                        </button>
+                        <button class="brief-quick-btn" disabled="@_closing"
+                                @onclick="() => _closeArmed = false">
+                            Keep it open
+                        </button>
+                    }
+                </div>
+            </div>
+        }
+
+        @if (!HasWingmanNeedsYou && NeedsYou is not null && !IsBriefing && !IsWorking && !ReplyPending)
         {
             @* Condenser/raw degrade tier: no wingman brief. NO option buttons - options
                only ever come structured from the wingman (D6). *@
@@ -264,6 +297,10 @@
     /// <summary>Typed-reply answer path (parent sends as a prompt and advances the conveyor).</summary>
     [Parameter] public EventCallback<string> OnQuickReply { get; set; }
     [Parameter] public bool Replying { get; set; }
+    /// <summary>Mission-complete approval path (issue #201): the parent closes the session
+    /// through the SAME path as the rail kebab's Close. Invoked only after the two-step
+    /// confirm in this pane - the click IS the approval.</summary>
+    [Parameter] public EventCallback OnCloseSession { get; set; }
 
     private TurnBriefDto? _turnBrief;
     private BriefResponse? _brief;
@@ -284,6 +321,11 @@
     private bool ReplyPending => _brief?.ReplyPending == true;
     private bool HasWingmanBrief => _turnBrief is not null && !_turnBrief.Degraded;
     private bool HasWingmanNeedsYou => HasWingmanBrief && _turnBrief!.NeedsYou is not null;
+    /// <summary>Mission-complete close suggestion (issue #201), shown ONLY while the session
+    /// is quiet - the moment it works or the wingman reads again, the suggestion is stale.</summary>
+    private bool HasSuggestedClose => HasWingmanBrief
+        && _turnBrief!.SuggestedAction?.Type == "close_session"
+        && !IsWorking && !IsBriefing && !ReplyPending;
     private string TierLabel => HasWingmanBrief ? _turnBrief!.Model : (_brief is not null ? "condenser tier" : "raw tier");
 
     private string? Goal => _brief?.Goal;
@@ -295,6 +337,32 @@
             : null);
 
     // ===== answering =====
+
+    private bool _closeArmed;
+    private bool _closing;
+
+    /// <summary>The committed click of the two-step mission-complete confirm: hand the
+    /// close to the parent (same path as the rail kebab's Close).</summary>
+    private async Task ConfirmCloseAsync()
+    {
+        _closing = true;
+        try
+        {
+            Log.LogInformation("BriefPane: wingman close suggestion approved for sid={Sid} (reason: {Reason})",
+                SessionId, _turnBrief?.SuggestedAction?.Reason);
+            await OnCloseSession.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            Log.LogWarning(ex, "BriefPane: close failed for sid={Sid}", SessionId);
+            _answerStatus = $"close failed: {ex.Message}";
+        }
+        finally
+        {
+            _closing = false;
+            _closeArmed = false;
+        }
+    }
 
     private void Toggle(string send)
     {
@@ -473,6 +541,7 @@
             _turnBrief = await gatewayBriefTask;
             _brief = await briefTask;
             _toggled.Clear();
+            _closeArmed = false;   // a fresh brief invalidates any armed close confirm
 
             if (_turnBrief is null && _brief is null)
             {

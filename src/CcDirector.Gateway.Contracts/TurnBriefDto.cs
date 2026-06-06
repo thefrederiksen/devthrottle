@@ -51,6 +51,25 @@ public sealed class TurnBriefDto
 
     /// <summary>Null when the turn needs nothing from the user.</summary>
     public TurnBriefNeedsYou? NeedsYou { get; set; }
+
+    /// <summary>Mission-complete suggestion (v2.4, issue #201): set when the wingman judges
+    /// the session's goal DELIVERED (bug filed, question answered, artifact produced) and
+    /// nothing blocks. Suggestion only - a consumer renders it as a one-click approval; the
+    /// wingman never acts. Null on pre-v2.4 and degrade-tier briefs.</summary>
+    public TurnBriefSuggestedAction? SuggestedAction { get; set; }
+}
+
+/// <summary>A wingman-suggested session-level action (v2.4, issue #201). The type vocabulary
+/// is ENUMERATED and validated server-side - consumers ignore types they do not know, and
+/// free-text types never survive validation.</summary>
+public sealed class TurnBriefSuggestedAction
+{
+    /// <summary>"close_session" (the only type in v2.4). Future candidates: hold, handover.</summary>
+    public string Type { get; set; } = "";
+
+    /// <summary>&lt;= 12 words: why the session is finished ("Bug filed as #198; nothing pending").
+    /// Shown next to the approval button.</summary>
+    public string Reason { get; set; } = "";
 }
 
 /// <summary>The needs-you block of a turn brief. See TURN_BRIEFING.md section 4.</summary>

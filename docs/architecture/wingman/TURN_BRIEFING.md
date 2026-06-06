@@ -1,6 +1,6 @@
 # Wingman Turn Briefing - the architecture for understanding a turn
 
-**Status:** v2.3 - BUILT (phases 1-3); contract frozen against captured examples (incl. multi-select), extended additively with the session headline + turn title (v2.2) and the chapter model - headline = chapter title + explicit `newChapter` boundary (v2.3, 2026-06-05)
+**Status:** v2.4 - BUILT (phases 1-3); contract frozen against captured examples (incl. multi-select), extended additively with the session headline + turn title (v2.2), the chapter model - headline = chapter title + explicit `newChapter` boundary (v2.3, 2026-06-05), and the mission-complete `suggestedAction` (v2.4, 2026-06-06, issue #201)
 **Supersedes:** the rule-based parts of the Brief view (docs/plans/cockpit-brief-view.md), which
 become this design's labeled degrade tier.
 **Related:** docs/wingman/CHARTER.md (the invariants this design must honor)
@@ -209,9 +209,36 @@ TurnBrief {
                  // ambiguous => the statement says so honestly:
                  // "unclear; likely X or Y" - never invented certainty
     railLine:   "<= 8 words for the rail / FIFO card / voice"
+  },
+  suggestedAction: null | {        // v2.4 (issue #201): MISSION COMPLETE
+    type:   "close_session",       // ENUMERATED vocabulary - free text never survives
+                                   // validation; consumers ignore unknown types.
+    reason: "<= 12 words: why the session is finished"
   }
 }
 ```
+
+### suggestedAction - mission complete (v2.4)
+
+Many sessions exist for one short-lived purpose ("investigate X, file the bug"). When the
+wingman judges the session's goal DELIVERED - the requested issue was filed and its URL
+confirmed in the reply, the question answered, the artifact produced - and nothing blocks,
+it sets `suggestedAction = { type: "close_session", reason }` and writes the needsYou
+accordingly (urgency=fyi, railLine like "done - close session?").
+
+Rules:
+- Suggestion ONLY. Nothing ever auto-closes; the Cockpit renders a two-step approval
+  button (BriefPane "MISSION COMPLETE" block) wired to the same close path as the rail
+  kebab. The user's click IS the approval.
+- The guard list is part of the prompt: never suggest while requested work is unfinished,
+  changes the user wanted committed are uncommitted, an approval/question is pending, or
+  confidence is low. When in doubt: null.
+- Validation is mechanical (D5/D6): unknown type or empty reason drops the ACTION, never
+  the brief. Reason capped at 100 chars.
+- The suggestion is hidden the moment the session works or the wingman reads again -
+  a stale suggestion must not outlive new activity.
+- This lives at GATEWAY + COCKPIT only (the Director is dumb metal, #187); the desktop
+  does not render it, by design.
 
 ### Example 1, briefed correctly
 

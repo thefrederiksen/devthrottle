@@ -189,7 +189,8 @@
                                                BriefingState="@Selected.BriefingState"
                                                OnOpenTerminal="@(() => SetCenterTab("term"))"
                                                OnQuickReply="QuickReplyAsync"
-                                               Replying="@_quickReplying" />
+                                               Replying="@_quickReplying"
+                                               OnCloseSession="CloseSelectedFromBriefAsync" />
                                 </div>
 
                                 <aside class="story-col">
@@ -1867,6 +1868,22 @@
         {
             await Director.RenameSessionAsync(DirBase!, sid, name, _cts.Token);
             _renaming = false;
+            await RefreshAsync();
+        });
+    }
+
+    // ----- mission-complete close (issue #201): the BriefPane's two-step confirm already
+    // happened - this is the committed click, through the SAME path as the kebab Close. -----
+    private async Task CloseSelectedFromBriefAsync()
+    {
+        if (Selected is null || string.IsNullOrWhiteSpace(DirBase)) return;
+        var s = Selected;
+        Log.LogInformation("Cockpit: closing sid={Sid} ({Title}) on wingman mission-complete approval", s.SessionId, SessionTitle(s));
+        await Act(async () =>
+        {
+            await Director.DeleteSessionAsync(DirBase!, s.SessionId, _cts.Token);
+            _selectedId = null;
+            ShowRailNotice($"Closed {SessionTitle(s)}");
             await RefreshAsync();
         });
     }

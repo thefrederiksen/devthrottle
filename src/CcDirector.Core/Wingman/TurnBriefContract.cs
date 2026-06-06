@@ -7,7 +7,8 @@ using CcDirector.Gateway.Contracts;
 namespace CcDirector.Core.Wingman;
 
 /// <summary>
-/// THE frozen v2.3 turn-brief contract in code form (issue #185): the prompt that asks the
+/// THE frozen v2.4 turn-brief contract in code form (issue #185; v2.4 adds the
+/// mission-complete suggestedAction, issue #201): the prompt that asks the
 /// model to interpret one turn, and the mechanical validation of its JSON answer. The ONE
 /// producer is the Gateway's warm-brain brief agent (#187 deleted the Director-side
 /// pipeline) - a prompt change lands here and reaches the whole fleet via the Gateway.
@@ -46,7 +47,8 @@ public static class TurnBriefContract
     "urgency": "blocking" | "review" | "fyi",
     "confidence": "high" | "ambiguous",
     "railLine": "<= 8 words"
-  }
+  },
+  "suggestedAction": null OR { "type": "close_session", "reason": "<=12 words: why this session is finished" }
 }
 """);
         sb.AppendLine();
@@ -72,6 +74,16 @@ public static class TurnBriefContract
         sb.AppendLine("  when the session moved to a different piece of work (new feature, new bug, new");
         sb.AppendLine("  goal) - returning to earlier work later IS a new chapter (same title is fine).");
         sb.AppendLine("  When in doubt: newChapter=false and KEEP the current title.");
+        sb.AppendLine("- MISSION COMPLETE: when the session's goal has been DELIVERED - the requested");
+        sb.AppendLine("  bug report/issue was filed and confirmed (URL in the reply), the question was");
+        sb.AppendLine("  answered, the artifact was produced - and the agent asks nothing that blocks,");
+        sb.AppendLine("  set suggestedAction={\"type\":\"close_session\",\"reason\":...}. Then needsYou");
+        sb.AppendLine("  reflects it: statement names what was delivered and says the real action is");
+        sb.AppendLine("  closing this session; urgency=fyi; railLine like 'done - close session?'.");
+        sb.AppendLine("- NEVER suggest close_session when requested work is unfinished, changes the user");
+        sb.AppendLine("  wanted committed are uncommitted, an approval or question is pending, or you");
+        sb.AppendLine("  are unsure. The user approves the close with one click - a wrong suggestion");
+        sb.AppendLine("  costs trust. When in doubt: suggestedAction=null.");
         sb.AppendLine();
         sb.AppendLine("=== SESSION CONTEXT ===");
         sb.AppendLine($"Current chapter title: {(string.IsNullOrWhiteSpace(p.CurrentHeadline) ? "(none yet - write the first one)" : p.CurrentHeadline)}");
@@ -217,6 +229,27 @@ public static class TurnBriefContract
                 }
 
                 brief.NeedsYou = n;
+            }
+
+            // Suggested action (v2.4, issue #201): ENUMERATED vocabulary, mechanically
+            // enforced - an unknown type or a missing reason drops the ACTION, never the
+            // brief (same philosophy as evidence receipts).
+            if (root.TryGetProperty("suggestedAction", out var sa) && sa.ValueKind == JsonValueKind.Object)
+            {
+                var actionType = Str(sa, "type");
+                var reason = Str(sa, "reason");
+                if (actionType == "close_session" && reason.Length > 0)
+                {
+                    brief.SuggestedAction = new TurnBriefSuggestedAction
+                    {
+                        Type = actionType,
+                        Reason = reason.Length > 100 ? reason[..100] : reason,
+                    };
+                }
+                else
+                {
+                    FileLog.Write($"[TurnBriefContract] validation: suggestedAction invalid (type='{actionType}', reason len={reason.Length}); dropping action");
+                }
             }
 
             return brief;

@@ -356,6 +356,14 @@ body{background:var(--panel);color:var(--text);
 .brief-evidence{margin-top:8px;border-left:3px solid var(--border);background:var(--panel);
   color:var(--text2);padding:10px 14px;border-radius:0 5px 5px 0;font-size:13px;white-space:pre-wrap}
 
+/* mission-complete close suggestion (issue #201): green = done, the close is an approval */
+.brief-mission-complete .blabel{color:#22C55E}
+.brief-mission-complete .brief-needsyou{border-left-color:#22C55E;background:#11251a;color:#cfe8d8}
+.brief-close-btn{border-color:#22C55E;color:#22C55E;font-weight:600}
+.brief-close-btn:hover{background:#11251a}
+.brief-close-btn.armed{background:#F14C4C;border-color:#F14C4C;color:#fff}
+.brief-close-btn.armed:hover{border-color:#F14C4C}
+
 /* wingman turn timeline (Session Story column) */
 .tl-label{font-size:10px;font-weight:700;letter-spacing:.12em;color:var(--text3);margin:4px 0 8px}
 .tl-item{border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:8px;background:var(--panel)}

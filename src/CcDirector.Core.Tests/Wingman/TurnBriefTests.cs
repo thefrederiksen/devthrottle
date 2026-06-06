@@ -227,4 +227,74 @@ public sealed class TurnBriefContractValidationTests
         Assert.Equal("", brief.NeedsYou?.Evidence); // receipts killed, visibly
     }
 
+    // ===== suggestedAction (v2.4, issue #201: mission-complete close suggestion) =====
+
+    [Fact]
+    public void BuildPrompt_ContainsSuggestedActionContract()
+    {
+        var prompt = TurnBriefContract.BuildPrompt(Package());
+        Assert.Contains("suggestedAction", prompt);          // v2.4 contract field
+        Assert.Contains("close_session", prompt);            // the enumerated type
+        Assert.Contains("MISSION COMPLETE", prompt);         // the when-rule
+        Assert.Contains("NEVER suggest close_session", prompt); // the guard rule
+    }
+
+    [Fact]
+    public void Validate_SuggestedActionClose_Parsed()
+    {
+        var json = """
+        { "intent": "x", "did": ["filed the bug"], "needsYou": null,
+          "suggestedAction": { "type": "close_session", "reason": "Bug filed as #198; nothing pending" } }
+        """;
+        var brief = TurnBriefContract.ParseAndValidate(json, Package(), "wingman:test");
+        Assert.NotNull(brief);
+        Assert.NotNull(brief.SuggestedAction);
+        Assert.Equal("close_session", brief.SuggestedAction!.Type);
+        Assert.Equal("Bug filed as #198; nothing pending", brief.SuggestedAction.Reason);
+    }
+
+    [Fact]
+    public void Validate_SuggestedActionUnknownType_DroppedButBriefKept()
+    {
+        var json = """
+        { "intent": "x", "did": [], "needsYou": null,
+          "suggestedAction": { "type": "delete_repo", "reason": "free text never survives" } }
+        """;
+        var brief = TurnBriefContract.ParseAndValidate(json, Package(), "wingman:test");
+        Assert.NotNull(brief);                 // the brief survives
+        Assert.Null(brief.SuggestedAction);    // the action does not
+    }
+
+    [Fact]
+    public void Validate_SuggestedActionMissingReason_Dropped()
+    {
+        var json = """
+        { "intent": "x", "did": [], "needsYou": null,
+          "suggestedAction": { "type": "close_session", "reason": "" } }
+        """;
+        var brief = TurnBriefContract.ParseAndValidate(json, Package(), "wingman:test");
+        Assert.NotNull(brief);
+        Assert.Null(brief.SuggestedAction);
+    }
+
+    [Fact]
+    public void Validate_SuggestedActionOmitted_Null()
+    {
+        var brief = TurnBriefContract.ParseAndValidate(
+            """{ "intent": "x", "did": [], "needsYou": null }""", Package(), "wingman:test");
+        Assert.NotNull(brief);
+        Assert.Null(brief.SuggestedAction);
+    }
+
+    [Fact]
+    public void Validate_SuggestedActionOverlongReason_Capped()
+    {
+        var json = $$"""
+        { "intent": "x", "did": [], "needsYou": null,
+          "suggestedAction": { "type": "close_session", "reason": "{{new string('r', 200)}}" } }
+        """;
+        var brief = TurnBriefContract.ParseAndValidate(json, Package(), "wingman:test");
+        Assert.NotNull(brief);
+        Assert.Equal(100, brief.SuggestedAction!.Reason.Length);
+    }
 }
