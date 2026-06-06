@@ -70,6 +70,8 @@ public sealed class ToolUpdater
     /// older machine off its per-tool exes - PythonToolsInstaller removes those stale exes) and when
     /// the release's bundle version is newer than what is installed. Windows-only; returns null when
     /// there is nothing to do (no bundle in the release, not Windows, or already current).
+    /// The extras tier needs no separate check here: tiers version in lockstep (one bundleVersion),
+    /// and InstallAsync restores an installed extras tier after every venv rebuild (issue #174).
     /// </summary>
     public async Task<PythonToolsResult?> RefreshPythonToolsAsync(ResolvedRelease release, ReleaseSource source, CancellationToken ct = default)
     {

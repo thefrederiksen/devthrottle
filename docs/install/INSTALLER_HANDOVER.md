@@ -33,9 +33,13 @@ One installer experience on **two thin GUIs over one shared engine**:
 ### Release assets (per tag, built by `.github/workflows/release.yml`)
 Windows: `cc-director-win-x64.exe`, `cc-director-gateway-win-x64.exe`, `cc-director-cockpit-win-x64.zip`,
 `cc-director-setup-win-x64.exe`, `cc-director-setup-cli-win-x64.exe`, `cc-python-win-x64.zip`,
-`cc-tools-pyenv-win-x64.zip`.
+`cc-tools-pyenv-win-x64.zip`, `cc-tools-pyenv-extras-win-x64.zip`.
 macOS: `cc-director-mac-arm64.zip`, `cc-director-setup-mac-arm64.zip`, `cc-python-macos-arm64.tar.gz`,
-`cc-tools-pyenv-macos-arm64.tar.gz`. Plus `release-manifest.json` (SHA-256 of every asset).
+`cc-tools-pyenv-macos-arm64.tar.gz`, `cc-tools-pyenv-extras-macos-arm64.tar.gz`.
+Plus `release-manifest.json` (SHA-256 of every asset).
+The `-extras-` assets are the ON-DEMAND tier (cc-crawl4ai + cc-docgen, issue #174): not installed by
+default, added to the same shared venv via `cc-director-setup-cli install-extras`, and automatically
+restored after every core bundle rebuild if previously installed.
 
 ---
 

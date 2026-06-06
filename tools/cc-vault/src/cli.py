@@ -1877,7 +1877,7 @@ def contacts_search(
 
             # If name is also provided, further filter by fuzzy name match
             if name and results:
-                from thefuzz import fuzz
+                from rapidfuzz import fuzz
                 scored = []
                 for c in results:
                     score = fuzz.token_set_ratio(name.lower(), (c.get('name') or '').lower())

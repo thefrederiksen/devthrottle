@@ -127,6 +127,7 @@
       "type": "python",
       "description": "AI-ready web crawler to clean markdown for LLM/RAG",
       "built": true,
+      "tier": "extras",
       "requirements": ["Playwright browsers"]
     },
     {
@@ -255,6 +256,7 @@
       "type": "python",
       "description": "C4 architecture diagram generator from YAML manifests",
       "built": true,
+      "tier": "extras",
       "requirements": ["Graphviz"]
     },
     {

@@ -32,7 +32,7 @@ CC Director includes 33 command-line tools for document conversion, media proces
 | cc-facebook | Facebook Page CLI: post, comment, reply, list via Graph API | Facebook App + Page Access Token |
 | cc-youtube | YouTube CLI: upload, comment, reply, list via Data API v3 | Google OAuth (YouTube Data API) |
 | cc-spotify | Spotify playback control via browser | cc-browser |
-| cc-crawl4ai | AI-ready web crawler to clean markdown | Playwright browsers |
+| cc-crawl4ai | AI-ready web crawler to clean markdown | Playwright browsers; extras tier (`cc-director-setup-cli install-extras`) |
 | cc-websiteaudit | Website SEO/security/AI readiness audit | Node.js, Chrome (not yet built) |
 | cc-brandingrecommendations | Branding action plans from audit data | Node.js |
 
@@ -64,7 +64,7 @@ CC Director includes 33 command-line tools for document conversion, media proces
 | cc-hardware | System hardware info (RAM, CPU, GPU, disk) | None |
 | cc-comm-queue | Communication Manager approval queue | None |
 | cc-settings | CC Director configuration management | None |
-| cc-docgen | C4 architecture diagrams from YAML | Graphviz (not yet built) |
+| cc-docgen | C4 architecture diagrams from YAML | Graphviz; extras tier (`cc-director-setup-cli install-extras`) |
 | cc-director-setup | Windows installer for CC Director | None |
 | cc-personresearch | Person research aggregation | (not yet built) |
 | cc-posthog | PostHog analytics: page views, funnels, events, recordings | PostHog account + API key |
@@ -304,6 +304,9 @@ cc-spotify recommend --mood "chill"
 
 AI-ready web crawler that converts pages to clean markdown.
 
+**Extras tier:** not part of the default install (its dependency tree is very heavy).
+Install on demand with `cc-director-setup-cli install-extras`.
+
 ```bash
 cc-crawl4ai crawl "https://example.com" -o page.md
 cc-crawl4ai crawl <url> --fit --stealth
@@ -504,7 +507,8 @@ cc-comm-queue status
 
 Generate C4 architecture diagrams from YAML manifest files.
 
-**Status:** Source exists but not yet built.
+**Extras tier:** not part of the default install (the bundled diagrams icon library is large).
+Install on demand with `cc-director-setup-cli install-extras`. Requires Graphviz.
 
 ```bash
 cc-docgen generate --manifest ./docs/architecture.yaml

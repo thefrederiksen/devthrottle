@@ -4,12 +4,19 @@
     ~26 individual PyInstaller tool exes.
 
 .DESCRIPTION
-    Produces two release assets under -OutputDir:
+    Produces three release assets under -OutputDir:
 
-      cc-python-win-x64.zip        - a relocatable python-build-standalone CPython (the runtime
-                                     the installer creates the shared venv from).
-      cc-tools-pyenv-win-x64.zip   - wheelhouse/ (de-duped dependency wheels + every tool wheel),
-                                     requirements.lock, and tools-manifest.json.
+      cc-python-win-x64.zip              - a relocatable python-build-standalone CPython (the runtime
+                                           the installer creates the shared venv from).
+      cc-tools-pyenv-win-x64.zip         - CORE tier: wheelhouse/ (de-duped dependency wheels + core
+                                           tool wheels), requirements.lock, and tools-manifest.json.
+      cc-tools-pyenv-extras-win-x64.zip  - EXTRAS tier (registry tools tagged "tier": "extras", e.g.
+                                           cc-crawl4ai + cc-docgen, issue #174): wheelhouse/ with the
+                                           wheels ONLY those tools need + tools-manifest.json. Installed
+                                           on demand into the same shared venv.
+
+    Both tiers resolve from ONE combined lock so versions never conflict; the split into two
+    wheelhouses is done by scripts/split-python-wheelhouse.py over the wheels' own metadata.
 
     The installer (PythonToolsInstaller) extracts the python, runs `python -m venv`, then
     `pip install --no-index --find-links wheelhouse -r requirements.lock <tools>` fully offline,
@@ -67,7 +74,13 @@ Step "reading tools/registry.json"
 $registry = Get-Content (Join-Path $repoRoot "tools/registry.json") -Raw | ConvertFrom-Json
 $pyTools = @($registry.tools | Where-Object { $_.type -eq "python" -and $_.built -eq $true -and $_.name -ne "cc-director-setup" })
 if ($pyTools.Count -eq 0) { Fail "no built python tools found in registry" }
-Step "selected $($pyTools.Count) built python tools"
+# The "tier" field splits the bundle: core tools install for everyone; extras (heavy,
+# rarely used - cc-crawl4ai, cc-docgen) ship as a separate on-demand asset (issue #174).
+$coreTools = @($pyTools | Where-Object { $_.PSObject.Properties.Name -notcontains "tier" -or $_.tier -ne "extras" })
+$extrasTools = @($pyTools | Where-Object { $_.PSObject.Properties.Name -contains "tier" -and $_.tier -eq "extras" })
+if ($coreTools.Count -eq 0) { Fail "no core-tier python tools found in registry" }
+if ($extrasTools.Count -eq 0) { Fail "no extras-tier python tools in registry - if the extras tier is gone, remove the split from this script" }
+Step "selected $($pyTools.Count) built python tools ($($coreTools.Count) core + $($extrasTools.Count) extras: $(($extrasTools | ForEach-Object { $_.name }) -join ', '))"
 
 function ToolDir($t) {
     $dir = if ($t.PSObject.Properties.Name -contains "source_dir" -and $t.source_dir) { $t.source_dir } else { $t.name }
@@ -167,32 +180,54 @@ $exactVer = (@($r.Output) | ForEach-Object { $_.Trim() } | Where-Object { $_ -ma
 Step "bundling CPython $exactVer from $pyRoot"
 Copy-Item -Recurse -Force $pyRoot $pyStage
 
-# ---- 6. Write the tools manifest -------------------------------------------------------
-Step "writing tools-manifest.json"
+# ---- 6. Write the per-tier tools manifests, then split the wheelhouse ------------------
+Step "writing tools-manifest.json (core + extras)"
 # Product version lives in Directory.Build.props (single source, see docs/architecture/VERSIONING.md)
 $bundleVersion = (Get-Content (Join-Path $repoRoot "Directory.Build.props") -Raw | Select-String "<Version>(.*?)</Version>").Matches[0].Groups[1].Value
-$toolEntries = foreach ($t in $pyTools) {
-    $pp = Get-Content (Join-Path (ToolDir $t) "pyproject.toml") -Raw
-    $scriptsBlock = ""
-    if ($pp -match "(?s)\[project\.scripts\](.*?)(\r?\n\[|\z)") { $scriptsBlock = $Matches[1] }
-    $scripts = [regex]::Matches($scriptsBlock, '(?m)^\s*([\w-]+)\s*=') | ForEach-Object { $_.Groups[1].Value }
-    # cc-vault's document converters are under its [full] extra; install with that extra selected.
-    $dist = if ($t.name -eq "cc-vault") { "cc-vault[full]" } else { $t.name }
-    [pscustomobject]@{ id = $t.name; dist = $dist; scripts = @($scripts) }
+function ToolEntries($tools) {
+    foreach ($t in $tools) {
+        $pp = Get-Content (Join-Path (ToolDir $t) "pyproject.toml") -Raw
+        $scriptsBlock = ""
+        if ($pp -match "(?s)\[project\.scripts\](.*?)(\r?\n\[|\z)") { $scriptsBlock = $Matches[1] }
+        $scripts = [regex]::Matches($scriptsBlock, '(?m)^\s*([\w-]+)\s*=') | ForEach-Object { $_.Groups[1].Value }
+        # cc-vault's document converters are under its [full] extra; install with that extra selected.
+        $dist = if ($t.name -eq "cc-vault") { "cc-vault[full]" } else { $t.name }
+        [pscustomobject]@{ id = $t.name; dist = $dist; scripts = @($scripts) }
+    }
 }
-$manifest = [pscustomobject]@{ bundleVersion = $bundleVersion; pythonVersion = $exactVer; tools = @($toolEntries) }
-$manifest | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $work "tools-manifest.json") -Encoding utf8
+$extrasDir = Join-Path $work "extras"
+$extrasWheelhouse = Join-Path $extrasDir "wheelhouse"
+New-Item -ItemType Directory -Force -Path $extrasWheelhouse | Out-Null
+$coreManifestPath = Join-Path $work "tools-manifest.json"
+$extrasManifestPath = Join-Path $extrasDir "tools-manifest.json"
+[pscustomobject]@{ bundleVersion = $bundleVersion; pythonVersion = $exactVer; tools = @(ToolEntries $coreTools) } |
+    ConvertTo-Json -Depth 6 | Set-Content $coreManifestPath -Encoding utf8
+[pscustomobject]@{ bundleVersion = $bundleVersion; pythonVersion = $exactVer; tier = "extras"; tools = @(ToolEntries $extrasTools) } |
+    ConvertTo-Json -Depth 6 | Set-Content $extrasManifestPath -Encoding utf8
 
-# ---- 7. Zip the two assets -------------------------------------------------------------
+Step "splitting the wheelhouse into core + extras tiers"
+$r = Invoke-Native python @((Join-Path $repoRoot "scripts/split-python-wheelhouse.py"),
+    "--wheelhouse", $wheelhouse, "--extras-wheelhouse", $extrasWheelhouse,
+    "--core-manifest", $coreManifestPath, "--extras-manifest", $extrasManifestPath,
+    "--platform", "windows", "--python-version", $exactVer)
+if ($r.Code -ne 0) { Fail "wheelhouse split failed`n$($r.Output -join "`n")" }
+
+# ---- 7. Zip the three assets ------------------------------------------------------------
 Step "packaging assets into $OutputDir"
 $pyZip = Join-Path $OutputDir "cc-python-win-x64.zip"
 $toolsZip = Join-Path $OutputDir "cc-tools-pyenv-win-x64.zip"
-Remove-Item -Force $pyZip, $toolsZip -ErrorAction SilentlyContinue
+$extrasZip = Join-Path $OutputDir "cc-tools-pyenv-extras-win-x64.zip"
+Remove-Item -Force $pyZip, $toolsZip, $extrasZip -ErrorAction SilentlyContinue
 Compress-Archive -Path (Join-Path $pyStage "*") -DestinationPath $pyZip -CompressionLevel Optimal
-Compress-Archive -Path $wheelhouse, $lock, (Join-Path $work "tools-manifest.json") -DestinationPath $toolsZip -CompressionLevel Optimal
+Compress-Archive -Path $wheelhouse, $lock, $coreManifestPath -DestinationPath $toolsZip -CompressionLevel Optimal
+# Same zip layout as the core asset (wheelhouse/ + tools-manifest.json) so the installer's
+# extract + manifest-load path is identical for both tiers.
+Compress-Archive -Path $extrasWheelhouse, $extrasManifestPath -DestinationPath $extrasZip -CompressionLevel Optimal
 
 $pyMB = [math]::Round((Get-Item $pyZip).Length / 1MB, 1)
 $toolsMB = [math]::Round((Get-Item $toolsZip).Length / 1MB, 1)
+$extrasMB = [math]::Round((Get-Item $extrasZip).Length / 1MB, 1)
 $wheelCount = (Get-ChildItem $wheelhouse -Filter *.whl).Count
-Step "DONE. python=$pyMB MB, tools-pyenv=$toolsMB MB ($wheelCount wheels), total=$([math]::Round($pyMB + $toolsMB,1)) MB"
-Step "assets: $pyZip ; $toolsZip"
+$extrasWheelCount = (Get-ChildItem $extrasWheelhouse -Filter *.whl).Count
+Step "DONE. python=$pyMB MB, tools-pyenv=$toolsMB MB ($wheelCount wheels), extras=$extrasMB MB ($extrasWheelCount wheels)"
+Step "assets: $pyZip ; $toolsZip ; $extrasZip"
