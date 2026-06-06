@@ -277,7 +277,7 @@ public sealed class GatewayHost : IAsyncDisposable
             briefStampFor: _briefAgent is { } stampAgent
                 ? sid => (stampAgent.BriefingStateFor(sid), _turnBriefStore.Latest(sid)?.NeedsYou?.RailLine)
                 : null,
-            // Issue #212 W3: enrich the interrupted bucket from the durable brief store. Always
+            // Issue #212 W3: enrich the Interrupted sessions list from the durable brief store. Always
             // available (read-only is safe even with briefing disabled), and the brief survives
             // the Director that died - which is exactly when we need it.
             interruptedBriefFor: sid =>

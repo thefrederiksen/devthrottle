@@ -2397,7 +2397,7 @@ internal static class ControlEndpoints
         // ===== Crash recovery (issue #212 W3) =====
         // This machine's claimed dirty crash journals - Directors that died abnormally here,
         // with their recoverable session rosters. The Gateway aggregates these across the fleet
-        // for the Cockpit's "Interrupted sessions" bucket.
+        // for the Cockpit's Interrupted sessions list.
         app.MapGet("/interrupted", () =>
         {
             var pending = Core.Sessions.DirectorCrashJournal.ListPendingRecoveries();

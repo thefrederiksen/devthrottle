@@ -174,7 +174,7 @@ public sealed class DirectorCrashJournal
 
     /// <summary>
     /// All claimed-but-not-yet-recovered dirty journals, newest session-activity first. The
-    /// read API for the recovery surface (Cockpit interrupted bucket / restore skill).
+    /// read API for the recovery surface (Cockpit Interrupted sessions list / restore skill).
     /// </summary>
     public static IReadOnlyList<DirectorCrashJournalData> ListPendingRecoveries(string? directory = null)
     {

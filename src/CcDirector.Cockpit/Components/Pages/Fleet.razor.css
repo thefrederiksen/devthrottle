@@ -151,7 +151,7 @@
 }
 .fl-open:hover { background: #1177bb; }
 
-/* ---- Interrupted sessions bucket (issue #212 W3) ---- */
+/* ---- Interrupted sessions (issue #212 W3) ---- */
 
 .fl-interrupted { color: #f59e0b; }
 

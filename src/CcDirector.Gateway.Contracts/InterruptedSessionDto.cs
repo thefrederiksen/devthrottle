@@ -30,10 +30,10 @@ public sealed class CrashJournalDto
 }
 
 /// <summary>
-/// One interrupted session, flattened and Gateway-enriched for the Cockpit's "Interrupted
-/// sessions" bucket (issue #212 W3). Combines the dead Director's crash-journal row with the
-/// Gateway's own last-known brief (rail line + headline) so the bucket is triageable without
-/// opening anything.
+/// One interrupted session, flattened and Gateway-enriched for the Cockpit's Interrupted
+/// sessions list (issue #212 W3). Combines the dead Director's crash-journal row with the
+/// Gateway's own last-known brief (rail line + headline) so the Interrupted sessions list is
+/// triageable without opening anything.
 /// </summary>
 public sealed class InterruptedSessionDto
 {

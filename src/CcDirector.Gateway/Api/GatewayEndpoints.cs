@@ -25,7 +25,7 @@ internal static class GatewayEndpoints
     /// rail line per session, stamped onto the aggregation now that the Director-side
     /// pipeline (the previous writer of those SessionDto fields) is deleted.</param>
     /// <param name="interruptedBriefFor">Issue #212 W3: the Gateway's last-known rail line +
-    /// headline for a session id, used to enrich the "Interrupted sessions" bucket so a dead
+    /// headline for a session id, used to enrich the Interrupted sessions list so a dead
     /// session is triageable. Reads the durable brief store, so it works even for a session
     /// whose Director has died.</param>
     public static void Map(IEndpointRouteBuilder app, DirectorRegistry registry, DirectorEndpointClient client, string version, string token, bool authEnabled = false, Func<bool>? requestShutdown = null,
@@ -348,7 +348,7 @@ internal static class GatewayEndpoints
         // Interrupted sessions (issue #212 W3): fan out to every Director for the crash
         // journals left on its machine by Directors that died abnormally, flatten to one row
         // per recoverable session, and enrich each with the Gateway's last-known brief so the
-        // Cockpit bucket is triageable. Directors on one machine share the journal dir, so the
+        // Cockpit Interrupted sessions list is triageable. Directors on one machine share the journal dir, so the
         // same dead journal can be reported by several live Directors - dedupe by directorId+pid.
         app.MapGet("/interrupted", async () =>
         {

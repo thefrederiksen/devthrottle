@@ -51,7 +51,7 @@ public sealed class GatewayClient
     }
 
     /// <summary>
-    /// Dismiss one interrupted session from the bucket (issue #212 W3). Routed by the Gateway
+    /// Dismiss one interrupted session from the Interrupted sessions list (issue #212 W3). Routed by the Gateway
     /// to the live Director that surfaced it (<paramref name="reportedByDirectorId"/>).
     /// </summary>
     public async Task DismissInterruptedAsync(string deadDirectorId, int deadPid, string reportedByDirectorId, CancellationToken ct = default)
