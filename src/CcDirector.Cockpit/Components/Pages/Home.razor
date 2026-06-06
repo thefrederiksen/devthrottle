@@ -87,7 +87,7 @@
                 @foreach (var d in _directors.OrderBy(d => d.MachineName, StringComparer.OrdinalIgnoreCase).ThenBy(d => d.StartedAt))
                 {
                     var err = _errors.FirstOrDefault(e => string.Equals(e.DirectorId, d.DirectorId, StringComparison.OrdinalIgnoreCase));
-                    <tr class="rowlink" @key="d.DirectorId" @onclick="() => OpenDirector(d)" title="Show this Director's sessions">
+                    <tr class="rowlink" @key="d.DirectorId" @onclick="() => OpenDirector(d)" title="Director details">
                         <td><span class="cell-name">@d.MachineName</span></td>
                         <td class="mono" title="@d.DirectorId">@ShortId(d.DirectorId)</td>
                         <td class="mono">@d.Version</td>
@@ -167,7 +167,7 @@
     }
 
     private void OpenSession(SessionDto s) => Nav.NavigateTo($"/cockpit/{s.SessionId}");
-    private void OpenDirector(DirectorDto d) => Nav.NavigateTo($"/sessions?director={Uri.EscapeDataString(d.DirectorId)}");
+    private void OpenDirector(DirectorDto d) => Nav.NavigateTo($"/directors/{Uri.EscapeDataString(d.DirectorId)}");
 
     private static string TitleOf(SessionDto s) =>
         string.IsNullOrWhiteSpace(s.Name) ? RepoBasename(s.RepoPath) : s.Name!;

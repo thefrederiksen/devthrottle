@@ -71,13 +71,14 @@
                     <th>State</th>
                     <th>Last activity</th>
                     <th>Created</th>
+                    <th></th>
                 </tr>
             </thead>
             <tbody>
                 @foreach (var s in PageItems)
                 {
                     <tr class="rowlink" @key="s.SessionId" @onclick="() => Open(s)"
-                        title="Open in the Cockpit">
+                        title="Session details">
                         <td>
                             @* Effective color + IsBriefing (issue #196): dot and "wingman
                                reading..." line key off the same shared rule, never contradict. *@
@@ -102,6 +103,8 @@
                         <td class="dim">@HumanizeState(s.AssessedState ?? s.ActivityState)</td>
                         <td class="dim" title="@s.LastActivityAt">@RelativeTime(s.LastActivityAt)</td>
                         <td class="dim" title="@s.CreatedAt">@RelativeTime(s.CreatedAt)</td>
+                        <td><a class="det-link" href="/cockpit/@s.SessionId" @onclick:stopPropagation="true"
+                               title="Open in the Cockpit">drive &rarr;</a></td>
                     </tr>
                 }
             </tbody>
@@ -216,7 +219,8 @@
         _search = ""; _colorFilter = ""; _directorFilter = ""; _page = 1;
     }
 
-    private void Open(SessionDto s) => Nav.NavigateTo($"/cockpit/{s.SessionId}");
+    // Row click = the detail page; the per-row "drive" link goes straight to the Cockpit.
+    private void Open(SessionDto s) => Nav.NavigateTo($"/sessions/{s.SessionId}");
 
     // ---- display helpers (same vocabulary as the Cockpit/Fleet) ----
 

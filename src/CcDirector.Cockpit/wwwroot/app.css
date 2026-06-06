@@ -126,6 +126,52 @@ body{background:var(--panel);color:var(--text);
   border-radius:6px;padding:10px 14px}
 .dash-foot{color:var(--muted);font-size:11px;font-family:"Cascadia Mono",Consolas,monospace;margin-top:8px}
 
+/* ===== detail pages (/sessions/{sid}, /directors/{id}) ===== */
+.det-head{align-items:center}
+.det-dot{width:11px;height:11px;margin-right:0}
+.det-actions{display:flex;gap:8px;align-items:center}
+.det-open{background:var(--accent);color:#fff;text-decoration:none;font-size:12px;font-weight:600;
+  border-radius:6px;padding:6px 14px}
+.det-open:hover{filter:brightness(1.1)}
+.det-link{color:var(--accent);text-decoration:none;font-size:inherit}
+.det-link:hover{text-decoration:underline}
+.det-briefing-chip{display:inline-block;background:#F59E0B;color:#241a02;font-size:11px;font-weight:700;
+  border-radius:4px;padding:3px 10px;margin-bottom:12px;letter-spacing:.04em}
+.det-chip{font-size:9px;font-weight:700;letter-spacing:.06em;color:var(--text3);
+  border:1px solid var(--border);border-radius:3px;padding:1px 6px;text-transform:uppercase}
+.det-chip.chapter{color:#22C55E;border-color:#22C55E}
+.det-chip.ok{color:var(--green);border-color:var(--green)}
+.det-chip.warn{color:var(--amber);border-color:var(--amber)}
+.det-cols{display:flex;gap:28px;align-items:flex-start}
+.det-main{flex:1;min-width:0}
+.det-side{flex:none;width:340px;min-width:0}
+@media (max-width:1000px){ .det-cols{flex-direction:column} .det-side{width:100%} }
+.det-sec-meta{margin-left:auto;color:var(--text3);font-size:11px}
+.det-kv{grid-template-columns:110px 1fr;margin:0}
+.det-kv dd{font-size:12px;word-break:break-all}
+.det-headline{font-family:Georgia,"Times New Roman",serif;font-size:17px;font-weight:700;
+  color:var(--text);line-height:1.3;margin-bottom:6px}
+.det-intent{color:var(--text2);font-size:12.5px;margin-bottom:8px}
+.det-did{margin:0 0 10px;padding-left:20px;color:var(--text);font-size:12.5px}
+.det-did li{margin-bottom:3px}
+.det-needs{border-left:3px solid var(--red);background:#2a1d1f;color:#f1d8d8;
+  padding:10px 14px;border-radius:0 6px 6px 0}
+.det-needs-statement{font-size:13.5px;white-space:pre-wrap}
+.det-evidence{margin:8px 0 0;padding:8px 10px;background:#15161a;border:1px solid var(--border);
+  border-radius:5px;color:#9a9ea8;font-family:"Cascadia Mono",Consolas,monospace;font-size:11px;
+  line-height:1.5;white-space:pre-wrap;word-break:break-word;max-height:140px;overflow-y:auto}
+.det-turns{display:flex;flex-direction:column;gap:6px}
+.det-turn{border:1px solid var(--border);border-radius:6px;background:var(--sidebar);padding:8px 11px}
+.det-turn.degraded{opacity:.65}
+.det-turn-head{display:flex;align-items:baseline;gap:8px;margin-bottom:3px}
+.det-turn-no{font-family:"Cascadia Mono",Consolas,monospace;font-size:10px;color:var(--text3)}
+.det-turn-time{margin-left:auto;font-size:10px;color:var(--muted)}
+.det-turn-title{font-size:12.5px;color:var(--text);line-height:1.4}
+.det-turn-rail{font-size:11px;color:#F14C4C;font-weight:600;margin-top:3px}
+.det-screen{margin:0;padding:10px 12px;background:#15161a;border:1px solid var(--border);
+  border-radius:6px;color:var(--text2);font-family:"Cascadia Mono",Consolas,monospace;font-size:11px;
+  line-height:1.45;white-space:pre-wrap;word-break:break-word;max-height:320px;overflow-y:auto}
+
 /* Flex column (not a fixed-row grid): the body must fill whether or not the optional
    error banner is present. A 3-row grid put the body in an `auto` row when the banner
    was absent, so it only grew to its content height and left the bottom half empty. */

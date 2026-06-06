@@ -28,11 +28,13 @@ namespace CcDirector.Gateway.Cockpit;
 public static class CockpitProxy
 {
     /// <summary>
-    /// The paths that are both a Gateway API endpoint (JSON) and a Cockpit page (HTML).
-    /// Exact matches only: subpaths either belong to the API (/sessions/{sid}) or fall
-    /// through to the Cockpit naturally (/cockpit/{sid} - no endpoint claims it).
+    /// The path roots that are both a Gateway API surface (JSON) and a Cockpit page (HTML):
+    /// the list page (/sessions) and its detail page (/sessions/{sid}) - one id segment,
+    /// never deeper. Three-segment paths (/sessions/{sid}/turnbriefs, /directors/{id}/repos)
+    /// stay API-only; /cockpit/{sid} would fall through to the Cockpit anyway, but matching
+    /// it here keeps the policy one rule instead of two.
     /// </summary>
-    private static readonly string[] BrowserPagePaths = { "/cockpit", "/sessions", "/directors" };
+    private static readonly string[] BrowserPageRoots = { "cockpit", "sessions", "directors" };
 
     /// <summary>
     /// Decide whether this request is a PERSON navigating to a dual-use path (HTML page)
@@ -43,9 +45,9 @@ public static class CockpitProxy
         if (!HttpMethods.IsGet(method)) return false;
         if (acceptHeader is null || !acceptHeader.Contains("text/html", StringComparison.OrdinalIgnoreCase))
             return false;
-        var p = path.Value ?? "";
-        if (p.Length > 1 && p.EndsWith('/')) p = p[..^1];
-        return BrowserPagePaths.Any(b => string.Equals(b, p, StringComparison.OrdinalIgnoreCase));
+        var segments = (path.Value ?? "").Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length is 0 or > 2) return false;
+        return BrowserPageRoots.Any(r => string.Equals(r, segments[0], StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>

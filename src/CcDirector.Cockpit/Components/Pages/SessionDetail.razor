@@ -1,0 +1,395 @@
+@page "/sessions/{Sid}"
+@inject GatewayClient Gateway
+@inject DirectorClient Director
+@inject NavigationManager Nav
+@inject ILogger<SessionDetail> Log
+@implements IDisposable
+
+@* Standalone session page: everything known about ONE session - facts, latest brief,
+   turn-brief history, git, token usage, and the live screen tail - read-mostly. Driving
+   the session (composer, terminal, queue) stays in the Cockpit; the big button goes there. *@
+
+<PageTitle>CC Director - Session</PageTitle>
+
+<div class="page">
+    @if (_lastError is not null)
+    {
+        <div class="page-banner-error">Gateway error: @_lastError</div>
+    }
+
+    @if (_notFound)
+    {
+        <header class="page-head"><h1>Session</h1></header>
+        <div class="tbl-empty">
+            No Director owns session <span class="mono">@Sid</span> - it has been closed, or its
+            Director is unreachable right now. <a class="det-link" href="/sessions">Back to all sessions</a>
+        </div>
+    }
+    else if (_session is null)
+    {
+        <header class="page-head"><h1>Session</h1><span class="page-sub">loading...</span></header>
+    }
+    else
+    {
+        var s = _session;
+        <header class="page-head det-head">
+            <span class="cell-dot det-dot" style="background:@DotColor(SessionOrdering.EffectiveColor(s))"
+                  title="@s.LastStatusReason"></span>
+            <h1>@TitleOf(s)</h1>
+            @if (s.OnHold)
+            {
+                <span class="tag tag-hold">HOLD</span>
+            }
+            <span class="page-sub">@HumanizeState(s.AssessedState ?? s.ActivityState) &middot; @s.MachineName</span>
+            <span class="det-actions">
+                <a class="det-open" href="/cockpit/@s.SessionId">Open in Cockpit &rarr;</a>
+            </span>
+            <span class="page-refreshed">@(_lastRefresh is null ? "" : $"updated {_lastRefresh:HH:mm:ss}")</span>
+        </header>
+
+        @if (SessionOrdering.IsBriefing(s))
+        {
+            <div class="det-briefing-chip">wingman is reading the last turn...</div>
+        }
+
+        <div class="det-cols">
+            <div class="det-main">
+                @* ---- latest brief ---- *@
+                <section class="dash-sec">
+                    <div class="dash-sec-head @(LatestNeeds is not null ? "needs" : "")">
+                        <h2>@(LatestNeeds is not null ? "Needs you" : "Latest brief")</h2>
+                        @if (_latestBrief is not null)
+                        {
+                            <span class="det-sec-meta">turn @_latestBrief.TurnNumber &middot; @RelativeTime(_latestBrief.GeneratedAtUtc)@(_latestBrief.Degraded ? " - degraded" : "")</span>
+                        }
+                    </div>
+                    @if (_latestBrief is null)
+                    {
+                        <div class="dash-quiet">No turn brief stored for this session yet.</div>
+                    }
+                    else
+                    {
+                        @if (!string.IsNullOrWhiteSpace(_latestBrief.Headline))
+                        {
+                            <div class="det-headline">@_latestBrief.Headline</div>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(_latestBrief.Intent))
+                        {
+                            <div class="det-intent">@_latestBrief.Intent</div>
+                        }
+                        @if (_latestBrief.Did.Count > 0)
+                        {
+                            <ul class="det-did">
+                                @foreach (var d in _latestBrief.Did)
+                                {
+                                    <li>@d</li>
+                                }
+                            </ul>
+                        }
+                        @if (LatestNeeds is not null)
+                        {
+                            <div class="det-needs">
+                                <div class="det-needs-statement">@LatestNeeds.Statement</div>
+                                @if (!string.IsNullOrWhiteSpace(LatestNeeds.Evidence))
+                                {
+                                    <pre class="det-evidence">@LatestNeeds.Evidence</pre>
+                                }
+                            </div>
+                        }
+                    }
+                </section>
+
+                @* ---- turn history ---- *@
+                <section class="dash-sec">
+                    <div class="dash-sec-head">
+                        <h2>Turn history</h2>
+                        <span class="det-sec-meta">@_briefs.Count brief@(_briefs.Count == 1 ? "" : "s") stored</span>
+                    </div>
+                    @if (_briefs.Count == 0)
+                    {
+                        <div class="dash-quiet">No briefs yet - history appears as the wingman reads completed turns.</div>
+                    }
+                    else
+                    {
+                        <div class="det-turns">
+                            @foreach (var b in _briefs.Take(_turnsShown))
+                            {
+                                <div class="det-turn @(b.Degraded ? "degraded" : "")" @key="b.TurnNumber">
+                                    <div class="det-turn-head">
+                                        <span class="det-turn-no">turn @b.TurnNumber</span>
+                                        @if (b.NewChapter)
+                                        {
+                                            <span class="det-chip chapter">NEW CHAPTER</span>
+                                        }
+                                        @if (b.Degraded)
+                                        {
+                                            <span class="det-chip">@(b.DegradeTier ?? "degraded")</span>
+                                        }
+                                        <span class="det-turn-time" title="@b.GeneratedAtUtc">@RelativeTime(b.GeneratedAtUtc)</span>
+                                    </div>
+                                    <div class="det-turn-title">@(string.IsNullOrWhiteSpace(b.TurnTitle) ? (b.Did.FirstOrDefault() ?? b.Intent) : b.TurnTitle)</div>
+                                    @if (b.NeedsYou is not null && !string.IsNullOrWhiteSpace(b.NeedsYou.RailLine))
+                                    {
+                                        <div class="det-turn-rail">@b.NeedsYou.RailLine</div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                        @if (_briefs.Count > _turnsShown)
+                        {
+                            <button class="gallery-more" @onclick="() => _turnsShown += 20">Show @Math.Min(20, _briefs.Count - _turnsShown) more</button>
+                        }
+                    }
+                </section>
+
+                @* ---- screen tail ---- *@
+                <section class="dash-sec">
+                    <div class="dash-sec-head">
+                        <h2>On screen now</h2>
+                        <a href="/cockpit/@s.SessionId">Open the terminal &rarr;</a>
+                    </div>
+                    @if (string.IsNullOrWhiteSpace(s.TailnetEndpoint))
+                    {
+                        <div class="dash-quiet">This session's Director has no tailnet endpoint, so the screen can't be read from here.</div>
+                    }
+                    else if (_screenTail is null)
+                    {
+                        <div class="dash-quiet">Reading the screen...</div>
+                    }
+                    else
+                    {
+                        <pre class="det-screen">@_screenTail</pre>
+                    }
+                </section>
+            </div>
+
+            <div class="det-side">
+                @* ---- facts ---- *@
+                <section class="dash-sec">
+                    <div class="dash-sec-head"><h2>Facts</h2></div>
+                    <dl class="kv det-kv">
+                        <dt>Session id</dt><dd class="mono">@s.SessionId</dd>
+                        <dt>Agent</dt><dd>@s.Agent</dd>
+                        <dt>Repo</dt><dd class="mono" title="@s.RepoPath">@s.RepoPath</dd>
+                        <dt>Director</dt><dd><a class="det-link" href="/directors/@s.DirectorId">@s.MachineName / @ShortId(s.DirectorId)</a></dd>
+                        <dt>Backend</dt><dd>@s.BackendType</dd>
+                        <dt>Created</dt><dd title="@s.CreatedAt">@RelativeTime(s.CreatedAt)</dd>
+                        <dt>Last activity</dt><dd title="@s.LastActivityAt">@RelativeTime(s.LastActivityAt)</dd>
+                        <dt>Lifecycle</dt><dd>@s.Status</dd>
+                        <dt>Wingman</dt><dd>@(s.WingmanEnabled ? "enabled" : "off")</dd>
+                        <dt>Voice mode</dt><dd>@(s.VoiceMode ? "on" : "off")</dd>
+                        @if (s.DriverCapabilities.Count > 0)
+                        {
+                            <dt>Driver verbs</dt><dd>@string.Join(", ", s.DriverCapabilities)</dd>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(s.TailnetEndpoint))
+                        {
+                            <dt>Endpoint</dt><dd class="mono">@s.TailnetEndpoint</dd>
+                        }
+                    </dl>
+                </section>
+
+                @* ---- git ---- *@
+                <section class="dash-sec">
+                    <div class="dash-sec-head"><h2>Git</h2></div>
+                    @if (_git is null)
+                    {
+                        <div class="dash-quiet">@(string.IsNullOrWhiteSpace(s.TailnetEndpoint) ? "Unavailable (no Director endpoint)." : "Loading...")</div>
+                    }
+                    else if (_git.Status != "ok")
+                    {
+                        <div class="dash-quiet">@(_git.Status == "not_a_repo" ? "Not a git repository." : "git failed on the Director.")</div>
+                    }
+                    else
+                    {
+                        <div class="git-line">
+                            <span class="git-branch">@_git.Branch</span>
+                            <span class="@(_git.Dirty ? "git-dirty" : "git-clean")">@(_git.Dirty ? "dirty" : "clean")</span>
+                            @if (_git.Ahead > 0 || _git.Behind > 0)
+                            {
+                                <span class="git-ab">+@_git.Ahead / -@_git.Behind</span>
+                            }
+                        </div>
+                        <div class="git-commit" title="@_git.LastCommit">@_git.LastCommit</div>
+                    }
+                </section>
+
+                @* ---- usage ---- *@
+                <section class="dash-sec">
+                    <div class="dash-sec-head"><h2>Tokens</h2></div>
+                    @if (_usage is null)
+                    {
+                        <div class="dash-quiet">@(string.IsNullOrWhiteSpace(s.TailnetEndpoint) ? "Unavailable (no Director endpoint)." : "Loading...")</div>
+                    }
+                    else
+                    {
+                        <dl class="kv det-kv">
+                            <dt>Context now</dt><dd>@Fmt(_usage.ContextTokens)</dd>
+                            <dt>Input</dt><dd>@Fmt(_usage.InputTokens)</dd>
+                            <dt>Output</dt><dd>@Fmt(_usage.OutputTokens)</dd>
+                            <dt>Cache read</dt><dd>@Fmt(_usage.CacheReadTokens)</dd>
+                            <dt>Cache write</dt><dd>@Fmt(_usage.CacheCreationTokens)</dd>
+                        </dl>
+                    }
+                </section>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string Sid { get; set; } = "";
+
+    private SessionDto? _session;
+    private bool _notFound;
+    private TurnBriefDto? _latestBrief;
+    private List<TurnBriefDto> _briefs = new();
+    private int _turnsShown = 20;
+    private GitSnapshot? _git;
+    private SessionUsageDto? _usage;
+    private string? _screenTail;
+    private DateTime? _lastRefresh;
+    private string? _lastError;
+    private int _tick;
+    private readonly CancellationTokenSource _cts = new();
+
+    private TurnBriefNeedsYou? LatestNeeds =>
+        _session is not null && SessionOrdering.EffectiveColor(_session) == "red" ? _latestBrief?.NeedsYou : null;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+        _ = PollLoopAsync();
+    }
+
+    // Re-runs when the route param changes within the circuit (e.g. Director page ->
+    // another session of the same Director).
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_session is not null && _session.SessionId != Sid)
+        {
+            _session = null; _briefs = new(); _latestBrief = null; _git = null; _usage = null;
+            _screenTail = null; _notFound = false; _tick = 0;
+            await RefreshAsync();
+        }
+    }
+
+    private async Task PollLoopAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(_cts.Token))
+                await RefreshAsync();
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private async Task RefreshAsync()
+    {
+        try
+        {
+            _session = await Gateway.GetSessionAsync(Sid, _cts.Token);
+            _notFound = _session is null;
+            _lastError = null;
+            _lastRefresh = DateTime.Now;
+
+            if (_session is not null)
+            {
+                // Briefs live on the Gateway - cheap, refresh with the facts.
+                var briefs = await Gateway.GetTurnBriefsAsync(Sid, _cts.Token);
+                if (briefs is not null)
+                {
+                    _briefs = briefs.Items;
+                    _latestBrief = _briefs.FirstOrDefault();
+                }
+
+                // Director-side reads (git runs git, screen reads the PTY) refresh on a
+                // slower cadence: first tick, then every third (15s).
+                if (_tick % 3 == 0 && !string.IsNullOrWhiteSpace(_session.TailnetEndpoint))
+                {
+                    var dir = _session.TailnetEndpoint;
+                    try
+                    {
+                        _git = await Director.GetGitAsync(dir, Sid, _cts.Token);
+                        _usage = await Director.GetSessionUsageAsync(dir, Sid, _cts.Token);
+                        _screenTail = await Director.GetScreenTailAsync(dir, Sid, 18, _cts.Token);
+                    }
+                    catch (Exception ex)
+                    {
+                        // The Director can be mid-restart while the Gateway still lists the
+                        // session; keep the page up on Gateway data and say nothing stale.
+                        Log.LogDebug(ex, "Director-side reads failed for {Sid}", Sid);
+                    }
+                }
+                _tick++;
+            }
+        }
+        catch (OperationCanceledException) { return; }
+        catch (Exception ex)
+        {
+            _lastError = ex.Message;
+            Log.LogWarning("SessionDetail refresh failed for {Sid}: {Error}", Sid, ex.Message);
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    // ---- display helpers (same vocabulary as the lists) ----
+
+    private static string TitleOf(SessionDto s) =>
+        string.IsNullOrWhiteSpace(s.Name) ? RepoBasename(s.RepoPath) : s.Name!;
+
+    private static string ShortId(string? id) => string.IsNullOrEmpty(id) ? "?" : id[..Math.Min(8, id.Length)];
+
+    private static string RepoBasename(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return "(no repo)";
+        var norm = path.Replace('\\', '/').TrimEnd('/');
+        var i = norm.LastIndexOf('/');
+        return i >= 0 ? norm[(i + 1)..] : norm;
+    }
+
+    private static string HumanizeState(string? state) => state switch
+    {
+        "WaitingForInput" => "Waiting for input",
+        "WaitingForPerm" => "Waiting for permission",
+        null or "" => "-",
+        _ => state,
+    };
+
+    private static string DotColor(string? color) => color switch
+    {
+        "red" => "#F14C4C",
+        "yellow" => "#F59E0B",
+        "green" => "#22C55E",
+        "blue" => "#3B82F6",
+        "purple" => "#A855F7",
+        _ => "#6B7280",
+    };
+
+    private static string RelativeTime(DateTime? utc)
+    {
+        if (utc is null) return "-";
+        var seconds = Math.Max(0, (int)(DateTime.UtcNow - utc.Value).TotalSeconds);
+        if (seconds < 5) return "just now";
+        if (seconds < 60) return $"{seconds}s ago";
+        var mins = seconds / 60;
+        if (mins < 60) return $"{mins}m ago";
+        var hours = mins / 60;
+        if (hours < 24) return $"{hours}h ago";
+        return $"{hours / 24}d ago";
+    }
+
+    private static string Fmt(long n) => n switch
+    {
+        >= 1_000_000 => $"{n / 1_000_000.0:0.0}M",
+        >= 1_000 => $"{n / 1_000.0:0.0}k",
+        _ => n.ToString(),
+    };
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}

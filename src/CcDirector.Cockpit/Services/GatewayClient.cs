@@ -50,6 +50,20 @@ public sealed class GatewayClient
     }
 
     /// <summary>
+    /// One session by id (<c>GET /sessions/{sid}</c>), enriched by the Gateway aggregator
+    /// (MachineName/TailnetEndpoint/ViewUrl) exactly like the roster rows. Null when no
+    /// Director owns it (deleted, or its Director is unreachable). Throws on transport
+    /// failure - the detail page surfaces it as a banner.
+    /// </summary>
+    public async Task<SessionDto?> GetSessionAsync(string sessionId, CancellationToken ct = default)
+    {
+        var resp = await _http.GetAsync($"sessions/{Uri.EscapeDataString(sessionId)}", ct);
+        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound) return null;
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadFromJsonAsync<SessionDto>(cancellationToken: ct);
+    }
+
+    /// <summary>
     /// Gateway health summary (<c>GET /healthz</c>): version, server time, fleet counts.
     /// Throws on transport failure - the dashboard surfaces it as a banner.
     /// </summary>

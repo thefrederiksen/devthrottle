@@ -1,0 +1,310 @@
+@page "/directors/{Id}"
+@inject GatewayClient Gateway
+@inject NavigationManager Nav
+@inject ILogger<DirectorDetail> Log
+@implements IDisposable
+
+@* Standalone Director page: registration facts, health, its live sessions, and the
+   repositories it offers for new sessions. *@
+
+<PageTitle>CC Director - Director</PageTitle>
+
+<div class="page">
+    @if (_lastError is not null)
+    {
+        <div class="page-banner-error">Gateway error: @_lastError</div>
+    }
+
+    @if (_notFound)
+    {
+        <header class="page-head"><h1>Director</h1></header>
+        <div class="tbl-empty">
+            No Director with id <span class="mono">@Id</span> is registered with this Gateway -
+            it has shut down and deregistered, or its registration aged out.
+            <a class="det-link" href="/directors">Back to all directors</a>
+        </div>
+    }
+    else if (_director is null)
+    {
+        <header class="page-head"><h1>Director</h1><span class="page-sub">loading...</span></header>
+    }
+    else
+    {
+        var d = _director;
+        <header class="page-head det-head">
+            <h1>@d.MachineName</h1>
+            <span class="mono page-sub" title="@d.DirectorId">@ShortId(d.DirectorId)</span>
+            <span class="page-sub">v@(d.Version)</span>
+            @if (_error is not null)
+            {
+                <span class="det-chip warn" title="@_error.Error">UNREACHABLE</span>
+            }
+            else
+            {
+                <span class="det-chip ok">OK</span>
+            }
+            <span class="page-refreshed">@(_lastRefresh is null ? "" : $"updated {_lastRefresh:HH:mm:ss}")</span>
+        </header>
+
+        @if (_error is not null)
+        {
+            <div class="page-banner-error">The Gateway cannot reach this Director right now: @_error.Error. Registration facts below may be stale; its sessions are missing.</div>
+        }
+
+        <div class="det-cols">
+            <div class="det-main">
+                @* ---- sessions on this director ---- *@
+                <section class="dash-sec">
+                    <div class="dash-sec-head">
+                        <h2>Sessions</h2>
+                        <a href="/sessions?director=@Uri.EscapeDataString(d.DirectorId)">Open in the sessions list &rarr;</a>
+                    </div>
+                    @if (Mine.Count == 0)
+                    {
+                        <div class="dash-quiet">No sessions running on this Director.</div>
+                    }
+                    else
+                    {
+                        <table class="tbl">
+                            <thead>
+                                <tr><th>Session</th><th>Repo</th><th>State</th><th>Last activity</th><th></th></tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var s in Mine)
+                                {
+                                    <tr class="rowlink" @key="s.SessionId" @onclick="() => OpenSession(s)" title="Session details">
+                                        <td>
+                                            <span class="cell-dot" style="background:@DotColor(SessionOrdering.EffectiveColor(s))"
+                                                  title="@s.LastStatusReason"></span><span class="cell-name">@TitleOf(s)</span>
+                                            @if (s.OnHold)
+                                            {
+                                                <span class="tag tag-hold">HOLD</span>
+                                            }
+                                            @if (SessionOrdering.IsBriefing(s))
+                                            {
+                                                <div class="cell-sub briefing">wingman reading...</div>
+                                            }
+                                            else if (!string.IsNullOrWhiteSpace(s.RailLine))
+                                            {
+                                                <div class="cell-sub">@s.RailLine</div>
+                                            }
+                                        </td>
+                                        <td class="cell-ellipsis" title="@s.RepoPath">@RepoBasename(s.RepoPath)</td>
+                                        <td class="dim">@HumanizeState(s.AssessedState ?? s.ActivityState)</td>
+                                        <td class="dim" title="@s.LastActivityAt">@RelativeTime(s.LastActivityAt)</td>
+                                        <td><a class="det-link" href="/cockpit/@s.SessionId" @onclick:stopPropagation="true">drive &rarr;</a></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                </section>
+
+                @* ---- repositories ---- *@
+                <section class="dash-sec">
+                    <div class="dash-sec-head">
+                        <h2>Repositories</h2>
+                        <span class="det-sec-meta">@(_repos is null ? "" : $"{_repos.Count} registered")</span>
+                    </div>
+                    @if (_reposError is not null)
+                    {
+                        <div class="dash-quiet">Could not list repositories: @_reposError</div>
+                    }
+                    else if (_repos is null)
+                    {
+                        <div class="dash-quiet">Loading...</div>
+                    }
+                    else if (_repos.Count == 0)
+                    {
+                        <div class="dash-quiet">No repositories registered on this Director.</div>
+                    }
+                    else
+                    {
+                        <table class="tbl">
+                            <thead><tr><th>Name</th><th>Path</th><th>Last used</th></tr></thead>
+                            <tbody>
+                                @foreach (var r in _repos.OrderByDescending(r => r.LastUsed ?? DateTime.MinValue))
+                                {
+                                    <tr @key="r.Path">
+                                        <td class="cell-name">@r.Name</td>
+                                        <td class="mono cell-ellipsis" title="@r.Path">@r.Path</td>
+                                        <td class="dim" title="@r.LastUsed">@RelativeTime(r.LastUsed)</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                </section>
+            </div>
+
+            <div class="det-side">
+                <section class="dash-sec">
+                    <div class="dash-sec-head"><h2>Registration</h2></div>
+                    <dl class="kv det-kv">
+                        <dt>Director id</dt><dd class="mono">@d.DirectorId</dd>
+                        <dt>Machine</dt><dd>@d.MachineName</dd>
+                        <dt>User</dt><dd>@d.User</dd>
+                        <dt>Process id</dt><dd class="mono">@d.Pid</dd>
+                        <dt>Version</dt><dd class="mono">@d.Version</dd>
+                        <dt>Discovery</dt><dd>@(d.Source == "http" ? "push (HTTP registration)" : "local (file watch)")</dd>
+                        <dt>Control endpoint</dt><dd class="mono">@d.ControlEndpoint</dd>
+                        @if (!string.IsNullOrWhiteSpace(d.TailnetEndpoint))
+                        {
+                            <dt>Tailnet endpoint</dt><dd class="mono">@d.TailnetEndpoint</dd>
+                        }
+                        <dt>Started</dt><dd title="@d.StartedAt">@RelativeTime(d.StartedAt) (up @Uptime(d.StartedAt))</dd>
+                        <dt>Last seen</dt><dd title="@d.LastSeen">@RelativeTime(d.LastSeen)</dd>
+                    </dl>
+                </section>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string Id { get; set; } = "";
+
+    private DirectorDto? _director;
+    private bool _notFound;
+    private List<SessionDto> _sessions = new();
+    private MachineErrorDto? _error;
+    private List<RepositoryDto>? _repos;
+    private string? _reposError;
+    private DateTime? _lastRefresh;
+    private string? _lastError;
+    private int _tick;
+    private readonly CancellationTokenSource _cts = new();
+
+    private List<SessionDto> Mine =>
+        SessionOrdering.InDesktopOrder(
+            _sessions.Where(s => string.Equals(s.DirectorId, Id, StringComparison.OrdinalIgnoreCase))).ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+        _ = PollLoopAsync();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_director is not null && !string.Equals(_director.DirectorId, Id, StringComparison.OrdinalIgnoreCase))
+        {
+            _director = null; _repos = null; _reposError = null; _notFound = false; _tick = 0;
+            await RefreshAsync();
+        }
+    }
+
+    private async Task PollLoopAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(_cts.Token))
+                await RefreshAsync();
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private async Task RefreshAsync()
+    {
+        try
+        {
+            var directors = await Gateway.GetDirectorsAsync(_cts.Token);
+            _director = directors.FirstOrDefault(d => string.Equals(d.DirectorId, Id, StringComparison.OrdinalIgnoreCase));
+            _notFound = _director is null;
+
+            var env = await Gateway.GetSessionsAsync(_cts.Token);
+            _sessions = env.Sessions;
+            _error = env.MachineErrors.FirstOrDefault(e => string.Equals(e.DirectorId, Id, StringComparison.OrdinalIgnoreCase));
+            _lastError = null;
+            _lastRefresh = DateTime.Now;
+
+            // The repo list proxies to the Director itself - slower cadence: first tick,
+            // then every sixth (30s), and not at all while it is unreachable.
+            if (_director is not null && _error is null && _tick % 6 == 0)
+            {
+                try
+                {
+                    _repos = await Gateway.GetReposAsync(Id, _cts.Token);
+                    _reposError = null;
+                }
+                catch (Exception ex)
+                {
+                    _reposError = ex.Message;
+                    Log.LogDebug(ex, "repo list failed for {Id}", Id);
+                }
+            }
+            _tick++;
+        }
+        catch (OperationCanceledException) { return; }
+        catch (Exception ex)
+        {
+            _lastError = ex.Message;
+            Log.LogWarning("DirectorDetail refresh failed for {Id}: {Error}", Id, ex.Message);
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void OpenSession(SessionDto s) => Nav.NavigateTo($"/sessions/{s.SessionId}");
+
+    // ---- display helpers (same vocabulary as the lists) ----
+
+    private static string TitleOf(SessionDto s) =>
+        string.IsNullOrWhiteSpace(s.Name) ? RepoBasename(s.RepoPath) : s.Name!;
+
+    private static string ShortId(string? id) => string.IsNullOrEmpty(id) ? "?" : id[..Math.Min(8, id.Length)];
+
+    private static string RepoBasename(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return "(no repo)";
+        var norm = path.Replace('\\', '/').TrimEnd('/');
+        var i = norm.LastIndexOf('/');
+        return i >= 0 ? norm[(i + 1)..] : norm;
+    }
+
+    private static string HumanizeState(string? state) => state switch
+    {
+        "WaitingForInput" => "Waiting for input",
+        "WaitingForPerm" => "Waiting for permission",
+        null or "" => "-",
+        _ => state,
+    };
+
+    private static string DotColor(string? color) => color switch
+    {
+        "red" => "#F14C4C",
+        "yellow" => "#F59E0B",
+        "green" => "#22C55E",
+        "blue" => "#3B82F6",
+        "purple" => "#A855F7",
+        _ => "#6B7280",
+    };
+
+    private static string RelativeTime(DateTime? utc)
+    {
+        if (utc is null) return "-";
+        var seconds = Math.Max(0, (int)(DateTime.UtcNow - utc.Value).TotalSeconds);
+        if (seconds < 5) return "just now";
+        if (seconds < 60) return $"{seconds}s ago";
+        var mins = seconds / 60;
+        if (mins < 60) return $"{mins}m ago";
+        var hours = mins / 60;
+        if (hours < 24) return $"{hours}h ago";
+        return $"{hours / 24}d ago";
+    }
+
+    private static string Uptime(DateTime startedUtc)
+    {
+        var span = DateTime.UtcNow - startedUtc;
+        if (span < TimeSpan.Zero) span = TimeSpan.Zero;
+        if (span.TotalHours < 1) return $"{(int)span.TotalMinutes}m";
+        if (span.TotalDays < 1) return $"{(int)span.TotalHours}h {span.Minutes}m";
+        return $"{(int)span.TotalDays}d {span.Hours}h";
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}

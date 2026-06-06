@@ -47,7 +47,7 @@
                 {
                     var err = ErrorFor(d);
                     <tr class="rowlink" @key="d.DirectorId" @onclick="() => Open(d)"
-                        title="Show this Director's sessions">
+                        title="Director details">
                         <td><span class="cell-name">@d.MachineName</span> <span class="dim">@d.User</span></td>
                         <td class="mono" title="@d.DirectorId">@ShortId(d.DirectorId) <span class="dim">pid @d.Pid</span></td>
                         <td class="mono">@d.Version</td>
@@ -55,7 +55,8 @@
                         <td class="mono cell-ellipsis" title="@(d.TailnetEndpoint ?? d.ControlEndpoint)">@(d.TailnetEndpoint ?? d.ControlEndpoint)</td>
                         <td class="dim" title="@d.StartedAt">@RelativeTime(d.StartedAt) <span class="dim">(up @Uptime(d.StartedAt))</span></td>
                         <td class="dim" title="@d.LastSeen">@RelativeTime(d.LastSeen)</td>
-                        <td>@SessionCount(d)</td>
+                        <td><a class="det-link" href="/sessions?director=@Uri.EscapeDataString(d.DirectorId)"
+                               @onclick:stopPropagation="true" title="Show in the sessions list">@SessionCount(d)</a></td>
                         <td>
                             @if (err is not null)
                             {
@@ -142,7 +143,8 @@
     private MachineErrorDto? ErrorFor(DirectorDto d) =>
         _errors.FirstOrDefault(e => string.Equals(e.DirectorId, d.DirectorId, StringComparison.OrdinalIgnoreCase));
 
-    private void Open(DirectorDto d) => Nav.NavigateTo($"/sessions?director={Uri.EscapeDataString(d.DirectorId)}");
+    // Row click = the detail page; the session-count link filters the sessions list.
+    private void Open(DirectorDto d) => Nav.NavigateTo($"/directors/{Uri.EscapeDataString(d.DirectorId)}");
 
     private static string ShortId(string? id) => string.IsNullOrEmpty(id) ? "?" : id[..Math.Min(8, id.Length)];
 

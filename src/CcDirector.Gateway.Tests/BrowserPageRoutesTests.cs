@@ -48,8 +48,11 @@ public sealed class BrowserPageRoutesTests : IAsyncLifetime
     [InlineData("/sessions")]
     [InlineData("/directors")]
     [InlineData("/cockpit")]
-    [InlineData("/sessions/")]   // trailing slash
-    [InlineData("/SESSIONS")]    // case-insensitive
+    [InlineData("/sessions/")]                    // trailing slash
+    [InlineData("/SESSIONS")]                     // case-insensitive
+    [InlineData("/sessions/abc123")]              // detail page: one id segment
+    [InlineData("/directors/abc123")]             // detail page: one id segment
+    [InlineData("/cockpit/abc123")]               // deep-linked cockpit session
     public void Browser_navigation_on_dual_use_path_is_a_page_request(string path)
     {
         Assert.True(CockpitProxy.IsBrowserPageRequest(
@@ -61,9 +64,10 @@ public sealed class BrowserPageRoutesTests : IAsyncLifetime
     [InlineData("GET", "/sessions", "*/*")]                    // curl / fetch default
     [InlineData("GET", "/sessions", null)]                     // no Accept at all
     [InlineData("POST", "/sessions", "text/html")]             // wrong method
-    [InlineData("GET", "/sessions/abc123", "text/html")]       // subpath belongs to the API
+    [InlineData("GET", "/sessions/abc123", "application/json")] // detail JSON stays API
     [InlineData("GET", "/healthz", "text/html")]               // not a dual-use path
-    [InlineData("GET", "/sessions/abc/turnbriefs", "text/html")]
+    [InlineData("GET", "/sessions/abc/turnbriefs", "text/html")] // 3 segments = API only
+    [InlineData("GET", "/directors/abc/repos", "text/html")]     // 3 segments = API only
     public void Non_navigation_requests_are_not_page_requests(string method, string path, string? accept)
     {
         Assert.False(CockpitProxy.IsBrowserPageRequest(method, path, accept));
@@ -104,16 +108,29 @@ public sealed class BrowserPageRoutesTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Session_detail_api_subpath_is_untouched_even_for_browsers()
+    public async Task Session_detail_navigation_is_forwarded_to_the_cockpit()
     {
         using var req = new HttpRequestMessage(HttpMethod.Get, "sessions/00000000-0000-0000-0000-000000000000");
         req.Headers.Accept.ParseAdd("text/html");
 
         var resp = await _http.SendAsync(req);
 
-        // The API endpoint answered (404: unknown session), not the Cockpit interstitial.
-        Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
-        Assert.NotEqual("text/html", resp.Content.Headers.ContentType?.MediaType);
+        // Dead Cockpit port -> interstitial: the navigation took the page path, not the API.
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, resp.StatusCode);
+        Assert.Contains("Cockpit starting", await resp.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task Three_segment_api_subpath_is_untouched_even_for_browsers()
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Get, "sessions/00000000-0000-0000-0000-000000000000/turnbriefs");
+        req.Headers.Accept.ParseAdd("text/html");
+
+        var resp = await _http.SendAsync(req);
+
+        // The turn-brief API endpoint answered (JSON), never the Cockpit interstitial.
+        Assert.NotEqual(HttpStatusCode.ServiceUnavailable, resp.StatusCode);
+        Assert.Equal("application/json", resp.Content.Headers.ContentType?.MediaType);
     }
 
     private static int FreePort()
