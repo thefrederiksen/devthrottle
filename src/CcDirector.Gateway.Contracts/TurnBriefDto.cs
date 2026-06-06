@@ -130,6 +130,47 @@ public sealed class TurnBriefsResponse
     public List<TurnBriefDto> Items { get; set; } = new();
 }
 
+/// <summary>
+/// An on-demand session-level deep dive (issue #217, the "I am lost - explain" button):
+/// the wingman re-reads the WHOLE session story and answers the returning user's three
+/// questions. Stored append-only next to the session's briefs; the newest one renders
+/// pinned at the top of the brief page.
+/// </summary>
+public sealed class ExplainReportDto
+{
+    public string SessionId { get; set; } = "";
+
+    /// <summary>Transcript turn count at the moment the report was generated.</summary>
+    public int TurnNumber { get; set; }
+
+    public DateTime RequestedAtUtc { get; set; }
+    public DateTime GeneratedAtUtc { get; set; }
+
+    /// <summary>Generator identity incl. pinned model, e.g. "gateway-brain/opus".</summary>
+    public string Model { get; set; } = "";
+
+    /// <summary>True when generation failed and this is the honest stub, never invented content.</summary>
+    public bool Degraded { get; set; }
+
+    /// <summary>The session's story in plain language for someone with zero context.</summary>
+    public string WhatHappened { get; set; } = "";
+
+    /// <summary>Concrete deliverables: commits, releases, deploys, decisions.</summary>
+    public List<string> WhatWeDid { get; set; } = new();
+
+    /// <summary>The recommendation, incl. "close this session" when the goal is delivered.</summary>
+    public string WhatNext { get; set; } = "";
+}
+
+/// <summary>POST /sessions/{sid}/explain response.</summary>
+public sealed class ExplainAcceptedResponse
+{
+    public bool Accepted { get; set; }
+
+    /// <summary>"Explaining" when queued/in flight (paint the session orange).</summary>
+    public string State { get; set; } = "";
+}
+
 /// <summary>POST /sessions/{sid}/turnbriefs/feedback - brief vote/reason feedback (#207).
 /// The report is stored as a replayable labeled example for prompt iteration.</summary>
 public sealed class TurnBriefFeedbackRequest

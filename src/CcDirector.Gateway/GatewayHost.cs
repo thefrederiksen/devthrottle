@@ -280,8 +280,29 @@ public sealed class GatewayHost : IAsyncDisposable
 
         // Gateway-served turn briefs (issue #185): the Cockpit reads briefs from HERE; the
         // store serves even when the pipeline is disabled (read-only is always safe).
+        // The explain trigger (#217) locates the owning Director across the fleet, then
+        // queues the deep dive on the ONE brief agent (null when the pipeline is disabled).
         TurnBriefGatewayEndpoints.Map(_app, _turnBriefStore,
-            sid => _briefAgent?.BriefingStateFor(sid) ?? (_turnBriefStore.Latest(sid) is not null ? "Briefed" : "None"));
+            sid => _briefAgent?.BriefingStateFor(sid) ?? (_turnBriefStore.Latest(sid) is not null ? "Briefed" : "None"),
+            requestExplainAsync: _briefAgent is { } explainAgent
+                ? async sid =>
+                {
+                    var lookups = Registry.ListDirectors().Select(async d =>
+                    {
+                        var ep = (d.ControlEndpoint ?? "").TrimEnd('/');
+                        var s = await _client.GetSessionAsync(ep, sid);
+                        return (endpoint: ep, session: s);
+                    }).ToList();
+                    foreach (var (endpoint, session) in await Task.WhenAll(lookups))
+                    {
+                        if (session is null) continue;
+                        return explainAgent.RequestExplain(sid, endpoint)
+                            ? (true, "")
+                            : (false, "brief agent is shutting down");
+                    }
+                    return (false, "session not found across any director");
+                }
+                : null);
 
         // One URL: everything no explicit endpoint above claimed falls through to the
         // loopback Cockpit (docs/plans/one-url-cockpit.md). Mapped LAST by design.

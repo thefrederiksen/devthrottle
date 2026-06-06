@@ -182,6 +182,34 @@ public sealed class GatewayClient
         }
     }
 
+    /// <summary>Trigger the "I am lost - explain" deep dive (#217). User action: throws on
+    /// failure so the button can show the error.</summary>
+    public async Task<ExplainAcceptedResponse> PostExplainAsync(string sessionId, CancellationToken ct = default)
+    {
+        _log.LogDebug("Explain sid={Sid}", sessionId);
+        var resp = await _http.PostAsync($"sessions/{Uri.EscapeDataString(sessionId)}/explain", content: null, ct);
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadFromJsonAsync<ExplainAcceptedResponse>(cancellationToken: ct)
+            ?? new ExplainAcceptedResponse { Accepted = true, State = "Explaining" };
+    }
+
+    /// <summary>The newest explain report (#217); null on 404 (none yet) or transport failure
+    /// - same render-without-it idiom as the brief getters.</summary>
+    public async Task<ExplainReportDto?> GetLatestExplainAsync(string sessionId, CancellationToken ct = default)
+    {
+        try
+        {
+            var resp = await _http.GetAsync($"sessions/{Uri.EscapeDataString(sessionId)}/explain/latest", ct);
+            if (!resp.IsSuccessStatusCode) return null;
+            return await resp.Content.ReadFromJsonAsync<ExplainReportDto>(cancellationToken: ct);
+        }
+        catch (HttpRequestException ex)
+        {
+            _log.LogDebug(ex, "GetLatestExplainAsync transport failure for {Sid}", sessionId);
+            return null;
+        }
+    }
+
     /// <summary>Brief vote/reason feedback (#207) - stored Gateway-side as a replayable
     /// labeled example with the full TurnPackage.</summary>
     public async Task<TurnBriefFeedbackResponse> PostBriefFeedbackAsync(

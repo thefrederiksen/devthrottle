@@ -59,6 +59,12 @@ public sealed class GatewayTurnBriefAgent : IDisposable
 
     private readonly ConcurrentDictionary<string, string> _pending = new();   // sid -> endpoint
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _inFlight = new();
+
+    // Explain deep dives (issue #217): user-initiated, so they outrank background
+    // stamping in the drain order and are NOT watch-cancelled - a session that starts
+    // working again does not invalidate its story the way it invalidates a turn brief.
+    private readonly ConcurrentDictionary<string, (string Endpoint, DateTime RequestedAtUtc)> _explainPending = new();
+    private readonly ConcurrentDictionary<string, byte> _explainInFlight = new();
     private readonly SemaphoreSlim _signal = new(0);
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Task _worker;
@@ -103,12 +109,33 @@ public sealed class GatewayTurnBriefAgent : IDisposable
     public static bool Disabled =>
         Environment.GetEnvironmentVariable("CC_TURNBRIEFS") == "0";
 
-    /// <summary>Coarse pipeline state for one session, for the read endpoints: "Briefing"
-    /// while queued or in flight, "Briefed" once the store has anything, else "None".</summary>
+    /// <summary>Coarse pipeline state for one session, for the read endpoints: "Explaining"
+    /// while a user-initiated deep dive is queued or in flight (issue #217 - it outranks
+    /// background stamping for display), "Briefing" while a turn brief is queued or in
+    /// flight, "Briefed" once the store has anything, else "None".</summary>
     public string BriefingStateFor(string sessionId)
     {
+        if (_explainPending.ContainsKey(sessionId) || _explainInFlight.ContainsKey(sessionId)) return "Explaining";
         if (_pending.ContainsKey(sessionId) || _inFlight.ContainsKey(sessionId)) return "Briefing";
         return _store.Latest(sessionId) is not null ? "Briefed" : "None";
+    }
+
+    /// <summary>The "I am lost - explain" button was pressed (issue #217): queue a
+    /// session-level deep dive (coalescing - one slot per session, a second press while
+    /// one is pending is a no-op).</summary>
+    public bool RequestExplain(string sessionId, string directorEndpoint)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(directorEndpoint);
+        if (_disposed) return false;
+        var isNew = !_explainPending.ContainsKey(sessionId) && !_explainInFlight.ContainsKey(sessionId);
+        if (isNew)
+        {
+            _explainPending[sessionId] = (directorEndpoint, DateTime.UtcNow);
+            _signal.Release();
+        }
+        FileLog.Write($"[GatewayTurnBriefAgent] explain requested sid={sessionId} (coalesced={!isNew})");
+        return true;
     }
 
     /// <summary>A turn ended: mark the session dirty (coalescing - one slot per session).</summary>
@@ -145,6 +172,28 @@ public sealed class GatewayTurnBriefAgent : IDisposable
             catch (OperationCanceledException)
             {
                 return;
+            }
+
+            // User-initiated explains drain FIRST (issue #217): someone is sitting at the
+            // screen waiting for them, while turn briefs are background stamping.
+            while (!lifetime.IsCancellationRequested && TryTakeExplain(out var esid, out var eEndpoint, out var requestedAt))
+            {
+                try
+                {
+                    await ExplainOneAsync(esid, eEndpoint, requestedAt, lifetime);
+                }
+                catch (OperationCanceledException)
+                {
+                    FileLog.Write($"[GatewayTurnBriefAgent] explain cancelled: sid={esid}");
+                }
+                catch (Exception ex)
+                {
+                    FileLog.Write($"[GatewayTurnBriefAgent] ExplainOneAsync FAILED: sid={esid} {ex.Message}");
+                }
+                finally
+                {
+                    _explainInFlight.TryRemove(esid, out _);
+                }
             }
 
             // One signal may cover several dirty sessions (or none after watch-cancel);
@@ -187,6 +236,113 @@ public sealed class GatewayTurnBriefAgent : IDisposable
         sessionId = "";
         endpoint = "";
         return false;
+    }
+
+    private bool TryTakeExplain(out string sessionId, out string endpoint, out DateTime requestedAtUtc)
+    {
+        foreach (var sid in _explainPending.Keys)
+        {
+            // Mark in-flight BEFORE removing from pending: BriefingStateFor must never
+            // observe the gap and report the deep dive as finished while it runs.
+            _explainInFlight[sid] = 1;
+            if (_explainPending.TryRemove(sid, out var req))
+            {
+                sessionId = sid;
+                endpoint = req.Endpoint;
+                requestedAtUtc = req.RequestedAtUtc;
+                return true;
+            }
+            _explainInFlight.TryRemove(sid, out _);
+        }
+        sessionId = "";
+        endpoint = "";
+        requestedAtUtc = default;
+        return false;
+    }
+
+    /// <summary>
+    /// One deep-dive cycle (issue #217): assemble the ExplainPackage from the session's
+    /// own stored story + live transcript + screen, ask the warm brain with the explain
+    /// contract, validate mechanically, store append-only. Failure stores the honest
+    /// degraded stub - the user pressed a button and must get an answer, never silence.
+    /// </summary>
+    private async Task ExplainOneAsync(string sid, string endpoint, DateTime requestedAtUtc, CancellationToken ct)
+    {
+        var turns = await _fetchTurns(endpoint, sid, ct);
+        var widgets = turns?.Widgets ?? new List<TurnWidgetDto>();
+        var screenTail = await _fetchScreenTail(endpoint, sid, ct);
+
+        // Reuse the turn-package builder for the transcript span (prior=null = the full
+        // recent widget budget), then lift the explain-specific material around it.
+        var briefs = _store.List(sid);
+        var turnPackage = widgets.Count > 0
+            ? TurnPackageBuilder.Build(Guid.Parse(sid), widgets, screenTail, priorBrief: null, briefs)
+            : null;
+
+        var package = new ExplainPackage(
+            Guid.Parse(sid),
+            turnPackage?.TurnCount ?? 0,
+            turnPackage?.FirstUserPrompt,
+            ExplainContract.BuildStoryLines(briefs),
+            turnPackage?.TranscriptDelta ?? "",
+            turnPackage?.ScreenTail ?? "");
+
+        FileLog.Write($"[GatewayTurnBriefAgent] explaining sid={sid} turn={package.TurnCount} storyLines={package.StoryLines.Count}");
+
+        ExplainReportDto? report = null;
+        var prompt = ExplainContract.BuildPrompt(package);
+        var cleared = false;
+        try
+        {
+            var brain = await _brainProvider(ct);
+
+            using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            budget.CancelAfter(GenerationTimeout);
+            AskResult ask;
+            try
+            {
+                ask = await brain.AskAsync(prompt, budget.Token);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                throw new TimeoutException($"warm-brain explain did not finish within {GenerationTimeout.TotalSeconds}s");
+            }
+
+            // Same stamping-machine hygiene as briefs: clear BEFORE validation.
+            await brain.ClearAsync(CancellationToken.None);
+            cleared = true;
+
+            report = ExplainContract.ParseAndValidate(ask.Text, package, _generatorId, requestedAtUtc);
+            if (report is null)
+                FileLog.Write($"[GatewayTurnBriefAgent] explain sid={sid}: REJECTED by validation; degrading");
+        }
+        catch (OperationCanceledException)
+        {
+            if (!cleared) FireBrainRecovery("explain cancelled mid-ask");
+            throw;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GatewayTurnBriefAgent] warm-brain explain FAILED: {ex.Message}; degrading + recovering the brain");
+            if (!cleared) FireBrainRecovery(ex.Message);
+        }
+
+        // Honest stub on failure: the user pressed a button - silence is not an answer.
+        report ??= new ExplainReportDto
+        {
+            SessionId = sid,
+            TurnNumber = package.TurnCount,
+            RequestedAtUtc = requestedAtUtc,
+            GeneratedAtUtc = DateTime.UtcNow,
+            Model = _generatorId,
+            Degraded = true,
+            WhatHappened = "The wingman could not read this session right now (generation failed or timed out).",
+            WhatWeDid = new List<string> { "No deep dive was produced - this is the honest failure marker, not a summary." },
+            WhatNext = "Press the explain button again in a minute; if it keeps failing, check the Gateway brain in Settings.",
+        };
+
+        _store.AppendExplain(sid, report);
+        FileLog.Write($"[GatewayTurnBriefAgent] explain stored sid={sid} turn={report.TurnNumber} degraded={report.Degraded}");
     }
 
     private async Task BriefOneAsync(string sid, string endpoint, CancellationToken ct)

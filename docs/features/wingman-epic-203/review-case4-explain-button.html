@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Brief review - Case 4 - "I am lost - explain" button (#217)</title>
+<style>
+/* Cockpit palette so the screens are pixel-faithful. */
+:root{
+  --panel:#1E1E1E; --sidebar:#252526; --button:#3C3C3C;
+  --text:#CCCCCC; --text2:#AAAAAA; --text3:#888888; --muted:#666666;
+  --border:#3C3C3C; --bg:#181818;
+  --red:#F14C4C; --green:#22C55E; --blue:#4DA3FF; --amber:#F59E0B; --orange:#F97316;
+}
+*{box-sizing:border-box}
+body{background:#000;color:var(--text);font-family:"Segoe UI",system-ui,sans-serif;font-size:13px;margin:0;padding:26px}
+
+/* ===== BLUE = my notes. Everything blue is commentary, NOT the screen. ===== */
+.notes{border:1px dashed var(--blue);border-radius:8px;padding:14px 18px;margin-bottom:26px;
+  color:var(--blue);max-width:1060px}
+.notes .notes-tag{font-size:10px;font-weight:700;letter-spacing:.14em;margin-bottom:8px;color:var(--blue)}
+.notes p{margin:0 0 8px;line-height:1.5}
+.notes p:last-child{margin-bottom:0}
+.notes b{color:#8cc4ff}
+
+/* ===== BLACK = the real screens. Only screen content lives here. ===== */
+.screens{max-width:1060px}
+.pair{display:flex;gap:18px;align-items:stretch;flex-wrap:wrap}
+.col{flex:1;min-width:440px;display:flex;flex-direction:column}
+.col-tag{font-size:11px;font-weight:700;letter-spacing:.1em;margin-bottom:8px;color:#fff}
+.screen{flex:1;background:var(--bg);border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.screen-bar{background:var(--sidebar);border-bottom:1px solid var(--border);padding:7px 14px;
+  font-size:11px;color:var(--text3);display:flex;gap:10px;align-items:center}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.dot.red{background:var(--red)}
+.dot.orange{background:var(--orange)}
+
+/* the brief pane, exactly as the Cockpit styles it */
+.brief{padding:20px 26px 16px;font-size:14px;line-height:1.55}
+.brief .blabel{font-size:10px;font-weight:700;letter-spacing:.12em;color:var(--text3);margin-bottom:7px}
+.brief-goal{display:flex;gap:12px;align-items:baseline;margin-bottom:22px;padding-bottom:14px;border-bottom:1px solid var(--border)}
+.brief-goal .blabel{margin-bottom:0}
+.brief-goal-text{color:var(--text2);font-size:13px;flex:1}
+.brief-block{margin-bottom:24px}
+.brief-muted{color:var(--muted);font-size:12px}
+.brief-needsyou{border-left:3px solid #F14C4C;background:#2a1d1f;color:#f1d8d8;padding:10px 14px;border-radius:0 6px 6px 0}
+.brief-needsyou.urgency-fyi{border-left-color:#F59E0B;background:#262017;color:#e8dcc8}
+.brief-verbatim-tag{font-weight:400;letter-spacing:0;text-transform:none;color:var(--muted);margin-left:8px;font-size:10px}
+.brief-quick{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.brief-quick-btn{border:1px solid var(--border);background:var(--panel);color:var(--text);border-radius:5px;
+  padding:7px 12px;font-size:12.5px;cursor:pointer;text-align:left}
+.brief-quick-btn b{color:#22C55E;margin-right:6px}
+.brief-mission-complete .blabel{color:#22C55E}
+.brief-mission-complete .brief-needsyou{border-left-color:#22C55E;background:#11251a;color:#cfe8d8}
+.brief-close-btn{border-color:#22C55E;color:#22C55E;font-weight:600}
+
+/* the new explain affordances (#217) */
+.explain-btn{border:1px solid var(--orange);background:none;color:var(--orange);border-radius:5px;
+  font-size:12px;font-weight:600;padding:6px 12px;cursor:pointer;white-space:nowrap}
+.explain-report{border:1px solid var(--border);border-left:3px solid var(--orange);background:#241a12;
+  border-radius:0 6px 6px 0;padding:12px 16px;margin-bottom:24px}
+.explain-report .blabel{color:var(--orange)}
+.explain-section{margin-bottom:14px}
+.explain-section:last-child{margin-bottom:0}
+.explain-section .brief-muted{margin-bottom:3px}
+.explain-text{color:#e8d8c8;font-size:13.5px}
+.explain-text ul{margin:4px 0 0;padding-left:20px}
+.explain-text li{margin-bottom:3px}
+.rail-strip{background:var(--sidebar);border-top:1px solid var(--border);padding:8px 14px;
+  display:flex;gap:10px;align-items:center;font-size:12.5px}
+.rail-strip .rail-sub{color:var(--orange);font-size:11px}
+</style>
+</head>
+<body>
+
+<!-- ======================= MY NOTES (blue, not the screen) ======================= -->
+<div class="notes">
+  <div class="notes-tag">CLAUDE'S NOTES - NOT PART OF THE SCREEN</div>
+  <p><b>Case 4:</b> issue #217 - the "I am lost - explain" button. Real data: your live "MyQuietShadow" session (the v0.3.0 release).</p>
+  <p><b>The problem:</b> the brief answers "what happened in the last TURN". Coming back after hours, your question is about the WHOLE session - and today the only answer is re-reading the terminal.</p>
+  <p><b>The AFTER adds:</b> an explain button in the brief header. Tap it and the wingman re-reads the whole session in its own round; the session goes ORANGE while it works (small strip below the pair shows the rail during that time), then back to red with the three-section report at the top of the brief.</p>
+  <p><b>Your decision:</b> is the AFTER better?</p>
+</div>
+
+<!-- ======================= THE SCREENS (black, what you judge) ======================= -->
+<div class="screens">
+<div class="pair">
+
+  <div class="col">
+    <div class="col-tag">BEFORE</div>
+    <div class="screen">
+      <div class="screen-bar"><span class="dot red"></span> MyQuietShadow &nbsp;|&nbsp; Brief</div>
+      <div class="brief">
+        <div class="brief-goal">
+          <span class="blabel">YOU'RE DOING</span>
+          <span class="brief-goal-text">User wants a new public release containing the dictation dictionary cleanup feature. The release is now published; goal delivered.</span>
+        </div>
+        <div class="brief-block">
+          <div class="blabel">FYI<span class="brief-verbatim-tag">gateway-brain/opus - turn 51, 14:54</span></div>
+          <div class="brief-needsyou urgency-fyi">Nothing needed. FYI: v0.3.0 is published and live for the in-app updater - the release goal is delivered, so the real action is closing this session. Optional follow-up for later: bump actions/checkout@v4 and setup-dotnet@v4 in release.yml before the first release after June 16.</div>
+          <div class="brief-quick">
+            <button class="brief-quick-btn"><b>bump actions now</b></button>
+          </div>
+        </div>
+        <div class="brief-block brief-mission-complete">
+          <div class="blabel">MISSION COMPLETE<span class="brief-verbatim-tag">wingman suggestion</span></div>
+          <div class="brief-needsyou">v0.3.0 released and published; goal delivered.</div>
+          <div class="brief-quick">
+            <button class="brief-quick-btn brief-close-btn">Close this session</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="col-tag">AFTER</div>
+    <div class="screen">
+      <div class="screen-bar"><span class="dot red"></span> MyQuietShadow &nbsp;|&nbsp; Brief</div>
+      <div class="brief">
+        <div class="brief-goal">
+          <span class="blabel">YOU'RE DOING</span>
+          <span class="brief-goal-text">User wants a new public release containing the dictation dictionary cleanup feature. The release is now published; goal delivered.</span>
+          <button class="explain-btn">I am lost - explain</button>
+        </div>
+        <div class="explain-report">
+          <div class="blabel">EXPLAIN<span class="brief-verbatim-tag">gateway-brain/opus - requested 15:42, ready 15:43</span></div>
+          <div class="explain-section">
+            <div class="brief-muted">WHAT HAPPENED</div>
+            <div class="explain-text">This session shipped MyQuietShadow v0.3.0 end to end - the dictation dictionary cleanup (#10) plus everything since v0.2.6: auto-transcribe with AI titles (#7, #8), full microphone names (#9), multi-select delete (#11), tabbed settings.</div>
+          </div>
+          <div class="explain-section">
+            <div class="brief-muted">WHAT WE DID</div>
+            <div class="explain-text">
+              <ul>
+                <li>Tagged and pushed v0.3.0; release pipeline green in 2m51s (tests + offline-install smoke test)</li>
+                <li>Published installer, app + CLI exes, ffmpeg zip, manifest to MyQuietShadow-releases at 18:53 UTC</li>
+                <li>The in-app updater now serves v0.3.0 to users</li>
+              </ul>
+            </div>
+          </div>
+          <div class="explain-section">
+            <div class="brief-muted">WHAT NEXT</div>
+            <div class="explain-text">Nothing is owed - close this session. Optional, for any future session: bump actions/checkout and setup-dotnet in release.yml before the first release after June 16.</div>
+          </div>
+        </div>
+        <div class="brief-block brief-mission-complete">
+          <div class="blabel">MISSION COMPLETE<span class="brief-verbatim-tag">wingman suggestion</span></div>
+          <div class="brief-needsyou">v0.3.0 released and published; goal delivered.</div>
+          <div class="brief-quick">
+            <button class="brief-quick-btn brief-close-btn">Close this session</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="pair" style="margin-top:18px">
+  <div class="col">
+    <div class="col-tag">DURING - the ~30-60s while the wingman re-reads the session</div>
+    <div class="screen">
+      <div class="rail-strip"><span class="dot orange"></span> MyQuietShadow <span class="rail-sub">wingman explaining...</span></div>
+      <div class="rail-strip" style="border-top:none"><span style="color:var(--text3);font-size:12px">The rail row and brief page show ORANGE - distinct from yellow (reading the turn) and red (needs you). Back to red when the report lands.</span></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ======================= MY NOTES (blue, not the screen) ======================= -->
+<div class="notes" style="margin-top:26px;margin-bottom:0">
+  <div class="notes-tag">CLAUDE'S NOTES - HOW IT BEHAVES</div>
+  <p>1. The button always sits in the brief header - any session, any state.</p>
+  <p>2. The deep dive is its own wingman round over the WHOLE session story (brief history + transcript), not just the last turn.</p>
+  <p>3. The report pins to the top of the brief and is stored in the brief history - it survives restarts and stays readable until the next explain.</p>
+  <p>4. Everything else on the brief page stays exactly where it was.</p>
+</div>
+
+</body>
+</html>

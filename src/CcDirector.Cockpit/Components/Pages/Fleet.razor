@@ -234,7 +234,7 @@
     private static string ColorClass(SessionDto s)
     {
         var c = (SessionOrdering.EffectiveColor(s) ?? "").ToLowerInvariant();
-        return c is "red" or "yellow" or "green" or "blue" or "purple" ? c : "unknown";
+        return c is "red" or "yellow" or "orange" or "green" or "blue" or "purple" ? c : "unknown";
     }
 
     private static readonly Dictionary<string, string> ColorMeaning = new()
@@ -242,6 +242,7 @@
         ["green"] = "Green - ready",
         ["blue"] = "Blue - agent working",
         ["yellow"] = "Yellow - warning",
+        ["orange"] = "Orange - wingman explaining the session",
         ["red"] = "Red - needs you",
         ["purple"] = "Purple - running in background",
         ["unknown"] = "Gray - unknown / unreachable",

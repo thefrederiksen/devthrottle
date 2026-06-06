@@ -39,16 +39,27 @@ public static class SessionOrdering
         s.BriefingState == "Briefing" && string.Equals(s.StatusColor, "red", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
+    /// True while a user-initiated "I am lost - explain" deep dive runs for the session
+    /// (issue #217). Same raw-activity rule as <see cref="IsBriefing"/>: if a NEW turn is
+    /// already running (blue), raw activity wins and no orange shows.
+    /// </summary>
+    public static bool IsExplaining(SessionDto s) =>
+        s.BriefingState == "Explaining" && string.Equals(s.StatusColor, "red", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// The ONE effective status color every client renders and triages on (issue #196).
     /// The Director stamps the raw <see cref="SessionDto.StatusColor"/> (it no longer knows
     /// about briefing since #187 moved the pipeline to the Gateway), and the Gateway stamps
     /// <see cref="SessionDto.BriefingState"/> on top. Folding the two HERE - instead of in
     /// each view - is what keeps the dot, the "wingman reading..." chip, and the triage
-    /// bucket atomic: while the wingman reads a finished turn the session IS yellow; red
-    /// ("needs you") may only appear after the brief lands.
+    /// bucket atomic: while the wingman reads a finished turn the session IS yellow; while
+    /// a user-requested deep dive runs it IS orange (issue #217); red ("needs you") may
+    /// only appear after the brief or report lands.
     /// </summary>
     public static string EffectiveColor(SessionDto s) =>
-        IsBriefing(s) ? "yellow" : s.StatusColor;
+        IsExplaining(s) ? "orange"
+        : IsBriefing(s) ? "yellow"
+        : s.StatusColor;
 
     /// <summary>
     /// Classify a session for triage. On-hold takes precedence over color: a parked session sinks

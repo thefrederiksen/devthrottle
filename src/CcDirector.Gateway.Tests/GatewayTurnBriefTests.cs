@@ -93,6 +93,29 @@ public sealed class GatewayTurnBriefStoreTests : IDisposable
     }
 
     [Fact]
+    public void AppendExplain_LatestExplain_RoundTrips_LastLineWins()
+    {
+        var store = new GatewayTurnBriefStore(_dir);
+        Assert.Null(store.LatestExplain(Sid));
+
+        store.AppendExplain(Sid, new ExplainReportDto
+        {
+            SessionId = Sid, TurnNumber = 5,
+            WhatHappened = "first", WhatWeDid = new List<string> { "a" }, WhatNext = "next",
+        });
+        store.AppendExplain(Sid, new ExplainReportDto
+        {
+            SessionId = Sid, TurnNumber = 9,
+            WhatHappened = "second", WhatWeDid = new List<string> { "b" }, WhatNext = "close",
+        });
+
+        var latest = store.LatestExplain(Sid);
+        Assert.NotNull(latest);
+        Assert.Equal(9, latest.TurnNumber);
+        Assert.Equal("second", latest.WhatHappened); // append-only: last line wins
+    }
+
+    [Fact]
     public void SaveFeedback_IncludesTurnPackage_AndUpdatesSameRecordReason()
     {
         var store = new GatewayTurnBriefStore(_dir);
@@ -387,6 +410,64 @@ public sealed class GatewayTurnBriefAgentTests : IDisposable
         Assert.Contains("the screen tail", _brain.Asks[0]); // the package reached the prompt
         Assert.True(Directory.GetFiles(_dir, "t*.json", SearchOption.AllDirectories).Any()); // #207 replay package persisted
         Assert.Equal(1, _brain.ClearCount);                 // stamping machine: cleared per brief
+    }
+
+    private const string ExplainReplyJson =
+        """{"whatHappened":"This session shipped the v0.3.0 release end to end.","whatWeDid":["tagged and pushed v0.3.0","published all assets to the releases repo"],"whatNext":"Close this session - the goal is delivered."}""";
+
+    [Fact]
+    public async Task RequestExplain_AsksTheBrain_StoresReport_AndClears()
+    {
+        // Issue #217: the "I am lost - explain" deep dive - its own contract prompt,
+        // same warm-brain hygiene as briefs (clear per ask), report stored append-only.
+        _brain.ReplyJson = ExplainReplyJson;
+        using var agent = BuildAgent();
+        Assert.True(agent.RequestExplain(_sid, Endpoint));
+
+        await WaitUntilAsync(() => _store.LatestExplain(_sid) is not null);
+
+        var report = _store.LatestExplain(_sid);
+        Assert.NotNull(report);
+        Assert.False(report.Degraded);
+        Assert.Equal("This session shipped the v0.3.0 release end to end.", report.WhatHappened);
+        Assert.Equal(2, report.WhatWeDid.Count);
+        Assert.Single(_brain.Asks);
+        Assert.Contains("I am lost", _brain.Asks[0]);       // the explain contract prompt, not the brief prompt
+        Assert.Contains("the screen tail", _brain.Asks[0]); // live material reached the prompt
+        Assert.Equal(1, _brain.ClearCount);                 // same stamping-machine hygiene
+        Assert.NotEqual("Explaining", agent.BriefingStateFor(_sid)); // done -> orange clears
+    }
+
+    [Fact]
+    public async Task RequestExplain_WhileRunning_StateIsExplaining()
+    {
+        // The orange state (issue #217): "Explaining" while queued/in flight, gone after.
+        _brain.ReplyJson = ExplainReplyJson;
+        _brain.AskDelay = TimeSpan.FromMilliseconds(300);
+        using var agent = BuildAgent();
+        agent.RequestExplain(_sid, Endpoint);
+
+        await WaitUntilAsync(() => agent.BriefingStateFor(_sid) == "Explaining");
+        await WaitUntilAsync(() => _store.LatestExplain(_sid) is not null);
+        Assert.NotEqual("Explaining", agent.BriefingStateFor(_sid));
+    }
+
+    [Fact]
+    public async Task InvalidExplainReply_StoresHonestDegradedStub()
+    {
+        // The user pressed a button - silence is not an answer; failure stores the
+        // honest marker, never invented content.
+        _brain.ReplyJson = "I am not JSON at all";
+        using var agent = BuildAgent();
+        agent.RequestExplain(_sid, Endpoint);
+
+        await WaitUntilAsync(() => _store.LatestExplain(_sid) is not null);
+
+        var report = _store.LatestExplain(_sid);
+        Assert.NotNull(report);
+        Assert.True(report.Degraded);
+        Assert.Contains("could not read", report.WhatHappened);
+        Assert.Equal(1, _brain.ClearCount); // cleared even on a rejected reply
     }
 
     [Fact]

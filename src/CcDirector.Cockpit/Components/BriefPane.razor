@@ -44,6 +44,53 @@
     }
     else
     {
+        @* ---- "I am lost - explain" (issue #217): one tap and the wingman re-reads the
+             WHOLE session in its own round; the session shows ORANGE while it works. The
+             newest report stays pinned here until the next explain. *@
+        <div class="explain-row">
+            @if (IsExplainingNow)
+            {
+                <span class="explain-working">wingman explaining the session...</span>
+            }
+            else
+            {
+                <button class="explain-btn" disabled="@_explainBusy" @onclick="RequestExplainAsync"
+                        title="The wingman re-reads the whole session and answers: what happened, what we did, what next.">
+                    I am lost - explain
+                </button>
+            }
+            @if (_explainStatus is not null)
+            {
+                <span class="brief-muted">@_explainStatus</span>
+            }
+        </div>
+        @if (_explain is not null)
+        {
+            <div class="explain-report">
+                <div class="blabel">
+                    @(_explain.Degraded ? "EXPLAIN FAILED" : "EXPLAIN")
+                    <span class="brief-verbatim-tag">@_explain.Model - requested @_explain.RequestedAtUtc.ToLocalTime().ToString("HH:mm"), ready @_explain.GeneratedAtUtc.ToLocalTime().ToString("HH:mm")</span>
+                </div>
+                <div class="explain-section">
+                    <div class="brief-muted">WHAT HAPPENED</div>
+                    <div class="explain-text">@_explain.WhatHappened</div>
+                </div>
+                <div class="explain-section">
+                    <div class="brief-muted">WHAT WE DID</div>
+                    <ul class="explain-did">
+                        @foreach (var item in _explain.WhatWeDid)
+                        {
+                            <li>@item</li>
+                        }
+                    </ul>
+                </div>
+                <div class="explain-section">
+                    <div class="brief-muted">WHAT NEXT</div>
+                    <div class="explain-text">@_explain.WhatNext</div>
+                </div>
+            </div>
+        }
+
         @* ---- YOU'RE DOING (wingman rolling intent) or GOAL (degrade) ---- *@
         @if (HasWingmanBrief)
         {
@@ -417,6 +464,39 @@
 
     private bool _closeArmed;
     private bool _closing;
+    private ExplainReportDto? _explain;
+    private bool _explainBusy;
+    private string? _explainStatus;
+
+    /// <summary>The Gateway is running the user-requested deep dive (issue #217): the
+    /// session presents ORANGE and the button yields to the working indicator.</summary>
+    private bool IsExplainingNow => BriefingState == "Explaining";
+
+    /// <summary>The explain button (issue #217): queue the deep dive on the Gateway. The
+    /// orange state arrives via the parent's session poll; the report lands via the
+    /// Explaining-&gt;done transition reload.</summary>
+    private async Task RequestExplainAsync()
+    {
+        if (_explainBusy || string.IsNullOrEmpty(SessionId)) return;
+        _explainBusy = true;
+        _explainStatus = "Asking the wingman...";
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            await Gateway.PostExplainAsync(SessionId);
+            _explainStatus = null;
+        }
+        catch (Exception ex)
+        {
+            Log.LogWarning(ex, "BriefPane explain request failed for sid={Sid}", SessionId);
+            _explainStatus = $"explain failed: {ex.Message}";
+        }
+        finally
+        {
+            _explainBusy = false;
+        }
+    }
+
     private bool _feedbackBusy;
     private bool _feedbackOpen;
     private string _feedbackVote = "down";
@@ -687,6 +767,16 @@
 
     protected override async Task OnParametersSetAsync()
     {
+        // The deep dive finished (issue #217): the explain report is in the store - reload.
+        if (_lastSeenBriefState == "Explaining" && BriefingState != "Explaining" && !_loading)
+        {
+            _lastSeenBriefState = BriefingState;
+            _lastSeenState = ActivityState;
+            SyncTailLoop();
+            await LoadAsync();
+            return;
+        }
+
         // The wingman finished reading: the fresh brief is in the store - reload.
         if (_lastSeenBriefState == "Briefing" && BriefingState is "Briefed" or "Failed" && !_loading)
         {
@@ -731,8 +821,10 @@
             // blocks; /brief supplies YOU ASKED + the full reply markdown for the expander.
             // The GATEWAY is the one brief store (#187 deleted the Director-side pipeline).
             var gatewayBriefTask = Gateway.GetLatestTurnBriefAsync(SessionId, ct);
+            var explainTask = Gateway.GetLatestExplainAsync(SessionId, ct);
             var briefTask = Director.GetBriefAsync(DirectorBase, SessionId, ct);
             _turnBrief = await gatewayBriefTask;
+            _explain = await explainTask;
             _brief = await briefTask;
             _toggled.Clear();
             _closeArmed = false;   // a fresh brief invalidates any armed close confirm

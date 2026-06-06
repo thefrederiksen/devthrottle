@@ -47,6 +47,7 @@ public sealed class GatewayTurnBriefStore
     private string PathFor(string sessionId) => Path.Combine(_root, $"{Sanitize(sessionId)}.jsonl");
     private string PackageDirFor(string sessionId) => Path.Combine(_root, $"{Sanitize(sessionId)}.packages");
     private string PackagePathFor(string sessionId, int turnNumber) => Path.Combine(PackageDirFor(sessionId), $"t{turnNumber}.json");
+    private string ExplainPathFor(string sessionId) => Path.Combine(_root, $"{Sanitize(sessionId)}.explain.jsonl");
 
     /// <summary>All stored briefs for a session, NEWEST FIRST, de-duplicated by TurnNumber
     /// (last appended generation wins). Empty when none.</summary>
@@ -102,6 +103,43 @@ public sealed class GatewayTurnBriefStore
                 WriteIndented = true,
             }));
             _packages[PackageKey(sessionId, package.TurnCount)] = package;
+        }
+    }
+
+    /// <summary>Append one explain report (issue #217) - same append-only discipline as
+    /// briefs: one JSON line, never rewritten; readers take the LAST line as current.</summary>
+    public void AppendExplain(string sessionId, ExplainReportDto report)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        ArgumentNullException.ThrowIfNull(report);
+        FileLog.Write($"[GatewayTurnBriefStore] AppendExplain: sid={sessionId}, turn={report.TurnNumber}, model={report.Model}, degraded={report.Degraded}");
+        lock (_lock)
+        {
+            File.AppendAllText(ExplainPathFor(sessionId), JsonSerializer.Serialize(report, JsonOpts) + Environment.NewLine);
+        }
+    }
+
+    /// <summary>The newest explain report for a session, or null when none stored.</summary>
+    public ExplainReportDto? LatestExplain(string sessionId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        lock (_lock)
+        {
+            var path = ExplainPathFor(sessionId);
+            if (!File.Exists(path)) return null;
+
+            ExplainReportDto? latest = null;
+            foreach (var line in File.ReadLines(path))
+            {
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                try { latest = JsonSerializer.Deserialize<ExplainReportDto>(line, JsonOpts) ?? latest; }
+                catch (JsonException ex)
+                {
+                    // Torn line (power loss mid-append): logged and skipped, same as briefs.
+                    FileLog.Write($"[GatewayTurnBriefStore] skipping corrupt explain line in {path}: {ex.Message}");
+                }
+            }
+            return latest;
         }
     }
 

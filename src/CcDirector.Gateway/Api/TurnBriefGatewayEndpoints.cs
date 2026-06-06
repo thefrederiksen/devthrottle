@@ -14,12 +14,19 @@ namespace CcDirector.Gateway.Api;
 ///   POST /sessions/{sid}/turnbriefs/feedback - vote/reason feedback (#207), stored as a
 ///                                              replayable labeled example
 ///   GET  /turnbriefs/feedback                 - recent feedback corpus records
+///   POST /sessions/{sid}/explain              - "I am lost - explain" deep dive (#217);
+///                                              202 + state "Explaining" while it runs
+///   GET  /sessions/{sid}/explain/latest       - the newest explain report (404 when none)
 /// Serves the GATEWAY's append-only store; never proxies to a Director. Consumers render
 /// the stored briefs verbatim - interpretation happened once, in the warm brain.
 /// </summary>
 internal static class TurnBriefGatewayEndpoints
 {
-    public static void Map(IEndpointRouteBuilder app, GatewayTurnBriefStore store, Func<string, string> briefingStateFor)
+    public static void Map(
+        IEndpointRouteBuilder app,
+        GatewayTurnBriefStore store,
+        Func<string, string> briefingStateFor,
+        Func<string, Task<(bool Ok, string Error)>>? requestExplainAsync = null)
     {
         app.MapGet("/sessions/{sid}/turnbriefs", (string sid) =>
         {
@@ -74,6 +81,35 @@ internal static class TurnBriefGatewayEndpoints
         {
             var take = count.GetValueOrDefault(50);
             return Results.Json(new TurnBriefFeedbackListResponse { Items = store.ListFeedback(take) });
+        });
+
+        app.MapPost("/sessions/{sid}/explain", async (string sid) =>
+        {
+            if (!Guid.TryParse(sid, out _))
+                return Results.BadRequest(new { error = "invalid session id format" });
+            if (requestExplainAsync is null)
+                return Results.Json(new { error = "briefing pipeline disabled (CC_TURNBRIEFS=0)" },
+                    statusCode: StatusCodes.Status503ServiceUnavailable);
+
+            var (ok, error) = await requestExplainAsync(sid);
+            if (!ok)
+                return Results.NotFound(new { error });
+
+            return Results.Json(
+                new ExplainAcceptedResponse { Accepted = true, State = briefingStateFor(sid) },
+                statusCode: StatusCodes.Status202Accepted);
+        });
+
+        app.MapGet("/sessions/{sid}/explain/latest", (string sid) =>
+        {
+            if (!Guid.TryParse(sid, out _))
+                return Results.BadRequest(new { error = "invalid session id format" });
+
+            var latest = store.LatestExplain(sid);
+            if (latest is null)
+                return Results.NotFound(new { error = "no explain report yet", briefingState = briefingStateFor(sid) });
+
+            return Results.Json(latest);
         });
     }
 }

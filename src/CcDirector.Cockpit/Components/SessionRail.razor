@@ -33,7 +33,7 @@
         @<div role="button" tabindex="0"
               class="@($"sess{(s.SessionId == SelectedSessionId ? " sess-selected" : "")}")"
               style="border-left-color:@DotColor(SessionOrdering.EffectiveColor(s))"
-              title="@($"{SessionOrdering.EffectiveColor(s)}: {(SessionOrdering.IsBriefing(s) ? "wingman reading the turn" : s.LastStatusReason)}")"
+              title="@($"{SessionOrdering.EffectiveColor(s)}: {(SessionOrdering.IsExplaining(s) ? "wingman explaining the session" : SessionOrdering.IsBriefing(s) ? "wingman reading the turn" : s.LastStatusReason)}")"
               @onclick="() => OnSelect.InvokeAsync(s.SessionId)">
             <span class="sess-dot" style="background:@DotColor(SessionOrdering.EffectiveColor(s))"></span>
             <span class="sess-body">
@@ -63,7 +63,11 @@
                    squeezes the session name. While the wingman reads, say so - and ONLY
                    then: this line, the dot, and the triage bucket all key off the same
                    shared effective state so they can never contradict (issue #196). *@
-                @if (SessionOrdering.IsBriefing(s))
+                @if (SessionOrdering.IsExplaining(s))
+                {
+                    <span class="rail-line explaining">wingman explaining...</span>
+                }
+                else if (SessionOrdering.IsBriefing(s))
                 {
                     <span class="rail-line briefing">wingman reading...</span>
                 }
@@ -284,6 +288,7 @@
         "green" => "#22C55E",
         "blue" => "#3B82F6",
         "yellow" => "#F59E0B",
+        "orange" => "#F97316",
         "red" => "#F14C4C",
         _ => "#6B7280",
     };
