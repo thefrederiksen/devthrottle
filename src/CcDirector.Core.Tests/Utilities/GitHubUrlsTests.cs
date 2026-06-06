@@ -1,8 +1,8 @@
 using System.Diagnostics;
-using CcDirector.Avalonia;
+using CcDirector.Core.Utilities;
 using Xunit;
 
-namespace CcDirector.Avalonia.Tests;
+namespace CcDirector.Core.Tests.Utilities;
 
 public class GitHubUrlsTests
 {
