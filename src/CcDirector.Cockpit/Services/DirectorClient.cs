@@ -31,6 +31,18 @@ public sealed class ScreenshotInfo
     public long SizeBytes { get; set; }
 }
 
+/// <summary>The shape of GET /sessions/{sid}/github-urls.</summary>
+public sealed class GitHubUrlsResponse
+{
+    public string NewIssueUrl { get; set; } = "";
+}
+
+/// <summary>Generic Director error body ({ error }).</summary>
+public sealed class ErrorResponse
+{
+    public string? Error { get; set; }
+}
+
 /// <summary>The shape of GET /screenshots: the resolved folder + its image files, newest first.</summary>
 public sealed class ScreenshotsResponse
 {
@@ -190,6 +202,45 @@ public sealed class DirectorClient
         _log.LogDebug("RenameSession sid={Sid} name={Name}", sid, name);
         var resp = await _http.PatchAsJsonAsync(Url(directorBase, $"sessions/{sid}"), new { name }, ct);
         resp.EnsureSuccessStatusCode();
+    }
+
+    /// <summary>Park / un-park a session (<c>POST /sessions/{sid}/hold</c>).</summary>
+    public async Task SetHoldAsync(string directorBase, string sid, bool onHold, CancellationToken ct = default)
+    {
+        _log.LogDebug("SetHold sid={Sid} onHold={OnHold}", sid, onHold);
+        var resp = await _http.PostAsJsonAsync(Url(directorBase, $"sessions/{sid}/hold"), new { onHold }, ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
+    /// <summary>Toggle the Wingman experience (<c>POST /sessions/{sid}/wingman-enabled</c>).</summary>
+    public async Task SetWingmanEnabledAsync(string directorBase, string sid, bool enabled, CancellationToken ct = default)
+    {
+        _log.LogDebug("SetWingmanEnabled sid={Sid} enabled={Enabled}", sid, enabled);
+        var resp = await _http.PostAsJsonAsync(Url(directorBase, $"sessions/{sid}/wingman-enabled"), new { enabled }, ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
+    /// <summary>
+    /// Resolve the session repo's GitHub "new issue" URL (<c>GET /sessions/{sid}/github-urls</c>).
+    /// The Director derives it from the repo's origin remote - the browser cannot read the git
+    /// config on the Director's machine. Throws with the Director's message when the repo has
+    /// no GitHub origin (409) or the Director predates the endpoint (404).
+    /// </summary>
+    public async Task<string> GetGitHubNewIssueUrlAsync(string directorBase, string sid, CancellationToken ct = default)
+    {
+        _log.LogDebug("GetGitHubNewIssueUrl sid={Sid}", sid);
+        var resp = await _http.GetAsync(Url(directorBase, $"sessions/{sid}/github-urls"), ct);
+        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
+            throw new InvalidOperationException("This Director predates the GitHub-issue endpoint - relaunch it on a newer build.");
+        if (!resp.IsSuccessStatusCode)
+        {
+            var err = await resp.Content.ReadFromJsonAsync<ErrorResponse>(cancellationToken: ct);
+            throw new InvalidOperationException(err?.Error ?? $"github-urls failed: HTTP {(int)resp.StatusCode}");
+        }
+        var body = await resp.Content.ReadFromJsonAsync<GitHubUrlsResponse>(cancellationToken: ct);
+        if (body is null || string.IsNullOrWhiteSpace(body.NewIssueUrl))
+            throw new InvalidOperationException("Director returned an empty GitHub URL");
+        return body.NewIssueUrl;
     }
 
     /// <summary>Read a Director's raw settings JSON (<c>GET /settings</c>).</summary>

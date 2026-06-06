@@ -69,12 +69,17 @@
                     </div>
                     <button class="left-collapse" title="Collapse panel" @onclick="ToggleLeft">&laquo;</button>
                 </div>
+                @if (_railNotice is not null)
+                {
+                    <div class="rail-notice">@_railNotice</div>
+                }
                 <SessionRail Sessions="_sessions"
                              Errors="_errors"
                              SelectedSessionId="@_selectedId"
                              ViewMode="@_viewMode"
                              OnSelect="OnSelect"
-                             OnNewSession="OpenNewSessionFor" />
+                             OnNewSession="OpenNewSessionFor"
+                             OnMenuAction="OnRailMenuAction" />
             }
         </aside>
 
@@ -1720,6 +1725,103 @@
         _renameText = Selected.Name ?? "";
         _renaming = true;
         _killArmed = false;
+    }
+
+    // ===== Rail kebab menu (#191): the rail reports the action, this page executes it =====
+
+    /// <summary>Transient feedback line above the rail (copy confirmations, action errors).</summary>
+    private string? _railNotice;
+    private CancellationTokenSource? _railNoticeCts;
+
+    private void ShowRailNotice(string text)
+    {
+        _railNotice = text;
+        _railNoticeCts?.Cancel();
+        _railNoticeCts = new CancellationTokenSource();
+        var ct = _railNoticeCts.Token;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(6), ct);
+                _railNotice = null;
+                await InvokeAsync(StateHasChanged);
+            }
+            catch (OperationCanceledException) { /* replaced by a newer notice */ }
+        });
+    }
+
+    private async Task OnRailMenuAction(SessionRail.MenuActionArgs a)
+    {
+        var s = a.Session;
+        var dir = s.TailnetEndpoint;
+        if (string.IsNullOrWhiteSpace(dir))
+        {
+            ShowRailNotice("This session has no reachable Director endpoint.");
+            return;
+        }
+        try
+        {
+            switch (a.Action)
+            {
+                case "rename":
+                    // Reuse the detail header's inline rename: select the session, enter rename mode.
+                    await OnSelect(s.SessionId);
+                    _renameText = s.Name ?? "";
+                    _renaming = true;
+                    break;
+
+                case "copy-handover":
+                    // Same block the desktop's Copy Handover Info builds: enough for another
+                    // agent to locate, recall, and talk to this exact session.
+                    var text = string.Join("\n", new[]
+                    {
+                        $"Name: {SessionTitle(s)}",
+                        $"Session ID: {s.SessionId}",
+                        $"Repo: {s.RepoPath}",
+                        $"Director ID: {s.DirectorId}",
+                        $"Machine: {s.MachineName}",
+                        $"Control API: {s.TailnetEndpoint}",
+                    });
+                    await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+                    ShowRailNotice($"Copied handover info for {SessionTitle(s)}");
+                    break;
+
+                case "github-issue":
+                    // The Director resolves the repo's origin remote (the repo lives on ITS
+                    // machine); the browser just opens the new-issue form.
+                    var url = await Director.GetGitHubNewIssueUrlAsync(dir, s.SessionId, _cts.Token);
+                    await JS.InvokeVoidAsync("window.open", url, "_blank");
+                    break;
+
+                case "hold":
+                    await Director.SetHoldAsync(dir, s.SessionId, !s.OnHold, _cts.Token);
+                    ShowRailNotice(s.OnHold ? $"Took {SessionTitle(s)} off hold" : $"Put {SessionTitle(s)} on hold");
+                    await RefreshAsync();
+                    break;
+
+                case "wingman":
+                    await Director.SetWingmanEnabledAsync(dir, s.SessionId, !s.WingmanEnabled, _cts.Token);
+                    ShowRailNotice(s.WingmanEnabled ? $"Removed wingman from {SessionTitle(s)}" : $"Added wingman to {SessionTitle(s)}");
+                    await RefreshAsync();
+                    break;
+
+                case "close":
+                    // The rail already two-stepped the confirm; this is the committed click.
+                    await Director.DeleteSessionAsync(dir, s.SessionId, _cts.Token);
+                    if (_selectedId == s.SessionId) _selectedId = null;
+                    ShowRailNotice($"Closed {SessionTitle(s)}");
+                    await RefreshAsync();
+                    break;
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            Log.LogWarning(ex, "rail menu action {Action} failed for sid={Sid}", a.Action, s.SessionId);
+            ShowRailNotice(ex.Message);
+        }
+        await InvokeAsync(StateHasChanged);
     }
 
     private async Task OnRenameKey(KeyboardEventArgs e)

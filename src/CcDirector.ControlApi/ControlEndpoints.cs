@@ -378,6 +378,31 @@ internal static class ControlEndpoints
             return Results.Json(new { wingmanEnabled = session.WingmanEnabled });
         });
 
+        // Resolve the session repo's GitHub "new issue" URL from its origin remote. The
+        // Cockpit's session menu (#191) calls this because the repo lives on THIS Director's
+        // machine - the browser cannot read the git config itself. 409 when the repo has no
+        // GitHub origin (the menu shows the message verbatim).
+        app.MapGet("/sessions/{sid}/github-urls", (string sid) =>
+        {
+            if (!Guid.TryParse(sid, out var guid))
+                return Results.BadRequest(new { error = "invalid session id format" });
+            var session = sessionManager.GetSession(guid);
+            if (session is null)
+                return Results.NotFound(new { error = "session not found" });
+
+            FileLog.Write($"[ControlEndpoints] GET /sessions/{guid}/github-urls: repo={session.RepoPath}");
+            try
+            {
+                var url = GitHubUrls.BuildNewIssueUrl(session.RepoPath);
+                return Results.Json(new { newIssueUrl = url });
+            }
+            catch (InvalidOperationException ex)
+            {
+                FileLog.Write($"[ControlEndpoints] github-urls FAILED: {ex.Message}");
+                return Results.Json(new { error = ex.Message }, statusCode: 409);
+            }
+        });
+
         // Mobile view-links: serve a local file INLINE so a phone can tap a link and VIEW
         // the file (HTML/PDF/image/text) in the browser, instead of getting a useless file
         // path it cannot open. Browser Back returns to the session.

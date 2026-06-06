@@ -18,16 +18,23 @@
         <div class="rail-empty">No sessions. The Gateway returned an empty roster.</div>
     }
 
+    @if (_menuSid is not null)
+    {
+        @* Invisible backdrop: any click outside the open menu closes it. *@
+        <div class="sess-menu-backdrop" @onclick="CloseMenu"></div>
+    }
+
     @{
         // One row template shared by both layouts. The director short-id span is always
         // emitted; CSS hides it in tree mode (redundant under a dir-head) and shows it in
         // triage mode (where rows are no longer grouped by Director).
+        // The row is a div (not a button) so the kebab menu button can nest inside it.
         RenderFragment<SessionDto> SessionRow = s =>
-        @<button type="button"
-                 class="@($"sess{(s.SessionId == SelectedSessionId ? " sess-selected" : "")}")"
-                 style="border-left-color:@DotColor(s.StatusColor)"
-                 title="@($"{s.StatusColor}: {s.LastStatusReason}")"
-                 @onclick="() => OnSelect.InvokeAsync(s.SessionId)">
+        @<div role="button" tabindex="0"
+              class="@($"sess{(s.SessionId == SelectedSessionId ? " sess-selected" : "")}")"
+              style="border-left-color:@DotColor(s.StatusColor)"
+              title="@($"{s.StatusColor}: {s.LastStatusReason}")"
+              @onclick="() => OnSelect.InvokeAsync(s.SessionId)">
             <span class="sess-dot" style="background:@DotColor(s.StatusColor)"></span>
             <span class="sess-body">
                 <span class="sess-name">@(string.IsNullOrWhiteSpace(s.Name) ? s.RepoPath : s.Name)</span>
@@ -61,7 +68,34 @@
                     <span class="rail-line">@s.RailLine</span>
                 }
             </span>
-        </button>;
+            @* Per-session menu (#191): mirrors the desktop session context menu, web-adapted.
+               The kebab never steals the row's click-to-select (stopPropagation). *@
+            <button type="button" class="sess-kebab @(_menuSid == s.SessionId ? "open" : "")"
+                    title="Session menu"
+                    @onclick="() => ToggleMenu(s.SessionId)" @onclick:stopPropagation="true">&#8942;</button>
+            @if (_menuSid == s.SessionId)
+            {
+                <div class="sess-menu" @onclick:stopPropagation="true">
+                    <button class="sess-menu-item" @onclick='() => FireAsync("rename", s)'>Rename</button>
+                    <button class="sess-menu-item" @onclick='() => FireAsync("copy-handover", s)'>Copy Handover Info</button>
+                    <div class="sess-menu-sep"></div>
+                    <button class="sess-menu-item" @onclick='() => FireAsync("github-issue", s)'>New GitHub Issue</button>
+                    <div class="sess-menu-sep"></div>
+                    <button class="sess-menu-item" @onclick='() => FireAsync("hold", s)'>@(s.OnHold ? "Take Off Hold" : "Hold")</button>
+                    <button class="sess-menu-item" @onclick='() => FireAsync("wingman", s)'>@(s.WingmanEnabled ? "Remove Wingman" : "Add Wingman")</button>
+                    <div class="sess-menu-sep"></div>
+                    @if (_closeArmed)
+                    {
+                        <button class="sess-menu-item danger" @onclick='() => FireAsync("close", s)'>Confirm close</button>
+                    }
+                    else
+                    {
+                        @* Two-step like the detail header's Kill: closing ends the live agent. *@
+                        <button class="sess-menu-item danger" @onclick="ArmClose">Close Session</button>
+                    }
+                </div>
+            }
+        </div>;
     }
 
     @if (ViewMode == "triage")
@@ -161,6 +195,38 @@
     /// <summary>Raised with a Director id when the user clicks a Director's [+] to start
     /// a new session there.</summary>
     [Parameter] public EventCallback<string> OnNewSession { get; set; }
+
+    /// <summary>One action picked from a row's kebab menu (#191). The parent owns the
+    /// execution (it has the DirectorClient, JS, and roster refresh); this component only
+    /// reports WHICH action on WHICH session.</summary>
+    public sealed record MenuActionArgs(string Action, SessionDto Session);
+
+    /// <summary>Raised when the user picks an item from a session's kebab menu.</summary>
+    [Parameter] public EventCallback<MenuActionArgs> OnMenuAction { get; set; }
+
+    // ===== kebab menu state: at most one menu open, close-confirm is two-step =====
+    private string? _menuSid;
+    private bool _closeArmed;
+
+    private void ToggleMenu(string sid)
+    {
+        _closeArmed = false;
+        _menuSid = _menuSid == sid ? null : sid;
+    }
+
+    private void CloseMenu()
+    {
+        _menuSid = null;
+        _closeArmed = false;
+    }
+
+    private void ArmClose() => _closeArmed = true;
+
+    private async Task FireAsync(string action, SessionDto s)
+    {
+        CloseMenu();
+        await OnMenuAction.InvokeAsync(new MenuActionArgs(action, s));
+    }
 
     private static string MachineKey(string? machine) =>
         string.IsNullOrWhiteSpace(machine) ? "(this machine)" : machine;
