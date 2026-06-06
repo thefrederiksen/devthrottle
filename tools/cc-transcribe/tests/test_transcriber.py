@@ -122,7 +122,7 @@ class TestTranscribeVideo:
         # Setup mocks - extract_audio needs to create the actual file
         mock_duration.return_value = 60.0
 
-        def create_audio_file(video_path, audio_path):
+        def create_audio_file(video_path, audio_path, **kwargs):  # kwargs: extract_audio passes bitrate
             audio_path.write_bytes(b"fake audio content")
             return audio_path
 
@@ -157,7 +157,7 @@ class TestTranscribeVideo:
 
         mock_duration.return_value = 120.0
 
-        def create_audio_file(video_path, audio_path):
+        def create_audio_file(video_path, audio_path, **kwargs):  # kwargs: extract_audio passes bitrate
             audio_path.write_bytes(b"fake audio content")
             return audio_path
 

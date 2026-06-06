@@ -25,8 +25,6 @@ a = Analysis(
         'cv2',
         'PIL',
         'PIL.Image',
-        'skimage',
-        'skimage.metrics',
         'numpy',
         'cli',
         'ffmpeg',

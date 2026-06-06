@@ -7,7 +7,6 @@ from typing import Optional
 import cv2
 import numpy as np
 from PIL import Image
-from skimage.metrics import structural_similarity as ssim
 
 
 @dataclass
@@ -24,6 +23,34 @@ def format_timestamp(seconds: float) -> str:
     m = int((seconds % 3600) // 60)
     s = int(seconds % 60)
     return f"{h:02d}-{m:02d}-{s:02d}"
+
+
+def ssim(img1: np.ndarray, img2: np.ndarray) -> float:
+    """SSIM for uint8 grayscale images (Wang et al. 2004) using only cv2 + numpy.
+
+    Replaces skimage.metrics.structural_similarity and matches its defaults
+    (uniform 7x7 window, unbiased covariance, border-cropped mean) to within
+    floating-point noise, so scikit-image (and its scipy stack, ~52 MB in the
+    tools bundle) is not needed for this one function (issue #174).
+    """
+    win = 7
+    pad = win // 2
+    a = img1.astype(np.float64)
+    b = img2.astype(np.float64)
+    c1 = (0.01 * 255.0) ** 2
+    c2 = (0.03 * 255.0) ** 2
+
+    def f(x: np.ndarray) -> np.ndarray:
+        return cv2.boxFilter(x, -1, (win, win), borderType=cv2.BORDER_REFLECT)
+
+    ua, ub = f(a), f(b)
+    uaa, ubb, uab = f(a * a), f(b * b), f(a * b)
+    norm = win * win / (win * win - 1.0)  # unbiased covariance, as skimage
+    va = norm * (uaa - ua * ua)
+    vb = norm * (ubb - ub * ub)
+    vab = norm * (uab - ua * ub)
+    s = ((2 * ua * ub + c1) * (2 * vab + c2)) / ((ua * ua + ub * ub + c1) * (va + vb + c2))
+    return float(s[pad:-pad, pad:-pad].mean())
 
 
 def calculate_similarity(frame1: np.ndarray, frame2: np.ndarray) -> float:
