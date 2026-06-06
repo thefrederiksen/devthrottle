@@ -25,6 +25,9 @@
   <ItemGroup>
     <ProjectReference Include="..\CcDirector.Gateway.Contracts\CcDirector.Gateway.Contracts.csproj" />
     <ProjectReference Include="..\CcDirector.Core\CcDirector.Core.csproj" />
+    <!-- The Gateway's in-process warm brain (issues #184/#185): BrainSupervisor + HostedAgent
+         power the turn-brief stamping machine. -->
+    <ProjectReference Include="..\CcDirector.HostedAgent\CcDirector.HostedAgent.csproj" />
     <!-- Setup engine: the Cockpit supervisor auto-updates the Cockpit in place (CockpitUpdater). -->
     <ProjectReference Include="..\..\tools\cc-director-setup-engine\CcDirector.Setup.Engine.csproj" />
   </ItemGroup>

@@ -120,4 +120,41 @@ public sealed class GatewayClient
         }
         return await resp.Content.ReadFromJsonAsync<SessionDto>(cancellationToken: ct);
     }
+
+    /// <summary>
+    /// All Gateway-stored TurnBriefs for a session, newest first (issue #185: the warm-brain
+    /// stamping machine writes briefs on the GATEWAY; the Cockpit reads them from here first
+    /// and falls back to the owning Director's store only while that pipeline still exists).
+    /// Null on transport failure - the caller falls back, never renders an error for this.
+    /// </summary>
+    public async Task<TurnBriefsResponse?> GetTurnBriefsAsync(string sessionId, CancellationToken ct = default)
+    {
+        try
+        {
+            var resp = await _http.GetAsync($"sessions/{Uri.EscapeDataString(sessionId)}/turnbriefs", ct);
+            if (!resp.IsSuccessStatusCode) return null;
+            return await resp.Content.ReadFromJsonAsync<TurnBriefsResponse>(cancellationToken: ct);
+        }
+        catch (HttpRequestException ex)
+        {
+            _log.LogDebug(ex, "GetTurnBriefsAsync transport failure for {Sid}", sessionId);
+            return null;
+        }
+    }
+
+    /// <summary>The latest Gateway-stored TurnBrief; null on 404 (none yet) or transport failure.</summary>
+    public async Task<TurnBriefDto?> GetLatestTurnBriefAsync(string sessionId, CancellationToken ct = default)
+    {
+        try
+        {
+            var resp = await _http.GetAsync($"sessions/{Uri.EscapeDataString(sessionId)}/turnbriefs/latest", ct);
+            if (!resp.IsSuccessStatusCode) return null;
+            return await resp.Content.ReadFromJsonAsync<TurnBriefDto>(cancellationToken: ct);
+        }
+        catch (HttpRequestException ex)
+        {
+            _log.LogDebug(ex, "GetLatestTurnBriefAsync transport failure for {Sid}", sessionId);
+            return null;
+        }
+    }
 }

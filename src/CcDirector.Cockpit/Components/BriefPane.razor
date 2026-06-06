@@ -1,5 +1,6 @@
 @implements IDisposable
 @inject DirectorClient Director
+@inject GatewayClient Gateway
 @inject ILogger<BriefPane> Log
 @using Markdig
 
@@ -466,9 +467,12 @@
         {
             // Wingman tier and condenser tier load together: the TurnBrief drives the three
             // blocks; /brief supplies YOU ASKED + the full reply markdown for the expander.
-            var turnBriefTask = Director.GetLatestTurnBriefAsync(DirectorBase, SessionId, ct);
+            // Gateway brief store first (issue #185); the Director's own store is the
+            // fallback until its pipeline is deleted (#187).
+            var gatewayBriefTask = Gateway.GetLatestTurnBriefAsync(SessionId, ct);
             var briefTask = Director.GetBriefAsync(DirectorBase, SessionId, ct);
-            _turnBrief = await turnBriefTask;
+            _turnBrief = await gatewayBriefTask
+                ?? await Director.GetLatestTurnBriefAsync(DirectorBase, SessionId, ct);
             _brief = await briefTask;
             _toggled.Clear();
 

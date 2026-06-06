@@ -1496,10 +1496,20 @@
         {
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
             cts.CancelAfter(TimeSpan.FromSeconds(10));
-            // The turn timeline (the session's story from the TurnBriefStore) loads first -
-            // it's the story column's primary content; the cached recap rides along.
-            var briefs = await Director.GetTurnBriefsAsync(dir!, sel.SessionId, cts.Token);
-            _turnTimeline = briefs?.Items ?? new List<TurnBriefDto>();
+            // The turn timeline (the session's story) loads first - it's the story column's
+            // primary content; the cached recap rides along. Gateway store first (issue #185:
+            // the warm-brain stamping machine writes briefs there); the Director's own store
+            // is the fallback until its pipeline is deleted (#187).
+            var gatewayBriefs = await Gateway.GetTurnBriefsAsync(sel.SessionId, cts.Token);
+            if (gatewayBriefs?.Items is { Count: > 0 } fromGateway)
+            {
+                _turnTimeline = fromGateway;
+            }
+            else
+            {
+                var briefs = await Director.GetTurnBriefsAsync(dir!, sel.SessionId, cts.Token);
+                _turnTimeline = briefs?.Items ?? new List<TurnBriefDto>();
+            }
             _usage = await Director.GetSessionUsageAsync(dir!, sel.SessionId, cts.Token);
             _recap = await Director.GetRecapAsync(dir!, sel.SessionId, cts.Token);
         }
