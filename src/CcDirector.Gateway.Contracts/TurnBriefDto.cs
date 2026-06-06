@@ -64,6 +64,11 @@ public sealed class TurnBriefDto
     /// nothing blocks. Suggestion only - a consumer renders it as a one-click approval; the
     /// wingman never acts. Null on pre-v2.4 and degrade-tier briefs.</summary>
     public TurnBriefSuggestedAction? SuggestedAction { get; set; }
+
+    /// <summary>Which TurnBriefContract version produced this brief (v3.1, issue #208):
+    /// stamped mechanically at validation time so review rounds and the eval harness can
+    /// compare briefs across contract deploys. Null on pre-v3.1 briefs.</summary>
+    public string? ContractVersion { get; set; }
 }
 
 /// <summary>A wingman-suggested session-level action (v2.4, issue #201). The type vocabulary

@@ -436,4 +436,151 @@ public sealed class TurnBriefContractValidationTests
         Assert.NotNull(brief.AllClear);
         Assert.Equal(250, brief.AllClear.Length);
     }
+
+    // =================================================================================
+    // v3.2 (issue #208): parked composer reply - mechanical capture + invariants.
+    // =================================================================================
+
+    [Fact]
+    public void Validate_ContractVersion_StampedOnEveryBrief()
+    {
+        var brief = TurnBriefContract.ParseAndValidate(
+            """{ "intent": "x", "did": [], "needsYou": null }""", Package(), "wingman:test");
+        Assert.NotNull(brief);
+        Assert.Equal(TurnBriefContract.Version, brief.ContractVersion);
+    }
+
+    [Fact]
+    public void Validate_ParkedReply_NotQuotedInStatement_Rejected()
+    {
+        var p = Package() with { ParkedComposerText = "Posted, it's live" };
+        var json = """
+        { "intent": "x", "did": [],
+          "needsYou": {
+            "statement": "The agent staged the post and waits for you to submit it.",
+            "answerVia": "reply", "selectionMode": "single", "submit": null,
+            "options": [ { "key": "a", "send": "a" } ],
+            "evidence": "", "urgency": "review", "confidence": "high", "railLine": "r" } }
+        """;
+        Assert.Null(TurnBriefContract.ParseAndValidate(json, p, "wingman:test"));
+    }
+
+    [Fact]
+    public void Validate_ParkedReply_QuotedInStatement_Accepted()
+    {
+        var p = Package() with { ParkedComposerText = "Posted, it's live" };
+        var json = """
+        { "intent": "x", "did": [],
+          "needsYou": {
+            "statement": "Your reply \"Posted, it's live\" is typed but unsent - press Enter.",
+            "answerVia": "keys", "selectionMode": "single", "submit": null,
+            "options": [ { "key": "send my typed reply", "send": "\r", "recommended": true } ],
+            "evidence": "", "urgency": "review", "confidence": "high", "railLine": "press Enter" } }
+        """;
+        var brief = TurnBriefContract.ParseAndValidate(json, p, "wingman:test");
+        Assert.NotNull(brief);
+        Assert.NotNull(brief.NeedsYou);
+        Assert.Equal("\r", brief.NeedsYou.Options[0].Send);
+        Assert.True(brief.NeedsYou.Options[0].Recommended);
+    }
+
+    [Fact]
+    public void Validate_ParkedReply_NeedsYouNull_Rejected()
+    {
+        // A parked reply means the user must act; an all-clear brief would hide it.
+        var p = Package() with { ParkedComposerText = "commit this and close issue 14" };
+        Assert.Null(TurnBriefContract.ParseAndValidate(
+            """{ "intent": "x", "did": [], "needsYou": null, "allClear": "all done" }""",
+            p, "wingman:test"));
+    }
+
+    [Fact]
+    public void Validate_LeadingProseBeforeJson_UnwrappedMechanically()
+    {
+        // Replay rounds 2+4 (issue #208): models narrate a sentence before the JSON.
+        var raw = """
+        This is a PARKED REPLY situation. The user already typed their answer.
+
+        { "intent": "x", "did": ["y"], "needsYou": null, "allClear": "filed and confirmed - nothing to do" }
+        """;
+        var brief = TurnBriefContract.ParseAndValidate(raw, Package(), "wingman:test");
+        Assert.NotNull(brief);
+        Assert.Equal("filed and confirmed - nothing to do", brief.AllClear);
+    }
+
+    [Fact]
+    public void Validate_ProseWithoutAnyJson_StillRejected()
+    {
+        Assert.Null(TurnBriefContract.ParseAndValidate(
+            "I could not produce a brief for this turn.", Package(), "wingman:test"));
+    }
+
+    [Fact]
+    public void Prompt_ParkedReply_GetsItsOwnSection()
+    {
+        // The full section header (the RULES text also mentions the section by name,
+        // so the assertion targets the header with its parenthetical).
+        const string section = "=== PARKED, UNSENT USER REPLY (extracted mechanically from the composer) ===";
+        var p = Package() with { ParkedComposerText = "start on #7624" };
+        var prompt = TurnBriefContract.BuildPrompt(p);
+        Assert.Contains(section, prompt);
+        Assert.Contains("start on #7624", prompt);
+
+        var without = TurnBriefContract.BuildPrompt(Package());
+        Assert.DoesNotContain(section, without);
+    }
+}
+
+// =====================================================================================
+// v3.2 (issue #208): ExtractParkedComposerText - the conservative screen heuristic.
+// =====================================================================================
+public sealed class ParkedComposerTextTests
+{
+    [Fact]
+    public void Extract_TextAfterIdleFooter_IsParked()
+    {
+        var tail = "some reply text\n❯ \n  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents\n\nPosted, it's live";
+        Assert.Equal("Posted, it's live", TurnPackageBuilder.ExtractParkedComposerText(tail));
+    }
+
+    [Fact]
+    public void Extract_NoFooterMarker_Null()
+    {
+        Assert.Null(TurnPackageBuilder.ExtractParkedComposerText("plain screen with a prompt\n❯ "));
+        Assert.Null(TurnPackageBuilder.ExtractParkedComposerText(""));
+    }
+
+    [Fact]
+    public void Extract_OnlyChromeAfterMarker_Null()
+    {
+        // Usage banners, tips, separators and prompt markers are not composer text.
+        var tail = "reply\n· ← for agents\nYou've used 92% of your session limit · resets 6pm\nTip: ctrl+s to stash\n❯ \n──────";
+        Assert.Null(TurnPackageBuilder.ExtractParkedComposerText(tail));
+    }
+
+    [Fact]
+    public void Extract_MarkerGluedToText_NoNewline_IsParked()
+    {
+        // Rendering tears glue the footer and the composer text together on one capture.
+        var tail = "✻Crunched fo 19s❯ ← for agentsThe agent ran the fix, can you verify from your side now?";
+        Assert.Equal("The agent ran the fix, can you verify from your side now?",
+            TurnPackageBuilder.ExtractParkedComposerText(tail));
+    }
+
+    [Fact]
+    public void Extract_OversizeBlob_Null()
+    {
+        // A huge trailing blob means the heuristic caught rendering debris, not a reply.
+        var tail = "x\n· ← for agents\n" + new string('y', 600);
+        Assert.Null(TurnPackageBuilder.ExtractParkedComposerText(tail));
+    }
+
+    [Fact]
+    public void Build_PopulatesParkedComposerText()
+    {
+        var widgets = new List<TurnWidgetDto> { new() { Kind = "UserMessage", Content = "go" } };
+        var tail = "done\n  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents\n\nyes";
+        var p = TurnPackageBuilder.Build(Guid.NewGuid(), widgets, tail, null);
+        Assert.Equal("yes", p.ParkedComposerText);
+    }
 }

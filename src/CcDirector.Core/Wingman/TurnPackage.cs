@@ -19,7 +19,8 @@ public sealed record TurnPackage(
     string ScreenTail,
     string? RollingIntent,
     IReadOnlyList<string> PriorRailLines,
-    string? CurrentHeadline = null);
+    string? CurrentHeadline = null,
+    string? ParkedComposerText = null);
 
 /// <summary>
 /// Builds a <see cref="TurnPackage"/> from the parsed transcript widgets, the current screen
@@ -86,7 +87,54 @@ public static class TurnPackageBuilder
             tail,
             priorBrief?.Intent,
             priorLines,
-            headline);
+            headline,
+            ExtractParkedComposerText(tail));
+    }
+
+    /// <summary>
+    /// Mechanical extraction of typed-but-unsubmitted composer text from the screen tail
+    /// (issue #208, review rounds 1-3: in 3 of 5 red turns the user's reply was already
+    /// parked and briefs that ignore it re-ask a decided question; whether text was parked
+    /// vs submitted is unknowable to the model from pixels alone, so the package states it).
+    ///
+    /// Heuristic, deliberately CONSERVATIVE (a false null is harmless; a false positive
+    /// would reject good briefs via the v3.2 validation invariant): at turn end the idle
+    /// footer renders "... · &lt;- for agents"; anything after the LAST such marker that is
+    /// not known chrome (tips, usage banners, separators, prompt markers) is the composer's
+    /// parked content.
+    /// </summary>
+    public static string? ExtractParkedComposerText(string screenTail)
+    {
+        if (string.IsNullOrEmpty(screenTail)) return null;
+
+        // INVARIANT: this marker is Claude Code's idle-footer chrome ("... · ← for
+        // agents"). If a CLI update renames it, extraction degrades to null fleet-wide
+        // (conservative, no false positives) - briefs stop quoting parked replies. The
+        // ParkedComposerTextTests pin the current chrome; revisit on CLI footer changes.
+        const string marker = "← for agents";
+        var at = screenTail.LastIndexOf(marker, StringComparison.Ordinal);
+        if (at < 0) return null;
+
+        var rest = screenTail[(at + marker.Length)..];
+        var kept = new StringBuilder();
+        foreach (var raw in rest.Split('\n'))
+        {
+            var line = raw.Trim().TrimEnd('\r');
+            if (line.Length == 0) continue;
+            if (line.StartsWith("Tip:", StringComparison.Ordinal)) continue;
+            if (line.StartsWith("You've used", StringComparison.Ordinal)) continue;
+            if (line.StartsWith("⏵⏵", StringComparison.Ordinal)) continue;
+            if (line.StartsWith('─') || line.StartsWith('❯')) continue;
+            if (line.Contains("session limit", StringComparison.Ordinal)) continue;
+            if (line.Contains("Enter to select", StringComparison.Ordinal)) continue;
+            if (kept.Length > 0) kept.Append('\n');
+            kept.Append(line);
+        }
+
+        var text = kept.ToString().Trim();
+        // Length cap: real parked replies are short; a long blob means the heuristic
+        // grabbed rendering debris - return null rather than poison the invariant.
+        return text.Length is > 0 and <= 500 ? text : null;
     }
 
     private static string Truncate(string s, int max)
