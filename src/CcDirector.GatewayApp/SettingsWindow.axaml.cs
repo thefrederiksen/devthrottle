@@ -41,6 +41,7 @@ public partial class SettingsWindow : Window
         OpenLogsButton.Click += (_, _) => OpenFolder(Path.GetDirectoryName(FileLog.CurrentLogPath));
         OpenConfigButton.Click += (_, _) => OpenFolder(Path.GetDirectoryName(InstallLayout.Default().ConfigPath));
         AutostartCheck.IsCheckedChanged += OnAutostartToggled;
+        RestartBrainButton.Click += OnRestartBrainClick;
 
         _refresh = new DispatcherTimer(TimeSpan.FromSeconds(2), DispatcherPriority.Background, (_, _) => _ = RefreshAsync());
         Closed += (_, _) =>
@@ -87,6 +88,66 @@ public partial class SettingsWindow : Window
         _suppressAutostartEvent = true;
         AutostartCheck.IsChecked = autostart;
         _suppressAutostartEvent = false;
+
+        await RefreshBrainAsync();
+    }
+
+    /// <summary>
+    /// Brain status line (issue #184). GetHealthAsync reads transcript files off disk,
+    /// so it runs off the UI thread; it never spawns the brain - a dormant brain just
+    /// shows "not started".
+    /// </summary>
+    private async Task RefreshBrainAsync()
+    {
+        var brain = _controller.Brain;
+        if (brain is null)
+        {
+            BrainStateText.Text = "unavailable";
+            BrainSessionText.Text = "-";
+            return;
+        }
+
+        var sessionId = brain.SessionId;
+        var pid = brain.ProcessId;
+        var health = await Task.Run(() => brain.GetHealthAsync());
+
+        BrainStateText.Text = health.Status == "NotStarted"
+            ? "not started (spawns on first use)"
+            : health.IsAlive
+                ? $"alive - {health.ActivityState}, idle {health.IdleSeconds:F0}s, context {health.ContextTokens:N0} tokens"
+                : $"DEAD ({health.Status}) - use Restart Brain";
+        BrainSessionText.Text = sessionId is null ? "-" : $"{sessionId} (pid {pid})";
+    }
+
+    private void OnRestartBrainClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var brain = _controller?.Brain;
+        if (brain is null) return;
+
+        RestartBrainButton.IsEnabled = false;
+        BrainActionText.Text = "restarting (spawning claude.exe)...";
+        FileLog.Write("[SettingsWindow] Restart Brain clicked");
+        _ = Task.Run(async () =>
+        {
+            string outcome;
+            try
+            {
+                await brain.RestartAsync();
+                outcome = $"brain ready (pid {brain.ProcessId})";
+                FileLog.Write($"[SettingsWindow] brain restart OK: pid={brain.ProcessId}, session={brain.SessionId}");
+            }
+            catch (Exception ex)
+            {
+                outcome = $"restart FAILED: {ex.Message}";
+                FileLog.Write($"[SettingsWindow] brain restart FAILED: {ex.Message}");
+            }
+            await Dispatcher.UIThread.InvokeAsync(async () =>
+            {
+                BrainActionText.Text = outcome;
+                RestartBrainButton.IsEnabled = true;
+                await RefreshBrainAsync();
+            });
+        });
     }
 
     private void OnAutostartToggled(object? sender, Avalonia.Interactivity.RoutedEventArgs e)

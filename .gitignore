@@ -126,3 +126,12 @@ playground/*.png
 
 # Merge/patch backup files
 *.orig
+
+# Headless-brain / hosted-agent harness runtime artifacts (issue #172 family):
+# generated sandbox working dirs, harness state, smoke run output, isolated-config
+# test roots. Live sessions write here; never commit.
+playground/headless-brain/sandbox*/
+playground/headless-brain/state.json
+playground/hosted-agent-smoke/sandboxes/
+playground/hosted-agent-smoke/smoke-output.txt
+playground/alpha-test-root/

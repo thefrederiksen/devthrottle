@@ -4,19 +4,21 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
 using CcDirector.AgentBrain;
+using HostedBrain = CcDirector.HostedAgent.HostedAgent;
+using HostedBrainOptions = CcDirector.HostedAgent.HostedAgentOptions;
 
 namespace CcDirector.AgentBrain.Panel;
 
 /// <summary>
-/// Control panel for one warm Claude brain: every IAgentBrain verb gets a large
-/// button. Two modes share the whole body:
+/// Control panel for one warm in-process Claude brain: every IAgentBrain verb gets a
+/// large button. The panel process OWNS claude.exe via CcDirector.HostedAgent
+/// (embedded ConPty) - the same hosting the Gateway tray app uses for its brain, so
+/// this window is the test harness for that path (issue #184; the Director-REST
+/// transport is retired).
 ///
-///   Hosted (default) - the panel process OWNS claude.exe via CcDirector.HostedAgent
-///     (embedded ConPty). HOST PROCESS WARNING: launch the panel from a clean process
-///     (Task Scheduler / desktop), never from inside a Claude Code terminal, or the
-///     hosted claude dies on the nested-ConPty trap.
-///   Director (REST) - remote-controls a session in a running CC Director via
-///     AgentBrainClient.
+/// HOST PROCESS WARNING: launch the panel from a clean process (Task Scheduler /
+/// desktop), never from inside a Claude Code terminal, or the hosted claude dies on
+/// the nested-ConPty trap.
 ///
 /// All I/O is async (responsive-UI rule: immediate feedback, never block the UI
 /// thread); a background timer keeps the health strip live.
@@ -28,9 +30,7 @@ public partial class MainWindow : Window
     private static readonly IBrush DotBusy = new SolidColorBrush(Color.Parse("#3B82F6"));
     private static readonly IBrush DotDead = new SolidColorBrush(Color.Parse("#E5484D"));
 
-    private const string DefaultDirectorUrl = "http://127.0.0.1:7886";
-
-    private IAgentBrain? _brain;
+    private HostedBrain? _brain;
     private readonly DispatcherTimer _healthTimer;
     private bool _busy;
 
@@ -41,10 +41,6 @@ public partial class MainWindow : Window
     /// <summary>Working directory for brain sessions; settable via --repo for tests.</summary>
     private readonly string _repoPath;
 
-    private readonly string _directorUrl;
-
-    private bool IsHostedMode => ModeCombo.SelectedIndex == 0;
-
     public MainWindow()
     {
         InitializeComponent();
@@ -54,14 +50,7 @@ public partial class MainWindow : Window
         _repoPath = repoIdx >= 0 && repoIdx + 1 < args.Length
             ? args[repoIdx + 1]
             : Path.Combine(Path.GetTempPath(), "agent-brain-sandbox");
-
-        var urlIdx = Array.IndexOf(args, "--director");
-        _directorUrl = urlIdx >= 0 && urlIdx + 1 < args.Length ? args[urlIdx + 1] : DefaultDirectorUrl;
-
-        if (Array.IndexOf(args, "--mode-director") >= 0)
-            ModeCombo.SelectedIndex = 1;
-
-        ApplyModeToTopBar();
+        TargetBox.Text = _repoPath;
 
         _healthTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
         _healthTimer.Tick += async (_, _) => await RefreshHealthAsync();
@@ -72,36 +61,10 @@ public partial class MainWindow : Window
     // Try-catch lives HERE (entry points) per CodingStyle - the libraries throw,
     // the panel reports.
 
-    private void OnModeChanged(object? sender, SelectionChangedEventArgs e)
-    {
-        // Fires during InitializeComponent before the named controls exist.
-        if (TargetBox is null) return;
-        ApplyModeToTopBar();
-    }
-
-    private void ApplyModeToTopBar()
-    {
-        if (IsHostedMode)
-        {
-            TargetLabel.Text = "WORK DIR";
-            TargetBox.Text = _repoPath;
-            ConnectButton.Content = "START HOST";
-        }
-        else
-        {
-            TargetLabel.Text = "DIRECTOR";
-            TargetBox.Text = _directorUrl;
-            ConnectButton.Content = "CONNECT";
-        }
-    }
-
     private async void OnConnectClick(object? sender, RoutedEventArgs e)
     {
         if (_busy) return;
-        if (IsHostedMode)
-            await StartHostedAsync();
-        else
-            await ConnectDirectorAsync();
+        await StartHostedAsync();
     }
 
     private async Task StartHostedAsync()
@@ -112,7 +75,7 @@ public partial class MainWindow : Window
             _brain?.Dispose();
             var workDir = TargetBox.Text?.Trim() ?? "";
             Directory.CreateDirectory(workDir);
-            var hosted = new CcDirector.HostedAgent.HostedAgent(new CcDirector.HostedAgent.HostedAgentOptions
+            var hosted = new HostedBrain(new HostedBrainOptions
             {
                 WorkingDirectory = workDir,
             });
@@ -120,7 +83,7 @@ public partial class MainWindow : Window
 
             var t0 = DateTime.UtcNow;
             await hosted.StartAsync();
-            DirectorInfoText.Text = $"hosted - pid {hosted.ProcessId}";
+            HostInfoText.Text = $"hosted - pid {hosted.ProcessId}";
             HealthDot.Fill = DotAlive;
             AppendLog($"[hosted] claude.exe pid={hosted.ProcessId} spawned as MY child in {(DateTime.UtcNow - t0).TotalSeconds:F1}s");
             AppendLog($"[hosted] claude session {hosted.SessionId}, workdir {workDir}");
@@ -130,44 +93,10 @@ public partial class MainWindow : Window
         {
             _brain?.Dispose();
             _brain = null;
-            DirectorInfoText.Text = "host start failed";
+            HostInfoText.Text = "host start failed";
             HealthDot.Fill = DotDead;
             AppendLog($"[ERROR] host start failed: {ex.Message}");
             SetStatus("Host start failed - see log.");
-        }
-        finally
-        {
-            ClearBusy();
-        }
-    }
-
-    private async Task ConnectDirectorAsync()
-    {
-        SetBusy("Connecting...");
-        try
-        {
-            _brain?.Dispose();
-            var client = await AgentBrainClient.ConnectAsync(new AgentBrainOptions
-            {
-                DirectorUrl = TargetBox.Text?.Trim() ?? "",
-                RepoPath = _repoPath,
-            });
-            _brain = client;
-            var health = await client.GetDirectorHealthAsync();
-            var version = health.TryGetProperty("version", out var v) ? v.GetString() : "?";
-            DirectorInfoText.Text = $"connected - v{version}";
-            HealthDot.Fill = DotAlive;
-            AppendLog($"[connected] {TargetBox.Text} (Director v{version})");
-            AppendLog($"[info] session working dir: {_repoPath}");
-            SetStatus("Connected. Create a session to start.");
-        }
-        catch (Exception ex)
-        {
-            _brain = null;
-            DirectorInfoText.Text = "connection failed";
-            HealthDot.Fill = DotDead;
-            AppendLog($"[ERROR] connect failed: {ex.Message}");
-            SetStatus("Connect failed - see log.");
         }
         finally
         {
@@ -182,20 +111,8 @@ public partial class MainWindow : Window
         try
         {
             var t0 = DateTime.UtcNow;
-            switch (_brain)
-            {
-                case CcDirector.HostedAgent.HostedAgent hosted:
-                    await hosted.StartAsync();
-                    AppendLog($"[session created] hosted pid={hosted.ProcessId}, claude session {hosted.SessionId} in {(DateTime.UtcNow - t0).TotalSeconds:F1}s");
-                    break;
-                case AgentBrainClient client:
-                    Directory.CreateDirectory(_repoPath);
-                    await client.CreateSessionAsync();
-                    AppendLog($"[session created] {client.SessionId} in {(DateTime.UtcNow - t0).TotalSeconds:F1}s");
-                    break;
-                default:
-                    throw new InvalidOperationException($"Unknown brain type: {_brain.GetType().Name}");
-            }
+            await _brain.StartAsync();
+            AppendLog($"[session created] hosted pid={_brain.ProcessId}, claude session {_brain.SessionId} in {(DateTime.UtcNow - t0).TotalSeconds:F1}s");
             SetStatus("Session ready.");
         }
         catch (Exception ex)
@@ -311,8 +228,7 @@ public partial class MainWindow : Window
         {
             var old = _brain.SessionId;
             await _brain.RestartAsync();
-            var pidNote = _brain is CcDirector.HostedAgent.HostedAgent h ? $" (new pid {h.ProcessId})" : "";
-            AppendLog($"[restarted] {old ?? "none"} -> {_brain.SessionId}{pidNote}");
+            AppendLog($"[restarted] {old ?? "none"} -> {_brain.SessionId} (new pid {_brain.ProcessId})");
             SetStatus("Fresh session ready.");
         }
         catch (Exception ex)
@@ -410,7 +326,6 @@ public partial class MainWindow : Window
         var connected = _brain is not null;
         var hasSession = _brain?.SessionId is not null;
         ConnectButton.IsEnabled = !_busy;
-        ModeCombo.IsEnabled = !_busy && !connected;
         CreateButton.IsEnabled = !_busy && connected && !hasSession;
         CancelButton.IsEnabled = hasSession;   // usable WHILE busy - that is its job
         AskButton.IsEnabled = !_busy && hasSession;

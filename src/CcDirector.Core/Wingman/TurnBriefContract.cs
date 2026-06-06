@@ -1,0 +1,232 @@
+using System.Text;
+using System.Text.Json;
+using CcDirector.Core.Claude;
+using CcDirector.Core.Utilities;
+using CcDirector.Gateway.Contracts;
+
+namespace CcDirector.Core.Wingman;
+
+/// <summary>
+/// THE frozen v2.3 turn-brief contract in code form (issue #185): the prompt that asks the
+/// model to interpret one turn, and the mechanical validation of its JSON answer. Extracted
+/// from <see cref="WingmanTurnBriefGenerator"/> so the Gateway's warm-brain brief agent and
+/// the Director's side-claude path (until issue #187 deletes it) run the EXACT same contract
+/// - a prompt change lands in one place and reaches every producer.
+///
+/// Everything here is pure: no model calls, no I/O beyond logging. D5/D6 apply - validation
+/// is mechanical (length caps, invariants, verbatim evidence checks), never interpretation.
+/// </summary>
+public static class TurnBriefContract
+{
+    // ====================================================================
+    // Prompt - built from the captured examples (docs/architecture/wingman/examples/)
+    // ====================================================================
+
+    public static string BuildPrompt(TurnPackage p)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("You are the WINGMAN: you brief a busy engineering lead the moment one of their");
+        sb.AppendLine("AI coding agents finishes a turn. The lead runs many agents; your brief is the");
+        sb.AppendLine("only thing they read. Your job is INTERPRETATION - reduce their cognitive load.");
+        sb.AppendLine();
+        sb.AppendLine("Respond with ONLY a JSON object (no fences, no prose) in exactly this shape:");
+        sb.AppendLine("""
+{
+  "headline": "<=6 words, newspaper-tight (e.g. 'Cockpit gets session story column'): the current CHAPTER's title - WHAT the session is working on, never how. Usually copied verbatim from the current title; refine the wording only if the same work drifted.",
+  "newChapter": false | true ONLY when this turn moved the session to a genuinely DIFFERENT piece of work (then headline is that new chapter's title),
+  "turnTitle": "<=8 words, past tense: what THIS turn did - a card header, not a sentence.",
+  "intent": "1-2 sentences: what the USER is trying to get done, carried/updated across turns. NEVER the literal last message (a 'yes' must become what was approved).",
+  "did": ["3-6 bullets, past tense, specific, <=15 words each. Proportional: trivial turn -> 1-2 bullets."],
+  "needsYou": null OR {
+    "statement": "Crisp. Lead with whether anything is broken/blocking, then the concrete action(s).",
+    "answerVia": "reply" | "keys",
+    "selectionMode": "single" | "multiple",
+    "submit": null | "\r",
+    "options": [ { "key": "short label", "send": "exact text or key sequence", "note": null | "scope/risk flag" } ],
+    "evidence": "EXACT verbatim quote from the AGENT REPLY or the SCREEN - copied character-for-character, never paraphrased",
+    "urgency": "blocking" | "review" | "fyi",
+    "confidence": "high" | "ambiguous",
+    "railLine": "<= 8 words"
+  }
+}
+""");
+        sb.AppendLine();
+        sb.AppendLine("Rules learned from real captures:");
+        sb.AppendLine("- REPLY-PENDING + an on-screen menu (picker/permission/plan approval): the question");
+        sb.AppendLine("  exists ONLY on the SCREEN. Read it there. answerVia=keys; options' send = the key");
+        sb.AppendLine("  that selects (e.g. \"1\") - pickers confirm with Enter, so send \"1\\r\" for them.");
+        sb.AppendLine("- Permission prompts: surface SCOPE. 'Yes, and don't ask again for: git *' is a");
+        sb.AppendLine("  standing grant, not a yes - flag it in the option's note.");
+        sb.AppendLine("- 'pick any that apply' checklists: selectionMode=multiple, option sends TOGGLE");
+        sb.AppendLine("  (just the number), submit=\"\\r\" completes.");
+        sb.AppendLine("- Plan approval: summarize THE PLAN in the statement - the decision is about the");
+        sb.AppendLine("  plan's content, not menu mechanics.");
+        sb.AppendLine("- Nothing blocking but a real decision exists: urgency=fyi, statement starts");
+        sb.AppendLine("  'Nothing needed. FYI: ...'. No ask at all: needsYou=null.");
+        sb.AppendLine("- Unclear what the agent wants: confidence=ambiguous and SAY SO in the statement");
+        sb.AppendLine("  ('unclear; likely X or Y'). Never invent certainty. Never invent options.");
+        sb.AppendLine("- The screen may contain rendering tears (overdrawn lines); read through them.");
+        sb.AppendLine("- CHAPTERS: the headline is the current chapter's title - WHAT is being worked on,");
+        sb.AppendLine("  not how. Several turns share one chapter: questions, fix-ups, tests, reviews, and");
+        sb.AppendLine("  sub-steps of the same work are the SAME chapter (newChapter=false). Rewording the");
+        sb.AppendLine("  title because the same work drifted is NOT a new chapter. newChapter=true only");
+        sb.AppendLine("  when the session moved to a different piece of work (new feature, new bug, new");
+        sb.AppendLine("  goal) - returning to earlier work later IS a new chapter (same title is fine).");
+        sb.AppendLine("  When in doubt: newChapter=false and KEEP the current title.");
+        sb.AppendLine();
+        sb.AppendLine("=== SESSION CONTEXT ===");
+        sb.AppendLine($"Current chapter title: {(string.IsNullOrWhiteSpace(p.CurrentHeadline) ? "(none yet - write the first one)" : p.CurrentHeadline)}");
+        sb.AppendLine($"Prior rolling intent: {p.RollingIntent ?? "(first brief of this session)"}");
+        if (p.PriorRailLines.Count > 0)
+            sb.AppendLine("Recent needs-you lines: " + string.Join(" | ", p.PriorRailLines));
+        sb.AppendLine($"First user prompt (session goal seed): {Truncate(p.FirstUserPrompt, 600)}");
+        sb.AppendLine();
+        sb.AppendLine("=== THIS TURN'S USER PROMPT ===");
+        sb.AppendLine(Truncate(p.LastUserPrompt, 2000));
+        sb.AppendLine();
+        sb.AppendLine($"=== TRANSCRIPT OF THE TURN (reply-pending: {p.ReplyPending}) ===");
+        sb.AppendLine(p.TranscriptDelta);
+        sb.AppendLine();
+        sb.AppendLine("=== CURRENT SCREEN (bottom of the terminal) ===");
+        sb.AppendLine(p.ScreenTail);
+        return sb.ToString();
+    }
+
+    // ====================================================================
+    // Parse + validate (D5/D6: mechanical VALIDATION of the model, never interpretation)
+    // ====================================================================
+
+    public static TurnBriefDto? ParseAndValidate(string raw, TurnPackage package, string generatorId)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return null;
+
+        // Models sometimes wrap JSON in fences despite instructions; unwrap mechanically.
+        var json = raw.Trim();
+        if (json.StartsWith("```"))
+        {
+            var first = json.IndexOf('\n');
+            var lastFence = json.LastIndexOf("```", StringComparison.Ordinal);
+            if (first >= 0 && lastFence > first) json = json[(first + 1)..lastFence].Trim();
+        }
+
+        JsonDocument doc;
+        try { doc = JsonDocument.Parse(json); }
+        catch (JsonException ex)
+        {
+            FileLog.Write($"[TurnBriefContract] validation: not JSON ({ex.Message})");
+            return null;
+        }
+
+        using (doc)
+        {
+            var root = doc.RootElement;
+            var brief = new TurnBriefDto
+            {
+                SessionId = package.SessionId.ToString(),
+                TurnNumber = package.TurnCount,
+                GeneratedAtUtc = DateTime.UtcNow,
+                Model = generatorId,
+                Degraded = false,
+                Headline = Str(root, "headline"),
+                TurnTitle = Str(root, "turnTitle"),
+                Intent = root.TryGetProperty("intent", out var i) ? (i.GetString() ?? "").Trim() : "",
+            };
+            if (string.IsNullOrWhiteSpace(brief.Intent))
+            {
+                FileLog.Write("[TurnBriefContract] validation: missing intent");
+                return null;
+            }
+
+            // Headline = chapter title (v2.3): an omitted headline carries the session's
+            // current one forward (mechanical carry, not invention) - the standing title must
+            // survive a model that skipped the field. Length caps are mechanical validation.
+            if (string.IsNullOrWhiteSpace(brief.Headline))
+                brief.Headline = package.CurrentHeadline ?? "";
+            if (brief.Headline.Length > 60) brief.Headline = brief.Headline[..60];
+            if (brief.TurnTitle.Length > 60) brief.TurnTitle = brief.TurnTitle[..60];
+
+            // Chapter break (v2.3): explicit wingman judgment, never string comparison.
+            brief.NewChapter = root.TryGetProperty("newChapter", out var nc) && nc.ValueKind == JsonValueKind.True;
+            // The session's FIRST title mechanically starts the first chapter, whatever the
+            // model said - a session with briefs but no chapter start renders nowhere.
+            if (string.IsNullOrWhiteSpace(package.CurrentHeadline) && !string.IsNullOrWhiteSpace(brief.Headline))
+                brief.NewChapter = true;
+
+            if (root.TryGetProperty("did", out var did) && did.ValueKind == JsonValueKind.Array)
+                brief.Did = did.EnumerateArray()
+                    .Select(b => (b.GetString() ?? "").Trim())
+                    .Where(s => s.Length > 0)
+                    .Take(8)
+                    .ToList();
+
+            if (root.TryGetProperty("needsYou", out var ny) && ny.ValueKind == JsonValueKind.Object)
+            {
+                var n = new TurnBriefNeedsYou
+                {
+                    Statement = Str(ny, "statement"),
+                    AnswerVia = Str(ny, "answerVia") is "keys" ? "keys" : "reply",
+                    SelectionMode = Str(ny, "selectionMode") is "multiple" ? "multiple" : "single",
+                    Submit = ny.TryGetProperty("submit", out var sub) && sub.ValueKind == JsonValueKind.String ? sub.GetString() : null,
+                    Evidence = Str(ny, "evidence"),
+                    Urgency = Str(ny, "urgency") switch { "blocking" => "blocking", "fyi" => "fyi", _ => "review" },
+                    Confidence = Str(ny, "confidence") is "ambiguous" ? "ambiguous" : "high",
+                    RailLine = Str(ny, "railLine"),
+                };
+                if (string.IsNullOrWhiteSpace(n.Statement) || string.IsNullOrWhiteSpace(n.RailLine))
+                {
+                    FileLog.Write("[TurnBriefContract] validation: needsYou missing statement/railLine");
+                    return null;
+                }
+                if (n.RailLine.Length > 60) n.RailLine = n.RailLine[..60];
+
+                if (ny.TryGetProperty("options", out var opts) && opts.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var o in opts.EnumerateArray())
+                    {
+                        var key = Str(o, "key");
+                        var send = Str(o, "send");
+                        if (key.Length == 0 || send.Length == 0) continue;
+                        n.Options.Add(new TurnBriefOption
+                        {
+                            Key = key.Length > 60 ? key[..60] : key,
+                            Send = send,
+                            Note = o.TryGetProperty("note", out var note) && note.ValueKind == JsonValueKind.String ? note.GetString() : null,
+                        });
+                        if (n.Options.Count == 6) break;
+                    }
+                }
+
+                // Contract invariants (the captures' findings):
+                // multiple REQUIRES a submit send - a checklist without submit is unanswerable.
+                if (n.SelectionMode == "multiple" && string.IsNullOrEmpty(n.Submit))
+                {
+                    FileLog.Write("[TurnBriefContract] validation: multiple without submit");
+                    return null;
+                }
+
+                // Evidence must be VERBATIM from the reply or the screen (whitespace-tolerant).
+                // Failed validation does not kill the brief - it kills the RECEIPTS, visibly.
+                if (!string.IsNullOrWhiteSpace(n.Evidence))
+                {
+                    var inReply = package.LastAssistantText is not null && BriefBuilder.FindVerbatim(package.LastAssistantText, n.Evidence) is not null;
+                    var onScreen = BriefBuilder.FindVerbatim(package.ScreenTail, n.Evidence) is not null;
+                    if (!inReply && !onScreen)
+                    {
+                        FileLog.Write("[TurnBriefContract] validation: evidence not verbatim; dropping receipts");
+                        n.Evidence = "";
+                    }
+                }
+
+                brief.NeedsYou = n;
+            }
+
+            return brief;
+        }
+    }
+
+    private static string Str(JsonElement el, string prop)
+        => el.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.String ? (v.GetString() ?? "").Trim() : "";
+
+    private static string Truncate(string? s, int max)
+        => string.IsNullOrEmpty(s) ? "" : s.Length <= max ? s : s[..max] + "...";
+}

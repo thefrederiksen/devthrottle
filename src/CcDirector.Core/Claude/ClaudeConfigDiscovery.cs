@@ -242,7 +242,9 @@ public sealed class ClaudeConfigDiscovery
 
     private static string SanitizeProjectPath(string path)
     {
-        return path.Replace(":", "-").Replace("\\", "-").Replace("/", "-").Replace("_", "-");
+        // One source of truth for claude.exe's project-folder encoding (every
+        // non-alphanumeric char becomes a dash - see GetProjectFolder).
+        return ClaudeSessionReader.GetProjectFolder(path);
     }
 
     /// <summary>

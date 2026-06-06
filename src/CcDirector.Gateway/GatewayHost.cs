@@ -1,10 +1,13 @@
 using System.Diagnostics;
 using System.Net;
+using CcDirector.Core.Storage;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Api;
+using CcDirector.Gateway.Briefing;
 using CcDirector.Gateway.Discovery;
 using CcDirector.Gateway.Tailscale;
 using CcDirector.Gateway.Util;
+using CcDirector.HostedAgent;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -37,6 +40,9 @@ public sealed class GatewayHost : IAsyncDisposable
 
     private readonly DirectorEndpointClient _client;
     private readonly TailscaleServeProvisioner _serveProvisioner;
+    private readonly GatewayTurnBriefStore _turnBriefStore;
+    private GatewayTurnBriefAgent? _briefAgent;
+    private TurnEndWatcher? _turnEndWatcher;
     private WebApplication? _app;
     private bool _stopped;
 
@@ -51,7 +57,11 @@ public sealed class GatewayHost : IAsyncDisposable
     /// a dead port so they never reach a real Cockpit running on the dev machine; production
     /// omits it for <see cref="Cockpit.CockpitSupervisor.ResolvePort"/>.
     /// </param>
-    public GatewayHost(int port = DefaultPort, string? token = null, bool authEnabled = false, string? instancesDirectory = null, int? cockpitProxyPort = null)
+    /// <param name="turnBriefDirectory">
+    /// Override the gateway turn-brief store directory (issue #185). Tests pass an isolated
+    /// temp directory; production omits it for the shared default.
+    /// </param>
+    public GatewayHost(int port = DefaultPort, string? token = null, bool authEnabled = false, string? instancesDirectory = null, int? cockpitProxyPort = null, string? turnBriefDirectory = null)
     {
         Port = port;
         Token = token ?? GatewayAuth.LoadOrCreate();
@@ -60,7 +70,25 @@ public sealed class GatewayHost : IAsyncDisposable
         _client = new DirectorEndpointClient(Token);
         _cockpitProxyPort = cockpitProxyPort ?? Cockpit.CockpitSupervisor.ResolvePort();
         _serveProvisioner = new TailscaleServeProvisioner(Registry, Port, Cockpit.CockpitSupervisor.ResolvePort());
+
+        // The Gateway's in-process warm brain (issue #184): supervisor only - claude.exe
+        // spawns on first use (the brief agent's first ask, or Settings' Restart Brain).
+        Brain = new BrainSupervisor(new HostedAgentOptions
+        {
+            WorkingDirectory = Path.Combine(CcStorage.Root(), "brain"),
+            Log = FileLog.Write,
+        });
+        _turnBriefStore = new GatewayTurnBriefStore(turnBriefDirectory);
     }
+
+    /// <summary>
+    /// The Gateway's warm brain (issue #184): a claude.exe this process hosts itself - no
+    /// Director dependency. Dormant until first use; RestartAsync is the recovery verb.
+    /// </summary>
+    public BrainSupervisor Brain { get; }
+
+    /// <summary>Gateway-side turn-brief storage (issue #185): append-only, fleet-wide.</summary>
+    public GatewayTurnBriefStore TurnBriefs => _turnBriefStore;
 
     public async Task StartAsync()
     {
@@ -72,9 +100,25 @@ public sealed class GatewayHost : IAsyncDisposable
         _serveProvisioner.Start();
         Registry.Start();
 
-        // Registry is now loaded with the current Director set: drop any serve mappings
-        // for Directors that died while the Gateway was down (orphans -> 502 from a phone).
-        _serveProvisioner.ReconcileOrphans();
+        // Registry is now loaded with the current Director set: run the first self-healing
+        // reconcile - re-assert the front door, drop serve mappings for Directors that died
+        // while the Gateway was down (orphans -> 502 from a phone), and sweep any leaked
+        // ephemeral-port mappings (issue #179). The provisioner repeats this on a timer.
+        _serveProvisioner.Reconcile();
+
+        // The turn-brief stamping machine (issue #185): the watcher observes turn ends
+        // across the fleet, the agent pulls truth and asks the warm brain. Kill switch:
+        // CC_TURNBRIEFS=0 disables the whole pipeline.
+        if (!GatewayTurnBriefAgent.Disabled)
+        {
+            _briefAgent = new GatewayTurnBriefAgent(Brain, _turnBriefStore, _client);
+            _turnEndWatcher = new TurnEndWatcher(Registry, _client, _briefAgent.OnTurnEnd, _briefAgent.OnSessionWorking);
+            _turnEndWatcher.Start();
+        }
+        else
+        {
+            FileLog.Write("[GatewayHost] turn-brief pipeline disabled (CC_TURNBRIEFS=0)");
+        }
 
         // PreventHostingStartup avoids ASP.NET Core trying to load a (nonexistent) hosting startup
         // assembly with our application name, which otherwise emits a noisy crit log line on boot.
@@ -180,6 +224,11 @@ public sealed class GatewayHost : IAsyncDisposable
                 return true;
             });
 
+        // Gateway-served turn briefs (issue #185): the Cockpit reads briefs from HERE; the
+        // store serves even when the pipeline is disabled (read-only is always safe).
+        TurnBriefGatewayEndpoints.Map(_app, _turnBriefStore,
+            sid => _briefAgent?.BriefingStateFor(sid) ?? (_turnBriefStore.Latest(sid) is not null ? "Briefed" : "None"));
+
         // One URL: everything no explicit endpoint above claimed falls through to the
         // loopback Cockpit (docs/plans/one-url-cockpit.md). Mapped LAST by design.
         Cockpit.CockpitProxy.Map(_app, _cockpitProxyPort);
@@ -193,6 +242,14 @@ public sealed class GatewayHost : IAsyncDisposable
         if (_stopped) return;
         _stopped = true;
         FileLog.Write($"[GatewayHost] StopAsync");
+
+        // Brief pipeline first (it drives the brain), then the brain itself - the
+        // supervisor's dispose gracefully stops the hosted claude.exe (never leaked).
+        try { _turnEndWatcher?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] watcher dispose error: {ex.Message}"); }
+        _turnEndWatcher = null;
+        try { _briefAgent?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] brief agent dispose error: {ex.Message}"); }
+        _briefAgent = null;
+        try { Brain.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] brain dispose error: {ex.Message}"); }
 
         // Unsubscribe from registry events. We deliberately do NOT tear down the serve
         // mappings: the Directors are still alive and reachable, and a Gateway restart

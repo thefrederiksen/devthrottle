@@ -23,6 +23,9 @@
   <ItemGroup>
     <ProjectReference Include="..\CcDirector.Gateway\CcDirector.Gateway.csproj" />
     <ProjectReference Include="..\CcDirector.Core\CcDirector.Core.csproj" />
+    <!-- The Gateway's in-process brain (issue #184): a HostedAgent claude.exe owned by
+         this tray app, supervised by BrainSupervisor. -->
+    <ProjectReference Include="..\CcDirector.HostedAgent\CcDirector.HostedAgent.csproj" />
     <ProjectReference Include="..\..\tools\cc-director-setup-engine\CcDirector.Setup.Engine.csproj" />
   </ItemGroup>
 

@@ -7,9 +7,11 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Platform;
 using Avalonia.Threading;
 using CcDirector.Core.Network;
+using CcDirector.Core.Storage;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway;
 using CcDirector.Gateway.Cockpit;
+using CcDirector.HostedAgent;
 using CcDirector.Setup.Engine;
 
 namespace CcDirector.GatewayApp;
@@ -52,6 +54,14 @@ public sealed class GatewayTrayController : IDisposable
 
     /// <summary>The running host, or null while stopped/starting. Settings reads registry counts off it.</summary>
     public GatewayHost? Host => _host;
+
+    /// <summary>
+    /// The Gateway's in-process brain (issue #184): a warm claude.exe this process hosts
+    /// itself - no Director dependency. Owned by the <see cref="GatewayHost"/> (the brief
+    /// agent drives it, issue #185); null while the host is stopped/starting. Dormant until
+    /// first use (a turn brief, or a RESTART BRAIN click in Settings).
+    /// </summary>
+    public BrainSupervisor? Brain => _host?.Brain;
 
     /// <summary>Human-readable host state for the Settings window ("Running", "Failed", ...).</summary>
     public string StateText => _state.ToString();
@@ -299,7 +309,7 @@ public sealed class GatewayTrayController : IDisposable
         _lifetime.Cancel();
         _cockpit?.Dispose();
         _cockpit = null;
-        await StopHostAsync();
+        await StopHostAsync(); // also gracefully stops the host-owned brain
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
             _settingsWindow?.Close();
@@ -422,7 +432,7 @@ public sealed class GatewayTrayController : IDisposable
         _lifetime.Cancel();
         // Synchronous best-effort stop on shutdown.
         try { _cockpit?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayTrayController] Dispose cockpit error: {ex.Message}"); }
-        try { _host?.StopAsync().GetAwaiter().GetResult(); }
+        try { _host?.StopAsync().GetAwaiter().GetResult(); } // also gracefully stops the host-owned brain
         catch (Exception ex) { FileLog.Write($"[GatewayTrayController] Dispose stop error: {ex.Message}"); }
         _host = null;
         if (_trayIcon is not null) _trayIcon.IsVisible = false;

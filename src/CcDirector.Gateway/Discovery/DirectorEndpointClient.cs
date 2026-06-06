@@ -259,6 +259,23 @@ public sealed class DirectorEndpointClient : IDisposable
         }
     }
 
+    /// <summary>Parsed transcript widgets for one session (the Gateway brief agent's truth
+    /// channel, issue #185). Null on any failure - the caller skips, never guesses.</summary>
+    public async Task<TurnsResponse?> GetTurnsAsync(string endpoint, string sessionId, CancellationToken ct = default)
+    {
+        try
+        {
+            var resp = await _http.GetAsync($"{endpoint}/sessions/{sessionId}/turns", ct);
+            if (!resp.IsSuccessStatusCode) return null;
+            return await resp.Content.ReadFromJsonAsync<TurnsResponse>(cancellationToken: ct);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[DirectorEndpointClient] GetTurnsAsync FAILED: endpoint={endpoint}, sid={sessionId}, error={ex.Message}");
+            return null;
+        }
+    }
+
     public async Task<(bool ok, PromptResponse? body, string? error)> PostPromptAsync(string endpoint, string sessionId, PromptRequest req, CancellationToken ct = default)
     {
         try

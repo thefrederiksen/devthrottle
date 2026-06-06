@@ -5,6 +5,41 @@ mechanism; this plan productizes it in C#: a reusable library any of our C#
 programs can call, plus a desktop control panel to exercise every operation by
 hand, plus a screenshot-backed QA pass.
 
+## v2 (2026-06-06, issue #184): in-process on HostedAgent, REST transport RETIRED
+
+The "REST-only client" decision below was declared wrong on 2026-06-05: the brain
+must live INSIDE the Gateway process and cannot depend on a Director being up.
+The whole Gateway-as-tray-app conversion (v0.6.6) exists so the Gateway runs as
+the user and can host claude.exe with the user's Max OAuth.
+
+What changed:
+
+- **AgentBrainClient is DELETED** (with AgentBrainOptions and its fake-HTTP test
+  project). `CcDirector.AgentBrain` now holds only the shared contract:
+  `IAgentBrain`, `AskResult` / `ClearResult` / `BrainHealth`,
+  `AgentBrainException`, `BrainLog`.
+- **The implementation is `HostedAgent`** (src/CcDirector.HostedAgent): it owns
+  claude.exe via an embedded ConPty and the IAgentDriver layer. The three
+  determinism rules survive unchanged, measured at the source: quiet gate on the
+  backend's own buffer clock, the JSONL transcript as the answer channel (direct
+  file reads via the driver), and file-level transcript rediscovery after /clear
+  (no relink - we own the working directory).
+- **`BrainSupervisor`** (src/CcDirector.HostedAgent/BrainSupervisor.cs) owns ONE
+  brain for a long-lived host: create on demand (first GetAsync spawns),
+  RestartAsync as the recovery verb, graceful kill on dispose. Tested against
+  the fake driver/backend pair in CcDirector.HostedAgent.Tests.
+- **The Gateway tray app owns the brain's lifecycle**: GatewayTrayController
+  creates the supervisor (workdir `%LOCALAPPDATA%\cc-director\brain`, logs into
+  the gateway's FileLog); the Settings window shows brain health (state /
+  session / idle / context tokens) and a RESTART BRAIN button.
+- **The Panel is hosted-only**: the Director (REST) mode and `--mode-director`
+  are gone; the panel is the manual test harness for the in-process brain.
+  HOST PROCESS WARNING still applies: launch it from a clean process (Task
+  Scheduler / desktop), never from inside a Claude Code terminal (nested-ConPty
+  trap).
+
+Everything below this section is the v1 historical record.
+
 ## Decisions (made 2026-06-05)
 
 - **REST-only client.** The library talks to a Director's Control API over

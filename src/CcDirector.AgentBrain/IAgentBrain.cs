@@ -1,21 +1,19 @@
 namespace CcDirector.AgentBrain;
 
 /// <summary>
-/// The brain contract: a warm Claude Code session you can ask, reset, and recover -
-/// independent of WHERE the session lives. Two implementations:
+/// The brain contract: a warm Claude Code session you can ask, reset, and recover.
+/// The implementation is HostedAgent (CcDirector.HostedAgent): it owns its claude.exe
+/// directly via an embedded pseudoconsole - no external process dependency, many per
+/// host process. (The original Director-REST transport was retired by issue #184: the
+/// brain must not depend on a Director being up.)
 ///
-///   - <see cref="AgentBrainClient"/> - remote-controls a session owned by a CC
-///     Director over its Control API (REST). Requires a running Director.
-///   - HostedAgent (CcDirector.HostedAgent) - owns its claude.exe directly via an
-///     embedded pseudoconsole. No external process dependency; many per host process.
-///
-/// Callers (the panel, the gateway brief agent) code against this interface and do
-/// not care which transport is underneath.
+/// Callers (the panel, the gateway brief agent) code against this interface, which is
+/// also the test seam for consumers.
 /// </summary>
 public interface IAgentBrain : IDisposable
 {
-    /// <summary>Identifier of the live session: the Director session GUID for the REST
-    /// client, the claude-internal session id for the hosted agent. Null before start.</summary>
+    /// <summary>The agent-internal session id of the live session (changes on every
+    /// context clear). Null before start.</summary>
     string? SessionId { get; }
 
     /// <summary>Send a prompt and return the full reply text from the transcript.</summary>

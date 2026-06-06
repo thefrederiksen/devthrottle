@@ -8,15 +8,28 @@ using CcDirector.Gateway.Discovery;
 namespace CcDirector.Gateway.Tailscale;
 
 /// <summary>
-/// Keeps Tailscale Serve HTTPS mappings in lockstep with the live Director set so a
+/// Keeps Tailscale Serve HTTPS mappings in lockstep with the live LOCAL Director set so a
 /// phone can reach every Director over https://&lt;tailnet&gt;:&lt;port&gt;/ without anyone
-/// having to re-run a script. One mapping per Director Control API port, plus the
-/// Gateway's own front-door mapping (443 -> gateway port).
+/// having to re-run a script. One mapping per local fixed-range Director Control API port,
+/// plus the Gateway's own front-door mapping (443 -> gateway port).
+///
+/// Mapping policy (issue #179): only Directors running on THIS machine with a port in the
+/// fixed Director range get a mapping. A serve mapping proxies to http://localhost:&lt;port&gt;,
+/// so a mapping for a remote machine's Director points at a dead local port (502 from a
+/// phone) and leaks when its disappear event is missed. Hosted-agent Directors register
+/// with ephemeral ports and short lifetimes; mapping them rewrote the serve table (every
+/// tailscale CLI call is a full-config read-modify-write) hundreds of times a day and the
+/// orphans piled up into a 300+ entry table.
 ///
 /// Lifecycle:
-///   - Start:               map 443 -> gateway port, and one mapping per already-known Director.
-///   - Director appears:    map that Director's port.
+///   - Start:               map 443 -> gateway port, and one mapping per known local Director.
+///   - Director appears:    map that Director's port (local + fixed range only).
 ///   - Director disappears: remove that Director's mapping.
+///   - Every 5 minutes:     self-healing reconcile - re-assert the front door and any missing
+///                          live mapping, sweep provisioner-shaped orphans on ANY port. The
+///                          serve table has been observed to lose entries (including 443)
+///                          without this Gateway removing them, so desired state is re-asserted
+///                          for the whole process lifetime, not only at Start().
 ///   - Gateway shutdown:    leave mappings in place. The Directors are still alive and
 ///                          reachable; a Gateway restart re-asserts every mapping.
 ///
@@ -33,17 +46,24 @@ public sealed class TailscaleServeProvisioner : IDisposable
     /// <summary>Public front-door port: a phone hits https://&lt;tailnet&gt;/ with no port.</summary>
     private const int FrontDoorHttpsPort = 443;
 
-    /// <summary>Director Control API port range (see PortAllocator). Only mappings in this
-    /// range are eligible for orphan cleanup; everything else is left alone.</summary>
-    private const int DirectorPortMin = 7879;
-    private const int DirectorPortMax = 7898;
+    /// <summary>Director Control API port range (see PortAllocator). Only LOCAL Directors in
+    /// this range get a serve mapping; ephemeral-port (hosted-agent) and remote-machine
+    /// Directors never do (issue #179).</summary>
+    internal const int DirectorPortMin = 7879;
+    internal const int DirectorPortMax = 7898;
+
+    /// <summary>How often the self-healing reconcile re-asserts desired state (issue #179).</summary>
+    private static readonly TimeSpan ReconcileInterval = TimeSpan.FromMinutes(5);
 
     private readonly DirectorRegistry _registry;
     private readonly int _gatewayPort;
     private readonly int _legacyCockpitPort;
+    private readonly string _localMachineName;
     private readonly bool _enabled;
     private readonly object _cliGate = new();
     private readonly ConcurrentDictionary<string, int> _portsById = new();
+    private Timer? _reconcileTimer;
+    private int _reconcileRunning;
     private bool _disposed;
 
     public TailscaleServeProvisioner(DirectorRegistry registry, int gatewayPort, int legacyCockpitPort)
@@ -51,6 +71,7 @@ public sealed class TailscaleServeProvisioner : IDisposable
         _registry = registry;
         _gatewayPort = gatewayPort;
         _legacyCockpitPort = legacyCockpitPort;
+        _localMachineName = Environment.MachineName;
 
         // Dev/test isolation: CC_GATEWAY_NO_TAILSCALE=1 lets a second Gateway run on this machine
         // for local end-to-end testing WITHOUT touching the production Tailscale Serve mappings
@@ -91,103 +112,141 @@ public sealed class TailscaleServeProvisioner : IDisposable
 
         foreach (var d in _registry.ListDirectors())
             HandleAdded(d);
+
+        // Self-healing loop (issue #179): the 443 front door vanished from the serve table
+        // in production with no cc-director process removing it, turning the one URL into
+        // a 502 until a Gateway restart. GatewayHost triggers the first reconcile right
+        // after the registry load; this timer re-asserts desired state forever after.
+        _reconcileTimer = new Timer(_ => ReconcileCore(), null, ReconcileInterval, ReconcileInterval);
     }
 
     /// <summary>
-    /// Remove cc-director serve mappings that no longer correspond to a live Director.
-    /// This catches the case where a Director died while the Gateway was down, so its
-    /// disappear event was never observed and its mapping lingers (proxying to a dead
-    /// port -> 502 from a phone).
-    ///
-    /// Surgical by design: only same-port Director-range mappings
-    /// (--https=P -> http://localhost:P with P in [DirectorPortMin..DirectorPortMax])
-    /// are eligible. The 443 front door and any mapping the provisioner did not create
-    /// are never touched. Call AFTER the registry has loaded so the live set is known.
+    /// Run one self-healing reconcile pass in the background: re-assert the 443 front door
+    /// and any missing live local Director mapping, and remove provisioner-shaped mappings
+    /// (single "/" handler proxying to http://localhost:&lt;samePort&gt;) that no longer
+    /// correspond to a live local Director - on ANY port, so leaked ephemeral-port mappings
+    /// from older builds are swept too (issue #179). The 443 front door and any mapping the
+    /// provisioner did not create are never removed. Call AFTER the registry has loaded so
+    /// the live set is known.
     /// </summary>
-    public void ReconcileOrphans()
+    public void Reconcile()
     {
         if (!_enabled || _disposed) return;
-        _ = Task.Run(ReconcileOrphansCore);
+        _ = Task.Run(ReconcileCore);
     }
 
-    private void ReconcileOrphansCore()
+    private void ReconcileCore()
     {
+        // A reconcile sweeping a very large orphan backlog can take a while (one CLI call
+        // per removal); skip a tick rather than stack a second pass on top of it.
+        if (Interlocked.CompareExchange(ref _reconcileRunning, 1, 0) != 0) return;
         try
         {
-            var live = new HashSet<int>();
+            var desired = new HashSet<int>();
             foreach (var d in _registry.ListDirectors())
             {
-                var p = ExtractPort(d);
-                if (p > 0) live.Add(p);
+                if (ShouldMap(d, _localMachineName, out var p))
+                    desired.Add(p);
             }
 
-            List<int> managed;
+            string statusJson;
             lock (_cliGate)
             {
                 if (_disposed) return;
                 var (ok, stdout, message) = RunTailscale("serve status --json");
                 if (!ok)
                 {
-                    FileLog.Write($"[TailscaleServeProvisioner] ReconcileOrphans: could not read serve status: {message}");
+                    FileLog.Write($"[TailscaleServeProvisioner] Reconcile: could not read serve status: {message}");
                     return;
                 }
-                managed = ParseManagedHttpsPorts(stdout);
+                statusJson = stdout;
             }
 
-            foreach (var port in managed)
+            var actions = ComputeReconcileActions(statusJson, _gatewayPort, desired);
+
+            if (actions.AssertFrontDoor)
             {
-                if (port < DirectorPortMin || port > DirectorPortMax) continue; // not a Director-range mapping
-                if (live.Contains(port)) continue;                              // still a live Director
-                FileLog.Write($"[TailscaleServeProvisioner] ReconcileOrphans: removing orphan --https={port} (no live Director)");
+                FileLog.Write("[TailscaleServeProvisioner] Reconcile: 443 front door missing or wrong backend - re-asserting (issue #179)");
+                ServeOn(FrontDoorHttpsPort, _gatewayPort, "gateway (reconcile)");
+            }
+
+            foreach (var port in actions.PortsToMap)
+            {
+                FileLog.Write($"[TailscaleServeProvisioner] Reconcile: live Director mapping --https={port} missing - re-asserting");
+                ServeOn(port, port, "reconcile");
+            }
+
+            foreach (var port in actions.PortsToRemove)
+            {
+                if (_disposed) return;
+                FileLog.Write($"[TailscaleServeProvisioner] Reconcile: removing orphan --https={port} (no live local Director)");
                 ServeOff(port, "orphan");
             }
+
+            if (!actions.AssertFrontDoor && actions.PortsToMap.Count == 0 && actions.PortsToRemove.Count == 0)
+                FileLog.Write($"[TailscaleServeProvisioner] Reconcile: serve table consistent (front door + {desired.Count} Director mappings)");
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[TailscaleServeProvisioner] ReconcileOrphans EXCEPTION: {ex.Message}");
+            FileLog.Write($"[TailscaleServeProvisioner] Reconcile EXCEPTION: {ex.Message}");
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _reconcileRunning, 0);
         }
     }
 
     /// <summary>
-    /// From `tailscale serve status --json`, return the HTTPS ports whose mapping has the
-    /// provisioner's own shape: a single "/" handler proxying to http://localhost:&lt;samePort&gt;.
-    /// This excludes the 443 front door (proxies to the gateway port, not 443) and any
-    /// mapping created by something other than this provisioner.
+    /// Pure decision core of the reconcile: given the serve table JSON, the gateway port,
+    /// and the ports the live local Director set SHOULD occupy, decide what to assert and
+    /// what to sweep. Provisioner-shaped means a single "/" handler proxying to
+    /// http://localhost:&lt;samePort&gt;; only such mappings are removal candidates, so the
+    /// 443 front door (different backend port) and anything created by another product are
+    /// never touched.
     /// </summary>
-    private static List<int> ParseManagedHttpsPorts(string statusJson)
+    internal static ReconcileActions ComputeReconcileActions(string statusJson, int gatewayPort, IReadOnlyCollection<int> desiredPorts)
     {
-        var result = new List<int>();
-        if (string.IsNullOrWhiteSpace(statusJson)) return result;
+        var frontDoorOk = false;
+        var managed = new List<int>();
 
-        using var doc = JsonDocument.Parse(statusJson);
-        if (!doc.RootElement.TryGetProperty("Web", out var web) || web.ValueKind != JsonValueKind.Object)
-            return result;
-
-        foreach (var entry in web.EnumerateObject())
+        if (!string.IsNullOrWhiteSpace(statusJson))
         {
-            // entry name is "<host>:<httpsPort>"
-            var colon = entry.Name.LastIndexOf(':');
-            if (colon < 0 || !int.TryParse(entry.Name[(colon + 1)..], out var httpsPort)) continue;
+            using var doc = JsonDocument.Parse(statusJson);
+            if (doc.RootElement.TryGetProperty("Web", out var web) && web.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var entry in web.EnumerateObject())
+                {
+                    // entry name is "<host>:<httpsPort>"
+                    var colon = entry.Name.LastIndexOf(':');
+                    if (colon < 0 || !int.TryParse(entry.Name[(colon + 1)..], out var httpsPort)) continue;
 
-            if (!entry.Value.TryGetProperty("Handlers", out var handlers)) continue;
-            if (!handlers.TryGetProperty("/", out var rootHandler)) continue;
-            if (!rootHandler.TryGetProperty("Proxy", out var proxyEl)) continue;
+                    if (!entry.Value.TryGetProperty("Handlers", out var handlers)) continue;
+                    if (!handlers.TryGetProperty("/", out var rootHandler)) continue;
+                    if (!rootHandler.TryGetProperty("Proxy", out var proxyEl)) continue;
+                    if (!Uri.TryCreate(proxyEl.GetString(), UriKind.Absolute, out var proxy) || !proxy.IsLoopback) continue;
 
-            if (!Uri.TryCreate(proxyEl.GetString(), UriKind.Absolute, out var proxy)) continue;
-            if (proxy.IsLoopback && proxy.Port == httpsPort)
-                result.Add(httpsPort);
+                    if (httpsPort == FrontDoorHttpsPort)
+                        frontDoorOk = proxy.Port == gatewayPort;
+                    else if (proxy.Port == httpsPort)
+                        managed.Add(httpsPort);
+                }
+            }
         }
-        return result;
+
+        var toMap = desiredPorts.Where(p => !managed.Contains(p)).OrderBy(p => p).ToList();
+        var toRemove = managed.Where(p => !desiredPorts.Contains(p)).OrderBy(p => p).ToList();
+        return new ReconcileActions(!frontDoorOk, toMap, toRemove);
     }
+
+    internal sealed record ReconcileActions(bool AssertFrontDoor, List<int> PortsToMap, List<int> PortsToRemove);
 
     private void HandleAdded(DirectorDto d)
     {
         if (!_enabled || _disposed) return;
 
-        var port = ExtractPort(d);
-        if (port <= 0)
+        if (!ShouldMap(d, _localMachineName, out var port))
         {
-            FileLog.Write($"[TailscaleServeProvisioner] HandleAdded: no usable port for id={d.DirectorId} (control={d.ControlEndpoint}, tailnet={d.TailnetEndpoint})");
+            FileLog.Write($"[TailscaleServeProvisioner] HandleAdded: not mapping id={d.DirectorId} (machine={d.MachineName}, control={d.ControlEndpoint}) - only local Directors on ports {DirectorPortMin}-{DirectorPortMax} get a serve mapping");
             return;
         }
 
@@ -200,6 +259,24 @@ public sealed class TailscaleServeProvisioner : IDisposable
         if (!_enabled || _disposed) return;
         if (_portsById.TryRemove(directorId, out var port))
             QueueServeOff(port, directorId);
+    }
+
+    /// <summary>
+    /// A Director gets a serve mapping only when BOTH hold (issue #179):
+    ///   1. It runs on THIS machine - the mapping proxies to http://localhost:&lt;port&gt;,
+    ///      so a remote Director's mapping points at a dead local port.
+    ///   2. Its port is in the fixed Director range - hosted-agent Directors use ephemeral
+    ///      ports and short lifetimes; they are reached through the Gateway, not directly.
+    /// </summary>
+    internal static bool ShouldMap(DirectorDto d, string localMachineName, out int port)
+    {
+        port = ExtractPort(d);
+        if (port < DirectorPortMin || port > DirectorPortMax) return false;
+
+        if (Uri.TryCreate(d.ControlEndpoint, UriKind.Absolute, out var control) && control.IsLoopback)
+            return true;
+        return !string.IsNullOrEmpty(d.MachineName)
+            && string.Equals(d.MachineName, localMachineName, StringComparison.OrdinalIgnoreCase);
     }
 
     private static int ExtractPort(DirectorDto d)
@@ -297,6 +374,7 @@ public sealed class TailscaleServeProvisioner : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        _reconcileTimer?.Dispose();
         _registry.OnDirectorAdded -= HandleAdded;
         _registry.OnDirectorRemoved -= HandleRemoved;
     }

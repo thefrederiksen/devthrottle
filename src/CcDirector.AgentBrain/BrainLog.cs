@@ -4,7 +4,7 @@ namespace CcDirector.AgentBrain;
 /// Default diagnostic log sink for the AgentBrain library: a daily file under
 /// %LOCALAPPDATA%\cc-director\logs\agent-brain\. The library is reused across many
 /// host programs, so it cannot depend on CcDirector.Core's FileLog; hosts that want
-/// their own sink set <see cref="AgentBrainOptions.Log"/>.
+/// their own sink set the Log action on their options (e.g. HostedAgentOptions.Log).
 /// </summary>
 public static class BrainLog
 {

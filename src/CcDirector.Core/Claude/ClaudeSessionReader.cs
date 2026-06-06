@@ -47,14 +47,13 @@ public static class ClaudeSessionReader
     /// </summary>
     public static string GetProjectFolder(string repoPath)
     {
-        // Claude Code sanitizes paths: replaces : \ / and _ with -
+        // Claude Code sanitizes paths by replacing EVERY non-alphanumeric character
+        // with - (so : \ / _ . and spaces all become dashes; hyphens map to
+        // themselves). The previous char-list version missed dots, which made every
+        // transcript under a path like "...\.temp\brain-sandbox" invisible to us
+        // (found live in the issue #184 brain verification).
         var normalized = Path.GetFullPath(repoPath);
-        var sanitized = normalized
-            .Replace(":", "-")
-            .Replace("\\", "-")
-            .Replace("/", "-")
-            .Replace("_", "-");
-        return sanitized;
+        return System.Text.RegularExpressions.Regex.Replace(normalized, "[^a-zA-Z0-9]", "-");
     }
 
     /// <summary>

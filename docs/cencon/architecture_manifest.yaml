@@ -621,7 +621,7 @@ containers:
         description: HttpClient wrapper for each Director's Control API (prompts, sessions, kills, wingman asks, image upload, recap)
         file: Discovery/DirectorEndpointClient.cs
       - name: TailscaleServeProvisioner
-        description: Keeps `tailscale serve` HTTPS mappings in sync with the live Director set (443 -> gateway, per-Director ports, cockpit port -> Cockpit so the fleet UI is tailnet-reachable)
+        description: Keeps `tailscale serve` HTTPS mappings in sync with the live LOCAL fixed-range (7879-7898) Director set (443 -> gateway, per-Director ports); remote-machine and ephemeral-port (hosted-agent) Directors never get a mapping, and a 5-minute self-healing reconcile re-asserts the front door + missing live mappings and sweeps provisioner-shaped orphans on any port (issue #179)
         file: Tailscale/TailscaleServeProvisioner.cs
       - name: TailscaleIdentity
         description: Resolves this machine's Magic DNS name via `tailscale status --json`
@@ -683,22 +683,14 @@ containers:
           - GoalAssessment.cs
 
   - id: agent_brain
-    name: Agent Brain Client Library
+    name: Agent Brain Contract Library
     technology: C# / .NET 10
-    description: REST client implementation of the brain contract - remote-controls a warm, headless Claude Code session owned by a Director (issue #172). Encodes the three determinism rules from the headless-brain spike - quiet-gate sends on the server-side idle clock, JSONL transcript as the answer channel (/turns + /usage, never the terminal screen), relink after /clear via /claude-transcripts. Also home of the shared IAgentBrain contract (Ask / Cancel / Clear / Restart / Kill / Health) implemented by both this client and the hosted_agent container, so consumers code against the interface and do not care where the session lives.
+    description: The shared brain contract and its result/health models (issue #184 v2 - the original Director-REST AgentBrainClient transport was retired; the brain must not depend on a Director being up). Holds IAgentBrain (Ask / Cancel / Clear / Restart / Kill / Health), AskResult / ClearResult / BrainHealth, AgentBrainException and the BrainLog default sink. The implementation lives in the hosted_agent container; consumers (the panel, the Gateway's brief agent) code against this interface.
     project: CcDirector.AgentBrain
-    dependencies:
-      - CcDirector.Gateway.Contracts
     components:
       - name: IAgentBrain
-        description: The shared brain contract - AskAsync, CancelAsync, ClearAsync, RestartAsync, KillAsync, GetHealthAsync + SessionId. Implemented by AgentBrainClient (REST) and HostedAgent (in-process)
+        description: The shared brain contract - AskAsync, CancelAsync, ClearAsync, RestartAsync, KillAsync, GetHealthAsync + SessionId. Implemented by HostedAgent (in-process)
         file: IAgentBrain.cs
-      - name: AgentBrainClient
-        description: The REST client - ConnectAsync, CreateSessionAsync, AttachAsync, AskAsync (full reply text + latency + context tokens), CancelAsync (POST /escape), ClearAsync (clear + relink + verified reset), RestartAsync, KillAsync, GetHealthAsync
-        file: AgentBrainClient.cs
-      - name: AgentBrainOptions
-        description: Configuration - Director URL, repo path, quiet/timeout/poll tuning, optional bearer token and log sink
-        file: AgentBrainOptions.cs
       - name: BrainLog
         description: Default daily-file log sink under %LOCALAPPDATA%\cc-director\logs\agent-brain (the library cannot depend on Core's FileLog)
         file: BrainLog.cs
@@ -718,11 +710,14 @@ containers:
       - name: HostedAgentOptions
         description: Configuration - working directory, executable override, agent args, pseudoconsole size, quiet/timeout/poll tuning, log sink
         file: HostedAgentOptions.cs
+      - name: BrainSupervisor
+        description: Owns ONE brain for a long-lived host process (the Gateway tray app, issue #184) - create on demand (first GetAsync spawns claude.exe), RestartAsync as the single recovery verb, NotStarted health without spawning, graceful Ctrl+C-then-kill dispose so the host never leaks a claude.exe; lifecycle serialized through one gate against concurrent consumers
+        file: BrainSupervisor.cs
 
   - id: agent_brain_panel
     name: Agent Brain Control Panel
     technology: C# / Avalonia
-    description: Desktop test application for the brain libraries - one window with a large button per IAgentBrain verb (create, ask, cancel turn, clear, restart, kill, health), a conversation log, an auto-clear-after-every-ask toggle and a live health strip. A mode picker switches between Hosted (the panel process owns claude.exe via CcDirector.HostedAgent) and Director (REST via AgentBrainClient). The libraries' first consumer and their manual QA harness (docs/features/hosted-agent/QA_REPORT.html).
+    description: Desktop test application for the brain libraries - one window with a large button per IAgentBrain verb (create, ask, cancel turn, clear, restart, kill, health), a conversation log, an auto-clear-after-every-ask toggle and a live health strip. Hosted-only since issue #184 - the panel process owns claude.exe via CcDirector.HostedAgent (the Director-REST mode is retired). The libraries' first consumer and their manual QA harness (docs/features/hosted-agent/QA_REPORT.html).
     project: CcDirector.AgentBrain.Panel
     dependencies:
       - CcDirector.AgentBrain
