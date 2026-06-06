@@ -39,7 +39,9 @@
             <span class="sess-body">
                 <span class="sess-name">@(string.IsNullOrWhiteSpace(s.Name) ? s.RepoPath : s.Name)</span>
                 <span class="sess-state">
-                    @s.ActivityState
+                    @* assessed-when-present (issue #186): the Gateway's brain may have
+                       refuted the mechanical quiet signal; raw state is the fallback. *@
+                    @(s.AssessedState ?? s.ActivityState)
                     @if (s.OnHold)
                     {
                         <span class="tag tag-hold">hold</span>

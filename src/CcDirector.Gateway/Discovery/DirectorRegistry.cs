@@ -130,6 +130,26 @@ public sealed class DirectorRegistry : IDisposable
     }
 
     /// <summary>
+    /// Mark a Director as PUSH-CAPABLE (issue #186): it rang the doorbell or sent a
+    /// heartbeat carrying a session-state snapshot, so the Gateway's turn tracker does
+    /// not need to poll it. File-discovered and old-build Directors never get marked
+    /// and stay on the 15s reconcile poll. In-memory: resets on Gateway restart and
+    /// re-establishes on the Director's first ping.
+    /// </summary>
+    public void MarkStateReporting(string directorId)
+    {
+        if (string.IsNullOrEmpty(directorId)) return;
+        if (_stateReporting.TryAdd(directorId, true))
+            FileLog.Write($"[DirectorRegistry] {directorId} is state-reporting (doorbell/heartbeat push); reconcile poll skips it");
+    }
+
+    /// <summary>True when the Director pushes its own session-state signals.</summary>
+    public bool IsStateReporting(string directorId)
+        => !string.IsNullOrEmpty(directorId) && _stateReporting.ContainsKey(directorId);
+
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _stateReporting = new();
+
+    /// <summary>
     /// Remove a Director from the registry (HTTP graceful shutdown). Returns true if
     /// it was present.
     /// </summary>

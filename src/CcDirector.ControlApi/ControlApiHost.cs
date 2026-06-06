@@ -3,6 +3,7 @@ using CcDirector.Core.Configuration;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Wingman;
 using CcDirector.Core.Utilities;
+using CcDirector.Gateway.Contracts;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
@@ -254,10 +255,38 @@ public sealed class ControlApiHost : IAsyncDisposable
         // Phase 1: if gateway.url is configured, register with the Gateway over HTTP and
         // start the heartbeat. Disabled (no-op) when local-only. Reuses the config
         // loaded above for the HTML nav button.
-        _gatewayClient = new GatewayClient(gatewayConfig, DirectorId, Port, _version);
+        _gatewayClient = new GatewayClient(gatewayConfig, DirectorId, Port, _version, SnapshotSessionStates);
         _gatewayClient.Start();
+        WireDoorbellPush();
 
         return Port;
+    }
+
+    /// <summary>Per-session mechanical-state snapshot for the heartbeat body (issue #186).</summary>
+    private List<SessionStateSnapshot> SnapshotSessionStates()
+        => _sessionManager.ListSessions()
+            .Select(s => new SessionStateSnapshot
+            {
+                SessionId = s.Id.ToString(),
+                ActivityState = s.ActivityState.ToString(),
+            })
+            .ToList();
+
+    /// <summary>
+    /// Subscribe every session's activity-state change to the Gateway doorbell (issue #186).
+    /// Subscribed ONCE per host; the handler reads the _gatewayClient FIELD so a settings
+    /// change that replaces the client (ReapplyGatewayAsync) is picked up without
+    /// re-subscribing. NotifySessionState is a no-op while disabled/unregistered.
+    /// </summary>
+    private void WireDoorbellPush()
+    {
+        void Attach(Core.Sessions.Session session)
+            => session.OnActivityStateChanged += (_, newState)
+                => _gatewayClient?.NotifySessionState(session.Id.ToString(), newState.ToString());
+
+        _sessionManager.OnSessionCreated += Attach;
+        foreach (var s in _sessionManager.ListSessions())
+            Attach(s);
     }
 
     /// <summary>
@@ -284,7 +313,7 @@ public sealed class ControlApiHost : IAsyncDisposable
             }
 
             var gatewayConfig = GatewayConfig.Load();
-            _gatewayClient = new GatewayClient(gatewayConfig, DirectorId, Port, _version);
+            _gatewayClient = new GatewayClient(gatewayConfig, DirectorId, Port, _version, SnapshotSessionStates);
             _gatewayClient.Start();
         }
         finally

@@ -46,6 +46,13 @@ public sealed class GatewayTurnBriefAgent : IDisposable
     private readonly Func<string, string, CancellationToken, Task<string>> _fetchScreenTail;
     private readonly TimeSpan _settleDelay;
 
+    /// <summary>
+    /// Fired after a brief is stored: (sessionId, directorEndpoint, brief). The host wires
+    /// the assessedState derivation + Director push-down here (issue #186); the agent
+    /// itself stays a stamping machine.
+    /// </summary>
+    public Action<string, string, TurnBriefDto>? OnBriefStored { get; set; }
+
     private readonly ConcurrentDictionary<string, string> _pending = new();   // sid -> endpoint
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _inFlight = new();
     private readonly SemaphoreSlim _signal = new(0);
@@ -210,6 +217,7 @@ public sealed class GatewayTurnBriefAgent : IDisposable
 
         _store.Append(sid, brief);
         FileLog.Write($"[GatewayTurnBriefAgent] stored sid={sid} turn={brief.TurnNumber} model={brief.Model} railLine={brief.NeedsYou?.RailLine ?? "(none)"}");
+        OnBriefStored?.Invoke(sid, endpoint, brief);
     }
 
     /// <summary>

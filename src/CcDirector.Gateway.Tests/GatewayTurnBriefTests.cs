@@ -92,10 +92,89 @@ public sealed class GatewayTurnBriefStoreTests : IDisposable
 }
 
 // ============================================================================
-// TurnEndWatcher - the pure boundary decision.
+// TurnEndWatcher - the pure boundary decision + the push-fed Observe (issue #186).
 // ============================================================================
 public sealed class TurnEndWatcherTests
 {
+    private static (TurnEndWatcher Watcher, List<TurnEndSignal> TurnEnds, List<string> Working) BuildObserved()
+    {
+        var turnEnds = new List<TurnEndSignal>();
+        var working = new List<string>();
+        // Registry/client are only used by CatchUpAsync; Observe never touches them.
+        var registry = new CcDirector.Gateway.Discovery.DirectorRegistry(
+            Path.Combine(Path.GetTempPath(), "tew-tests", Guid.NewGuid().ToString("N")));
+        var client = new CcDirector.Gateway.Discovery.DirectorEndpointClient("test-token");
+        var watcher = new TurnEndWatcher(registry, client, turnEnds.Add, working.Add);
+        return (watcher, turnEnds, working);
+    }
+
+    [Fact]
+    public void Observe_DoorbellSequence_FiresTurnEndOnTheBoundary()
+    {
+        var (watcher, turnEnds, working) = BuildObserved();
+        using (watcher)
+        {
+            watcher.Observe("s1", "Working", "http://d1");
+            watcher.Observe("s1", "WaitingForInput", "http://d1");
+
+            Assert.Single(working);
+            Assert.Single(turnEnds);
+            Assert.Equal("s1", turnEnds[0].SessionId);
+            Assert.Equal("http://d1", turnEnds[0].DirectorEndpoint);
+        }
+    }
+
+    [Fact]
+    public void Observe_HeartbeatReplayOfSameState_IsIdempotent()
+    {
+        // A lost doorbell ping is reconciled by the heartbeat snapshot; a NOT-lost ping
+        // followed by the same snapshot must not double-fire.
+        var (watcher, turnEnds, working) = BuildObserved();
+        using (watcher)
+        {
+            watcher.Observe("s1", "Working", "http://d1");           // doorbell
+            watcher.Observe("s1", "WaitingForInput", "http://d1");   // doorbell -> turn end
+            watcher.Observe("s1", "WaitingForInput", "http://d1");   // heartbeat replay
+            watcher.Observe("s1", "Working", "http://d1");           // user replied
+            watcher.Observe("s1", "Working", "http://d1");           // heartbeat replay
+
+            Assert.Single(turnEnds);
+            Assert.Equal(2, working.Count); // entered Working twice, replays ignored
+        }
+    }
+
+    [Fact]
+    public void Registry_MarkStateReporting_FlagsPushCapableDirectors()
+    {
+        // The 15s reconcile poll must skip Directors that push their own signals (#186).
+        var registry = new CcDirector.Gateway.Discovery.DirectorRegistry(
+            Path.Combine(Path.GetTempPath(), "tew-tests", Guid.NewGuid().ToString("N")));
+
+        Assert.False(registry.IsStateReporting("d1"));
+        registry.MarkStateReporting("d1");
+        Assert.True(registry.IsStateReporting("d1"));
+        Assert.False(registry.IsStateReporting("d2")); // file-discovered locals stay polled
+    }
+
+    [Fact]
+    public void Observe_LostDoorbell_HeartbeatReconciles()
+    {
+        // The Working ping was lost entirely; the next heartbeat snapshot shows the
+        // session already waiting again -> the boundary is still detected.
+        var (watcher, turnEnds, _) = BuildObserved();
+        using (watcher)
+        {
+            watcher.Observe("s1", "Working", "http://d1");
+            watcher.Observe("s1", "WaitingForInput", "http://d1");
+            turnEnds.Clear();
+
+            // Working -> (lost) -> heartbeat says Working -> doorbell says WaitingForInput
+            watcher.Observe("s1", "Working", "http://d1");
+            watcher.Observe("s1", "WaitingForInput", "http://d1");
+            Assert.Single(turnEnds);
+        }
+    }
+
     [Theory]
     [InlineData("Working", "WaitingForInput", true)]   // the live boundary
     [InlineData("Working", "Idle", true)]
@@ -110,6 +189,56 @@ public sealed class TurnEndWatcherTests
     public void IsTurnEnd_DecidesTheBoundary(string? prev, string current, bool expected)
     {
         Assert.Equal(expected, TurnEndWatcher.IsTurnEnd(prev, current));
+    }
+}
+
+// ============================================================================
+// SessionAssessments - the Gateway-owned half of the #186 two-owner model.
+// ============================================================================
+public sealed class SessionAssessmentsTests
+{
+    private static TurnBriefDto Brief(bool needsYou, bool degraded = false) => new()
+    {
+        SessionId = "s1",
+        TurnNumber = 7,
+        Degraded = degraded,
+        Intent = "intent",
+        NeedsYou = needsYou ? new TurnBriefNeedsYou { Statement = "pick one", RailLine = "pick one", Urgency = "blocking" } : null,
+    };
+
+    [Fact]
+    public void RecordBrief_NeedsYou_AssessesWaitingForInput()
+    {
+        var a = new SessionAssessments();
+        Assert.Equal("WaitingForInput", a.RecordBrief("s1", Brief(needsYou: true)));
+        Assert.Equal("WaitingForInput", a.For("s1"));
+    }
+
+    [Fact]
+    public void RecordBrief_NothingNeeded_RefutesTheQuietSignal_AsIdle()
+    {
+        // THE refutation: mechanically quiet (raw WaitingForInput) but the brain read the
+        // turn and nothing needs the user -> assessed Idle.
+        var a = new SessionAssessments();
+        Assert.Equal("Idle", a.RecordBrief("s1", Brief(needsYou: false)));
+        Assert.Equal("Idle", a.For("s1"));
+    }
+
+    [Fact]
+    public void RecordBrief_DegradedStub_AssessesNothing()
+    {
+        var a = new SessionAssessments();
+        Assert.Null(a.RecordBrief("s1", Brief(needsYou: false, degraded: true)));
+        Assert.Null(a.For("s1"));
+    }
+
+    [Fact]
+    public void Invalidate_NewActivity_ClearsTheStandingAssessment()
+    {
+        var a = new SessionAssessments();
+        a.RecordBrief("s1", Brief(needsYou: true));
+        a.Invalidate("s1");
+        Assert.Null(a.For("s1"));
     }
 }
 
@@ -294,6 +423,22 @@ public sealed class GatewayTurnBriefAgentTests : IDisposable
 
         Assert.Single(_brain.Asks);
         Assert.Single(_store.List(_sid));
+    }
+
+    [Fact]
+    public async Task StoredBrief_FiresOnBriefStored_WithTheOwningEndpoint()
+    {
+        // The host hangs the assessedState derivation + Director push-down on this hook (#186).
+        using var agent = BuildAgent();
+        var fired = new List<(string Sid, string Endpoint, TurnBriefDto Brief)>();
+        agent.OnBriefStored = (sid, ep, brief) => fired.Add((sid, ep, brief));
+        agent.OnTurnEnd(new TurnEndSignal(_sid, Endpoint));
+
+        await WaitUntilAsync(() => fired.Count == 1);
+
+        Assert.Equal(_sid, fired[0].Sid);
+        Assert.Equal(Endpoint, fired[0].Endpoint);
+        Assert.False(fired[0].Brief.Degraded);
     }
 
     [Fact]

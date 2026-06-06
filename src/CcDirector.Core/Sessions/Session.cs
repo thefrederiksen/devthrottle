@@ -318,6 +318,21 @@ public sealed class Session : IDisposable
     }
 
     /// <summary>
+    /// The Gateway's assessed state, pushed DOWN to this Director as a DISPLAY ANNOTATION
+    /// only (issue #186 two-owner model): the Gateway's brain read the transcript after a
+    /// turn end and may have refuted the mechanical quiet signal. Never fed into the
+    /// detector, never re-pushed; any real <see cref="ActivityState"/> change wipes it
+    /// (new PTY bytes invalidate the assessment it was based on).
+    /// </summary>
+    public string? AssessedStateAnnotation { get; private set; }
+
+    /// <summary>Store the Gateway-pushed assessment (POST /sessions/{sid}/assessment).</summary>
+    public void SetAssessedStateAnnotation(string? assessedState)
+    {
+        AssessedStateAnnotation = string.IsNullOrWhiteSpace(assessedState) ? null : assessedState;
+    }
+
+    /// <summary>
     /// The latest stored brief's railLine (the &lt;=8-word needs-you one-liner), kept on the
     /// session so SessionDto mapping needs no store lookup per poll. Null when the latest
     /// brief needs nothing. Written only by the TurnBriefOrchestrator.
@@ -1301,6 +1316,10 @@ public sealed class Session : IDisposable
         // idle, but the moment the user answers (-> Working) the badge is free to go
         // blue again.
         Interlocked.Increment(ref _activityGeneration);
+        // Two-owner model (issue #186): any REAL state change invalidates the Gateway's
+        // standing assessment - it judged the PREVIOUS quiet, and new PTY activity means
+        // that judgment is stale. Display annotation only; nothing here reads it.
+        AssessedStateAnnotation = null;
         // Log the transition (blue<->red) to the in-memory ring the Wingman tab renders.
         RecordStateChange(old, newState);
         OnActivityStateChanged?.Invoke(old, newState);

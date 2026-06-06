@@ -21,8 +21,20 @@ public sealed class SessionDto
     /// <summary>Process lifecycle status: Starting / Running / Exiting / Exited / Failed.</summary>
     public string Status { get; set; } = "";
 
-    /// <summary>Cognitive activity state: Starting / Idle / Working / WaitingForInput / WaitingForPerm / Exited.</summary>
+    /// <summary>Cognitive activity state: Starting / Idle / Working / WaitingForInput / WaitingForPerm / Exited.
+    /// This is the RAW state (issue #186 two-owner model): owned by the Director's dumb
+    /// quiet-timer detector, purely mechanical, written by nothing else.</summary>
     public string ActivityState { get; set; } = "";
+
+    /// <summary>
+    /// The ASSESSED state (issue #186 two-owner model): owned by the GATEWAY, whose brain
+    /// reads the transcript after a turn end and can refute the mechanical quiet signal
+    /// (e.g. quiet but nothing needs you -> "Idle"). Null when no assessment stands - new
+    /// PTY bytes auto-invalidate it. UIs display AssessedState ?? ActivityState. On a
+    /// Director's own API this carries the display annotation the Gateway pushed down;
+    /// it is NEVER fed into the detector and never re-pushed.
+    /// </summary>
+    public string? AssessedState { get; set; }
 
     /// <summary>UTC timestamp the session was created.</summary>
     public DateTime CreatedAt { get; set; }

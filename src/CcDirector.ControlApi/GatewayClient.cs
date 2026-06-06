@@ -13,10 +13,16 @@ namespace CcDirector.ControlApi;
 /// (gateway.url present in config.json), this client:
 ///
 ///   1. POSTs /directors/register on start.
-///   2. POSTs /directors/{id}/heartbeat every <see cref="HeartbeatInterval"/>.
-///   3. DELETEs /directors/{id}/registration on stop.
-///   4. Reacts to 410 Gone on heartbeat by re-registering automatically.
-///   5. Retries failed register and heartbeat calls with exponential backoff.
+///   2. POSTs /directors/{id}/heartbeat every <see cref="HeartbeatInterval"/>, carrying a
+///      snapshot of every session's mechanical state (issue #186: the heartbeat doubles
+///      as the reconcile channel for lost doorbell pings).
+///   3. POSTs /directors/{id}/doorbell on every session activity-state change
+///      (<see cref="NotifySessionState"/>) - fire-and-forget, payload announces THAT a
+///      state changed, never WHAT happened. No retries, no outbox: a lost ping is
+///      harmless because the heartbeat reconciles.
+///   4. DELETEs /directors/{id}/registration on stop.
+///   5. Reacts to 410 Gone on heartbeat by re-registering automatically.
+///   6. Retries failed register and heartbeat calls with exponential backoff.
 ///
 /// When the config is disabled (no gateway.url) the client is inert - every method
 /// is a no-op so the Director boots normally in local-only mode.
@@ -33,6 +39,7 @@ public sealed class GatewayClient : IDisposable
     private readonly string _directorId;
     private readonly int _port;
     private readonly string _version;
+    private readonly Func<List<SessionStateSnapshot>>? _sessionStates;
     private readonly HttpClient _http;
 
     private Timer? _heartbeat;
@@ -54,12 +61,15 @@ public sealed class GatewayClient : IDisposable
     public bool IsEnabled => _config.IsEnabled;
     public bool IsRegistered => _registered;
 
-    public GatewayClient(GatewayConfig config, string directorId, int port, string version)
+    /// <param name="sessionStates">Snapshot provider for the heartbeat's per-session state
+    /// map (issue #186). Null (old callers, tests) sends a body-less heartbeat.</param>
+    public GatewayClient(GatewayConfig config, string directorId, int port, string version, Func<List<SessionStateSnapshot>>? sessionStates = null)
     {
         _config = config ?? throw new ArgumentNullException(nameof(config));
         _directorId = directorId ?? throw new ArgumentNullException(nameof(directorId));
         _port = port;
         _version = version ?? "0.0.0";
+        _sessionStates = sessionStates;
 
         _http = new HttpClient
         {
@@ -199,7 +209,11 @@ public sealed class GatewayClient : IDisposable
                     return;
                 }
 
-                var resp = await _http.PostAsync($"directors/{_directorId}/heartbeat", content: null, _cts.Token);
+                // The per-session state snapshot rides the heartbeat (issue #186): it lets
+                // the Gateway reconcile any doorbell ping it missed. Old Gateways ignore
+                // the body, so this is compatible in both directions.
+                var body = new DirectorHeartbeatRequest { Sessions = _sessionStates?.Invoke() ?? new List<SessionStateSnapshot>() };
+                var resp = await _http.PostAsJsonAsync($"directors/{_directorId}/heartbeat", body, _cts.Token);
                 if (resp.StatusCode == HttpStatusCode.Gone)
                 {
                     // Gateway forgot about us (it restarted or swept us as stale).
@@ -216,6 +230,35 @@ public sealed class GatewayClient : IDisposable
             catch (Exception ex)
             {
                 FileLog.Write($"[GatewayClient] Heartbeat FAILED: {ex.Message}");
+            }
+        });
+    }
+
+    /// <summary>
+    /// The turn-end doorbell (issue #186): announce THAT a session's mechanical state
+    /// changed - {sessionId, newState}, nothing else. Fire-and-forget: failures are logged
+    /// and dropped (the heartbeat snapshot reconciles within 15s); not sent while
+    /// unregistered (the registration itself triggers the Gateway's catch-up).
+    /// </summary>
+    public void NotifySessionState(string sessionId, string newState)
+    {
+        if (!_config.IsEnabled || _disposed || !_registered) return;
+        var cts = _cts;
+        if (cts is null || cts.IsCancellationRequested) return;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var req = new DoorbellRequest { SessionId = sessionId, NewState = newState };
+                var resp = await _http.PostAsJsonAsync($"directors/{_directorId}/doorbell", req, cts.Token);
+                if (!resp.IsSuccessStatusCode)
+                    FileLog.Write($"[GatewayClient] doorbell {sessionId} -> {(int)resp.StatusCode} (dropped; heartbeat reconciles)");
+            }
+            catch (OperationCanceledException) { /* shutdown */ }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[GatewayClient] doorbell {sessionId} FAILED (dropped; heartbeat reconciles): {ex.Message}");
             }
         });
     }

@@ -96,7 +96,7 @@
                 <div class="detail-head">
                     <span class="detail-dot" style="background:@DotColor(Selected.StatusColor)"></span>
                     <span class="detail-name">@SessionTitle(Selected)</span>
-                    <span class="detail-state">@Selected.ActivityState</span>
+                    <span class="detail-state">@(Selected.AssessedState ?? Selected.ActivityState)</span>
                 </div>
                 <div class="right-empty">
                     <div class="right-empty-sub">This session's Director has no tailnet endpoint, so it can't be driven over Tailscale. (Restart that Director with the current build so it registers a reachable https endpoint.)</div>
@@ -117,7 +117,9 @@
                         <span class="detail-name">@SessionTitle(Selected)</span>
                     }
                     <span class="detail-meta">@Selected.MachineName / director @ShortId(Selected.DirectorId)</span>
-                    <span class="detail-state">@Selected.ActivityState</span>
+                    @* assessed-when-present (issue #186): the Gateway's brain may have refuted
+                       the mechanical quiet; the raw detector state is the fallback. *@
+                    <span class="detail-state">@(Selected.AssessedState ?? Selected.ActivityState)</span>
                     @if (Selected.BriefingState == "Briefing")
                     {
                         <span class="briefing-chip">wingman reading...</span>

@@ -85,7 +85,7 @@
                 </div>
                 <div class="fl-repo" title="@s.RepoPath">@RepoBasename(s.RepoPath)</div>
                 <div class="fl-state-row">
-                  <span class="fl-state">@HumanizeState(s.ActivityState)</span>
+                  <span class="fl-state">@HumanizeState(s.AssessedState ?? s.ActivityState)</span>
                   <span class="fl-idle" title="last activity @s.LastActivityAt">@RelativeTime(s.LastActivityAt)</span>
                 </div>
                 @if (!string.IsNullOrWhiteSpace(s.ViewUrl))

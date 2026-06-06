@@ -604,6 +604,23 @@ internal static class ControlEndpoints
             });
         });
 
+        // The Gateway pushing its assessed state DOWN (issue #186 two-owner model): stored
+        // as a display annotation only. Never fed into the detector; any real activity
+        // change wipes it (see Session.SetActivityState).
+        app.MapPost("/sessions/{sid}/assessment", async (string sid, HttpContext ctx) =>
+        {
+            if (!Guid.TryParse(sid, out var guid))
+                return Results.BadRequest(new { error = "invalid session id format" });
+            var session = sessionManager.GetSession(guid);
+            if (session is null)
+                return Results.NotFound(new { error = "session not found" });
+
+            var req = await ctx.Request.ReadFromJsonAsync<AssessmentRequest>(ctx.RequestAborted);
+            session.SetAssessedStateAnnotation(req?.AssessedState);
+            FileLog.Write($"[ControlEndpoints] assessment: sid={sid} -> {req?.AssessedState ?? "(cleared)"}");
+            return Results.Json(new { ok = true });
+        });
+
         app.MapGet("/sessions/{sid}/turns", (string sid) =>
         {
             if (!Guid.TryParse(sid, out var guid))
@@ -2519,6 +2536,10 @@ internal static class ControlEndpoints
             RepoPath = s.RepoPath,
             Status = s.Status.ToString(),
             ActivityState = s.ActivityState.ToString(),
+            // The Gateway-pushed display annotation (issue #186 two-owner model). Null
+            // unless the Gateway's brain assessed the CURRENT quiet; wiped by any real
+            // state change. Display only - never feeds the detector.
+            AssessedState = s.AssessedStateAnnotation,
             CreatedAt = s.CreatedAt.UtcDateTime,
             TotalBufferBytes = s.Buffer?.TotalBytesWritten ?? 0,
             BackendType = s.BackendType.ToString(),

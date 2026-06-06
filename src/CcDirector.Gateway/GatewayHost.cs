@@ -41,6 +41,7 @@ public sealed class GatewayHost : IAsyncDisposable
     private readonly DirectorEndpointClient _client;
     private readonly TailscaleServeProvisioner _serveProvisioner;
     private readonly GatewayTurnBriefStore _turnBriefStore;
+    private readonly SessionAssessments _assessments = new();
     private GatewayTurnBriefAgent? _briefAgent;
     private TurnEndWatcher? _turnEndWatcher;
     private WebApplication? _app;
@@ -106,13 +107,31 @@ public sealed class GatewayHost : IAsyncDisposable
         // ephemeral-port mappings (issue #179). The provisioner repeats this on a timer.
         _serveProvisioner.Reconcile();
 
-        // The turn-brief stamping machine (issue #185): the watcher observes turn ends
-        // across the fleet, the agent pulls truth and asks the warm brain. Kill switch:
-        // CC_TURNBRIEFS=0 disables the whole pipeline.
+        // The turn-brief stamping machine (issues #185/#186): PUSH-fed since #186 - the
+        // tracker is driven by Director doorbell pings and heartbeat snapshots (wired into
+        // the endpoints below); the only pull left is the one-time startup catch-up sweep.
+        // A stored brief derives the Gateway-owned assessedState and pushes it down to the
+        // owning Director as a display annotation. Kill switch: CC_TURNBRIEFS=0.
         if (!GatewayTurnBriefAgent.Disabled)
         {
             _briefAgent = new GatewayTurnBriefAgent(Brain, _turnBriefStore, _client);
-            _turnEndWatcher = new TurnEndWatcher(Registry, _client, _briefAgent.OnTurnEnd, _briefAgent.OnSessionWorking);
+            _turnEndWatcher = new TurnEndWatcher(
+                Registry, _client,
+                _briefAgent.OnTurnEnd,
+                sid =>
+                {
+                    // Working again: the brief is moot AND the standing assessment is stale.
+                    _briefAgent.OnSessionWorking(sid);
+                    _assessments.Invalidate(sid);
+                });
+            _briefAgent.OnBriefStored = (sid, endpoint, brief) =>
+            {
+                var assessed = _assessments.RecordBrief(sid, brief);
+                if (assessed is not null)
+                    _ = _client.PostAssessmentAsync(endpoint, sid, assessed);
+            };
+            // First tick = the startup catch-up sweep; then the 15s reconcile poll for
+            // Directors that never push (file-discovered locals, old builds).
             _turnEndWatcher.Start();
         }
         else
@@ -222,7 +241,17 @@ public sealed class GatewayHost : IAsyncDisposable
                 if (handler is null) return false;
                 handler();
                 return true;
-            });
+            },
+            // Issue #186: doorbell pings and heartbeat snapshots feed the turn tracker;
+            // the aggregated /sessions view carries the Gateway-owned assessedState.
+            onSessionState: (directorId, sessionId, newState) =>
+            {
+                if (_turnEndWatcher is null) return;
+                var endpoint = Registry.Get(directorId)?.ControlEndpoint;
+                if (string.IsNullOrEmpty(endpoint)) return;
+                _turnEndWatcher.Observe(sessionId, newState, endpoint);
+            },
+            assessedStateFor: sid => _briefAgent is null ? null : _assessments.For(sid));
 
         // Gateway-served turn briefs (issue #185): the Cockpit reads briefs from HERE; the
         // store serves even when the pipeline is disabled (read-only is always safe).

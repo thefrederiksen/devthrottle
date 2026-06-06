@@ -16,7 +16,13 @@ namespace CcDirector.Gateway.Api;
 
 internal static class GatewayEndpoints
 {
-    public static void Map(IEndpointRouteBuilder app, DirectorRegistry registry, DirectorEndpointClient client, string version, string token, bool authEnabled = false, Func<bool>? requestShutdown = null)
+    /// <param name="onSessionState">Issue #186: receives every session-state observation
+    /// (doorbell ping or heartbeat snapshot entry) as (directorId, sessionId, newState).
+    /// The host feeds these to the turn-brief tracker; null when briefing is disabled.</param>
+    /// <param name="assessedStateFor">Issue #186: the Gateway-owned assessedState for a
+    /// session id, stamped onto the /sessions aggregation; null when briefing is disabled.</param>
+    public static void Map(IEndpointRouteBuilder app, DirectorRegistry registry, DirectorEndpointClient client, string version, string token, bool authEnabled = false, Func<bool>? requestShutdown = null,
+        Action<string, string, string>? onSessionState = null, Func<string, string?>? assessedStateFor = null)
     {
         // Graceful exit for the self-update helper: answer first (so the caller gets its 200),
         // then hand off to the host's shutdown handler shortly after. 501 when the hosting
@@ -157,7 +163,7 @@ internal static class GatewayEndpoints
             return Results.Json(dto, statusCode: StatusCodes.Status201Created);
         });
 
-        app.MapPost("/directors/{id}/heartbeat", (string id) =>
+        app.MapPost("/directors/{id}/heartbeat", async (string id, HttpContext ctx) =>
         {
             var ok = registry.Heartbeat(id);
             if (!ok)
@@ -167,6 +173,42 @@ internal static class GatewayEndpoints
                 // client can re-POST /directors/register instead of just retrying heartbeats.
                 return Results.StatusCode(StatusCodes.Status410Gone);
             }
+
+            // Issue #186: a new Director's heartbeat carries a per-session state snapshot -
+            // the reconcile channel for lost doorbell pings. Old Directors POST no body.
+            if (onSessionState is not null && ctx.Request.ContentLength > 0)
+            {
+                DirectorHeartbeatRequest? body = null;
+                try { body = await ctx.Request.ReadFromJsonAsync<DirectorHeartbeatRequest>(ctx.RequestAborted); }
+                catch (System.Text.Json.JsonException ex)
+                {
+                    FileLog.Write($"[GatewayEndpoints] heartbeat body unparsable from {id}: {ex.Message}");
+                }
+                if (body?.Sessions is { } sessions)
+                {
+                    // A state-carrying heartbeat (even with zero sessions) proves this
+                    // Director pushes its own signals - the reconcile poll skips it.
+                    registry.MarkStateReporting(id);
+                    foreach (var s in sessions)
+                        onSessionState(id, s.SessionId, s.ActivityState);
+                }
+            }
+            return Results.Json(new { ok = true });
+        });
+
+        // Issue #186: the turn-end doorbell. The Director announces THAT a session's
+        // mechanical state changed; the Gateway pulls the truth afterwards. Always 200 for
+        // a known Director (a dropped observation costs nothing - the heartbeat reconciles);
+        // 410 tells an unregistered Director to re-register first.
+        app.MapPost("/directors/{id}/doorbell", (string id, DoorbellRequest req) =>
+        {
+            if (registry.Get(id) is null)
+                return Results.StatusCode(StatusCodes.Status410Gone);
+            if (req is null || string.IsNullOrEmpty(req.SessionId) || string.IsNullOrEmpty(req.NewState))
+                return Results.BadRequest(new { error = "sessionId and newState are required" });
+
+            registry.MarkStateReporting(id);
+            onSessionState?.Invoke(id, req.SessionId, req.NewState);
             return Results.Json(new { ok = true });
         });
 
@@ -256,6 +298,13 @@ internal static class GatewayEndpoints
                     s.MachineName = d.MachineName;
                     s.User = d.User;
                     s.TailnetEndpoint = baseUrl;
+                    // Issue #186: stamp the GATEWAY-owned assessedState. Suppressed while
+                    // the session is mechanically working (raw activity always wins there);
+                    // the Director's own annotation (if any) is overwritten - the Gateway
+                    // is the one writer of this field on the aggregated view.
+                    s.AssessedState = string.Equals(s.ActivityState, "Working", StringComparison.OrdinalIgnoreCase)
+                        ? null
+                        : assessedStateFor?.Invoke(s.SessionId) ?? s.AssessedState;
                     // Stamp the deep link with the Gateway's own address (as this caller
                     // reached it) so the session view can offer a "back to Gateway" menu
                     // item. The session view is served by the Director on a different
