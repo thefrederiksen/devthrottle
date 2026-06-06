@@ -3,7 +3,19 @@
 **Status:** DESIGN ONLY - nothing built. This document captures the design discussion
 so the conventions can be reviewed before any code is written.
 
-**Date:** 2026-06-06
+**Date:** 2026-06-06 (open questions resolved same day - see section 9)
+
+---
+
+## 0. Design Tenet
+
+**Human override channels are never weakened for agent convenience.** Rail
+visibility, Hold, and manual session close are the user's circuit breakers on
+anything agents do to each other. Every convention in this document is shaped by
+that rule: workers stay visible and open (9.1), Hold is absolute (9.5), and budgets
+exist so the user referees loops rather than discovers them (4.3). Any future
+proposal that trades one of these channels away for smoother automation is wrong
+by default.
 
 ---
 
@@ -149,6 +161,9 @@ skill must:
 
 - Workers created by a master get a name convention: `[MESH:<role>] <task title>`
   (e.g. `[MESH:qa] verify #212 restore`), so topology is legible in the rail.
+- When a loop ends, the master renames its worker to `[MESH:done] <task title>`
+  (rename exists today), so the rail shows live vs finished workers at a glance.
+  Closing finished workers stays a deliberate human act (see 9.1).
 - This dovetails with Session Types (#211): a `QA`-type session's playbook already
   says "never fix, only report" - exactly the worker contract the QA loop needs.
   Session types are the natural enforcement point for role behavior.
@@ -234,7 +249,12 @@ its MESH-RESULT, merges. Workers never see each other.
   workers. acceptsAgentPrompts enforced at skill level.
 - **Phase 2 (small platform help, only if Phase 1 sticks):** turn-end events consumed
   from `/events` instead of polling; `acceptsAgentPrompts` enforced server-side;
-  `[MESH:*]` sessions visually grouped under their master in the cockpit rail.
+  `[MESH:*]` sessions visually grouped under their master in the cockpit rail;
+  **prompt circuit breaker** (firm commitment, not optional): the Gateway counts
+  agent-originated prompts per (source, target) session pair and refuses past N
+  per hour with an error telling the master to escalate - the backstop against a
+  confused master that prompt-level budgets cannot guarantee; held sessions reject
+  agent-originated prompts server-side (held beats every flag).
 - **Phase 3 (only with proven demand):** formal orchestration - Gateway task queue,
   worker pools, dependency graphs. Explicitly NOT designed here.
 
@@ -243,15 +263,58 @@ the prompt/summary cycle, autonomous loops without round budgets.
 
 ---
 
-## 9. Open questions
+## 9. Resolved questions (2026-06-06)
 
-1. Should worker sessions auto-close when the master's loop ends, or be left for
-   post-mortem? (Lean: leave open, name them clearly; closing loses the terminal.)
-2. Does the QA loop's "re-test" happen in the master's session or a third disposable
-   session, to keep even test-run noise out of the QA context?
-3. Where does the round budget live - skill prompt only, or also a Gateway-side
-   circuit breaker counting agent-originated prompts per session pair per hour?
-4. Cost control: should `[MESH:*]` workers default to a cheaper model than the
-   master?
-5. How does this interact with Hold state - should a master be able to prompt a held
-   session? (Lean: no; Hold means hands off for agents too.)
+### 9.1 Worker cleanup: leave open, never auto-close
+
+The point of full sessions over SDK sub-agents is watchability and post-mortem.
+Auto-close destroys the terminal - the one artifact that cannot be reconstructed
+(summaries and turns survive in the Gateway store; the screen does not). Worse
+failure mode: a master that auto-closes on what it THINKS is success destroys the
+evidence exactly when an audit is most needed. The `[MESH:done]` rename (4.5) makes
+finished workers easy to spot and bulk-close by hand; closing stays a human act.
+
+### 9.2 Re-test runs in the QA master's own session
+
+The contamination the QA loop protects against is implementation reasoning ("I
+wrote this code so I believe it works"). Test output is not contamination - it is
+the QA agent's primary evidence; a QA agent that does not run its own tests is
+outsourcing its only job. The real concern (context bloat from build logs) has a
+standard fix needing no third session: pipe test output to a file, read back only
+the summary line and failures. A third disposable session would add a full
+delegation hop per round to every loop for marginal benefit.
+
+### 9.3 Round budget: skill-level in Phase 1, Gateway circuit breaker in Phase 2
+
+Phase 1 is zero-C# by design, so skill-level is the only option - and it is a
+convention the master SHOULD follow, not a wall. Two things make that acceptable
+for Phase 1: both sessions are visible in the rail (a runaway ping-pong shows as
+two sessions flickering, very noticeable), and wingman briefs stamp both sides.
+The Phase 2 circuit breaker (sec. 8) is the real enforcement: the Gateway already
+sees every `/sessions/{sid}/prompt`, so counting per-pair agent prompts and
+refusing past N/hour is cheap, and it is the backstop against a CONFUSED master,
+which prompt text cannot guarantee against. Promoted to a firm Phase 2 commitment.
+
+### 9.4 Worker model tier: no default downgrade - model follows the role, not the rank
+
+"Worker" is a topology position, not a difficulty rating. In the QA loop the
+implementation worker does the HARDEST work in the system; downgrading it produces
+worse code for the QA side to bounce back, which can INCREASE total tokens by
+adding rounds. A cheap worker failing rounds against an expensive master is the
+worst spend profile available. Cost control lives in the round budget (9.3), not
+the model tier. Workers inherit the master's model by default; `/delegate` takes an
+optional model parameter; the one legitimate downgrade - mechanical fanout shards
+("rename this symbol in your 40 files") - is an explicit per-call choice, never a
+default.
+
+### 9.5 Hold means hands off, for agents too - no exceptions
+
+Hold is the user's override channel: the one signal that a human has taken a
+session out of circulation. If agents could prompt through it, there would be no
+way to freeze a misbehaving loop short of killing sessions. Keeping Hold absolute
+gives a one-click circuit breaker on any loop: hold the worker, the master sees the
+refusal, escalates, done. Mechanics: the delegation skill checks hold state before
+prompting and treats held as "needs user - stop and escalate"; NEVER queue-and-wait
+(that would fire the moment hold is released, possibly hours later with stale
+intent). In Phase 2 the server-side `acceptsAgentPrompts` enforcement point also
+rejects agent prompts to held sessions - held beats every flag.
