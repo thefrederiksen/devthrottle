@@ -7,11 +7,13 @@ using CcDirector.Gateway.Contracts;
 namespace CcDirector.Core.Wingman;
 
 /// <summary>
-/// THE frozen v2.4 turn-brief contract in code form (issue #185; v2.4 adds the
-/// mission-complete suggestedAction, issue #201): the prompt that asks the
-/// model to interpret one turn, and the mechanical validation of its JSON answer. The ONE
-/// producer is the Gateway's warm-brain brief agent (#187 deleted the Director-side
-/// pipeline) - a prompt change lands here and reaches the whole fleet via the Gateway.
+/// THE frozen v3 turn-brief contract in code form (issue #185; v2.4 added the
+/// mission-complete suggestedAction #201; v3 adds the COLD-READER bar #205: situation
+/// recap, complete options with a recommended pick, ifIgnored, allClear as a first-class
+/// verdict): the prompt that asks the model to interpret one turn, and the mechanical
+/// validation of its JSON answer. The ONE producer is the Gateway's warm-brain brief
+/// agent (#187 deleted the Director-side pipeline) - a prompt change lands here and
+/// reaches the whole fleet via the Gateway.
 ///
 /// Everything here is pure: no model calls, no I/O beyond logging. D5/D6 apply - validation
 /// is mechanical (length caps, invariants, verbatim evidence checks), never interpretation.
@@ -29,6 +31,11 @@ public static class TurnBriefContract
         sb.AppendLine("AI coding agents finishes a turn. The lead runs many agents; your brief is the");
         sb.AppendLine("only thing they read. Your job is INTERPRETATION - reduce their cognitive load.");
         sb.AppendLine();
+        sb.AppendLine("THE COLD-READER BAR (every needsYou must pass it): the reader has not seen this");
+        sb.AppendLine("session for HOURS and remembers NOTHING. They will read ONLY your brief. They");
+        sb.AppendLine("must be able to act correctly within 10 seconds. TIGHT beats complete: every");
+        sb.AppendLine("sentence that is not needed for the decision is clutter - cut it.");
+        sb.AppendLine();
         sb.AppendLine("Respond with ONLY a JSON object (no fences, no prose) in exactly this shape:");
         sb.AppendLine("""
 {
@@ -38,16 +45,18 @@ public static class TurnBriefContract
   "intent": "1-2 sentences: what the USER is trying to get done, carried/updated across turns. NEVER the literal last message (a 'yes' must become what was approved).",
   "did": ["3-6 bullets, past tense, specific, <=15 words each. Proportional: trivial turn -> 1-2 bullets."],
   "needsYou": null OR {
-    "statement": "Crisp. Lead with whether anything is broken/blocking, then the concrete action(s).",
+    "statement": "Opens with ONE sentence of situation recap that assumes zero memory (what the work is, where it stands), THEN the decision. Lead the decision part with whether anything is broken/blocking.",
     "answerVia": "reply" | "keys",
     "selectionMode": "single" | "multiple",
     "submit": null | "\r",
-    "options": [ { "key": "short label", "send": "exact text or key sequence", "note": null | "scope/risk flag" } ],
+    "options": [ { "key": "short label", "send": "exact text or key sequence", "note": "REQUIRED: the consequence and risk of choosing this (<=18 words) - 'yes' to WHAT, and what happens then", "recommended": false | true on AT MOST ONE option, reason inside its note } ],
     "evidence": "EXACT verbatim quote from the AGENT REPLY or the SCREEN - copied character-for-character, never paraphrased",
     "urgency": "blocking" | "review" | "fyi",
     "confidence": "high" | "ambiguous",
-    "railLine": "<= 8 words"
+    "railLine": "<= 8 words",
+    "ifIgnored": "one line: what happens if the user does NOTHING - is the session blocked, will the agent proceed anyway, does it expire? REQUIRED when urgency=blocking."
   },
+  "allClear": null OR "REQUIRED when needsYou is null: one CONCRETE line proving nothing is needed ('v0.3.0 published and live - nothing to do'), never generic filler.",
   "suggestedAction": null OR { "type": "close_session", "reason": "<=12 words: why this session is finished" }
 }
 """);
@@ -63,7 +72,14 @@ public static class TurnBriefContract
         sb.AppendLine("- Plan approval: summarize THE PLAN in the statement - the decision is about the");
         sb.AppendLine("  plan's content, not menu mechanics.");
         sb.AppendLine("- Nothing blocking but a real decision exists: urgency=fyi, statement starts");
-        sb.AppendLine("  'Nothing needed. FYI: ...'. No ask at all: needsYou=null.");
+        sb.AppendLine("  'Nothing needed. FYI: ...'. No ask at all: needsYou=null + a concrete allClear.");
+        sb.AppendLine("- OPTIONS COMPLETE: never offer an option whose consequence the reader cannot");
+        sb.AppendLine("  see ('sweep all' of WHAT?). The note carries consequence + risk. If one choice");
+        sb.AppendLine("  is clearly safer/better, mark it recommended and say why in its note. Never");
+        sb.AppendLine("  recommend when genuinely unsure - a wrong recommendation costs trust.");
+        sb.AppendLine("- A named action ALWAYS comes with its option/button. If the statement tells the");
+        sb.AppendLine("  user to do X, there must be an option (or suggestedAction) that does X.");
+        sb.AppendLine("- Operational side-facts (usage limits, etc.) go in ifIgnored, not mid-statement.");
         sb.AppendLine("- Unclear what the agent wants: confidence=ambiguous and SAY SO in the statement");
         sb.AppendLine("  ('unclear; likely X or Y'). Never invent certainty. Never invent options.");
         sb.AppendLine("- The screen may contain rendering tears (overdrawn lines); read through them.");
@@ -182,6 +198,9 @@ public static class TurnBriefContract
                     Urgency = Str(ny, "urgency") switch { "blocking" => "blocking", "fyi" => "fyi", _ => "review" },
                     Confidence = Str(ny, "confidence") is "ambiguous" ? "ambiguous" : "high",
                     RailLine = Str(ny, "railLine"),
+                    IfIgnored = ny.TryGetProperty("ifIgnored", out var ig) && ig.ValueKind == JsonValueKind.String
+                        ? (ig.GetString() ?? "").Trim() is { Length: > 0 } igText ? igText : null
+                        : null,
                 };
                 if (string.IsNullOrWhiteSpace(n.Statement) || string.IsNullOrWhiteSpace(n.RailLine))
                 {
@@ -189,6 +208,7 @@ public static class TurnBriefContract
                     return null;
                 }
                 if (n.RailLine.Length > 60) n.RailLine = n.RailLine[..60];
+                if (n.IfIgnored is { Length: > 200 }) n.IfIgnored = n.IfIgnored[..200];
 
                 if (ny.TryGetProperty("options", out var opts) && opts.ValueKind == JsonValueKind.Array)
                 {
@@ -202,8 +222,23 @@ public static class TurnBriefContract
                             Key = key.Length > 60 ? key[..60] : key,
                             Send = send,
                             Note = o.TryGetProperty("note", out var note) && note.ValueKind == JsonValueKind.String ? note.GetString() : null,
+                            Recommended = o.TryGetProperty("recommended", out var rec) && rec.ValueKind == JsonValueKind.True,
                         });
                         if (n.Options.Count == 6) break;
+                    }
+
+                    // v3 invariant: AT MOST ONE recommended option - extra flags are dropped
+                    // mechanically (first wins), never the brief.
+                    var seenRecommended = false;
+                    foreach (var option in n.Options)
+                    {
+                        if (!option.Recommended) continue;
+                        if (seenRecommended)
+                        {
+                            FileLog.Write("[TurnBriefContract] validation: multiple recommended options; dropping extra flags");
+                            option.Recommended = false;
+                        }
+                        seenRecommended = true;
                     }
                 }
 
@@ -212,6 +247,15 @@ public static class TurnBriefContract
                 if (n.SelectionMode == "multiple" && string.IsNullOrEmpty(n.Submit))
                 {
                     FileLog.Write("[TurnBriefContract] validation: multiple without submit");
+                    return null;
+                }
+
+                // v3 invariant (issue #205): a BLOCKING ask without "what happens if I do
+                // nothing" fails the cold-reader test - the brief is rejected, the degrade
+                // stub marks the failure honestly.
+                if (n.Urgency == "blocking" && string.IsNullOrWhiteSpace(n.IfIgnored))
+                {
+                    FileLog.Write("[TurnBriefContract] validation: blocking without ifIgnored");
                     return null;
                 }
 
@@ -229,6 +273,21 @@ public static class TurnBriefContract
                 }
 
                 brief.NeedsYou = n;
+            }
+
+            // All-clear verdict (v3, issue #205): the concrete "nothing needed" line for
+            // needsYou=null briefs. Mechanical: parsed when present and the turn truly
+            // needs nothing - an allClear next to a needsYou is contradictory and dropped.
+            if (root.TryGetProperty("allClear", out var ac) && ac.ValueKind == JsonValueKind.String)
+            {
+                var allClear = (ac.GetString() ?? "").Trim();
+                if (allClear.Length > 0)
+                {
+                    if (brief.NeedsYou is not null)
+                        FileLog.Write("[TurnBriefContract] validation: allClear alongside needsYou; dropping allClear");
+                    else
+                        brief.AllClear = allClear.Length > 250 ? allClear[..250] : allClear;
+                }
             }
 
             // Suggested action (v2.4, issue #201): ENUMERATED vocabulary, mechanically

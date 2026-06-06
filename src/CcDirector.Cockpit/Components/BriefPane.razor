@@ -207,10 +207,12 @@
                     <div class="brief-quick">
                         @foreach (var o in n.Options)
                         {
-                            <button class="brief-quick-btn" disabled="@_answering"
+                            @* v3 (issue #205): the wingman's pick renders as "(rec)" with the
+                               reason in its note - at most one, enforced server-side. *@
+                            <button class="brief-quick-btn @(o.Recommended ? "recommended" : "")" disabled="@_answering"
                                     title="@(o.Note ?? $"send: {o.Send}")"
                                     @onclick="() => AnswerSingleAsync(n, o)">
-                                <b>@o.Key</b>
+                                <b>@o.Key@(o.Recommended ? " (rec)" : "")</b>
                                 @if (o.Note is not null)
                                 {
                                     <span class="brief-opt-note">@o.Note</span>
@@ -218,6 +220,12 @@
                             </button>
                         }
                     </div>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(n.IfIgnored))
+                {
+                    @* v3 (issue #205): the single most decision-relevant fact for triage. *@
+                    <div class="brief-ifignored">If you do nothing: @n.IfIgnored</div>
                 }
 
                 @if (!string.IsNullOrWhiteSpace(n.Evidence))
@@ -269,13 +277,16 @@
         {
             @* The wingman read this turn and concluded NOTHING is needed (issue #206).
                That verdict is first-class: it must never be overridden by the condenser
-               paragraph under a red header - the red lie from the epic's evidence. *@
+               paragraph under a red header - the red lie from the epic's evidence.
+               v3 (issue #205): the wingman authors the concrete all-clear line itself
+               ("v0.3.0 published and live - nothing to do"); pre-v3 briefs fall back to
+               the generic sentence. *@
             <div class="brief-block">
                 <div class="blabel">
                     ALL CLEAR
                     <span class="brief-verbatim-tag">@TierLabel</span>
                 </div>
-                <div class="brief-needsyou urgency-fyi">The wingman read this turn and concluded nothing is needed from you.</div>
+                <div class="brief-needsyou urgency-fyi">@(string.IsNullOrWhiteSpace(_turnBrief!.AllClear) ? "The wingman read this turn and concluded nothing is needed from you." : _turnBrief.AllClear)</div>
             </div>
         }
         else if (!HasWingmanBrief && NeedsYou is not null && !IsBriefing && !IsWorking && !ReplyPending)

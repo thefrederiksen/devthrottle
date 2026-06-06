@@ -438,6 +438,8 @@ body{background:var(--panel);color:var(--text);
 .brief-quick-btn.submit{background:#22C55E;border-color:#22C55E;color:#08210f;font-weight:600}
 .brief-quick-btn.submit:disabled{background:var(--panel);color:var(--muted);font-weight:400}
 .brief-opt-note{display:block;color:#F59E0B;font-size:10px;margin-top:2px}
+.brief-quick-btn.recommended{border-color:#22C55E}
+.brief-ifignored{color:var(--text3);font-size:12px;margin-top:8px;font-style:italic}
 .brief .blabel.yellow{color:#F59E0B}
 .brief-needsyou.urgency-blocking{border-left-color:#F14C4C}
 .brief-needsyou.urgency-review{border-left-color:#F14C4C}

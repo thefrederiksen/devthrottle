@@ -297,4 +297,143 @@ public sealed class TurnBriefContractValidationTests
         Assert.NotNull(brief);
         Assert.Equal(100, brief.SuggestedAction!.Reason.Length);
     }
+
+    // ------------------------------------------------------------------ v3 (#205)
+
+    [Fact]
+    public void BuildPrompt_ContainsColdReaderContract()
+    {
+        var prompt = TurnBriefContract.BuildPrompt(Package());
+        Assert.Contains("COLD-READER BAR", prompt);
+        Assert.Contains("remembers NOTHING", prompt);
+        Assert.Contains("ifIgnored", prompt);
+        Assert.Contains("allClear", prompt);
+        Assert.Contains("recommended", prompt);
+        Assert.Contains("situation recap", prompt);
+    }
+
+    [Fact]
+    public void Validate_V3Fields_Parsed()
+    {
+        var json = """
+        { "intent": "x", "did": ["y"],
+          "needsYou": {
+            "statement": "The release audit is finished. Decide what to do with the leftovers.",
+            "answerVia": "reply", "selectionMode": "single", "submit": null,
+            "options": [
+              { "key": "sweep all", "send": "sweep", "note": "commits 14 files belonging to other sessions - risky" },
+              { "key": "leave them", "send": "leave", "note": "each session commits its own work", "recommended": true }
+            ],
+            "evidence": "", "urgency": "review", "confidence": "high",
+            "railLine": "leftovers - sweep or leave?",
+            "ifIgnored": "nothing breaks - the session just sits idle" } }
+        """;
+        var brief = TurnBriefContract.ParseAndValidate(json, Package(), "wingman:test");
+        Assert.NotNull(brief);
+        Assert.NotNull(brief.NeedsYou);
+        Assert.Equal("nothing breaks - the session just sits idle", brief.NeedsYou.IfIgnored);
+        Assert.False(brief.NeedsYou.Options[0].Recommended);
+        Assert.True(brief.NeedsYou.Options[1].Recommended);
+    }
+
+    [Fact]
+    public void Validate_MultipleRecommended_KeepsFirstOnly()
+    {
+        var json = """
+        { "intent": "x", "did": [],
+          "needsYou": {
+            "statement": "s", "answerVia": "reply", "selectionMode": "single", "submit": null,
+            "options": [
+              { "key": "a", "send": "a", "recommended": true },
+              { "key": "b", "send": "b", "recommended": true }
+            ],
+            "evidence": "", "urgency": "review", "confidence": "high", "railLine": "r" } }
+        """;
+        var brief = TurnBriefContract.ParseAndValidate(json, Package(), "wingman:test");
+        Assert.NotNull(brief);
+        Assert.NotNull(brief.NeedsYou);
+        Assert.True(brief.NeedsYou.Options[0].Recommended);
+        Assert.False(brief.NeedsYou.Options[1].Recommended); // extra flag dropped, brief kept
+    }
+
+    [Fact]
+    public void Validate_BlockingWithoutIfIgnored_Rejected()
+    {
+        var json = """
+        { "intent": "x", "did": [],
+          "needsYou": {
+            "statement": "s", "answerVia": "reply", "selectionMode": "single", "submit": null,
+            "options": [], "evidence": "", "urgency": "blocking", "confidence": "high", "railLine": "r" } }
+        """;
+        Assert.Null(TurnBriefContract.ParseAndValidate(json, Package(), "wingman:test"));
+    }
+
+    [Fact]
+    public void Validate_BlockingWithIfIgnored_Accepted()
+    {
+        var json = """
+        { "intent": "x", "did": [],
+          "needsYou": {
+            "statement": "s", "answerVia": "reply", "selectionMode": "single", "submit": null,
+            "options": [], "evidence": "", "urgency": "blocking", "confidence": "high", "railLine": "r",
+            "ifIgnored": "the session stays blocked until you answer" } }
+        """;
+        var brief = TurnBriefContract.ParseAndValidate(json, Package(), "wingman:test");
+        Assert.NotNull(brief);
+    }
+
+    [Fact]
+    public void Validate_NonBlockingWithoutIfIgnored_StillAccepted()
+    {
+        // Back-compat: pre-v3 shapes (no ifIgnored, no recommended, no allClear) stay valid.
+        var json = """
+        { "intent": "x", "did": [],
+          "needsYou": {
+            "statement": "s", "answerVia": "reply", "selectionMode": "single", "submit": null,
+            "options": [ { "key": "a", "send": "a" } ],
+            "evidence": "", "urgency": "review", "confidence": "high", "railLine": "r" } }
+        """;
+        var brief = TurnBriefContract.ParseAndValidate(json, Package(), "wingman:test");
+        Assert.NotNull(brief);
+        Assert.NotNull(brief.NeedsYou);
+        Assert.Null(brief.NeedsYou.IfIgnored);
+        Assert.False(brief.NeedsYou.Options[0].Recommended);
+    }
+
+    [Fact]
+    public void Validate_AllClear_ParsedWhenNothingNeeded()
+    {
+        var json = """{ "intent": "x", "did": ["y"], "needsYou": null, "allClear": "v0.3.0 published and live - nothing to do" }""";
+        var brief = TurnBriefContract.ParseAndValidate(json, Package(), "wingman:test");
+        Assert.NotNull(brief);
+        Assert.Equal("v0.3.0 published and live - nothing to do", brief.AllClear);
+    }
+
+    [Fact]
+    public void Validate_AllClearAlongsideNeedsYou_Dropped()
+    {
+        // Contradictory: a needs-you and an all-clear cannot both be true.
+        var json = """
+        { "intent": "x", "did": [], "allClear": "all good",
+          "needsYou": {
+            "statement": "s", "answerVia": "reply", "selectionMode": "single", "submit": null,
+            "options": [], "evidence": "", "urgency": "review", "confidence": "high", "railLine": "r" } }
+        """;
+        var brief = TurnBriefContract.ParseAndValidate(json, Package(), "wingman:test");
+        Assert.NotNull(brief);
+        Assert.NotNull(brief.NeedsYou);
+        Assert.Null(brief.AllClear);
+    }
+
+    [Fact]
+    public void Validate_OverlongV3Fields_Capped()
+    {
+        var json = $$"""
+        { "intent": "x", "did": [], "needsYou": null, "allClear": "{{new string('a', 400)}}" }
+        """;
+        var brief = TurnBriefContract.ParseAndValidate(json, Package(), "wingman:test");
+        Assert.NotNull(brief);
+        Assert.NotNull(brief.AllClear);
+        Assert.Equal(250, brief.AllClear.Length);
+    }
 }

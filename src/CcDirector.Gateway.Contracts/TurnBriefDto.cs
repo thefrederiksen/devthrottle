@@ -52,6 +52,13 @@ public sealed class TurnBriefDto
     /// <summary>Null when the turn needs nothing from the user.</summary>
     public TurnBriefNeedsYou? NeedsYou { get; set; }
 
+    /// <summary>"Nothing needed" as a first-class verdict (v3, issue #205): when
+    /// <see cref="NeedsYou"/> is null the wingman supplies one CONCRETE all-clear line
+    /// ("v0.3.0 published and live - nothing to do") so a session that still paints red
+    /// shows honest content instead of generic filler. Null on pre-v3 briefs; consumers
+    /// fall back to their generic all-clear text.</summary>
+    public string? AllClear { get; set; }
+
     /// <summary>Mission-complete suggestion (v2.4, issue #201): set when the wingman judges
     /// the session's goal DELIVERED (bug filed, question answered, artifact produced) and
     /// nothing blocks. Suggestion only - a consumer renders it as a one-click approval; the
@@ -103,6 +110,12 @@ public sealed class TurnBriefNeedsYou
 
     /// <summary>&lt;= 8 words for the rail / FIFO card / voice.</summary>
     public string RailLine { get; set; } = "";
+
+    /// <summary>"If you do nothing" (v3, issue #205): one line - is the session blocked,
+    /// will the agent proceed anyway, does the decision expire? The single most
+    /// decision-relevant fact for a user triaging many sessions. Validation requires it
+    /// when <see cref="Urgency"/> is "blocking". Null on pre-v3 briefs.</summary>
+    public string? IfIgnored { get; set; }
 }
 
 /// <summary>One answer option: the visible key/label and the exact send that answers it.</summary>
@@ -114,8 +127,15 @@ public sealed class TurnBriefOption
     /// <summary>What one tap transmits: reply text, or a raw key sequence for answerVia "keys".</summary>
     public string Send { get; set; } = "";
 
-    /// <summary>Scope/risk flag (e.g. "standing grant"). Shown next to the button.</summary>
+    /// <summary>Consequence + risk of choosing this option (v3 tightened it from a
+    /// scope/risk flag to a REQUIREMENT in the prompt: an option without its consequence
+    /// is homework). Shown under the button.</summary>
     public string? Note { get; set; }
+
+    /// <summary>At most ONE option per brief carries this (v3, issue #205) - the wingman's
+    /// pick, with the reason in <see cref="Note"/>. Validation drops extra flags
+    /// mechanically (first one wins).</summary>
+    public bool Recommended { get; set; }
 }
 
 /// <summary>GET /sessions/{sid}/turnbriefs response.</summary>
