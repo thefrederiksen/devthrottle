@@ -84,7 +84,13 @@ public sealed class SpeakService : IAsyncDisposable
             apiKey: _options.ResolveOpenAiKey(),
             model: _options.DictationCleanupModel);
         _audioBuffer = new AudioBuffer(spillDirectory: ResolveBufferSpillDir());
-        _session = new DictationSession(_dictionary, _provider, _cleanup, _audioBuffer);
+        // Live transcript preview (#215): re-transcribes the growing clip
+        // every few seconds so the dialog shows the words while the user is
+        // still talking. The session owns and disposes it.
+        var preview = new LivePreviewTranscriber(
+            apiKey: _options.ResolveOpenAiKey(),
+            model: _options.DictationPreviewModel);
+        _session = new DictationSession(_dictionary, _provider, _cleanup, _audioBuffer, preview);
 
         // Build the mic and wire the UI meters BEFORE handing it to the pipeline.
         // The equalizer/level meters are driven straight off NAudio and do not

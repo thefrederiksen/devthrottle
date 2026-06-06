@@ -83,6 +83,65 @@ public sealed class DictationPipelineLiveTests
         Assert.Contains(openingToken, transcript);
     }
 
+    /// <summary>
+    /// Issue #215 acceptance, machine-verified against the real API: with a
+    /// <see cref="LivePreviewTranscriber"/> attached, transcript text must
+    /// surface through OnPartial WHILE the clip is still streaming (i.e.
+    /// while the user is still talking) - not only after stop. The realtime
+    /// provider alone never does this (turn detection is disabled, so its
+    /// deltas only arrive at the final commit); every partial observed before
+    /// stop therefore proves the preview loop end-to-end.
+    /// </summary>
+    [Fact]
+    public async Task RealAudio_LivePreview_ShowsTextWhileStillRecording()
+    {
+        if (!HasApiKey()) { _out.WriteLine("SKIP: OPENAI_API_KEY not set"); return; }
+        var ffmpeg = FindFfmpeg();
+        if (ffmpeg is null) { _out.WriteLine("SKIP: ffmpeg not on PATH"); return; }
+        var mp3 = FindClip("clip1.mp3");
+        if (mp3 is null) { _out.WriteLine("SKIP: clip1.mp3 not found"); return; }
+        var pcm = DecodeMp3ToPcm16At24k(mp3, ffmpeg);
+        if (pcm is null || pcm.Length == 0) { _out.WriteLine("SKIP: decode produced no audio"); return; }
+
+        using var dict = new DictionaryLoader(
+            Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".yaml"), watch: false);
+        using var cleanup = new CleanupOrchestrator(
+            "test-key-ignored", "gpt-4o-mini", new HttpClient(new FailHandler()));
+
+        await using var provider = new OpenAiRealtimeProvider();
+        var preview = new LivePreviewTranscriber { TickInterval = TimeSpan.FromSeconds(1) };
+        await using var session = new DictationSession(dict, provider, cleanup, preview: preview);
+        var src = new ReplayAudioSource(pcm, chunkBytes: 2400, chunkDelayMs: 50);
+        await using var pipeline = new DictationPipeline(src, session);
+
+        // Everything recorded here arrives BEFORE StopAsync is called - the
+        // "text while still recording" evidence.
+        var duringRecording = new List<string>();
+        pipeline.OnPartial += t => { lock (duringRecording) duringRecording.Add(t); };
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+        await pipeline.StartAsync("default", cts.Token);
+        await src.Completed.WaitAsync(TimeSpan.FromSeconds(60), cts.Token);
+        // The clip is only a few seconds; give the loop room for one more pass
+        // over the full clip before we stop, like a user pausing before Send.
+        await Task.Delay(TimeSpan.FromSeconds(3), cts.Token);
+
+        int partialsBeforeStop;
+        lock (duringRecording) partialsBeforeStop = duringRecording.Count;
+        var result = await pipeline.StopAsync(cts.Token);
+
+        string lastPreview;
+        lock (duringRecording) lastPreview = duringRecording.Count > 0 ? duringRecording[^1] : "";
+        _out.WriteLine($"previews_before_stop={partialsBeforeStop}");
+        _out.WriteLine($"last_preview: {lastPreview}");
+        _out.WriteLine($"final: {result.RawTranscript}");
+
+        Assert.True(partialsBeforeStop >= 1,
+            "expected at least one live preview to surface while audio was still streaming");
+        Assert.Contains("sent", lastPreview.ToLowerInvariant());   // clip1 opens "I sent the cc-director patch..."
+        Assert.Contains("sent", (result.RawTranscript ?? "").ToLowerInvariant());
+    }
+
     // ===== replay source ====================================================
 
     /// <summary>

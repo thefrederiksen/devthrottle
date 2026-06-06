@@ -38,6 +38,7 @@ public sealed class DictationSession : IAsyncDisposable
     private readonly CleanupOrchestrator _cleanup;
     private readonly AudioBuffer _audioBuffer;
     private readonly bool _ownsAudioBuffer;
+    private readonly LivePreviewTranscriber? _preview;
     private readonly object _stateGate = new();
 
     private string _profile = "default";
@@ -60,15 +61,23 @@ public sealed class DictationSession : IAsyncDisposable
     internal AudioBuffer Buffer => _audioBuffer;
 
     /// <param name="audioBuffer">Optional buffer to use. If null, an in-memory default is created and owned by the session.</param>
+    /// <param name="preview">
+    /// Optional live transcript preview (issue #215). When supplied, every
+    /// pushed chunk is teed into it, it is started/stopped with the session,
+    /// its previews are surfaced through <see cref="OnPartial"/>, and the
+    /// session disposes it (same ownership the session takes of the provider).
+    /// </param>
     public DictationSession(
         DictionaryLoader dictionary,
         IDictationProvider provider,
         CleanupOrchestrator cleanup,
-        AudioBuffer? audioBuffer = null)
+        AudioBuffer? audioBuffer = null,
+        LivePreviewTranscriber? preview = null)
     {
         _dictionary = dictionary ?? throw new ArgumentNullException(nameof(dictionary));
         _provider = provider ?? throw new ArgumentNullException(nameof(provider));
         _cleanup = cleanup ?? throw new ArgumentNullException(nameof(cleanup));
+        _preview = preview;
 
         if (audioBuffer is null)
         {
@@ -82,6 +91,7 @@ public sealed class DictationSession : IAsyncDisposable
         }
 
         _provider.OnPartial += ForwardPartial;
+        if (_preview is not null) _preview.OnPreview += ForwardPartial;
     }
 
     /// <summary>Open a transcription session bound to a dictionary profile.</summary>
@@ -94,6 +104,11 @@ public sealed class DictationSession : IAsyncDisposable
         _profile = string.IsNullOrWhiteSpace(profile) ? "default" : profile;
         _sttPrompt = DictionaryLoader.BuildSttPrompt(_dictionary.Current);
         await _provider.StartAsync(_sttPrompt, ct);
+        // The live preview shares the vocabulary prompt so preview passes and
+        // the final transcript hear the same glossary bias. Started only after
+        // the provider connect succeeds: if the connect fails there will be no
+        // session and no audio, so a preview loop would be working for nobody.
+        _preview?.Start(_sttPrompt);
         _started = true;
         _stopped = false;
         ChangeState(ConnectionState.Connected);
@@ -110,6 +125,11 @@ public sealed class DictationSession : IAsyncDisposable
         if (_disposed) throw new ObjectDisposedException(nameof(DictationSession));
         if (!_started || _stopped) throw new InvalidOperationException("Session is not active.");
         if (chunk.Length == 0) return;
+
+        // Tee into the live preview BEFORE any provider/buffer routing so the
+        // preview hears every captured chunk exactly once, including chunks
+        // that go to the offline buffer while the provider link is down.
+        _preview?.Append(chunk);
 
         // Already degraded: skip the provider call and just buffer.
         var current = State;
@@ -208,6 +228,13 @@ public sealed class DictationSession : IAsyncDisposable
 
         _stopped = true;
 
+        // Halt the preview loop BEFORE the provider commit. From here on the
+        // box keeps the last preview text until the final cleaned transcript
+        // replaces it; ForwardPartial suppresses the provider's regrow-from-
+        // empty deltas during the commit so the display never goes backward.
+        if (_preview is not null)
+            await _preview.StopAsync();
+
         string raw;
         try
         {
@@ -257,7 +284,17 @@ public sealed class DictationSession : IAsyncDisposable
         OnStateChanged?.Invoke(next);
     }
 
-    private void ForwardPartial(string partial) => OnPartial?.Invoke(partial);
+    private void ForwardPartial(string partial)
+    {
+        // With a live preview attached, the box already shows the whole
+        // utterance by the time Stop is pressed. The provider's final-commit
+        // deltas regrow from empty, which would visibly REWIND the transcript
+        // during the commit - drop them and let the final result land instead.
+        // Without a preview, those deltas are the only live feedback there is,
+        // so they keep flowing exactly as before.
+        if (_stopped && _preview is not null) return;
+        OnPartial?.Invoke(partial);
+    }
 
     /// <summary>
     /// Exception types that should trigger the offline buffer fallback. We
@@ -278,6 +315,11 @@ public sealed class DictationSession : IAsyncDisposable
         if (_disposed) return;
         _disposed = true;
         _provider.OnPartial -= ForwardPartial;
+        if (_preview is not null)
+        {
+            _preview.OnPreview -= ForwardPartial;
+            await _preview.DisposeAsync();
+        }
         await _provider.DisposeAsync();
         if (_ownsAudioBuffer) _audioBuffer.Dispose();
     }

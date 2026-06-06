@@ -87,6 +87,16 @@ public class AgentOptions
     public string DictationCleanupModel { get; set; } = "gpt-4.1-nano";
 
     /// <summary>
+    /// OpenAI transcription model used by the dictation live preview
+    /// (<see cref="Dictation.LivePreviewTranscriber"/>), which re-transcribes
+    /// the growing clip while the user is still talking so the dialog shows
+    /// the words as they are spoken. Defaults to <c>gpt-4o-mini-transcribe</c>:
+    /// the preview re-runs every few seconds, so the cheap/fast tier is the
+    /// right default. The FINAL transcript does not use this model.
+    /// </summary>
+    public string DictationPreviewModel { get; set; } = "gpt-4o-mini-transcribe";
+
+    /// <summary>
     /// Resolve the effective dictation dictionary path. Always returns a
     /// concrete path; callers should treat a missing file as "empty dictionary".
     /// </summary>

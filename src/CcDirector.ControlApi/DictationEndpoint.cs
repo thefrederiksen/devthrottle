@@ -161,7 +161,13 @@ internal static class DictationEndpoint
 
         var bufferSpillDir = ResolveBufferSpillDir();
         using var audioBuffer = new AudioBuffer(spillDirectory: bufferSpillDir);
-        await using var session = new DictationSession(dictionary, provider, cleanup, audioBuffer);
+        // Live transcript preview (#215): the browser gets "partial" frames
+        // continuously while the user talks, not only at the final commit.
+        // The session owns and disposes it.
+        var preview = new LivePreviewTranscriber(
+            apiKey: options.ResolveOpenAiKey(),
+            model: options.DictationPreviewModel);
+        await using var session = new DictationSession(dictionary, provider, cleanup, audioBuffer, preview);
 
         session.OnPartial += partial =>
         {

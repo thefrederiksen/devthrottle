@@ -382,4 +382,128 @@ public sealed class DictationSessionTests
         Assert.NotNull(result.CleanupFailureReason);
         Assert.Contains("remained in offline buffer", result.CleanupFailureReason!);
     }
+
+    // ===== Live preview (#215) ==============================================
+
+    private sealed class PreviewOkHandler : HttpMessageHandler
+    {
+        public string Text { get; set; } = "live preview";
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+            => Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"text\":\"" + Text + "\"}"),
+            });
+    }
+
+    /// <summary>Preview whose loop never ticks, for tee-only assertions.</summary>
+    private static LivePreviewTranscriber NewIdlePreview() =>
+        new(apiKey: "test-key", httpClient: new HttpClient(new PreviewOkHandler()))
+        {
+            TickInterval = TimeSpan.FromHours(1),
+        };
+
+    [Fact]
+    public async Task PushAudio_TeesEveryChunkIntoPreview()
+    {
+        using var dict = BuildLoader();
+        var provider = new FakeProvider();
+        using var cleanup = NewFailingCleanup();
+        var preview = NewIdlePreview();
+        await using var session = new DictationSession(dict, provider, cleanup, preview: preview);
+
+        await session.StartAsync();
+        await session.PushAudioAsync(new byte[30]);
+        await session.PushAudioAsync(new byte[70]);
+
+        Assert.Equal(100, preview.ClipBytes);
+        Assert.Equal(100, provider.PushedBytes);
+    }
+
+    [Fact]
+    public async Task PushAudio_WhileBuffering_StillTeesIntoPreview()
+    {
+        // The preview must hear what the user says even when the provider
+        // link is down and chunks are routed to the offline buffer - that is
+        // exactly when on-screen feedback matters most.
+        using var dict = BuildLoader();
+        var provider = new FlakeyProvider { FailAfterBytes = 0 };
+        using var cleanup = NewFailingCleanup();
+        var preview = NewIdlePreview();
+        await using var session = new DictationSession(dict, provider, cleanup, preview: preview);
+
+        await session.StartAsync();
+        await session.PushAudioAsync(new byte[50]);    // provider throws -> buffered
+        await session.PushAudioAsync(new byte[50]);    // straight to buffer
+        Assert.Equal(ConnectionState.Buffering, session.State);
+
+        Assert.Equal(100, preview.ClipBytes);
+    }
+
+    [Fact]
+    public async Task PreviewText_SurfacesThroughOnPartial_WhileRecording()
+    {
+        using var dict = BuildLoader();
+        var provider = new FakeProvider();
+        using var cleanup = NewFailingCleanup();
+        var preview = new LivePreviewTranscriber(
+            apiKey: "test-key",
+            httpClient: new HttpClient(new PreviewOkHandler { Text = "words so far" }))
+        {
+            TickInterval = TimeSpan.FromMilliseconds(25),
+            MinNewBytes = 4,
+        };
+        await using var session = new DictationSession(dict, provider, cleanup, preview: preview);
+
+        var got = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        session.OnPartial += t => got.TrySetResult(t);
+
+        await session.StartAsync();
+        await session.PushAudioAsync(new byte[64]);
+
+        var text = await got.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal("words so far", text);
+
+        await session.StopAsync();
+    }
+
+    [Fact]
+    public async Task ProviderPartialsDuringStop_SuppressedWhenPreviewAttached()
+    {
+        // The provider's final-commit deltas regrow the transcript from empty.
+        // With a preview attached the box already shows the whole utterance,
+        // so those deltas must NOT reach OnPartial (the display would rewind).
+        // Without a preview they keep flowing (OnPartial_ForwardsFromProvider
+        // covers that), and the final result text is unaffected either way.
+        using var dict = BuildLoader();
+        var provider = new FakeProvider { CannedTranscript = "final words" };
+        using var cleanup = NewFailingCleanup();
+        var preview = NewIdlePreview();
+        await using var session = new DictationSession(dict, provider, cleanup, preview: preview);
+
+        string? observed = null;
+        session.OnPartial += t => observed = t;
+
+        await session.StartAsync();
+        await session.PushAudioAsync(new byte[8]);
+        var result = await session.StopAsync();
+
+        Assert.Null(observed);                              // delta suppressed
+        Assert.Equal("final words", result.RawTranscript);  // final unaffected
+    }
+
+    [Fact]
+    public async Task DisposeAsync_DisposesPreview()
+    {
+        using var dict = BuildLoader();
+        var provider = new FakeProvider();
+        using var cleanup = NewFailingCleanup();
+        var preview = NewIdlePreview();
+
+        var session = new DictationSession(dict, provider, cleanup, preview: preview);
+        await session.DisposeAsync();
+
+        // Disposed preview rejects further use - proves the session took
+        // ownership the same way it does for the provider.
+        Assert.Throws<ObjectDisposedException>(() => preview.Start(""));
+    }
 }
