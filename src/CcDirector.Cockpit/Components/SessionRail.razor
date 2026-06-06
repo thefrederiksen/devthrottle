@@ -162,6 +162,15 @@
                 {
                     <div class="dir-head">
                         <span class="dir-head-label">director @ShortId(dir.Key)</span>
+                        @* Version + uptime from the Gateway's Director registry: makes a
+                           stale pre-fix Director stand out without leaving the rail. *@
+                        @if (DirectorFor(dir.Key) is { } meta)
+                        {
+                            <span class="dir-meta"
+                                  title="@($"v{meta.Version}, started {meta.StartedAt.ToLocalTime():yyyy-MM-dd HH:mm}")">
+                                v@(ShortVersion(meta.Version)) up @Uptime(meta.StartedAt)
+                            </span>
+                        }
                         <button type="button" class="dir-add"
                                 title="Start a new session on this Director"
                                 @onclick="() => OnNewSession.InvokeAsync(dir.Key)">+</button>
@@ -187,6 +196,11 @@
 @code {
     [Parameter] public List<SessionDto> Sessions { get; set; } = new();
     [Parameter] public List<MachineErrorDto> Errors { get; set; } = new();
+
+    /// <summary>The Gateway's Director registry (GET /directors): supplies the version and
+    /// start time shown on each Director group header. Empty list = headers render without
+    /// the meta span (e.g. registry fetch not landed yet).</summary>
+    [Parameter] public List<DirectorDto> Directors { get; set; } = new();
     [Parameter] public string? SelectedSessionId { get; set; }
     [Parameter] public EventCallback<string> OnSelect { get; set; }
 
@@ -242,6 +256,25 @@
 
     private static string ShortId(string id) =>
         string.IsNullOrEmpty(id) ? "?" : (id.Length <= 8 ? id : id[..8]);
+
+    private DirectorDto? DirectorFor(string directorId) =>
+        Directors.FirstOrDefault(d => d.DirectorId == directorId);
+
+    /// <summary>Version without build metadata: "0.6.7+41d82c4" -> "0.6.7". The full string
+    /// stays available in the header tooltip via StartedAt anyway.</summary>
+    private static string ShortVersion(string version) =>
+        string.IsNullOrWhiteSpace(version) ? "?" : version.Split('+')[0];
+
+    /// <summary>Compact uptime from the registration's UTC start: "2d 4h", "1h 16m", "12m".
+    /// Re-rendered on every roster refresh, so minute resolution stays honest.</summary>
+    private static string Uptime(DateTime startedAtUtc)
+    {
+        var up = DateTime.UtcNow - startedAtUtc.ToUniversalTime();
+        if (up < TimeSpan.Zero) up = TimeSpan.Zero;
+        return up.TotalDays >= 1 ? $"{(int)up.TotalDays}d {up.Hours}h"
+             : up.TotalHours >= 1 ? $"{(int)up.TotalHours}h {up.Minutes}m"
+             : $"{up.Minutes}m";
+    }
 
     // Verbatim render of the Director-authored StatusColor. Never derived from other fields.
     private static string DotColor(string c) => c switch

@@ -75,6 +75,7 @@
                 }
                 <SessionRail Sessions="_sessions"
                              Errors="_errors"
+                             Directors="_directors"
                              SelectedSessionId="@_selectedId"
                              ViewMode="@_viewMode"
                              OnSelect="OnSelect"
@@ -1037,6 +1038,15 @@
             _lastError = null;
             _lastRefresh = DateTime.Now;
 
+            // Rail group headers show per-Director version + uptime from the registry.
+            // The registry is near-static (start/stop events only), so refresh it at most
+            // every 30s instead of on every roster tick; minute-resolution uptime stays honest.
+            if (DateTime.UtcNow - _directorsRefreshedAt >= TimeSpan.FromSeconds(30))
+            {
+                _directors = await Gateway.GetDirectorsAsync(_cts.Token);
+                _directorsRefreshedAt = DateTime.UtcNow;
+            }
+
             // Drop the selection if that session has gone away.
             if (_selectedId is not null && _sessions.All(s => s.SessionId != _selectedId))
                 _selectedId = null;
@@ -1670,6 +1680,9 @@
 
     private bool _showNewSession;
     private List<DirectorDto> _directors = new();
+    // Last registry fetch for the rail headers (RefreshAsync throttle). MinValue = fetch
+    // on the first roster refresh.
+    private DateTime _directorsRefreshedAt = DateTime.MinValue;
     private string _nsDirectorId = "";
     private List<RepositoryDto> _nsRepos = new();
     private string _nsRepoPath = "";
