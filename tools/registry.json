@@ -94,7 +94,7 @@
       "category": "web-social",
       "type": "python",
       "description": "Twitter/X CLI: post, reply, thread, like, retweet, timeline",
-      "built": false,
+      "built": true,
       "requirements": ["Twitter API v2 credentials"]
     },
     {
@@ -102,7 +102,7 @@
       "category": "web-social",
       "type": "python",
       "description": "Facebook Page CLI: post, comment, reply, list via Graph API",
-      "built": false,
+      "built": true,
       "requirements": ["Facebook App + Page Access Token"]
     },
     {
@@ -110,7 +110,7 @@
       "category": "web-social",
       "type": "python",
       "description": "YouTube CLI: upload, comment, reply, list via YouTube Data API v3",
-      "built": false,
+      "built": true,
       "requirements": ["Google OAuth (YouTube Data API v3)"]
     },
     {
@@ -281,7 +281,7 @@
       "category": "data-utilities",
       "type": "python",
       "description": "Manage cc-director configuration and system settings",
-      "built": false,
+      "built": true,
       "requirements": []
     },
     {
@@ -289,7 +289,7 @@
       "category": "data-utilities",
       "type": "python",
       "description": "PostHog analytics CLI: page views, funnels, events, recordings",
-      "built": false,
+      "built": true,
       "requirements": ["PostHog account + API key"]
     }
   ]
