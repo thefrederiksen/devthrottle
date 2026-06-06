@@ -650,31 +650,97 @@ internal static class GatewayEndpoints
             return Results.Json(body, statusCode: 201);
         });
 
-        app.MapDelete("/directors/{id}", async (string id, [FromBody] ShutdownDirectorRequest? body) =>
+        // Destructive-call gate (issue #212 W6/L4). A Director shutdown takes down every
+        // claude.exe under it, so the request must (a) state a reason, and (b) when the
+        // Director is reachable and has live sessions, confirm their count - a caller may
+        // not kill sessions it did not know existed. Every branch logs loudly: the 2026-06-06
+        // post-mortem found the force-kill path left no trace at all.
+        app.MapDelete("/directors/{id}", async (HttpContext ctx, string id) =>
         {
-            FileLog.Write($"[GatewayEndpoints] DELETE director: id={id}");
+            // Body read by hand instead of [FromBody]: an Accepts(application/json)
+            // constraint would bounce body-less DELETEs off route matching, and a
+            // body-less DELETE of an unknown id must still 404.
+            ShutdownDirectorRequest body;
+            try
+            {
+                body = await ctx.Request.ReadFromJsonAsync<ShutdownDirectorRequest>() ?? new ShutdownDirectorRequest();
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                return Results.BadRequest(new { error = "invalid JSON body" });
+            }
+            catch (InvalidOperationException)
+            {
+                // Not a JSON request (typically a body-less DELETE): empty request.
+                body = new ShutdownDirectorRequest();
+            }
+
+            var caller = ctx.Connection.RemoteIpAddress?.ToString() ?? "?";
+            FileLog.Write($"[GatewayEndpoints] DELETE director: id={id} force={body.Force} " +
+                $"confirmSessions={(body.ConfirmSessions?.ToString() ?? "-")} reason=\"{Truncate(body.Reason)}\" client={caller}");
+
             var director = registry.Get(id);
             if (director is null)
                 return Results.NotFound(new { error = "director not found" });
 
-            body ??= new ShutdownDirectorRequest();
+            if (string.IsNullOrWhiteSpace(body.Reason))
+            {
+                FileLog.Write($"[GatewayEndpoints] DELETE director REJECTED (no reason): id={id} client={caller}");
+                return Results.BadRequest(new { error = "reason is required: state why this Director is being shut down" });
+            }
+
+            var sessions = await client.ListSessionsAsync(director.ControlEndpoint);
+            if (sessions is not null)
+            {
+                var live = sessions
+                    .Where(s => !string.Equals(s.Status, "Exited", StringComparison.OrdinalIgnoreCase)
+                             && !string.Equals(s.Status, "Failed", StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                if (live.Count > 0 && body.ConfirmSessions != live.Count)
+                {
+                    FileLog.Write($"[GatewayEndpoints] DELETE director BLOCKED by session gate: id={id} " +
+                        $"liveSessions={live.Count} confirmSessions={(body.ConfirmSessions?.ToString() ?? "-")} client={caller}");
+                    return Results.Json(new
+                    {
+                        error = $"director has {live.Count} live session(s); re-send with confirmSessions={live.Count} to proceed",
+                        liveSessionCount = live.Count,
+                        sessions = live.Select(s => new { s.SessionId, s.Name, s.RepoPath }).ToList(),
+                    }, statusCode: StatusCodes.Status409Conflict);
+                }
+            }
+            else
+            {
+                // Unreachable Director: the live count is unknowable, and an unreachable
+                // Director is exactly the one an operator must still be able to stop.
+                FileLog.Write($"[GatewayEndpoints] DELETE director: id={id} live-session count UNKNOWN (director unreachable); session gate skipped");
+            }
+
             var ok = await client.PostShutdownAsync(director.ControlEndpoint);
-            if (ok) return Results.Json(new { accepted = true });
+            if (ok)
+            {
+                FileLog.Write($"[GatewayEndpoints] DELETE director: id={id} pid={director.Pid} graceful shutdown accepted");
+                return Results.Json(new { accepted = true });
+            }
 
             if (body.Force)
             {
+                FileLog.Write($"[GatewayEndpoints] DELETE director FORCE-KILL: id={id} pid={director.Pid} " +
+                    $"tree=true reason=\"{Truncate(body.Reason)}\" client={caller}");
                 try
                 {
                     var proc = Process.GetProcessById(director.Pid);
                     proc.Kill(entireProcessTree: true);
+                    FileLog.Write($"[GatewayEndpoints] DELETE director FORCE-KILL done: id={id} pid={director.Pid}");
                     return Results.Json(new { accepted = true, killed = true });
                 }
                 catch (Exception ex)
                 {
+                    FileLog.Write($"[GatewayEndpoints] DELETE director FORCE-KILL FAILED: id={id} pid={director.Pid} error={ex.Message}");
                     return Results.Problem("could not kill process: " + ex.Message, statusCode: 500);
                 }
             }
 
+            FileLog.Write($"[GatewayEndpoints] DELETE director: id={id} graceful shutdown failed and force=false; nothing stopped");
             return Results.StatusCode(StatusCodes.Status502BadGateway);
         });
 
@@ -1134,5 +1200,13 @@ internal static class GatewayEndpoints
         return !string.IsNullOrEmpty(next)
             && next.StartsWith("/", StringComparison.Ordinal)
             && !next.StartsWith("//", StringComparison.Ordinal);
+    }
+
+    /// <summary>One-line-safe log form of a caller-supplied string (reason fields etc.).</summary>
+    private static string Truncate(string? s)
+    {
+        if (string.IsNullOrEmpty(s)) return "";
+        var oneLine = s.Replace('\r', ' ').Replace('\n', ' ');
+        return oneLine.Length <= 200 ? oneLine : oneLine[..200] + "...";
     }
 }

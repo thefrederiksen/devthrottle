@@ -22,4 +22,17 @@ public sealed class ShutdownDirectorRequest
 
     /// <summary>How long to wait for graceful shutdown before forcing (if Force=true). Default 15000.</summary>
     public int TimeoutMs { get; set; } = 15_000;
+
+    /// <summary>
+    /// REQUIRED. Why this Director is being shut down. Logged on the Gateway so a
+    /// post-mortem can always answer "who stopped it and why" (issue #212 W6).
+    /// </summary>
+    public string? Reason { get; set; }
+
+    /// <summary>
+    /// Live-session gate (issue #212 W6): when the target Director has live sessions,
+    /// this must match their count or the request is rejected with 409 (the response
+    /// lists the sessions). A caller may not take down sessions it did not know existed.
+    /// </summary>
+    public int? ConfirmSessions { get; set; }
 }

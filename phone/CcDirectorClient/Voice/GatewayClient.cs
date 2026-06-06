@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -155,21 +156,56 @@ public sealed class GatewayClient
     /// <summary>
     /// Kill a Director and all of its sessions (DELETE /directors/{id} with
     /// {"force":true}). Throws on HTTP failure so the caller can surface it.
+    ///
+    /// The Gateway's destructive-call gate (issue #212 W6) requires a reason and, when the
+    /// Director has live sessions, a confirmation of their count (409 carries the count).
+    /// The human tapping Kill on the phone IS the confirmation, so on 409 this retries
+    /// once with the count the Gateway reported.
     /// </summary>
     public async Task KillDirectorAsync(string directorId, CancellationToken ct = default)
     {
         ClientLog.Write($"[GatewayClient] KillDirector: id={directorId}");
         using var http = NewClient(TimeSpan.FromSeconds(30));
+
+        var resp = await SendKillAsync(http, directorId, confirmSessions: null, ct);
+        if (resp.StatusCode == HttpStatusCode.Conflict)
+        {
+            var conflictBody = await resp.Content.ReadAsStringAsync(ct);
+            var count = ParseLiveSessionCount(conflictBody);
+            ClientLog.Write($"[GatewayClient] KillDirector gate: id={directorId} liveSessions={count}; confirming");
+            resp.Dispose();
+            resp = await SendKillAsync(http, directorId, confirmSessions: count, ct);
+        }
+
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        var status = (int)resp.StatusCode;
+        var ok = resp.IsSuccessStatusCode;
+        resp.Dispose();
+        if (!ok)
+            throw new HttpRequestException($"DELETE /directors/{directorId} failed: {status} {body}");
+        ClientLog.Write($"[GatewayClient] KillDirector OK: id={directorId}");
+    }
+
+    private async Task<HttpResponseMessage> SendKillAsync(
+        HttpClient http, string directorId, int? confirmSessions, CancellationToken ct)
+    {
+        var payload = confirmSessions is null
+            ? "{\"force\":true,\"reason\":\"kill requested from phone app\"}"
+            : $"{{\"force\":true,\"reason\":\"kill requested from phone app\",\"confirmSessions\":{confirmSessions}}}";
         using var req = new HttpRequestMessage(HttpMethod.Delete,
             $"{_baseUrl}/directors/{Uri.EscapeDataString(directorId)}")
         {
-            Content = new StringContent("{\"force\":true}", Encoding.UTF8, "application/json"),
+            Content = new StringContent(payload, Encoding.UTF8, "application/json"),
         };
-        var resp = await http.SendAsync(req, ct);
-        var body = await resp.Content.ReadAsStringAsync(ct);
-        if (!resp.IsSuccessStatusCode)
-            throw new HttpRequestException($"DELETE /directors/{directorId} failed: {(int)resp.StatusCode} {body}");
-        ClientLog.Write($"[GatewayClient] KillDirector OK: id={directorId}");
+        return await http.SendAsync(req, ct);
+    }
+
+    private static int ParseLiveSessionCount(string conflictJson)
+    {
+        using var doc = JsonDocument.Parse(conflictJson);
+        if (!doc.RootElement.TryGetProperty("liveSessionCount", out var count))
+            throw new HttpRequestException($"409 from DELETE /directors had no liveSessionCount: {conflictJson}");
+        return count.GetInt32();
     }
 
     /// <summary>
