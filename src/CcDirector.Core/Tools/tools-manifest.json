@@ -65,6 +65,13 @@
       "note": null
     },
     {
+      "name": "cc-posthog",
+      "category": "Data",
+      "description": "PostHog analytics CLI: page views, funnels, events, recordings.",
+      "smoke": null,
+      "note": "Needs a PostHog API key. Presence + version only."
+    },
+    {
       "name": "cc-comm-queue",
       "category": "Communications",
       "description": "Queue content into the Communication Manager approval workflow.",
@@ -203,6 +210,13 @@
       "description": "Research a person across public sources.",
       "smoke": null,
       "note": "Hits the network/paid APIs. Presence + version only."
+    },
+    {
+      "name": "cc-playwright",
+      "category": "Web",
+      "description": "Trusted-event browser automation via Playwright CDP with named, isolated connections.",
+      "smoke": { "args": ["list"], "expectContains": null },
+      "note": null
     },
     {
       "name": "cc-director-setup",
