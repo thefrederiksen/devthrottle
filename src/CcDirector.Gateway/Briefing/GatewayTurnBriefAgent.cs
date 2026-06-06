@@ -48,6 +48,7 @@ public sealed class GatewayTurnBriefAgent : IDisposable
     private readonly Func<Task> _brainRecover;
     private readonly Func<string, string, CancellationToken, Task<TurnsResponse?>> _fetchTurns;
     private readonly Func<string, string, CancellationToken, Task<string>> _fetchScreenTail;
+    private readonly Func<string, string, CancellationToken, Task<string?>> _fetchRepoPath;
     private readonly TimeSpan _settleDelay;
 
     /// <summary>
@@ -81,6 +82,7 @@ public sealed class GatewayTurnBriefAgent : IDisposable
             () => brain.RestartAsync(),
             (ep, sid, ct) => (client ?? throw new ArgumentNullException(nameof(client))).GetTurnsAsync(ep, sid, ct),
             async (ep, sid, ct) => (await client.GetBufferAsync(ep, sid, lines: 80, ct: ct))?.Text ?? "",
+            fetchRepoPath: async (ep, sid, ct) => (await client.GetSessionAsync(ep, sid, ct))?.RepoPath,
             generatorId: generatorId)
     {
     }
@@ -92,6 +94,7 @@ public sealed class GatewayTurnBriefAgent : IDisposable
         Func<Task> brainRecover,
         Func<string, string, CancellationToken, Task<TurnsResponse?>> fetchTurns,
         Func<string, string, CancellationToken, Task<string>> fetchScreenTail,
+        Func<string, string, CancellationToken, Task<string?>>? fetchRepoPath = null,
         TimeSpan? settleDelay = null,
         string? generatorId = null)
     {
@@ -101,6 +104,9 @@ public sealed class GatewayTurnBriefAgent : IDisposable
         _brainRecover = brainRecover;
         _fetchTurns = fetchTurns;
         _fetchScreenTail = fetchScreenTail;
+        // Tests that don't care about @file substitution get the no-repo answer: the
+        // resolver then keeps prompts verbatim (same behavior as a remote Director).
+        _fetchRepoPath = fetchRepoPath ?? ((_, _, _) => Task.FromResult<string?>(null));
         _settleDelay = settleDelay ?? SettleDelay;
         _worker = Task.Run(WorkerLoopAsync);
     }
@@ -279,6 +285,11 @@ public sealed class GatewayTurnBriefAgent : IDisposable
             ? TurnPackageBuilder.Build(Guid.Parse(sid), widgets, screenTail, priorBrief: null, briefs)
             : null;
 
+        // Bare @file prompts (dictation) carry no readable words - substitute the file
+        // content so the deep dive sees what the user actually said (issue #208).
+        if (turnPackage is not null && DictatedPromptResolver.NeedsResolution(turnPackage))
+            turnPackage = DictatedPromptResolver.Resolve(turnPackage, await _fetchRepoPath(endpoint, sid, ct));
+
         var package = new ExplainPackage(
             Guid.Parse(sid),
             turnPackage?.TurnCount ?? 0,
@@ -364,6 +375,15 @@ public sealed class GatewayTurnBriefAgent : IDisposable
         var screenTail = await _fetchScreenTail(endpoint, sid, ct);
         var package = TurnPackageBuilder.Build(
             Guid.Parse(sid), widgets, screenTail, prior, _store.List(sid));
+
+        // Bare @file prompts (dictation drops "@.temp/input_*.txt") render YOU ASKED as
+        // an opaque path - substitute the file content BEFORE the package is stored, so
+        // the brain, the saved package, and the review corpus all see the user's words
+        // (issue #208, review rounds 3-5's last recurring defect). Repo path is fetched
+        // only when a bare reference is actually present.
+        if (DictatedPromptResolver.NeedsResolution(package))
+            package = DictatedPromptResolver.Resolve(package, await _fetchRepoPath(endpoint, sid, ct));
+
         _store.SavePackage(sid, package);
 
         FileLog.Write($"[GatewayTurnBriefAgent] briefing sid={sid} turn={package.TurnCount}");
