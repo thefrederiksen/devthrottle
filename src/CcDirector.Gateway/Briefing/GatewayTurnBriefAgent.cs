@@ -51,6 +51,7 @@ public sealed class GatewayTurnBriefAgent : IDisposable
     private readonly SemaphoreSlim _signal = new(0);
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Task _worker;
+    private int _recoveryInFlight;
     private bool _disposed;
 
     public GatewayTurnBriefStore Store => _store;
@@ -267,14 +268,22 @@ public sealed class GatewayTurnBriefAgent : IDisposable
     }
 
     /// <summary>The one recovery verb, fire-and-forget: a wedged/dirty brain is replaced,
-    /// not debugged. The current brief already degraded; this is about the NEXT one.</summary>
+    /// not debugged. The current brief already degraded; this is about the NEXT one.
+    /// Concurrent failures collapse into ONE restart - several asks failing against the
+    /// same dying brain must not queue a restart each (the live #185 restart storm).</summary>
     private void FireBrainRecovery(string reason)
     {
+        if (Interlocked.CompareExchange(ref _recoveryInFlight, 1, 0) != 0)
+        {
+            FileLog.Write($"[GatewayTurnBriefAgent] brain recovery already in flight; collapsing ({reason})");
+            return;
+        }
         FileLog.Write($"[GatewayTurnBriefAgent] recovering the brain (RestartAsync): {reason}");
         _ = Task.Run(async () =>
         {
             try { await _brainRecover(); }
             catch (Exception ex) { FileLog.Write($"[GatewayTurnBriefAgent] brain recovery FAILED: {ex.Message}"); }
+            finally { Interlocked.Exchange(ref _recoveryInFlight, 0); }
         });
     }
 

@@ -48,12 +48,16 @@ public sealed class BrainSupervisor : IDisposable
     /// <summary>
     /// The warm brain, spawning it on first use. The working directory is created when
     /// missing - the brain's dir is supervisor-owned scratch space, not user data.
+    ///
+    /// ALWAYS goes through the gate - no lock-free fast path. A caller must never receive
+    /// the agent while a RestartAsync holds the gate mid-replacement: that handed out a
+    /// half-torn-down brain in production (every ask failed "exited mid-turn", each failure
+    /// fired another recovery - a restart storm, found live during the issue #185 rollout).
+    /// Waiting here means the next ask simply blocks until the fresh brain is ready.
     /// </summary>
     public async Task<IAgentBrain> GetAsync(CancellationToken ct = default)
     {
         ThrowIfDisposed();
-        if (_agent is not null) return _agent;
-
         await _gate.WaitAsync(ct);
         try
         {
@@ -82,17 +86,23 @@ public sealed class BrainSupervisor : IDisposable
     public async Task RestartAsync(CancellationToken ct = default)
     {
         ThrowIfDisposed();
-        if (_agent is null)
-        {
-            await GetAsync(ct);
-            return;
-        }
-
         await _gate.WaitAsync(ct);
         try
         {
             ThrowIfDisposed();
-            _log($"[BrainSupervisor] RestartAsync: oldPid={_agent!.ProcessId}");
+            if (_agent is null)
+            {
+                // The recovery verb doubles as the first start.
+                _log($"[BrainSupervisor] RestartAsync: nothing running - starting the brain (workdir={_options.WorkingDirectory})");
+                Directory.CreateDirectory(_options.WorkingDirectory);
+                var agent = _agentFactory(_options);
+                await agent.StartAsync(ct);
+                _agent = agent;
+                _log($"[BrainSupervisor] brain ready: pid={agent.ProcessId}, session={agent.SessionId}");
+                return;
+            }
+
+            _log($"[BrainSupervisor] RestartAsync: oldPid={_agent.ProcessId}");
             await _agent.RestartAsync(ct);
             _log($"[BrainSupervisor] RestartAsync OK: pid={_agent.ProcessId}, session={_agent.SessionId}");
         }

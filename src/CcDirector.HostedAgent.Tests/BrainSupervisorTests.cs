@@ -161,6 +161,44 @@ public class BrainSupervisorTests : IDisposable
         Assert.Equal(2, backends.Count);
     }
 
+    [Fact]
+    public async Task GetAsync_DuringRestart_WaitsForTheFreshBrain()
+    {
+        // The live #185 restart storm: GetAsync must NEVER hand out the agent while a
+        // restart holds the gate mid-replacement - the caller's ask would hit a
+        // half-torn-down backend, fail, and fire yet another recovery.
+        var driver = new FakeDriver();
+        var restartEntered = new ManualResetEventSlim(false);
+        var releaseStart = new ManualResetEventSlim(false);
+        var backends = 0;
+        var supervisor = new BrainSupervisor(FastOptions(), o => new HostedAgent(o, driver, () =>
+        {
+            // The SECOND backend (the restart's spawn) blocks until the test releases it.
+            if (Interlocked.Increment(ref backends) == 2)
+            {
+                restartEntered.Set();
+                releaseStart.Wait(TimeSpan.FromSeconds(5));
+            }
+            return new FakeBackend();
+        }));
+        await supervisor.GetAsync();
+
+        // Off the test thread: the supervisor runs synchronously up to the blocking factory.
+        var restart = Task.Run(() => supervisor.RestartAsync());
+        Assert.True(restartEntered.Wait(TimeSpan.FromSeconds(5))); // restart is mid-replacement
+        var getDuringRestart = supervisor.GetAsync();
+        await Task.Delay(100);
+
+        Assert.False(getDuringRestart.IsCompleted); // blocked behind the gate, not handed a dying brain
+        releaseStart.Set();
+        await restart;
+        var brain = await getDuringRestart;
+
+        var health = await brain.GetHealthAsync();
+        Assert.True(health.IsAlive); // what came out the other side is the FRESH brain
+        supervisor.Dispose();
+    }
+
     // -------------------------------------------------------------- health
 
     [Fact]
