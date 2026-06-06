@@ -628,6 +628,26 @@ public sealed class DirectorEndpointClient : IDisposable
         }
     }
 
+    /// <summary>
+    /// Remove one restored session from a claimed dirty journal on a Director (issue #212 W4);
+    /// the rest of the journal stays in the Interrupted sessions list.
+    /// </summary>
+    public async Task<bool> RemoveInterruptedSessionAsync(
+        string endpoint, string deadDirectorId, int deadPid, string sessionId, CancellationToken ct = default)
+    {
+        try
+        {
+            var resp = await _http.DeleteAsync(
+                $"{endpoint}/interrupted/{Uri.EscapeDataString(deadDirectorId)}/{deadPid}/sessions/{Uri.EscapeDataString(sessionId)}", ct);
+            return resp.IsSuccessStatusCode;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[DirectorEndpointClient] RemoveInterruptedSessionAsync FAILED: endpoint={endpoint}, error={ex.Message}");
+            return false;
+        }
+    }
+
     public async Task<bool> PostShutdownAsync(string endpoint, CancellationToken ct = default)
     {
         try

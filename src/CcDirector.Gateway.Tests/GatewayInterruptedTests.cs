@@ -119,6 +119,116 @@ public sealed class GatewayInterruptedTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
     }
 
+    // ---- restore (issue #212 W4) ----
+
+    [Fact]
+    public async Task Restore_creates_a_named_continuation_and_cleans_the_journal()
+    {
+        var journal = new CrashJournalDto
+        {
+            DirectorId = "dead-1", Pid = 9001, MachineName = "MACHINE_A",
+            LastUpdatedUtc = DateTimeOffset.UtcNow.AddMinutes(-10),
+            Sessions =
+            {
+                new CrashJournalSessionDto
+                {
+                    SessionId = "s1", Name = "alpha work", RepoPath = "/repo/a",
+                    ClaudeSessionId = "claude-abc",
+                },
+            },
+        };
+        var fake = await StartFake("MACHINE_A", new[] { journal });
+        await Register(fake);
+
+        var resp = await _http.PostAsJsonAsync("interrupted/dead-1/9001/restore",
+            new RestoreInterruptedRequest { SessionId = "s1", Via = fake.DirectorId });
+
+        Assert.Equal(HttpStatusCode.Created, resp.StatusCode);
+        var body = await resp.Content.ReadFromJsonAsync<RestoreInterruptedResponse>();
+        Assert.NotNull(body);
+        Assert.True(body!.Restored);
+        Assert.Equal(fake.CreatedSessionId, body.TargetSession?.SessionId);
+        Assert.True(body.JournalCleaned);
+
+        // The continuation was created in the dead session's repo, seeded with a context
+        // that names the predecessor, its repo, and the prior Claude transcript.
+        Assert.NotNull(fake.LastCreate);
+        Assert.Equal("/repo/a", fake.LastCreate!.RepoPath);
+        Assert.Contains("RESTORED", fake.LastCreate.PrePrompt);
+        Assert.Contains("alpha work", fake.LastCreate.PrePrompt);
+        Assert.Contains("claude-abc", fake.LastCreate.PrePrompt!);
+
+        // Renamed to the dead session's name; the restored row left the journal.
+        Assert.Equal("alpha work", fake.LastPatchName);
+        Assert.Equal(("dead-1", 9001, "s1"), fake.LastSessionRemoval);
+    }
+
+    [Fact]
+    public async Task Restore_targets_an_explicit_director_but_cleans_via_the_reporter()
+    {
+        var journal = new CrashJournalDto
+        {
+            DirectorId = "dead-1", Pid = 9001, MachineName = "MACHINE_A",
+            Sessions = { new CrashJournalSessionDto { SessionId = "s1", Name = "alpha", RepoPath = "/r" } },
+        };
+        var reporter = await StartFake("MACHINE_A", new[] { journal });
+        var target = await StartFake("MACHINE_A", Array.Empty<CrashJournalDto>());
+        await Register(reporter);
+        await Register(target);
+
+        var resp = await _http.PostAsJsonAsync("interrupted/dead-1/9001/restore",
+            new RestoreInterruptedRequest { SessionId = "s1", Via = reporter.DirectorId, ToDirectorId = target.DirectorId });
+
+        Assert.Equal(HttpStatusCode.Created, resp.StatusCode);
+        Assert.NotNull(target.LastCreate);                          // session created on the target...
+        Assert.Null(reporter.LastCreate);
+        Assert.Equal(("dead-1", 9001, "s1"), reporter.LastSessionRemoval); // ...journal cleaned via the reporter
+    }
+
+    [Fact]
+    public async Task Restore_unknown_session_is_404()
+    {
+        var journal = new CrashJournalDto
+        {
+            DirectorId = "dead-1", Pid = 9001, MachineName = "MACHINE_A",
+            Sessions = { new CrashJournalSessionDto { SessionId = "s1", Name = "alpha", RepoPath = "/r" } },
+        };
+        var fake = await StartFake("MACHINE_A", new[] { journal });
+        await Register(fake);
+
+        var resp = await _http.PostAsJsonAsync("interrupted/dead-1/9001/restore",
+            new RestoreInterruptedRequest { SessionId = "ghost", Via = fake.DirectorId });
+
+        Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
+        Assert.Null(fake.LastCreate);
+    }
+
+    [Fact]
+    public async Task DismissSession_routes_to_the_reporting_director()
+    {
+        var journal = new CrashJournalDto
+        {
+            DirectorId = "dead-1", Pid = 9001, MachineName = "MACHINE_A",
+            Sessions = { new CrashJournalSessionDto { SessionId = "s1", Name = "alpha", RepoPath = "/r" } },
+        };
+        var fake = await StartFake("MACHINE_A", new[] { journal });
+        await Register(fake);
+
+        var resp = await _http.DeleteAsync($"interrupted/dead-1/9001/sessions/s1?via={fake.DirectorId}");
+
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        Assert.Equal(("dead-1", 9001, "s1"), fake.LastSessionRemoval);
+    }
+
+    [Fact]
+    public async Task Restore_without_via_is_rejected()
+    {
+        await Register(await StartFake("MACHINE_A", Array.Empty<CrashJournalDto>()));
+        var resp = await _http.PostAsJsonAsync("interrupted/dead-1/9001/restore",
+            new RestoreInterruptedRequest { SessionId = "s1" });
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+    }
+
     // ---- helpers ----
 
     private async Task<List<InterruptedSessionDto>> GetInterrupted()
@@ -162,6 +272,12 @@ public sealed class GatewayInterruptedTests : IAsyncLifetime
         public string BaseUrl { get; private set; } = "";
         public (string, int)? LastDismiss { get; private set; }
 
+        // Restore-path captures (issue #212 W4).
+        public NewSessionRequest? LastCreate { get; private set; }
+        public string? LastPatchName { get; private set; }
+        public (string Dir, int Pid, string Sid)? LastSessionRemoval { get; private set; }
+        public string CreatedSessionId { get; } = "new-" + Guid.NewGuid().ToString("N")[..8];
+
         private readonly CrashJournalDto[] _journals;
         private WebApplication? _app;
 
@@ -188,6 +304,23 @@ public sealed class GatewayInterruptedTests : IAsyncLifetime
             {
                 LastDismiss = (deadDirectorId, deadPid);
                 return Results.Json(new { dismissed = true });
+            });
+            _app.MapDelete("/interrupted/{deadDirectorId}/{deadPid:int}/sessions/{sessionId}",
+                (string deadDirectorId, int deadPid, string sessionId) =>
+            {
+                LastSessionRemoval = (deadDirectorId, deadPid, sessionId);
+                return Results.Json(new { removed = true });
+            });
+            _app.MapPost("/sessions", (NewSessionRequest req) =>
+            {
+                LastCreate = req;
+                return Results.Json(new SessionDto { SessionId = CreatedSessionId, RepoPath = req.RepoPath },
+                    statusCode: StatusCodes.Status201Created);
+            });
+            _app.MapMethods("/sessions/{sid}", new[] { "PATCH" }, (string sid, SessionUpdateRequest req) =>
+            {
+                LastPatchName = req.Name;
+                return Results.Json(new SessionDto { SessionId = sid, Name = req.Name });
             });
             await _app.StartAsync();
         }

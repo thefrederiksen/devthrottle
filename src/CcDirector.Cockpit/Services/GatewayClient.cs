@@ -66,6 +66,42 @@ public sealed class GatewayClient
     }
 
     /// <summary>
+    /// Restore one interrupted session (issue #212 W4): the Gateway creates a continuation
+    /// session in the dead session's repo, seeded with its surviving turn-brief context, and
+    /// removes the row from the Interrupted sessions list. Returns where the continuation ended up.
+    /// </summary>
+    public async Task<RestoreInterruptedResponse> RestoreInterruptedAsync(
+        string deadDirectorId, int deadPid, string sessionId, string reportedByDirectorId, CancellationToken ct = default)
+    {
+        var resp = await _http.PostAsJsonAsync(
+            $"interrupted/{Uri.EscapeDataString(deadDirectorId)}/{deadPid}/restore",
+            new RestoreInterruptedRequest { SessionId = sessionId, Via = reportedByDirectorId }, ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            throw new HttpRequestException($"restore failed ({(int)resp.StatusCode}): {body}");
+        }
+        var result = await resp.Content.ReadFromJsonAsync<RestoreInterruptedResponse>(cancellationToken: ct);
+        return result ?? throw new HttpRequestException("restore returned an empty body");
+    }
+
+    /// <summary>
+    /// Dismiss ONE session from an interrupted journal (issue #212 W4), keeping its siblings
+    /// in the Interrupted sessions list. The group-level sweep stays <see cref="DismissInterruptedAsync"/>.
+    /// </summary>
+    public async Task DismissInterruptedSessionAsync(
+        string deadDirectorId, int deadPid, string sessionId, string reportedByDirectorId, CancellationToken ct = default)
+    {
+        var resp = await _http.DeleteAsync(
+            $"interrupted/{Uri.EscapeDataString(deadDirectorId)}/{deadPid}/sessions/{Uri.EscapeDataString(sessionId)}?via={Uri.EscapeDataString(reportedByDirectorId)}", ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            throw new HttpRequestException($"dismiss session failed ({(int)resp.StatusCode}): {body}");
+        }
+    }
+
+    /// <summary>
     /// List every Director the Gateway knows about (the "on which Director?" picker for a new
     /// session). Reads aggregate through the Gateway, so this is a Gateway call.
     /// </summary>

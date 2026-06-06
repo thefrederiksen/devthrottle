@@ -220,6 +220,48 @@ public sealed class DirectorCrashJournal
         }
     }
 
+    /// <summary>
+    /// Remove ONE session from a claimed dirty journal after it has been restored
+    /// (issue #212 W4), so the remaining sessions stay in the Interrupted sessions list. When the
+    /// last session is removed the journal file is deleted - same end state as
+    /// <see cref="Dismiss"/>. Returns false when the journal or the session is not there
+    /// (already restored/dismissed); restoring twice must not fail the second caller.
+    /// </summary>
+    public static bool RemoveSession(string directorId, int pid, string sessionId, string? directory = null)
+    {
+        var dir = directory ?? DefaultDirectory;
+        var path = Path.Combine(dir, $"{directorId}.{pid}.dirty.json");
+        try
+        {
+            if (!File.Exists(path)) return false;
+            var data = JsonSerializer.Deserialize<DirectorCrashJournalData>(File.ReadAllText(path), JsonOptions);
+            if (data is null) return false;
+
+            var removed = data.Sessions.RemoveAll(s =>
+                string.Equals(s.SessionId, sessionId, StringComparison.OrdinalIgnoreCase));
+            if (removed == 0) return false;
+
+            if (data.Sessions.Count == 0)
+            {
+                File.Delete(path);
+                FileLog.Write($"[DirectorCrashJournal] removed last session {sessionId} from {path} - journal deleted");
+            }
+            else
+            {
+                var tmp = path + ".tmp";
+                File.WriteAllText(tmp, JsonSerializer.Serialize(data, JsonOptions));
+                File.Move(tmp, path, overwrite: true);
+                FileLog.Write($"[DirectorCrashJournal] removed session {sessionId} from {path} ({data.Sessions.Count} remaining)");
+            }
+            return true;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[DirectorCrashJournal] RemoveSession failed for {path}: {ex.Message}");
+            return false;
+        }
+    }
+
     private static bool IsProcessAlive(int pid)
     {
         if (pid <= 0) return false;

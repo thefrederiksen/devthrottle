@@ -83,6 +83,26 @@
                 {
                   <div class="fl-int-rail"><span class="lbl">was working on</span>@s.Headline</div>
                 }
+                @* One-click restore (issue #212 W4): the Gateway spawns a continuation session
+                   seeded with this session's surviving briefs, then pulls the row from the
+                   journal. The restored chip keeps the jump link to the new session. *@
+                <div class="fl-int-actions">
+                  @if (_restored.TryGetValue(s.SessionId, out var newSid))
+                  {
+                    <span class="fl-int-restoredone">Restored<a href="/sessions/@newSid">Open session &rarr;</a></span>
+                  }
+                  else if (_restoring.Contains(s.SessionId))
+                  {
+                    <button class="fl-int-restore" disabled>Restoring...</button>
+                    <span class="fl-int-restoring">creating continuation session</span>
+                  }
+                  else
+                  {
+                    <button class="fl-int-restore" @onclick="() => RestoreSession(g, s)">Restore</button>
+                    <button class="fl-int-carddismiss" @onclick="() => DismissSession(g, s)"
+                            disabled="@(_dismissing.Contains(s.SessionId))">Dismiss</button>
+                  }
+                </div>
               </article>
             }
           </div>
@@ -173,6 +193,12 @@
     private List<InterruptedSessionDto> _interrupted = new();
     private readonly HashSet<string> _dismissing = new();
 
+    // Restore (issue #212 W4): per-card in-flight markers and, once restored, the NEW session
+    // id for the jump link. Restored rows leave the journal, so the refresh loop would drop
+    // them - RefreshInterruptedAsync keeps restored rows as ghosts so the link stays visible.
+    private readonly HashSet<string> _restoring = new();
+    private readonly Dictionary<string, string> _restored = new();
+
     private int RedCount => _sessions.Count(s => ColorClass(s) == "red");
     private int YellowCount => _sessions.Count(s => ColorClass(s) == "yellow");
 
@@ -217,7 +243,19 @@
     {
         try
         {
-            _interrupted = await Gateway.GetInterruptedAsync(_cts.Token);
+            var fresh = await Gateway.GetInterruptedAsync(_cts.Token);
+            // Keep restored rows visible as ghosts: a successful restore removes the row from
+            // the journal, but its "Restored -> Open session" chip is the user's jump link to
+            // the continuation. Group dismissal still sweeps ghosts (RemoveAll matches them).
+            foreach (var old in _interrupted)
+            {
+                if (_restored.ContainsKey(old.SessionId)
+                    && !fresh.Any(f => f.SessionId == old.SessionId))
+                {
+                    fresh.Add(old);
+                }
+            }
+            _interrupted = fresh;
         }
         catch (OperationCanceledException) { return; }
         catch (Exception ex)
@@ -247,6 +285,64 @@
             })
             .OrderByDescending(g => g.DiedAtUtc)
             .ToList();
+    }
+
+    /// <summary>
+    /// One-click restore (issue #212 W4): the Gateway creates a continuation session seeded
+    /// with this session's surviving turn-brief context and removes the row from the journal.
+    /// On success the card flips to "Restored" with a link to the new session.
+    /// </summary>
+    private async Task RestoreSession(InterruptedGroup g, InterruptedSessionDto s)
+    {
+        if (!_restoring.Add(s.SessionId)) return;
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            var result = await Gateway.RestoreInterruptedAsync(
+                g.DeadDirectorId, g.DeadPid, s.SessionId, g.ReportedByDirectorId, _cts.Token);
+            var newSid = result.TargetSession?.SessionId;
+            if (string.IsNullOrWhiteSpace(newSid))
+                throw new InvalidOperationException("restore returned no target session");
+            _restored[s.SessionId] = newSid;
+            Log.LogInformation("Restored interrupted session {Sid} as {NewSid}", s.SessionId, newSid);
+        }
+        catch (Exception ex)
+        {
+            _lastError = $"Restore failed: {ex.Message}";
+            Log.LogWarning("Restore interrupted failed for {Sid}: {Error}", s.SessionId, ex.Message);
+        }
+        finally
+        {
+            _restoring.Remove(s.SessionId);
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>
+    /// Per-card dismiss (issue #212 W4): drop ONE session from the journal, keeping its
+    /// siblings in the Interrupted sessions list. "Dismiss all" on the group header remains the journal-level sweep.
+    /// </summary>
+    private async Task DismissSession(InterruptedGroup g, InterruptedSessionDto s)
+    {
+        if (!_dismissing.Add(s.SessionId)) return;
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            await Gateway.DismissInterruptedSessionAsync(
+                g.DeadDirectorId, g.DeadPid, s.SessionId, g.ReportedByDirectorId, _cts.Token);
+            _interrupted.RemoveAll(x => x.SessionId == s.SessionId
+                && x.DeadDirectorId == g.DeadDirectorId && x.DeadPid == g.DeadPid);
+        }
+        catch (Exception ex)
+        {
+            _lastError = $"Dismiss failed: {ex.Message}";
+            Log.LogWarning("Dismiss interrupted session failed for {Sid}: {Error}", s.SessionId, ex.Message);
+        }
+        finally
+        {
+            _dismissing.Remove(s.SessionId);
+        }
+        await InvokeAsync(StateHasChanged);
     }
 
     private async Task DismissGroup(InterruptedGroup g)

@@ -284,7 +284,11 @@ public sealed class GatewayHost : IAsyncDisposable
             {
                 var b = _turnBriefStore.Latest(sid);
                 return (b?.NeedsYou?.RailLine, b?.Headline);
-            });
+            },
+            // Issue #212 W4: the restore endpoint builds its continuation context from the
+            // full brief history; the store outlives the dead Director, so this serves
+            // sessions whose owner is gone.
+            briefHistoryFor: sid => _turnBriefStore.List(sid));
 
         // Gateway-served turn briefs (issue #185): the Cockpit reads briefs from HERE; the
         // store serves even when the pipeline is disabled (read-only is always safe).

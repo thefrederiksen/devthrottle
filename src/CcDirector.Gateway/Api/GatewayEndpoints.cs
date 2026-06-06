@@ -28,10 +28,14 @@ internal static class GatewayEndpoints
     /// headline for a session id, used to enrich the Interrupted sessions list so a dead
     /// session is triageable. Reads the durable brief store, so it works even for a session
     /// whose Director has died.</param>
+    /// <param name="briefHistoryFor">Issue #212 W4: the full turn-brief history for a session
+    /// id, oldest first - the raw material the restore endpoint builds its continuation
+    /// context from. Reads the durable brief store, so it serves dead sessions too.</param>
     public static void Map(IEndpointRouteBuilder app, DirectorRegistry registry, DirectorEndpointClient client, string version, string token, bool authEnabled = false, Func<bool>? requestShutdown = null,
         Action<string, string, string>? onSessionState = null, Func<string, string?>? assessedStateFor = null,
         Func<string, (string BriefingState, string? RailLine)>? briefStampFor = null,
-        Func<string, (string? RailLine, string? Headline)>? interruptedBriefFor = null)
+        Func<string, (string? RailLine, string? Headline)>? interruptedBriefFor = null,
+        Func<string, List<TurnBriefDto>>? briefHistoryFor = null)
     {
         // Graceful exit for the self-update helper: answer first (so the caller gets its 200),
         // then hand off to the host's shutdown handler shortly after. 501 when the hosting
@@ -407,6 +411,99 @@ internal static class GatewayEndpoints
                 return Results.NotFound(new { error = "reporting director not found" });
             var ok = await client.DismissInterruptedAsync(d.ControlEndpoint, deadDirectorId, deadPid);
             return ok ? Results.Json(new { dismissed = true }) : Results.StatusCode(StatusCodes.Status502BadGateway);
+        });
+
+        // Dismiss ONE session from an interrupted journal (issue #212 W4): the rest of the
+        // journal stays in the Interrupted sessions list. Routed like the journal-level dismiss above.
+        app.MapDelete("/interrupted/{deadDirectorId}/{deadPid:int}/sessions/{sessionId}",
+            async (string deadDirectorId, int deadPid, string sessionId, string? via) =>
+        {
+            FileLog.Write($"[GatewayEndpoints] DELETE /interrupted/{deadDirectorId}/{deadPid}/sessions/{sessionId} via={via}");
+            if (string.IsNullOrWhiteSpace(via))
+                return Results.BadRequest(new { error = "via (reporting director id) is required" });
+            var d = registry.Get(via);
+            if (d is null)
+                return Results.NotFound(new { error = "reporting director not found" });
+            var ok = await client.RemoveInterruptedSessionAsync(d.ControlEndpoint, deadDirectorId, deadPid, sessionId);
+            return ok ? Results.Json(new { removed = true }) : Results.StatusCode(StatusCodes.Status502BadGateway);
+        });
+
+        // Restore one interrupted session (issue #212 W4): create a CONTINUATION session -
+        // a fresh session in the dead session's repo, seeded with a context document built
+        // from the Gateway's surviving turn-brief history. Never `claude --resume`. The
+        // continuation is created on req.ToDirectorId when given, else on the reporting
+        // Director (req.Via) - the reporter shares the dead Director's machine, so the repo
+        // path is valid there. After a successful create the restored session is removed
+        // from the dirty journal so the Interrupted sessions list reflects what is still unrecovered.
+        app.MapPost("/interrupted/{deadDirectorId}/{deadPid:int}/restore",
+            async (string deadDirectorId, int deadPid, RestoreInterruptedRequest req) =>
+        {
+            FileLog.Write($"[GatewayEndpoints] POST /interrupted/{deadDirectorId}/{deadPid}/restore: sid={req?.SessionId} via={req?.Via} toDir={req?.ToDirectorId}");
+            if (req is null || string.IsNullOrWhiteSpace(req.SessionId))
+                return Results.BadRequest(new { error = "sessionId is required" });
+            if (string.IsNullOrWhiteSpace(req.Via))
+                return Results.BadRequest(new { error = "via (reporting director id) is required" });
+
+            var reporter = registry.Get(req.Via);
+            if (reporter is null)
+                return Results.NotFound(new { error = "reporting director not found" });
+            var target = string.IsNullOrWhiteSpace(req.ToDirectorId) ? reporter : registry.Get(req.ToDirectorId);
+            if (target is null)
+                return Results.NotFound(new { error = "target director not found" });
+
+            // The journal is the source of truth for what is restorable - never trust the
+            // caller for repo/name. Re-read it from the reporting Director.
+            var journals = await client.GetInterruptedAsync((reporter.ControlEndpoint ?? "").TrimEnd('/'));
+            if (journals is null)
+                return Results.Problem("reporting director did not serve its crash journals", statusCode: StatusCodes.Status502BadGateway);
+            var journal = journals.FirstOrDefault(j =>
+                string.Equals(j.DirectorId, deadDirectorId, StringComparison.OrdinalIgnoreCase) && j.Pid == deadPid);
+            var row = journal?.Sessions.FirstOrDefault(s =>
+                string.Equals(s.SessionId, req.SessionId, StringComparison.OrdinalIgnoreCase));
+            if (journal is null || row is null)
+                return Results.NotFound(new { error = "interrupted session not found in that journal (already restored or dismissed?)" });
+
+            var briefs = briefHistoryFor?.Invoke(row.SessionId) ?? new List<TurnBriefDto>();
+            var context = Recovery.RestoreContextBuilder.Build(
+                row.Name, row.SessionId, row.RepoPath, row.ClaudeSessionId, journal.LastUpdatedUtc, briefs);
+
+            var targetEp = (target.ControlEndpoint ?? "").TrimEnd('/');
+            var (ok, created, err) = await client.CreateSessionAsync(targetEp, new NewSessionRequest
+            {
+                RepoPath = row.RepoPath,
+                Agent = row.Agent,
+                PrePrompt = context,
+            });
+            if (!ok || created is null)
+                return Results.Problem($"target director failed to create the continuation session: {err}", statusCode: StatusCodes.Status502BadGateway);
+            created.DirectorId = target.DirectorId;
+            FileLog.Write($"[GatewayEndpoints] restore: created continuation {created.SessionId} on {target.DirectorId} for dead {row.SessionId}");
+
+            // Give the continuation the dead session's name. Best-effort: a failed rename
+            // does not undo a successful restore.
+            var restoredName = string.IsNullOrWhiteSpace(row.Name) ? null : row.Name;
+            if (restoredName is not null)
+            {
+                var (patched, body, patchErr) = await client.PatchSessionAsync(targetEp, created.SessionId,
+                    new SessionUpdateRequest { Name = restoredName });
+                if (patched && body is not null) { body.DirectorId = target.DirectorId; created = body; }
+                else FileLog.Write($"[GatewayEndpoints] restore: rename failed (continuing): {patchErr}");
+            }
+
+            // Pull the restored session out of the Interrupted sessions list. Best-effort too - the
+            // user can still Dismiss the row by hand if this leg fails.
+            var cleaned = await client.RemoveInterruptedSessionAsync(
+                (reporter.ControlEndpoint ?? "").TrimEnd('/'), deadDirectorId, deadPid, row.SessionId);
+            if (!cleaned)
+                FileLog.Write($"[GatewayEndpoints] restore: journal cleanup failed for {row.SessionId} (row stays in the Interrupted sessions list)");
+
+            return Results.Json(new RestoreInterruptedResponse
+            {
+                Restored = true,
+                TargetSession = created,
+                ContextSent = context,
+                JournalCleaned = cleaned,
+            }, statusCode: StatusCodes.Status201Created);
         });
 
         app.MapGet("/sessions/{sid}", async (HttpContext ctx, string sid) =>

@@ -150,6 +150,61 @@ public sealed class DirectorCrashJournalTests : IDisposable
         Assert.False(DirectorCrashJournal.Dismiss("ghost", 1, _dir));
     }
 
+    // ---- per-session removal after restore (issue #212 W4) ----
+
+    [Fact]
+    public void RemoveSession_drops_one_session_and_keeps_the_rest()
+    {
+        var deadPid = GetDeadPid();
+        var deadJournal = NewJournal("dir-dead", pid: deadPid);
+        deadJournal.Update(new[]
+        {
+            Session("s1", "restored one", "/repo/x"),
+            Session("s2", "still waiting", "/repo/y"),
+        });
+        DirectorCrashJournal.DetectAndClaim(currentPid: Environment.ProcessId, directory: _dir);
+
+        var removed = DirectorCrashJournal.RemoveSession("dir-dead", deadPid, "s1", _dir);
+
+        Assert.True(removed);
+        var pending = Assert.Single(DirectorCrashJournal.ListPendingRecoveries(_dir));
+        var left = Assert.Single(pending.Sessions);
+        Assert.Equal("s2", left.SessionId);
+        Assert.Equal("still waiting", left.Name);
+    }
+
+    [Fact]
+    public void RemoveSession_deletes_the_journal_when_it_was_the_last_session()
+    {
+        var deadPid = GetDeadPid();
+        var deadJournal = NewJournal("dir-dead", pid: deadPid);
+        deadJournal.Update(new[] { Session("s1", "only one", "/repo/x") });
+        var dirty = Assert.Single(DirectorCrashJournal.DetectAndClaim(currentPid: Environment.ProcessId, directory: _dir));
+
+        var removed = DirectorCrashJournal.RemoveSession("dir-dead", deadPid, "s1", _dir);
+
+        Assert.True(removed);
+        Assert.False(File.Exists(dirty.DirtyFilePath));
+        Assert.Empty(DirectorCrashJournal.ListPendingRecoveries(_dir));
+    }
+
+    [Fact]
+    public void RemoveSession_returns_false_for_unknown_session_or_journal()
+    {
+        var deadPid = GetDeadPid();
+        var deadJournal = NewJournal("dir-dead", pid: deadPid);
+        deadJournal.Update(new[] { Session("s1", "here", "/repo/x") });
+        DirectorCrashJournal.DetectAndClaim(currentPid: Environment.ProcessId, directory: _dir);
+
+        // Unknown session in a real journal; double-restore must not fail the second caller.
+        Assert.False(DirectorCrashJournal.RemoveSession("dir-dead", deadPid, "ghost-session", _dir));
+        // Unknown journal entirely.
+        Assert.False(DirectorCrashJournal.RemoveSession("ghost-dir", 1, "s1", _dir));
+        // The real session is untouched by the failed attempts.
+        var pending = Assert.Single(DirectorCrashJournal.ListPendingRecoveries(_dir));
+        Assert.Single(pending.Sessions);
+    }
+
     [Fact]
     public void DetectAndClaim_on_empty_directory_returns_nothing()
     {

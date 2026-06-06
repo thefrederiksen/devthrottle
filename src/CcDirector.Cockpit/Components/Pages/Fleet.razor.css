@@ -215,6 +215,32 @@
 }
 .fl-int-rail .lbl { display: block; color: #6a6a6a; font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 2px; }
 
+/* ---- Restore actions on interrupted cards (issue #212 W4) ---- */
+
+.fl-int-actions { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
+
+.fl-int-restore {
+    background: #f59e0b; color: #1a1a1a;
+    border: 1px solid #f59e0b; border-radius: 5px;
+    padding: 5px 14px; font-size: 12px; font-weight: 700; cursor: pointer;
+    transition: background 120ms, border-color 120ms;
+}
+.fl-int-restore:hover:not(:disabled) { background: #fbbf24; border-color: #fbbf24; }
+.fl-int-restore:disabled { opacity: 0.55; cursor: default; }
+
+.fl-int-carddismiss {
+    background: transparent; color: #888888;
+    border: none; font-size: 12px; cursor: pointer; padding: 5px 6px;
+}
+.fl-int-carddismiss:hover:not(:disabled) { color: #dddddd; text-decoration: underline; }
+.fl-int-carddismiss:disabled { opacity: 0.5; cursor: default; }
+
+.fl-int-restoring { font-size: 12px; color: #f59e0b; font-weight: 600; }
+
+.fl-int-restoredone { font-size: 12px; color: #4ade80; font-weight: 600; }
+.fl-int-restoredone a { color: #4ea1ff; text-decoration: none; margin-left: 6px; }
+.fl-int-restoredone a:hover { text-decoration: underline; }
+
 @media (max-width: 720px) {
     .fl-cards { grid-template-columns: 1fr; }
 }

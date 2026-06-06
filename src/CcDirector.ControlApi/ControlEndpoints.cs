@@ -2413,6 +2413,17 @@ internal static class ControlEndpoints
             return removed ? Results.Json(new { dismissed = true }) : Results.NotFound(new { error = "no such interrupted journal" });
         });
 
+        // Remove ONE session from a claimed dirty journal after it has been restored
+        // (issue #212 W4): the rest of the journal stays in the Interrupted sessions list.
+        app.MapDelete("/interrupted/{deadDirectorId}/{deadPid:int}/sessions/{sessionId}",
+            (HttpContext ctx, string deadDirectorId, int deadPid, string sessionId) =>
+        {
+            var caller = Core.Network.LoopbackPeerResolver.Describe(ctx.Connection.RemotePort, ctx.Connection.LocalPort);
+            FileLog.Write($"[ControlEndpoints] DELETE /interrupted/{deadDirectorId}/{deadPid}/sessions/{sessionId} caller={caller}");
+            var removed = Core.Sessions.DirectorCrashJournal.RemoveSession(deadDirectorId, deadPid, sessionId);
+            return removed ? Results.Json(new { removed = true }) : Results.NotFound(new { error = "no such interrupted session" });
+        });
+
         // ===== Shutdown =====
         app.MapPost("/shutdown", (HttpContext ctx) =>
         {
