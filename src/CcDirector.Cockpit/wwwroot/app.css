@@ -9,12 +9,127 @@
 html,body{height:100%;margin:0}
 body{background:var(--panel);color:var(--text);
   font-family:"Segoe UI",system-ui,sans-serif;font-size:13px}
-.cockpit-root,.shell{height:100vh}
+/* App shell: nav rail | active page (MainLayout). The page side owns its own scrolling. */
+.cockpit-root{display:flex;height:100vh;overflow:hidden}
+.app-page{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+
+/* ===== navigation rail (NavMenu - shared by every page) ===== */
+.nv{flex:none;width:172px;display:flex;flex-direction:column;background:var(--sidebar);
+  border-right:1px solid var(--border);padding:6px 6px 8px;transition:width .12s ease}
+.nv-collapsed{width:46px}
+.nv-head{display:flex;align-items:center;gap:6px;padding:2px 2px 8px}
+.nv-brand{font-size:13px;font-weight:700;letter-spacing:.08em;color:var(--accent);
+  border:1px solid var(--accent);border-radius:5px;padding:2px 6px}
+.nv-collapsed .nv-brand{display:none}
+.nv-toggle{margin-left:auto;flex:none;width:24px;height:24px;font-size:14px;line-height:1;
+  cursor:pointer;color:var(--text2);background:transparent;border:1px solid var(--border);
+  border-radius:5px;display:flex;align-items:center;justify-content:center;padding:0}
+.nv-collapsed .nv-toggle{margin:0 auto}
+.nv-toggle:hover{color:#fff;background:var(--button)}
+.nv-item{display:flex;align-items:center;gap:9px;color:var(--text2);text-decoration:none;
+  font-size:12.5px;font-weight:500;border-radius:6px;padding:7px 9px;margin:1px 0;
+  border-left:3px solid transparent;white-space:nowrap;overflow:hidden}
+.nv-item:hover{color:var(--text);background:var(--hover)}
+.nv-item.active{color:#fff;background:var(--selected);border-left-color:var(--accent)}
+.nv-collapsed .nv-item{justify-content:center;padding:7px 0}
+.nv-collapsed .nv-label{display:none}
+.nv-ico{flex:none;width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.3;
+  stroke-linecap:round;stroke-linejoin:round}
+.nv-sep{height:1px;background:var(--border);margin:7px 4px}
+.nv-spacer{flex:1}
+.nv-foot{font-size:10px;color:var(--text3);text-align:center;padding:4px 0 2px}
+.nv-collapsed .nv-foot{font-size:9px}
+@media (max-width:720px){
+  .nv{width:46px}
+  .nv .nv-label,.nv .nv-brand{display:none}
+  .nv .nv-item{justify-content:center;padding:7px 0}
+  .nv .nv-toggle{display:none}
+}
+
+/* ===== shared page chrome (Home / Sessions / Directors) ===== */
+.page{flex:1;min-height:0;overflow:auto;padding:18px 24px 28px}
+.page-head{display:flex;align-items:baseline;gap:12px;margin-bottom:14px;flex-wrap:wrap}
+.page-head h1{font-size:18px;font-weight:600;margin:0}
+.page-sub{color:var(--text3);font-size:12px}
+.page-refreshed{margin-left:auto;color:var(--text3);font-size:11px}
+.page-banner-error{background:#3A1B1B;color:#F1A0A0;border:1px solid #5A2A2A;border-radius:6px;
+  padding:6px 12px;font-size:12px;margin-bottom:12px}
+
+/* filter bar */
+.filters{display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
+.filters input[type=text]{background:var(--sidebar);color:var(--text);border:1px solid var(--border);
+  border-radius:6px;padding:6px 10px;font-size:12.5px;width:240px}
+.filters input[type=text]:focus{outline:none;border-color:var(--accent)}
+.filters select{background:var(--sidebar);color:var(--text);border:1px solid var(--border);
+  border-radius:6px;padding:6px 8px;font-size:12.5px}
+.filters .filters-clear{background:transparent;border:none;color:var(--accent);font-size:12px;cursor:pointer}
+.filters .filters-clear:hover{text-decoration:underline}
+
+/* data table */
+.tbl{width:100%;border-collapse:collapse;font-size:12.5px}
+.tbl th{position:sticky;top:0;background:var(--panel);text-align:left;font-size:10.5px;font-weight:600;
+  letter-spacing:.06em;text-transform:uppercase;color:var(--text3);padding:7px 10px;
+  border-bottom:1px solid var(--border);white-space:nowrap}
+.tbl td{padding:8px 10px;border-bottom:1px solid #2a2a2a;vertical-align:top}
+.tbl tr.rowlink{cursor:pointer}
+.tbl tr.rowlink:hover td{background:var(--hover)}
+.tbl .cell-dot{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:7px;flex:none}
+.tbl .cell-name{font-weight:500;color:var(--text)}
+.tbl .cell-sub{font-size:10.5px;color:#F14C4C;font-weight:600;margin-top:2px;max-width:340px;
+  overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.tbl .cell-sub.briefing{color:#F59E0B;font-weight:400}
+.tbl .mono{font-family:"Cascadia Mono",Consolas,monospace;font-size:11.5px;color:var(--text2)}
+.tbl .dim{color:var(--text3)}
+.tbl .cell-ellipsis{max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tbl .warn{color:var(--amber)}
+.tbl .ok{color:var(--green)}
+.tbl-empty{color:var(--text3);font-style:italic;font-size:12.5px;padding:18px 4px}
+
+/* pager */
+.pager{display:flex;align-items:center;gap:10px;padding:12px 2px;font-size:12px;color:var(--text2)}
+.pager button{background:var(--button);color:var(--text);border:1px solid var(--border);
+  border-radius:6px;padding:4px 12px;font-size:12px;cursor:pointer}
+.pager button:hover:enabled{border-color:var(--accent);color:var(--accent)}
+.pager button:disabled{opacity:.35;cursor:default}
+.pager .pager-info{color:var(--text3)}
+
+/* ===== dashboard (Home) ===== */
+.dash-cards{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px}
+.dash-card{flex:1;min-width:150px;max-width:240px;background:var(--sidebar);border:1px solid var(--border);
+  border-radius:10px;padding:14px 16px;text-decoration:none;display:block}
+.dash-card:hover{border-color:var(--accent)}
+.dash-num{font-size:26px;font-weight:700;color:var(--text);line-height:1.1}
+.dash-num.red{color:var(--red)}
+.dash-num.blue{color:var(--blue)}
+.dash-num.amber{color:var(--amber)}
+.dash-lbl{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--text3);margin-top:4px}
+.dash-sub{font-size:11px;color:var(--text3);margin-top:3px}
+.dash-sec{margin-bottom:22px}
+.dash-sec-head{display:flex;align-items:baseline;gap:10px;margin-bottom:8px}
+.dash-sec-head h2{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--text2);margin:0}
+.dash-sec-head.needs h2{color:var(--red)}
+.dash-sec-head a{margin-left:auto;color:var(--accent);font-size:12px;text-decoration:none}
+.dash-sec-head a:hover{text-decoration:underline}
+.dash-needs{display:flex;flex-direction:column;gap:6px}
+.dash-need{display:flex;align-items:center;gap:10px;background:var(--sidebar);border:1px solid var(--border);
+  border-left:3px solid var(--red);border-radius:6px;padding:9px 12px;cursor:pointer;text-align:left;
+  color:var(--text);font:inherit;width:100%}
+.dash-need:hover{background:var(--hover)}
+.dash-need-name{font-weight:600;font-size:13px;flex:none;max-width:280px;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.dash-need-rail{color:#F1A0A0;font-size:12px;flex:1;min-width:0;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.dash-need-meta{color:var(--text3);font-size:11px;flex:none}
+.dash-quiet{color:var(--text3);font-size:12.5px;font-style:italic;border:1px dashed var(--border);
+  border-radius:6px;padding:10px 14px}
+.dash-foot{color:var(--muted);font-size:11px;font-family:"Cascadia Mono",Consolas,monospace;margin-top:8px}
 
 /* Flex column (not a fixed-row grid): the body must fill whether or not the optional
    error banner is present. A 3-row grid put the body in an `auto` row when the banner
    was absent, so it only grew to its content height and left the bottom half empty. */
-.shell{display:flex;flex-direction:column;height:100vh;overflow:hidden}
+.shell{display:flex;flex-direction:column;height:100%;overflow:hidden}
 
 /* top bar */
 .topbar{flex:none;display:flex;align-items:center;gap:10px;height:44px;padding:0 16px;

@@ -1,0 +1,94 @@
+@using System.Reflection
+@inject NavigationManager Nav
+@implements IDisposable
+
+@* The Cockpit-wide navigation rail: the one menu every page shares (the Cockpit is the
+   Gateway's whole dashboard, so all of its pages hang off this). Auto-collapses to an
+   icon strip on /cockpit (the full-bleed triage app needs the width) and on phones
+   (CSS media query); the chevron toggle overrides until the route class changes. *@
+
+<nav class="nv @(Collapsed ? "nv-collapsed" : "")">
+    <div class="nv-head">
+        <span class="nv-brand" title="CC Director">CC</span>
+        <button class="nv-toggle" title="@(Collapsed ? "Expand menu" : "Collapse menu")"
+                @onclick="Toggle">@(Collapsed ? (MarkupString)"&raquo;" : (MarkupString)"&laquo;")</button>
+    </div>
+
+    <NavLink class="nv-item" href="/" Match="NavLinkMatch.All" title="Home - gateway dashboard">
+        <svg class="nv-ico" viewBox="0 0 16 16"><path d="M2 8.5 8 3l6 5.5M4 8v5h8V8" /></svg>
+        <span class="nv-label">Home</span>
+    </NavLink>
+    <NavLink class="nv-item" href="/cockpit" title="Cockpit - drive sessions">
+        <svg class="nv-ico" viewBox="0 0 16 16"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5" /><path d="M4 6l2.5 2L4 10M8 10.5h4" /></svg>
+        <span class="nv-label">Cockpit</span>
+    </NavLink>
+    <NavLink class="nv-item" href="/sessions" title="Sessions - every session on the fleet">
+        <svg class="nv-ico" viewBox="0 0 16 16"><path d="M2 4h12M2 8h12M2 12h8" /></svg>
+        <span class="nv-label">Sessions</span>
+    </NavLink>
+    <NavLink class="nv-item" href="/directors" title="Directors - every registered Director">
+        <svg class="nv-ico" viewBox="0 0 16 16"><rect x="2" y="2.5" width="12" height="4.5" rx="1" /><rect x="2" y="9" width="12" height="4.5" rx="1" /><path d="M4.5 4.75h.01M4.5 11.25h.01" /></svg>
+        <span class="nv-label">Directors</span>
+    </NavLink>
+    <NavLink class="nv-item" href="/fleet" title="Fleet - session cards by machine">
+        <svg class="nv-ico" viewBox="0 0 16 16"><rect x="2" y="2" width="5" height="5" rx="1" /><rect x="9" y="2" width="5" height="5" rx="1" /><rect x="2" y="9" width="5" height="5" rx="1" /><rect x="9" y="9" width="5" height="5" rx="1" /></svg>
+        <span class="nv-label">Fleet</span>
+    </NavLink>
+
+    <div class="nv-sep"></div>
+
+    @* Tool pages (plain HTML, not Blazor) - force a full document load so the Blazor
+       router never tries to resolve them as components. *@
+    <a class="nv-item" href="/exes" data-enhance-nav="false" title="Builds - local_builds slots">
+        <svg class="nv-ico" viewBox="0 0 16 16"><path d="M8 1.5 14 5v6l-6 3.5L2 11V5l6-3.5zM2 5l6 3.5L14 5M8 8.5v6" /></svg>
+        <span class="nv-label">Builds</span>
+    </a>
+    <a class="nv-item" href="/transcripts" data-enhance-nav="false" title="Voice - recordings and transcripts">
+        <svg class="nv-ico" viewBox="0 0 16 16"><rect x="6" y="1.5" width="4" height="8" rx="2" /><path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5" /></svg>
+        <span class="nv-label">Voice</span>
+    </a>
+    <a class="nv-item" href="/dictionary" data-enhance-nav="false" title="Dictionary - dictation terms">
+        <svg class="nv-ico" viewBox="0 0 16 16"><path d="M3 2.5h8.5A1.5 1.5 0 0 1 13 4v9.5H4.5A1.5 1.5 0 0 1 3 12V2.5zM3 11.5h10M6 5.5h4" /></svg>
+        <span class="nv-label">Dictionary</span>
+    </a>
+
+    <div class="nv-spacer"></div>
+    <div class="nv-foot" title="@VersionFull">@VersionDisplay</div>
+</nav>
+
+@code {
+    private static readonly string VersionFull =
+        typeof(NavMenu).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0.0.0";
+    private static readonly string VersionDisplay = $"v{VersionFull.Split('+')[0]}";
+
+    // null = follow the route default (collapsed on /cockpit, expanded elsewhere);
+    // the user's toggle overrides until the route class flips, then the default rules again.
+    private bool? _userOverride;
+    private bool _wasCockpitRoute;
+
+    private bool IsCockpitRoute =>
+        Nav.ToBaseRelativePath(Nav.Uri).StartsWith("cockpit", StringComparison.OrdinalIgnoreCase);
+
+    private bool Collapsed => _userOverride ?? IsCockpitRoute;
+
+    protected override void OnInitialized()
+    {
+        _wasCockpitRoute = IsCockpitRoute;
+        Nav.LocationChanged += OnLocationChanged;
+    }
+
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        var isCockpit = IsCockpitRoute;
+        if (isCockpit != _wasCockpitRoute)
+        {
+            _wasCockpitRoute = isCockpit;
+            _userOverride = null;
+        }
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void Toggle() => _userOverride = !Collapsed;
+
+    public void Dispose() => Nav.LocationChanged -= OnLocationChanged;
+}

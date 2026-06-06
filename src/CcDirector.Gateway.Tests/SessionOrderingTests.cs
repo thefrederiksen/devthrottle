@@ -12,12 +12,13 @@ namespace CcDirector.Gateway.Tests;
 public sealed class SessionOrderingTests
 {
     private static SessionDto S(string id, int sortOrder = 0, string color = "blue",
-        bool onHold = false, DateTime createdAt = default) => new()
+        bool onHold = false, DateTime createdAt = default, string briefingState = "None") => new()
     {
         SessionId = id,
         SortOrder = sortOrder,
         StatusColor = color,
         OnHold = onHold,
+        BriefingState = briefingState,
         CreatedAt = createdAt == default ? new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc) : createdAt,
     };
 
@@ -79,6 +80,63 @@ public sealed class SessionOrderingTests
         // A parked session sinks to the bottom even when it would otherwise be "needs you".
         Assert.Equal(SessionOrdering.TriageBucket.OnHold,
             SessionOrdering.Classify(S("x", color: "red", onHold: true)));
+    }
+
+    // ----- effective color while the wingman is reading (issue #196) -----
+
+    [Fact]
+    public void EffectiveColor_RedWhileBriefing_IsYellow()
+    {
+        // The Director stamps raw red at turn-end (it no longer knows about briefing,
+        // #187); the Gateway stamps BriefingState=Briefing. The ONE presented color
+        // must be yellow - never a red dot next to a "wingman reading..." chip.
+        Assert.Equal("yellow", SessionOrdering.EffectiveColor(S("x", color: "red", briefingState: "Briefing")));
+    }
+
+    [Fact]
+    public void EffectiveColor_RedAfterBriefLands_IsRed()
+    {
+        Assert.Equal("red", SessionOrdering.EffectiveColor(S("x", color: "red", briefingState: "Briefed")));
+    }
+
+    [Fact]
+    public void EffectiveColor_BlueWhileBriefing_StaysBlue()
+    {
+        // A NEW turn already running: raw activity wins, the stale in-flight brief
+        // must not paint a working session yellow.
+        Assert.Equal("blue", SessionOrdering.EffectiveColor(S("x", color: "blue", briefingState: "Briefing")));
+    }
+
+    [Fact]
+    public void IsBriefing_OnlyWhenBriefingAndRed()
+    {
+        Assert.True(SessionOrdering.IsBriefing(S("x", color: "red", briefingState: "Briefing")));
+        Assert.False(SessionOrdering.IsBriefing(S("x", color: "blue", briefingState: "Briefing")));
+        Assert.False(SessionOrdering.IsBriefing(S("x", color: "red", briefingState: "Briefed")));
+        Assert.False(SessionOrdering.IsBriefing(S("x", color: "red", briefingState: "None")));
+    }
+
+    [Fact]
+    public void Classify_RedWhileBriefing_IsActive_NotNeedsYou()
+    {
+        // The triage regression in issue #196: a mid-brief session must NOT enter the
+        // NEEDS YOU bucket (and then flop back out when the brief lands or refutes).
+        Assert.Equal(SessionOrdering.TriageBucket.Active,
+            SessionOrdering.Classify(S("x", color: "red", briefingState: "Briefing")));
+    }
+
+    [Fact]
+    public void Classify_RedAfterBriefLands_IsNeedsYou()
+    {
+        Assert.Equal(SessionOrdering.TriageBucket.NeedsYou,
+            SessionOrdering.Classify(S("x", color: "red", briefingState: "Briefed")));
+    }
+
+    [Fact]
+    public void Classify_OnHold_TakesPrecedenceOverBriefing()
+    {
+        Assert.Equal(SessionOrdering.TriageBucket.OnHold,
+            SessionOrdering.Classify(S("x", color: "red", briefingState: "Briefing", onHold: true)));
     }
 
     [Fact]

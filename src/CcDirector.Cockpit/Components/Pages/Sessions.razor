@@ -1,0 +1,272 @@
+@page "/sessions"
+@inject GatewayClient Gateway
+@inject NavigationManager Nav
+@inject ILogger<Sessions> Log
+@implements IDisposable
+
+@* The fleet-wide sessions LIST: a plain paged table over GET /sessions?envelope=true,
+   the at-a-glance complement to the Cockpit's rail. Row click drives the session
+   (/cockpit/{sid}); ?director= pre-filters (the Directors page links here). *@
+
+<PageTitle>CC Director - Sessions</PageTitle>
+
+<div class="page">
+    <header class="page-head">
+        <h1>Sessions</h1>
+        <span class="page-sub">@Filtered.Count of @_sessions.Count session@(_sessions.Count == 1 ? "" : "s") across the fleet</span>
+        <span class="page-refreshed">@(_lastRefresh is null ? "connecting..." : $"updated {_lastRefresh:HH:mm:ss}")</span>
+    </header>
+
+    @if (_lastError is not null)
+    {
+        <div class="page-banner-error">Gateway error: @_lastError</div>
+    }
+    @foreach (var e in _errors)
+    {
+        <div class="page-banner-error">Director @ShortId(e.DirectorId) on @e.MachineName unreachable: @e.Error - its sessions are missing from this list.</div>
+    }
+
+    <div class="filters">
+        <input type="text" placeholder="Filter by name, repo, machine..." value="@_search"
+               @oninput="e => { _search = (string?)e.Value ?? string.Empty; _page = 1; }" />
+        <select value="@_colorFilter" @onchange="e => { _colorFilter = (string?)e.Value ?? string.Empty; _page = 1; }">
+            <option value="">All states</option>
+            <option value="red">Needs you (red)</option>
+            <option value="blue">Working (blue)</option>
+            <option value="yellow">Wingman reading (yellow)</option>
+            <option value="purple">Background (purple)</option>
+            <option value="hold">On hold</option>
+            <option value="unknown">Unknown / exited</option>
+        </select>
+        <select value="@_directorFilter" @onchange="e => { _directorFilter = (string?)e.Value ?? string.Empty; _page = 1; }">
+            <option value="">All directors</option>
+            @foreach (var d in _directors.OrderBy(d => d.MachineName, StringComparer.OrdinalIgnoreCase).ThenBy(d => d.DirectorId))
+            {
+                <option value="@d.DirectorId">@d.MachineName / @ShortId(d.DirectorId) (v@(d.Version))</option>
+            }
+        </select>
+        @if (HasFilter)
+        {
+            <button class="filters-clear" @onclick="ClearFilters">Clear filters</button>
+        }
+    </div>
+
+    @if (_sessions.Count == 0 && _lastError is null && _lastRefresh is not null)
+    {
+        <div class="tbl-empty">No sessions registered anywhere on the fleet.</div>
+    }
+    else if (Filtered.Count == 0 && _sessions.Count > 0)
+    {
+        <div class="tbl-empty">No sessions match the current filters.</div>
+    }
+    else if (Filtered.Count > 0)
+    {
+        <table class="tbl">
+            <thead>
+                <tr>
+                    <th>Session</th>
+                    <th>Repo</th>
+                    <th>Agent</th>
+                    <th>Machine / Director</th>
+                    <th>State</th>
+                    <th>Last activity</th>
+                    <th>Created</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var s in PageItems)
+                {
+                    <tr class="rowlink" @key="s.SessionId" @onclick="() => Open(s)"
+                        title="Open in the Cockpit">
+                        <td>
+                            @* Effective color + IsBriefing (issue #196): dot and "wingman
+                               reading..." line key off the same shared rule, never contradict. *@
+                            <span class="cell-dot" style="background:@DotColor(SessionOrdering.EffectiveColor(s))"
+                                  title="@s.LastStatusReason"></span><span class="cell-name">@TitleOf(s)</span>
+                            @if (s.OnHold)
+                            {
+                                <span class="tag tag-hold">HOLD</span>
+                            }
+                            @if (SessionOrdering.IsBriefing(s))
+                            {
+                                <div class="cell-sub briefing">wingman reading...</div>
+                            }
+                            else if (!string.IsNullOrWhiteSpace(s.RailLine))
+                            {
+                                <div class="cell-sub">@s.RailLine</div>
+                            }
+                        </td>
+                        <td class="cell-ellipsis" title="@s.RepoPath">@RepoBasename(s.RepoPath)</td>
+                        <td class="dim">@s.Agent</td>
+                        <td><span>@s.MachineName</span> <span class="mono dim">@ShortId(s.DirectorId)</span></td>
+                        <td class="dim">@HumanizeState(s.AssessedState ?? s.ActivityState)</td>
+                        <td class="dim" title="@s.LastActivityAt">@RelativeTime(s.LastActivityAt)</td>
+                        <td class="dim" title="@s.CreatedAt">@RelativeTime(s.CreatedAt)</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        <Pager Page="_page" PageSize="PageSize" TotalCount="Filtered.Count" PageChanged="p => _page = p" />
+    }
+</div>
+
+@code {
+    private const int PageSize = 25;
+
+    /// <summary>Pre-filter by owning Director (the Directors page links here with this set).</summary>
+    [Parameter, SupplyParameterFromQuery(Name = "director")] public string? DirectorQuery { get; set; }
+
+    /// <summary>Pre-filter by status color / "hold" (the dashboard's stat cards link here).</summary>
+    [Parameter, SupplyParameterFromQuery(Name = "state")] public string? StateQuery { get; set; }
+
+    private List<SessionDto> _sessions = new();
+    private List<MachineErrorDto> _errors = new();
+    private List<DirectorDto> _directors = new();
+    private DateTime? _lastRefresh;
+    private string? _lastError;
+    private string _search = "";
+    private string _colorFilter = "";
+    private string _directorFilter = "";
+    private int _page = 1;
+    private readonly CancellationTokenSource _cts = new();
+
+    private bool HasFilter => _search.Length > 0 || _colorFilter.Length > 0 || _directorFilter.Length > 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!string.IsNullOrEmpty(DirectorQuery)) _directorFilter = DirectorQuery;
+        if (!string.IsNullOrEmpty(StateQuery)) _colorFilter = StateQuery;
+        await RefreshAsync();
+        _ = PollLoopAsync();
+    }
+
+    private async Task PollLoopAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(_cts.Token))
+                await RefreshAsync();
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private async Task RefreshAsync()
+    {
+        try
+        {
+            var env = await Gateway.GetSessionsAsync(_cts.Token);
+            _directors = await Gateway.GetDirectorsAsync(_cts.Token);
+            _sessions = env.Sessions;
+            _errors = env.MachineErrors;
+            _lastError = null;
+            _lastRefresh = DateTime.Now;
+        }
+        catch (OperationCanceledException) { return; }
+        catch (Exception ex)
+        {
+            _lastError = ex.Message;
+            Log.LogWarning("Sessions refresh failed: {Error}", ex.Message);
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    // Stable list order: machine, then the user's desktop order within it.
+    private List<SessionDto> Filtered =>
+        _sessions
+            .Where(MatchesFilters)
+            .OrderBy(s => s.MachineName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(s => s.SortOrder).ThenBy(s => s.CreatedAt)
+            .ToList();
+
+    private IEnumerable<SessionDto> PageItems
+    {
+        get
+        {
+            var f = Filtered;
+            var pageCount = Math.Max(1, (f.Count + PageSize - 1) / PageSize);
+            if (_page > pageCount) _page = pageCount; // a shrinking filter result must not strand the pager
+            return f.Skip((_page - 1) * PageSize).Take(PageSize);
+        }
+    }
+
+    private bool MatchesFilters(SessionDto s)
+    {
+        if (_directorFilter.Length > 0 && !string.Equals(s.DirectorId, _directorFilter, StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (_colorFilter == "hold")
+        {
+            if (!s.OnHold) return false;
+        }
+        else if (_colorFilter.Length > 0
+                 && !string.Equals(SessionOrdering.EffectiveColor(s), _colorFilter, StringComparison.OrdinalIgnoreCase))
+            return false; // effective color (#196): the filter must agree with the dot it filters on
+        if (_search.Length > 0)
+        {
+            return (s.Name ?? "").Contains(_search, StringComparison.OrdinalIgnoreCase)
+                || s.RepoPath.Contains(_search, StringComparison.OrdinalIgnoreCase)
+                || s.MachineName.Contains(_search, StringComparison.OrdinalIgnoreCase)
+                || s.Agent.Contains(_search, StringComparison.OrdinalIgnoreCase);
+        }
+        return true;
+    }
+
+    private void ClearFilters()
+    {
+        _search = ""; _colorFilter = ""; _directorFilter = ""; _page = 1;
+    }
+
+    private void Open(SessionDto s) => Nav.NavigateTo($"/cockpit/{s.SessionId}");
+
+    // ---- display helpers (same vocabulary as the Cockpit/Fleet) ----
+
+    private static string TitleOf(SessionDto s) =>
+        string.IsNullOrWhiteSpace(s.Name) ? RepoBasename(s.RepoPath) : s.Name!;
+
+    private static string ShortId(string? id) => string.IsNullOrEmpty(id) ? "?" : id[..Math.Min(8, id.Length)];
+
+    private static string RepoBasename(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return "(no repo)";
+        var norm = path.Replace('\\', '/').TrimEnd('/');
+        var i = norm.LastIndexOf('/');
+        return i >= 0 ? norm[(i + 1)..] : norm;
+    }
+
+    private static string HumanizeState(string? state) => state switch
+    {
+        "WaitingForInput" => "Waiting for input",
+        "WaitingForPerm" => "Waiting for permission",
+        null or "" => "-",
+        _ => state,
+    };
+
+    private static string DotColor(string? color) => color switch
+    {
+        "red" => "#F14C4C",
+        "yellow" => "#F59E0B",
+        "green" => "#22C55E",
+        "blue" => "#3B82F6",
+        "purple" => "#A855F7",
+        _ => "#6B7280",
+    };
+
+    private static string RelativeTime(DateTime? utc)
+    {
+        if (utc is null) return "-";
+        var seconds = Math.Max(0, (int)(DateTime.UtcNow - utc.Value).TotalSeconds);
+        if (seconds < 5) return "just now";
+        if (seconds < 60) return $"{seconds}s ago";
+        var mins = seconds / 60;
+        if (mins < 60) return $"{mins}m ago";
+        var hours = mins / 60;
+        if (hours < 24) return $"{hours}h ago";
+        return $"{hours / 24}d ago";
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}

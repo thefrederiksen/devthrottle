@@ -15,36 +15,100 @@ namespace CcDirector.Gateway.Cockpit;
 /// through; X-Forwarded headers carry the public scheme/host so the Cockpit links correctly
 /// behind Tailscale TLS.
 ///
+/// Browser-aware page routes (the Cockpit sitemap): a handful of paths are BOTH an API
+/// endpoint and a Cockpit page - GET /sessions, /directors, /cockpit. A browser navigation
+/// announces itself with "Accept: text/html" (which no API client sends), so
+/// <see cref="UseBrowserPageRoutes"/> forwards those navigations to the Cockpit BEFORE
+/// routing, while programmatic clients keep getting JSON from the explicit endpoints.
+///
 /// When the supervised Cockpit child is down (boot, crash backoff, mid-update swap) the
 /// proxy answers a small auto-refreshing "Cockpit starting..." page instead of a raw
 /// connection error - the visitor rides through the gap.
 /// </summary>
 public static class CockpitProxy
 {
-    /// <summary>Map the fallback route. Call AFTER every explicit endpoint is mapped.</summary>
-    public static void Map(WebApplication app, int cockpitPort)
-    {
-        var destination = $"http://127.0.0.1:{cockpitPort}";
-        var forwarder = app.Services.GetRequiredService<IHttpForwarder>();
-        var invoker = new HttpMessageInvoker(new SocketsHttpHandler
-        {
-            UseProxy = false,
-            AllowAutoRedirect = false,
-            AutomaticDecompression = DecompressionMethods.None,
-            UseCookies = false,
-            ActivityHeadersPropagator = null,
-            ConnectTimeout = TimeSpan.FromSeconds(5),
-        });
-        var transformer = new ForwardedHeadersTransformer();
+    /// <summary>
+    /// The paths that are both a Gateway API endpoint (JSON) and a Cockpit page (HTML).
+    /// Exact matches only: subpaths either belong to the API (/sessions/{sid}) or fall
+    /// through to the Cockpit naturally (/cockpit/{sid} - no endpoint claims it).
+    /// </summary>
+    private static readonly string[] BrowserPagePaths = { "/cockpit", "/sessions", "/directors" };
 
-        FileLog.Write($"[CockpitProxy] fallback proxy -> {destination}");
+    /// <summary>
+    /// Decide whether this request is a PERSON navigating to a dual-use path (HTML page)
+    /// rather than a PROGRAM fetching JSON. Public so the policy is unit-testable.
+    /// </summary>
+    public static bool IsBrowserPageRequest(string method, PathString path, string? acceptHeader)
+    {
+        if (!HttpMethods.IsGet(method)) return false;
+        if (acceptHeader is null || !acceptHeader.Contains("text/html", StringComparison.OrdinalIgnoreCase))
+            return false;
+        var p = path.Value ?? "";
+        if (p.Length > 1 && p.EndsWith('/')) p = p[..^1];
+        return BrowserPagePaths.Any(b => string.Equals(b, p, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Middleware that forwards browser navigations on dual-use paths to the Cockpit.
+    /// Add AFTER auth (pages stay protected) and BEFORE routing (it must win over the
+    /// explicit JSON endpoints for these requests).
+    /// </summary>
+    public static void UseBrowserPageRoutes(WebApplication app, CockpitForwarder forwarder)
+    {
+        app.Use(async (ctx, next) =>
+        {
+            if (IsBrowserPageRequest(ctx.Request.Method, ctx.Request.Path, ctx.Request.Headers.Accept))
+            {
+                FileLog.Write($"[CockpitProxy] browser navigation {ctx.Request.Path} -> Cockpit page");
+                await forwarder.ForwardAsync(ctx);
+                return;
+            }
+            await next();
+        });
+    }
+
+    /// <summary>Map the fallback route. Call AFTER every explicit endpoint is mapped.</summary>
+    public static void Map(WebApplication app, CockpitForwarder forwarder)
+    {
+        FileLog.Write($"[CockpitProxy] fallback proxy -> {forwarder.Destination}");
 
         // Explicit "{*path}" pattern: the parameterless MapFallback uses "{*path:nonfile}",
         // whose :nonfile constraint skips anything with a file extension - which 404'd every
         // Cockpit asset (app.css, blazor.web.js, ...). The proxy must catch FILES too.
-        app.MapFallback("{*path}", async ctx =>
+        app.MapFallback("{*path}", forwarder.ForwardAsync);
+    }
+
+    /// <summary>
+    /// The shared forward-to-loopback-Cockpit mechanics, one instance per Gateway host
+    /// (NOT static: tests run several hosts with different Cockpit ports in one process).
+    /// Serves the auto-refreshing interstitial when the Cockpit child is not answering.
+    /// </summary>
+    public sealed class CockpitForwarder
+    {
+        private readonly IHttpForwarder _forwarder;
+        private readonly HttpMessageInvoker _invoker;
+        private readonly ForwardedHeadersTransformer _transformer = new();
+
+        public string Destination { get; }
+
+        public CockpitForwarder(IServiceProvider services, int cockpitPort)
         {
-            var error = await forwarder.SendAsync(ctx, destination, invoker, ForwarderRequestConfig.Empty, transformer);
+            Destination = $"http://127.0.0.1:{cockpitPort}";
+            _forwarder = services.GetRequiredService<IHttpForwarder>();
+            _invoker = new HttpMessageInvoker(new SocketsHttpHandler
+            {
+                UseProxy = false,
+                AllowAutoRedirect = false,
+                AutomaticDecompression = DecompressionMethods.None,
+                UseCookies = false,
+                ActivityHeadersPropagator = null,
+                ConnectTimeout = TimeSpan.FromSeconds(5),
+            });
+        }
+
+        public async Task ForwardAsync(HttpContext ctx)
+        {
+            var error = await _forwarder.SendAsync(ctx, Destination, _invoker, ForwarderRequestConfig.Empty, _transformer);
             if (error != ForwarderError.None && !ctx.Response.HasStarted)
             {
                 // The Cockpit child is not answering (supervisor is bringing it up or swapping
@@ -54,7 +118,7 @@ public static class CockpitProxy
                 ctx.Response.ContentType = "text/html; charset=utf-8";
                 await ctx.Response.WriteAsync(Interstitial);
             }
-        });
+        }
     }
 
     /// <summary>

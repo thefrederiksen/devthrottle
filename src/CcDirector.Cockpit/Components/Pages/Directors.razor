@@ -1,0 +1,176 @@
+@page "/directors"
+@inject GatewayClient Gateway
+@inject NavigationManager Nav
+@inject ILogger<Directors> Log
+@implements IDisposable
+
+@* The Director registry as a plain paged table over GET /directors, enriched with live
+   session counts from the roster envelope. Row click filters the Sessions page to that
+   Director; unreachable Directors (in the envelope's error list) are flagged inline. *@
+
+<PageTitle>CC Director - Directors</PageTitle>
+
+<div class="page">
+    <header class="page-head">
+        <h1>Directors</h1>
+        <span class="page-sub">@_directors.Count registered director@(_directors.Count == 1 ? "" : "s")</span>
+        <span class="page-refreshed">@(_lastRefresh is null ? "connecting..." : $"updated {_lastRefresh:HH:mm:ss}")</span>
+    </header>
+
+    @if (_lastError is not null)
+    {
+        <div class="page-banner-error">Gateway error: @_lastError</div>
+    }
+
+    @if (_directors.Count == 0 && _lastError is null && _lastRefresh is not null)
+    {
+        <div class="tbl-empty">No Directors registered with this Gateway. A Director appears here when it starts on this machine, or registers over HTTP with <code>gateway.url</code> configured.</div>
+    }
+    else if (_directors.Count > 0)
+    {
+        <table class="tbl">
+            <thead>
+                <tr>
+                    <th>Machine</th>
+                    <th>Director</th>
+                    <th>Version</th>
+                    <th>Discovery</th>
+                    <th>Endpoint</th>
+                    <th>Started</th>
+                    <th>Last seen</th>
+                    <th>Sessions</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var d in PageItems)
+                {
+                    var err = ErrorFor(d);
+                    <tr class="rowlink" @key="d.DirectorId" @onclick="() => Open(d)"
+                        title="Show this Director's sessions">
+                        <td><span class="cell-name">@d.MachineName</span> <span class="dim">@d.User</span></td>
+                        <td class="mono" title="@d.DirectorId">@ShortId(d.DirectorId) <span class="dim">pid @d.Pid</span></td>
+                        <td class="mono">@d.Version</td>
+                        <td class="dim">@(d.Source == "http" ? "push (http)" : "local (file)")</td>
+                        <td class="mono cell-ellipsis" title="@(d.TailnetEndpoint ?? d.ControlEndpoint)">@(d.TailnetEndpoint ?? d.ControlEndpoint)</td>
+                        <td class="dim" title="@d.StartedAt">@RelativeTime(d.StartedAt) <span class="dim">(up @Uptime(d.StartedAt))</span></td>
+                        <td class="dim" title="@d.LastSeen">@RelativeTime(d.LastSeen)</td>
+                        <td>@SessionCount(d)</td>
+                        <td>
+                            @if (err is not null)
+                            {
+                                <span class="warn" title="@err.Error">UNREACHABLE</span>
+                            }
+                            else
+                            {
+                                <span class="ok">OK</span>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        <Pager Page="_page" PageSize="PageSize" TotalCount="_directors.Count" PageChanged="p => _page = p" />
+    }
+</div>
+
+@code {
+    private const int PageSize = 25;
+
+    private List<DirectorDto> _directors = new();
+    private List<SessionDto> _sessions = new();
+    private List<MachineErrorDto> _errors = new();
+    private DateTime? _lastRefresh;
+    private string? _lastError;
+    private int _page = 1;
+    private readonly CancellationTokenSource _cts = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+        _ = PollLoopAsync();
+    }
+
+    private async Task PollLoopAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(_cts.Token))
+                await RefreshAsync();
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private async Task RefreshAsync()
+    {
+        try
+        {
+            _directors = await Gateway.GetDirectorsAsync(_cts.Token);
+            var env = await Gateway.GetSessionsAsync(_cts.Token);
+            _sessions = env.Sessions;
+            _errors = env.MachineErrors;
+            _lastError = null;
+            _lastRefresh = DateTime.Now;
+        }
+        catch (OperationCanceledException) { return; }
+        catch (Exception ex)
+        {
+            _lastError = ex.Message;
+            Log.LogWarning("Directors refresh failed: {Error}", ex.Message);
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private IEnumerable<DirectorDto> PageItems
+    {
+        get
+        {
+            var ordered = _directors
+                .OrderBy(d => d.MachineName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(d => d.StartedAt)
+                .ToList();
+            var pageCount = Math.Max(1, (ordered.Count + PageSize - 1) / PageSize);
+            if (_page > pageCount) _page = pageCount;
+            return ordered.Skip((_page - 1) * PageSize).Take(PageSize);
+        }
+    }
+
+    private int SessionCount(DirectorDto d) =>
+        _sessions.Count(s => string.Equals(s.DirectorId, d.DirectorId, StringComparison.OrdinalIgnoreCase));
+
+    private MachineErrorDto? ErrorFor(DirectorDto d) =>
+        _errors.FirstOrDefault(e => string.Equals(e.DirectorId, d.DirectorId, StringComparison.OrdinalIgnoreCase));
+
+    private void Open(DirectorDto d) => Nav.NavigateTo($"/sessions?director={Uri.EscapeDataString(d.DirectorId)}");
+
+    private static string ShortId(string? id) => string.IsNullOrEmpty(id) ? "?" : id[..Math.Min(8, id.Length)];
+
+    private static string RelativeTime(DateTime? utc)
+    {
+        if (utc is null) return "-";
+        var seconds = Math.Max(0, (int)(DateTime.UtcNow - utc.Value).TotalSeconds);
+        if (seconds < 5) return "just now";
+        if (seconds < 60) return $"{seconds}s ago";
+        var mins = seconds / 60;
+        if (mins < 60) return $"{mins}m ago";
+        var hours = mins / 60;
+        if (hours < 24) return $"{hours}h ago";
+        return $"{hours / 24}d ago";
+    }
+
+    private static string Uptime(DateTime startedUtc)
+    {
+        var span = DateTime.UtcNow - startedUtc;
+        if (span < TimeSpan.Zero) span = TimeSpan.Zero;
+        if (span.TotalHours < 1) return $"{(int)span.TotalMinutes}m";
+        if (span.TotalDays < 1) return $"{(int)span.TotalHours}h {span.Minutes}m";
+        return $"{(int)span.TotalDays}d {span.Hours}h";
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}

@@ -1,7 +1,9 @@
 /* The Cards dashboard, ported 1:1 from the Gateway's directory.html palette. */
 
 .fl-root {
-    min-height: 100vh;
+    /* Fill the app shell's page slot and scroll inside it (the nav rail sits beside us). */
+    height: 100%;
+    overflow: auto;
     background: #1e1e1e;
     color: #dddddd;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;

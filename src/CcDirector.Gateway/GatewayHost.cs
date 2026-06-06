@@ -230,6 +230,13 @@ public sealed class GatewayHost : IAsyncDisposable
             var requireToken = new AuthMiddleware.RequireToken { Token = Token };
             _app.Use(async (ctx, next) => await AuthMiddleware.Run(ctx, requireToken, next));
         }
+
+        // Browser-aware front door (the Cockpit sitemap): a PERSON navigating to /sessions,
+        // /directors, or /cockpit (Accept: text/html) gets the Cockpit page; programs keep
+        // getting JSON from the explicit endpoints below. After auth, before routing.
+        var cockpitForwarder = new Cockpit.CockpitProxy.CockpitForwarder(_app.Services, _cockpitProxyPort);
+        Cockpit.CockpitProxy.UseBrowserPageRoutes(_app, cockpitForwarder);
+
         _app.UseRouting();
 
         // Product version stamped by Directory.Build.props; full form carries the commit SHA.
@@ -264,7 +271,7 @@ public sealed class GatewayHost : IAsyncDisposable
 
         // One URL: everything no explicit endpoint above claimed falls through to the
         // loopback Cockpit (docs/plans/one-url-cockpit.md). Mapped LAST by design.
-        Cockpit.CockpitProxy.Map(_app, _cockpitProxyPort);
+        Cockpit.CockpitProxy.Map(_app, cockpitForwarder);
 
         await _app.StartAsync();
         FileLog.Write($"[GatewayHost] listening on http://127.0.0.1:{Port} (version {version})");

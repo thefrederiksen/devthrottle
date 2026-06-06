@@ -50,6 +50,16 @@ public sealed class GatewayClient
     }
 
     /// <summary>
+    /// Gateway health summary (<c>GET /healthz</c>): version, server time, fleet counts.
+    /// Throws on transport failure - the dashboard surfaces it as a banner.
+    /// </summary>
+    public async Task<HealthDto> GetHealthAsync(CancellationToken ct = default)
+    {
+        var h = await _http.GetFromJsonAsync<HealthDto>("healthz", ct);
+        return h ?? throw new HttpRequestException("healthz returned an empty body");
+    }
+
+    /// <summary>
     /// The repositories a given Director offers for a new session. The Gateway proxies this to
     /// the Director's <c>GET /repos</c>, so the Cockpit never needs that Director's endpoint.
     /// </summary>

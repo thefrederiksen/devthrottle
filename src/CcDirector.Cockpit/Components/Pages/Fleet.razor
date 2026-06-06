@@ -24,7 +24,7 @@
     }
   </span>
   <span class="fl-spacer"></span>
-  <a class="fl-link fl-link-accent" href="/">cockpit</a>
+  <a class="fl-link fl-link-accent" href="/cockpit">cockpit</a>
   <a class="fl-link fl-link-accent" href="/transcripts">voice</a>
   <a class="fl-link fl-link-accent" href="/exes">exes</a>
 </header>
@@ -227,13 +227,15 @@
 
     // ---- display helpers (mirroring directory.html exactly) ----
 
-    // The status color is OWNED by the Director's SessionStatusWingman. We render exactly
-    // what it returns - no derivation, no fallback. Anything else renders gray "unknown".
-    private static string ColorClass(SessionDto s) => (s.StatusColor ?? "").ToLowerInvariant() switch
+    // The raw status color is OWNED by the Director's SessionStatusWingman; the one
+    // permitted fold is SessionOrdering.EffectiveColor (issue #196): while the Gateway's
+    // wingman reads a finished turn the session presents yellow, never red-plus-briefing.
+    // Anything else renders gray "unknown".
+    private static string ColorClass(SessionDto s)
     {
-        "red" or "yellow" or "green" or "blue" or "purple" => (s.StatusColor ?? "").ToLowerInvariant(),
-        _ => "unknown",
-    };
+        var c = (SessionOrdering.EffectiveColor(s) ?? "").ToLowerInvariant();
+        return c is "red" or "yellow" or "green" or "blue" or "purple" ? c : "unknown";
+    }
 
     private static readonly Dictionary<string, string> ColorMeaning = new()
     {

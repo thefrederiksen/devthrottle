@@ -1,0 +1,203 @@
+@page "/"
+@inject GatewayClient Gateway
+@inject NavigationManager Nav
+@inject ILogger<Home> Log
+@implements IDisposable
+
+@* The landing page: one glance answers "is the fleet OK and what needs me", one click
+   acts on it. Stat cards link to the list pages; the needs-you hotlist deep-links into
+   the Cockpit. The triage app itself lives at /cockpit. *@
+
+<PageTitle>CC Director - Home</PageTitle>
+
+<div class="page">
+    <header class="page-head">
+        <h1>CC Director</h1>
+        <span class="page-sub">Gateway dashboard</span>
+        <span class="page-refreshed">@(_lastRefresh is null ? "connecting..." : $"updated {_lastRefresh:HH:mm:ss}")</span>
+    </header>
+
+    @if (_lastError is not null)
+    {
+        <div class="page-banner-error">Gateway error: @_lastError</div>
+    }
+    @foreach (var e in _errors)
+    {
+        <div class="page-banner-error">Director @ShortId(e.DirectorId) on @e.MachineName unreachable: @e.Error</div>
+    }
+
+    <div class="dash-cards">
+        <a class="dash-card" href="/sessions?state=red">
+            <div class="dash-num red">@NeedsYou.Count</div>
+            <div class="dash-lbl">Need you</div>
+            <div class="dash-sub">waiting on input or review</div>
+        </a>
+        <a class="dash-card" href="/sessions">
+            <div class="dash-num blue">@Working</div>
+            <div class="dash-lbl">Working</div>
+            <div class="dash-sub">agents busy right now</div>
+        </a>
+        <a class="dash-card" href="/sessions">
+            <div class="dash-num">@_sessions.Count</div>
+            <div class="dash-lbl">Sessions</div>
+            <div class="dash-sub">@OnHold on hold</div>
+        </a>
+        <a class="dash-card" href="/directors">
+            <div class="dash-num @(_errors.Count > 0 ? "amber" : "")">@_directors.Count</div>
+            <div class="dash-lbl">Directors</div>
+            <div class="dash-sub">@(_errors.Count > 0 ? $"{_errors.Count} unreachable" : "all reachable")</div>
+        </a>
+    </div>
+
+    <section class="dash-sec">
+        <div class="dash-sec-head needs">
+            <h2>Needs you</h2>
+            <a href="/cockpit">Open the Cockpit &rarr;</a>
+        </div>
+        @if (NeedsYou.Count == 0)
+        {
+            <div class="dash-quiet">Nothing needs you right now.</div>
+        }
+        else
+        {
+            <div class="dash-needs">
+                @foreach (var s in NeedsYou)
+                {
+                    <button type="button" class="dash-need" @key="s.SessionId"
+                            @onclick="() => OpenSession(s)" title="Open in the Cockpit">
+                        <span class="dash-need-name">@TitleOf(s)</span>
+                        <span class="dash-need-rail">@(s.RailLine ?? s.LastStatusReason)</span>
+                        <span class="dash-need-meta">@s.MachineName &middot; @RelativeTime(s.LastActivityAt)</span>
+                    </button>
+                }
+            </div>
+        }
+    </section>
+
+    <section class="dash-sec">
+        <div class="dash-sec-head">
+            <h2>Directors</h2>
+            <a href="/directors">All directors &rarr;</a>
+        </div>
+        <table class="tbl">
+            <thead>
+                <tr><th>Machine</th><th>Director</th><th>Version</th><th>Sessions</th><th>Last seen</th><th>Status</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var d in _directors.OrderBy(d => d.MachineName, StringComparer.OrdinalIgnoreCase).ThenBy(d => d.StartedAt))
+                {
+                    var err = _errors.FirstOrDefault(e => string.Equals(e.DirectorId, d.DirectorId, StringComparison.OrdinalIgnoreCase));
+                    <tr class="rowlink" @key="d.DirectorId" @onclick="() => OpenDirector(d)" title="Show this Director's sessions">
+                        <td><span class="cell-name">@d.MachineName</span></td>
+                        <td class="mono" title="@d.DirectorId">@ShortId(d.DirectorId)</td>
+                        <td class="mono">@d.Version</td>
+                        <td>@_sessions.Count(s => string.Equals(s.DirectorId, d.DirectorId, StringComparison.OrdinalIgnoreCase))</td>
+                        <td class="dim" title="@d.LastSeen">@RelativeTime(d.LastSeen)</td>
+                        <td>
+                            @if (err is not null)
+                            {
+                                <span class="warn" title="@err.Error">UNREACHABLE</span>
+                            }
+                            else
+                            {
+                                <span class="ok">OK</span>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </section>
+
+    <div class="dash-foot" title="Gateway base URL and version">
+        @Gateway.BaseUrl &middot; @(_health?.Version ?? "version unknown")
+    </div>
+</div>
+
+@code {
+    private List<SessionDto> _sessions = new();
+    private List<MachineErrorDto> _errors = new();
+    private List<DirectorDto> _directors = new();
+    private HealthDto? _health;
+    private DateTime? _lastRefresh;
+    private string? _lastError;
+    private readonly CancellationTokenSource _cts = new();
+
+    private List<SessionDto> NeedsYou =>
+        SessionOrdering.InBucket(_sessions, SessionOrdering.TriageBucket.NeedsYou).ToList();
+    private int Working => _sessions.Count(s => s.StatusColor == "blue");
+    private int OnHold => _sessions.Count(s => s.OnHold);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+        _ = PollLoopAsync();
+    }
+
+    private async Task PollLoopAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(_cts.Token))
+                await RefreshAsync();
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private async Task RefreshAsync()
+    {
+        try
+        {
+            var env = await Gateway.GetSessionsAsync(_cts.Token);
+            _directors = await Gateway.GetDirectorsAsync(_cts.Token);
+            _health = await Gateway.GetHealthAsync(_cts.Token);
+            _sessions = env.Sessions;
+            _errors = env.MachineErrors;
+            _lastError = null;
+            _lastRefresh = DateTime.Now;
+        }
+        catch (OperationCanceledException) { return; }
+        catch (Exception ex)
+        {
+            _lastError = ex.Message;
+            Log.LogWarning("Home refresh failed: {Error}", ex.Message);
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void OpenSession(SessionDto s) => Nav.NavigateTo($"/cockpit/{s.SessionId}");
+    private void OpenDirector(DirectorDto d) => Nav.NavigateTo($"/sessions?director={Uri.EscapeDataString(d.DirectorId)}");
+
+    private static string TitleOf(SessionDto s) =>
+        string.IsNullOrWhiteSpace(s.Name) ? RepoBasename(s.RepoPath) : s.Name!;
+
+    private static string ShortId(string? id) => string.IsNullOrEmpty(id) ? "?" : id[..Math.Min(8, id.Length)];
+
+    private static string RepoBasename(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return "(no repo)";
+        var norm = path.Replace('\\', '/').TrimEnd('/');
+        var i = norm.LastIndexOf('/');
+        return i >= 0 ? norm[(i + 1)..] : norm;
+    }
+
+    private static string RelativeTime(DateTime? utc)
+    {
+        if (utc is null) return "-";
+        var seconds = Math.Max(0, (int)(DateTime.UtcNow - utc.Value).TotalSeconds);
+        if (seconds < 5) return "just now";
+        if (seconds < 60) return $"{seconds}s ago";
+        var mins = seconds / 60;
+        if (mins < 60) return $"{mins}m ago";
+        var hours = mins / 60;
+        if (hours < 24) return $"{hours}h ago";
+        return $"{hours / 24}d ago";
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}

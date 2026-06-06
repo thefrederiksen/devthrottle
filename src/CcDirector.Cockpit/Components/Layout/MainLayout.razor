@@ -1,5 +1,11 @@
 @inherits LayoutComponentBase
 
+@* App shell: the shared navigation rail on the left, the active page filling the rest.
+   Every Blazor page gets the rail; the plain-HTML tool pages (/exes, /transcripts,
+   /dictionary) are linked from it but render their own chrome. *@
 <div class="cockpit-root">
-    @Body
+    <NavMenu />
+    <main class="app-page">
+        @Body
+    </main>
 </div>

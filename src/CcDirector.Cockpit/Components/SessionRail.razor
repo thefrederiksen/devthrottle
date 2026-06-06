@@ -32,10 +32,10 @@
         RenderFragment<SessionDto> SessionRow = s =>
         @<div role="button" tabindex="0"
               class="@($"sess{(s.SessionId == SelectedSessionId ? " sess-selected" : "")}")"
-              style="border-left-color:@DotColor(s.StatusColor)"
-              title="@($"{s.StatusColor}: {s.LastStatusReason}")"
+              style="border-left-color:@DotColor(SessionOrdering.EffectiveColor(s))"
+              title="@($"{SessionOrdering.EffectiveColor(s)}: {(SessionOrdering.IsBriefing(s) ? "wingman reading the turn" : s.LastStatusReason)}")"
               @onclick="() => OnSelect.InvokeAsync(s.SessionId)">
-            <span class="sess-dot" style="background:@DotColor(s.StatusColor)"></span>
+            <span class="sess-dot" style="background:@DotColor(SessionOrdering.EffectiveColor(s))"></span>
             <span class="sess-body">
                 <span class="sess-name">@(string.IsNullOrWhiteSpace(s.Name) ? s.RepoPath : s.Name)</span>
                 <span class="sess-state">
@@ -53,19 +53,21 @@
                     <span class="sess-dir">@ShortId(s.DirectorId)</span>
                     @* Generic fallback pill when no brief exists (old Directors / brief
                        pending) - small enough to stay on the state line. *@
-                    @if (s.StatusColor == "red" && s.BriefingState != "Briefing" && string.IsNullOrWhiteSpace(s.RailLine))
+                    @if (SessionOrdering.EffectiveColor(s) == "red" && string.IsNullOrWhiteSpace(s.RailLine))
                     {
                         <span class="needs-pill">needs you</span>
                     }
                 </span>
                 @* The wingman's railLine: WHAT the session wants, not just that it wants
                    something (TURN_BRIEFING.md). Rendered UNDER the name/state so it never
-                   squeezes the session name. While the wingman reads, say so. *@
-                @if (s.BriefingState == "Briefing")
+                   squeezes the session name. While the wingman reads, say so - and ONLY
+                   then: this line, the dot, and the triage bucket all key off the same
+                   shared effective state so they can never contradict (issue #196). *@
+                @if (SessionOrdering.IsBriefing(s))
                 {
                     <span class="rail-line briefing">wingman reading...</span>
                 }
-                else if (s.StatusColor == "red" && !string.IsNullOrWhiteSpace(s.RailLine))
+                else if (SessionOrdering.EffectiveColor(s) == "red" && !string.IsNullOrWhiteSpace(s.RailLine))
                 {
                     <span class="rail-line">@s.RailLine</span>
                 }
@@ -146,7 +148,7 @@
         {
             var machineSessions = Sessions.Where(s => MachineKey(s.MachineName) == machine).ToList();
             var machineErrors = Errors.Where(e => MachineKey(e.MachineName) == machine).ToList();
-            var needsYou = machineSessions.Count(s => s.StatusColor == "red");
+            var needsYou = machineSessions.Count(s => SessionOrdering.EffectiveColor(s) == "red");
 
             <div class="machine">
                 <div class="machine-head">

@@ -1,8 +1,10 @@
-@page "/"
+@page "/cockpit"
+@page "/cockpit/{SidParam}"
 @using System.Reflection
 @inject GatewayClient Gateway
 @inject DirectorClient Director
 @inject IJSRuntime JS
+@inject NavigationManager Nav
 @inject ILogger<Cockpit> Log
 @implements IDisposable
 
@@ -50,7 +52,7 @@
                     {
                         <button type="button"
                                 class="@($"mini-dot{(s.SessionId == _selectedId ? " mini-sel" : "")}")"
-                                style="background:@DotColor(s.StatusColor)"
+                                style="background:@DotColor(SessionOrdering.EffectiveColor(s))"
                                 title="@($"{SessionTitle(s)} - {s.ActivityState}")"
                                 @onclick="() => OnSelect(s.SessionId)"></button>
                     }
@@ -95,7 +97,7 @@
             else if (string.IsNullOrWhiteSpace(Selected.TailnetEndpoint))
             {
                 <div class="detail-head">
-                    <span class="detail-dot" style="background:@DotColor(Selected.StatusColor)"></span>
+                    <span class="detail-dot" style="background:@DotColor(SessionOrdering.EffectiveColor(Selected))"></span>
                     <span class="detail-name">@SessionTitle(Selected)</span>
                     <span class="detail-state">@(Selected.AssessedState ?? Selected.ActivityState)</span>
                 </div>
@@ -106,7 +108,10 @@
             else
             {
                 <div class="detail-head">
-                    <span class="detail-dot" style="background:@DotColor(Selected.StatusColor)"></span>
+                    @* Effective color, same rule as the rail and triage (issue #196): the
+                       header dot must never show red while the chip says the wingman is
+                       still reading. *@
+                    <span class="detail-dot" style="background:@DotColor(SessionOrdering.EffectiveColor(Selected))"></span>
                     @if (_renaming)
                     {
                         <input class="rename-input" @bind="_renameText" @bind:event="oninput" @onkeydown="OnRenameKey" autofocus />
@@ -121,7 +126,7 @@
                     @* assessed-when-present (issue #186): the Gateway's brain may have refuted
                        the mechanical quiet; the raw detector state is the fallback. *@
                     <span class="detail-state">@(Selected.AssessedState ?? Selected.ActivityState)</span>
-                    @if (Selected.BriefingState == "Briefing")
+                    @if (SessionOrdering.IsBriefing(Selected))
                     {
                         <span class="briefing-chip">wingman reading...</span>
                     }
@@ -765,7 +770,7 @@
                             var sid = s.SessionId;
                             <label class="fanout-item">
                                 <input type="checkbox" checked="@_fanoutSelected.Contains(sid)" @onchange="e => ToggleFanout(sid, (bool)(e.Value ?? false))" />
-                                <span class="fanout-dot" style="background:@DotColor(s.StatusColor)"></span>
+                                <span class="fanout-dot" style="background:@DotColor(SessionOrdering.EffectiveColor(s))"></span>
                                 <span class="fanout-name">@SessionTitle(s)</span>
                                 <span class="fanout-meta">@s.MachineName / @ShortId(s.DirectorId)</span>
                             </label>
@@ -887,7 +892,9 @@
     private DateTime? _lastRefresh;
     private readonly CancellationTokenSource _cts = new();
 
-    private int NeedsYou => _sessions.Count(s => s.StatusColor == "red");
+    // Effective color (issue #196): a session the wingman is still reading is yellow,
+    // so it neither counts as "needs you" nor enters the conveyor until the brief lands.
+    private int NeedsYou => _sessions.Count(s => SessionOrdering.EffectiveColor(s) == "red");
     private SessionDto? Selected => _sessions.FirstOrDefault(s => s.SessionId == _selectedId);
 
     // ----- center tab (Brief is the default; choice persists per session for the circuit) -----
@@ -905,7 +912,7 @@
 
     // ----- needs-you conveyor: flip through red sessions in the rail's stable order -----
     private List<SessionDto> NeedsYouOrdered =>
-        SessionOrdering.InDesktopOrder(_sessions).Where(s => s.StatusColor == "red").ToList();
+        SessionOrdering.InDesktopOrder(_sessions).Where(s => SessionOrdering.EffectiveColor(s) == "red").ToList();
 
     private string NeedsYouPosLabel
     {
@@ -958,11 +965,23 @@
         }
     }
 
+    /// <summary>Deep-link route parameter: /cockpit/{sid} selects that session on load.</summary>
+    [Parameter] public string? SidParam { get; set; }
+
     protected override async Task OnInitializedAsync()
     {
         Log.LogInformation("Cockpit initializing against Gateway {Base}", Gateway.BaseUrl);
         await RefreshAsync();
         _ = PollLoopAsync();
+    }
+
+    // Runs after OnInitializedAsync (roster loaded) and again on every /cockpit/{sid}
+    // navigation within the circuit (e.g. a dashboard needs-you click while already here).
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!string.IsNullOrEmpty(SidParam) && SidParam != _selectedId
+            && _sessions.Any(s => s.SessionId == SidParam))
+            await OnSelect(SidParam);
     }
 
     // Restore the left-panel preferences once the circuit can do JS interop. These are
@@ -1109,6 +1128,9 @@
     private async Task OnSelect(string sessionId)
     {
         _selectedId = sessionId;
+        // Keep the address bar deep-linkable (/cockpit/{sid}) without adding history entries.
+        // OnParametersSetAsync guards on SidParam != _selectedId, so this never re-enters.
+        Nav.NavigateTo($"/cockpit/{sessionId}", replace: true);
         _compose = "";
         _actError = null;
         _shotStatus = null;

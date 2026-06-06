@@ -21,7 +21,7 @@ public static class SessionOrdering
     /// <summary>Triage priority bucket for the "needs-you-first" view.</summary>
     public enum TriageBucket
     {
-        /// <summary>Wants the user now (StatusColor "red"), and not parked.</summary>
+        /// <summary>Wants the user now (effective color "red"), and not parked.</summary>
         NeedsYou = 0,
         /// <summary>Anything else that isn't parked.</summary>
         Active = 1,
@@ -30,13 +30,36 @@ public static class SessionOrdering
     }
 
     /// <summary>
+    /// True while the session must present as "the wingman is reading": the Gateway's brief
+    /// agent has the finished turn queued or in flight (<see cref="SessionDto.BriefingState"/>
+    /// "Briefing") AND the raw turn-end color is red. While a NEW turn is already running
+    /// (blue) the stale in-flight brief is irrelevant - raw activity wins, no chip.
+    /// </summary>
+    public static bool IsBriefing(SessionDto s) =>
+        s.BriefingState == "Briefing" && string.Equals(s.StatusColor, "red", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The ONE effective status color every client renders and triages on (issue #196).
+    /// The Director stamps the raw <see cref="SessionDto.StatusColor"/> (it no longer knows
+    /// about briefing since #187 moved the pipeline to the Gateway), and the Gateway stamps
+    /// <see cref="SessionDto.BriefingState"/> on top. Folding the two HERE - instead of in
+    /// each view - is what keeps the dot, the "wingman reading..." chip, and the triage
+    /// bucket atomic: while the wingman reads a finished turn the session IS yellow; red
+    /// ("needs you") may only appear after the brief lands.
+    /// </summary>
+    public static string EffectiveColor(SessionDto s) =>
+        IsBriefing(s) ? "yellow" : s.StatusColor;
+
+    /// <summary>
     /// Classify a session for triage. On-hold takes precedence over color: a parked session sinks
     /// to the bottom even if it would otherwise be "needs you", because the user has explicitly
-    /// deferred it.
+    /// deferred it. Uses <see cref="EffectiveColor"/>, NOT the raw Director color: a session the
+    /// wingman is still reading stays in Active until the brief lands, instead of flopping into
+    /// NEEDS YOU mid-brief and possibly back out (issue #196).
     /// </summary>
     public static TriageBucket Classify(SessionDto s) =>
         s.OnHold ? TriageBucket.OnHold
-        : s.StatusColor == "red" ? TriageBucket.NeedsYou
+        : EffectiveColor(s) == "red" ? TriageBucket.NeedsYou
         : TriageBucket.Active;
 
     /// <summary>All sessions in a given triage bucket, in desktop order.</summary>

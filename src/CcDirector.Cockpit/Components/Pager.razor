@@ -1,0 +1,26 @@
+@* Shared paging control for the list pages (Sessions / Directors). Pages are 1-based.
+   Renders nothing when everything fits on one page - no dead chrome. *@
+
+@if (TotalCount > PageSize)
+{
+    <div class="pager">
+        <button @onclick="() => Go(1)" disabled="@(Page <= 1)" title="First page">|&lt;</button>
+        <button @onclick="() => Go(Page - 1)" disabled="@(Page <= 1)">&lt; Prev</button>
+        <span class="pager-info">@RangeStart-@RangeEnd of @TotalCount &middot; page @Page of @PageCount</span>
+        <button @onclick="() => Go(Page + 1)" disabled="@(Page >= PageCount)">Next &gt;</button>
+        <button @onclick="() => Go(PageCount)" disabled="@(Page >= PageCount)" title="Last page">&gt;|</button>
+    </div>
+}
+
+@code {
+    [Parameter] public int Page { get; set; } = 1;
+    [Parameter] public int PageSize { get; set; } = 25;
+    [Parameter] public int TotalCount { get; set; }
+    [Parameter] public EventCallback<int> PageChanged { get; set; }
+
+    private int PageCount => Math.Max(1, (TotalCount + PageSize - 1) / PageSize);
+    private int RangeStart => TotalCount == 0 ? 0 : (Page - 1) * PageSize + 1;
+    private int RangeEnd => Math.Min(Page * PageSize, TotalCount);
+
+    private Task Go(int page) => PageChanged.InvokeAsync(Math.Clamp(page, 1, PageCount));
+}
