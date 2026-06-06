@@ -33,6 +33,7 @@ public sealed class SessionStatusWingman : IDisposable
     private readonly ConcurrentDictionary<Guid, Action<ActivityState, ActivityState>> _activityHandlers = new();
     private readonly ConcurrentDictionary<Guid, Action<bool>> _explainHandlers = new();
     private readonly ConcurrentDictionary<Guid, Action<bool>> _backgroundHandlers = new();
+    private readonly ConcurrentDictionary<Guid, Action<BriefingState>> _briefingHandlers = new();
     private readonly ConcurrentDictionary<Guid, PromptInjectionWatcher> _injectionWatchers = new();
     private bool _started;
     private bool _disposed;
@@ -137,6 +138,27 @@ public sealed class SessionStatusWingman : IDisposable
         _explainHandlers[session.Id] = explainHandler;
         session.OnIsExplainingChanged += explainHandler;
 
+        // TurnBriefOrchestrator drives BriefingState around its read of a finished turn
+        // (issue #192). Recompute the colour on every flip so the dot moves into Yellow
+        // while the wingman reads and settles to the verdict colour when the brief lands.
+        // Like the explain overlay, the activity state has NOT changed during this
+        // window, so we do not write to StateChangeLog.
+        Action<BriefingState> briefingHandler = state =>
+        {
+            try
+            {
+                var (c, r) = ColorFor(session, isNew: false);
+                session.SetStatusColor(c, r);
+                FileLog.Write($"[SessionStatusWingman] {session.Id} briefingState={state} => {c} ({r})");
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[SessionStatusWingman] briefing handler failed for {session.Id}: {ex.Message}");
+            }
+        };
+        _briefingHandlers[session.Id] = briefingHandler;
+        session.OnBriefingStateChanged += briefingHandler;
+
         // ProactiveExplainService flips Session.IsBackgroundRunning from the explain verdict.
         // When it flips we recompute the colour so a session parked on its own background task
         // moves Red -> Purple ("running in background") and back to Red when the verdict clears.
@@ -194,10 +216,11 @@ public sealed class SessionStatusWingman : IDisposable
 
     /// <summary>
     /// Resolve the dot colour for a session given its current ActivityState plus the
-    /// Wingman overlays (IsExplaining + WingmanEnabled). Yellow is emitted only when
-    /// the session is parked at a turn-end (WaitingForInput / WaitingForPerm), has
-    /// Wingman enabled, and currently has a briefing in flight. Otherwise the colour
-    /// is the plain activity-state mapping above.
+    /// Wingman overlays (BriefingState, IsExplaining, IsBackgroundRunning). Yellow is
+    /// emitted only when the session is parked at a turn-end (WaitingForInput /
+    /// WaitingForPerm) and a wingman read is in flight - either the turn-brief pipeline
+    /// (BriefingState=Briefing, all sessions) or the legacy auto-explain (IsExplaining,
+    /// WingmanEnabled only). Otherwise the colour is the plain activity-state mapping above.
     /// </summary>
     internal static (string color, string reason) ColorFor(Session session, bool isNew)
     {
@@ -205,6 +228,17 @@ public sealed class SessionStatusWingman : IDisposable
 
         var atTurnEnd = session.ActivityState is ActivityState.WaitingForInput
                                               or ActivityState.WaitingForPerm;
+
+        // Yellow overlay #1: the turn-brief pipeline is reading the just-finished turn
+        // (TURN_BRIEFING.md, issue #192). Until the brief lands we do not KNOW whether
+        // the session needs you - red is the brief's verdict, not the detector's guess -
+        // so the badge must not scream "needs you" yet. Unlike the legacy IsExplaining
+        // overlay below, this does NOT require WingmanEnabled: the TurnBriefOrchestrator
+        // briefs every session.
+        if (session.BriefingState == BriefingState.Briefing && atTurnEnd)
+            return (StatusColor.Yellow, "wingman is reading");
+
+        // Yellow overlay #2 (legacy): the ProactiveExplainService auto-explain in flight.
         if (session.WingmanEnabled && session.IsExplaining && atTurnEnd)
             return (StatusColor.Yellow, "wingman is reading");
 
@@ -234,6 +268,8 @@ public sealed class SessionStatusWingman : IDisposable
                 s.OnIsExplainingChanged -= eh;
             if (_backgroundHandlers.TryRemove(s.Id, out var bh))
                 s.OnIsBackgroundRunningChanged -= bh;
+            if (_briefingHandlers.TryRemove(s.Id, out var brh))
+                s.OnBriefingStateChanged -= brh;
         }
         foreach (var kv in _injectionWatchers)
             kv.Value.Dispose();

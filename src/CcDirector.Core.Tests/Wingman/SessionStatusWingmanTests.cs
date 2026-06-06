@@ -172,6 +172,78 @@ public sealed class SessionStatusWingmanTests
         finally { wingman.Dispose(); manager.Dispose(); }
     }
 
+    // ---------- Yellow overlay (turn-brief pipeline, issue #192) ----------
+    // The TurnBriefOrchestrator drives BriefingState around its read of a finished
+    // turn. While Briefing the badge must be Yellow, not red "needs you" - until the
+    // brief lands we do not know whether the session needs you.
+
+    [Fact]
+    public void Yellow_when_turn_brief_in_flight_at_turn_end()
+    {
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        var wingman = new SessionStatusWingman(manager);
+        try
+        {
+            wingman.Start();
+            var (session, _) = CreateBufferSession(manager);
+
+            session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
+            Assert.Equal(StatusColor.Red, session.StatusColor);
+
+            session.SetBriefingState(BriefingState.Briefing);
+            Assert.Equal(StatusColor.Yellow, session.StatusColor);
+            Assert.Equal("wingman is reading", session.LastStatusReason);
+
+            // The brief lands: back to the activity-state verdict.
+            session.SetBriefingState(BriefingState.Briefed);
+            Assert.Equal(StatusColor.Red, session.StatusColor);
+        }
+        finally { wingman.Dispose(); manager.Dispose(); }
+    }
+
+    [Fact]
+    public void TurnBrief_yellow_does_not_require_wingman_enabled()
+    {
+        // The TurnBriefOrchestrator briefs EVERY session, so the briefing yellow applies
+        // regardless of WingmanEnabled (unlike the legacy IsExplaining overlay).
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        var wingman = new SessionStatusWingman(manager);
+        try
+        {
+            wingman.Start();
+            var (session, _) = CreateBufferSession(manager);
+            session.WingmanEnabled = false;
+
+            session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
+            session.SetBriefingState(BriefingState.Briefing);
+            Assert.Equal(StatusColor.Yellow, session.StatusColor);
+        }
+        finally { wingman.Dispose(); manager.Dispose(); }
+    }
+
+    [Fact]
+    public void TurnBrief_yellow_does_not_apply_while_working()
+    {
+        // Watch-cancel: the user replied while the wingman was reading. The session is
+        // Working again, so the dot must be Blue even while BriefingState is still
+        // Briefing for a beat (defensive; the orchestrator cancels and resets to None).
+        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
+        var wingman = new SessionStatusWingman(manager);
+        try
+        {
+            wingman.Start();
+            var (session, _) = CreateBufferSession(manager);
+
+            session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
+            session.SetBriefingState(BriefingState.Briefing);
+            Assert.Equal(StatusColor.Yellow, session.StatusColor);
+
+            session.ApplyTerminalActivityState(ActivityState.Working);
+            Assert.Equal(StatusColor.Blue, session.StatusColor);
+        }
+        finally { wingman.Dispose(); manager.Dispose(); }
+    }
+
     // ---------- Purple overlay (Wingman "running in background" verdict) ----------
 
     [Fact]

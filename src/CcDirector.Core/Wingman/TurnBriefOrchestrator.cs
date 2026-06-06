@@ -108,12 +108,19 @@ public sealed class TurnBriefOrchestrator : IDisposable
         var ct = cts.Token;
         try
         {
+            // The yellow window opens AT turn end, not after the settle delay (issue #192):
+            // until the brief lands we do not know whether the session needs you, so the
+            // badge must not flash red for the settle+read duration. The early-skip paths
+            // below close the window again (None / Briefed) within the settle delay.
+            session.SetBriefingState(BriefingState.Briefing);
+
             await Task.Delay(_settleDelay, ct);
 
             var widgets = _transcriptReader(session);
             if (widgets is null || widgets.Count == 0)
             {
                 FileLog.Write($"[TurnBriefOrchestrator] sid={session.Id}: no transcript yet; skipping (boot gotcha)");
+                session.SetBriefingState(BriefingState.None);
                 return;
             }
 
@@ -128,7 +135,6 @@ public sealed class TurnBriefOrchestrator : IDisposable
             var package = TurnPackageBuilder.Build(
                 session.Id, widgets, _screenReader(session), prior, _store.List(session.Id));
 
-            session.SetBriefingState(BriefingState.Briefing);
             FileLog.Write($"[TurnBriefOrchestrator] briefing sid={session.Id} turn={package.TurnCount}");
 
             var brief = await _generator.GenerateAsync(package, ct);

@@ -282,6 +282,25 @@ public sealed class TurnBriefOrchestratorTests : IDisposable
     }
 
     [Fact]
+    public async Task TurnEnd_OpensYellowWindow_BeforeSettleDelay()
+    {
+        // Issue #192: the briefing window must open AT turn end, not after the settle
+        // delay - otherwise the badge flashes red "needs you" for the settle duration.
+        // With a 10s settle, seeing Briefing within 2s proves it was set up front.
+        var gen = new FakeGenerator();
+        var store = new TurnBriefStore(_dir);
+        using var orch = new TurnBriefOrchestrator(_manager, gen, store,
+            transcriptReader: _ => Widgets(4), screenReader: _ => "", settleDelay: TimeSpan.FromSeconds(10));
+        using var s = NewSession(ActivityState.Working);
+        orch.Attach(s);
+
+        s.ApplyTerminalActivityState(ActivityState.WaitingForInput);
+
+        await WaitFor(() => s.BriefingState == BriefingState.Briefing, timeoutMs: 2000);
+        Assert.Equal(0, gen.Calls); // still inside the settle delay - nothing generated yet
+    }
+
+    [Fact]
     public async Task NoTranscript_SkipsQuietly()
     {
         var gen = new FakeGenerator();
