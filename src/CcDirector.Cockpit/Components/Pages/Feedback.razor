@@ -1,0 +1,87 @@
+@page "/feedback"
+@inject GatewayClient Gateway
+@inject ILogger<Feedback> Log
+
+<div class="page feedback-page">
+    <div class="page-head">
+        <div>
+            <h1>Wingman feedback</h1>
+            <p>Recent brief votes and reasons. Each record is saved on the Gateway with the full brief and replayable TurnPackage.</p>
+        </div>
+        <button class="btn" @onclick="LoadAsync" disabled="@_loading">@(_loading ? "loading..." : "Refresh")</button>
+    </div>
+
+    @if (_error is not null)
+    {
+        <div class="brief-error">@_error</div>
+    }
+    else if (_loading && _items.Count == 0)
+    {
+        <div class="brief-loading">Loading feedback...</div>
+    }
+    else if (_items.Count == 0)
+    {
+        <div class="tbl-empty">No wingman feedback recorded yet.</div>
+    }
+    else
+    {
+        <div class="feedback-list">
+            @foreach (var item in _items)
+            {
+                <article class="feedback-card vote-@item.Vote">
+                    <div class="feedback-card-head">
+                        <span class="feedback-vote">@(item.Vote == "up" ? "useful" : "wrong")</span>
+                        <span class="feedback-model">@item.BrainModel</span>
+                        <span class="feedback-time">@item.ReportedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</span>
+                    </div>
+                    <div class="feedback-title">@(!string.IsNullOrWhiteSpace(item.BriefHeadline) ? item.BriefHeadline : item.SessionId)</div>
+                    @if (!string.IsNullOrWhiteSpace(item.BriefRailLine))
+                    {
+                        <div class="feedback-rail">rail: @item.BriefRailLine</div>
+                    }
+                    <div class="feedback-reason">@(string.IsNullOrWhiteSpace(item.Reason) ? "No reason yet." : item.Reason)</div>
+                    <div class="feedback-meta">
+                        <span>session @Short(item.SessionId)</span>
+                        <span>turn @item.TurnNumber</span>
+                        <span>@(item.HasTurnPackage ? "TurnPackage captured" : "TurnPackage missing")</span>
+                        <span>@item.FeedbackId</span>
+                    </div>
+                </article>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private readonly List<TurnBriefFeedbackListItem> _items = new();
+    private bool _loading;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+        try
+        {
+            var response = await Gateway.GetBriefFeedbackAsync(100);
+            _items.Clear();
+            if (response is not null) _items.AddRange(response.Items);
+        }
+        catch (Exception ex)
+        {
+            Log.LogWarning(ex, "Feedback page load failed");
+            _error = $"Feedback load failed: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private static string Short(string value) => value.Length <= 8 ? value : value[..8];
+}

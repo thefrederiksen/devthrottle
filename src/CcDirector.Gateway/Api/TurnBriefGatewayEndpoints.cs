@@ -11,8 +11,9 @@ namespace CcDirector.Gateway.Api;
 /// Director-side pipeline is deleted:
 ///   GET  /sessions/{sid}/turnbriefs          - all stored briefs, newest first
 ///   GET  /sessions/{sid}/turnbriefs/latest   - the most recent brief (404 when none)
-///   POST /sessions/{sid}/turnbriefs/feedback - "this brief is wrong" (D7), stored as a
-///                                              labeled example for prompt iteration
+///   POST /sessions/{sid}/turnbriefs/feedback - vote/reason feedback (#207), stored as a
+///                                              replayable labeled example
+///   GET  /turnbriefs/feedback                 - recent feedback corpus records
 /// Serves the GATEWAY's append-only store; never proxies to a Director. Consumers render
 /// the stored briefs verbatim - interpretation happened once, in the warm brain.
 /// </summary>
@@ -51,8 +52,12 @@ internal static class TurnBriefGatewayEndpoints
                 return Results.BadRequest(new { error = "invalid session id format" });
 
             var req = await ctx.Request.ReadFromJsonAsync<TurnBriefFeedbackRequest>(ctx.RequestAborted);
-            if (req is null || string.IsNullOrWhiteSpace(req.Note))
-                return Results.BadRequest(new { error = "note is required" });
+            if (req is null)
+                return Results.BadRequest(new { error = "feedback body is required" });
+
+            var vote = string.IsNullOrWhiteSpace(req.Vote) ? "down" : req.Vote.Trim().ToLowerInvariant();
+            if (vote is not ("down" or "up" or "thumbs_down" or "thumbs_up" or "negative" or "positive"))
+                return Results.BadRequest(new { error = "vote must be 'down' or 'up'" });
 
             var briefs = store.List(sid);
             var brief = req.TurnNumber > 0
@@ -61,8 +66,14 @@ internal static class TurnBriefGatewayEndpoints
             if (brief is null)
                 return Results.NotFound(new { error = "no such brief" });
 
-            var file = store.SaveFeedback(sid, brief, req.Note.Trim());
-            return Results.Json(new { saved = true, file });
+            var result = store.SaveFeedback(sid, brief, vote, req.Note, req.FeedbackId);
+            return Results.Json(result);
+        });
+
+        app.MapGet("/turnbriefs/feedback", (int? count) =>
+        {
+            var take = count.GetValueOrDefault(50);
+            return Results.Json(new TurnBriefFeedbackListResponse { Items = store.ListFeedback(take) });
         });
     }
 }

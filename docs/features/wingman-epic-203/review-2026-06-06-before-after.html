@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Wingman brief review 2026-06-06 - before / after</title>
+<style>
+/* Lifted from the Cockpit's app.css so BEFORE is pixel-faithful. */
+:root{
+  --panel:#1E1E1E; --sidebar:#252526; --button:#3C3C3C;
+  --text:#CCCCCC; --text2:#AAAAAA; --text3:#888888; --muted:#666666;
+  --border:#3C3C3C; --bg:#181818;
+  --red:#F14C4C; --green:#22C55E; --blue:#3B82F6; --amber:#F59E0B;
+}
+*{box-sizing:border-box}
+body{background:#111;color:var(--text);font-family:"Segoe UI",system-ui,sans-serif;font-size:13px;margin:0;padding:28px}
+h1{font-size:19px;font-weight:600;margin:0 0 4px}
+.sub{color:var(--text3);font-size:12px;margin-bottom:26px}
+h2{font-size:15px;font-weight:600;margin:34px 0 4px;color:#fff}
+.case-why{color:var(--text2);font-size:12.5px;margin:0 0 14px;max-width:980px}
+.pair{display:flex;gap:18px;align-items:stretch;flex-wrap:wrap}
+.col{flex:1;min-width:430px;display:flex;flex-direction:column}
+.col-tag{font-size:11px;font-weight:700;letter-spacing:.1em;margin-bottom:8px}
+.col-tag.before{color:var(--red)}
+.col-tag.after{color:var(--green)}
+.screen{flex:1;background:var(--bg);border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.screen-bar{background:var(--sidebar);border-bottom:1px solid var(--border);padding:7px 14px;
+  font-size:11px;color:var(--text3);display:flex;gap:10px;align-items:center}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.dot.red{background:var(--red)} .dot.yellow{background:var(--amber)}
+
+/* ===== the brief pane, exactly as the Cockpit styles it ===== */
+.brief{padding:20px 26px 16px;font-size:14px;line-height:1.55}
+.brief .blabel{font-size:10px;font-weight:700;letter-spacing:.12em;color:var(--text3);margin-bottom:7px}
+.brief .blabel.red{color:#F14C4C}
+.brief-goal{display:flex;gap:12px;align-items:baseline;margin-bottom:22px;padding-bottom:14px;border-bottom:1px solid var(--border)}
+.brief-goal .blabel{margin-bottom:0}
+.brief-goal-text{color:var(--text2);font-size:13px}
+.brief-block{margin-bottom:24px}
+.brief-ask{color:var(--text);font-size:15px;white-space:pre-wrap}
+.brief-muted{color:var(--muted);font-size:12px;margin-top:4px}
+.brief-needsyou{border-left:3px solid #F14C4C;background:#2a1d1f;color:#f1d8d8;padding:10px 14px;border-radius:0 6px 6px 0}
+.brief-needsyou.urgency-fyi{border-left-color:#F59E0B;background:#262017;color:#e8dcc8}
+.brief-verbatim-tag{font-weight:400;letter-spacing:0;text-transform:none;color:var(--muted);margin-left:8px;font-size:10px}
+.brief-quick{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.brief-quick-btn{border:1px solid var(--border);background:var(--panel);color:var(--text);border-radius:5px;
+  padding:7px 12px;font-size:12.5px;cursor:pointer;text-align:left}
+.brief-quick-btn b{color:#22C55E;margin-right:6px}
+.brief-opt-note{display:block;color:#F59E0B;font-size:10px;margin-top:2px}
+.brief-mission-complete .blabel{color:#22C55E}
+.brief-mission-complete .brief-needsyou{border-left-color:#22C55E;background:#11251a;color:#cfe8d8}
+.brief-close-btn{border-color:#22C55E;color:#22C55E;font-weight:600}
+.brief-ifignored{color:var(--text3);font-size:12px;margin-top:8px;font-style:italic}
+.brief-did{margin:0;padding-left:22px;color:var(--text)}
+.brief-did li{margin-bottom:5px}
+.callout{max-width:980px;margin-top:10px;border-left:3px solid var(--blue);background:#16202c;color:#c8d8ea;
+  padding:8px 14px;border-radius:0 6px 6px 0;font-size:12.5px}
+</style>
+</head>
+<body>
+
+<h1>Wingman brief review - 2026-06-06</h1>
+<div class="sub">Real briefs from your open sessions, rendered as the Cockpit shows them (BEFORE) vs what the contract-v3 wingman should produce (AFTER). Epic #203, contract work #205.</div>
+
+<!-- ============================================================ CASE 1 -->
+<h2>Case 1 - "cc-director - tool audit" (red dot, rail: "done - close session?")</h2>
+<p class="case-why"><b>What is wrong:</b> the statement says the only real action is CLOSING the session - but the one button offered is "sweep all", which is explained nowhere. What sweep? Of what? And there is no close button. You cannot act without re-reading the session.</p>
+
+<div class="pair">
+  <div class="col">
+    <div class="col-tag before">BEFORE - what the screen shows today (verbatim live data)</div>
+    <div class="screen">
+      <div class="screen-bar"><span class="dot red"></span> cc-director - tool audit &nbsp;|&nbsp; Brief</div>
+      <div class="brief">
+        <div class="brief-goal">
+          <span class="blabel">YOU'RE DOING</span>
+          <span class="brief-goal-text">Wrap up the v0.6.8 release audit. The catalog manifest fix (b90ac20) is committed and now confirmed already on origin/main, so the push question resolved itself; nothing remains in this session's scope.</span>
+        </div>
+        <div class="brief-block">
+          <div class="blabel">FYI<span class="brief-verbatim-tag">gateway-brain/opus - turn 134</span></div>
+          <div class="brief-needsyou urgency-fyi">Nothing needed. FYI: the manifest fix was already committed (b90ac20) and is already on origin/main - nothing to stage or push. Other sessions' uncommitted files were deliberately left alone; the only real action left is closing this session.</div>
+          <div class="brief-quick">
+            <button class="brief-quick-btn"><b>sweep all</b></button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="col-tag after">AFTER - what contract v3 should produce</div>
+    <div class="screen">
+      <div class="screen-bar"><span class="dot red"></span> cc-director - tool audit &nbsp;|&nbsp; Brief</div>
+      <div class="brief">
+        <div class="brief-goal">
+          <span class="blabel">YOU'RE DOING</span>
+          <span class="brief-goal-text">Wrap up the v0.6.8 release audit. The catalog manifest fix (b90ac20) is committed and confirmed on origin/main; nothing remains in this session's scope.</span>
+        </div>
+        <div class="brief-block">
+          <div class="blabel">FYI<span class="brief-verbatim-tag">gateway-brain/opus - turn 134, 10:54</span></div>
+          <div class="brief-needsyou urgency-fyi">The release audit is finished: the manifest fix (b90ac20) is committed and already on origin/main, so there is nothing to stage or push. One leftover the agent noticed: 14 files from OTHER sessions sit uncommitted in the shared working tree - it offered to sweep them into one commit, but they belong to sessions still working.</div>
+          <div class="brief-quick">
+            <button class="brief-quick-btn"><b>sweep all</b><span class="brief-opt-note">commits 14 files belonging to OTHER active sessions - risky, they may be mid-work</span></button>
+            <button class="brief-quick-btn"><b>leave them (rec)</b><span class="brief-opt-note">each session commits its own work - nothing happens here</span></button>
+          </div>
+          <div class="brief-ifignored">If you do nothing: nothing breaks - the other sessions keep their uncommitted work and this session just sits idle.</div>
+        </div>
+        <div class="brief-block brief-mission-complete">
+          <div class="blabel">MISSION COMPLETE<span class="brief-verbatim-tag">wingman suggestion</span></div>
+          <div class="brief-needsyou">This session's goal (verify the v0.6.8 release) is delivered. Nothing is left in scope.</div>
+          <div class="brief-quick">
+            <button class="brief-quick-btn brief-close-btn">Close this session</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="callout"><b>The contract rules this demonstrates:</b> (1) every option carries its consequence + risk in a note; (2) exactly one option may be marked recommended; (3) an explicit "if you do nothing" line; (4) "session is done" arrives as the MISSION COMPLETE suggestion with a close button, not as prose.</div>
+
+<!-- ============================================================ CASE 2 -->
+<h2>Case 2 - "cc-director - Blank terminal" (red dot, rail: "deployed - close session?")</h2>
+<p class="case-why"><b>What is wrong:</b> honest statement, names the action ("the real remaining action is closing this session"), even flags the 90% usage limit - and then offers NO way to do it. No options, no close button. A named action with no button is homework.</p>
+
+<div class="pair">
+  <div class="col">
+    <div class="col-tag before">BEFORE - what the screen shows today (verbatim live data)</div>
+    <div class="screen">
+      <div class="screen-bar"><span class="dot red"></span> cc-director - Blank terminal &nbsp;|&nbsp; Brief</div>
+      <div class="brief">
+        <div class="brief-goal">
+          <span class="blabel">YOU'RE DOING</span>
+          <span class="brief-goal-text">User asked to commit the mission-complete feature, restart the gateway, and deploy the cockpit. All three are done and verified live; the feature now awaits its first real-world firing.</span>
+        </div>
+        <div class="brief-block">
+          <div class="blabel">FYI<span class="brief-verbatim-tag">gateway-brain - turn 135</span></div>
+          <div class="brief-needsyou urgency-fyi">Nothing broken or blocking. Commit f4b853e is pushed, gateway live on 0.6.8+f4b853e, cockpit deployed and serving the new build. The session's goal is delivered; the real remaining action is closing this session (it is also at 90% of its usage limit). Issue #201 stays open until the feature fires on a real finished session.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="col-tag after">AFTER - what contract v3 should produce</div>
+    <div class="screen">
+      <div class="screen-bar"><span class="dot red"></span> cc-director - Blank terminal &nbsp;|&nbsp; Brief</div>
+      <div class="brief">
+        <div class="brief-goal">
+          <span class="blabel">YOU'RE DOING</span>
+          <span class="brief-goal-text">Ship the mission-complete close feature (#201): commit, restart the gateway, deploy the cockpit. All three done and verified live.</span>
+        </div>
+        <div class="brief-block">
+          <div class="blabel">ALL CLEAR<span class="brief-verbatim-tag">gateway-brain/opus - turn 135, 10:46</span></div>
+          <div class="brief-needsyou urgency-fyi">Everything you asked for is shipped and verified: commit f4b853e pushed, gateway live on 0.6.8+f4b853e, cockpit serving the new build. Nothing needs you.</div>
+          <div class="brief-ifignored">If you do nothing: nothing breaks - but the session is at 90% of its usage limit, so it cannot take much more work anyway.</div>
+        </div>
+        <div class="brief-block brief-mission-complete">
+          <div class="blabel">MISSION COMPLETE<span class="brief-verbatim-tag">wingman suggestion</span></div>
+          <div class="brief-needsyou">The goal is delivered and verified live. This session has nothing left to do (and is nearly out of usage).</div>
+          <div class="brief-quick">
+            <button class="brief-quick-btn brief-close-btn">Close this session</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="callout"><b>The contract rules this demonstrates:</b> (1) "nothing needed" renders as a calm ALL CLEAR, not amber FYI prose; (2) a named action ALWAYS comes with its button - here the #201 mission-complete suggestion the wingman should have emitted; (3) operational facts (usage limit) go in the if-ignored line, not buried mid-paragraph.</div>
+
+</body>
+</html>

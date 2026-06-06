@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Brief review - Case 2 of 2 - Blank terminal</title>
+<style>
+:root{--panel:#1E1E1E;--sidebar:#252526;--text:#CCCCCC;--text2:#AAAAAA;--text3:#888888;--muted:#666666;--border:#3C3C3C;--bg:#181818;--red:#F14C4C;--green:#22C55E;--blue:#4DA3FF;--amber:#F59E0B}
+*{box-sizing:border-box}
+body{background:#000;color:var(--text);font-family:"Segoe UI",system-ui,sans-serif;font-size:13px;margin:0;padding:26px}
+.notes{border:1px dashed var(--blue);border-radius:8px;padding:14px 18px;margin-bottom:26px;color:var(--blue);max-width:1040px}
+.notes .notes-tag{font-size:10px;font-weight:700;letter-spacing:.14em;margin-bottom:8px;color:var(--blue)}
+.notes p{margin:0 0 8px;line-height:1.5}.notes p:last-child{margin-bottom:0}.notes b{color:#8cc4ff}
+.screens{max-width:1040px}.pair{display:flex;gap:18px;align-items:stretch;flex-wrap:wrap}.col{flex:1;min-width:430px;display:flex;flex-direction:column}
+.col-tag{font-size:11px;font-weight:700;letter-spacing:.1em;margin-bottom:8px;color:#fff}.screen{flex:1;background:var(--bg);border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.screen-bar{background:var(--sidebar);border-bottom:1px solid var(--border);padding:7px 14px;font-size:11px;color:var(--text3);display:flex;gap:10px;align-items:center}.dot{width:8px;height:8px;border-radius:50%;display:inline-block}.dot.red{background:var(--red)}
+.brief{padding:20px 26px 16px;font-size:14px;line-height:1.55}.brief .blabel{font-size:10px;font-weight:700;letter-spacing:.12em;color:var(--text3);margin-bottom:7px}
+.brief-goal{display:flex;gap:12px;align-items:baseline;margin-bottom:22px;padding-bottom:14px;border-bottom:1px solid var(--border)}.brief-goal .blabel{margin-bottom:0}.brief-goal-text{color:var(--text2);font-size:13px}.brief-block{margin-bottom:24px}
+.brief-needsyou{border-left:3px solid #F14C4C;background:#2a1d1f;color:#f1d8d8;padding:10px 14px;border-radius:0 6px 6px 0}.brief-needsyou.urgency-fyi{border-left-color:#F59E0B;background:#262017;color:#e8dcc8}.brief-verbatim-tag{font-weight:400;letter-spacing:0;text-transform:none;color:var(--muted);margin-left:8px;font-size:10px}
+.brief-quick{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}.brief-quick-btn{border:1px solid var(--border);background:var(--panel);color:var(--text);border-radius:5px;padding:7px 12px;font-size:12.5px;cursor:pointer;text-align:left}.brief-quick-btn b{color:#22C55E;margin-right:6px}
+.brief-mission-complete .blabel{color:#22C55E}.brief-mission-complete .brief-needsyou{border-left-color:#22C55E;background:#11251a;color:#cfe8d8}.brief-close-btn{border-color:#22C55E;color:#22C55E;font-weight:600}.brief-ifignored{color:var(--text3);font-size:12px;margin-top:8px;font-style:italic}
+</style>
+</head>
+<body>
+
+<div class="notes">
+  <div class="notes-tag">CLAUDE'S NOTES - NOT PART OF THE SCREEN</div>
+  <p><b>Case 2 of 2:</b> session "cc-director - Blank terminal". Real live brief, verbatim.</p>
+  <p><b>The problem:</b> the brief says the real remaining action is <b>closing this session</b> and warns it is at <b>90% usage</b>, but offers no close button. A named action with no button is homework.</p>
+  <p><b>Your decision:</b> is the AFTER screen better than the BEFORE screen?</p>
+</div>
+
+<div class="screens">
+<div class="pair">
+  <div class="col">
+    <div class="col-tag">BEFORE</div>
+    <div class="screen">
+      <div class="screen-bar"><span class="dot red"></span> cc-director - Blank terminal &nbsp;|&nbsp; Brief</div>
+      <div class="brief">
+        <div class="brief-goal">
+          <span class="blabel">YOU'RE DOING</span>
+          <span class="brief-goal-text">User asked to commit the mission-complete feature, restart the gateway, and deploy the cockpit. All three are done and verified live; the feature now awaits its first real-world firing.</span>
+        </div>
+        <div class="brief-block">
+          <div class="blabel">FYI<span class="brief-verbatim-tag">gateway-brain - turn 135</span></div>
+          <div class="brief-needsyou urgency-fyi">Nothing broken or blocking. Commit f4b853e is pushed, gateway live on 0.6.8+f4b853e, cockpit deployed and serving the new build. The session's goal is delivered; the real remaining action is closing this session (it is also at 90% of its usage limit). Issue #201 stays open until the feature fires on a real finished session.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="col-tag">AFTER</div>
+    <div class="screen">
+      <div class="screen-bar"><span class="dot red"></span> cc-director - Blank terminal &nbsp;|&nbsp; Brief</div>
+      <div class="brief">
+        <div class="brief-goal">
+          <span class="blabel">YOU'RE DOING</span>
+          <span class="brief-goal-text">Ship the mission-complete close feature (#201): commit, restart the gateway, deploy the cockpit. All three are done and verified live.</span>
+        </div>
+        <div class="brief-block">
+          <div class="blabel">ALL CLEAR<span class="brief-verbatim-tag">gateway-brain/opus - turn 135, 10:46</span></div>
+          <div class="brief-needsyou urgency-fyi">Everything you asked for is shipped and verified: commit f4b853e pushed, gateway live on 0.6.8+f4b853e, cockpit serving the new build. Nothing needs you.</div>
+          <div class="brief-ifignored">If you do nothing: nothing breaks - but the session is at 90% of its usage limit, so it cannot take much more work anyway.</div>
+        </div>
+        <div class="brief-block brief-mission-complete">
+          <div class="blabel">MISSION COMPLETE<span class="brief-verbatim-tag">wingman suggestion</span></div>
+          <div class="brief-needsyou">The goal is delivered and verified live. This session has nothing left to do and is nearly out of usage.</div>
+          <div class="brief-quick"><button class="brief-quick-btn brief-close-btn">Close this session</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<div class="notes" style="margin-top:26px;margin-bottom:0">
+  <div class="notes-tag">CLAUDE'S NOTES - WHAT CHANGED IN THE AFTER</div>
+  <p>1. "Nothing needed" is an ALL CLEAR, not a red/amber ask.</p>
+  <p>2. The named action has the matching button.</p>
+  <p>3. The 90% usage fact moves to the if-ignored line instead of being buried in the prose.</p>
+</div>
+
+</body>
+</html>

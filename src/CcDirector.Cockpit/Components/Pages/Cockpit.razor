@@ -1687,7 +1687,7 @@
         _briefFeedbackStatus = null;
         try
         {
-            await Gateway.PostBriefFeedbackAsync(sel.SessionId, turnNumber: 0, _briefFeedbackNote.Trim(), _cts.Token);
+            await Gateway.PostBriefFeedbackAsync(sel.SessionId, turnNumber: 0, vote: "down", note: _briefFeedbackNote.Trim(), ct: _cts.Token);
             _briefFeedbackStatus = "Saved as a labeled example - it feeds the wingman's prompt iteration.";
             _briefFeedbackNote = "";
         }

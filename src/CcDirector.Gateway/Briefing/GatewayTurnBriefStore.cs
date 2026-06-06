@@ -1,6 +1,7 @@
 using System.Text.Json;
 using CcDirector.Core.Storage;
 using CcDirector.Core.Utilities;
+using CcDirector.Core.Wingman;
 using CcDirector.Gateway.Contracts;
 
 namespace CcDirector.Gateway.Briefing;
@@ -31,6 +32,7 @@ public sealed class GatewayTurnBriefStore
     // Cockpit refresh (issue #187), which must not become a disk read per session per poll.
     // Lazily filled on first read, updated on every append.
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, TurnBriefDto?> _latest = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, TurnPackage> _packages = new();
 
     /// <param name="root">Storage directory; defaults to
     /// %LOCALAPPDATA%\cc-director\gateway-turnbriefs. Tests pass a temp dir.</param>
@@ -43,6 +45,8 @@ public sealed class GatewayTurnBriefStore
     }
 
     private string PathFor(string sessionId) => Path.Combine(_root, $"{Sanitize(sessionId)}.jsonl");
+    private string PackageDirFor(string sessionId) => Path.Combine(_root, $"{Sanitize(sessionId)}.packages");
+    private string PackagePathFor(string sessionId, int turnNumber) => Path.Combine(PackageDirFor(sessionId), $"t{turnNumber}.json");
 
     /// <summary>All stored briefs for a session, NEWEST FIRST, de-duplicated by TurnNumber
     /// (last appended generation wins). Empty when none.</summary>
@@ -82,25 +86,152 @@ public sealed class GatewayTurnBriefStore
         }
     }
 
-    /// <summary>
-    /// Store a D7 "this brief is wrong" report as a labeled example for prompt iteration:
-    /// the brief and the user's note, one JSON file per report under brief-feedback/
-    /// (issue #187: the feedback loop moved to the Gateway with the rest of the pipeline).
-    /// </summary>
-    public string SaveFeedback(string sessionId, TurnBriefDto brief, string note)
+    /// <summary>Persist the exact raw-material package that produced a brief. Feedback reports
+    /// embed this package so a downvote is replayable after the Gateway restarts (#207).</summary>
+    public void SavePackage(string sessionId, TurnPackage package)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(note);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        ArgumentNullException.ThrowIfNull(package);
+        FileLog.Write($"[GatewayTurnBriefStore] SavePackage: sid={sessionId}, turn={package.TurnCount}");
+        lock (_lock)
+        {
+            Directory.CreateDirectory(PackageDirFor(sessionId));
+            File.WriteAllText(PackagePathFor(sessionId, package.TurnCount), JsonSerializer.Serialize(package, new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                WriteIndented = true,
+            }));
+            _packages[PackageKey(sessionId, package.TurnCount)] = package;
+        }
+    }
+
+    /// <summary>Store a #207 feedback report as a replayable labeled example: vote/reason,
+    /// full brief, full TurnPackage, timestamp, and brain model. Passing feedbackId updates
+    /// the same one-tap record with a later typed/dictated reason.</summary>
+    public TurnBriefFeedbackResponse SaveFeedback(string sessionId, TurnBriefDto brief, string vote, string? reason, string? feedbackId = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        ArgumentNullException.ThrowIfNull(brief);
+        vote = NormalizeVote(vote);
+        reason = reason?.Trim() ?? "";
+
         var dir = Core.Storage.CcStorage.BriefFeedback();
-        var file = Path.Combine(dir, $"{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Sanitize(sessionId)[..Math.Min(8, sessionId.Length)]}-t{brief.TurnNumber}.json");
-        var payload = new { sessionId, note, brief, reportedAtUtc = DateTime.UtcNow };
-        File.WriteAllText(file, JsonSerializer.Serialize(payload, new JsonSerializerOptions
+        var now = DateTime.UtcNow;
+        var id = string.IsNullOrWhiteSpace(feedbackId)
+            ? $"{now:yyyyMMdd-HHmmss}-{Sanitize(sessionId)[..Math.Min(8, sessionId.Length)]}-t{brief.TurnNumber}-{vote}"
+            : Sanitize(feedbackId);
+        var file = Path.Combine(dir, id + ".json");
+
+        TurnBriefFeedbackRecord record;
+        if (File.Exists(file))
+        {
+            record = JsonSerializer.Deserialize<TurnBriefFeedbackRecord>(File.ReadAllText(file), JsonOpts) ?? new TurnBriefFeedbackRecord();
+            record.Vote = vote;
+            record.Reason = reason;
+            record.UpdatedAtUtc = now;
+        }
+        else
+        {
+            record = new TurnBriefFeedbackRecord
+            {
+                FeedbackId = id,
+                SessionId = sessionId,
+                TurnNumber = brief.TurnNumber,
+                Vote = vote,
+                Reason = reason,
+                BrainModel = brief.Model,
+                Brief = brief,
+                TurnPackage = LoadPackage(sessionId, brief.TurnNumber),
+                ReportedAtUtc = now,
+                UpdatedAtUtc = now,
+            };
+        }
+
+        File.WriteAllText(file, JsonSerializer.Serialize(record, new JsonSerializerOptions
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             WriteIndented = true,
         }));
-        FileLog.Write($"[GatewayTurnBriefStore] SaveFeedback: {file}");
-        return file;
+        FileLog.Write($"[GatewayTurnBriefStore] SaveFeedback: id={id}, vote={vote}, file={file}");
+        return new TurnBriefFeedbackResponse { Saved = true, FeedbackId = id, File = file };
     }
+
+    public List<TurnBriefFeedbackListItem> ListFeedback(int count = 50)
+    {
+        FileLog.Write($"[GatewayTurnBriefStore] ListFeedback: count={count}");
+        var dir = Core.Storage.CcStorage.BriefFeedback();
+        if (!Directory.Exists(dir)) return new List<TurnBriefFeedbackListItem>();
+
+        return Directory.GetFiles(dir, "*.json")
+            .Select(path => new FileInfo(path))
+            .OrderByDescending(f => f.LastWriteTimeUtc)
+            .Take(Math.Clamp(count, 1, 500))
+            .Select(ReadFeedbackListItem)
+            .Where(i => i is not null)
+            .Select(i => i!)
+            .ToList();
+    }
+
+    private object? LoadPackage(string sessionId, int turnNumber)
+    {
+        var key = PackageKey(sessionId, turnNumber);
+        if (_packages.TryGetValue(key, out var cached)) return cached;
+
+        var path = PackagePathFor(sessionId, turnNumber);
+        if (!File.Exists(path)) return null;
+
+        try
+        {
+            var package = JsonSerializer.Deserialize<TurnPackage>(File.ReadAllText(path), JsonOpts);
+            if (package is not null) _packages[key] = package;
+            return package;
+        }
+        catch (JsonException ex)
+        {
+            FileLog.Write($"[GatewayTurnBriefStore] LoadPackage FAILED: {path}: {ex.Message}");
+            return null;
+        }
+    }
+
+    private TurnBriefFeedbackListItem? ReadFeedbackListItem(FileInfo file)
+    {
+        try
+        {
+            var record = JsonSerializer.Deserialize<TurnBriefFeedbackRecord>(File.ReadAllText(file.FullName), JsonOpts);
+            if (record is null) return null;
+            return new TurnBriefFeedbackListItem
+            {
+                FeedbackId = string.IsNullOrWhiteSpace(record.FeedbackId) ? Path.GetFileNameWithoutExtension(file.Name) : record.FeedbackId,
+                SessionId = record.SessionId,
+                TurnNumber = record.TurnNumber,
+                Vote = record.Vote,
+                Reason = record.Reason,
+                BrainModel = record.BrainModel,
+                BriefHeadline = record.Brief.Headline,
+                BriefRailLine = record.Brief.NeedsYou?.RailLine ?? "",
+                HasTurnPackage = record.TurnPackage is not null,
+                ReportedAtUtc = record.ReportedAtUtc,
+            };
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        {
+            FileLog.Write($"[GatewayTurnBriefStore] ReadFeedbackListItem FAILED: {file.FullName}: {ex.Message}");
+            return null;
+        }
+    }
+
+    private static string NormalizeVote(string vote)
+    {
+        vote = (vote ?? "").Trim().ToLowerInvariant();
+        return vote switch
+        {
+            "up" or "thumbs_up" or "positive" => "up",
+            "down" or "thumbs_down" or "negative" or "" => "down",
+            _ => throw new ArgumentException($"unsupported feedback vote '{vote}'", nameof(vote)),
+        };
+    }
+
+    private static string PackageKey(string sessionId, int turnNumber) => $"{sessionId}:t{turnNumber}";
 
     private List<TurnBriefDto> LoadUnlocked(string sessionId)
     {

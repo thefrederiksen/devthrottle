@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.Net;
+using CcDirector.Core.Configuration;
+using CcDirector.Core.Drivers;
 using CcDirector.Core.Storage;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Api;
@@ -74,9 +76,15 @@ public sealed class GatewayHost : IAsyncDisposable
 
         // The Gateway's in-process warm brain (issue #184): supervisor only - claude.exe
         // spawns on first use (the brief agent's first ask, or Settings' Restart Brain).
+        // The model is PINNED (issue #204): the wingman is the product's one always-on
+        // intelligence point, so it runs the configured (default: smartest) model
+        // deliberately instead of inheriting whatever the account default happens to be.
+        BrainModel = BrainModelConfig.Get();
+        FileLog.Write($"[GatewayHost] brain model: {BrainModel}");
         Brain = new BrainSupervisor(new HostedAgentOptions
         {
             WorkingDirectory = Path.Combine(CcStorage.Root(), "brain"),
+            AgentArgs = $"{ClaudeDriver.DefaultArgs} --model {BrainModel}",
             Log = FileLog.Write,
         });
         _turnBriefStore = new GatewayTurnBriefStore(turnBriefDirectory);
@@ -87,6 +95,11 @@ public sealed class GatewayHost : IAsyncDisposable
     /// Director dependency. Dormant until first use; RestartAsync is the recovery verb.
     /// </summary>
     public BrainSupervisor Brain { get; }
+
+    /// <summary>The model the brain is pinned to (issue #204), resolved at construction
+    /// from config.json "brain_model" (default: <see cref="BrainModelConfig.Default"/>).
+    /// Recorded on every brief; a config change applies on the next Gateway restart.</summary>
+    public string BrainModel { get; }
 
     /// <summary>Gateway-side turn-brief storage (issue #185): append-only, fleet-wide.</summary>
     public GatewayTurnBriefStore TurnBriefs => _turnBriefStore;
@@ -114,7 +127,8 @@ public sealed class GatewayHost : IAsyncDisposable
         // owning Director as a display annotation. Kill switch: CC_TURNBRIEFS=0.
         if (!GatewayTurnBriefAgent.Disabled)
         {
-            _briefAgent = new GatewayTurnBriefAgent(Brain, _turnBriefStore, _client);
+            _briefAgent = new GatewayTurnBriefAgent(Brain, _turnBriefStore, _client,
+                generatorId: $"{GatewayTurnBriefAgent.GeneratorId}/{BrainModel}");
             _turnEndWatcher = new TurnEndWatcher(
                 Registry, _client,
                 _briefAgent.OnTurnEnd,

@@ -69,7 +69,7 @@
       <Border Background="#252526" CornerRadius="3" Padding="14">
         <StackPanel Spacing="10">
           <TextBlock Text="BRAIN" FontSize="11" FontWeight="SemiBold" Foreground="#888888"/>
-          <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto">
+          <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto,Auto">
             <Grid.Styles>
               <Style Selector="TextBlock.label">
                 <Setter Property="FontSize" Value="12"/>
@@ -84,8 +84,10 @@
             </Grid.Styles>
             <TextBlock Grid.Row="0" Grid.Column="0" Classes="label" Text="State"/>
             <TextBlock Grid.Row="0" Grid.Column="1" Classes="value" x:Name="BrainStateText" Text="..."/>
-            <TextBlock Grid.Row="1" Grid.Column="0" Classes="label" Text="Session"/>
-            <TextBlock Grid.Row="1" Grid.Column="1" Classes="value" x:Name="BrainSessionText" Text="..."/>
+            <TextBlock Grid.Row="1" Grid.Column="0" Classes="label" Text="Model"/>
+            <TextBlock Grid.Row="1" Grid.Column="1" Classes="value" x:Name="BrainModelText" Text="..."/>
+            <TextBlock Grid.Row="2" Grid.Column="0" Classes="label" Text="Session"/>
+            <TextBlock Grid.Row="2" Grid.Column="1" Classes="value" x:Name="BrainSessionText" Text="..."/>
           </Grid>
           <StackPanel Orientation="Horizontal" Spacing="10">
             <Button x:Name="RestartBrainButton" Content="Restart Brain"
@@ -93,7 +95,7 @@
             <TextBlock x:Name="BrainActionText" Text="" FontSize="11" Foreground="#888888"
                        VerticalAlignment="Center"/>
           </StackPanel>
-          <TextBlock Text="A warm claude.exe hosted by this Gateway (no Director involved). It starts on first use; restart replaces a wedged or dead brain."
+          <TextBlock Text="A warm claude.exe hosted by this Gateway (no Director involved). It starts on first use; restart replaces a wedged or dead brain. The model is pinned via config.json 'brain_model' (default: opus); a change applies on the next Gateway restart."
                      FontSize="10" Foreground="#666666" TextWrapping="Wrap"/>
         </StackPanel>
       </Border>

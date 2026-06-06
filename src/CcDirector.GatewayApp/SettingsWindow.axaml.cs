@@ -99,6 +99,8 @@ public partial class SettingsWindow : Window
     /// </summary>
     private async Task RefreshBrainAsync()
     {
+        BrainModelText.Text = _controller.Host?.BrainModel ?? "-";
+
         var brain = _controller.Brain;
         if (brain is null)
         {

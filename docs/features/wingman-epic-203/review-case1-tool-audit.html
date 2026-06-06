@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Brief review - Case 1 of 2 - tool audit</title>
+<style>
+/* Cockpit palette so the screens are pixel-faithful. */
+:root{
+  --panel:#1E1E1E; --sidebar:#252526; --button:#3C3C3C;
+  --text:#CCCCCC; --text2:#AAAAAA; --text3:#888888; --muted:#666666;
+  --border:#3C3C3C; --bg:#181818;
+  --red:#F14C4C; --green:#22C55E; --blue:#4DA3FF; --amber:#F59E0B;
+}
+*{box-sizing:border-box}
+body{background:#000;color:var(--text);font-family:"Segoe UI",system-ui,sans-serif;font-size:13px;margin:0;padding:26px}
+
+/* ===== BLUE = my notes. Everything blue is commentary, NOT the screen. ===== */
+.notes{border:1px dashed var(--blue);border-radius:8px;padding:14px 18px;margin-bottom:26px;
+  color:var(--blue);max-width:1040px}
+.notes .notes-tag{font-size:10px;font-weight:700;letter-spacing:.14em;margin-bottom:8px;color:var(--blue)}
+.notes p{margin:0 0 8px;line-height:1.5}
+.notes p:last-child{margin-bottom:0}
+.notes b{color:#8cc4ff}
+
+/* ===== BLACK = the real screens. Only screen content lives here. ===== */
+.screens{max-width:1040px}
+.pair{display:flex;gap:18px;align-items:stretch;flex-wrap:wrap}
+.col{flex:1;min-width:430px;display:flex;flex-direction:column}
+.col-tag{font-size:11px;font-weight:700;letter-spacing:.1em;margin-bottom:8px;color:#fff}
+.screen{flex:1;background:var(--bg);border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.screen-bar{background:var(--sidebar);border-bottom:1px solid var(--border);padding:7px 14px;
+  font-size:11px;color:var(--text3);display:flex;gap:10px;align-items:center}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.dot.red{background:var(--red)}
+
+/* the brief pane, exactly as the Cockpit styles it */
+.brief{padding:20px 26px 16px;font-size:14px;line-height:1.55}
+.brief .blabel{font-size:10px;font-weight:700;letter-spacing:.12em;color:var(--text3);margin-bottom:7px}
+.brief-goal{display:flex;gap:12px;align-items:baseline;margin-bottom:22px;padding-bottom:14px;border-bottom:1px solid var(--border)}
+.brief-goal .blabel{margin-bottom:0}
+.brief-goal-text{color:var(--text2);font-size:13px}
+.brief-block{margin-bottom:24px}
+.brief-needsyou{border-left:3px solid #F14C4C;background:#2a1d1f;color:#f1d8d8;padding:10px 14px;border-radius:0 6px 6px 0}
+.brief-needsyou.urgency-fyi{border-left-color:#F59E0B;background:#262017;color:#e8dcc8}
+.brief-verbatim-tag{font-weight:400;letter-spacing:0;text-transform:none;color:var(--muted);margin-left:8px;font-size:10px}
+.brief-quick{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.brief-quick-btn{border:1px solid var(--border);background:var(--panel);color:var(--text);border-radius:5px;
+  padding:7px 12px;font-size:12.5px;cursor:pointer;text-align:left}
+.brief-quick-btn b{color:#22C55E;margin-right:6px}
+.brief-opt-note{display:block;color:#F59E0B;font-size:10px;margin-top:2px}
+.brief-mission-complete .blabel{color:#22C55E}
+.brief-mission-complete .brief-needsyou{border-left-color:#22C55E;background:#11251a;color:#cfe8d8}
+.brief-close-btn{border-color:#22C55E;color:#22C55E;font-weight:600}
+.brief-ifignored{color:var(--text3);font-size:12px;margin-top:8px;font-style:italic}
+</style>
+</head>
+<body>
+
+<!-- ======================= MY NOTES (blue, not the screen) ======================= -->
+<div class="notes">
+  <div class="notes-tag">CLAUDE'S NOTES - NOT PART OF THE SCREEN</div>
+  <p><b>Case 1 of 2:</b> session "cc-director - tool audit". Real live brief, verbatim.</p>
+  <p><b>The problem:</b> the text says the only real action left is <b>closing this session</b> - but the only button is <b>[ sweep all ]</b>, which is explained nowhere, and there is no close button.</p>
+  <p><b>Your decision:</b> does the AFTER screen below match what you want from the wingman?</p>
+</div>
+
+<!-- ======================= THE SCREENS (black, what you judge) ======================= -->
+<div class="screens">
+<div class="pair">
+
+  <div class="col">
+    <div class="col-tag">BEFORE</div>
+    <div class="screen">
+      <div class="screen-bar"><span class="dot red"></span> cc-director - tool audit &nbsp;|&nbsp; Brief</div>
+      <div class="brief">
+        <div class="brief-goal">
+          <span class="blabel">YOU'RE DOING</span>
+          <span class="brief-goal-text">Wrap up the v0.6.8 release audit. The catalog manifest fix (b90ac20) is committed and now confirmed already on origin/main, so the push question resolved itself; nothing remains in this session's scope.</span>
+        </div>
+        <div class="brief-block">
+          <div class="blabel">FYI<span class="brief-verbatim-tag">gateway-brain/opus - turn 134</span></div>
+          <div class="brief-needsyou urgency-fyi">Nothing needed. FYI: the manifest fix was already committed (b90ac20) and is already on origin/main - nothing to stage or push. Other sessions' uncommitted files were deliberately left alone; the only real action left is closing this session.</div>
+          <div class="brief-quick">
+            <button class="brief-quick-btn"><b>sweep all</b></button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="col-tag">AFTER</div>
+    <div class="screen">
+      <div class="screen-bar"><span class="dot red"></span> cc-director - tool audit &nbsp;|&nbsp; Brief</div>
+      <div class="brief">
+        <div class="brief-goal">
+          <span class="blabel">YOU'RE DOING</span>
+          <span class="brief-goal-text">Wrap up the v0.6.8 release audit. The catalog manifest fix (b90ac20) is committed and confirmed on origin/main; nothing remains in this session's scope.</span>
+        </div>
+        <div class="brief-block">
+          <div class="blabel">FYI<span class="brief-verbatim-tag">gateway-brain/opus - turn 134, 10:54</span></div>
+          <div class="brief-needsyou urgency-fyi">The release audit is finished: the manifest fix (b90ac20) is committed and already on origin/main, so there is nothing to stage or push. One leftover the agent noticed: 14 files from OTHER sessions sit uncommitted in the shared working tree - it offered to sweep them into one commit, but they belong to sessions still working.</div>
+          <div class="brief-quick">
+            <button class="brief-quick-btn"><b>sweep all</b><span class="brief-opt-note">commits 14 files belonging to OTHER active sessions - risky, they may be mid-work</span></button>
+            <button class="brief-quick-btn"><b>leave them (rec)</b><span class="brief-opt-note">each session commits its own work - nothing happens here</span></button>
+          </div>
+          <div class="brief-ifignored">If you do nothing: nothing breaks - the other sessions keep their uncommitted work and this session just sits idle.</div>
+        </div>
+        <div class="brief-block brief-mission-complete">
+          <div class="blabel">MISSION COMPLETE<span class="brief-verbatim-tag">wingman suggestion</span></div>
+          <div class="brief-needsyou">This session's goal (verify the v0.6.8 release) is delivered. Nothing is left in scope.</div>
+          <div class="brief-quick">
+            <button class="brief-quick-btn brief-close-btn">Close this session</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<!-- ======================= MY NOTES (blue, not the screen) ======================= -->
+<div class="notes" style="margin-top:26px;margin-bottom:0">
+  <div class="notes-tag">CLAUDE'S NOTES - WHAT CHANGED IN THE AFTER</div>
+  <p>1. Every button carries its consequence and risk in a small note.</p>
+  <p>2. Exactly one option is marked recommended.</p>
+  <p>3. An explicit "if you do nothing" line.</p>
+  <p>4. "Session is done" becomes a MISSION COMPLETE block with a close button, not prose.</p>
+</div>
+
+</body>
+</html>

@@ -36,8 +36,12 @@ public sealed class GatewayTurnBriefAgent : IDisposable
     /// <summary>Per-brief generation budget (matches the Director path's 150s process timeout).</summary>
     public static readonly TimeSpan GenerationTimeout = TimeSpan.FromSeconds(150);
 
-    /// <summary>Generator identity recorded on briefs produced by this agent.</summary>
+    /// <summary>Base generator identity. Production appends the pinned brain model
+    /// (issue #204) - e.g. "gateway-brain/opus" - so every stored brief records which
+    /// model actually wrote it.</summary>
     public const string GeneratorId = "gateway-brain";
+
+    private readonly string _generatorId;
 
     private readonly GatewayTurnBriefStore _store;
     private readonly Func<CancellationToken, Task<IAgentBrain>> _brainProvider;
@@ -64,13 +68,14 @@ public sealed class GatewayTurnBriefAgent : IDisposable
     public GatewayTurnBriefStore Store => _store;
 
     /// <summary>Production wiring: the Gateway's brain supervisor + Director REST client.</summary>
-    public GatewayTurnBriefAgent(BrainSupervisor brain, GatewayTurnBriefStore store, DirectorEndpointClient client)
+    public GatewayTurnBriefAgent(BrainSupervisor brain, GatewayTurnBriefStore store, DirectorEndpointClient client, string? generatorId = null)
         : this(
             store,
             (brain ?? throw new ArgumentNullException(nameof(brain))).GetAsync,
             () => brain.RestartAsync(),
             (ep, sid, ct) => (client ?? throw new ArgumentNullException(nameof(client))).GetTurnsAsync(ep, sid, ct),
-            async (ep, sid, ct) => (await client.GetBufferAsync(ep, sid, lines: 80, ct: ct))?.Text ?? "")
+            async (ep, sid, ct) => (await client.GetBufferAsync(ep, sid, lines: 80, ct: ct))?.Text ?? "",
+            generatorId: generatorId)
     {
     }
 
@@ -81,8 +86,10 @@ public sealed class GatewayTurnBriefAgent : IDisposable
         Func<Task> brainRecover,
         Func<string, string, CancellationToken, Task<TurnsResponse?>> fetchTurns,
         Func<string, string, CancellationToken, Task<string>> fetchScreenTail,
-        TimeSpan? settleDelay = null)
+        TimeSpan? settleDelay = null,
+        string? generatorId = null)
     {
+        _generatorId = string.IsNullOrWhiteSpace(generatorId) ? GeneratorId : generatorId;
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _brainProvider = brainProvider;
         _brainRecover = brainRecover;
@@ -201,6 +208,7 @@ public sealed class GatewayTurnBriefAgent : IDisposable
         var screenTail = await _fetchScreenTail(endpoint, sid, ct);
         var package = TurnPackageBuilder.Build(
             Guid.Parse(sid), widgets, screenTail, prior, _store.List(sid));
+        _store.SavePackage(sid, package);
 
         FileLog.Write($"[GatewayTurnBriefAgent] briefing sid={sid} turn={package.TurnCount}");
         var brief = await GenerateAsync(package, ct);
@@ -252,7 +260,7 @@ public sealed class GatewayTurnBriefAgent : IDisposable
             await brain.ClearAsync(CancellationToken.None);
             cleared = true;
 
-            brief = TurnBriefContract.ParseAndValidate(ask.Text, package, GeneratorId);
+            brief = TurnBriefContract.ParseAndValidate(ask.Text, package, _generatorId);
             if (brief is null)
                 FileLog.Write($"[GatewayTurnBriefAgent] sid={package.SessionId}: REJECTED by validation; degrading");
         }

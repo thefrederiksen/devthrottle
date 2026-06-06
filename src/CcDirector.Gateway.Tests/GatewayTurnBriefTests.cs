@@ -1,4 +1,6 @@
+using System.Text.Json;
 using CcDirector.AgentBrain;
+using CcDirector.Core.Wingman;
 using CcDirector.Gateway.Briefing;
 using CcDirector.Gateway.Contracts;
 using Xunit;
@@ -88,6 +90,36 @@ public sealed class GatewayTurnBriefStoreTests : IDisposable
 
         var list = store.List(Sid);
         Assert.Equal(new[] { 2, 1 }, list.Select(b => b.TurnNumber));
+    }
+
+    [Fact]
+    public void SaveFeedback_IncludesTurnPackage_AndUpdatesSameRecordReason()
+    {
+        var store = new GatewayTurnBriefStore(_dir);
+        var brief = Brief(7, railLine: "pick one");
+        var package = new TurnPackage(Guid.Parse(Sid), 7, "first", "last ask", "reply", false,
+            "delta", "screen", "intent", new[] { "old rail" }, "headline");
+        store.SavePackage(Sid, package);
+
+        var created = store.SaveFeedback(Sid, brief, "down", "");
+        try
+        {
+            var json = File.ReadAllText(created.File);
+            using var doc = JsonDocument.Parse(json);
+            Assert.Equal("down", doc.RootElement.GetProperty("vote").GetString());
+            Assert.True(doc.RootElement.TryGetProperty("turnPackage", out var turnPackage));
+            Assert.Equal("delta", turnPackage.GetProperty("transcriptDelta").GetString());
+
+            var updated = store.SaveFeedback(Sid, brief, "down", "too cluttered", created.FeedbackId);
+            Assert.Equal(created.File, updated.File);
+            var updatedJson = File.ReadAllText(updated.File);
+            using var updatedDoc = JsonDocument.Parse(updatedJson);
+            Assert.Equal("too cluttered", updatedDoc.RootElement.GetProperty("reason").GetString());
+        }
+        finally
+        {
+            if (File.Exists(created.File)) File.Delete(created.File);
+        }
     }
 }
 
@@ -310,7 +342,8 @@ public sealed class GatewayTurnBriefAgentTests : IDisposable
 
     private GatewayTurnBriefAgent BuildAgent(
         Func<int, List<TurnWidgetDto>>? widgetsPerFetch = null,
-        TimeSpan? settle = null)
+        TimeSpan? settle = null,
+        string? generatorId = null)
     {
         var fetches = 0;
         widgetsPerFetch ??= _ => Widgets(1);
@@ -325,7 +358,8 @@ public sealed class GatewayTurnBriefAgentTests : IDisposable
                 Widgets = widgetsPerFetch(Interlocked.Increment(ref fetches)),
             }),
             (ep, sid, ct) => Task.FromResult("the screen tail"),
-            settle ?? TimeSpan.FromMilliseconds(20));
+            settle ?? TimeSpan.FromMilliseconds(20),
+            generatorId: generatorId);
     }
 
     private async Task WaitUntilAsync(Func<bool> condition, double timeoutSeconds = 5)
@@ -351,7 +385,21 @@ public sealed class GatewayTurnBriefAgentTests : IDisposable
         Assert.True(brief.NewChapter); // first stored title mechanically starts chapter 1
         Assert.Single(_brain.Asks);
         Assert.Contains("the screen tail", _brain.Asks[0]); // the package reached the prompt
+        Assert.True(Directory.GetFiles(_dir, "t*.json", SearchOption.AllDirectories).Any()); // #207 replay package persisted
         Assert.Equal(1, _brain.ClearCount);                 // stamping machine: cleared per brief
+    }
+
+    [Fact]
+    public async Task CustomGeneratorId_IsRecordedOnStoredBriefs()
+    {
+        // Issue #204: production passes "gateway-brain/<model>" so every brief records
+        // which model actually wrote it.
+        using var agent = BuildAgent(generatorId: "gateway-brain/opus");
+        agent.OnTurnEnd(new TurnEndSignal(_sid, Endpoint));
+
+        await WaitUntilAsync(() => _store.Latest(_sid) is not null);
+
+        Assert.Equal("gateway-brain/opus", _store.Latest(_sid)!.Model);
     }
 
     [Fact]

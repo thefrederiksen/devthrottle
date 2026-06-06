@@ -182,13 +182,30 @@ public sealed class GatewayClient
         }
     }
 
-    /// <summary>"This brief is wrong" (D7) - stored Gateway-side as a labeled example for
-    /// prompt iteration (#187: the feedback loop lives with the brief store).</summary>
-    public async Task PostBriefFeedbackAsync(string sessionId, int turnNumber, string note, CancellationToken ct = default)
+    /// <summary>Brief vote/reason feedback (#207) - stored Gateway-side as a replayable
+    /// labeled example with the full TurnPackage.</summary>
+    public async Task<TurnBriefFeedbackResponse> PostBriefFeedbackAsync(
+        string sessionId,
+        int turnNumber,
+        string vote,
+        string note,
+        string? feedbackId = null,
+        CancellationToken ct = default)
     {
-        _log.LogDebug("BriefFeedback sid={Sid} turn={Turn}", sessionId, turnNumber);
+        _log.LogDebug("BriefFeedback sid={Sid} turn={Turn} vote={Vote} id={FeedbackId}", sessionId, turnNumber, vote, feedbackId);
         var resp = await _http.PostAsJsonAsync($"sessions/{Uri.EscapeDataString(sessionId)}/turnbriefs/feedback",
-            new TurnBriefFeedbackRequest { TurnNumber = turnNumber, Note = note }, ct);
+            new TurnBriefFeedbackRequest { TurnNumber = turnNumber, Vote = vote, Note = note, FeedbackId = feedbackId }, ct);
         resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadFromJsonAsync<TurnBriefFeedbackResponse>(cancellationToken: ct)
+            ?? new TurnBriefFeedbackResponse { Saved = true };
+    }
+
+    public async Task<TurnBriefFeedbackListResponse?> GetBriefFeedbackAsync(int count = 50, CancellationToken ct = default)
+    {
+        // No-fallback: a Gateway error must surface on the Feedback page (the caller's
+        // catch shows it), never render as an empty "no feedback yet" list.
+        var resp = await _http.GetAsync($"turnbriefs/feedback?count={count}", ct);
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadFromJsonAsync<TurnBriefFeedbackListResponse>(cancellationToken: ct);
     }
 }

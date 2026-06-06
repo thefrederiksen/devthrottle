@@ -2,6 +2,7 @@
 @inject DirectorClient Director
 @inject GatewayClient Gateway
 @inject ILogger<BriefPane> Log
+@inject IJSRuntime JS
 @using Markdig
 
 @* The full-page session Brief. TIERED (TURN_BRIEFING.md):
@@ -64,6 +65,14 @@
             @if (LastAsk is not null)
             {
                 <div class="brief-ask">@LastAsk</div>
+                @* A bare ack ("yes", "1", "go ahead") is meaningless on its own (issue
+                   #206: 'YOU ASKED: yes'). When the wingman interpreted the turn, say
+                   what the ack actually meant. Classifying the USER's prompt with a
+                   fixed word list is mechanical - no model output is parsed (D6). *@
+                @if (HasWingmanBrief && IsBareAck(LastAsk))
+                {
+                    <div class="brief-muted">interpreted: @_turnBrief!.Intent</div>
+                }
             }
             else
             {
@@ -209,10 +218,25 @@
             </div>
         }
 
-        @if (!HasWingmanNeedsYou && NeedsYou is not null && !IsBriefing && !IsWorking && !ReplyPending)
+        @if (HasWingmanAllClear && !HasSuggestedClose && !IsBriefing && !IsWorking && !ReplyPending)
         {
-            @* Condenser/raw degrade tier: no wingman brief. NO option buttons - options
-               only ever come structured from the wingman (D6). *@
+            @* The wingman read this turn and concluded NOTHING is needed (issue #206).
+               That verdict is first-class: it must never be overridden by the condenser
+               paragraph under a red header - the red lie from the epic's evidence. *@
+            <div class="brief-block">
+                <div class="blabel">
+                    ALL CLEAR
+                    <span class="brief-verbatim-tag">@TierLabel</span>
+                </div>
+                <div class="brief-needsyou urgency-fyi">The wingman read this turn and concluded nothing is needed from you.</div>
+            </div>
+        }
+        else if (!HasWingmanBrief && NeedsYou is not null && !IsBriefing && !IsWorking && !ReplyPending)
+        {
+            @* Condenser/raw degrade tier: ONLY when there is no (non-degraded) wingman
+               brief at all. A wingman brief - including one whose verdict is "nothing
+               needed" - always outranks this tier (issue #206). NO option buttons -
+               options only ever come structured from the wingman (D6). *@
             <div class="brief-block">
                 <div class="blabel red">
                     NEEDS YOU
@@ -271,6 +295,42 @@
             </div>
         }
 
+        @if (_turnBrief is not null)
+        {
+            <div class="brief-feedback-panel">
+                <div class="brief-feedback-head">
+                    <span class="blabel">BRIEF FEEDBACK</span>
+                    <span class="brief-muted">One tap records a replayable case with the brief + TurnPackage.</span>
+                </div>
+                <div class="brief-feedback-actions">
+                    <button class="brief-vote-btn up" disabled="@_feedbackBusy" @onclick='() => VoteBriefAsync("up")' title="Mark this brief as useful">
+                        <svg class="vote-ico" viewBox="0 0 16 16"><path d="M2.5 7h2.5v6H2.5z" /><path d="M5 12.5V7.5l3-4.3c1-.9 2.3 0 1.9 1.2L9.2 7h3.2c.8 0 1.3.7 1.1 1.4l-1 3.6c-.2.6-.7 1-1.4 1z" /></svg> useful
+                    </button>
+                    <button class="brief-vote-btn down" disabled="@_feedbackBusy" @onclick='() => VoteBriefAsync("down")' title="Mark this brief as wrong or unhelpful">
+                        <svg class="vote-ico" viewBox="0 0 16 16"><path d="M2.5 3h2.5v6H2.5z" /><path d="M5 3.5v5l3 4.3c1 .9 2.3 0 1.9-1.2L9.2 9h3.2c.8 0 1.3-.7 1.1-1.4l-1-3.6c-.2-.6-.7-1-1.4-1z" /></svg> wrong
+                    </button>
+                </div>
+                @if (_feedbackOpen)
+                {
+                    <div class="brief-feedback-reason">
+                        <textarea @bind="_feedbackReason" placeholder="What is wrong or missing? Type it or use Speak..." />
+                        <div class="brief-feedback-actions">
+                            <button class="brief-vote-btn" disabled="@(_feedbackBusy || _dictatingFeedback)" @onclick="OpenFeedbackDictateAsync">
+                                @(_dictatingFeedback ? "listening..." : "Speak")
+                            </button>
+                            <button class="brief-vote-btn down" disabled="@(_feedbackBusy || string.IsNullOrWhiteSpace(_feedbackReason))" @onclick="SaveFeedbackReasonAsync">
+                                @(_feedbackBusy ? "saving..." : "save reason")
+                            </button>
+                        </div>
+                    </div>
+                }
+                @if (!string.IsNullOrWhiteSpace(_feedbackStatus))
+                {
+                    <div class="brief-muted">@_feedbackStatus</div>
+                }
+            </div>
+        }
+
         <div class="brief-foot">
             @if (_summary is not null && _brief is null && _turnBrief is null)
             {
@@ -321,12 +381,29 @@
     private bool ReplyPending => _brief?.ReplyPending == true;
     private bool HasWingmanBrief => _turnBrief is not null && !_turnBrief.Degraded;
     private bool HasWingmanNeedsYou => HasWingmanBrief && _turnBrief!.NeedsYou is not null;
+    /// <summary>The wingman read the turn and concluded nothing is needed (issue #206).
+    /// A first-class verdict: it suppresses the condenser fallback entirely.</summary>
+    private bool HasWingmanAllClear => HasWingmanBrief && _turnBrief!.NeedsYou is null;
     /// <summary>Mission-complete close suggestion (issue #201), shown ONLY while the session
     /// is quiet - the moment it works or the wingman reads again, the suggestion is stale.</summary>
     private bool HasSuggestedClose => HasWingmanBrief
         && _turnBrief!.SuggestedAction?.Type == "close_session"
         && !IsWorking && !IsBriefing && !ReplyPending;
-    private string TierLabel => HasWingmanBrief ? _turnBrief!.Model : (_brief is not null ? "condenser tier" : "raw tier");
+    /// <summary>Tier provenance tag. For the wingman tier it includes the turn number and
+    /// local generation time (issue #206): a brief for turn 153 must never silently look
+    /// like it describes turn 158.</summary>
+    private string TierLabel => HasWingmanBrief
+        ? $"{_turnBrief!.Model} - turn {_turnBrief.TurnNumber}, {_turnBrief.GeneratedAtUtc.ToLocalTime():HH:mm}"
+        : (_brief is not null ? "condenser tier" : "raw tier");
+
+    /// <summary>Bare approvals/acks whose meaning lives entirely in the question they
+    /// answered ("yes", "2", "go ahead"). A fixed mechanical list - never inference.</summary>
+    private static readonly System.Text.RegularExpressions.Regex BareAckPattern = new(
+        @"^\s*(y|yes|yeah|yep|ok|okay|sure|no|n|nope|go|go ahead|do it|proceed|approved?|push it|ship it|\d{1,2})\s*[.!]?\s*$",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase,
+        TimeSpan.FromMilliseconds(50));
+
+    private static bool IsBareAck(string ask) => BareAckPattern.IsMatch(ask);
 
     private string? Goal => _brief?.Goal;
     private string? LastAsk => _brief?.LastAsk ?? _summary?.LastUserPrompt;
@@ -340,6 +417,14 @@
 
     private bool _closeArmed;
     private bool _closing;
+    private bool _feedbackBusy;
+    private bool _feedbackOpen;
+    private string _feedbackVote = "down";
+    private string _feedbackReason = "";
+    private string? _feedbackId;
+    private string? _feedbackStatus;
+    private bool _dictatingFeedback;
+    private DotNetObjectReference<BriefPane>? _feedbackDictateRef;
 
     /// <summary>The committed click of the two-step mission-complete confirm: hand the
     /// close to the parent (same path as the rail kebab's Close).</summary>
@@ -362,6 +447,115 @@
             _closing = false;
             _closeArmed = false;
         }
+    }
+
+    private async Task VoteBriefAsync(string vote)
+    {
+        if (_turnBrief is null || _feedbackBusy) return;
+        _feedbackBusy = true;
+        _feedbackVote = vote;
+        _feedbackStatus = vote == "down" ? "Saving downvote..." : "Saving useful vote...";
+        if (vote == "down") _feedbackOpen = true;
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            var result = await Gateway.PostBriefFeedbackAsync(SessionId, _turnBrief.TurnNumber, vote, _feedbackReason, _feedbackId);
+            _feedbackId = result.FeedbackId;
+            _feedbackStatus = vote == "down"
+                ? "Downvote saved. Add a reason now or move on."
+                : "Useful vote saved as a contrast example.";
+        }
+        catch (Exception ex)
+        {
+            Log.LogWarning(ex, "BriefPane feedback vote failed for sid={Sid}", SessionId);
+            _feedbackStatus = $"feedback failed: {ex.Message}";
+        }
+        finally
+        {
+            _feedbackBusy = false;
+        }
+    }
+
+    private async Task SaveFeedbackReasonAsync()
+    {
+        if (_turnBrief is null || _feedbackBusy || string.IsNullOrWhiteSpace(_feedbackReason)) return;
+        _feedbackBusy = true;
+        _feedbackStatus = "Saving reason...";
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            var result = await Gateway.PostBriefFeedbackAsync(SessionId, _turnBrief.TurnNumber, _feedbackVote, _feedbackReason.Trim(), _feedbackId);
+            _feedbackId = result.FeedbackId;
+            _feedbackStatus = "Reason saved on the same replayable feedback record.";
+        }
+        catch (Exception ex)
+        {
+            Log.LogWarning(ex, "BriefPane feedback reason failed for sid={Sid}", SessionId);
+            _feedbackStatus = $"reason save failed: {ex.Message}";
+        }
+        finally
+        {
+            _feedbackBusy = false;
+        }
+    }
+
+    private async Task OpenFeedbackDictateAsync()
+    {
+        if (string.IsNullOrWhiteSpace(DirectorBase) || _dictatingFeedback) return;
+        try
+        {
+            _dictatingFeedback = true;
+            _feedbackStatus = "Listening for reason...";
+            _feedbackDictateRef ??= DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("cockpitDictate.start", _feedbackDictateRef, DictateWsUrl(DirectorBase), "/js/dictate-worklet.js", "default");
+        }
+        catch (OperationCanceledException)
+        {
+            _dictatingFeedback = false;
+        }
+        catch (Exception ex)
+        {
+            _dictatingFeedback = false;
+            Log.LogWarning(ex, "BriefPane feedback dictation failed for sid={Sid}", SessionId);
+            _feedbackStatus = $"dictation unavailable: {ex.Message}";
+        }
+    }
+
+    private static string DictateWsUrl(string directorBase)
+    {
+        var b = directorBase.TrimEnd('/');
+        var ws = b.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ? "wss://" + b["https://".Length..]
+            : b.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ? "ws://" + b["http://".Length..]
+            : b;
+        return $"{ws}/dictate";
+    }
+
+    [JSInvokable]
+    public Task OnDictateInsert(string text)
+    {
+        _dictatingFeedback = false;
+        if (!string.IsNullOrWhiteSpace(text))
+            _feedbackReason = string.IsNullOrWhiteSpace(_feedbackReason) ? text : _feedbackReason.TrimEnd() + " " + text;
+        _feedbackStatus = string.IsNullOrWhiteSpace(text) ? "Dictation cancelled." : "Reason dictated. Tap save reason.";
+        return InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public async Task OnDictateSend(string text)
+    {
+        _dictatingFeedback = false;
+        if (!string.IsNullOrWhiteSpace(text))
+            _feedbackReason = string.IsNullOrWhiteSpace(_feedbackReason) ? text : _feedbackReason.TrimEnd() + " " + text;
+        await InvokeAsync(StateHasChanged);
+        await SaveFeedbackReasonAsync();
+    }
+
+    [JSInvokable]
+    public Task OnDictateCancel()
+    {
+        _dictatingFeedback = false;
+        _feedbackStatus = _feedbackId is null ? null : "Vote saved. Reason skipped.";
+        return InvokeAsync(StateHasChanged);
     }
 
     private void Toggle(string send)
@@ -542,6 +736,10 @@
             _brief = await briefTask;
             _toggled.Clear();
             _closeArmed = false;   // a fresh brief invalidates any armed close confirm
+            _feedbackOpen = false;
+            _feedbackReason = "";
+            _feedbackId = null;
+            _feedbackStatus = null;
 
             if (_turnBrief is null && _brief is null)
             {
@@ -578,5 +776,6 @@
     {
         _loadCts?.Cancel();
         _tailCts?.Cancel();
+        _feedbackDictateRef?.Dispose();
     }
 }

@@ -130,13 +130,62 @@ public sealed class TurnBriefsResponse
     public List<TurnBriefDto> Items { get; set; } = new();
 }
 
-/// <summary>POST /sessions/{sid}/turnbriefs/feedback - "this brief is wrong" (D7). The report
-/// is stored as a labeled example for prompt iteration.</summary>
+/// <summary>POST /sessions/{sid}/turnbriefs/feedback - brief vote/reason feedback (#207).
+/// The report is stored as a replayable labeled example for prompt iteration.</summary>
 public sealed class TurnBriefFeedbackRequest
 {
     /// <summary>Which brief (its TurnNumber); 0 = latest.</summary>
     public int TurnNumber { get; set; }
 
-    /// <summary>The user's note on what was wrong.</summary>
+    /// <summary>"down" | "up". Down means the brief was wrong or unhelpful; up is a positive contrast case.</summary>
+    public string Vote { get; set; } = "down";
+
+    /// <summary>The user's typed or dictated reason. Optional: a one-tap vote is still useful.</summary>
     public string Note { get; set; } = "";
+
+    /// <summary>Existing feedback id to update with a later typed/dictated reason.</summary>
+    public string? FeedbackId { get; set; }
+}
+
+public sealed class TurnBriefFeedbackResponse
+{
+    public bool Saved { get; set; }
+    public string FeedbackId { get; set; } = "";
+    public string File { get; set; } = "";
+}
+
+public sealed class TurnBriefFeedbackListResponse
+{
+    public List<TurnBriefFeedbackListItem> Items { get; set; } = new();
+}
+
+public sealed class TurnBriefFeedbackListItem
+{
+    public string FeedbackId { get; set; } = "";
+    public string SessionId { get; set; } = "";
+    public int TurnNumber { get; set; }
+    public string Vote { get; set; } = "";
+    public string Reason { get; set; } = "";
+    public string BrainModel { get; set; } = "";
+    public string BriefHeadline { get; set; } = "";
+    public string BriefRailLine { get; set; } = "";
+    public bool HasTurnPackage { get; set; }
+    public DateTime ReportedAtUtc { get; set; }
+}
+
+public sealed class TurnBriefFeedbackRecord
+{
+    public string FeedbackId { get; set; } = "";
+    public string SessionId { get; set; } = "";
+    public int TurnNumber { get; set; }
+    public string Vote { get; set; } = "down";
+    public string Reason { get; set; } = "";
+    public string BrainModel { get; set; } = "";
+    public TurnBriefDto Brief { get; set; } = new();
+
+    /// <summary>The complete TurnPackage that produced the brief. Deserializes as JsonElement on reads.</summary>
+    public object? TurnPackage { get; set; }
+
+    public DateTime ReportedAtUtc { get; set; }
+    public DateTime UpdatedAtUtc { get; set; }
 }
