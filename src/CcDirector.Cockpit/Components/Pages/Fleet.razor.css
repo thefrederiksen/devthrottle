@@ -151,6 +151,70 @@
 }
 .fl-open:hover { background: #1177bb; }
 
+/* ---- Interrupted sessions bucket (issue #212 W3) ---- */
+
+.fl-interrupted { color: #f59e0b; }
+
+.fl-int-wrap {
+    margin-bottom: 28px;
+    border: 1px solid rgba(245, 158, 11, 0.35);
+    border-radius: 10px;
+    background: rgba(245, 158, 11, 0.04);
+    padding: 4px 12px 14px;
+}
+
+.fl-int-banner {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 4px; flex-wrap: wrap;
+}
+.fl-int-badge {
+    background: #3a2a1b; color: #f59e0b;
+    font-weight: 700; font-size: 11px; letter-spacing: 0.8px;
+    padding: 3px 9px; border-radius: 4px; flex-shrink: 0;
+}
+.fl-int-bannertext { color: #cbb48f; font-size: 13px; }
+
+.fl-int-group {
+    margin-top: 6px;
+    border-top: 1px solid rgba(245, 158, 11, 0.18);
+    padding-top: 10px;
+}
+.fl-int-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 2px 4px 10px; font-size: 12px; flex-wrap: wrap;
+}
+.fl-int-machine { color: #dddddd; font-weight: 700; font-size: 13px; }
+.fl-int-when { color: #6a6a6a; }
+
+.fl-int-dismiss {
+    background: transparent; color: #aaaaaa;
+    border: 1px solid #3c3c3c; border-radius: 5px;
+    padding: 5px 12px; font-size: 12px; font-weight: 600; cursor: pointer;
+    transition: border-color 120ms, color 120ms;
+}
+.fl-int-dismiss:hover:not(:disabled) { color: #f59e0b; border-color: rgba(245, 158, 11, 0.5); }
+.fl-int-dismiss:disabled { opacity: 0.5; cursor: default; }
+
+.fl-int-card {
+    background: #232220;
+    border: 1px dashed rgba(245, 158, 11, 0.45);
+    border-radius: 8px;
+    padding: 14px;
+    display: flex; flex-direction: column; gap: 8px;
+}
+.fl-dot.interrupted {
+    background: transparent;
+    border: 2px solid #f59e0b;
+    box-shadow: none;
+    width: 14px; height: 14px;
+}
+.fl-int-rail {
+    font-size: 12px; color: #cccccc;
+    background: #1a1a1a; border-left: 3px solid #f59e0b;
+    padding: 6px 9px; border-radius: 0 4px 4px 0;
+}
+.fl-int-rail .lbl { display: block; color: #6a6a6a; font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 2px; }
+
 @media (max-width: 720px) {
     .fl-cards { grid-template-columns: 1fr; }
 }

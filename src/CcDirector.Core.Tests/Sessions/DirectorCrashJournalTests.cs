@@ -129,6 +129,28 @@ public sealed class DirectorCrashJournalTests : IDisposable
     }
 
     [Fact]
+    public void Dismiss_removes_a_claimed_dirty_journal()
+    {
+        var deadPid = GetDeadPid();
+        var deadJournal = NewJournal("dir-dead", pid: deadPid);
+        deadJournal.Update(new[] { Session("s1", "interrupted", "/repo/x") });
+        var dirty = Assert.Single(DirectorCrashJournal.DetectAndClaim(currentPid: Environment.ProcessId, directory: _dir));
+        Assert.True(File.Exists(dirty.DirtyFilePath));
+
+        var removed = DirectorCrashJournal.Dismiss("dir-dead", deadPid, _dir);
+
+        Assert.True(removed);
+        Assert.False(File.Exists(dirty.DirtyFilePath));
+        Assert.Empty(DirectorCrashJournal.ListPendingRecoveries(_dir));
+    }
+
+    [Fact]
+    public void Dismiss_returns_false_when_nothing_to_remove()
+    {
+        Assert.False(DirectorCrashJournal.Dismiss("ghost", 1, _dir));
+    }
+
+    [Fact]
     public void DetectAndClaim_on_empty_directory_returns_nothing()
     {
         var empty = Path.Combine(_dir, "does-not-exist");

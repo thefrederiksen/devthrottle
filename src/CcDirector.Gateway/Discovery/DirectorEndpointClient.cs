@@ -595,6 +595,39 @@ public sealed class DirectorEndpointClient : IDisposable
         }
     }
 
+    /// <summary>
+    /// This Director machine's claimed dirty crash journals (issue #212 W3). Null on
+    /// transport failure so the aggregator can simply skip an unreachable Director.
+    /// </summary>
+    public async Task<List<CrashJournalDto>?> GetInterruptedAsync(string endpoint, CancellationToken ct = default)
+    {
+        try
+        {
+            return await _http.GetFromJsonAsync<List<CrashJournalDto>>($"{endpoint}/interrupted", ct);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[DirectorEndpointClient] GetInterruptedAsync FAILED: endpoint={endpoint}, error={ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>Dismiss one claimed dirty journal on a Director (issue #212 W3).</summary>
+    public async Task<bool> DismissInterruptedAsync(string endpoint, string deadDirectorId, int deadPid, CancellationToken ct = default)
+    {
+        try
+        {
+            var resp = await _http.DeleteAsync(
+                $"{endpoint}/interrupted/{Uri.EscapeDataString(deadDirectorId)}/{deadPid}", ct);
+            return resp.IsSuccessStatusCode;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[DirectorEndpointClient] DismissInterruptedAsync FAILED: endpoint={endpoint}, error={ex.Message}");
+            return false;
+        }
+    }
+
     public async Task<bool> PostShutdownAsync(string endpoint, CancellationToken ct = default)
     {
         try

@@ -197,6 +197,29 @@ public sealed class DirectorCrashJournal
         return result.OrderByDescending(d => d.LastUpdatedUtc).ToList();
     }
 
+    /// <summary>
+    /// Dismiss a claimed dirty journal (delete its <c>.dirty.json</c>) once its sessions have
+    /// been recovered or the user no longer cares. Returns true if a file was removed. The
+    /// recovery surface calls this via the Director that surfaced the journal.
+    /// </summary>
+    public static bool Dismiss(string directorId, int pid, string? directory = null)
+    {
+        var dir = directory ?? DefaultDirectory;
+        var path = Path.Combine(dir, $"{directorId}.{pid}.dirty.json");
+        try
+        {
+            if (!File.Exists(path)) return false;
+            File.Delete(path);
+            FileLog.Write($"[DirectorCrashJournal] dismissed dirty journal {path}");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[DirectorCrashJournal] Dismiss failed for {path}: {ex.Message}");
+            return false;
+        }
+    }
+
     private static bool IsProcessAlive(int pid)
     {
         if (pid <= 0) return false;

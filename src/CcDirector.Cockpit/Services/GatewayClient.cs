@@ -40,6 +40,32 @@ public sealed class GatewayClient
     }
 
     /// <summary>
+    /// The cross-fleet "Interrupted sessions" list (issue #212 W3): sessions whose Director
+    /// died abnormally, enriched with last-known rail line + headline. Empty list when there
+    /// is nothing to recover. Throws on transport failure (surfaced as a banner).
+    /// </summary>
+    public async Task<List<InterruptedSessionDto>> GetInterruptedAsync(CancellationToken ct = default)
+    {
+        var list = await _http.GetFromJsonAsync<List<InterruptedSessionDto>>("interrupted", ct);
+        return list ?? new List<InterruptedSessionDto>();
+    }
+
+    /// <summary>
+    /// Dismiss one interrupted session from the bucket (issue #212 W3). Routed by the Gateway
+    /// to the live Director that surfaced it (<paramref name="reportedByDirectorId"/>).
+    /// </summary>
+    public async Task DismissInterruptedAsync(string deadDirectorId, int deadPid, string reportedByDirectorId, CancellationToken ct = default)
+    {
+        var resp = await _http.DeleteAsync(
+            $"interrupted/{Uri.EscapeDataString(deadDirectorId)}/{deadPid}?via={Uri.EscapeDataString(reportedByDirectorId)}", ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            throw new HttpRequestException($"dismiss failed ({(int)resp.StatusCode}): {body}");
+        }
+    }
+
+    /// <summary>
     /// List every Director the Gateway knows about (the "on which Director?" picker for a new
     /// session). Reads aggregate through the Gateway, so this is a Gateway call.
     /// </summary>

@@ -2394,6 +2394,25 @@ internal static class ControlEndpoints
             }
         });
 
+        // ===== Crash recovery (issue #212 W3) =====
+        // This machine's claimed dirty crash journals - Directors that died abnormally here,
+        // with their recoverable session rosters. The Gateway aggregates these across the fleet
+        // for the Cockpit's "Interrupted sessions" bucket.
+        app.MapGet("/interrupted", () =>
+        {
+            var pending = Core.Sessions.DirectorCrashJournal.ListPendingRecoveries();
+            return Results.Json(pending);
+        });
+
+        // Dismiss one claimed dirty journal once its sessions are recovered or no longer wanted.
+        app.MapDelete("/interrupted/{deadDirectorId}/{deadPid:int}", (HttpContext ctx, string deadDirectorId, int deadPid) =>
+        {
+            var caller = Core.Network.LoopbackPeerResolver.Describe(ctx.Connection.RemotePort, ctx.Connection.LocalPort);
+            FileLog.Write($"[ControlEndpoints] DELETE /interrupted/{deadDirectorId}/{deadPid} caller={caller}");
+            var removed = Core.Sessions.DirectorCrashJournal.Dismiss(deadDirectorId, deadPid);
+            return removed ? Results.Json(new { dismissed = true }) : Results.NotFound(new { error = "no such interrupted journal" });
+        });
+
         // ===== Shutdown =====
         app.MapPost("/shutdown", (HttpContext ctx) =>
         {

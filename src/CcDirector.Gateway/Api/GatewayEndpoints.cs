@@ -24,9 +24,14 @@ internal static class GatewayEndpoints
     /// <param name="briefStampFor">Issue #187: the Gateway-owned briefing state + latest
     /// rail line per session, stamped onto the aggregation now that the Director-side
     /// pipeline (the previous writer of those SessionDto fields) is deleted.</param>
+    /// <param name="interruptedBriefFor">Issue #212 W3: the Gateway's last-known rail line +
+    /// headline for a session id, used to enrich the "Interrupted sessions" bucket so a dead
+    /// session is triageable. Reads the durable brief store, so it works even for a session
+    /// whose Director has died.</param>
     public static void Map(IEndpointRouteBuilder app, DirectorRegistry registry, DirectorEndpointClient client, string version, string token, bool authEnabled = false, Func<bool>? requestShutdown = null,
         Action<string, string, string>? onSessionState = null, Func<string, string?>? assessedStateFor = null,
-        Func<string, (string BriefingState, string? RailLine)>? briefStampFor = null)
+        Func<string, (string BriefingState, string? RailLine)>? briefStampFor = null,
+        Func<string, (string? RailLine, string? Headline)>? interruptedBriefFor = null)
     {
         // Graceful exit for the self-update helper: answer first (so the caller gets its 200),
         // then hand off to the host's shutdown handler shortly after. 501 when the hosting
@@ -338,6 +343,70 @@ internal static class GatewayEndpoints
                 return Results.Json(new { sessions = all, machineErrors });
             }
             return Results.Json(all);
+        });
+
+        // Interrupted sessions (issue #212 W3): fan out to every Director for the crash
+        // journals left on its machine by Directors that died abnormally, flatten to one row
+        // per recoverable session, and enrich each with the Gateway's last-known brief so the
+        // Cockpit bucket is triageable. Directors on one machine share the journal dir, so the
+        // same dead journal can be reported by several live Directors - dedupe by directorId+pid.
+        app.MapGet("/interrupted", async () =>
+        {
+            var directors = registry.ListDirectors();
+            var fanout = directors.Select(async d =>
+            {
+                if (!registry.ShouldProbe(d.DirectorId)) return (Director: d, Journals: (List<CrashJournalDto>?)null);
+                var ep = (d.ControlEndpoint ?? "").TrimEnd('/');
+                return (Director: d, Journals: await client.GetInterruptedAsync(ep));
+            }).ToList();
+            var results = await Task.WhenAll(fanout);
+
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            var outList = new List<InterruptedSessionDto>();
+            foreach (var (d, journals) in results)
+            {
+                if (journals is null) continue;
+                foreach (var j in journals)
+                {
+                    if (!seen.Add($"{j.DirectorId}.{j.Pid}")) continue; // already reported by a sibling Director
+                    foreach (var s in j.Sessions)
+                    {
+                        var (railLine, headline) = interruptedBriefFor?.Invoke(s.SessionId) ?? (null, null);
+                        outList.Add(new InterruptedSessionDto
+                        {
+                            SessionId = s.SessionId,
+                            Name = s.Name,
+                            RepoPath = s.RepoPath,
+                            Agent = s.Agent,
+                            ClaudeSessionId = s.ClaudeSessionId,
+                            CreatedAtUtc = s.CreatedAtUtc,
+                            DeadDirectorId = j.DirectorId,
+                            DeadPid = j.Pid,
+                            MachineName = j.MachineName,
+                            User = j.User,
+                            DiedAtUtc = j.LastUpdatedUtc,
+                            ReportedByDirectorId = d.DirectorId,
+                            RailLine = railLine,
+                            Headline = headline,
+                        });
+                    }
+                }
+            }
+            return Results.Json(outList.OrderByDescending(x => x.DiedAtUtc).ToList());
+        });
+
+        // Dismiss one interrupted journal once recovered or unwanted. Routed to the live
+        // Director that surfaced it (via=reportedByDirectorId), which owns its machine's dir.
+        app.MapDelete("/interrupted/{deadDirectorId}/{deadPid:int}", async (string deadDirectorId, int deadPid, string? via) =>
+        {
+            FileLog.Write($"[GatewayEndpoints] DELETE /interrupted/{deadDirectorId}/{deadPid} via={via}");
+            if (string.IsNullOrWhiteSpace(via))
+                return Results.BadRequest(new { error = "via (reporting director id) is required" });
+            var d = registry.Get(via);
+            if (d is null)
+                return Results.NotFound(new { error = "reporting director not found" });
+            var ok = await client.DismissInterruptedAsync(d.ControlEndpoint, deadDirectorId, deadPid);
+            return ok ? Results.Json(new { dismissed = true }) : Results.StatusCode(StatusCodes.Status502BadGateway);
         });
 
         app.MapGet("/sessions/{sid}", async (HttpContext ctx, string sid) =>

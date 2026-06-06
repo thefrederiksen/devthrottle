@@ -22,6 +22,10 @@
     {
       <span class="fl-yellow">&middot; @YellowCount yellow</span>
     }
+    @if (_interrupted.Count > 0)
+    {
+      <span class="fl-interrupted">&middot; @_interrupted.Count interrupted</span>
+    }
   </span>
   <span class="fl-spacer"></span>
   <a class="fl-link fl-link-accent" href="/cockpit">cockpit</a>
@@ -33,6 +37,58 @@
   @if (_lastError is not null)
   {
     <div class="fl-error">Failed to fetch sessions: @_lastError</div>
+  }
+
+  @* Interrupted sessions (issue #212 W3): sessions whose Director died abnormally, grouped by
+     the crash journal that holds them. One Dismiss per journal (the file is per-Director). *@
+  @if (_interrupted.Count > 0)
+  {
+    <section class="fl-int-wrap">
+      <div class="fl-int-banner">
+        <span class="fl-int-badge">INTERRUPTED</span>
+        <span class="fl-int-bannertext">
+          @_interrupted.Count session@(_interrupted.Count == 1 ? "" : "s") were lost to an unexpected Director shutdown.
+          Their context is below - recover it, or dismiss what you no longer need.
+        </span>
+      </div>
+
+      @foreach (var g in InterruptedGroups())
+      {
+        <div class="fl-int-group">
+          <div class="fl-int-head">
+            <span class="fl-int-machine">@(string.IsNullOrWhiteSpace(g.MachineName) ? "(unknown machine)" : g.MachineName)</span>
+            <span class="fl-int-when">Director died @RelativeTime(g.DiedAtUtc) ago &middot; @g.Sessions.Count session@(g.Sessions.Count == 1 ? "" : "s")</span>
+            <span class="fl-spacer"></span>
+            <button class="fl-int-dismiss" @onclick="() => DismissGroup(g)" disabled="@(_dismissing.Contains(g.Key))">
+              @(_dismissing.Contains(g.Key) ? "Dismissing..." : "Dismiss all")
+            </button>
+          </div>
+          <div class="fl-cards">
+            @foreach (var s in g.Sessions)
+            {
+              <article class="fl-int-card">
+                <div class="fl-card-head">
+                  <span class="fl-dot interrupted" title="Director died @RelativeTime(g.DiedAtUtc) ago"></span>
+                  <span class="fl-title @(string.IsNullOrWhiteSpace(s.Name) ? "fl-unnamed" : "")">
+                    @(string.IsNullOrWhiteSpace(s.Name) ? "(unnamed)" : s.Name)
+                  </span>
+                  <span class="fl-agent">@(string.IsNullOrWhiteSpace(s.Agent) ? "?" : s.Agent)</span>
+                </div>
+                <div class="fl-repo" title="@s.RepoPath">@RepoBasename(s.RepoPath)</div>
+                @if (!string.IsNullOrWhiteSpace(s.RailLine))
+                {
+                  <div class="fl-int-rail"><span class="lbl">last wingman read</span>@s.RailLine</div>
+                }
+                else if (!string.IsNullOrWhiteSpace(s.Headline))
+                {
+                  <div class="fl-int-rail"><span class="lbl">was working on</span>@s.Headline</div>
+                }
+              </article>
+            }
+          </div>
+        </div>
+      }
+    </section>
   }
 
   @if (_sessions.Count == 0 && _errors.Count == 0)
@@ -112,10 +168,19 @@
     private bool _focusPending;
     private readonly CancellationTokenSource _cts = new();
 
+    // Interrupted sessions (issue #212 W3). Polled on its own slow cadence: recovery data is
+    // near-static, and a second fast fanout to every Director would double their poll load.
+    private List<InterruptedSessionDto> _interrupted = new();
+    private readonly HashSet<string> _dismissing = new();
+
     private int RedCount => _sessions.Count(s => ColorClass(s) == "red");
     private int YellowCount => _sessions.Count(s => ColorClass(s) == "yellow");
 
-    protected override void OnInitialized() => _ = RefreshLoopAsync();
+    protected override void OnInitialized()
+    {
+        _ = RefreshLoopAsync();
+        _ = RefreshInterruptedLoopAsync();
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -135,6 +200,75 @@
             try { await timer.WaitForNextTickAsync(_cts.Token); }
             catch (OperationCanceledException) { break; }
         }
+    }
+
+    private async Task RefreshInterruptedLoopAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(15));
+        while (!_cts.IsCancellationRequested)
+        {
+            await RefreshInterruptedAsync();
+            try { await timer.WaitForNextTickAsync(_cts.Token); }
+            catch (OperationCanceledException) { break; }
+        }
+    }
+
+    private async Task RefreshInterruptedAsync()
+    {
+        try
+        {
+            _interrupted = await Gateway.GetInterruptedAsync(_cts.Token);
+        }
+        catch (OperationCanceledException) { return; }
+        catch (Exception ex)
+        {
+            // Non-fatal: the live roster is the primary view; just log and keep the last list.
+            Log.LogWarning("Fleet interrupted refresh failed: {Error}", ex.Message);
+            return;
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    // ---- interrupted grouping + dismiss ----
+
+    private sealed record InterruptedGroup(string Key, string DeadDirectorId, int DeadPid, string MachineName,
+        string ReportedByDirectorId, DateTime DiedAtUtc, List<InterruptedSessionDto> Sessions);
+
+    private List<InterruptedGroup> InterruptedGroups()
+    {
+        return _interrupted
+            .GroupBy(s => $"{s.DeadDirectorId}.{s.DeadPid}")
+            .Select(grp =>
+            {
+                var first = grp.First();
+                return new InterruptedGroup(grp.Key, first.DeadDirectorId, first.DeadPid, first.MachineName,
+                    first.ReportedByDirectorId, first.DiedAtUtc.UtcDateTime,
+                    grp.OrderBy(s => s.CreatedAtUtc).ToList());
+            })
+            .OrderByDescending(g => g.DiedAtUtc)
+            .ToList();
+    }
+
+    private async Task DismissGroup(InterruptedGroup g)
+    {
+        if (!_dismissing.Add(g.Key)) return;
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            await Gateway.DismissInterruptedAsync(g.DeadDirectorId, g.DeadPid, g.ReportedByDirectorId, _cts.Token);
+            // The whole journal is gone; drop all of its rows locally for an instant update.
+            _interrupted.RemoveAll(s => s.DeadDirectorId == g.DeadDirectorId && s.DeadPid == g.DeadPid);
+        }
+        catch (Exception ex)
+        {
+            _lastError = $"Dismiss failed: {ex.Message}";
+            Log.LogWarning("Dismiss interrupted failed for {Key}: {Error}", g.Key, ex.Message);
+        }
+        finally
+        {
+            _dismissing.Remove(g.Key);
+        }
+        await InvokeAsync(StateHasChanged);
     }
 
     private async Task RefreshAsync()

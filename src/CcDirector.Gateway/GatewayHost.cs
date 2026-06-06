@@ -276,7 +276,15 @@ public sealed class GatewayHost : IAsyncDisposable
             // Null when briefing is disabled so old Directors' own values pass through.
             briefStampFor: _briefAgent is { } stampAgent
                 ? sid => (stampAgent.BriefingStateFor(sid), _turnBriefStore.Latest(sid)?.NeedsYou?.RailLine)
-                : null);
+                : null,
+            // Issue #212 W3: enrich the interrupted bucket from the durable brief store. Always
+            // available (read-only is safe even with briefing disabled), and the brief survives
+            // the Director that died - which is exactly when we need it.
+            interruptedBriefFor: sid =>
+            {
+                var b = _turnBriefStore.Latest(sid);
+                return (b?.NeedsYou?.RailLine, b?.Headline);
+            });
 
         // Gateway-served turn briefs (issue #185): the Cockpit reads briefs from HERE; the
         // store serves even when the pipeline is disabled (read-only is always safe).
