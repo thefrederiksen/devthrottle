@@ -21,8 +21,12 @@ internal static class GatewayEndpoints
     /// The host feeds these to the turn-brief tracker; null when briefing is disabled.</param>
     /// <param name="assessedStateFor">Issue #186: the Gateway-owned assessedState for a
     /// session id, stamped onto the /sessions aggregation; null when briefing is disabled.</param>
+    /// <param name="briefStampFor">Issue #187: the Gateway-owned briefing state + latest
+    /// rail line per session, stamped onto the aggregation now that the Director-side
+    /// pipeline (the previous writer of those SessionDto fields) is deleted.</param>
     public static void Map(IEndpointRouteBuilder app, DirectorRegistry registry, DirectorEndpointClient client, string version, string token, bool authEnabled = false, Func<bool>? requestShutdown = null,
-        Action<string, string, string>? onSessionState = null, Func<string, string?>? assessedStateFor = null)
+        Action<string, string, string>? onSessionState = null, Func<string, string?>? assessedStateFor = null,
+        Func<string, (string BriefingState, string? RailLine)>? briefStampFor = null)
     {
         // Graceful exit for the self-update helper: answer first (so the caller gets its 200),
         // then hand off to the host's shutdown handler shortly after. 501 when the hosting
@@ -305,6 +309,15 @@ internal static class GatewayEndpoints
                     s.AssessedState = string.Equals(s.ActivityState, "Working", StringComparison.OrdinalIgnoreCase)
                         ? null
                         : assessedStateFor?.Invoke(s.SessionId) ?? s.AssessedState;
+                    // Issue #187: the Director-side pipeline that used to write these is
+                    // deleted; the Gateway's brief agent is the one writer now (the yellow
+                    // "wingman reading..." chip and the rail line both ride these fields).
+                    if (briefStampFor is not null)
+                    {
+                        var (briefingState, railLine) = briefStampFor(s.SessionId);
+                        s.BriefingState = briefingState;
+                        s.RailLine = railLine;
+                    }
                     // Stamp the deep link with the Gateway's own address (as this caller
                     // reached it) so the session view can offer a "back to Gateway" menu
                     // item. The session view is served by the Director on a different

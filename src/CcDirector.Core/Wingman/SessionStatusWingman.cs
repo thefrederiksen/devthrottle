@@ -138,8 +138,9 @@ public sealed class SessionStatusWingman : IDisposable
         _explainHandlers[session.Id] = explainHandler;
         session.OnIsExplainingChanged += explainHandler;
 
-        // TurnBriefOrchestrator drives BriefingState around its read of a finished turn
-        // (issue #192). Recompute the colour on every flip so the dot moves into Yellow
+        // BriefingState flips around the wingman's read of a finished turn (issue #192;
+        // since #187 the writer would be a gateway push-down - the Director itself no
+        // longer briefs). Recompute the colour on every flip so the dot moves into Yellow
         // while the wingman reads and settles to the verdict colour when the brief lands.
         // Like the explain overlay, the activity state has NOT changed during this
         // window, so we do not write to StateChangeLog.

@@ -467,12 +467,10 @@
         {
             // Wingman tier and condenser tier load together: the TurnBrief drives the three
             // blocks; /brief supplies YOU ASKED + the full reply markdown for the expander.
-            // Gateway brief store first (issue #185); the Director's own store is the
-            // fallback until its pipeline is deleted (#187).
+            // The GATEWAY is the one brief store (#187 deleted the Director-side pipeline).
             var gatewayBriefTask = Gateway.GetLatestTurnBriefAsync(SessionId, ct);
             var briefTask = Director.GetBriefAsync(DirectorBase, SessionId, ct);
-            _turnBrief = await gatewayBriefTask
-                ?? await Director.GetLatestTurnBriefAsync(DirectorBase, SessionId, ct);
+            _turnBrief = await gatewayBriefTask;
             _brief = await briefTask;
             _toggled.Clear();
 

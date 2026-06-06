@@ -335,27 +335,8 @@ public sealed class DirectorClient
         return string.Join("\n", rows.TakeLast(lines));
     }
 
-    // ===== Wingman turn briefs (TURN_BRIEFING.md) =====
-
-    /// <summary>The latest stored TurnBrief (<c>GET /turnbriefs/latest</c>). Null on 404 -
-    /// no brief yet, or an old Director without the endpoint; callers degrade.</summary>
-    public async Task<TurnBriefDto?> GetLatestTurnBriefAsync(string directorBase, string sid, CancellationToken ct = default)
-    {
-        var resp = await _http.GetAsync(Url(directorBase, $"sessions/{sid}/turnbriefs/latest"), ct);
-        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound) return null;
-        resp.EnsureSuccessStatusCode();
-        return await resp.Content.ReadFromJsonAsync<TurnBriefDto>(cancellationToken: ct);
-    }
-
-    /// <summary>All stored TurnBriefs, newest first (<c>GET /turnbriefs</c>) - the wingman
-    /// tab's turn timeline. Null on 404 (old Director).</summary>
-    public async Task<TurnBriefsResponse?> GetTurnBriefsAsync(string directorBase, string sid, CancellationToken ct = default)
-    {
-        var resp = await _http.GetAsync(Url(directorBase, $"sessions/{sid}/turnbriefs"), ct);
-        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound) return null;
-        resp.EnsureSuccessStatusCode();
-        return await resp.Content.ReadFromJsonAsync<TurnBriefsResponse>(cancellationToken: ct);
-    }
+    // ===== Wingman turn briefs: read from the GATEWAY now (#187 deleted the
+    // Director-side store and endpoints) - see GatewayClient. =====
 
     /// <summary>The session's token usage (<c>GET /sessions/{sid}/usage</c>): totals, current
     /// context size, per-turn deltas - computed Director-side from the transcript JSONL. Null
@@ -366,15 +347,6 @@ public sealed class DirectorClient
         if (resp.StatusCode == System.Net.HttpStatusCode.NotFound) return null;
         resp.EnsureSuccessStatusCode();
         return await resp.Content.ReadFromJsonAsync<SessionUsageDto>(cancellationToken: ct);
-    }
-
-    /// <summary>"This brief is wrong" (D7) - stores the report as a labeled example.</summary>
-    public async Task PostBriefFeedbackAsync(string directorBase, string sid, int turnNumber, string note, CancellationToken ct = default)
-    {
-        _log.LogDebug("BriefFeedback sid={Sid} turn={Turn}", sid, turnNumber);
-        var resp = await _http.PostAsJsonAsync(Url(directorBase, $"sessions/{sid}/turnbriefs/feedback"),
-            new TurnBriefFeedbackRequest { TurnNumber = turnNumber, Note = note }, ct);
-        resp.EnsureSuccessStatusCode();
     }
 
     // ===== Power tools (Phase 4) =====

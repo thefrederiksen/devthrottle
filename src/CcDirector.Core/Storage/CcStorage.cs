@@ -74,16 +74,10 @@ public static class CcStorage
     public static string TurnReviewLogs() => Ensure(Path.Combine(Base(), "turn-review"));
 
     /// <summary>
-    /// Durable wingman turn briefs: base/turn-briefs/&lt;sessionId&gt;.json (a ring of the most
-    /// recent briefs per session). The session's story of record - read by the Cockpit Brief
-    /// page, the rail, phone FIFO, and voice. See docs/architecture/wingman/TURN_BRIEFING.md.
-    /// </summary>
-    public static string TurnBriefs() => Ensure(Path.Combine(Base(), "turn-briefs"));
-
-    /// <summary>
     /// "This brief is wrong" reports (TURN_BRIEFING.md D7): base/brief-feedback/. Each report
-    /// stores the brief + its turn package + the user's note as a labeled example that drives
-    /// wingman prompt iteration.
+    /// stores the brief + the user's note as a labeled example that drives wingman prompt
+    /// iteration. Written by the GATEWAY's feedback endpoint since issue #187. (The old
+    /// Director-side turn-briefs ring at base/turn-briefs/ is dead data, left on disk.)
     /// </summary>
     public static string BriefFeedback() => Ensure(Path.Combine(Base(), "brief-feedback"));
 

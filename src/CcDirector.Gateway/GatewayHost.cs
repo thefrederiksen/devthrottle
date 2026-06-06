@@ -251,7 +251,11 @@ public sealed class GatewayHost : IAsyncDisposable
                 if (string.IsNullOrEmpty(endpoint)) return;
                 _turnEndWatcher.Observe(sessionId, newState, endpoint);
             },
-            assessedStateFor: sid => _briefAgent is null ? null : _assessments.For(sid));
+            assessedStateFor: sid => _briefAgent is null ? null : _assessments.For(sid),
+            // Null when briefing is disabled so old Directors' own values pass through.
+            briefStampFor: _briefAgent is { } stampAgent
+                ? sid => (stampAgent.BriefingStateFor(sid), _turnBriefStore.Latest(sid)?.NeedsYou?.RailLine)
+                : null);
 
         // Gateway-served turn briefs (issue #185): the Cockpit reads briefs from HERE; the
         // store serves even when the pipeline is disabled (read-only is always safe).

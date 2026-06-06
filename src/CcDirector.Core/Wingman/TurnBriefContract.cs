@@ -8,10 +8,9 @@ namespace CcDirector.Core.Wingman;
 
 /// <summary>
 /// THE frozen v2.3 turn-brief contract in code form (issue #185): the prompt that asks the
-/// model to interpret one turn, and the mechanical validation of its JSON answer. Extracted
-/// from <see cref="WingmanTurnBriefGenerator"/> so the Gateway's warm-brain brief agent and
-/// the Director's side-claude path (until issue #187 deletes it) run the EXACT same contract
-/// - a prompt change lands in one place and reaches every producer.
+/// model to interpret one turn, and the mechanical validation of its JSON answer. The ONE
+/// producer is the Gateway's warm-brain brief agent (#187 deleted the Director-side
+/// pipeline) - a prompt change lands here and reaches the whole fleet via the Gateway.
 ///
 /// Everything here is pure: no model calls, no I/O beyond logging. D5/D6 apply - validation
 /// is mechanical (length caps, invariants, verbatim evidence checks), never interpretation.

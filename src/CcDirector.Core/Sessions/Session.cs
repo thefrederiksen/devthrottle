@@ -301,9 +301,11 @@ public sealed class Session : IDisposable
 
     /// <summary>
     /// The wingman briefing-pipeline state for the CURRENT turn. Orthogonal to
-    /// <see cref="ActivityState"/> (a session can ask AND keep working). Written only by
-    /// the TurnBriefOrchestrator; surfaced on SessionDto for the rail's yellow
-    /// "briefing..." chip. Transient - rebuilt from the TurnBriefStore on restart.
+    /// <see cref="ActivityState"/> (a session can ask AND keep working). Since issue #187
+    /// deleted the Director-side pipeline, NOTHING on the Director writes this anymore -
+    /// it stays None and the GATEWAY stamps the real value onto the aggregated session
+    /// view. Kept because the local status wingman still reacts to it (and a future
+    /// gateway push-down could write it).
     /// </summary>
     public BriefingState BriefingState { get; private set; } = BriefingState.None;
 
@@ -333,9 +335,9 @@ public sealed class Session : IDisposable
     }
 
     /// <summary>
-    /// The latest stored brief's railLine (the &lt;=8-word needs-you one-liner), kept on the
-    /// session so SessionDto mapping needs no store lookup per poll. Null when the latest
-    /// brief needs nothing. Written only by the TurnBriefOrchestrator.
+    /// The latest stored brief's railLine (the &lt;=8-word needs-you one-liner). Since
+    /// issue #187 deleted the Director-side pipeline this stays null on the Director;
+    /// the GATEWAY stamps the real value onto the aggregated session view.
     /// </summary>
     public string? LatestBriefRailLine { get; internal set; }
 

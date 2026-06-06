@@ -27,6 +27,11 @@ public sealed class GatewayTurnBriefStore
     private readonly string _root;
     private readonly object _lock = new();
 
+    // Latest-brief cache: the /sessions aggregation stamps RailLine per session on every
+    // Cockpit refresh (issue #187), which must not become a disk read per session per poll.
+    // Lazily filled on first read, updated on every append.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, TurnBriefDto?> _latest = new();
+
     /// <param name="root">Storage directory; defaults to
     /// %LOCALAPPDATA%\cc-director\gateway-turnbriefs. Tests pass a temp dir.</param>
     public GatewayTurnBriefStore(string? root = null)
@@ -49,13 +54,16 @@ public sealed class GatewayTurnBriefStore
         }
     }
 
-    /// <summary>The most recent brief, or null.</summary>
+    /// <summary>The most recent brief, or null. Cached in memory (poll-friendly).</summary>
     public TurnBriefDto? Latest(string sessionId)
     {
+        if (_latest.TryGetValue(sessionId, out var cached)) return cached;
         lock (_lock)
         {
             var items = LoadUnlocked(sessionId);
-            return items.Count > 0 ? items[0] : null;
+            var latest = items.Count > 0 ? items[0] : null;
+            _latest[sessionId] = latest;
+            return latest;
         }
     }
 
@@ -68,7 +76,30 @@ public sealed class GatewayTurnBriefStore
         lock (_lock)
         {
             File.AppendAllText(PathFor(sessionId), JsonSerializer.Serialize(brief, JsonOpts) + Environment.NewLine);
+            var current = _latest.TryGetValue(sessionId, out var c) ? c : null;
+            if (current is null || brief.TurnNumber >= current.TurnNumber)
+                _latest[sessionId] = brief;
         }
+    }
+
+    /// <summary>
+    /// Store a D7 "this brief is wrong" report as a labeled example for prompt iteration:
+    /// the brief and the user's note, one JSON file per report under brief-feedback/
+    /// (issue #187: the feedback loop moved to the Gateway with the rest of the pipeline).
+    /// </summary>
+    public string SaveFeedback(string sessionId, TurnBriefDto brief, string note)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(note);
+        var dir = Core.Storage.CcStorage.BriefFeedback();
+        var file = Path.Combine(dir, $"{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Sanitize(sessionId)[..Math.Min(8, sessionId.Length)]}-t{brief.TurnNumber}.json");
+        var payload = new { sessionId, note, brief, reportedAtUtc = DateTime.UtcNow };
+        File.WriteAllText(file, JsonSerializer.Serialize(payload, new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            WriteIndented = true,
+        }));
+        FileLog.Write($"[GatewayTurnBriefStore] SaveFeedback: {file}");
+        return file;
     }
 
     private List<TurnBriefDto> LoadUnlocked(string sessionId)

@@ -58,7 +58,6 @@ public sealed class ControlApiHost : IAsyncDisposable
     private TerminalStateDetector? _terminalStateDetector;
     private TerminalSessionRecorder? _sessionRecorder;
     private Core.Storage.TurnReviewLogger? _turnReviewLogger;
-    private Core.Wingman.TurnBriefOrchestrator? _turnBriefOrchestrator;
     private Core.Storage.SessionLogManager? _sessionLogManager;
     // Resolved lazily at request time: the scheduler is created AFTER the Control API host
     // (StartControlApi runs before StartScheduler), so we capture an accessor, not the instance.
@@ -206,17 +205,10 @@ public sealed class ControlApiHost : IAsyncDisposable
         _turnReviewLogger = new Core.Storage.TurnReviewLogger(_sessionManager);
         _turnReviewLogger.Start();
 
-        // Wingman turn briefing (docs/architecture/wingman/TURN_BRIEFING.md): at every turn
-        // end the strong model interprets the turn into a stored TurnBrief that the Cockpit,
-        // rail, phone, and voice all read. Falls back to the stub generator when no claude
-        // path is configured; CC_TURNBRIEFS=0 kills the pipeline.
-        Core.Wingman.ITurnBriefGenerator briefGenerator =
-            !string.IsNullOrWhiteSpace(_sessionManager.Options.ClaudePath)
-                ? new Core.Wingman.WingmanTurnBriefGenerator(_sessionManager.Options.ClaudePath)
-                : new Core.Wingman.StubTurnBriefGenerator();
-        var turnBriefing = new Core.Wingman.TurnBriefOrchestrator(_sessionManager, briefGenerator);
-        _turnBriefOrchestrator = turnBriefing;
-        turnBriefing.Start();
+        // Turn briefing left the Director (issue #187, the Gateway Wingman end state):
+        // the GATEWAY's warm-brain agent observes turn ends (doorbell/heartbeat, #186),
+        // generates briefs, stores them, and stamps BriefingState/RailLine onto the
+        // aggregated session view. The Director is dumb metal here.
 
         // Load the gateway config up front so the served HTML can render a "Gateway"
         // nav button pointing at it. Reused below for the GatewayClient registration.
@@ -226,7 +218,6 @@ public sealed class ControlApiHost : IAsyncDisposable
         ControlEndpoints.Map(_app, _sessionManager, DirectorId, _version, _requestShutdownAsync, _authEnabled, _repositoryRegistry, _turnSummaryCache, gatewayUrl, _proactiveExplain);
         DictationEndpoint.Map(_app, _sessionManager.Options);
         TerminalStreamEndpoint.Map(_app, _sessionManager);
-        TurnBriefEndpoints.Map(_app, _sessionManager, turnBriefing.Store);
         SessionUsageEndpoint.Map(_app, _sessionManager);
         ClaudeTranscriptsEndpoint.Map(_app);
         SettingsEndpoint.Map(_app, ReapplyGatewayAsync, () => Port);
@@ -351,7 +342,6 @@ public sealed class ControlApiHost : IAsyncDisposable
         _terminalStateDetector?.Dispose();
         _terminalStateDetector = null;
         _turnReviewLogger?.Dispose();
-        _turnBriefOrchestrator?.Dispose();
         _turnReviewLogger = null;
         _sessionRecorder?.Dispose();
         _sessionRecorder = null;

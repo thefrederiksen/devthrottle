@@ -157,4 +157,14 @@ public sealed class GatewayClient
             return null;
         }
     }
+
+    /// <summary>"This brief is wrong" (D7) - stored Gateway-side as a labeled example for
+    /// prompt iteration (#187: the feedback loop lives with the brief store).</summary>
+    public async Task PostBriefFeedbackAsync(string sessionId, int turnNumber, string note, CancellationToken ct = default)
+    {
+        _log.LogDebug("BriefFeedback sid={Sid} turn={Turn}", sessionId, turnNumber);
+        var resp = await _http.PostAsJsonAsync($"sessions/{Uri.EscapeDataString(sessionId)}/turnbriefs/feedback",
+            new TurnBriefFeedbackRequest { TurnNumber = turnNumber, Note = note }, ct);
+        resp.EnsureSuccessStatusCode();
+    }
 }
