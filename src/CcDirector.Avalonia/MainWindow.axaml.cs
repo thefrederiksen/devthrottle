@@ -209,6 +209,12 @@ public partial class MainWindow : Window
         // the matching SessionViewModel and persist state.
         _sessionManager.OnSessionRenamed += OnExternalSessionRenamed;
 
+        // Sessions killed via the Control API (DELETE /sessions/{sid} from the
+        // Cockpit, the Gateway, or a session killing itself) must drop their
+        // rail row too - without this the row stays behind wrapping a dead,
+        // disposed session (issue #202, root cause of #193).
+        _sessionManager.OnSessionRemoved += OnExternalSessionRemoved;
+
         // Wire source control view file event
         GitChangesView.ViewFileRequested += OnGitViewFileRequested;
 
@@ -406,6 +412,57 @@ public partial class MainWindow : Window
             catch (Exception ex)
             {
                 FileLog.Write($"[MainWindow] OnExternalSessionRenamed FAILED: {ex.Message}");
+            }
+        });
+    }
+
+    /// <summary>
+    /// Called by SessionManager.OnSessionRemoved when a session was removed from
+    /// outside MainWindow (notably DELETE /sessions/{sid} on the Control API: a
+    /// Cockpit/Gateway kill, or a session killing itself). Drops the matching
+    /// rail row on the UI thread; the row used to stay behind forever, wrapping
+    /// a dead disposed session (issue #202, root cause of #193).
+    ///
+    /// Idempotent by construction: the desktop's own close flows
+    /// (CloseSessionAsync, CloseAllSessionsAsync) remove the row from _sessions
+    /// BEFORE calling RemoveSession, so for those this finds no VM and no-ops.
+    /// </summary>
+    private void OnExternalSessionRemoved(Session session)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            try
+            {
+                var vm = _sessions.FirstOrDefault(s => s.Session.Id == session.Id);
+                if (vm is null) return; // desktop-initiated close already pruned the row
+                FileLog.Write($"[MainWindow] OnExternalSessionRemoved: dropping rail row for {session.Id}");
+
+                if (_activeSession == vm)
+                {
+                    // Same active-session teardown CloseSessionAsync performs:
+                    // unhook the per-session handlers, detach every session-bound
+                    // view, and fall back to the placeholder state.
+                    vm.Session.OnClaudeMetadataChanged -= OnActiveSessionMetadataChanged;
+                    vm.Session.OnActivityStateChanged -= OnActiveSessionActivityChanged;
+                    vm.Session.OnPendingPromptTextChanged -= OnActiveSessionPendingPromptTextChanged;
+                    TerminalHost.Detach();
+                    GitChangesView.Detach();
+                    CleanView.Detach();
+                    WingmanView.Detach();
+                    _activeSession = null;
+
+                    SetSessionHeaderVisible(false);
+                    PlaceholderText.IsVisible = true;
+                    TerminalDock.IsVisible = false;
+                    PromptBarBorder.IsVisible = false;
+                }
+
+                _sessions.Remove(vm);
+                PersistSessionState();
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[MainWindow] OnExternalSessionRemoved FAILED: {ex.Message}");
             }
         });
     }
@@ -4073,6 +4130,8 @@ public partial class MainWindow : Window
         {
             _sessionManager.OnClaudeSessionRegistered -= OnClaudeSessionRegistered;
             _sessionManager.OnSessionCreated -= OnExternalSessionCreated;
+            _sessionManager.OnSessionRenamed -= OnExternalSessionRenamed;
+            _sessionManager.OnSessionRemoved -= OnExternalSessionRemoved;
         }
         catch { /* App may be shutting down */ }
 
