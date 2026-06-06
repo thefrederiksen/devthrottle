@@ -13,6 +13,7 @@ The CC Director **Setup** app checks for these on its Prerequisites screen. Four
 | [Python](#python) | Required | 3.11+ |
 | [Node.js](#nodejs) | Required | 20+ |
 | [Brave Browser](#brave-browser-optional) | Optional | latest |
+| [Tailscale](#tailscale-optional--remote-access) | Optional | latest |
 
 > **Just installed one of these and Setup still says "Not found"?** See [If a tool is not detected after installing it](#if-a-tool-is-not-detected-after-installing-it).
 
@@ -59,6 +60,16 @@ Confirm: `node --version` prints `v20+`.
 Brave is the browser engine for `cc-browser` and related tools (Chrome stable blocks the extensions they rely on). **It is optional** -- if you have Claude Code, Python, and Node.js, Setup lets you install without it. You can add Brave later and the browser tools will pick it up.
 
 - Download from [brave.com/download](https://brave.com/download/).
+
+### Tailscale (optional -- remote access)
+
+Tailscale is what lets a Gateway or the Cockpit on **another machine** (or your phone) reach the Directors on this one. **It is optional for local-only use** -- a Director without Tailscale works normally on its own machine; it just will not appear on a remote Gateway.
+
+- **Windows:** `winget install tailscale.Tailscale`, then log into your tailnet from the tray icon.
+- The Setup app checks three things and tells you exactly which one is missing: the CLI is installed, the daemon is running and logged in, and the machine has a MagicDNS name.
+- One-time per tailnet (not per machine): **MagicDNS** and **HTTPS certificates** must be enabled in the [Tailscale admin console](https://login.tailscale.com/admin/dns) under DNS.
+
+See [Multi-Machine Setup](#multi-machine-setup-remote-access) for how this fits together.
 
 ### If a tool is not detected after installing it
 
@@ -169,6 +180,31 @@ set OPENAI_API_KEY=your-key-here
 ```
 
 Or add it permanently through Windows System Properties > Environment Variables.
+
+## Multi-Machine Setup (Remote Access)
+
+One Gateway machine runs the fleet view (the Cockpit); every other machine just runs Directors that show up there. Adding a new machine to the fleet is three steps:
+
+1. **Install Tailscale** and log into the same tailnet (`winget install tailscale.Tailscale`, then sign in from the tray icon).
+2. **Install CC Director** (Workstation role) with the Setup app or `cc-director-setup-cli install`.
+3. **Set the Gateway URL** in the Director's Settings (or `gateway.url` in config.json), pointing at the Gateway machine, e.g. `https://your-gateway.your-tailnet.ts.net`.
+
+That is all. The Director registers itself with the Gateway, opens its own Tailscale Serve front door for remote access, and verifies its advertised address actually answers before registering -- there are no manual `tailscale serve` commands and no firewall rules to add.
+
+### How it works (so the troubleshooting below makes sense)
+
+A Director listens on `localhost` only; the single remote path to it is a Tailscale Serve HTTPS mapping on its **own** machine, which each Director now provisions and self-heals for itself. The Director also refuses to register an address that does not demonstrably answer, so a misconfigured machine produces one precise error in its own log instead of a silently dead entry in the fleet.
+
+### Troubleshooting
+
+| Symptom | Meaning | Fix |
+|---------|---------|-----|
+| Cockpit: "endpoint never answered since registration -- check Tailscale Serve / the Director log on MACHINE" | The Director's machine never opened its HTTPS front door. | On that machine, check the Director log for the exact reason (see rows below); usually Tailscale is missing, logged out, or HTTPS certs are not enabled for the tailnet. |
+| Director log: "tailscale CLI not found" | Tailscale is not installed on the Director's machine. | `winget install tailscale.Tailscale`, log in, restart the Director (or wait -- it retries automatically). |
+| Director log: "tailscale serve --https=PORT failed: ..." | The serve command itself failed; the CLI output is included verbatim. | Most common: HTTPS certificates are not enabled for the tailnet -- enable them in the admin console under DNS -> HTTPS Certificates. |
+| Director log: "NOT registering ... healthz probe timed out" | The mapping exists (or just got created) but the address does not answer yet. | First-ever serve on a machine can take seconds to get its TLS certificate; the Director retries with backoff and registers when it answers. If it never clears, check `tailscale serve status` on that machine. |
+| Cockpit: "unreachable (timeout; cooling down)" | The Director WAS reachable before and went dark (machine asleep, Tailscale down, process gone). | Wake the machine / check Tailscale connectivity; the Gateway re-probes automatically. |
+| Setup app: Tailscale row shows a failing check | Detection-only preflight: CLI missing, daemon stopped/logged out, or no MagicDNS name. | The row text contains the exact command to run; local-only use is unaffected. |
 
 ## Next Steps
 

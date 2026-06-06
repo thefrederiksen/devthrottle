@@ -93,6 +93,7 @@ internal static class Commands
     {
         var statuses = FrameworkDetector.DetectAll();
         var anyFound = statuses.Any(s => s.Found);
+        var tailscale = TailscalePreflight.Run();
 
         if (json)
         {
@@ -100,6 +101,13 @@ internal static class Commands
             {
                 satisfied = anyFound,
                 frameworks = statuses.Select(s => new { name = s.Name, found = s.Found, location = s.Location }),
+                // Informational (issue #197): remote access needs Tailscale on this machine,
+                // but a local-only Director is legitimate, so this never flips `satisfied`.
+                tailscale = new
+                {
+                    remoteAccessReady = TailscalePreflight.AllOk(tailscale),
+                    checks = tailscale.Select(c => new { check = c.Check, ok = c.Ok, detail = c.Detail, remedy = c.Remedy }),
+                },
             });
             return anyFound ? Ok : PrereqMissing;
         }
@@ -107,6 +115,12 @@ internal static class Commands
         Console.WriteLine("Agent framework check:");
         foreach (var s in statuses)
             Console.WriteLine($"  {s.Name,-8} {(s.Found ? $"found ({s.Location})" : "not found")}");
+
+        Console.WriteLine();
+        Console.WriteLine("Remote access check (Tailscale - needed for the Gateway/Cockpit to reach this machine):");
+        Console.WriteLine(TailscalePreflight.Summary(tailscale));
+        if (!TailscalePreflight.AllOk(tailscale))
+            Console.WriteLine("  Note: without Tailscale the Director still works locally; it just won't appear on a remote Gateway.");
 
         if (!anyFound)
         {
@@ -141,6 +155,20 @@ internal static class Commands
                 if (json) Program.WriteJson(new { mode = "install", role = "gateway", failed = preflight });
                 else Console.Error.WriteLine(preflight);
                 return Error;
+            }
+        }
+
+        // Tailscale preflight (issue #197): detection-only, NEVER blocks. A local-only install is
+        // legitimate; this just tells the user up front - with the exact fix per failed leg - why
+        // the machine would not be reachable from a remote Gateway/Cockpit.
+        if (installMode && !args.HasFlag("dry-run") && !json)
+        {
+            var ts = TailscalePreflight.Run();
+            if (!TailscalePreflight.AllOk(ts))
+            {
+                Console.WriteLine("Remote access (Tailscale) preflight - this machine will NOT be reachable from a remote Gateway until fixed:");
+                Console.WriteLine(TailscalePreflight.Summary(ts));
+                Console.WriteLine();
             }
         }
 

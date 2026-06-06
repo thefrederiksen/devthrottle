@@ -46,6 +46,15 @@ public static class PrerequisiteChecker
                 IsRequired = false,
                 InstallUrl = "https://brave.com/download/"
             },
+            new PrerequisiteInfo
+            {
+                Name = "Tailscale",
+                Description = "Optional: remote access (a Gateway/Cockpit on another machine reaches this Director over the tailnet); local-only use works without it",
+                IsRequired = false,
+                CanAutoInstall = true,
+                WingetId = "tailscale.Tailscale",
+                InstallUrl = "https://tailscale.com/download"
+            },
         ];
     }
 
@@ -83,6 +92,9 @@ public static class PrerequisiteChecker
                     break;
                 case "Brave Browser":
                     CheckBrave(item);
+                    break;
+                case "Tailscale":
+                    CheckTailscale(item);
                     break;
             }
         }
@@ -280,6 +292,34 @@ public static class PrerequisiteChecker
         item.Status = "Not found";
         item.IsFound = false;
         SetupLog.Write("[PrerequisiteChecker] Brave: not found at any known location");
+    }
+
+    /// <summary>
+    /// Tailscale preflight (issue #197): remote reachability needs the CLI installed, the
+    /// daemon running/logged in, AND a MagicDNS name. The shared engine check supplies the
+    /// per-leg result with the exact fix; the checklist row shows the first failing leg so
+    /// the user knows WHAT to do, not just that something is off.
+    /// </summary>
+    private static void CheckTailscale(PrerequisiteInfo item)
+    {
+        var results = CcDirector.Setup.Engine.TailscalePreflight.Run();
+        if (CcDirector.Setup.Engine.TailscalePreflight.AllOk(results))
+        {
+            // The last check carries the MagicDNS name - the address Directors advertise.
+            item.Version = results[^1].Detail;
+            item.Status = "Found";
+            item.IsFound = true;
+            SetupLog.Write($"[PrerequisiteChecker] Tailscale: ready, magicdns={item.Version}");
+            return;
+        }
+
+        var firstFail = results.First(r => !r.Ok);
+        item.Version = "";
+        item.Status = firstFail.Remedy is null
+            ? $"{firstFail.Check}: {firstFail.Detail}"
+            : $"{firstFail.Check}: {firstFail.Detail} - {firstFail.Remedy}";
+        item.IsFound = false;
+        SetupLog.Write($"[PrerequisiteChecker] Tailscale: {item.Status}");
     }
 
     /// <summary>

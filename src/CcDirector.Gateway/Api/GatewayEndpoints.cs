@@ -245,10 +245,16 @@ internal static class GatewayEndpoints
             {
                 // Reachability circuit-breaker: a Director that has failed recent probes is skipped while
                 // its breaker is open, so it stops costing a per-poll timeout. Still surfaced as an error
-                // so the UI shows it as unreachable. See DIRECTOR_LIVENESS_PLAN.md.
+                // so the UI shows it as unreachable - with an ACTIONABLE message (issue #197): an endpoint
+                // that never answered since registration is a provisioning problem on the Director's
+                // machine (no tailscale serve mapping), not a transient outage. See DIRECTOR_LIVENESS_PLAN.md.
                 if (!registry.ShouldProbe(d.DirectorId))
-                    return (Director: d, Sessions: (List<SessionDto>?)null,
-                            Error: $"unreachable ({registry.LastUnreachableError(d.DirectorId)}; cooling down)");
+                {
+                    var detail = registry.WasEverReachable(d.DirectorId)
+                        ? $"unreachable ({registry.LastUnreachableError(d.DirectorId)}; cooling down)"
+                        : $"endpoint never answered since registration ({registry.LastUnreachableError(d.DirectorId)}) - check Tailscale Serve / the Director log on {d.MachineName ?? "its machine"}";
+                    return (Director: d, Sessions: (List<SessionDto>?)null, Error: detail);
+                }
 
                 var ep = (d.ControlEndpoint ?? "").TrimEnd('/');
                 var (sessions, error) = await client.ListSessionsWithStatusAsync(ep, includeExitedActual);

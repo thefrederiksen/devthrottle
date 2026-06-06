@@ -68,6 +68,17 @@ public sealed class DirectorRegistry : IDisposable
 
     private readonly ConcurrentDictionary<string, DirectorDto> _directors = new();
     private readonly ConcurrentDictionary<string, Reachability> _reach = new();
+
+    /// <summary>
+    /// Directors that have answered at least one fleet probe (issue #197). Deliberately
+    /// NOT cleared by <see cref="Upsert"/>: the unreachable-evict / 410 / re-register
+    /// cycle re-registers the same live process every few minutes, and whether it EVER
+    /// answered is exactly the signal that distinguishes "endpoint was never provisioned
+    /// (check Tailscale Serve on that machine)" from "was fine, went dark". Cleared on
+    /// graceful unregister and when the heartbeat-stale sweep removes a dead process -
+    /// a future process under the same id starts with a truthful blank slate.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, bool> _everReachable = new();
     private FileSystemWatcher? _watcher;
     private Timer? _sweeper;
     private bool _disposed;
@@ -159,6 +170,7 @@ public sealed class DirectorRegistry : IDisposable
         if (_directors.TryRemove(directorId, out _))
         {
             _reach.TryRemove(directorId, out _);
+            _everReachable.TryRemove(directorId, out _); // graceful goodbye: next process starts blank
             FileLog.Write($"[DirectorRegistry] Remove (http): id={directorId}");
             OnDirectorRemoved?.Invoke(directorId);
             return true;
@@ -219,9 +231,19 @@ public sealed class DirectorRegistry : IDisposable
     /// <summary>The Director answered a fleet probe: clear its breaker.</summary>
     public void RecordReachable(string directorId)
     {
+        _everReachable[directorId] = true;
         if (_reach.TryRemove(directorId, out _))
             FileLog.Write($"[DirectorRegistry] {directorId} reachable again; reachability circuit reset");
     }
+
+    /// <summary>
+    /// True when this Director has answered at least one fleet probe since it became known
+    /// (survives the evict/re-register cycle - see <see cref="_everReachable"/>). False means
+    /// the advertised endpoint has NEVER answered, which is the "nothing is listening there"
+    /// signature (issue #197), not a transient outage.
+    /// </summary>
+    public bool WasEverReachable(string directorId)
+        => !string.IsNullOrEmpty(directorId) && _everReachable.ContainsKey(directorId);
 
     /// <summary>A fleet probe to the Director failed: increment the breaker and open it after the threshold.</summary>
     public void RecordUnreachable(string directorId, string error)
@@ -233,7 +255,12 @@ public sealed class DirectorRegistry : IDisposable
         if (r.ConsecutiveFailures >= MaxConsecutiveFailures)
         {
             r.CooldownUntil = now + UnreachableCooldown;
-            FileLog.Write($"[DirectorRegistry] {directorId} circuit OPEN after {r.ConsecutiveFailures} failures; skipping for {UnreachableCooldown.TotalSeconds:F0}s ({r.LastError})");
+            // Log the closed->open transition and a heartbeat trace every 10th failure -
+            // NOT every probe. A structurally-dead endpoint fails forever; one line per
+            // failure drowned the gateway log (issue #197). CooldownUntil itself must be
+            // refreshed on every failure or the circuit would re-close while still dead.
+            if (r.ConsecutiveFailures == MaxConsecutiveFailures || r.ConsecutiveFailures % 10 == 0)
+                FileLog.Write($"[DirectorRegistry] {directorId} circuit OPEN after {r.ConsecutiveFailures} failures; skipping for {UnreachableCooldown.TotalSeconds:F0}s ({r.LastError})");
         }
     }
 
@@ -363,6 +390,10 @@ public sealed class DirectorRegistry : IDisposable
                         if (_directors.TryRemove(kv.Key, out _))
                         {
                             _reach.TryRemove(kv.Key, out _);
+                            // The process is gone (no heartbeat) - unlike the unreachable-evict
+                            // above (still heartbeating), a future registration under this id is
+                            // a NEW process and deserves a blank ever-reachable slate.
+                            _everReachable.TryRemove(kv.Key, out _);
                             FileLog.Write($"[DirectorRegistry] Sweeper removed stale http entry: {kv.Key} (last heartbeat {(now - lastSeen).TotalSeconds:F0}s ago)");
                             OnDirectorRemoved?.Invoke(kv.Key);
                         }

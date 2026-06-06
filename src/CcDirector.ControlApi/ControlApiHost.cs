@@ -51,6 +51,7 @@ public sealed class ControlApiHost : IAsyncDisposable
     private WebApplication? _app;
     private InstanceRegistration? _registration;
     private GatewayClient? _gatewayClient;
+    private TailscaleServeSelfProvisioner? _serveProvisioner;
     private readonly SemaphoreSlim _gatewayReapplyLock = new(1, 1);
     private TurnSummaryCache? _turnSummaryCache;
     private SessionStatusWingman? _statusWingman;
@@ -243,14 +244,49 @@ public sealed class ControlApiHost : IAsyncDisposable
         _registration = new InstanceRegistration(DirectorId, Port, _version, _instancesDirectory);
         _registration.Register();
 
+        // Issue #197: this Director owns its own Tailscale Serve front door. Only real
+        // fixed-range Directors self-provision; ephemeral-port hosts (tests, hosted
+        // agents) are reached through the Gateway and must not churn the serve table
+        // (the #179 lesson).
+        if (!_useEphemeralPort)
+        {
+            _serveProvisioner = new TailscaleServeSelfProvisioner(Port);
+            _serveProvisioner.Start();
+        }
+
         // Phase 1: if gateway.url is configured, register with the Gateway over HTTP and
         // start the heartbeat. Disabled (no-op) when local-only. Reuses the config
         // loaded above for the HTML nav button.
-        _gatewayClient = new GatewayClient(gatewayConfig, DirectorId, Port, _version, SnapshotSessionStates);
+        _gatewayClient = BuildGatewayClient(gatewayConfig);
         _gatewayClient.Start();
         WireDoorbellPush();
 
         return Port;
+    }
+
+    /// <summary>
+    /// Construct the Gateway client and, when this Director self-provisions its serve
+    /// mapping, wire verify-before-advertise (issue #197): every register attempt first
+    /// asserts the own-port mapping, then probes the advertised URL from the outside-in.
+    /// The PROBE is the gate - a registration only happens for an endpoint that
+    /// demonstrably answers; the mapping step is best-effort-but-loud, so an exotic
+    /// setup (hand-run reverse proxy via gateway.tailnetEndpoint) that answers without
+    /// our mapping still registers truthfully.
+    /// </summary>
+    private GatewayClient BuildGatewayClient(GatewayConfig gatewayConfig)
+    {
+        var client = new GatewayClient(gatewayConfig, DirectorId, Port, _version, SnapshotSessionStates);
+        if (_serveProvisioner is { } provisioner)
+        {
+            client.EndpointVerifier = async (endpoint, ct) =>
+            {
+                var (mapped, mapError) = await provisioner.EnsureMappingAsync(ct);
+                var probeError = await GatewayClient.ProbeAdvertisedEndpointAsync(endpoint, ct);
+                if (probeError is null) return null;
+                return mapped ? probeError : $"{probeError} (serve mapping: {mapError})";
+            };
+        }
+        return client;
     }
 
     /// <summary>Per-session mechanical-state snapshot for the heartbeat body (issue #186).</summary>
@@ -304,7 +340,7 @@ public sealed class ControlApiHost : IAsyncDisposable
             }
 
             var gatewayConfig = GatewayConfig.Load();
-            _gatewayClient = new GatewayClient(gatewayConfig, DirectorId, Port, _version, SnapshotSessionStates);
+            _gatewayClient = BuildGatewayClient(gatewayConfig);
             _gatewayClient.Start();
         }
         finally
@@ -355,6 +391,16 @@ public sealed class ControlApiHost : IAsyncDisposable
         _sessionLogManager = null;
 
         _registration?.Unregister();
+
+        // Issue #197: graceful shutdown removes this Director's own serve mapping. A crash
+        // skips this; the next startup re-asserts the same stable port, so the leftover
+        // self-heals.
+        if (_serveProvisioner is not null)
+        {
+            _serveProvisioner.RemoveOwnMapping();
+            _serveProvisioner.Dispose();
+            _serveProvisioner = null;
+        }
 
         // Release the persisted port file only if we used a real allocated port
         if (!_useEphemeralPort && Port > 0)
