@@ -30,6 +30,17 @@ public sealed class OpenAiRealtimeProvider : IDictationProvider
 
     private static readonly TimeSpan StopTimeout = TimeSpan.FromSeconds(30);
 
+    // Connect policy (issue #189). A failing upgrade used to hang until the
+    // remote edge gave up (~15s observed during the 2026-06-06 OpenAI 504
+    // blip) and a single transient failure went straight to the user. Each
+    // attempt is bounded by ConnectTimeout, and one automatic retry runs
+    // before the failure surfaces. The capture-first pipeline keeps buffering
+    // mic audio while this happens, so a successful retry loses no speech.
+    // Internal-settable so tests can use fast values against a fake server.
+    internal TimeSpan ConnectTimeout { get; set; } = TimeSpan.FromSeconds(10);
+    internal TimeSpan ConnectRetryDelay { get; set; } = TimeSpan.FromSeconds(1);
+    internal int ConnectAttempts { get; set; } = 2;
+
     private readonly string _apiKey;
     private readonly string _model;
     private readonly Uri _endpoint;
@@ -72,16 +83,13 @@ public sealed class OpenAiRealtimeProvider : IDictationProvider
             _stopped = false;
         }
 
-        var ws = new ClientWebSocket();
-        ws.Options.SetRequestHeader("Authorization", "Bearer " + _apiKey);
-
+        ClientWebSocket ws;
         try
         {
-            await ws.ConnectAsync(_endpoint, ct);
+            ws = await ConnectWithRetryAsync(ct);
         }
         catch
         {
-            ws.Dispose();
             lock (_stateGate)
             {
                 _started = false;
@@ -161,6 +169,53 @@ public sealed class OpenAiRealtimeProvider : IDictationProvider
     }
 
     // ===== internals =========================================================
+
+    /// <summary>
+    /// Establish the realtime WebSocket with a per-attempt timeout and a
+    /// bounded automatic retry. Caller cancellation propagates immediately
+    /// (never retried, never rewrapped); exhausting the attempt budget throws
+    /// <see cref="DictationConnectException"/> with a human-readable message
+    /// and the last raw error as the inner exception.
+    /// </summary>
+    private async Task<ClientWebSocket> ConnectWithRetryAsync(CancellationToken ct)
+    {
+        Exception lastError = new InvalidOperationException("no connect attempt was made");
+        for (int attempt = 1; attempt <= ConnectAttempts; attempt++)
+        {
+            var ws = new ClientWebSocket();
+            ws.Options.SetRequestHeader("Authorization", "Bearer " + _apiKey);
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeoutCts.CancelAfter(ConnectTimeout);
+            try
+            {
+                await ws.ConnectAsync(_endpoint, timeoutCts.Token);
+                if (attempt > 1)
+                    FileLog.Write($"[OpenAiRealtimeProvider] connect attempt {attempt}/{ConnectAttempts} succeeded");
+                return ws;
+            }
+            catch (Exception ex)
+            {
+                ws.Dispose();
+
+                // The CALLER cancelled (dialog closed, app shutting down):
+                // stop immediately - retrying would be working for nobody.
+                if (ct.IsCancellationRequested) throw;
+
+                // Our per-attempt timeout fired: name the real problem instead
+                // of surfacing a bare OperationCanceledException.
+                lastError = ex is OperationCanceledException && timeoutCts.IsCancellationRequested
+                    ? new TimeoutException(
+                        $"Connecting to {_endpoint.Host} timed out after {ConnectTimeout.TotalSeconds:0}s")
+                    : ex;
+
+                FileLog.Write($"[OpenAiRealtimeProvider] connect attempt {attempt}/{ConnectAttempts} FAILED: {lastError.Message}");
+                if (attempt < ConnectAttempts)
+                    await Task.Delay(ConnectRetryDelay, ct);
+            }
+        }
+
+        throw new DictationConnectException(lastError.Message, ConnectAttempts, lastError);
+    }
 
     private async Task SendTextAsync(string json, CancellationToken ct)
     {

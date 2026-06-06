@@ -5,6 +5,7 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
 using CcDirector.Core.Configuration;
+using CcDirector.Core.Dictation;
 using CcDirector.Core.Dictation.Models;
 using CcDirector.Core.Utilities;
 
@@ -33,7 +34,7 @@ namespace CcDirector.Avalonia.Voice;
 /// </summary>
 public partial class SpeakDialog : Window
 {
-    private enum Stage { Recording, Paused, Transcribing }
+    private enum Stage { Connecting, Recording, Paused, Transcribing, Failed }
 
     private readonly AgentOptions _options;
     private readonly Border[] _bars;
@@ -54,7 +55,10 @@ public partial class SpeakDialog : Window
     private DateTime _t0;
     private TimeSpan _elapsedBeforeSegment = TimeSpan.Zero;
 
-    private Stage _stage = Stage.Recording;
+    // The dialog opens in Connecting: mic capture starts immediately (capture-
+    // first pipeline, no audio is lost) but the transcription backend is not
+    // connected yet. SwitchToRecording happens once the connect completes.
+    private Stage _stage = Stage.Connecting;
     private SpeakService? _service;
     private string _accumulatedText = "";
     private string _currentPartial = "";
@@ -142,6 +146,10 @@ public partial class SpeakDialog : Window
         _t0 = DateTime.UtcNow;
         _timer.Start();
         _eqTimer.Start();
+        // The XAML carries the Connecting text/colors so there is no flash of
+        // "RECORDING"; this applies the rest (disabled commit buttons, yellow
+        // bars) through the same code path every later reconnect uses.
+        SwitchToConnecting();
         try
         {
             // Resolve the saved mic choice to a current device index BEFORE the
@@ -149,19 +157,22 @@ public partial class SpeakDialog : Window
             // very first frame. Then show the device list in the selector.
             _selectedDeviceNumber = MicDevices.ResolveByName(LoadPersistedMicName());
             PopulateMicSelector();
+            // The XAML opens in the Connecting visual state (CONNECTING label,
+            // commit buttons disabled). StartNewServiceAsync returns once the
+            // transcription backend is actually connected.
             await StartNewServiceAsync();
+            SwitchToRecording();
         }
         catch (Exception ex)
         {
             FileLog.Write($"[SpeakDialog] StartAsync FAILED: {ex.Message}");
-            TranscriptText.Text = "Failed to start recording: " + ex.Message;
-            TranscriptText.Foreground = new SolidColorBrush(Color.FromRgb(0xF4, 0x47, 0x47));
-            StatusLabel.Text = "ERROR";
-            StatusLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xF4, 0x47, 0x47));
-            PrimaryButton.IsVisible = false;
-            StopButton.IsVisible = false;
-            PauseButton.IsVisible = false;
-            CancelButton.Content = "Close";
+            // DictationConnectException already carries a human-readable
+            // message (transient service problem, try again); other failures
+            // get a prefix naming the operation that failed.
+            var msg = ex is DictationConnectException
+                ? ex.Message
+                : "Failed to start recording: " + ex.Message;
+            SwitchToFailed(msg);
         }
     }
 
@@ -227,7 +238,7 @@ public partial class SpeakDialog : Window
         catch (Exception ex)
         {
             FileLog.Write($"[SpeakDialog] MicSelector_SelectionChanged FAILED: {ex.Message}");
-            ShowError("Could not switch microphone: " + ex.Message);
+            SwitchToFailed("Could not switch microphone: " + ex.Message);
         }
     }
 
@@ -243,19 +254,39 @@ public partial class SpeakDialog : Window
         FileLog.Write($"[SpeakDialog] ChangeDevice: {deviceNumber} ({MicDevices.DescribeDevice(deviceNumber)})");
         await DisposeServiceAsync();
         _currentPartial = "";
-        await StartNewServiceAsync();
+        // Fresh device = fresh timer. Reset BEFORE the connect so the ticking
+        // Connecting-stage timer shows the new segment, not stale time.
         _elapsedBeforeSegment = TimeSpan.Zero;
         _t0 = DateTime.UtcNow;
+        SwitchToConnecting();
+        await StartNewServiceAsync();
         SwitchToRecording();
         RenderTranscript();
     }
 
-    private void ShowError(string message)
+    /// <summary>
+    /// Terminal error state: the dictation backend is not running and there is
+    /// no recoverable text in play. Freezes the timer (UpdateTimer ignores
+    /// Failed), parks the equalizer gray, hides every action except Close.
+    /// </summary>
+    private void SwitchToFailed(string message)
     {
+        _stage = Stage.Failed;
         TranscriptText.Text = message;
         TranscriptText.Foreground = new SolidColorBrush(Color.FromRgb(0xF4, 0x47, 0x47));
+        TranscriptText.IsReadOnly = true;
         StatusLabel.Text = "ERROR";
         StatusLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xF4, 0x47, 0x47));
+        TimerLabel.Foreground = new SolidColorBrush(Color.FromRgb(0x6A, 0x6A, 0x6A));
+        PrimaryButton.IsVisible = false;
+        StopButton.IsVisible = false;
+        PauseButton.IsVisible = false;
+        MicSelector.IsEnabled = false;
+        CancelButton.Content = "Close";
+        // Park the bars: nothing is being captured, the meter must not dance.
+        for (int i = 0; i < _barTargets.Length; i++) _barTargets[i] = 8.0;
+        foreach (var bar in _bars) bar.Background = new SolidColorBrush(Color.FromRgb(0x6A, 0x6A, 0x6A));
+        LevelHint.Text = "";
     }
 
     private static string? LoadPersistedMicName()
@@ -277,7 +308,12 @@ public partial class SpeakDialog : Window
 
     private void UpdateTimer()
     {
-        if (_stage != Stage.Recording) return;
+        // Ticks while audio is actually being captured: Recording, and
+        // Connecting (capture-first - the mic is live and that audio WILL be
+        // transcribed once the backend connects). Frozen in every other stage,
+        // most importantly Failed: the timer counting up next to an ERROR
+        // label read as "still recording" when nothing was (issue #189).
+        if (_stage != Stage.Recording && _stage != Stage.Connecting) return;
         var elapsed = (DateTime.UtcNow - _t0) + _elapsedBeforeSegment;
         var s = (int)elapsed.TotalSeconds;
         var tenths = elapsed.Milliseconds / 100;
@@ -380,8 +416,10 @@ public partial class SpeakDialog : Window
         Dispatcher.UIThread.Post(() =>
         {
             // Only anchor the very first segment's origin. Pause/Resume manage
-            // _t0 themselves via _elapsedBeforeSegment.
-            if (_stage == Stage.Recording && _elapsedBeforeSegment == TimeSpan.Zero)
+            // _t0 themselves via _elapsedBeforeSegment. The first segment's
+            // capture starts during the Connecting stage (capture-first).
+            if ((_stage == Stage.Connecting || _stage == Stage.Recording)
+                && _elapsedBeforeSegment == TimeSpan.Zero)
                 _t0 = DateTime.UtcNow;
         });
     }
@@ -469,14 +507,7 @@ public partial class SpeakDialog : Window
         catch (Exception ex)
         {
             FileLog.Write($"[SpeakDialog] StopAsync FAILED: {ex.Message}");
-            TranscriptText.Text = "Transcription failed: " + ex.Message;
-            TranscriptText.Foreground = new SolidColorBrush(Color.FromRgb(0xF4, 0x47, 0x47));
-            StatusLabel.Text = "ERROR";
-            StatusLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xF4, 0x47, 0x47));
-            PrimaryButton.IsVisible = false;
-            StopButton.IsVisible = false;
-            PauseButton.IsVisible = false;
-            CancelButton.Content = "Close";
+            SwitchToFailed("Transcription failed: " + ex.Message);
         }
     }
 
@@ -512,20 +543,13 @@ public partial class SpeakDialog : Window
         catch (Exception ex)
         {
             FileLog.Write($"[SpeakDialog] PauseAsync FAILED: {ex.Message}");
-            TranscriptText.Text = "Pause failed: " + ex.Message;
-            TranscriptText.Foreground = new SolidColorBrush(Color.FromRgb(0xF4, 0x47, 0x47));
-            StatusLabel.Text = "ERROR";
-            StatusLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xF4, 0x47, 0x47));
-            PauseButton.IsVisible = false;
+            SwitchToFailed("Pause failed: " + ex.Message);
         }
     }
 
     private async Task ResumeAsync()
     {
         FileLog.Write("[SpeakDialog] ResumeAsync");
-        PauseButton.IsEnabled = false;
-        StatusLabel.Text = "STARTING";
-        StatusLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xDC, 0xDC, 0xAA));
 
         // Re-seed the accumulator from the (possibly edited) text box so the
         // user's corrections survive: new speech appends onto the edited text
@@ -533,21 +557,52 @@ public partial class SpeakDialog : Window
         _accumulatedText = TranscriptText.Text ?? "";
         _currentPartial = "";
 
+        // Anchor the new segment's origin BEFORE the connect: capture starts
+        // immediately (capture-first), so the connect window is recorded audio
+        // and the ticking Connecting-stage timer should count it.
+        _t0 = DateTime.UtcNow;
+        SwitchToConnecting();
+
         try
         {
             await StartNewServiceAsync();
-            _t0 = DateTime.UtcNow;
             SwitchToRecording();
         }
         catch (Exception ex)
         {
             FileLog.Write($"[SpeakDialog] ResumeAsync FAILED: {ex.Message}");
-            TranscriptText.Text = "Could not resume: " + ex.Message;
-            TranscriptText.Foreground = new SolidColorBrush(Color.FromRgb(0xF4, 0x47, 0x47));
-            StatusLabel.Text = "ERROR";
+            // NOT SwitchToFailed: the accumulated text is still good. Fall back
+            // to Paused so Send/Insert keep working and Resume can be retried.
+            // The error must NOT go into the text box - in the Paused stage the
+            // box content IS what Send submits, so writing the error there
+            // would send the error message as the prompt.
+            SwitchToPaused();
+            StatusLabel.Text = "ERROR - could not resume";
             StatusLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xF4, 0x47, 0x47));
-            PauseButton.IsVisible = false;
+            LevelHint.Text = "Reconnect failed - your text is kept. Try Resume again, or Send what you have.";
         }
+    }
+
+    /// <summary>
+    /// Backend connect in progress. The mic IS already capturing (capture-first
+    /// pipeline) so the bars move and the timer ticks, but commit actions stay
+    /// disabled until the transcription session is live: there is nothing to
+    /// send yet, and a mic switch mid-connect would race the service start.
+    /// Cancel stays available throughout.
+    /// </summary>
+    private void SwitchToConnecting()
+    {
+        _stage = Stage.Connecting;
+        StatusLabel.Text = "CONNECTING";
+        StatusLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xDC, 0xDC, 0xAA));
+        TimerLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xDC, 0xDC, 0xAA));
+        TranscriptText.IsReadOnly = true;
+        PrimaryButton.IsEnabled = false;
+        StopButton.IsEnabled = false;
+        PauseButton.IsEnabled = false;
+        MicSelector.IsEnabled = false;
+        foreach (var bar in _bars) bar.Background = new SolidColorBrush(Color.FromRgb(0xDC, 0xDC, 0xAA));
+        LevelHint.Text = "";
     }
 
     private void SwitchToTranscribing()

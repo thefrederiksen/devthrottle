@@ -10,7 +10,7 @@ project:
   framework: ".NET 10"
   platform: "Windows 10/11 (Avalonia primary; WPF archived), Mac/Linux (experimental backend)"
 
-last_updated: "2026-06-05"
+last_updated: "2026-06-06"
 
 # C4 Level 1: System Context
 context:
@@ -906,7 +906,7 @@ data_flows:
     path:
       - "MicAudioCapture (NAudio WaveIn, 24kHz/16-bit mono)"
       - "OnAudioBands -> SpeakDialog equalizer; OnInputRms -> level hint"
-      - "OpenAiRealtimeProvider (streaming STT)"
+      - "OpenAiRealtimeProvider (streaming STT; bounded connect: 10s per-attempt timeout + 1 auto-retry, DictationConnectException on exhaustion)"
       - "CleanupOrchestrator (dictionary-only term correction via gpt-4.1-nano; strict prompt, never rewords/summarizes/removes fillers)"
       - SpeakDialog inserts/sends the verbatim text (only dictionary terms corrected) into the prompt
 
