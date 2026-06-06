@@ -106,6 +106,13 @@ public sealed class ConPtyBackend : ISessionBackend
 
         // Send Enter (carriage return)
         _processHost.Write(new byte[] { 0x0D });
+
+        // @-reference Enters are unreliable (autocomplete popup / claude's startup window
+        // drops them) and a parked prompt looks like an idle session (issue #212). Watch
+        // for submission evidence (the TUI streams after a real submit) and keep nudging
+        // while it stays dead; an extra Enter after a real submit is a no-op.
+        if (textToSend.StartsWith('@'))
+            await AtReferenceSubmitVerifier.EnsureSubmittedAsync(_buffer, Write, textToSend);
     }
 
     /// <summary>

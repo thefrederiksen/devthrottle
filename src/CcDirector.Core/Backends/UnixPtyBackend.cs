@@ -113,6 +113,11 @@ public sealed class UnixPtyBackend : ISessionBackend
         // This matches ConPtyBackend on Windows; sending LF here only added a blank
         // line in Claude's input box instead of submitting the prompt.
         _processHost.Write(new byte[] { 0x0D }); // CR = Enter/submit
+
+        // Same unreliable @-reference Enter as ConPtyBackend (issue #212): watch for
+        // submission evidence and keep nudging while the TUI stays dead.
+        if (textToSend.StartsWith('@'))
+            await AtReferenceSubmitVerifier.EnsureSubmittedAsync(Buffer, Write, textToSend);
     }
 
     public Task SendEnterAsync()

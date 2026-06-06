@@ -467,15 +467,32 @@ internal static class GatewayEndpoints
             var context = Recovery.RestoreContextBuilder.Build(
                 row.Name, row.SessionId, row.RepoPath, row.ClaudeSessionId, journal.LastUpdatedUtc, briefs);
 
+            // Spawning claude.exe takes seconds; the shared DirectorEndpointClient's 2s
+            // aggregate timeout is too short here, and a timed-out create leaves an ORPHAN
+            // (the Director finishes the spawn after the client gave up, so the session
+            // exists but never gets renamed or journal-cleaned). Dedicated 20s client,
+            // same as the cross-director handover's spawn leg above.
             var targetEp = (target.ControlEndpoint ?? "").TrimEnd('/');
-            var (ok, created, err) = await client.CreateSessionAsync(targetEp, new NewSessionRequest
+            SessionDto? created;
+            using (var spawnHttp = new HttpClient { Timeout = TimeSpan.FromSeconds(20) })
             {
-                RepoPath = row.RepoPath,
-                Agent = row.Agent,
-                PrePrompt = context,
-            });
-            if (!ok || created is null)
-                return Results.Problem($"target director failed to create the continuation session: {err}", statusCode: StatusCodes.Status502BadGateway);
+                var spawnResp = await spawnHttp.PostAsJsonAsync($"{targetEp}/sessions", new NewSessionRequest
+                {
+                    RepoPath = row.RepoPath,
+                    Agent = row.Agent,
+                    PrePrompt = context,
+                });
+                if (!spawnResp.IsSuccessStatusCode)
+                {
+                    var body = await spawnResp.Content.ReadAsStringAsync();
+                    return Results.Problem(
+                        $"target director failed to create the continuation session: HTTP {(int)spawnResp.StatusCode} - {body}",
+                        statusCode: StatusCodes.Status502BadGateway);
+                }
+                created = await spawnResp.Content.ReadFromJsonAsync<SessionDto>();
+            }
+            if (created is null)
+                return Results.Problem("target director returned an empty session body", statusCode: StatusCodes.Status502BadGateway);
             created.DirectorId = target.DirectorId;
             FileLog.Write($"[GatewayEndpoints] restore: created continuation {created.SessionId} on {target.DirectorId} for dead {row.SessionId}");
 

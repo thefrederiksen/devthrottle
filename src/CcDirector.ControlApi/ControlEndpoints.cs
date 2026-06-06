@@ -2290,8 +2290,18 @@ internal static class ControlEndpoints
             // SessionManager.CreateSession now fires OnSessionCreated itself, so no
             // explicit RaiseSessionCreated call is needed here.
 
-            // If a PrePrompt was supplied, dispatch it once the session reaches Idle.
+            // If a PrePrompt was supplied, dispatch it once the agent is actually READY.
             // Fire-and-forget on a background task so the POST returns 201 immediately.
+            //
+            // READINESS (issue #212): ActivityState alone is NOT a gate here - a fresh
+            // session reads WaitingForInput from t=0, which dispatched seeds into a
+            // still-BOOTING claude: the typed text reached the composer but the Enter
+            // keypresses were dropped, parking the whole prompt unsubmitted (observed
+            // live on the restore E2E, repeatedly). Claude is ready once its startup
+            // burst (the welcome banner) has rendered AND the TUI has settled - so wait
+            // for substantial output followed by a full quiet poll. If the deadline
+            // passes without that, dispatch anyway; the backend's @-reference submit
+            // watchdog is the last line of defense.
             if (!string.IsNullOrWhiteSpace(req.PrePrompt))
             {
                 var prePrompt = req.PrePrompt;
@@ -2302,12 +2312,21 @@ internal static class ControlEndpoints
                     try
                     {
                         var deadline = DateTime.UtcNow.AddMilliseconds(waitMs);
+                        long lastBytes = -1;
                         while (DateTime.UtcNow < deadline)
                         {
                             var st = capturedSession.ActivityState;
-                            if (st is ActivityState.Idle or ActivityState.WaitingForInput) break;
-                            if (st is ActivityState.Exited) { FileLog.Write($"[ControlEndpoints] PrePrompt: session exited before idle, sid={capturedSession.Id}"); return; }
-                            await Task.Delay(500);
+                            if (st is ActivityState.Exited) { FileLog.Write($"[ControlEndpoints] PrePrompt: session exited before ready, sid={capturedSession.Id}"); return; }
+                            var bytes = capturedSession.Buffer?.TotalBytesWritten ?? 0;
+                            var settled = bytes > 1500 && bytes == lastBytes
+                                && st is ActivityState.Idle or ActivityState.WaitingForInput;
+                            if (settled)
+                            {
+                                FileLog.Write($"[ControlEndpoints] PrePrompt: agent ready (TUI rendered {bytes} bytes, then settled), sid={capturedSession.Id}");
+                                break;
+                            }
+                            lastBytes = bytes;
+                            await Task.Delay(750);
                         }
                         FileLog.Write($"[ControlEndpoints] PrePrompt: dispatching to sid={capturedSession.Id}, len={prePrompt.Length}");
                         await capturedSession.SendTextAsync(prePrompt);
