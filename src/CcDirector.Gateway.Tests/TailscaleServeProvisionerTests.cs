@@ -11,7 +11,7 @@ namespace CcDirector.Gateway.Tests;
 /// </summary>
 public class TailscaleServeProvisionerTests
 {
-    private const string LocalMachine = "SOREN-NORTH";
+    private const string LocalMachine = "MACHINE-A";
 
     private static DirectorDto Dto(string control, string machine = LocalMachine, string? tailnet = null) => new()
     {
@@ -36,7 +36,7 @@ public class TailscaleServeProvisionerTests
     public void ShouldMap_LocalMachineName_TailnetEndpoint_InFixedRange_Maps()
     {
         // A local Director that registered over HTTP advertising its tailnet URL (not loopback).
-        var d = Dto("https://soren-north.taildb08ed.ts.net:7886", machine: "soren-north");
+        var d = Dto("https://machine-a.tail0123.ts.net:7886", machine: "machine-a");
 
         var ok = TailscaleServeProvisioner.ShouldMap(d, LocalMachine, out var port);
 
@@ -47,9 +47,9 @@ public class TailscaleServeProvisionerTests
     [Fact]
     public void ShouldMap_RemoteMachineDirector_DoesNotMap()
     {
-        // The laptop's Director: mapping it here would proxy soren-north:7879 to a dead
+        // The laptop's Director: mapping it here would proxy machine-a:7879 to a dead
         // local port. This was the orphan churn source in issue #179.
-        var d = Dto("https://sorenlaptop.taildb08ed.ts.net:7879", machine: "SORENLAPTOP");
+        var d = Dto("https://laptop-b.tail0123.ts.net:7879", machine: "LAPTOP-B");
 
         Assert.False(TailscaleServeProvisioner.ShouldMap(d, LocalMachine, out _));
     }
@@ -78,7 +78,7 @@ public class TailscaleServeProvisionerTests
     private static string StatusJson(params (int httpsPort, string proxy)[] entries)
     {
         var web = string.Join(",", entries.Select(e =>
-            $"\"soren-north.taildb08ed.ts.net:{e.httpsPort}\": {{ \"Handlers\": {{ \"/\": {{ \"Proxy\": \"{e.proxy}\" }} }} }}"));
+            $"\"machine-a.tail0123.ts.net:{e.httpsPort}\": {{ \"Handlers\": {{ \"/\": {{ \"Proxy\": \"{e.proxy}\" }} }} }}"));
         return $"{{ \"TCP\": {{}}, \"Web\": {{ {web} }} }}";
     }
 

@@ -73,19 +73,19 @@ public sealed class SettingsEndpointTests : IAsyncLifetime
     {
         var patch = new JsonObject
         {
-            ["screenshots"] = new JsonObject { ["source_directory"] = "/Users/soren/Desktop" },
+            ["screenshots"] = new JsonObject { ["source_directory"] = "/Users/alice/Desktop" },
         };
         var resp = await _client.PutAsJsonAsync("settings", patch);
         resp.EnsureSuccessStatusCode();
 
         var merged = await resp.Content.ReadFromJsonAsync<JsonObject>();
-        Assert.Equal("/Users/soren/Desktop", (string?)merged!["screenshots"]!["source_directory"]);
+        Assert.Equal("/Users/alice/Desktop", (string?)merged!["screenshots"]!["source_directory"]);
         // The gateway block the PUT didn't mention must still be there.
         Assert.Equal("http://gw.example:7878", (string?)merged["gateway"]!["url"]);
 
         // And it must be durable on disk, not just in the response.
         var onDisk = CcDirectorConfigService.ReadRaw();
-        Assert.Equal("/Users/soren/Desktop", (string?)onDisk["screenshots"]!["source_directory"]);
+        Assert.Equal("/Users/alice/Desktop", (string?)onDisk["screenshots"]!["source_directory"]);
         Assert.Equal("http://gw.example:7878", (string?)onDisk["gateway"]!["url"]);
     }
 

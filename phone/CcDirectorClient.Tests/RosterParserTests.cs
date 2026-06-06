@@ -26,7 +26,7 @@ public class RosterParserTests
             "statusColor": "red",
             "lastStatusReason": "pending question",
             "tailnetEndpoint": "https://host.ts.net/",
-            "machineName": "soren-north",
+            "machineName": "machine-a",
             "voiceMode": true
           }
         ]
@@ -40,7 +40,7 @@ public class RosterParserTests
         Assert.Equal("pending question", s.LastStatusReason);
         // Trailing slash is trimmed so endpoint concatenation is clean.
         Assert.Equal("https://host.ts.net", s.TailnetEndpoint);
-        Assert.Equal("soren-north", s.MachineName);
+        Assert.Equal("machine-a", s.MachineName);
         Assert.True(s.VoiceMode);
     }
 

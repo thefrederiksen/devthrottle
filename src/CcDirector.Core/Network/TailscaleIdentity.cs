@@ -23,7 +23,7 @@ public static class TailscaleIdentity
     private static readonly TimeSpan CommandTimeout = TimeSpan.FromSeconds(5);
 
     /// <summary>
-    /// This node's MagicDNS name, e.g. <c>soren-north.taildb08ed.ts.net</c> (no scheme, no
+    /// This node's MagicDNS name, e.g. <c>machine-a.tail0123.ts.net</c> (no scheme, no
     /// port, no trailing dot), or null if Tailscale is unavailable on this machine.
     /// </summary>
     public static string? TryGetMagicDnsName()
@@ -100,7 +100,7 @@ public static class TailscaleIdentity
     }
 
     /// <summary>
-    /// The tailnet front-door base URL, e.g. <c>https://soren-north.taildb08ed.ts.net</c>,
+    /// The tailnet front-door base URL, e.g. <c>https://machine-a.tail0123.ts.net</c>,
     /// or null if Tailscale is not available. No port: the Serve front door listens on 443.
     /// </summary>
     public static string? TryGetFrontDoorBaseUrl()
@@ -111,7 +111,7 @@ public static class TailscaleIdentity
 
     /// <summary>
     /// The tailnet front-door URL for a specific backend port, e.g.
-    /// <c>https://soren-north.taildb08ed.ts.net:7470</c> for the Cockpit, or null if
+    /// <c>https://machine-a.tail0123.ts.net:7470</c> for the Cockpit, or null if
     /// Tailscale is unavailable. Tailscale Serve maps <c>https://&lt;magicdns&gt;:&lt;port&gt;</c>
     /// to <c>http://localhost:&lt;port&gt;</c>, so the public URL keeps the same port number.
     /// Callers MUST treat null as "remote URL unavailable" and refuse rather than substitute

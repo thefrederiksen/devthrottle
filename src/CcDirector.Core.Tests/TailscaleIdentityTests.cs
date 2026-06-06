@@ -10,10 +10,10 @@ public class TailscaleIdentityTests
     public void ParseSelfDnsName_NormalStatus_StripsTrailingDot()
     {
         var json = """
-        { "Self": { "DNSName": "soren-north.taildb08ed.ts.net." } }
+        { "Self": { "DNSName": "machine-a.tail0123.ts.net." } }
         """;
 
-        Assert.Equal("soren-north.taildb08ed.ts.net", TailscaleIdentity.ParseSelfDnsName(json));
+        Assert.Equal("machine-a.tail0123.ts.net", TailscaleIdentity.ParseSelfDnsName(json));
     }
 
     [Fact]
@@ -76,12 +76,12 @@ public class TailscaleIdentityTests
     // windows laptop, an online mac, an online android phone, and an offline windows node.
     private const string SampleStatus = """
     {
-      "Self": { "DNSName": "soren-north.taildb08ed.ts.net.", "OS": "windows", "Online": true },
+      "Self": { "DNSName": "machine-a.tail0123.ts.net.", "OS": "windows", "Online": true },
       "Peer": {
-        "nodekeyA": { "DNSName": "sorenlaptop.taildb08ed.ts.net.", "OS": "windows", "Online": true },
-        "nodekeyB": { "DNSName": "sorens-mac-mini.taildb08ed.ts.net.", "OS": "macOS", "Online": true },
-        "nodekeyC": { "DNSName": "sorens-z-flip4.taildb08ed.ts.net.", "OS": "android", "Online": true },
-        "nodekeyD": { "DNSName": "old-desktop.taildb08ed.ts.net.", "OS": "windows", "Online": false }
+        "nodekeyA": { "DNSName": "laptop-b.tail0123.ts.net.", "OS": "windows", "Online": true },
+        "nodekeyB": { "DNSName": "mac-mini-c.tail0123.ts.net.", "OS": "macOS", "Online": true },
+        "nodekeyC": { "DNSName": "phone-d.tail0123.ts.net.", "OS": "android", "Online": true },
+        "nodekeyD": { "DNSName": "old-desktop.tail0123.ts.net.", "OS": "windows", "Online": false }
       }
     }
     """;
@@ -93,9 +93,9 @@ public class TailscaleIdentityTests
 
         Assert.Equal(new[]
         {
-            "soren-north.taildb08ed.ts.net",
-            "sorenlaptop.taildb08ed.ts.net",
-            "sorens-mac-mini.taildb08ed.ts.net",
+            "machine-a.tail0123.ts.net",
+            "laptop-b.tail0123.ts.net",
+            "mac-mini-c.tail0123.ts.net",
         }, names);
     }
 
@@ -104,7 +104,7 @@ public class TailscaleIdentityTests
     {
         var names = TailscaleIdentity.ParseNodeDnsNames(SampleStatus, excludeMobile: false);
 
-        Assert.Contains("sorens-z-flip4.taildb08ed.ts.net", names);
+        Assert.Contains("phone-d.tail0123.ts.net", names);
     }
 
     [Fact]
@@ -112,7 +112,7 @@ public class TailscaleIdentityTests
     {
         var names = TailscaleIdentity.ParseNodeDnsNames(SampleStatus, onlineOnly: false);
 
-        Assert.Contains("old-desktop.taildb08ed.ts.net", names);
+        Assert.Contains("old-desktop.tail0123.ts.net", names);
     }
 
     [Fact]
@@ -120,7 +120,7 @@ public class TailscaleIdentityTests
     {
         var names = TailscaleIdentity.ParseNodeDnsNames(SampleStatus, includeSelf: false);
 
-        Assert.DoesNotContain("soren-north.taildb08ed.ts.net", names);
+        Assert.DoesNotContain("machine-a.tail0123.ts.net", names);
     }
 
     [Fact]

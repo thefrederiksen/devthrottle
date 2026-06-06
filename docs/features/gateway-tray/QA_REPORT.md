@@ -50,12 +50,12 @@ NOT caused by this work via the isolated-graft run in check #2.
 - The rollback live test simulates a bad build via a dead health port; the
   rolled-back file swap under a crashed-at-startup build is covered by the
   GatewaySelfUpdateTests unit fakes.
-- The live machine (soren-north) still runs the OLD Program Files + service
+- The live machine (machine-a) still runs the OLD Program Files + service
   install. Migration is manual (one elevated step), see below.
 - `docs/testing/install-autoupdate-test-procedure.md` needs a full rewrite on the
   next clean-machine QA pass (banner added).
 
-## Migration of soren-north: DONE (2026-06-05)
+## Migration of machine-a: DONE (2026-06-05)
 
 Executed live, user-approved UAC for the one elevated step:
 
@@ -67,7 +67,7 @@ Executed live, user-approved UAC for the one elevated step:
    session) placed at `%LOCALAPPDATA%\cc-director\gateway`, started `--managed`.
 3. `scripts/verify-gateway.ps1`: **6/6 PASS** - exe paths, autostart Run key
    (`--managed`), tray process, /healthz (live fleet: 3 Directors), Cockpit
-   answering on 7470. Tailnet URLs resolved (soren-north.taildb08ed.ts.net).
+   answering on 7470. Tailnet URLs resolved (machine-a.tail0123.ts.net).
 
 Leftover: `C:\ProgramData\cc-director` (old service logs) is ACL-locked and
 needs one elevated delete if/when desired. Remaining user step: log off/on once
@@ -90,7 +90,7 @@ Plan: docs/plans/one-url-cockpit.md. Implemented and live:
 | 6 | Cockpit-down interstitial ("Cockpit starting...", auto-refresh, 503) | PASS - verified by killing the test Cockpit |
 | 7 | Tailscale: front door only; legacy :7470 mapping removed (provisioner cleanup) | PASS - `tailscale serve status` shows only 443 -> 7878 for cc-director |
 | 8 | Tests | Engine 107/107; GatewayDirectoryRegistration + CockpitParity 23/23 (incl. the new root-proxy test with an injectable dead cockpit port) |
-| 9 | LIVE deploy | PASS - new gateway exe + cockpit publish deployed to `%LOCALAPPDATA%`; `https://soren-north.taildb08ed.ts.net/{,fleet,exes,transcripts,healthz}` all 200 over the tailnet |
+| 9 | LIVE deploy | PASS - new gateway exe + cockpit publish deployed to `%LOCALAPPDATA%`; `https://machine-a.tail0123.ts.net/{,fleet,exes,transcripts,healthz}` all 200 over the tailnet |
 
 Gotchas recorded for posterity:
 - `MapFallback()` without a pattern uses `{*path:nonfile}` - it silently skips
@@ -100,5 +100,5 @@ Gotchas recorded for posterity:
 - `WebRootFileProvider`, not physical wwwroot paths, for files served out of
   wwwroot (works across dev / bin-run / publish).
 
-Phone bookmark change: the Cockpit is now just `https://soren-north.taildb08ed.ts.net/`
+Phone bookmark change: the Cockpit is now just `https://machine-a.tail0123.ts.net/`
 (the :7470 bookmark is dead); the Cards view lives at `/fleet`.

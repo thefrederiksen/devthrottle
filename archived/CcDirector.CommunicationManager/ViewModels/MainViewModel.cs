@@ -794,7 +794,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             result[acct.Name] = config;
 
             // Also index by email address so lookups work whether send_from is
-            // an account name ("consulting") or an email ("soren@centerconsulting.com")
+            // an account name ("consulting") or an email ("user@example.com")
             if (acct.Value.TryGetProperty("email", out var emailProp))
             {
                 var email = emailProp.GetString();

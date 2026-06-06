@@ -113,7 +113,7 @@ All run against the built `cc-director-setup-cli.dll`.
 ### 4.2 Framework prerequisite (decision D9: detect + guide)
 ```
 prereqs ->
-  claude   found (C:\Users\soren\.local\bin\claude.EXE)
+  claude   found (C:\Users\alice\.local\bin\claude.EXE)
   codex    not found
   exit=0
 ```

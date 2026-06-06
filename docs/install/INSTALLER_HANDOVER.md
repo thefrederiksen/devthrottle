@@ -149,7 +149,7 @@ the `python -m venv` step, or extraction of the 334 MB wheelhouse (antivirus can
 ---
 
 ## 7. References
-- Plan (full design): `C:\Users\soren\.claude\plans\shiny-swimming-coral.md` (local to the dev box).
+- Plan (full design): `C:\Users\alice\.claude\plans\shiny-swimming-coral.md` (local to the dev box).
 - Recent release tags: v0.5.0 (shared-venv tools), v0.6.0 (mac installer), v0.6.1/.2 (issue reporter +
   install-screen report button), **v0.6.3** (engine logging routed to the setup log).
 - To cut a release: bump the 5 version files (`src/CcDirector.Avalonia/CcDirector.Avalonia.csproj`,

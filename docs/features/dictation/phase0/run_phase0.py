@@ -21,8 +21,8 @@ from pathlib import Path
 
 from openai import OpenAI
 
-OUT_DIR = Path(r"D:\ReposFred\cc-director\docs\features\dictation\phase0")
-CLAUDE_EXE = r"C:\Users\soren\.local\bin\claude.exe"
+OUT_DIR = Path(__file__).resolve().parent
+CLAUDE_EXE = os.path.expanduser(r"~\.local\bin\claude.exe")
 
 CLIPS = [
     "I sent the cc-director patch to mindzie before the CenCon review.",

@@ -429,12 +429,12 @@
 <li>The rollback live test simulates a bad build via a dead health port; the
         rolled-back file swap under a crashed-at-startup build is covered by the
         GatewaySelfUpdateTests unit fakes.</li>
-<li>The live machine (soren-north) still runs the OLD Program Files + service
+<li>The live machine (machine-a) still runs the OLD Program Files + service
         install. Migration is manual (one elevated step), see below.</li>
 <li><code>docs/testing/install-autoupdate-test-procedure.md</code> needs a full rewrite on the
         next clean-machine QA pass (banner added).</li>
 </ul>
-<h2>Migration of soren-north: DONE (2026-06-05)</h2>
+<h2>Migration of machine-a: DONE (2026-06-05)</h2>
 <p>Executed live, user-approved UAC for the one elevated step:</p>
 <ol>
 <li>Elevated: <code>sc stop</code> + <code>sc delete cc-gateway-service</code>; working Cockpit build
@@ -445,7 +445,7 @@
         session) placed at <code>%LOCALAPPDATA%\cc-director\gateway</code>, started <code>--managed</code>.</li>
 <li><code>scripts/verify-gateway.ps1</code>: <strong>6/6 PASS</strong> - exe paths, autostart Run key
         (<code>--managed</code>), tray process, /healthz (live fleet: 3 Directors), Cockpit
-        answering on 7470. Tailnet URLs resolved (<a href="http://soren-north.taildb08ed.ts.net">soren-north.taildb08ed.ts.net</a>).</li>
+        answering on 7470. Tailnet URLs resolved (<a href="http://machine-a.tail0123.ts.net">machine-a.tail0123.ts.net</a>).</li>
 </ol>
 <p>Leftover: <code>C:\ProgramData\cc-director</code> (old service logs) is ACL-locked and
         needs one elevated delete if/when desired. Remaining user step: log off/on once
@@ -506,7 +506,7 @@
 <tr>
 <td>9</td>
 <td>LIVE deploy</td>
-<td>PASS - new gateway exe + cockpit publish deployed to <code>%LOCALAPPDATA%</code>; <code>https://soren-north.taildb08ed.ts.net/{,fleet,exes,transcripts,healthz}</code> all 200 over the tailnet</td>
+<td>PASS - new gateway exe + cockpit publish deployed to <code>%LOCALAPPDATA%</code>; <code>https://machine-a.tail0123.ts.net/{,fleet,exes,transcripts,healthz}</code> all 200 over the tailnet</td>
 </tr>
 </tbody>
 </table>
@@ -519,7 +519,7 @@
 <li><code>WebRootFileProvider</code>, not physical wwwroot paths, for files served out of
         wwwroot (works across dev / bin-run / publish).</li>
 </ul>
-<p>Phone bookmark change: the Cockpit is now just <code>https://soren-north.taildb08ed.ts.net/</code>
+<p>Phone bookmark change: the Cockpit is now just <code>https://machine-a.tail0123.ts.net/</code>
         (the :7470 bookmark is dead); the Cards view lives at <code>/fleet</code>.</p>
 </article>
 </body>

@@ -163,7 +163,7 @@ Verified: after `install-gateway-tray.ps1 -Launch`, the installed instance answe
 
 ```
 HKCU\...\Run\CcDirectorGateway =
-  "C:\Users\soren\AppData\Local\cc-director\gateway-tray\cc-director-gateway-tray.exe"
+  "C:\Users\alice\AppData\Local\cc-director\gateway-tray\cc-director-gateway-tray.exe"
 ```
 
 ### 2. Port conflicts are surfaced, not silently fatal

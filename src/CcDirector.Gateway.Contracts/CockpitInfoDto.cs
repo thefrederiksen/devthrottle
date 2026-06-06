@@ -10,7 +10,7 @@ namespace CcDirector.Gateway.Contracts;
 public sealed class CockpitInfoDto
 {
     /// <summary>
-    /// The front-door URL serving the Cockpit, e.g. https://soren-north.taildb08ed.ts.net/.
+    /// The front-door URL serving the Cockpit, e.g. https://machine-a.tail0123.ts.net/.
     /// Null when Tailscale is unavailable on this machine, in which case the caller must surface
     /// the problem rather than fall back to localhost.
     /// </summary>

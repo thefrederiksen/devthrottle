@@ -440,7 +440,7 @@
 <p>Verified: after <code>install-gateway-tray.ps1 -Launch</code>, the installed instance answered
         <code>/healthz</code> 200, and the autostart Run key pointed at the installed exe:</p>
 <pre><code>HKCU\...\Run\CcDirectorGateway =
-          "C:\Users\soren\AppData\Local\cc-director\gateway-tray\cc-director-gateway-tray.exe"
+          "C:\Users\alice\AppData\Local\cc-director\gateway-tray\cc-director-gateway-tray.exe"
         </code></pre>
 <h3>2. Port conflicts are surfaced, not silently fatal</h3>
 <p>A new gateway can't bind a port another process already owns. Previously that showed a bare

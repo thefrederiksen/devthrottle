@@ -124,7 +124,12 @@ def main():
         "noreply", "no-reply", "notifications@", "mailer-daemon",
         "donotreply", "do-not-reply", "unsubscribe",
     ]
-    own_emails = {"soren@duksrevo.com"}
+    # Your own address(es) to exclude from the contact list, comma-separated.
+    own_emails = {
+        e.strip().lower()
+        for e in os.environ.get("CC_GMAIL_OWN_EMAILS", "").split(",")
+        if e.strip()
+    }
 
     filtered = []
     for email, name in sorted(all_contacts.items()):

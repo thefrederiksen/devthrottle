@@ -6,7 +6,7 @@
 **Phase 4 (power tools): Fan-out + read-only git status PASS;** per-file source-control and workspaces/history are blocked on missing Director endpoints - see the Phase 4 section and finding 6.
 **Date:** 2026-05-31
 **Cockpit under test:** source build of `src/CcDirector.Cockpit` (run with `ASPNETCORE_ENVIRONMENT=Development`), served at `http://localhost:7471`, pointed at the live Gateway `http://127.0.0.1:7878`.
-**Driven against:** a real Director on the final build (Slot 1, `cc-director1.exe`, control API `7884`, director id `c99a103c`), advertising the real tailnet endpoint `https://soren-north.taildb08ed.ts.net:7884`. Interactive checks ran against a dedicated throwaway QA session (`721e6993`, repo `D:\ReposFred\cc-director-qa-scratch`) so no live working session was disturbed.
+**Driven against:** a real Director on the final build (Slot 1, `cc-director1.exe`, control API `7884`, director id `c99a103c`), advertising the real tailnet endpoint `https://machine-a.tail0123.ts.net:7884`. Interactive checks ran against a dedicated throwaway QA session (`721e6993`, repo `D:\ReposFred\cc-director-qa-scratch`) so no live working session was disturbed.
 **Browser:** a separate, isolated cc-playwright Brave instance (connection `cockpit-qa`) so the user's own browser was never touched.
 
 ---
@@ -90,7 +90,7 @@ This is a Director / state-detector interaction to confirm separately (the Direc
 ![A9 interrupt](img/A9_interrupt.png)
 
 ### A10 - Tailnet only; slow Director does not stall the UI - PASS
-The Slot 1 session advertised the real tailnet endpoint `https://soren-north.taildb08ed.ts.net:7884`. The Cockpit dials the session DTO's `TailnetEndpoint` exclusively (TerminalPane builds `wss://...` from it; DirectorClient uses it as the base) with no localhost literal anywhere, so the terminal stream and every write (prompt, queue, interrupt, escape, upload) for that session rode the tailnet HTTPS endpoint. Separately, the "slow/unreachable Director does not stall the UI" half is proven live: a cooling-down Director renders inline in the rail while every other session keeps updating.
+The Slot 1 session advertised the real tailnet endpoint `https://machine-a.tail0123.ts.net:7884`. The Cockpit dials the session DTO's `TailnetEndpoint` exclusively (TerminalPane builds `wss://...` from it; DirectorClient uses it as the base) with no localhost literal anywhere, so the terminal stream and every write (prompt, queue, interrupt, escape, upload) for that session rode the tailnet HTTPS endpoint. Separately, the "slow/unreachable Director does not stall the UI" half is proven live: a cooling-down Director renders inline in the rail while every other session keeps updating.
 
 > Note: the other local Director (`39aad623`, port `7879`) advertises `http://127.0.0.1:7879` because it has no Tailscale Serve front in this single-box setup. That is a Director registration property, not a Cockpit behavior - the Cockpit always uses whatever endpoint the Gateway advertises.
 

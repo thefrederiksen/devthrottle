@@ -17,7 +17,7 @@ $env:ANDROID_HOME     = $sdk
 $env:ANDROID_SDK_ROOT = $sdk
 $env:JAVA_HOME        = "C:\Program Files\Eclipse Adoptium\jdk-21.0.10.7-hotspot"
 
-# Devices look like:  100.86.144.11:32997   device  product:... model:SM_F721W
+# Devices look like:  100.x.y.z:32997   device  product:... model:SM_F721W
 # Pick a real phone: an ip:port serial that is NOT the emulator and NOT the
 # mDNS (_adb-tls-connect) duplicate.
 $lines = & $adb devices | Select-String "\sdevice$"

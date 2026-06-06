@@ -81,7 +81,7 @@ What ships today instead: `CcDirector.Gateway` console exe registered via
 **No backward compatibility (Soren, 2026-06-05): the service Gateway has no real
 install base. The installer simply switches to the tray app; service code is
 DELETED, not migrated.** The only service instance anywhere is the dev one on
-soren-north - removed by hand once (`sc stop` + `sc delete cc-gateway-service`,
+machine-a - removed by hand once (`sc stop` + `sc delete cc-gateway-service`,
 delete the old install dir), not by product code.
 
 1. **Install location (D-TRAY-1, locked):** `%LOCALAPPDATA%\cc-director\gateway\`.
@@ -121,7 +121,7 @@ delete the old install dir), not by product code.
 
 ## 5. Phase 3 - Verify live
 
-1. On soren-north: hand-remove the dev service (`sc stop` + `sc delete
+1. On machine-a: hand-remove the dev service (`sc stop` + `sc delete
    cc-gateway-service`, delete old install dir), run the unelevated tray
    install; verify from the PHONE over the tailnet (Cockpit 7470 + gateway
    front door). No localhost verification.
@@ -130,7 +130,7 @@ delete the old install dir), not by product code.
    to prove rollback + pinning still work in the process model.
 4. Tray menu Quit/Restart behave; second launch hits the mutex, logs, exits.
 5. Enable "use my sign-in info to finish setting up after an update" on
-   soren-north so patch reboots come back without manual logon.
+   machine-a so patch reboots come back without manual logon.
 
 ## 6. Out of scope (next plans, in order)
 

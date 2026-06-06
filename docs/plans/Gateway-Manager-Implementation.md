@@ -118,7 +118,7 @@ Each Director writes its own `{guid}.json` on startup:
   "pid": 12345,
   "startedAt": "2026-05-16T10:36:00Z",
   "controlEndpoint": "http://127.0.0.1:55321",
-  "machineName": "SOREN-PC",
+  "machineName": "MACHINE-A",
   "user": "soren",
   "schemaVersion": 1
 }

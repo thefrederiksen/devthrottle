@@ -17,7 +17,7 @@ public class ClaudeProjectFolderEncodingTests
     [InlineData(@"D:\ReposFred\cc-director", "D--ReposFred-cc-director")]
     // The live #184 case: a dot in a path segment becomes a dash (".temp" -> "-temp").
     [InlineData(@"D:\ReposFred\cc-director\.temp\brain-sandbox", "D--ReposFred-cc-director--temp-brain-sandbox")]
-    [InlineData(@"C:\Users\soren\AppData\Local\cc-director\brain", "C--Users-soren-AppData-Local-cc-director-brain")]
+    [InlineData(@"C:\Users\alice\AppData\Local\cc-director\brain", "C--Users-alice-AppData-Local-cc-director-brain")]
     // Spaces are non-alphanumeric too.
     [InlineData(@"D:\My Repos\app", "D--My-Repos-app")]
     public void GetProjectFolder_MatchesClaudeEncoding(string repoPath, string expected)

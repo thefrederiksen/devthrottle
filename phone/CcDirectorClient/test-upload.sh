@@ -9,21 +9,23 @@
 #
 # Usage: test-upload.sh [segments]   (default 6)
 set -u
-export ANDROID_HOME="/c/Users/soren/AppData/Local/Android/Sdk"
+export ANDROID_HOME="${ANDROID_HOME:-/c/Users/$USERNAME/AppData/Local/Android/Sdk}"
 export MSYS_NO_PATHCONV=1
 ADB="$ANDROID_HOME/platform-tools/adb.exe"
-D=100.86.144.11:39325
+# adb-over-wifi target, e.g. ADB_DEVICE=100.x.y.z:port (your phone's tailscale ip)
+D="${ADB_DEVICE:?Set ADB_DEVICE=<ip>:<port> (adb over wifi)}"
 PKG=com.ccdirector.client
 REC_ROOT=/sdcard/Android/data/$PKG/files/recordings
-SRC_M4A="C:/Users/soren/AppData/Local/Temp/ccfix/src.m4a"
-TMP="C:/Users/soren/AppData/Local/Temp/ccfix"
+SRC_M4A="C:/Users/$USERNAME/AppData/Local/Temp/ccfix/src.m4a"
+TMP="C:/Users/$USERNAME/AppData/Local/Temp/ccfix"
 
 N=${1:-6}
 ID="f1f1f1f1f1f1f1f1f1f1f1f1f1f1f101"   # fixed id so re-runs reuse the same recording
 SHA="60f8c0ab718abd2153bd6d40583b4ecb88c415dcc258464a47fb48a11933d5e8"
 BYTES=94702
 DUR=13575
-SERVER="https://soren-north.taildb08ed.ts.net"
+# your CC Director Gateway front door (Tailscale Serve hostname)
+SERVER="${CC_GATEWAY_URL:?Set CC_GATEWAY_URL=https://<your-gateway>.ts.net}"
 
 echo "=== [1/5] keep screen awake ==="
 "$ADB" -s $D shell svc power stayon true >/dev/null 2>&1

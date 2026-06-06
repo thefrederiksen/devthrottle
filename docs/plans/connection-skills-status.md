@@ -90,7 +90,7 @@ Update `connections.mjs`:
 - Create a `getSkillForConnection(name)` resolver that checks: connection's `skill` field first, then falls back to connection name
 
 ### 3. CLAUDE.md updates
-The global CLAUDE.md (`C:\Users\soren\.claude\CLAUDE.md`) still has the old bot detection warning blocks for LinkedIn and Reddit. These should be replaced with:
+The global CLAUDE.md (`C:\Users\alice\.claude\CLAUDE.md`) still has the old bot detection warning blocks for LinkedIn and Reddit. These should be replaced with:
 
 ```markdown
 ## LinkedIn and Reddit
@@ -114,7 +114,7 @@ The skill resolver should check this path first before falling back to the manag
 | File | Change |
 |------|--------|
 | `tools/cc-browser/src/connections.mjs` | Add `skill` field support + resolver |
-| `C:\Users\soren\.claude\CLAUDE.md` | Replace bot detection blocks |
+| `C:\Users\alice\.claude\CLAUDE.md` | Replace bot detection blocks |
 | `D:\ReposFred\cc-director\CLAUDE.md` | Add skill usage instructions |
 
 ## Files to Create

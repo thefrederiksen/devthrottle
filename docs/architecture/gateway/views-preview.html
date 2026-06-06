@@ -220,62 +220,62 @@ function isoAgo(seconds) { return new Date(NOW - seconds * 1000).toISOString(); 
 //   unknown (gray) = data source unreachable or unparseable - NOT a session state
 const SAMPLE = {
   sessions: [
-    // SOREN_NORTH - mix of all live colors
+    // MACHINE_A - mix of all live colors
     {
-      sessionId: "9e0a-aaaa", machineName: "SOREN_NORTH", user: "soren", agent: "ClaudeCode",
+      sessionId: "9e0a-aaaa", machineName: "MACHINE_A", user: "alice", agent: "ClaudeCode",
       name: "fix raw tab grid", repoPath: "D:/ReposFred/cc-director",
       activityState: "WaitingForInput", statusColor: "red", lastStatusReason: "waiting for input",
       lastActivityAt: isoAgo(120),
-      viewUrl: "http://soren-north.tailnet:7879/sessions/9e0a-aaaa/view",
+      viewUrl: "http://machine-a.tailnet:7879/sessions/9e0a-aaaa/view",
     },
     {
-      sessionId: "9e0a-bbbb", machineName: "SOREN_NORTH", user: "soren", agent: "Pi",
+      sessionId: "9e0a-bbbb", machineName: "MACHINE_A", user: "alice", agent: "Pi",
       name: "rename hotkey", repoPath: "D:/ReposFred/private/assistant",
       activityState: "Idle", statusColor: "green", lastStatusReason: "idle, ready for next task",
       lastActivityAt: isoAgo(1080),
-      viewUrl: "http://soren-north.tailnet:7879/sessions/9e0a-bbbb/view",
+      viewUrl: "http://machine-a.tailnet:7879/sessions/9e0a-bbbb/view",
     },
     {
-      sessionId: "9e0a-cccc", machineName: "SOREN_NORTH", user: "soren", agent: "Codex",
+      sessionId: "9e0a-cccc", machineName: "MACHINE_A", user: "alice", agent: "Codex",
       name: null, repoPath: "C:/ReposMindzie/mindzieETLPackages",
       activityState: "Working", statusColor: "blue", lastStatusReason: "working",
       lastActivityAt: isoAgo(4),
-      viewUrl: "http://soren-north.tailnet:7879/sessions/9e0a-cccc/view",
+      viewUrl: "http://machine-a.tailnet:7879/sessions/9e0a-cccc/view",
     },
     {
-      sessionId: "9e0a-dddd", machineName: "SOREN_NORTH", user: "soren", agent: "ClaudeCode",
+      sessionId: "9e0a-dddd", machineName: "MACHINE_A", user: "alice", agent: "ClaudeCode",
       name: "migrate auth middleware", repoPath: "D:/ReposFred/cencon-method",
       activityState: "WaitingForPerm", statusColor: "red", lastStatusReason: "waiting for permission",
       lastActivityAt: isoAgo(45),
-      viewUrl: "http://soren-north.tailnet:7879/sessions/9e0a-dddd/view",
+      viewUrl: "http://machine-a.tailnet:7879/sessions/9e0a-dddd/view",
     },
 
-    // SOREN_LAPTOP - greenfield + soft warning
+    // LAPTOP_B - greenfield + soft warning
     {
-      sessionId: "ab12-aaaa", machineName: "SOREN_LAPTOP", user: "soren", agent: "Gemini",
+      sessionId: "ab12-aaaa", machineName: "LAPTOP_B", user: "alice", agent: "Gemini",
       name: null, repoPath: "",
       activityState: "Starting", statusColor: "green", lastStatusReason: "session created",
       lastActivityAt: isoAgo(20),
-      viewUrl: "http://soren-laptop.tailnet:7879/sessions/ab12-aaaa/view",
+      viewUrl: "http://laptop-b.tailnet:7879/sessions/ab12-aaaa/view",
     },
     {
-      sessionId: "ab12-bbbb", machineName: "SOREN_LAPTOP", user: "soren", agent: "ClaudeCode",
+      sessionId: "ab12-bbbb", machineName: "LAPTOP_B", user: "alice", agent: "ClaudeCode",
       name: "doc updates", repoPath: "D:/ReposFred/cc-director",
       activityState: "Idle", statusColor: "yellow", lastStatusReason: "idle, uncommitted changes",
       lastActivityAt: isoAgo(480),
-      viewUrl: "http://soren-laptop.tailnet:7879/sessions/ab12-bbbb/view",
+      viewUrl: "http://laptop-b.tailnet:7879/sessions/ab12-bbbb/view",
     },
 
     // WORK_LAP_04 - working + ready-to-go
     {
-      sessionId: "cd33-aaaa", machineName: "WORK_LAP_04", user: "soren", agent: "ClaudeCode",
+      sessionId: "cd33-aaaa", machineName: "WORK_LAP_04", user: "alice", agent: "ClaudeCode",
       name: "TTS chunking follow-up", repoPath: "D:/ReposFred/cc-director",
       activityState: "Working", statusColor: "blue", lastStatusReason: "working",
       lastActivityAt: isoAgo(8),
       viewUrl: "http://work-lap-04.tailnet:7879/sessions/cd33-aaaa/view",
     },
     {
-      sessionId: "cd33-bbbb", machineName: "WORK_LAP_04", user: "soren", agent: "ClaudeCode",
+      sessionId: "cd33-bbbb", machineName: "WORK_LAP_04", user: "alice", agent: "ClaudeCode",
       name: "vault audit", repoPath: "D:/ReposFred/cc-director",
       activityState: "Idle", statusColor: "green", lastStatusReason: "clean turn: report saved",
       lastActivityAt: isoAgo(2700),
@@ -286,7 +286,7 @@ const SAMPLE = {
   // machineError so the UI can render a placeholder under its header instead of
   // silently dropping the machine.
   machineErrors: [
-    { directorId: "deadbeef-1111", machineName: "SOREN_MEDIA_BOX", error: "timeout" },
+    { directorId: "deadbeef-1111", machineName: "MEDIA_BOX_X", error: "timeout" },
   ],
 };
 

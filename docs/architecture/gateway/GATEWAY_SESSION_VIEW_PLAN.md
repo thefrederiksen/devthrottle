@@ -92,7 +92,7 @@ Make the Gateway's `/` show **every session across the fleet** in card or list v
   ```
 - Extend filter query params (some already exist):
   - `?statusColor=red|yellow|green|unknown` (NEW — drives the pill bar)
-  - `?machine=SOREN_NORTH` (NEW)
+  - `?machine=MACHINE_A` (NEW)
   - `?includeExited=true|false` (NEW — default false; matches UI default)
   - `?agent=ClaudeCode|Pi|Codex|Gemini` (exists, keep)
   - `?state=Idle|Working|...` (exists, keep)
@@ -124,7 +124,7 @@ Make the Gateway's `/` show **every session across the fleet** in card or list v
 |  Agent: [All v]   Search: [_________]                                            |
 +----------------------------------------------------------------------------------+
 |                                                                                  |
-|  SOREN_NORTH   *  soren  *  3 sessions                                           |
+|  MACHINE_A   *  alice  *  3 sessions                                           |
 |  ------------------------------------------------------------------------------  |
 |  +-------------------+  +-------------------+  +-------------------+             |
 |  | (R) fix raw tab.. |  | (G) rename hotkey |  | (Y) (unnamed)     |             |
@@ -134,7 +134,7 @@ Make the Gateway's `/` show **every session across the fleet** in card or list v
 |  | [ Open -> ]       |  | [ Open -> ]       |  | [ Open -> ]       |             |
 |  +-------------------+  +-------------------+  +-------------------+             |
 |                                                                                  |
-|  SOREN_LAPTOP  *  soren  *  unreachable (timeout)                                |
+|  LAPTOP_B  *  alice  *  unreachable (timeout)                                |
 |  ------------------------------------------------------------------------------  |
 +----------------------------------------------------------------------------------+
 ```

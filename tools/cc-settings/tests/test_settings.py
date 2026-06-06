@@ -153,11 +153,11 @@ class TestPreservesUnknownSections:
         config._config_path = config_file
         config.load()  # reload from the seeded file path
 
-        ok = set_value(config, "screenshots.source_directory", "/Users/soren/Desktop")
+        ok = set_value(config, "screenshots.source_directory", "/Users/alice/Desktop")
         assert ok is True
 
         saved = json.loads(config_file.read_text())
-        assert saved["screenshots"]["source_directory"] == "/Users/soren/Desktop"
+        assert saved["screenshots"]["source_directory"] == "/Users/alice/Desktop"
         # The unknown section must still be intact.
         assert saved["future_block"]["some_key"] == "must_survive"
 

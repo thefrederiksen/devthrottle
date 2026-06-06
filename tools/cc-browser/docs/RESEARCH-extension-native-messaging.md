@@ -134,7 +134,7 @@ by UTF-8 JSON.
 {
   "name": "cc_browser",
   "description": "cc-browser native messaging host",
-  "path": "C:\\Users\\soren\\AppData\\Local\\cc-director\\bin\\cc-browser-host.cmd",
+  "path": "C:\\Users\\alice\\AppData\\Local\\cc-director\\bin\\cc-browser-host.cmd",
   "type": "stdio",
   "allowed_origins": [
     "chrome-extension://[extension-id]/"
@@ -145,7 +145,7 @@ by UTF-8 JSON.
 **Registry key** (Windows):
 ```
 HKCU\Software\Google\Chrome\NativeMessagingHosts\cc_browser
-  (Default) = "C:\Users\soren\AppData\Local\cc-director\bin\cc_browser.json"
+  (Default) = "C:\Users\alice\AppData\Local\cc-director\bin\cc_browser.json"
 ```
 
 ### 3. cc-browser Daemon

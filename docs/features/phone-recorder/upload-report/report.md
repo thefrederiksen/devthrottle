@@ -88,7 +88,7 @@ running Director processes and deploying means restarting that process.
    so I cannot capture the two-checkmark UI for final visual proof until you do.
    Once unlocked I will grab the screenshot and confirm no errors.
 
-2. Approve restarting the Director that serves `https://soren-north.taildb08ed.ts.net`
+2. Approve restarting the Director that serves `https://machine-a.tail0123.ts.net`
    so I can deploy the transcription fix and prove the long recording finishes
    with no error. I will restart only that one and not touch your other
    Directors - or tell me which slot it is and I will use the Task Scheduler
