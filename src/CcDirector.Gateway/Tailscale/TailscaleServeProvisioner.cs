@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
-using System.Diagnostics;
 using System.Text.Json;
+using CcDirector.Core.Network;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Discovery;
@@ -30,19 +30,25 @@ namespace CcDirector.Gateway.Tailscale;
 ///                          serve table has been observed to lose entries (including 443)
 ///                          without this Gateway removing them, so desired state is re-asserted
 ///                          for the whole process lifetime, not only at Start().
+///   - Every 60 seconds:    front-door watch - a cheap status read that re-asserts ONLY the
+///                          443 mapping. A clobbered front door turns the one URL into a total
+///                          502, and the 5-minute reconcile left up to a 5-minute blind window
+///                          (issue #200: 443 was rewritten to a dead ephemeral port and a user
+///                          hit the outage mid-window). Sweeping stays with the full reconcile.
 ///   - Gateway shutdown:    leave mappings in place. The Directors are still alive and
 ///                          reachable; a Gateway restart re-asserts every mapping.
 ///
-/// If tailscale.exe is not installed this provisioner logs once and becomes a no-op:
+/// If the tailscale CLI is not installed this provisioner logs once and becomes a no-op:
 /// remote HTTPS is simply unavailable on this machine, which is a legitimate state and
-/// NOT a hidden failure. Every tailscale invocation is serialized through one lock so
-/// concurrent appear/disappear events cannot race the CLI against itself.
+/// NOT a hidden failure. Every tailscale invocation is serialized through one in-process
+/// lock so concurrent appear/disappear events cannot race the CLI against itself, and all
+/// serve-MUTATING calls additionally go through <see cref="TailscaleCli.RunServeMutating"/>,
+/// whose cross-process named mutex stops this Gateway and self-provisioning Directors
+/// (issue #197) from interleaving the CLI's whole-table read-modify-write and clobbering
+/// each other's mappings (#179/#200).
 /// </summary>
 public sealed class TailscaleServeProvisioner : IDisposable
 {
-    private const string TailscaleExe = @"C:\Program Files\Tailscale\tailscale.exe";
-    private static readonly TimeSpan CommandTimeout = TimeSpan.FromSeconds(15);
-
     /// <summary>Public front-door port: a phone hits https://&lt;tailnet&gt;/ with no port.</summary>
     private const int FrontDoorHttpsPort = 443;
 
@@ -55,6 +61,10 @@ public sealed class TailscaleServeProvisioner : IDisposable
     /// <summary>How often the self-healing reconcile re-asserts desired state (issue #179).</summary>
     private static readonly TimeSpan ReconcileInterval = TimeSpan.FromMinutes(5);
 
+    /// <summary>How often the front-door watch verifies the 443 mapping (issue #200). One
+    /// `serve status --json` read per tick; it only ever asserts, never sweeps.</summary>
+    private static readonly TimeSpan FrontDoorWatchInterval = TimeSpan.FromSeconds(60);
+
     private readonly DirectorRegistry _registry;
     private readonly int _gatewayPort;
     private readonly int _legacyCockpitPort;
@@ -63,7 +73,9 @@ public sealed class TailscaleServeProvisioner : IDisposable
     private readonly object _cliGate = new();
     private readonly ConcurrentDictionary<string, int> _portsById = new();
     private Timer? _reconcileTimer;
+    private Timer? _frontDoorTimer;
     private int _reconcileRunning;
+    private int _frontDoorRunning;
     private bool _disposed;
 
     public TailscaleServeProvisioner(DirectorRegistry registry, int gatewayPort, int legacyCockpitPort)
@@ -79,11 +91,11 @@ public sealed class TailscaleServeProvisioner : IDisposable
         var tailscaleDisabled = string.Equals(
             Environment.GetEnvironmentVariable("CC_GATEWAY_NO_TAILSCALE"), "1", StringComparison.Ordinal);
 
-        _enabled = File.Exists(TailscaleExe) && !tailscaleDisabled;
+        _enabled = TailscaleCli.IsAvailable && !tailscaleDisabled;
         if (tailscaleDisabled)
             FileLog.Write("[TailscaleServeProvisioner] CC_GATEWAY_NO_TAILSCALE=1; Tailscale Serve auto-provisioning disabled (local test mode).");
         else if (!_enabled)
-            FileLog.Write($"[TailscaleServeProvisioner] tailscale.exe not found at {TailscaleExe}; remote HTTPS auto-provisioning disabled.");
+            FileLog.Write("[TailscaleServeProvisioner] tailscale CLI not found; remote HTTPS auto-provisioning disabled.");
     }
 
     /// <summary>
@@ -118,6 +130,12 @@ public sealed class TailscaleServeProvisioner : IDisposable
         // a 502 until a Gateway restart. GatewayHost triggers the first reconcile right
         // after the registry load; this timer re-asserts desired state forever after.
         _reconcileTimer = new Timer(_ => ReconcileCore(), null, ReconcileInterval, ReconcileInterval);
+
+        // Front-door watch (issue #200): an external `tailscale serve` invocation rewrote 443
+        // to a dead ephemeral port mid-window and the one URL was a total 502 for ~5 minutes
+        // until the next full reconcile. The front door is the single highest-value mapping,
+        // so it gets its own fast, assert-only check.
+        _frontDoorTimer = new Timer(_ => WatchFrontDoorCore(), null, FrontDoorWatchInterval, FrontDoorWatchInterval);
     }
 
     /// <summary>
@@ -153,7 +171,7 @@ public sealed class TailscaleServeProvisioner : IDisposable
             lock (_cliGate)
             {
                 if (_disposed) return;
-                var (ok, stdout, message) = RunTailscale("serve status --json");
+                var (ok, stdout, message) = TailscaleCli.Run("serve status --json");
                 if (!ok)
                 {
                     FileLog.Write($"[TailscaleServeProvisioner] Reconcile: could not read serve status: {message}");
@@ -166,7 +184,11 @@ public sealed class TailscaleServeProvisioner : IDisposable
 
             if (actions.AssertFrontDoor)
             {
-                FileLog.Write("[TailscaleServeProvisioner] Reconcile: 443 front door missing or wrong backend - re-asserting (issue #179)");
+                // Log WHAT was found, not just that it was wrong: the observed backend is the
+                // only forensic trace of whoever clobbered the mapping, and it evaporates the
+                // moment we heal (issue #200 - the rogue port was only identified by a live
+                // probe during the outage).
+                FileLog.Write($"[TailscaleServeProvisioner] Reconcile: 443 front door missing or wrong backend (observed: {actions.FrontDoorBackend ?? "absent"}, expected: http://localhost:{_gatewayPort}) - re-asserting (issue #179)");
                 ServeOn(FrontDoorHttpsPort, _gatewayPort, "gateway (reconcile)");
             }
 
@@ -207,6 +229,7 @@ public sealed class TailscaleServeProvisioner : IDisposable
     internal static ReconcileActions ComputeReconcileActions(string statusJson, int gatewayPort, IReadOnlyCollection<int> desiredPorts)
     {
         var frontDoorOk = false;
+        string? frontDoorBackend = null;
         var managed = new List<int>();
 
         if (!string.IsNullOrWhiteSpace(statusJson))
@@ -223,6 +246,12 @@ public sealed class TailscaleServeProvisioner : IDisposable
                     if (!entry.Value.TryGetProperty("Handlers", out var handlers)) continue;
                     if (!handlers.TryGetProperty("/", out var rootHandler)) continue;
                     if (!rootHandler.TryGetProperty("Proxy", out var proxyEl)) continue;
+
+                    // Record whatever sits at 443 BEFORE the loopback filter: a non-loopback
+                    // backend is still the forensic answer to "who clobbered the front door".
+                    if (httpsPort == FrontDoorHttpsPort)
+                        frontDoorBackend = proxyEl.GetString();
+
                     if (!Uri.TryCreate(proxyEl.GetString(), UriKind.Absolute, out var proxy) || !proxy.IsLoopback) continue;
 
                     if (httpsPort == FrontDoorHttpsPort)
@@ -235,10 +264,57 @@ public sealed class TailscaleServeProvisioner : IDisposable
 
         var toMap = desiredPorts.Where(p => !managed.Contains(p)).OrderBy(p => p).ToList();
         var toRemove = managed.Where(p => !desiredPorts.Contains(p)).OrderBy(p => p).ToList();
-        return new ReconcileActions(!frontDoorOk, toMap, toRemove);
+        return new ReconcileActions(!frontDoorOk, toMap, toRemove, frontDoorBackend);
     }
 
-    internal sealed record ReconcileActions(bool AssertFrontDoor, List<int> PortsToMap, List<int> PortsToRemove);
+    /// <param name="FrontDoorBackend">The raw proxy string observed at 443, or null when the
+    /// mapping is absent. Logged on re-assert so the clobberer leaves a trace (issue #200).</param>
+    internal sealed record ReconcileActions(bool AssertFrontDoor, List<int> PortsToMap, List<int> PortsToRemove, string? FrontDoorBackend);
+
+    /// <summary>
+    /// One front-door watch tick: read the serve table and re-assert 443 -> gateway if it is
+    /// missing or pointing anywhere else. Deliberately reuses ComputeReconcileActions with an
+    /// empty desired set and IGNORES its map/sweep lists - mapping and orphan removal stay on
+    /// the 5-minute reconcile cadence; this tick exists only to shrink the front-door outage
+    /// window from minutes to seconds (issue #200).
+    /// </summary>
+    private void WatchFrontDoorCore()
+    {
+        if (Interlocked.CompareExchange(ref _frontDoorRunning, 1, 0) != 0) return;
+        try
+        {
+            // A full reconcile re-asserts the front door anyway; don't double up behind it.
+            if (Volatile.Read(ref _reconcileRunning) != 0) return;
+
+            string statusJson;
+            lock (_cliGate)
+            {
+                if (_disposed) return;
+                var (ok, stdout, message) = TailscaleCli.Run("serve status --json");
+                if (!ok)
+                {
+                    FileLog.Write($"[TailscaleServeProvisioner] FrontDoorWatch: could not read serve status: {message}");
+                    return;
+                }
+                statusJson = stdout;
+            }
+
+            var actions = ComputeReconcileActions(statusJson, _gatewayPort, []);
+            if (actions.AssertFrontDoor)
+            {
+                FileLog.Write($"[TailscaleServeProvisioner] FrontDoorWatch: 443 front door missing or wrong backend (observed: {actions.FrontDoorBackend ?? "absent"}, expected: http://localhost:{_gatewayPort}) - re-asserting (issue #200)");
+                ServeOn(FrontDoorHttpsPort, _gatewayPort, "gateway (front-door watch)");
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[TailscaleServeProvisioner] FrontDoorWatch EXCEPTION: {ex.Message}");
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _frontDoorRunning, 0);
+        }
+    }
 
     private void HandleAdded(DirectorDto d)
     {
@@ -303,7 +379,7 @@ public sealed class TailscaleServeProvisioner : IDisposable
             lock (_cliGate)
             {
                 if (_disposed) return;
-                var (ok, _, message) = RunTailscale($"serve --bg --https={httpsPort} http://localhost:{backendPort}");
+                var (ok, _, message) = TailscaleCli.RunServeMutating($"serve --bg --https={httpsPort} http://localhost:{backendPort}");
                 if (ok)
                     FileLog.Write($"[TailscaleServeProvisioner] mapped --https={httpsPort} -> http://localhost:{backendPort} ({who})");
                 else
@@ -323,7 +399,7 @@ public sealed class TailscaleServeProvisioner : IDisposable
             lock (_cliGate)
             {
                 if (_disposed) return;
-                var (ok, _, message) = RunTailscale($"serve --https={httpsPort} off");
+                var (ok, _, message) = TailscaleCli.RunServeMutating($"serve --https={httpsPort} off");
                 if (ok)
                     FileLog.Write($"[TailscaleServeProvisioner] removed --https={httpsPort} ({who})");
                 else if (message.Contains("does not exist", StringComparison.OrdinalIgnoreCase))
@@ -338,43 +414,12 @@ public sealed class TailscaleServeProvisioner : IDisposable
         }
     }
 
-    // Returns (ok, stdout, message). stdout is the raw standard output (used to parse
-    // `serve status --json`); message is a human-readable summary for failure logging.
-    private static (bool ok, string stdout, string message) RunTailscale(string arguments)
-    {
-        var psi = new ProcessStartInfo
-        {
-            FileName = TailscaleExe,
-            Arguments = arguments,
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true,
-        };
-
-        using var proc = Process.Start(psi)
-            ?? throw new InvalidOperationException($"Process.Start returned null for {TailscaleExe}");
-
-        var stdout = proc.StandardOutput.ReadToEnd();
-        var stderr = proc.StandardError.ReadToEnd();
-
-        if (!proc.WaitForExit((int)CommandTimeout.TotalMilliseconds))
-        {
-            try { proc.Kill(entireProcessTree: true); } catch { /* best effort */ }
-            return (false, stdout, $"timed out after {CommandTimeout.TotalSeconds:F0}s");
-        }
-
-        var message = string.Join(" | ", new[] { stdout, stderr }
-            .Select(s => s.Trim())
-            .Where(s => s.Length > 0));
-        return (proc.ExitCode == 0, stdout, message.Length > 0 ? message : $"exit {proc.ExitCode}");
-    }
-
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
         _reconcileTimer?.Dispose();
+        _frontDoorTimer?.Dispose();
         _registry.OnDirectorAdded -= HandleAdded;
         _registry.OnDirectorRemoved -= HandleRemoved;
     }

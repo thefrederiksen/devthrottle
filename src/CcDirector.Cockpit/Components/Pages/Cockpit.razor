@@ -1004,6 +1004,18 @@
         }
         try
         {
+            // Preload the screenshot-gallery module while the page is known-healthy. The lazy
+            // import used to be deferred to the first screenshot click, which made it the first
+            // request to hit a front-door outage minutes later (issue #200). A preload failure
+            // is only logged: ShotsModule() retries on demand with a user-facing message.
+            await ShotsModule();
+        }
+        catch (Exception ex)
+        {
+            Log.LogDebug(ex, "Cockpit: preloading cockpit-shots.js failed; will retry on first use");
+        }
+        try
+        {
             var collapsed = await JS.InvokeAsync<string?>("localStorage.getItem", "cockpit.leftCollapsed");
             var mode = await JS.InvokeAsync<string?>("localStorage.getItem", "cockpit.viewMode");
             var rightCollapsed = await JS.InvokeAsync<string?>("localStorage.getItem", "cockpit.rightCollapsed");
@@ -1523,8 +1535,26 @@
     }
 
     private IJSObjectReference? _shotsJsModule;
+
+    // The import travels the same HTTP front door as the page itself, but a long-lived page's
+    // Blazor circuit survives a front-door outage (the WebSocket is already established), so
+    // this import can be the first request to DISCOVER the door is dead - and the browser then
+    // throws a raw "Failed to fetch dynamically imported module" TypeError that used to leak
+    // straight into the status line (issue #200). Translate the boundary failure into a
+    // message the user can act on; the field stays null on failure, so the next action retries.
     private async Task<IJSObjectReference> ShotsModule()
-        => _shotsJsModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/cockpit-shots.js");
+    {
+        if (_shotsJsModule is not null) return _shotsJsModule;
+        try
+        {
+            return _shotsJsModule = await JS.InvokeAsync<IJSObjectReference>("import", "./js/cockpit-shots.js");
+        }
+        catch (Exception ex)
+        {
+            Log.LogWarning(ex, "cockpit-shots.js import failed - gateway front door unreachable?");
+            throw new InvalidOperationException("connection to the gateway was interrupted - try again", ex);
+        }
+    }
 
     // ===== Session Story column (Wingman center tab): headline + tokens + turn history + recap =====
     private async Task LoadWingmanAsync()

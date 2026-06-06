@@ -118,6 +118,74 @@ public class TailscaleServeProvisionerTests
     }
 
     [Fact]
+    public void Reconcile_FrontDoorClobbered_ReportsObservedBackend()
+    {
+        // The issue #200 incident: the whole table was replaced with a single mapping
+        // 443 -> dead ephemeral port. The observed backend is the only forensic trace of
+        // the clobberer, so it must come back for logging - and the Director mapping that
+        // was wiped alongside it must be re-asserted.
+        var json = StatusJson((443, "http://localhost:54550"));
+
+        var a = TailscaleServeProvisioner.ComputeReconcileActions(json, GatewayPort, [7886]);
+
+        Assert.True(a.AssertFrontDoor);
+        Assert.Equal("http://localhost:54550", a.FrontDoorBackend);
+        Assert.Equal([7886], a.PortsToMap);
+    }
+
+    [Fact]
+    public void Reconcile_FrontDoorMissing_ObservedBackendIsNull()
+    {
+        var json = StatusJson((7884, "http://localhost:7884"));
+
+        var a = TailscaleServeProvisioner.ComputeReconcileActions(json, GatewayPort, [7884]);
+
+        Assert.True(a.AssertFrontDoor);
+        Assert.Null(a.FrontDoorBackend);
+    }
+
+    [Fact]
+    public void Reconcile_FrontDoorNonLoopbackBackend_AssertsAndReportsIt()
+    {
+        // A non-loopback 443 backend is wrong for us, but is still recorded verbatim:
+        // "who clobbered the front door" matters more than passing the loopback filter.
+        var json = StatusJson((443, "http://machine-b.tail0123.ts.net:8080"));
+
+        var a = TailscaleServeProvisioner.ComputeReconcileActions(json, GatewayPort, []);
+
+        Assert.True(a.AssertFrontDoor);
+        Assert.Equal("http://machine-b.tail0123.ts.net:8080", a.FrontDoorBackend);
+    }
+
+    [Fact]
+    public void Reconcile_HealthyFrontDoor_ReportsBackendAndNoAssert()
+    {
+        var json = StatusJson((443, "http://localhost:7878"));
+
+        var a = TailscaleServeProvisioner.ComputeReconcileActions(json, GatewayPort, []);
+
+        Assert.False(a.AssertFrontDoor);
+        Assert.Equal("http://localhost:7878", a.FrontDoorBackend);
+    }
+
+    [Fact]
+    public void Reconcile_EmptyDesired_FrontDoorOnlyShape_SweepsAreIgnorable()
+    {
+        // The front-door watch (issue #200) calls ComputeReconcileActions with an empty
+        // desired set and acts ONLY on AssertFrontDoor. Managed mappings then all land in
+        // PortsToRemove - that list must still be computed correctly so the watch's
+        // "ignore the sweep" contract stays a deliberate choice, not an accident.
+        var json = StatusJson((443, "http://localhost:54550"), (7886, "http://localhost:7886"));
+
+        var a = TailscaleServeProvisioner.ComputeReconcileActions(json, GatewayPort, []);
+
+        Assert.True(a.AssertFrontDoor);
+        Assert.Equal("http://localhost:54550", a.FrontDoorBackend);
+        Assert.Empty(a.PortsToMap);
+        Assert.Equal([7886], a.PortsToRemove);
+    }
+
+    [Fact]
     public void Reconcile_LiveDirectorMappingMissing_ReAsserts()
     {
         // The live incident's second shape: a Director mapping vanished ("handler does not
