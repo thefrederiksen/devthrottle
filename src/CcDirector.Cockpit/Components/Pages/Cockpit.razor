@@ -122,6 +122,16 @@
                     {
                         <span class="detail-name">@SessionTitle(Selected)</span>
                     }
+                    @* Session type (issue #211): the badge rides next to the name in the
+                       header too, so the open session declares its purpose. *@
+                    @if (Selected.Type == "Discuss")
+                    {
+                        <span class="tag tag-type tag-discuss" title="Discussion session - talk only, no edits or commits">[D] discuss</span>
+                    }
+                    else if (Selected.Type == "BugReport")
+                    {
+                        <span class="tag tag-type tag-bug" title="Bug-report session - investigate and file an issue, never fix here">[B] bug report</span>
+                    }
                     <span class="detail-meta">@Selected.MachineName / director @ShortId(Selected.DirectorId)</span>
                     @* assessed-when-present (issue #186): the Gateway's brain may have refuted
                        the mechanical quiet; the raw detector state is the fallback. *@
@@ -538,6 +548,16 @@
                         @foreach (var a in NsAgents)
                         {
                             <button class="chip @(_nsAgent == a ? "on" : "")" @onclick="() => SetAgent(a)">@AgentLabel(a)</button>
+                        }
+                    </div>
+
+                    @* Session type (issue #211): one-click identity, Implement preselected. *@
+                    <div class="ns-types">
+                        <span class="fld-label">Type:</span>
+                        @foreach (var t in NsTypes)
+                        {
+                            <button class="chip @(_nsType == t.Key ? "on" : "")" title="@t.Hint"
+                                    @onclick="() => SetType(t.Key)">@t.Label</button>
                         }
                     </div>
 
@@ -1997,7 +2017,7 @@
     {
         _showNewSession = true;
         _nsError = null;
-        _nsRepoPath = ""; _nsRepoPathManual = ""; _nsAgent = "ClaudeCode";
+        _nsRepoPath = ""; _nsRepoPathManual = ""; _nsAgent = "ClaudeCode"; _nsType = "Implement";
         _nsRepoFilter = "";
         _nsBypass = true; _nsWingman = false;
         _browseOpen = false;
@@ -2024,6 +2044,17 @@
     }
 
     private void SetAgent(string a) => _nsAgent = a;
+
+    // Session type picker (issue #211): identity chosen at creation, Implement default.
+    private string _nsType = "Implement";
+    private void SetType(string t) => _nsType = t;
+    private sealed record NsType(string Key, string Label, string Hint);
+    private static readonly NsType[] NsTypes =
+    {
+        new("Implement", "[I] Implement", "Write code, fix bugs, ship (default)"),
+        new("Discuss", "[D] Discuss", "Talk only - never edits or commits"),
+        new("BugReport", "[B] Bug Report", "Investigate and file an issue - never fixes here"),
+    };
 
     // ----- repo table: filter + sort + select + remove -----
     private List<RepositoryDto> FilteredRepos
@@ -2100,6 +2131,7 @@
             {
                 RepoPath = repo,
                 Agent = _nsAgent,
+                Type = _nsType,
                 Args = args,
                 WingmanEnabled = _nsWingman,
             };

@@ -32,6 +32,11 @@ public class PersistedSession
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public AgentKind AgentKind { get; set; } = AgentKind.ClaudeCode;
 
+    /// <summary>The session's declared purpose (issue #211). Defaults to Implement so
+    /// sessions persisted before this field existed deserialize to today's behavior.</summary>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public SessionType SessionType { get; set; } = SessionType.Implement;
+
     public DateTimeOffset CreatedAt { get; set; }
 
     /// <summary>Order in the session list, used to restore UI order after restart.</summary>

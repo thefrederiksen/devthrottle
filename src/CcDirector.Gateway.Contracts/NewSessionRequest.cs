@@ -17,6 +17,15 @@ public sealed class NewSessionRequest
     public string? Args { get; set; }
 
     /// <summary>
+    /// The session's declared purpose (issue #211). Valid values: "Implement" (default),
+    /// "Discuss", "BugReport". Type is identity, not status - chosen once here, immutable
+    /// afterwards. Non-Implement types seed a per-type playbook prompt into the agent at
+    /// startup (ahead of <see cref="PrePrompt"/> when both are present). Null/empty means
+    /// Implement, so old clients keep today's behavior.
+    /// </summary>
+    public string? Type { get; set; }
+
+    /// <summary>
     /// Optional Claude session ID to resume. When set, the new session re-attaches to the
     /// given Claude Code conversation instead of starting fresh. Used by the Resume Session
     /// tab. Ignored by agents that don't support resume (e.g. Pi).

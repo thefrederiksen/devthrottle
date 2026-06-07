@@ -94,7 +94,10 @@ public sealed class SessionManager : IDisposable
     /// Agents that don't support preassigned session IDs (Pi) skip Claude's session-linking
     /// step; Director still tracks the session via its own GUID and backend lifecycle.
     /// </summary>
-    public Session CreateSession(string repoPath, IAgent agent, string? userArgs, SessionBackendType backendType, string? resumeSessionId)
+    /// <param name="sessionType">The session's declared purpose (issue #211), stamped once
+    /// here and immutable afterwards. Callers that seed prompts are responsible for putting
+    /// the type's playbook (<see cref="SessionTypePlaybooks.For"/>) ahead of their seed.</param>
+    public Session CreateSession(string repoPath, IAgent agent, string? userArgs, SessionBackendType backendType, string? resumeSessionId, SessionType sessionType = SessionType.Implement)
     {
         if (agent is null)
             throw new ArgumentNullException(nameof(agent));
@@ -138,7 +141,8 @@ public sealed class SessionManager : IDisposable
 
         var session = new Session(id, repoPath, repoPath, userArgs, backend, backendType)
         {
-            AgentKind = agent.Kind
+            AgentKind = agent.Kind,
+            SessionType = sessionType,
         };
 
         try
@@ -613,6 +617,7 @@ public sealed class SessionManager : IDisposable
                 HistoryEntryId = s.HistoryEntryId,
                 BackendType = s.BackendType,
                 AgentKind = s.AgentKind,
+                SessionType = s.SessionType,
                 RawStartupText = s.RawStartupText,
                 SelectedTabName = s.SelectedTabName,
                 WingmanEnabled = s.WingmanEnabled,
@@ -638,6 +643,7 @@ public sealed class SessionManager : IDisposable
             ps.CustomName, ps.CustomColor, ps.PendingPromptText);
 
         session.AgentKind = ps.AgentKind;
+        session.SessionType = ps.SessionType;
         session.WingmanEnabled = ps.WingmanEnabled;
         // Restored sessions already have history, so the brand-new gate (which short-
         // circuits the Wingman's first turn-end briefing on fresh sessions) does not apply.

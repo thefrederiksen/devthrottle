@@ -365,6 +365,17 @@ public partial class NewSessionDialog : Window
         }
     }
 
+    /// <summary>The session type chosen in the picker (issue #211). Defaults to Implement.</summary>
+    public SessionType SelectedSessionType
+    {
+        get
+        {
+            if (TypeRadioDiscuss?.IsChecked == true) return SessionType.Discuss;
+            if (TypeRadioBugReport?.IsChecked == true) return SessionType.BugReport;
+            return SessionType.Implement;
+        }
+    }
+
     /// <summary>"Verified driver = shipped": an agent shows outside alpha only when its
     /// driver is a real, live-verified implementation rather than the GenericDriver
     /// placeholder for unverified CLIs.</summary>

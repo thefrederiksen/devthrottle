@@ -265,6 +265,35 @@ public class SessionViewModel : INotifyPropertyChanged
         _ => ClaudeAgentBrush
     };
 
+    // Session-type badge (issue #211): OUTLINED chip so identity never reads as a status
+    // color. Only the non-default types are shown - Implement carries no badge, keeping
+    // the common case clutter-free. Cyan/magenta deliberately sit outside the state palette.
+    private static readonly ISolidColorBrush DiscussTypeBrush = new SolidColorBrush(Color.FromRgb(0x22, 0xD3, 0xEE));
+    private static readonly ISolidColorBrush BugReportTypeBrush = new SolidColorBrush(Color.FromRgb(0xEC, 0x48, 0x99));
+
+    /// <summary>True only for non-default types - drives the badge's IsVisible.</summary>
+    public bool ShowSessionTypeBadge => Session.SessionType != SessionType.Implement;
+
+    public string SessionTypeLabel => Session.SessionType switch
+    {
+        SessionType.Discuss => "[D] Discuss",
+        SessionType.BugReport => "[B] Bug Report",
+        _ => ""
+    };
+
+    public ISolidColorBrush SessionTypeBadgeBrush => Session.SessionType switch
+    {
+        SessionType.BugReport => BugReportTypeBrush,
+        _ => DiscussTypeBrush
+    };
+
+    public string SessionTypeTooltip => Session.SessionType switch
+    {
+        SessionType.Discuss => "Discussion session - talk only, no edits or commits",
+        SessionType.BugReport => "Bug-report session - investigate and file an issue, never fix here",
+        _ => ""
+    };
+
     public string RepoPath => Session.RepoPath;
 
     private int _uncommittedCount;

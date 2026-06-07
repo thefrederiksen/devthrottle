@@ -2280,6 +2280,13 @@ internal static class ControlEndpoints
                 _ => throw new InvalidOperationException("unreachable"),
             };
 
+            // Session type (issue #211): identity chosen once at creation. Null/empty
+            // means Implement so pre-#211 clients keep today's behavior exactly.
+            var sessionType = SessionType.Implement;
+            if (!string.IsNullOrWhiteSpace(req.Type)
+                && !Enum.TryParse(req.Type, ignoreCase: true, out sessionType))
+                return Results.BadRequest(new { error = $"unknown type: {req.Type}. Valid: Implement, Discuss, BugReport" });
+
             Session session;
             try
             {
@@ -2288,7 +2295,8 @@ internal static class ControlEndpoints
                     agent,
                     req.Args,
                     SessionBackendType.ConPty,
-                    resumeSessionId: string.IsNullOrWhiteSpace(req.ResumeSessionId) ? null : req.ResumeSessionId);
+                    resumeSessionId: string.IsNullOrWhiteSpace(req.ResumeSessionId) ? null : req.ResumeSessionId,
+                    sessionType: sessionType);
             }
             catch (Exception ex)
             {
@@ -2317,9 +2325,14 @@ internal static class ControlEndpoints
             // for substantial output followed by a full quiet poll. If the deadline
             // passes without that, dispatch anyway; the backend's @-reference submit
             // watchdog is the last line of defense.
-            if (!string.IsNullOrWhiteSpace(req.PrePrompt))
+            // The type's playbook (issue #211) rides the SAME readiness gate, ahead of any
+            // caller-supplied PrePrompt: one composed dispatch, so the agent reads its
+            // ground rules before the seeded task (the #236 bug-session flow needs both).
+            var seedText = SessionTypePlaybooks.ComposeSeed(sessionType, req.PrePrompt);
+
+            if (!string.IsNullOrWhiteSpace(seedText))
             {
-                var prePrompt = req.PrePrompt;
+                var prePrompt = seedText;
                 var waitMs = Math.Max(1000, req.PrePromptWaitMs);
                 var capturedSession = session;
                 _ = Task.Run(async () =>
@@ -2604,6 +2617,7 @@ internal static class ControlEndpoints
             SessionId = s.Id.ToString(),
             DirectorId = directorId,
             Agent = s.AgentKind.ToString(),
+            Type = s.SessionType.ToString(),
             RepoPath = s.RepoPath,
             Status = s.Status.ToString(),
             ActivityState = s.ActivityState.ToString(),

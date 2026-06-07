@@ -119,6 +119,12 @@ public sealed class Session : IDisposable
     /// Defaults to ClaudeCode for sessions created via legacy code paths.</summary>
     public AgentKind AgentKind { get; internal set; } = AgentKind.ClaudeCode;
 
+    /// <summary>The session's declared purpose (issue #211): Implement / Discuss /
+    /// BugReport. Chosen once at creation and IMMUTABLE afterwards - this is identity,
+    /// not status. Internal-set like <see cref="AgentKind"/>: creation and restore
+    /// paths stamp it, nothing else writes it.</summary>
+    public SessionType SessionType { get; internal set; } = SessionType.Implement;
+
     public Guid Id { get; }
     public string RepoPath { get; }
     public string WorkingDirectory { get; }

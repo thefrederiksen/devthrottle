@@ -62,7 +62,8 @@
                     <!-- Agent picker (radio buttons). Non-Claude agents are alpha features:
                          the whole picker is hidden unless alpha mode is on, leaving
                          Claude Code as the only (implicit) agent. -->
-                    <StackPanel x:Name="AgentPickerPanel" Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,12">
+                    <StackPanel Grid.Row="0" Orientation="Vertical">
+                    <StackPanel x:Name="AgentPickerPanel" Orientation="Horizontal" Margin="0,0,0,12">
                         <TextBlock Text="Agent:"
                                    Foreground="#CCCCCC" FontSize="14"
                                    VerticalAlignment="Center" Margin="0,0,16,0" />
@@ -101,6 +102,35 @@
                                      VerticalAlignment="Center"
                                      Tag="OpenCode"
                                      IsCheckedChanged="AgentRadio_CheckedChanged" />
+                    </StackPanel>
+
+                    <!-- Session-type picker (issue #211): identity chosen at creation,
+                         Implement preselected. One click switches; the playbook for
+                         Discuss/BugReport is seeded into the agent at startup. -->
+                    <StackPanel x:Name="TypePickerPanel" Orientation="Horizontal" Margin="0,0,0,12">
+                        <TextBlock Text="Type:"
+                                   Foreground="#CCCCCC" FontSize="14"
+                                   VerticalAlignment="Center" Margin="0,0,16,0" />
+                        <RadioButton x:Name="TypeRadioImplement" GroupName="Type"
+                                     Content="[I] Implement"
+                                     IsChecked="True"
+                                     Foreground="#CCCCCC" FontSize="14"
+                                     VerticalAlignment="Center" Margin="0,0,24,0"
+                                     Tag="Implement"
+                                     ToolTip.Tip="Write code, fix bugs, ship (default)" />
+                        <RadioButton x:Name="TypeRadioDiscuss" GroupName="Type"
+                                     Content="[D] Discuss"
+                                     Foreground="#CCCCCC" FontSize="14"
+                                     VerticalAlignment="Center" Margin="0,0,24,0"
+                                     Tag="Discuss"
+                                     ToolTip.Tip="Talk only - never edits or commits" />
+                        <RadioButton x:Name="TypeRadioBugReport" GroupName="Type"
+                                     Content="[B] Bug Report"
+                                     Foreground="#CCCCCC" FontSize="14"
+                                     VerticalAlignment="Center"
+                                     Tag="BugReport"
+                                     ToolTip.Tip="Investigate and file an issue - never fixes here" />
+                    </StackPanel>
                     </StackPanel>
 
                     <TextBlock Grid.Row="1" Text="Select a repository:"

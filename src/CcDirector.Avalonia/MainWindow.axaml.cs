@@ -622,20 +622,27 @@ public partial class MainWindow : Window
         _ => new ClaudeAgent(_sessionManager.Options)
     };
 
-    private SessionViewModel? CreateSession(string repoPath, string? resumeSessionId = null, string? claudeArgs = null, AgentKind agentKind = AgentKind.ClaudeCode)
+    private SessionViewModel? CreateSession(string repoPath, string? resumeSessionId = null, string? claudeArgs = null, AgentKind agentKind = AgentKind.ClaudeCode, SessionType sessionType = SessionType.Implement)
     {
-        FileLog.Write($"[MainWindow] CreateSession: repoPath={repoPath}, agent={agentKind}, resume={resumeSessionId ?? "null"}, args={claudeArgs ?? "default"}");
+        FileLog.Write($"[MainWindow] CreateSession: repoPath={repoPath}, agent={agentKind}, type={sessionType}, resume={resumeSessionId ?? "null"}, args={claudeArgs ?? "default"}");
         _lastSessionCreateError = null;
         try
         {
             IAgent agent = CreateAgent(agentKind);
-            var session = _sessionManager.CreateSession(repoPath, agent, claudeArgs, SessionBackendType.ConPty, resumeSessionId);
+            var session = _sessionManager.CreateSession(repoPath, agent, claudeArgs, SessionBackendType.ConPty, resumeSessionId, sessionType);
             FileLog.Write($"[MainWindow] CreateSession: session created, id={session.Id}, pid={session.ProcessId}");
 
             var vm = new SessionViewModel(session);
             _sessions.Add(vm);
             SessionList.SelectedItem = vm;
             FileLog.Write($"[MainWindow] CreateSession: added to UI");
+
+            // Seed the type's playbook (issue #211) once the agent is up - same delayed
+            // inject the handover flow uses. Implement has no playbook, so this is a no-op
+            // for the common case.
+            if (SessionTypePlaybooks.For(sessionType) is { } playbook)
+                _ = InjectPlaybookPromptAsync(session, playbook);
+
             return vm;
         }
         catch (Exception ex)
@@ -1993,7 +2000,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var vm = CreateSession(dialog.SelectedPath, resumeSessionId, agentArgs, agentKind);
+        var vm = CreateSession(dialog.SelectedPath, resumeSessionId, agentArgs, agentKind, dialog.SelectedSessionType);
         if (vm == null)
         {
             FileLog.Write("[MainWindow] ShowNewSessionDialog: CreateSession returned null; showing failure dialog");
@@ -4395,6 +4402,27 @@ public partial class MainWindow : Window
 
         await session.SendTextAsync(prompt);
         FileLog.Write($"[MainWindow] InjectHandoverPromptAsync: sent handover prompt for session {session.Id}");
+    }
+
+    /// <summary>
+    /// Seed a session-type playbook (issue #211) into a freshly created session once the
+    /// agent has had time to boot. Mirrors <see cref="InjectHandoverPromptAsync"/>: the
+    /// desktop creates sessions in-process (not via POST /sessions), so the Control API's
+    /// readiness-gated seed never fires here - this is its desktop equivalent.
+    /// </summary>
+    private async Task InjectPlaybookPromptAsync(Session session, string playbook)
+    {
+        FileLog.Write($"[MainWindow] InjectPlaybookPromptAsync: waiting for session {session.Id}");
+        await Task.Delay(TimeSpan.FromSeconds(5));
+        try
+        {
+            await session.SendTextAsync(playbook);
+            FileLog.Write($"[MainWindow] InjectPlaybookPromptAsync: seeded playbook for session {session.Id}");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] InjectPlaybookPromptAsync FAILED: {ex.Message}");
+        }
     }
 
     // ==================== STARTUP TEXT CAPTURE ====================

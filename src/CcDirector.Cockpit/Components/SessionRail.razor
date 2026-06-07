@@ -42,6 +42,16 @@
                     @* assessed-when-present (issue #186): the Gateway's brain may have
                        refuted the mechanical quiet signal; raw state is the fallback. *@
                     @(s.AssessedState ?? s.ActivityState)
+                    @* Session type (issue #211): outlined chip so identity never reads as
+                       state. Only non-default types show - Implement stays clutter-free. *@
+                    @if (s.Type == "Discuss")
+                    {
+                        <span class="tag tag-type tag-discuss" title="Discussion session - talk only, no edits or commits">[D] discuss</span>
+                    }
+                    else if (s.Type == "BugReport")
+                    {
+                        <span class="tag tag-type tag-bug" title="Bug-report session - investigate and file an issue, never fix here">[B] bug report</span>
+                    }
                     @if (s.OnHold)
                     {
                         <span class="tag tag-hold">hold</span>

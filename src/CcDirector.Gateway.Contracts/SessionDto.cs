@@ -15,6 +15,12 @@ public sealed class SessionDto
     /// <summary>Agent CLI kind: ClaudeCode, Pi, Codex, Gemini.</summary>
     public string Agent { get; set; } = "";
 
+    /// <summary>The session's declared purpose (issue #211): Implement / Discuss /
+    /// BugReport. Identity, not status - set at creation, immutable. Same axis as
+    /// <see cref="Agent"/> (orthogonal: which agent vs why the session exists).
+    /// Empty/missing means Implement (pre-#211 Directors).</summary>
+    public string Type { get; set; } = "";
+
     /// <summary>Repository / working directory.</summary>
     public string RepoPath { get; set; } = "";
 

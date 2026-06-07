@@ -255,6 +255,11 @@ body{background:var(--panel);color:var(--text);
 .tag{font-size:9px;border-radius:6px;padding:0 5px;line-height:14px}
 .tag-hold{color:#0a0a0a;background:var(--amber)}
 .tag-voice{color:#04101f;background:var(--blue)}
+/* session type (#211): OUTLINED chips in a palette distinct from the state colors
+   (red/green/amber/blue), so type-as-identity can never be mistaken for a state. */
+.tag-type{background:transparent;border:1px solid;line-height:12px;font-weight:600}
+.tag-discuss{color:#22D3EE;border-color:#22D3EE}
+.tag-bug{color:#EC4899;border-color:#EC4899}
 .needs-pill{font-size:9px;color:var(--red);border:1px solid var(--red);
   border-radius:8px;padding:1px 6px;flex:none}
 
@@ -675,6 +680,8 @@ body{background:var(--panel);color:var(--text);
 .ns-body{min-height:380px;overflow:auto}
 .ns-agents{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .ns-agents .fld-label{margin-right:4px}
+.ns-types{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px}
+.ns-types .fld-label{margin-right:4px}
 .chip{background:var(--button);color:var(--text);border:1px solid var(--border);border-radius:14px;
   padding:4px 12px;font-size:12px;cursor:pointer}
 .chip:hover{border-color:var(--accent)}

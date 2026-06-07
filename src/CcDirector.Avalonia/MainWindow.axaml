@@ -310,6 +310,24 @@
                                                            FontSize="9"
                                                            FontWeight="SemiBold" />
                                             </Border>
+                                            <!-- Session-type badge (issue #211): OUTLINED chip
+                                                 (transparent fill + colored border) so type-as-
+                                                 identity never reads as a status color. Hidden
+                                                 for the default Implement type. -->
+                                            <Border Background="Transparent"
+                                                    BorderBrush="{Binding SessionTypeBadgeBrush}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="6"
+                                                    Padding="6,0"
+                                                    VerticalAlignment="Center"
+                                                    Margin="0,0,6,0"
+                                                    IsVisible="{Binding ShowSessionTypeBadge}"
+                                                    ToolTip.Tip="{Binding SessionTypeTooltip}">
+                                                <TextBlock Text="{Binding SessionTypeLabel}"
+                                                           Foreground="{Binding SessionTypeBadgeBrush}"
+                                                           FontSize="9"
+                                                           FontWeight="SemiBold" />
+                                            </Border>
                                             <TextBlock Text="{Binding ActivityLabel}"
                                                        Foreground="#888888"
                                                        FontSize="11"
