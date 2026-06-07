@@ -56,7 +56,15 @@ public static class SessionTypePlaybooks
             "steps, the root cause, evidence (file:line references), and a step-by-step fix plan " +
             "that an implementation agent could execute cold, without this conversation. If you " +
             "cannot determine a confident fix plan, label the issue needs-design and state exactly " +
-            "what is unresolved - never pretend. Fixing happens later, in a separate Implement session.",
+            "what is unresolved - never pretend. Fixing happens later, in a separate Implement session. " +
+            // Issue #236: a bug session is a transaction with a knowable end. Once the issue
+            // exists, the mission is over - say so plainly (the issue URL in your reply is what
+            // the wingman watches for to offer the one-click close), and rename yourself so the
+            // rail history reads well (you have $CC_DIRECTOR_API and $CC_SESSION_ID).
+            "After the issue is filed your work is COMPLETE: print the issue number and URL, then " +
+            "rename this session by sending PATCH $CC_DIRECTOR_API/sessions/$CC_SESSION_ID with JSON " +
+            "body {\"name\":\"Bug: #<number> <short title>\"}, and STOP. Do not start fixing - that is " +
+            "a separate Implement session's job.",
 
         _ => null,
     };

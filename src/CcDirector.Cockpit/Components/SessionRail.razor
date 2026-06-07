@@ -98,6 +98,13 @@
                     <button class="sess-menu-item" @onclick='() => FireAsync("copy-handover", s)'>Copy Handover Info</button>
                     <div class="sess-menu-sep"></div>
                     <button class="sess-menu-item" @onclick='() => FireAsync("github-issue", s)'>New GitHub Issue</button>
+                    @* One-click bug session (issue #236): spawn a Bug Report session in the
+                       same repo. Hidden ON a bug session - a bug session spawning a bug
+                       session is noise. *@
+                    @if (s.Type != "BugReport")
+                    {
+                        <button class="sess-menu-item bug" @onclick='() => FireAsync("start-bug-session", s)'>Start bug session</button>
+                    }
                     <div class="sess-menu-sep"></div>
                     <button class="sess-menu-item" @onclick='() => FireAsync("hold", s)'>@(s.OnHold ? "Take Off Hold" : "Hold")</button>
                     <button class="sess-menu-item" @onclick='() => FireAsync("wingman", s)'>@(s.WingmanEnabled ? "Remove Wingman" : "Add Wingman")</button>

@@ -277,6 +277,7 @@ body{background:var(--panel);color:var(--text);
   background:transparent;border:none;border-radius:5px;padding:6px 10px;cursor:pointer}
 .sess-menu-item:hover{background:var(--hover)}
 .sess-menu-item.danger{color:var(--red)}
+.sess-menu-item.bug{color:#EC4899} /* matches the [B] type chip (#236) */
 .sess-menu-sep{height:1px;background:var(--border);margin:3px 6px}
 .rail-notice{font-size:11px;color:var(--text2);background:var(--panel);
   border:1px solid var(--border);border-radius:6px;padding:5px 8px;margin:0 6px 4px;

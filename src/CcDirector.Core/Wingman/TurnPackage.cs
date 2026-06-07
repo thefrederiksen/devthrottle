@@ -1,5 +1,6 @@
 using System.Text;
 using CcDirector.Core.Claude;
+using CcDirector.Core.Sessions;
 using CcDirector.Gateway.Contracts;
 
 namespace CcDirector.Core.Wingman;
@@ -20,7 +21,11 @@ public sealed record TurnPackage(
     string? RollingIntent,
     IReadOnlyList<string> PriorRailLines,
     string? CurrentHeadline = null,
-    string? ParkedComposerText = null);
+    string? ParkedComposerText = null,
+    // Issue #236: the session's declared purpose, so the brief contract can apply a
+    // per-type mission clause (a BugReport session whose issue is filed is DONE -> suggest
+    // close). Defaults to Implement, the back-compat no-op.
+    SessionType SessionType = SessionType.Implement);
 
 /// <summary>
 /// Builds a <see cref="TurnPackage"/> from the parsed transcript widgets, the current screen
@@ -40,7 +45,8 @@ public static class TurnPackageBuilder
         IReadOnlyList<TurnWidgetDto> widgets,
         string screenTail,
         TurnBriefDto? priorBrief,
-        IReadOnlyList<TurnBriefDto>? recentBriefs = null)
+        IReadOnlyList<TurnBriefDto>? recentBriefs = null,
+        SessionType sessionType = SessionType.Implement)
     {
         ArgumentNullException.ThrowIfNull(widgets);
 
@@ -88,7 +94,8 @@ public static class TurnPackageBuilder
             priorBrief?.Intent,
             priorLines,
             headline,
-            ExtractParkedComposerText(tail));
+            ExtractParkedComposerText(tail),
+            sessionType);
     }
 
     /// <summary>

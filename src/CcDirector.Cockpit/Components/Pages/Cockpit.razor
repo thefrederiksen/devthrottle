@@ -1952,6 +1952,32 @@
                     ShowRailNotice($"Closed {SessionTitle(s)}");
                     await RefreshAsync();
                     break;
+
+                case "start-bug-session":
+                    // One-click bug session (issue #236): spawn a Bug Report session in the
+                    // SAME repo on the SAME Director, wingman ON (the retire step needs it).
+                    // No dialog - the whole point is zero-friction capture. The #211 BugReport
+                    // playbook drives investigate-and-file; the type-aware brief offers the
+                    // one-click close once the issue URL appears.
+                    var bugReq = new NewSessionRequest
+                    {
+                        RepoPath = s.RepoPath,
+                        Agent = s.Agent,          // mirror the source row's CLI (same repo, same tooling)
+                        Type = "BugReport",
+                        WingmanEnabled = true,
+                    };
+                    var createdBug = await Gateway.CreateSessionAsync(s.DirectorId, bugReq, _cts.Token);
+                    if (createdBug is not null)
+                    {
+                        // The request carries no name; give it the spec's "Bug Report" label
+                        // until the playbook renames it "Bug: #N <title>" after filing.
+                        try { await Director.RenameSessionAsync(dir, createdBug.SessionId, "Bug Report", _cts.Token); }
+                        catch (Exception rex) { Log.LogWarning(rex, "bug session rename failed sid={Sid}", createdBug.SessionId); }
+                        ShowRailNotice($"Started bug session in {RepoShortName(s.RepoPath)}");
+                        await RefreshAsync();
+                        await OnSelect(createdBug.SessionId);
+                    }
+                    break;
             }
         }
         catch (OperationCanceledException) { }
@@ -2416,6 +2442,10 @@
 
     private static string ShortId(string id) =>
         string.IsNullOrEmpty(id) ? "?" : (id.Length <= 8 ? id : id[..8]);
+
+    /// <summary>Repo folder name from a full path, for rail notices (issue #236).</summary>
+    private static string RepoShortName(string repoPath) =>
+        string.IsNullOrWhiteSpace(repoPath) ? "this repo" : System.IO.Path.GetFileName(repoPath.TrimEnd('\\', '/'));
 
     private static string DotColor(string c) => c switch
     {

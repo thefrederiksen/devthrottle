@@ -49,6 +49,7 @@ public sealed class GatewayTurnBriefAgent : IDisposable
     private readonly Func<string, string, CancellationToken, Task<TurnsResponse?>> _fetchTurns;
     private readonly Func<string, string, CancellationToken, Task<string>> _fetchScreenTail;
     private readonly Func<string, string, CancellationToken, Task<string?>> _fetchRepoPath;
+    private readonly Func<string, string, CancellationToken, Task<Core.Sessions.SessionType>> _fetchSessionType;
     private readonly TimeSpan _settleDelay;
 
     /// <summary>
@@ -90,6 +91,9 @@ public sealed class GatewayTurnBriefAgent : IDisposable
             (ep, sid, ct) => (client ?? throw new ArgumentNullException(nameof(client))).GetTurnsAsync(ep, sid, ct),
             async (ep, sid, ct) => (await client.GetBufferAsync(ep, sid, lines: 80, ct: ct))?.Text ?? "",
             fetchRepoPath: async (ep, sid, ct) => (await client.GetSessionAsync(ep, sid, ct))?.RepoPath,
+            fetchSessionType: async (ep, sid, ct) =>
+                Enum.TryParse<Core.Sessions.SessionType>((await client.GetSessionAsync(ep, sid, ct))?.Type, out var t)
+                    ? t : Core.Sessions.SessionType.Implement,
             generatorId: generatorId)
     {
     }
@@ -102,6 +106,7 @@ public sealed class GatewayTurnBriefAgent : IDisposable
         Func<string, string, CancellationToken, Task<TurnsResponse?>> fetchTurns,
         Func<string, string, CancellationToken, Task<string>> fetchScreenTail,
         Func<string, string, CancellationToken, Task<string?>>? fetchRepoPath = null,
+        Func<string, string, CancellationToken, Task<Core.Sessions.SessionType>>? fetchSessionType = null,
         TimeSpan? settleDelay = null,
         string? generatorId = null)
     {
@@ -114,6 +119,9 @@ public sealed class GatewayTurnBriefAgent : IDisposable
         // Tests that don't care about @file substitution get the no-repo answer: the
         // resolver then keeps prompts verbatim (same behavior as a remote Director).
         _fetchRepoPath = fetchRepoPath ?? ((_, _, _) => Task.FromResult<string?>(null));
+        // Issue #236: untyped fetch (tests, old callers) defaults to Implement - no mission
+        // clause, identical brief to before.
+        _fetchSessionType = fetchSessionType ?? ((_, _, _) => Task.FromResult(Core.Sessions.SessionType.Implement));
         _settleDelay = settleDelay ?? SettleDelay;
         _worker = Task.Run(WorkerLoopAsync);
     }
@@ -380,8 +388,11 @@ public sealed class GatewayTurnBriefAgent : IDisposable
             return; // already briefed this exact turn at full quality
 
         var screenTail = await _fetchScreenTail(endpoint, sid, ct);
+        // Issue #236: the type drives the brief's per-type mission clause (a BugReport
+        // session whose issue is filed should suggest close).
+        var sessionType = await _fetchSessionType(endpoint, sid, ct);
         var package = TurnPackageBuilder.Build(
-            Guid.Parse(sid), widgets, screenTail, prior, _store.List(sid));
+            Guid.Parse(sid), widgets, screenTail, prior, _store.List(sid), sessionType);
 
         // Bare @file prompts (dictation drops "@.temp/input_*.txt") render YOU ASKED as
         // an opaque path - substitute the file content BEFORE the package is stored, so

@@ -1,4 +1,5 @@
-﻿using CcDirector.Core.Wingman;
+﻿using CcDirector.Core.Sessions;
+using CcDirector.Core.Wingman;
 using CcDirector.Gateway.Contracts;
 using Xunit;
 
@@ -237,6 +238,27 @@ public sealed class TurnBriefContractValidationTests
         Assert.Contains("close_session", prompt);            // the enumerated type
         Assert.Contains("MISSION COMPLETE", prompt);         // the when-rule
         Assert.Contains("NEVER suggest close_session", prompt); // the guard rule
+    }
+
+    [Fact]
+    public void BuildPrompt_BugReportType_InjectsFileIssueMissionClause()
+    {
+        // Issue #236: a BugReport session's brief carries the type-specific mission clause
+        // that makes the close suggestion fire reliably once an issue is filed.
+        var bugPkg = Package() with { SessionType = SessionType.BugReport };
+        var prompt = TurnBriefContract.BuildPrompt(bugPkg);
+        Assert.Contains("SESSION TYPE: BUG REPORT", prompt);
+        Assert.Contains("ONLY mission is to file one GitHub issue", prompt);
+        Assert.Contains("must NOT fix the bug", prompt);
+    }
+
+    [Fact]
+    public void BuildPrompt_ImplementType_NoTypeClause_BackCompat()
+    {
+        // The default type adds no clause - the brief is byte-for-byte the pre-#236 prompt.
+        var prompt = TurnBriefContract.BuildPrompt(Package());
+        Assert.DoesNotContain("SESSION TYPE: BUG REPORT", prompt);
+        Assert.DoesNotContain("SESSION TYPE: DISCUSS", prompt);
     }
 
     [Fact]

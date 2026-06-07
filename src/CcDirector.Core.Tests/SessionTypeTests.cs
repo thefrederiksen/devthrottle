@@ -36,6 +36,18 @@ public class SessionTypeTests
         Assert.Contains("Implement session", p);     // fixing happens later, elsewhere
     }
 
+    [Fact]
+    public void Playbook_BugReport_RetireAndSelfRename_Issue236()
+    {
+        // The transaction-shaped end: after filing, state the issue and rename via the API.
+        var p = SessionTypePlaybooks.For(SessionType.BugReport);
+        Assert.NotNull(p);
+        Assert.Contains("After the issue is filed your work is COMPLETE", p);
+        Assert.Contains("$CC_DIRECTOR_API/sessions/$CC_SESSION_ID", p); // self-rename path
+        Assert.Contains("Bug: #", p);               // the rail-friendly name shape
+        Assert.Contains("STOP", p);                 // do not drift into fixing
+    }
+
     // ===== Seed composition (playbook + caller PrePrompt -> ONE dispatch) =====
 
     [Fact]
