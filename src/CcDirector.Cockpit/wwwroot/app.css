@@ -260,6 +260,8 @@ body{background:var(--panel);color:var(--text);
 .tag-type{background:transparent;border:1px solid;line-height:12px;font-weight:600}
 .tag-discuss{color:#22D3EE;border-color:#22D3EE}
 .tag-bug{color:#EC4899;border-color:#EC4899}
+.tag-submit{color:#F59E0B;border-color:#F59E0B} /* Issue Submitter (#225) */
+.tag-qa{color:#A855F7;border-color:#A855F7}     /* QA (#225) */
 .needs-pill{font-size:9px;color:var(--red);border:1px solid var(--red);
   border-radius:8px;padding:1px 6px;flex:none}
 

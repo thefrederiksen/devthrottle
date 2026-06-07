@@ -52,6 +52,14 @@
                     {
                         <span class="tag tag-type tag-bug" title="Bug-report session - investigate and file an issue, never fix here">[B] bug report</span>
                     }
+                    else if (s.Type == "IssueSubmitter")
+                    {
+                        <span class="tag tag-type tag-submit" title="Issue-submitter session - files GitHub issues only, never writes code">[S] issue submitter</span>
+                    }
+                    else if (s.Type == "QA")
+                    {
+                        <span class="tag tag-type tag-qa" title="QA session - verifies what was built, never fixes; reports findings">[Q] QA</span>
+                    }
                     @if (s.OnHold)
                     {
                         <span class="tag tag-hold">hold</span>

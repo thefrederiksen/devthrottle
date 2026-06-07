@@ -132,6 +132,14 @@
                     {
                         <span class="tag tag-type tag-bug" title="Bug-report session - investigate and file an issue, never fix here">[B] bug report</span>
                     }
+                    else if (Selected.Type == "IssueSubmitter")
+                    {
+                        <span class="tag tag-type tag-submit" title="Issue-submitter session - files GitHub issues only, never writes code">[S] issue submitter</span>
+                    }
+                    else if (Selected.Type == "QA")
+                    {
+                        <span class="tag tag-type tag-qa" title="QA session - verifies what was built, never fixes; reports findings">[Q] QA</span>
+                    }
                     <span class="detail-meta">@Selected.MachineName / director @ShortId(Selected.DirectorId)</span>
                     @* assessed-when-present (issue #186): the Gateway's brain may have refuted
                        the mechanical quiet; the raw detector state is the fallback. *@
