@@ -44,10 +44,16 @@ skip it, note it in the round summary.
 
 **HARD RULE: the blind reader must not see the TurnPackage.** Spawn a subagent (Agent
 tool, no file access needed - inline everything) whose prompt contains ONLY what the
-real pane shows: the brief fields (headline, turnTitle, intent, did, needsYou
-statement/options/evidence/ifIgnored/railLine, or allClear) PLUS the YOU ASKED line
-(the package's lastUserPrompt - the pane displays it, so the cold reader gets it; it is
-the one package field allowed in). Frame it like this, verbatim in spirit:
+real pane shows, IN THE PANE'S SHAPE (fidelity lesson from rounds 1-6: a card field the
+pane does not render produces phantom "noise" findings):
+- YOU'RE DOING (intent), YOU ASKED (brief.youAsked if present, else the package's
+  lastUserPrompt - the one package field allowed in), NEEDS YOU statement + options
+  (+recommended) + ifIgnored, or ALL CLEAR; CLAUDE DID bullets last.
+- Do NOT show: turnTitle, railLine (rail-only), headline as a separate line.
+- The evidence quote is COLLAPSED behind a "Claude's words (verbatim)" button on the
+  real pane - present it as: 'collapsed behind a button: "<quote>"' so the reader
+  weighs it as optional depth, not card clutter.
+Frame it like this, verbatim in spirit:
 
 > You are a busy operator running many agent sessions: a VETERAN software developer,
 > but NOT versed in this particular technology stack - any term of art the card does
