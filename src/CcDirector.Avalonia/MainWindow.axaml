@@ -219,6 +219,37 @@
                                HorizontalAlignment="Center" />
                 </Border>
 
+                <!-- Gateway two-way connection indicator (issues #223/#224), above the
+                     version footer. GREEN is EARNED by the nonce handshake (both legs
+                     proven) - heartbeats alone never paint it; YELLOW = verifying;
+                     RED = a leg failed (click opens the troubleshooter); GRAY = no
+                     gateway configured (legitimate local-only Director, not an error).
+                     All colors/text set from code-behind off GatewayConnectionMonitor. -->
+                <Border x:Name="GatewayIndicator" DockPanel.Dock="Bottom"
+                        Margin="8,0,8,4" Padding="10,8" CornerRadius="4"
+                        Background="#2A2A2A" BorderBrush="#3C3C3C" BorderThickness="1"
+                        Cursor="Hand"
+                        PointerPressed="GatewayIndicator_PointerPressed">
+                    <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                        <Viewbox Width="22" Height="22" VerticalAlignment="Center">
+                            <Path x:Name="GatewayIndicatorIcon"
+                                  Fill="#777777"
+                                  Data="M8,1 A7,7 0 1 0 8,15 A7,7 0 1 0 8,1 Z M8,3 A5,5 0 1 1 8,13 A5,5 0 1 1 8,3 Z" />
+                        </Viewbox>
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock x:Name="GatewayIndicatorLabel"
+                                       Text="NO GATEWAY"
+                                       FontSize="11" FontWeight="SemiBold"
+                                       Foreground="#777777" />
+                            <TextBlock x:Name="GatewayIndicatorSub"
+                                       Text="local-only Director"
+                                       FontSize="10" Foreground="#666666"
+                                       TextWrapping="Wrap" MaxWidth="186"
+                                       MaxLines="3" TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
                 <!-- Communications / Connections / Scheduler moved to the top toolbar
                      (their pending-count badge and LEADER pill ride along with them). -->
 

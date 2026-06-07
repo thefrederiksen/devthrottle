@@ -245,6 +245,18 @@ public sealed class DirectorRegistry : IDisposable
     public bool WasEverReachable(string directorId)
         => !string.IsNullOrEmpty(directorId) && _everReachable.ContainsKey(directorId);
 
+    /// <summary>
+    /// Stamp a PASSING two-way handshake (issues #223/#224) on the registration. The stamp
+    /// lives on the in-memory dto, so it naturally resets when a re-register replaces the
+    /// entry - a fresh registration must re-earn its verification.
+    /// </summary>
+    public void MarkTwoWayVerified(string directorId)
+    {
+        if (string.IsNullOrEmpty(directorId)) return;
+        if (_directors.TryGetValue(directorId, out var d))
+            d.TwoWayVerifiedAt = DateTime.UtcNow;
+    }
+
     /// <summary>A fleet probe to the Director failed: increment the breaker and open it after the threshold.</summary>
     public void RecordUnreachable(string directorId, string error)
     {

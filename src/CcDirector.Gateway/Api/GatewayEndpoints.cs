@@ -225,6 +225,52 @@ internal static class GatewayEndpoints
             return Results.Json(new { ok = true });
         });
 
+        // Two-way connectivity handshake (issues #223/#224). The Director POSTs a fresh
+        // nonce - this request ARRIVING proves Director->Gateway. The Gateway then proves
+        // Gateway->Director by dialing the registered endpoint back with that nonce. PASS
+        // requires both legs; the per-leg detail in the verdict IS the diagnosis ("you can
+        // reach me but I cannot reach you at <url>: <error>") and feeds the Director's
+        // troubleshooting ladder. A passing handshake stamps TwoWayVerifiedAt on the
+        // registration so the Cockpit shows the identical, protocol-backed truth.
+        app.MapPost("/directors/{id}/verify", async (string id, DirectorVerifyRequest req, CancellationToken ct) =>
+        {
+            if (req is null || string.IsNullOrEmpty(req.Nonce))
+                return Results.BadRequest(new { error = "nonce is required" });
+            var d = registry.Get(id);
+            if (d is null)
+            {
+                // Same contract as heartbeat: 410 tells the Director to re-register first.
+                FileLog.Write($"[GatewayEndpoints] POST /directors/{id}/verify: unknown id (caller should re-register)");
+                return Results.StatusCode(StatusCodes.Status410Gone);
+            }
+
+            var endpoint = (d.TailnetEndpoint ?? d.ControlEndpoint ?? "").TrimEnd('/');
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var (ok, error) = await client.VerifyCallbackAsync(endpoint, id, req.Nonce, ct);
+            sw.Stop();
+
+            if (ok)
+            {
+                registry.MarkTwoWayVerified(id);
+                // A callback that answered is also a probe that answered: feed the
+                // reachability circuit so an UNREACHABLE banner clears without waiting
+                // for the next fleet poll to coincide with a closed breaker.
+                registry.RecordReachable(id);
+            }
+            FileLog.Write($"[GatewayEndpoints] verify {id}: callbackOk={ok}, endpoint={endpoint}, {sw.ElapsedMilliseconds}ms{(ok ? "" : $", error={error}")}");
+
+            return Results.Json(new DirectorVerifyResultDto
+            {
+                Verified = ok,
+                Nonce = req.Nonce,
+                CallbackOk = ok,
+                CallbackError = error,
+                CallbackEndpoint = endpoint,
+                CallbackLatencyMs = sw.ElapsedMilliseconds,
+                VerifiedAt = DateTime.UtcNow,
+            });
+        });
+
         app.MapDelete("/directors/{id}/registration", (string id) =>
         {
             FileLog.Write($"[GatewayEndpoints] DELETE /directors/{id}/registration");

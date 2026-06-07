@@ -153,6 +153,21 @@ public static class TailscaleIdentity
     }
 
     /// <summary>
+    /// Extract <c>BackendState</c> from <c>tailscale status --json</c> output - "Running",
+    /// "Stopped", "NeedsLogin", etc. Returns null when the field is absent. Pure - unit-tested.
+    /// Used by the Gateway-connectivity troubleshooting ladder (issue #223): "Running" is the
+    /// only state in which Serve mappings answer.
+    /// </summary>
+    public static string? ParseBackendState(string statusJson)
+    {
+        using var doc = JsonDocument.Parse(statusJson);
+        if (!doc.RootElement.TryGetProperty("BackendState", out var el)) return null;
+        if (el.ValueKind != JsonValueKind.String) return null;
+        var state = el.GetString();
+        return string.IsNullOrWhiteSpace(state) ? null : state;
+    }
+
+    /// <summary>
     /// Extract node MagicDNS names from <c>tailscale status --json</c> (Self + the Peer map),
     /// stripped of trailing dots, in Self-first order. Filters:
     ///   - <paramref name="onlineOnly"/>: drop nodes whose Online flag is false.

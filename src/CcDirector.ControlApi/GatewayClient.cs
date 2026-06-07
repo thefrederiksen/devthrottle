@@ -35,12 +35,23 @@ public sealed class GatewayClient : IDisposable
     /// <summary>Max delay between failed register/heartbeat retries.</summary>
     public static TimeSpan MaxBackoff { get; } = TimeSpan.FromSeconds(60);
 
+    /// <summary>
+    /// How often a VERIFIED two-way connection re-proves itself (issues #223/#224). While
+    /// unverified or failed, re-verification instead rides every heartbeat tick (15s) so
+    /// recovery is fast; once green, this slower cadence keeps the proof fresh without
+    /// dialing the callback loop four times a minute.
+    /// </summary>
+    public static TimeSpan ReverifyInterval { get; } = TimeSpan.FromSeconds(60);
+
     private readonly GatewayConfig _config;
     private readonly string _directorId;
     private readonly int _port;
     private readonly string _version;
     private readonly Func<List<SessionStateSnapshot>>? _sessionStates;
+    private readonly GatewayConnectionMonitor? _monitor;
     private readonly HttpClient _http;
+    private DateTime _lastVerifyStartedUtc = DateTime.MinValue;
+    private int _verifying; // re-entrancy guard: never stack a second handshake on a slow one
 
     private Timer? _heartbeat;
     private CancellationTokenSource? _cts;
@@ -79,13 +90,18 @@ public sealed class GatewayClient : IDisposable
 
     /// <param name="sessionStates">Snapshot provider for the heartbeat's per-session state
     /// map (issue #186). Null (old callers, tests) sends a body-less heartbeat.</param>
-    public GatewayClient(GatewayConfig config, string directorId, int port, string version, Func<List<SessionStateSnapshot>>? sessionStates = null)
+    /// <param name="monitor">Two-way handshake state home (issues #223/#224). Owned by the
+    /// HOST, not this client, so it survives client replacement on settings changes. Null
+    /// (old callers, tests) disables verification entirely - registration and heartbeat
+    /// behave exactly as before.</param>
+    public GatewayClient(GatewayConfig config, string directorId, int port, string version, Func<List<SessionStateSnapshot>>? sessionStates = null, GatewayConnectionMonitor? monitor = null)
     {
         _config = config ?? throw new ArgumentNullException(nameof(config));
         _directorId = directorId ?? throw new ArgumentNullException(nameof(directorId));
         _port = port;
         _version = version ?? "0.0.0";
         _sessionStates = sessionStates;
+        _monitor = monitor;
 
         _http = new HttpClient
         {
@@ -109,9 +125,11 @@ public sealed class GatewayClient : IDisposable
         if (!_config.IsEnabled)
         {
             FileLog.Write("[GatewayClient] Start: disabled (no gateway.url), running in local-only mode");
+            _monitor?.Reset(gatewayConfigured: false);
             return;
         }
         if (_disposed) throw new ObjectDisposedException(nameof(GatewayClient));
+        _monitor?.Reset(gatewayConfigured: true);
 
         _cts = new CancellationTokenSource();
         FileLog.Write($"[GatewayClient] Start: gateway={_config.Url}, directorId={_directorId}, port={_port}");
@@ -173,12 +191,17 @@ public sealed class GatewayClient : IDisposable
                 if (await TryRegisterAsync(ct))
                 {
                     _registered = true;
+                    // Registration only proves leg 1. Run the two-way handshake right away
+                    // (issues #223/#224) so the indicator earns its green - or names the
+                    // broken return leg - within seconds of connecting, not at the next tick.
+                    _ = Task.Run(() => VerifyAsync(ct), ct);
                     return;
                 }
             }
             catch (Exception ex)
             {
                 FileLog.Write($"[GatewayClient] Register attempt failed: {ex.Message}");
+                _monitor?.ReportRegistrationFailure($"Cannot reach the Gateway at {_config.Url}: {ex.Message}");
             }
 
             try { await Task.Delay(delay, ct); }
@@ -198,6 +221,7 @@ public sealed class GatewayClient : IDisposable
             // No tailnet-reachable address to advertise (see ResolveTailnetEndpoint). Registering
             // an empty endpoint would put an undialable entry in the Gateway. Skip and stay local.
             FileLog.Write("[GatewayClient] TryRegisterAsync: no tailnet endpoint to advertise; staying local-only");
+            _monitor?.ReportRegistrationFailure("No tailnet endpoint to advertise - is Tailscale running and logged in on this machine?");
             return false;
         }
 
@@ -213,6 +237,7 @@ public sealed class GatewayClient : IDisposable
             {
                 LastVerifyError = reason;
                 FileLog.Write($"[GatewayClient] NOT registering {req.TailnetEndpoint}: {reason}");
+                _monitor?.ReportRegistrationFailure($"This Director's own front door failed verification: {reason}");
                 return false;
             }
             LastVerifyError = null;
@@ -227,6 +252,7 @@ public sealed class GatewayClient : IDisposable
         }
 
         FileLog.Write($"[GatewayClient] Register returned {(int)resp.StatusCode} {resp.ReasonPhrase}");
+        _monitor?.ReportRegistrationFailure($"Gateway refused registration: HTTP {(int)resp.StatusCode} {resp.ReasonPhrase}");
         return false;
     }
 
@@ -242,6 +268,12 @@ public sealed class GatewayClient : IDisposable
                     // Still trying to do the initial registration. Let RegisterLoop handle it.
                     return;
                 }
+
+                // Issues #223/#224: keep the two-way proof fresh. Re-verifies every
+                // ReverifyInterval while green, every tick while failed/unverified - so
+                // killing the return path flips the indicator red within one cycle and
+                // a repaired path flips it back green within one heartbeat.
+                MaybeKickVerify();
 
                 // The per-session state snapshot rides the heartbeat (issue #186): it lets
                 // the Gateway reconcile any doorbell ping it missed. Old Gateways ignore
@@ -295,6 +327,101 @@ public sealed class GatewayClient : IDisposable
                 FileLog.Write($"[GatewayClient] doorbell {sessionId} FAILED (dropped; heartbeat reconciles): {ex.Message}");
             }
         });
+    }
+
+    /// <summary>Kick a background handshake when one is due (see <see cref="ReverifyInterval"/>).</summary>
+    private void MaybeKickVerify()
+    {
+        if (_monitor is null) return;
+        if (_monitor.Status == GatewayConnectionStatus.Verified
+            && _lastVerifyStartedUtc + ReverifyInterval > DateTime.UtcNow)
+            return;
+        var cts = _cts;
+        if (cts is null || cts.IsCancellationRequested) return;
+        _ = Task.Run(() => VerifyAsync(cts.Token));
+    }
+
+    /// <summary>
+    /// Run ONE two-way handshake (issues #223/#224): POST a fresh nonce to the Gateway's
+    /// /directors/{id}/verify (this call arriving proves leg 1), which makes the Gateway
+    /// dial GET /verify/{nonce} back on the advertised endpoint (leg 2). The verdict -
+    /// including the cross-check that the callback actually landed HERE - goes to the
+    /// <see cref="GatewayConnectionMonitor"/>; the return value is for on-demand callers
+    /// (the troubleshooting dialog's Re-test). Null when verification is disabled, a
+    /// handshake is already in flight, or the verdict never round-tripped.
+    /// </summary>
+    public async Task<DirectorVerifyResultDto?> VerifyAsync(CancellationToken ct = default)
+    {
+        if (!_config.IsEnabled || _monitor is null || _disposed) return null;
+        if (Interlocked.CompareExchange(ref _verifying, 1, 0) != 0) return null;
+        var nonce = _monitor.BeginHandshake();
+        try
+        {
+            _lastVerifyStartedUtc = DateTime.UtcNow;
+            var resp = await _http.PostAsJsonAsync($"directors/{_directorId}/verify", new DirectorVerifyRequest { Nonce = nonce }, ct);
+
+            if (resp.StatusCode == HttpStatusCode.Gone)
+            {
+                // Same contract as the heartbeat: the Gateway forgot us, re-register first.
+                _monitor.CompleteHandshake(nonce, null, "Gateway no longer knows this Director - re-registering");
+                _registered = false;
+                var cts = _cts;
+                if (cts is not null && !cts.IsCancellationRequested)
+                    _ = Task.Run(() => RegisterLoop(cts.Token));
+                return null;
+            }
+            if (resp.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed)
+            {
+                _monitor.CompleteHandshake(nonce, null,
+                    $"The Gateway at {_config.Url} does not support the verify handshake - update the Gateway");
+                return null;
+            }
+            if (!resp.IsSuccessStatusCode)
+            {
+                _monitor.CompleteHandshake(nonce, null, $"Gateway verify returned HTTP {(int)resp.StatusCode} {resp.ReasonPhrase}");
+                return null;
+            }
+
+            var result = await resp.Content.ReadFromJsonAsync<DirectorVerifyResultDto>(cancellationToken: ct);
+            if (result is null)
+            {
+                _monitor.CompleteHandshake(nonce, null, "Gateway verify answered 2xx with an unparsable body");
+                return null;
+            }
+
+            string? summary = null;
+            if (!result.Verified)
+            {
+                // The leg that broke in #197/#223: heartbeats land, callbacks die.
+                summary = $"The Gateway cannot call this Director back: {result.CallbackError}";
+            }
+            else if (!_monitor.CallbackReceived(nonce))
+            {
+                // The nonce correlation earning its keep: the Gateway believes its callback
+                // succeeded, but it never arrived here - whatever answered the advertised
+                // URL was not this process. One leg alone can never fake a green.
+                result.Verified = false;
+                summary = $"The Gateway's callback was answered by something that is not this Director (at {result.CallbackEndpoint})";
+            }
+            _monitor.CompleteHandshake(nonce, result, summary);
+            return result;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            _monitor.AbandonHandshake(nonce); // shutdown: no verdict, no state flip
+            return null;
+        }
+        catch (Exception ex)
+        {
+            // Includes the HttpClient timeout (TaskCanceledException without ct signaled):
+            // leg 1 itself is down or crawling.
+            _monitor.CompleteHandshake(nonce, null, $"Cannot reach the Gateway at {_config.Url}: {ex.Message}");
+            return null;
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _verifying, 0);
+        }
     }
 
     private DirectorRegistrationRequest BuildRegistrationRequest()

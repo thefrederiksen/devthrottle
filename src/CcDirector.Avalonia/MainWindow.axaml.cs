@@ -11,6 +11,7 @@ using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using CcDirector.ControlApi;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Claude;
@@ -268,6 +269,144 @@ public partial class MainWindow : Window
         _schedulerLeaderTimer.Tick += (_, _) => RefreshSchedulerLeaderIndicator();
         _schedulerLeaderTimer.Start();
         RefreshSchedulerLeaderIndicator();
+
+        WireGatewayIndicator();
+    }
+
+    // ==================== GATEWAY CONNECTION INDICATOR (issues #223/#224) ====================
+
+    private global::Avalonia.Threading.DispatcherTimer? _gatewayAttachTimer;
+    private GatewayConnectionMonitor? _gatewayMonitor;
+    private string? _lastAutoPoppedFailure;
+    private bool _troubleshooterOpen;
+
+    private const string GatewayIconRing = "M8,1 A7,7 0 1 0 8,15 A7,7 0 1 0 8,1 Z M8,3 A5,5 0 1 1 8,13 A5,5 0 1 1 8,3 Z";
+    private const string GatewayIconCheck = "M6.2,12.4 L1.6,7.8 L3,6.4 L6.2,9.6 L13,2.8 L14.4,4.2 Z";
+    private const string GatewayIconCross = "M3.4,2 L8,6.6 L12.6,2 L14,3.4 L9.4,8 L14,12.6 L12.6,14 L8,9.4 L3.4,14 L2,12.6 L6.6,8 L2,3.4 Z";
+
+    /// <summary>
+    /// Attach the sidebar indicator to the host's GatewayConnectionMonitor. The
+    /// ControlApiHost starts in the background after the window opens, so retry on a
+    /// short timer until it exists, then go fully event-driven.
+    /// </summary>
+    private void WireGatewayIndicator()
+    {
+        _gatewayAttachTimer = new global::Avalonia.Threading.DispatcherTimer
+        {
+            Interval = TimeSpan.FromSeconds(1),
+        };
+        _gatewayAttachTimer.Tick += (_, _) => TryAttachGatewayMonitor();
+        _gatewayAttachTimer.Start();
+        TryAttachGatewayMonitor();
+    }
+
+    private void TryAttachGatewayMonitor()
+    {
+        if (_gatewayMonitor is not null) return;
+        var host = (global::Avalonia.Application.Current as App)?.ControlApiHost;
+        if (host is null) return;
+
+        _gatewayMonitor = host.GatewayMonitor;
+        _gatewayMonitor.Changed += () => Dispatcher.UIThread.Post(UpdateGatewayIndicator);
+        _gatewayAttachTimer?.Stop();
+        _gatewayAttachTimer = null;
+        UpdateGatewayIndicator();
+        FileLog.Write("[MainWindow] Gateway indicator attached to GatewayConnectionMonitor");
+    }
+
+    /// <summary>
+    /// Paint the indicator from the monitor's state. GREEN only on a passed two-way
+    /// handshake; the SORENLAPTOP failure mode (heartbeats fine, callback dead) shows
+    /// RED here while heartbeats still succeed - that is the whole point of #224.
+    /// </summary>
+    private void UpdateGatewayIndicator()
+    {
+        var m = _gatewayMonitor;
+        if (m is null) return;
+
+        string icon, accent, bg, border, label, sub;
+        switch (m.Status)
+        {
+            case GatewayConnectionStatus.Verified:
+                (icon, accent, bg, border) = (GatewayIconCheck, "#22C55E", "#1B3A2A", "#22C55E");
+                label = "GATEWAY CONNECTED";
+                sub = $"two-way verified {m.LastVerifiedAt?.ToLocalTime():HH:mm:ss}";
+                break;
+            case GatewayConnectionStatus.Connecting:
+                (icon, accent, bg, border) = (GatewayIconRing, "#F0B848", "#3A331B", "#F0B848");
+                label = "GATEWAY VERIFYING...";
+                sub = "proving two-way connection";
+                break;
+            case GatewayConnectionStatus.Failed:
+                (icon, accent, bg, border) = (GatewayIconCross, "#EF4444", "#3A1B1B", "#DC2626");
+                label = "GATEWAY UNREACHABLE";
+                sub = (m.FailureSummary ?? "verification failed") + " - click to troubleshoot";
+                break;
+            default:
+                (icon, accent, bg, border) = (GatewayIconRing, "#777777", "#2A2A2A", "#3C3C3C");
+                label = "NO GATEWAY";
+                sub = "local-only Director";
+                break;
+        }
+
+        GatewayIndicatorIcon.Data = Geometry.Parse(icon);
+        GatewayIndicatorIcon.Fill = Brush.Parse(accent);
+        GatewayIndicator.Background = Brush.Parse(bg);
+        GatewayIndicator.BorderBrush = Brush.Parse(border);
+        GatewayIndicatorLabel.Text = label;
+        GatewayIndicatorLabel.Foreground = Brush.Parse(accent);
+        GatewayIndicatorSub.Text = sub;
+
+        var tip = $"Gateway connection: {m.Status}";
+        if (m.LastVerifiedAt is { } at) tip += $"\nLast verified: {at.ToLocalTime():yyyy-MM-dd HH:mm:ss}";
+        if (m.LastResult is { } r && r.CallbackOk) tip += $"\nCallback: {r.CallbackLatencyMs} ms at {r.CallbackEndpoint}";
+        if (m.FailureSummary is { } f) tip += $"\n{f}";
+        tip += "\nClick to open the troubleshooter.";
+        ToolTip.SetTip(GatewayIndicator, tip);
+
+        // #223: auto-pop the troubleshooter ONCE per distinct failure. A failure that
+        // repeats (same summary on every re-verify) never re-pops; a NEW failure does.
+        if (m.Status == GatewayConnectionStatus.Failed
+            && m.FailureSummary is { } failure
+            && failure != _lastAutoPoppedFailure
+            && !_troubleshooterOpen)
+        {
+            _lastAutoPoppedFailure = failure;
+            FileLog.Write($"[MainWindow] Gateway verification failed - auto-opening troubleshooter: {failure}");
+            OpenGatewayTroubleshooter();
+        }
+    }
+
+    private void GatewayIndicator_PointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        OpenGatewayTroubleshooter();
+    }
+
+    private void OpenGatewayTroubleshooter()
+    {
+        try
+        {
+            if (_troubleshooterOpen) return;
+            var host = (global::Avalonia.Application.Current as App)?.ControlApiHost;
+            if (host is null)
+            {
+                FileLog.Write("[MainWindow] OpenGatewayTroubleshooter: Control API not started yet");
+                return;
+            }
+            _troubleshooterOpen = true;
+            var dialog = new GatewayTroubleshootDialog(host);
+            dialog.Closed += (_, _) => _troubleshooterOpen = false;
+            // Non-modal on purpose: the troubleshooter is a tool window (its fixes take
+            // seconds and the user may want the session list meanwhile); auto-popup as a
+            // modal would also steal an active typing session.
+            dialog.Show(this);
+            FileLog.Write("[MainWindow] Gateway troubleshooter opened");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] OpenGatewayTroubleshooter FAILED: {ex.Message}");
+            _troubleshooterOpen = false;
+        }
     }
 
     private global::Avalonia.Threading.DispatcherTimer? _schedulerLeaderTimer;

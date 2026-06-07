@@ -47,4 +47,12 @@ public sealed class DirectorDto
     /// Defaults to "file" for backward compat with existing JSON registration files.
     /// </summary>
     public string Source { get; set; } = "file";
+
+    /// <summary>
+    /// UTC timestamp of the last PASSING two-way handshake (issues #223/#224): the
+    /// Director reached the Gateway AND the Gateway's nonce callback reached the Director.
+    /// Null = never verified for this registration (resets on re-register, which is
+    /// truthful - a fresh registration may carry a different endpoint). Server-side stamp.
+    /// </summary>
+    public DateTime? TwoWayVerifiedAt { get; set; }
 }

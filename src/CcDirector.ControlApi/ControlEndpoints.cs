@@ -23,7 +23,7 @@ namespace CcDirector.ControlApi;
 /// </summary>
 internal static class ControlEndpoints
 {
-    public static void Map(IEndpointRouteBuilder app, SessionManager sessionManager, string directorId, string version, Func<Task> requestShutdownAsync, bool authEnabled = false, RepositoryRegistry? repositoryRegistry = null, TurnSummaryCache? turnSummaryCache = null, string? gatewayUrl = null, ProactiveExplainService? proactiveExplain = null)
+    public static void Map(IEndpointRouteBuilder app, SessionManager sessionManager, string directorId, string version, Func<Task> requestShutdownAsync, bool authEnabled = false, RepositoryRegistry? repositoryRegistry = null, TurnSummaryCache? turnSummaryCache = null, string? gatewayUrl = null, ProactiveExplainService? proactiveExplain = null, GatewayConnectionMonitor? gatewayMonitor = null)
     {
         var logoutVisibility = authEnabled ? "" : "style=\"display:none\"";
         // URL of the Gateway this Director is registered with, for the "Gateway" nav
@@ -40,6 +40,21 @@ internal static class ControlEndpoints
             ServerTime = DateTime.UtcNow,
             DirectorId = directorId,
             MachineName = Environment.MachineName,
+        }));
+
+        // ===== Two-way handshake callback (issues #223/#224) =====
+        // The Gateway dials this with the nonce the Director just POSTed to its
+        // /directors/{id}/verify. Deliberately NOT in DirectorAuth.PublicPaths: the
+        // handshake must prove the SAME authenticated channel real Gateway traffic uses -
+        // a token mismatch should fail verification loudly, not be bypassed by it.
+        // Echoing the Director id lets the Gateway catch an advertised URL that reaches
+        // the wrong process; recording the receipt lets THIS side independently confirm
+        // the callback landed here (the anti-impostor cross-check in GatewayClient).
+        app.MapGet("/verify/{nonce}", (string nonce) => Results.Json(new VerifyCallbackDto
+        {
+            DirectorId = directorId,
+            Nonce = nonce,
+            Known = gatewayMonitor?.RecordCallback(nonce) ?? false,
         }));
 
         // ===== HTML pages =====

@@ -53,6 +53,28 @@ public sealed class ControlApiHost : IAsyncDisposable
     private GatewayClient? _gatewayClient;
     private TailscaleServeSelfProvisioner? _serveProvisioner;
     private readonly SemaphoreSlim _gatewayReapplyLock = new(1, 1);
+
+    /// <summary>
+    /// The one home of this Director's Gateway-connection truth (issues #223/#224).
+    /// Host-owned so it survives GatewayClient replacement on settings changes; the
+    /// desktop indicator subscribes to its Changed event, the /verify/{nonce} endpoint
+    /// records callback receipts in it.
+    /// </summary>
+    public GatewayConnectionMonitor GatewayMonitor { get; } = new();
+
+    /// <summary>This Director's own serve provisioner (issue #197). Exposed for the
+    /// troubleshooting dialog: rung 2's "Fix it now" runs EnsureMappingAsync, and the
+    /// provisioner's LastError explains WHY a mapping is missing. Null on ephemeral-port
+    /// hosts (tests, hosted agents), which never self-provision.</summary>
+    public TailscaleServeSelfProvisioner? ServeProvisioner => _serveProvisioner;
+
+    /// <summary>
+    /// On-demand two-way handshake (issues #223/#224) for the troubleshooter's Re-test
+    /// button. Null result when no Gateway is configured or a handshake is already in
+    /// flight; the verdict also lands in <see cref="GatewayMonitor"/> either way.
+    /// </summary>
+    public Task<Gateway.Contracts.DirectorVerifyResultDto?> VerifyGatewayNowAsync(CancellationToken ct = default)
+        => _gatewayClient?.VerifyAsync(ct) ?? Task.FromResult<Gateway.Contracts.DirectorVerifyResultDto?>(null);
     private TurnSummaryCache? _turnSummaryCache;
     private SessionStatusWingman? _statusWingman;
     private ProactiveExplainService? _proactiveExplain;
@@ -235,7 +257,7 @@ public sealed class ControlApiHost : IAsyncDisposable
         var gatewayConfig = Core.Configuration.GatewayConfig.Load();
         var gatewayUrl = gatewayConfig.IsEnabled ? gatewayConfig.Url : null;
 
-        ControlEndpoints.Map(_app, _sessionManager, DirectorId, _version, _requestShutdownAsync, _authEnabled, _repositoryRegistry, _turnSummaryCache, gatewayUrl, _proactiveExplain);
+        ControlEndpoints.Map(_app, _sessionManager, DirectorId, _version, _requestShutdownAsync, _authEnabled, _repositoryRegistry, _turnSummaryCache, gatewayUrl, _proactiveExplain, GatewayMonitor);
         DictationEndpoint.Map(_app, _sessionManager.Options);
         TerminalStreamEndpoint.Map(_app, _sessionManager);
         SessionUsageEndpoint.Map(_app, _sessionManager);
@@ -294,7 +316,7 @@ public sealed class ControlApiHost : IAsyncDisposable
     /// </summary>
     private GatewayClient BuildGatewayClient(GatewayConfig gatewayConfig)
     {
-        var client = new GatewayClient(gatewayConfig, DirectorId, Port, _version, SnapshotSessionStates);
+        var client = new GatewayClient(gatewayConfig, DirectorId, Port, _version, SnapshotSessionStates, GatewayMonitor);
         if (_serveProvisioner is { } provisioner)
         {
             client.EndpointVerifier = async (endpoint, ct) =>

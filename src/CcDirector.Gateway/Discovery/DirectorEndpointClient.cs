@@ -11,6 +11,7 @@ namespace CcDirector.Gateway.Discovery;
 public sealed class DirectorEndpointClient : IDisposable
 {
     private readonly HttpClient _http;
+    private readonly HttpClient _verifyHttp;
     private readonly string? _token;
 
     public DirectorEndpointClient(string? token = null)
@@ -22,9 +23,62 @@ public sealed class DirectorEndpointClient : IDisposable
             // so a single unreachable Director should not stall the whole /healthz response.
             Timeout = TimeSpan.FromSeconds(2),
         };
+        // Separate client for the verify callback (issues #223/#224): it needs a longer
+        // deadline than the fleet probes (see VerifyCallbackTimeout) and must not loosen
+        // the aggregator's 2s budget. The per-call CTS in VerifyCallbackAsync is the
+        // effective timeout; this client-level value is just the hard ceiling behind it.
+        _verifyHttp = new HttpClient { Timeout = VerifyCallbackTimeout + TimeSpan.FromSeconds(2) };
         if (!string.IsNullOrEmpty(token))
+        {
             _http.DefaultRequestHeaders.Authorization =
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            _verifyHttp.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+        }
+    }
+
+    /// <summary>How long the verify callback waits before declaring leg 2 dead. Longer than
+    /// the 2s fleet-probe timeout: this runs on demand (not per poll) and a DERP-relayed
+    /// tailnet hop can legitimately exceed 2s.</summary>
+    public static TimeSpan VerifyCallbackTimeout { get; } = TimeSpan.FromSeconds(8);
+
+    /// <summary>
+    /// Leg 2 of the two-way handshake (issues #223/#224): dial the Director's advertised
+    /// endpoint back with the nonce it sent us. Success requires a 2xx AND the body echoing
+    /// the expected Director id and nonce - an answer from the wrong process is a failure
+    /// with its own message, not a pass. Rides the same bearer token as all real
+    /// Gateway -> Director traffic, so a token mismatch fails the handshake truthfully.
+    /// </summary>
+    public async Task<(bool ok, string? error)> VerifyCallbackAsync(string endpoint, string expectedDirectorId, string nonce, CancellationToken ct = default)
+    {
+        var url = $"{endpoint.TrimEnd('/')}/verify/{Uri.EscapeDataString(nonce)}";
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(VerifyCallbackTimeout);
+            using var req = new HttpRequestMessage(HttpMethod.Get, url);
+            var resp = await _verifyHttp.SendAsync(req, cts.Token);
+            if (!resp.IsSuccessStatusCode)
+                return (false, $"callback answered HTTP {(int)resp.StatusCode} at {url}");
+
+            var body = await resp.Content.ReadFromJsonAsync<VerifyCallbackDto>(cancellationToken: cts.Token);
+            if (body is null)
+                return (false, $"callback answered 2xx at {url} but the body was not a verify echo");
+            if (!string.Equals(body.DirectorId, expectedDirectorId, StringComparison.OrdinalIgnoreCase))
+                return (false, $"callback answered, but by a DIFFERENT Director ({body.DirectorId}) - the advertised URL points at the wrong process");
+            if (!string.Equals(body.Nonce, nonce, StringComparison.Ordinal))
+                return (false, "callback answered but echoed a different nonce");
+            return (true, null);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return (false, $"TCP timeout at {url} after {VerifyCallbackTimeout.TotalSeconds:F0}s");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[DirectorEndpointClient] VerifyCallbackAsync FAILED: url={url}, error={ex.Message}");
+            return (false, $"callback failed at {url}: {ex.Message}");
+        }
     }
 
     public async Task<HealthDto?> GetHealthAsync(string endpoint, CancellationToken ct = default)
@@ -662,5 +716,9 @@ public sealed class DirectorEndpointClient : IDisposable
         }
     }
 
-    public void Dispose() => _http.Dispose();
+    public void Dispose()
+    {
+        _http.Dispose();
+        _verifyHttp.Dispose();
+    }
 }
