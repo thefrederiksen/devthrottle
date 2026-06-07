@@ -376,6 +376,22 @@ public partial class NewSessionDialog : Window
         }
     }
 
+    /// <summary>The group definition chosen in the "Create" picker (issue #225), or null when
+    /// "Single session" is selected. When non-null, MainWindow creates the whole group and the
+    /// per-session <see cref="SelectedSessionType"/> is ignored (the group defines each type).</summary>
+    public SessionGroupDefinition? SelectedGroupDefinition
+        => CreateRadioProduct?.IsChecked == true
+            ? SessionGroupDefinition.FindBuiltIn(CreateRadioProduct.Tag as string ?? "Product")
+            : null;
+
+    /// <summary>Single vs group toggle: hide the per-session Type picker while a group is
+    /// chosen (the group defines each member's type).</summary>
+    private void CreateModeRadio_CheckedChanged(object? sender, RoutedEventArgs e)
+    {
+        if (TypePickerPanel is not null)
+            TypePickerPanel.IsVisible = SelectedGroupDefinition is null;
+    }
+
     /// <summary>"Verified driver = shipped": an agent shows outside alpha only when its
     /// driver is a real, live-verified implementation rather than the GenericDriver
     /// placeholder for unverified CLIs.</summary>

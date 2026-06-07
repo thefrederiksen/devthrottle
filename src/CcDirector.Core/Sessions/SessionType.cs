@@ -27,6 +27,17 @@ public enum SessionType
     /// <summary>The flagship rule: NEVER fix the bug here. Reproduce, root-cause, then
     /// file an issue complete enough that an Implement session can pick it up cold.</summary>
     BugReport = 2,
+
+    /// <summary>The issue-only clerk (issue #225, the #220/#221 role as a first-class type):
+    /// a STANDING session that files GitHub issues for any number of asks and never writes
+    /// code. Broader than BugReport (one bug in, one issue out) - this is the Product group's
+    /// submit member.</summary>
+    IssueSubmitter = 3,
+
+    /// <summary>Verify, never fix (issue #225): test what was built against what was asked,
+    /// and report findings as issues or hand them to the submit session - never edit the code
+    /// itself. The Product group's QA member.</summary>
+    QA = 4,
 }
 
 /// <summary>
@@ -65,6 +76,22 @@ public static class SessionTypePlaybooks
             "rename this session by sending PATCH $CC_DIRECTOR_API/sessions/$CC_SESSION_ID with JSON " +
             "body {\"name\":\"Bug: #<number> <short title>\"}, and STOP. Do not start fixing - that is " +
             "a separate Implement session's job.",
+
+        SessionType.IssueSubmitter =>
+            "This is an ISSUE-SUBMITTER session - a standing clerk for filing GitHub issues. " +
+            "You NEVER write code, edit files, or commit; your one job is to turn each ask into a " +
+            "well-formed GitHub issue in this repo's tracker. For every request: capture the intent, " +
+            "add enough context for an implementer to start cold (what is wanted, why, acceptance, " +
+            "any evidence with file:line), and file it. If an ask is too vague to act on, file it " +
+            "with a needs-design label naming exactly what is unresolved. Stay open for the next ask - " +
+            "you are not done after one issue. Implementing happens in a separate Implement session.",
+
+        SessionType.QA =>
+            "This is a QA session. Test and verify what was built against what was ASKED - reproduce " +
+            "the claimed behavior, check the acceptance criteria, probe edge cases. You NEVER fix what " +
+            "you find: report each finding as a GitHub issue (or hand it to the submit-issues session) " +
+            "with exact reproduction steps and evidence (file:line, output, screenshots). A clean pass " +
+            "is a valid result - say so plainly. Fixing is the Implement session's job, not yours.",
 
         _ => null,
     };

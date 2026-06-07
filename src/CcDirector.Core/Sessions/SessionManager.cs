@@ -97,7 +97,11 @@ public sealed class SessionManager : IDisposable
     /// <param name="sessionType">The session's declared purpose (issue #211), stamped once
     /// here and immutable afterwards. Callers that seed prompts are responsible for putting
     /// the type's playbook (<see cref="SessionTypePlaybooks.For"/>) ahead of their seed.</param>
-    public Session CreateSession(string repoPath, IAgent agent, string? userArgs, SessionBackendType backendType, string? resumeSessionId, SessionType sessionType = SessionType.Implement)
+    /// <param name="groupId">Group identity (issue #225) when this session is a group member;
+    /// null for a solo session.</param>
+    /// <param name="groupRole">The member's descriptive role within its group (issue #225).</param>
+    /// <param name="groupName">The group's display name (issue #225), for the desktop header.</param>
+    public Session CreateSession(string repoPath, IAgent agent, string? userArgs, SessionBackendType backendType, string? resumeSessionId, SessionType sessionType = SessionType.Implement, Guid? groupId = null, string? groupRole = null, string? groupName = null)
     {
         if (agent is null)
             throw new ArgumentNullException(nameof(agent));
@@ -143,6 +147,9 @@ public sealed class SessionManager : IDisposable
         {
             AgentKind = agent.Kind,
             SessionType = sessionType,
+            GroupId = groupId,
+            GroupRole = groupRole,
+            GroupName = groupName,
         };
 
         try
@@ -618,6 +625,9 @@ public sealed class SessionManager : IDisposable
                 BackendType = s.BackendType,
                 AgentKind = s.AgentKind,
                 SessionType = s.SessionType,
+                GroupId = s.GroupId,
+                GroupRole = s.GroupRole,
+                GroupName = s.GroupName,
                 RawStartupText = s.RawStartupText,
                 SelectedTabName = s.SelectedTabName,
                 WingmanEnabled = s.WingmanEnabled,
@@ -644,6 +654,9 @@ public sealed class SessionManager : IDisposable
 
         session.AgentKind = ps.AgentKind;
         session.SessionType = ps.SessionType;
+        session.GroupId = ps.GroupId;
+        session.GroupRole = ps.GroupRole;
+        session.GroupName = ps.GroupName;
         session.WingmanEnabled = ps.WingmanEnabled;
         // Restored sessions already have history, so the brand-new gate (which short-
         // circuits the Wingman's first turn-end briefing on fresh sessions) does not apply.

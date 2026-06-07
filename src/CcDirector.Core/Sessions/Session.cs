@@ -125,6 +125,20 @@ public sealed class Session : IDisposable
     /// paths stamp it, nothing else writes it.</summary>
     public SessionType SessionType { get; internal set; } = SessionType.Implement;
 
+    /// <summary>If this session was created as part of a group (issue #225), the shared
+    /// group identity its members travel by; null for a solo session. Members of the same
+    /// group sort adjacently and drag as one unit. Stamped at creation, immutable.</summary>
+    public Guid? GroupId { get; internal set; }
+
+    /// <summary>The session's role within its group (issue #225), e.g. "Submitter",
+    /// "Implementer", "QA" - a descriptive label; the authoritative behavior is the
+    /// <see cref="SessionType"/>. Null for a solo session.</summary>
+    public string? GroupRole { get; internal set; }
+
+    /// <summary>The group's display name (issue #225), e.g. "Product" - shown in the desktop
+    /// group header. Same for every member of a group; null for a solo session.</summary>
+    public string? GroupName { get; internal set; }
+
     public Guid Id { get; }
     public string RepoPath { get; }
     public string WorkingDirectory { get; }

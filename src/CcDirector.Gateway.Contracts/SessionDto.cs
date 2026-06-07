@@ -16,10 +16,17 @@ public sealed class SessionDto
     public string Agent { get; set; } = "";
 
     /// <summary>The session's declared purpose (issue #211): Implement / Discuss /
-    /// BugReport. Identity, not status - set at creation, immutable. Same axis as
-    /// <see cref="Agent"/> (orthogonal: which agent vs why the session exists).
+    /// BugReport / IssueSubmitter / QA. Identity, not status - set at creation, immutable.
+    /// Same axis as <see cref="Agent"/> (orthogonal: which agent vs why the session exists).
     /// Empty/missing means Implement (pre-#211 Directors).</summary>
     public string Type { get; set; } = "";
+
+    /// <summary>Group identity (issue #225) when this session belongs to a group; null for
+    /// solo sessions. Lets a by-repo / fleet view keep group members adjacent.</summary>
+    public string? GroupId { get; set; }
+
+    /// <summary>The session's role within its group (issue #225); null for solo sessions.</summary>
+    public string? GroupRole { get; set; }
 
     /// <summary>Repository / working directory.</summary>
     public string RepoPath { get; set; } = "";

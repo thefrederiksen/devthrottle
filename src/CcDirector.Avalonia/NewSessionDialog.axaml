@@ -63,6 +63,31 @@
                          the whole picker is hidden unless alpha mode is on, leaving
                          Claude Code as the only (implicit) agent. -->
                     <StackPanel Grid.Row="0" Orientation="Vertical">
+                    <!-- Group session picker (issue #225): "Single session" (today's flow, the
+                         Type picker applies) vs a group preset that creates several tied,
+                         typed sessions at once. When a group is chosen, the per-session Type
+                         picker is hidden - the group defines each member's type. -->
+                    <StackPanel x:Name="CreateModePanel" Orientation="Horizontal" Margin="0,0,0,12">
+                        <TextBlock Text="Create:"
+                                   Foreground="#CCCCCC" FontSize="14"
+                                   VerticalAlignment="Center" Margin="0,0,16,0" />
+                        <RadioButton x:Name="CreateRadioSingle" GroupName="CreateMode"
+                                     Content="Single session"
+                                     IsChecked="True"
+                                     Foreground="#CCCCCC" FontSize="14"
+                                     VerticalAlignment="Center" Margin="0,0,24,0"
+                                     Tag=""
+                                     IsCheckedChanged="CreateModeRadio_CheckedChanged"
+                                     ToolTip.Tip="One session - pick its type below" />
+                        <RadioButton x:Name="CreateRadioProduct" GroupName="CreateMode"
+                                     Content="Group: Product"
+                                     Foreground="#CCCCCC" FontSize="14"
+                                     VerticalAlignment="Center"
+                                     Tag="Product"
+                                     IsCheckedChanged="CreateModeRadio_CheckedChanged"
+                                     ToolTip.Tip="Three tied sessions: Issue Submitter + Implementer + QA" />
+                    </StackPanel>
+
                     <StackPanel x:Name="AgentPickerPanel" Orientation="Horizontal" Margin="0,0,0,12">
                         <TextBlock Text="Agent:"
                                    Foreground="#CCCCCC" FontSize="14"

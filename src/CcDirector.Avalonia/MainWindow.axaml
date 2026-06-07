@@ -272,8 +272,32 @@
                     </ListBox.Styles>
                     <ListBox.ItemTemplate>
                         <DataTemplate>
-                            <Grid Margin="0,1">
-                                <Grid ColumnDefinitions="*,Auto" Margin="8,6">
+                            <StackPanel Margin="0,1">
+                                <!-- Group header (issue #225): rendered above the FIRST member
+                                     of a group only. Doubles as the group drag handle - grab it
+                                     to move every member as one unit. -->
+                                <Border IsVisible="{Binding ShowGroupHeader}"
+                                        Background="#243049"
+                                        BorderBrush="#3A4A63" BorderThickness="1,1,1,0"
+                                        CornerRadius="6,6,0,0"
+                                        Padding="9,4" Margin="0,3,0,0"
+                                        Cursor="SizeAll"
+                                        PointerPressed="ColorSquare_PointerPressed">
+                                    <StackPanel Orientation="Horizontal" Spacing="7">
+                                        <TextBlock Text="&#9776;" Foreground="#6F86B3" FontSize="11" VerticalAlignment="Center" />
+                                        <TextBlock Text="{Binding GroupHeaderText}"
+                                                   Foreground="#9DB4DD" FontSize="10" FontWeight="Bold"
+                                                   VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </Border>
+                                <!-- Row body: a left accent stripe + subtle tint when this is a
+                                     group member, so members read as one tied block. -->
+                                <Border Background="{Binding GroupRowBackground}">
+                                <Grid ColumnDefinitions="Auto,*">
+                                    <Border Grid.Column="0" Width="3"
+                                            Background="{Binding GroupAccent}"
+                                            IsVisible="{Binding IsGroupMember}" />
+                                <Grid Grid.Column="1" ColumnDefinitions="*,Auto" Margin="8,6">
                                     <!-- Session content -->
                                     <StackPanel Grid.Column="0">
                                         <StackPanel Orientation="Horizontal">
@@ -412,7 +436,9 @@
                                                 Classes="sessionMenuBtn" />
                                     </StackPanel>
                                 </Grid>
-                            </Grid>
+                                </Grid>
+                                </Border>
+                            </StackPanel>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
                 </ListBox>

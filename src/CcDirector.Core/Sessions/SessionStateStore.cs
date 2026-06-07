@@ -37,6 +37,16 @@ public class PersistedSession
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public SessionType SessionType { get; set; } = SessionType.Implement;
 
+    /// <summary>Group identity (issue #225), null for solo sessions. Persisted so a group
+    /// survives a restart intact - members restore adjacent and still tied.</summary>
+    public Guid? GroupId { get; set; }
+
+    /// <summary>Role within the group (issue #225), null for solo sessions.</summary>
+    public string? GroupRole { get; set; }
+
+    /// <summary>The group's display name (issue #225), null for solo sessions.</summary>
+    public string? GroupName { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; }
 
     /// <summary>Order in the session list, used to restore UI order after restart.</summary>

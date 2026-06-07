@@ -194,6 +194,10 @@ public partial class MainWindow : Window
         QueueItemsList.ItemsSource = _queueItems;
         ScreenshotList.ItemsSource = _screenshots;
 
+        // Keep group brackets/headers (issue #225) correct after any add/remove/restore.
+        // Cheap flag recompute; the drop handler also calls it explicitly after a reorder.
+        _sessions.CollectionChanged += (_, _) => RecomputeGroupPositions();
+
         // Keep the "N need you" header count instant: recompute whenever a session is
         // added/removed or ANY session's status color flips (e.g. a background session goes
         // red while you are on another). The 15s timer remains a backstop.
@@ -489,6 +493,50 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Create a session group (issue #225): all members of <paramref name="groupDef"/> in one
+    /// repo, tied by a single GroupId, in the group's fixed member order. Mirrors
+    /// <see cref="LoadWorkspaceAsync"/> - sequential with the 2500ms anti-corruption delay
+    /// between spawns - so the members land adjacent in the list (and therefore adjacent in
+    /// SortOrder), which is what keeps them tied and draggable as one unit.
+    /// </summary>
+    private async Task CreateGroupSessionAsync(SessionGroupDefinition groupDef, string repoPath, string? agentArgs, AgentKind agentKind)
+    {
+        var groupId = Guid.NewGuid();
+        var repoName = Path.GetFileName(repoPath.TrimEnd('\\', '/'));
+        FileLog.Write($"[MainWindow] CreateGroupSessionAsync: '{groupDef.Name}' groupId={groupId}, {groupDef.Members.Count} members in {repoName}");
+
+        var progress = new WorkspaceProgressDialog($"{groupDef.Name} group");
+        progress.Show(this);
+        try
+        {
+            for (int i = 0; i < groupDef.Members.Count; i++)
+            {
+                var member = groupDef.Members[i];
+                var memberName = repoName + member.NameSuffix;
+                progress.UpdateProgress(i + 1, groupDef.Members.Count, memberName);
+
+                var vm = CreateSession(repoPath, claudeArgs: agentArgs, agentKind: agentKind,
+                    sessionType: member.Type, groupId: groupId, groupRole: member.Role, groupName: groupDef.Name);
+                if (vm is not null)
+                {
+                    vm.Rename(memberName, vm.Session.CustomColor);
+                    SaveSessionToHistory(vm);
+                }
+
+                if (i < groupDef.Members.Count - 1)
+                    await Task.Delay(2500);
+            }
+            progress.SetComplete();
+            PersistSessionState(); // stamp the adjacent SortOrders that keep the group tied
+            FileLog.Write($"[MainWindow] CreateGroupSessionAsync: '{groupDef.Name}' group created");
+        }
+        finally
+        {
+            progress.Close();
+        }
+    }
+
     // ==================== SESSION MANAGEMENT ====================
 
     /// <summary>
@@ -622,14 +670,14 @@ public partial class MainWindow : Window
         _ => new ClaudeAgent(_sessionManager.Options)
     };
 
-    private SessionViewModel? CreateSession(string repoPath, string? resumeSessionId = null, string? claudeArgs = null, AgentKind agentKind = AgentKind.ClaudeCode, SessionType sessionType = SessionType.Implement)
+    private SessionViewModel? CreateSession(string repoPath, string? resumeSessionId = null, string? claudeArgs = null, AgentKind agentKind = AgentKind.ClaudeCode, SessionType sessionType = SessionType.Implement, Guid? groupId = null, string? groupRole = null, string? groupName = null)
     {
-        FileLog.Write($"[MainWindow] CreateSession: repoPath={repoPath}, agent={agentKind}, type={sessionType}, resume={resumeSessionId ?? "null"}, args={claudeArgs ?? "default"}");
+        FileLog.Write($"[MainWindow] CreateSession: repoPath={repoPath}, agent={agentKind}, type={sessionType}, group={groupId?.ToString() ?? "none"}, resume={resumeSessionId ?? "null"}, args={claudeArgs ?? "default"}");
         _lastSessionCreateError = null;
         try
         {
             IAgent agent = CreateAgent(agentKind);
-            var session = _sessionManager.CreateSession(repoPath, agent, claudeArgs, SessionBackendType.ConPty, resumeSessionId, sessionType);
+            var session = _sessionManager.CreateSession(repoPath, agent, claudeArgs, SessionBackendType.ConPty, resumeSessionId, sessionType, groupId, groupRole, groupName);
             FileLog.Write($"[MainWindow] CreateSession: session created, id={session.Id}, pid={session.ProcessId}");
 
             var vm = new SessionViewModel(session);
@@ -1886,21 +1934,38 @@ public partial class MainWindow : Window
         int fromIndex = _sessions.IndexOf(draggedVm);
         if (fromIndex < 0) return;
 
-        // Find the target session under the drop point
+        // Issue #225: a group moves as ONE unit - the pure GroupReorder.MoveBlock computes
+        // the new order (whole group lifted, members keep internal order, never split or
+        // land inside another group). GetSessionDropIndex maps the pixel to a raw insert
+        // index from the live container geometry.
         var pos = e.GetPosition(SessionList);
-        int toIndex = GetSessionDropIndex(pos);
+        int rawTarget = GetSessionDropIndex(pos);
 
-        if (fromIndex < toIndex)
-            toIndex--;
-
-        toIndex = Math.Max(0, Math.Min(toIndex, _sessions.Count - 1));
-
-        if (fromIndex != toIndex)
+        var reordered = GroupReorder.MoveBlock(_sessions, vm => vm.GroupId, fromIndex, rawTarget);
+        // Apply the new order onto the live ObservableCollection by stable position moves.
+        for (int i = 0; i < reordered.Count; i++)
         {
-            FileLog.Write($"[MainWindow] SessionList_Drop: moving session from {fromIndex} to {toIndex}");
-            _sessions.Move(fromIndex, toIndex);
-            SessionList.SelectedItem = draggedVm;
-            PersistSessionState();
+            int cur = _sessions.IndexOf(reordered[i]);
+            if (cur != i) _sessions.Move(cur, i);
+        }
+
+        FileLog.Write($"[MainWindow] SessionList_Drop: applied group-aware reorder, dragged {draggedVm.DisplayName}");
+        SessionList.SelectedItem = draggedVm;
+        RecomputeGroupPositions();
+        PersistSessionState();
+    }
+
+    /// <summary>Recompute first/last group flags (issue #225) so the header + bracket reflow
+    /// after any list change. Cheap; safe to call on every CollectionChanged.</summary>
+    private void RecomputeGroupPositions()
+    {
+        for (int i = 0; i < _sessions.Count; i++)
+        {
+            var vm = _sessions[i];
+            if (!vm.IsGroupMember) { vm.IsGroupFirst = false; vm.IsGroupLast = false; continue; }
+            var gid = vm.GroupId;
+            vm.IsGroupFirst = i == 0 || _sessions[i - 1].GroupId != gid;
+            vm.IsGroupLast = i == _sessions.Count - 1 || _sessions[i + 1].GroupId != gid;
         }
     }
 
@@ -1997,6 +2062,15 @@ public partial class MainWindow : Window
                 $"CC Director could not start a {agentName} session because its command line tool "
                 + $"could not be found.\n\nLooked for: {agentExe}\n\n{installHint}\n\n"
                 + "If it is installed in a non-standard location, set its path in config.json.");
+            return;
+        }
+
+        // Group session (issue #225): create all members together, tied by one GroupId,
+        // in the group's fixed member order. The per-session Type picker is ignored - each
+        // member's type comes from the group definition.
+        if (dialog.SelectedGroupDefinition is { } groupDef)
+        {
+            await CreateGroupSessionAsync(groupDef, dialog.SelectedPath, agentArgs, agentKind);
             return;
         }
 

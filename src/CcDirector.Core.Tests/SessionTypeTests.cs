@@ -37,6 +37,99 @@ public class SessionTypeTests
     }
 
     [Fact]
+    public void Playbook_IssueSubmitter_FilesOnly_StandingClerk_Issue225()
+    {
+        var p = SessionTypePlaybooks.For(SessionType.IssueSubmitter);
+        Assert.NotNull(p);
+        Assert.Contains("NEVER write code", p);
+        Assert.Contains("not done after one issue", p); // standing, not one-shot like BugReport
+        Assert.Contains("needs-design", p);
+    }
+
+    [Fact]
+    public void Playbook_QA_VerifyNeverFix_Issue225()
+    {
+        var p = SessionTypePlaybooks.For(SessionType.QA);
+        Assert.NotNull(p);
+        Assert.Contains("NEVER fix", p);
+        Assert.Contains("verify", p, System.StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("clean pass", p); // a pass is a valid QA result
+    }
+
+    // ===== Group definitions (issue #225) =====
+
+    [Fact]
+    public void ProductGroup_HasThreeMembers_InFixedOrder()
+    {
+        var product = SessionGroupDefinition.FindBuiltIn("Product");
+        Assert.NotNull(product);
+        Assert.Equal(3, product!.Members.Count);
+        Assert.Equal(SessionType.IssueSubmitter, product.Members[0].Type);
+        Assert.Equal(SessionType.Implement, product.Members[1].Type);
+        Assert.Equal(SessionType.QA, product.Members[2].Type);
+        Assert.Equal(" - submit issues", product.Members[0].NameSuffix);
+        Assert.Equal(" - qa", product.Members[2].NameSuffix);
+    }
+
+    [Fact]
+    public void FindBuiltIn_IsCaseInsensitive_AndNullForUnknown()
+    {
+        Assert.NotNull(SessionGroupDefinition.FindBuiltIn("product"));
+        Assert.Null(SessionGroupDefinition.FindBuiltIn("nope"));
+    }
+
+    [Fact]
+    public void PersistedSession_GroupFields_RoundTrip()
+    {
+        var tempFile = Path.Combine(Path.GetTempPath(), $"test_store_{Guid.NewGuid()}.json");
+        try
+        {
+            var gid = Guid.NewGuid();
+            var store = new SessionStateStore(tempFile);
+            store.Save(new[]
+            {
+                new PersistedSession
+                {
+                    Id = Guid.NewGuid(),
+                    RepoPath = @"C:\r",
+                    WorkingDirectory = @"C:\r",
+                    SessionType = SessionType.QA,
+                    GroupId = gid,
+                    GroupRole = "QA",
+                    GroupName = "Product",
+                    CreatedAt = DateTimeOffset.UtcNow,
+                },
+            });
+
+            var s = store.Load().Sessions[0];
+            Assert.Equal(gid, s.GroupId);
+            Assert.Equal("QA", s.GroupRole);
+            Assert.Equal("Product", s.GroupName);
+            Assert.Equal(SessionType.QA, s.SessionType);
+        }
+        finally { if (File.Exists(tempFile)) File.Delete(tempFile); }
+    }
+
+    [Fact]
+    public void PreGroupJson_DeserializesWithNullGroup()
+    {
+        var tempFile = Path.Combine(Path.GetTempPath(), $"test_store_{Guid.NewGuid()}.json");
+        try
+        {
+            File.WriteAllText(tempFile, """
+                [{ "id": "11111111-2222-3333-4444-555555555555",
+                   "repoPath": "C:\\r", "workingDirectory": "C:\\r",
+                   "activityState": "Idle", "createdAt": "2026-06-01T00:00:00+00:00" }]
+                """);
+            var s = new SessionStateStore(tempFile).Load().Sessions[0];
+            Assert.Null(s.GroupId);
+            Assert.Null(s.GroupRole);
+            Assert.Null(s.GroupName);
+        }
+        finally { if (File.Exists(tempFile)) File.Delete(tempFile); }
+    }
+
+    [Fact]
     public void Playbook_BugReport_RetireAndSelfRename_Issue236()
     {
         // The transaction-shaped end: after filing, state the issue and rename via the API.

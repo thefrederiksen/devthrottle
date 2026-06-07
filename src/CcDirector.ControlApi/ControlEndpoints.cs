@@ -2618,6 +2618,8 @@ internal static class ControlEndpoints
             DirectorId = directorId,
             Agent = s.AgentKind.ToString(),
             Type = s.SessionType.ToString(),
+            GroupId = s.GroupId?.ToString(),
+            GroupRole = s.GroupRole,
             RepoPath = s.RepoPath,
             Status = s.Status.ToString(),
             ActivityState = s.ActivityState.ToString(),

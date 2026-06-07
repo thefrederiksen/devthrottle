@@ -270,6 +270,8 @@ public class SessionViewModel : INotifyPropertyChanged
     // the common case clutter-free. Cyan/magenta deliberately sit outside the state palette.
     private static readonly ISolidColorBrush DiscussTypeBrush = new SolidColorBrush(Color.FromRgb(0x22, 0xD3, 0xEE));
     private static readonly ISolidColorBrush BugReportTypeBrush = new SolidColorBrush(Color.FromRgb(0xEC, 0x48, 0x99));
+    private static readonly ISolidColorBrush IssueSubmitterTypeBrush = new SolidColorBrush(Color.FromRgb(0xF5, 0x9E, 0x0B)); // amber (#225)
+    private static readonly ISolidColorBrush QaTypeBrush = new SolidColorBrush(Color.FromRgb(0xA8, 0x55, 0xF7));            // violet (#225)
 
     /// <summary>True only for non-default types - drives the badge's IsVisible.</summary>
     public bool ShowSessionTypeBadge => Session.SessionType != SessionType.Implement;
@@ -278,12 +280,16 @@ public class SessionViewModel : INotifyPropertyChanged
     {
         SessionType.Discuss => "[D] Discuss",
         SessionType.BugReport => "[B] Bug Report",
+        SessionType.IssueSubmitter => "[S] Issue Submitter",
+        SessionType.QA => "[Q] QA",
         _ => ""
     };
 
     public ISolidColorBrush SessionTypeBadgeBrush => Session.SessionType switch
     {
         SessionType.BugReport => BugReportTypeBrush,
+        SessionType.IssueSubmitter => IssueSubmitterTypeBrush,
+        SessionType.QA => QaTypeBrush,
         _ => DiscussTypeBrush
     };
 
@@ -291,8 +297,54 @@ public class SessionViewModel : INotifyPropertyChanged
     {
         SessionType.Discuss => "Discussion session - talk only, no edits or commits",
         SessionType.BugReport => "Bug-report session - investigate and file an issue, never fix here",
+        SessionType.IssueSubmitter => "Issue-submitter session - files GitHub issues only, never writes code",
+        SessionType.QA => "QA session - verifies what was built, never fixes; reports findings",
         _ => ""
     };
+
+    // ===== Group membership (issue #225) =====
+
+    private static readonly ISolidColorBrush GroupAccentBrush = new SolidColorBrush(Color.FromRgb(0x4A, 0x6D, 0xA3));
+
+    /// <summary>The group this session belongs to (issue #225), or null when solo. Set by
+    /// MainWindow after construction and on reorder so the bracket/header reflow.</summary>
+    public Guid? GroupId => Session.GroupId;
+
+    /// <summary>True when this session is a group member - drives all group visuals.</summary>
+    public bool IsGroupMember => Session.GroupId is not null;
+
+    private bool _isGroupFirst;
+    private bool _isGroupLast;
+
+    /// <summary>True for the TOP member of its group: renders the group header + top bracket.</summary>
+    public bool IsGroupFirst
+    {
+        get => _isGroupFirst;
+        set { if (_isGroupFirst != value) { _isGroupFirst = value; OnPropertyChanged(); OnPropertyChanged(nameof(ShowGroupHeader)); } }
+    }
+
+    /// <summary>True for the BOTTOM member of its group: renders the bottom bracket.</summary>
+    public bool IsGroupLast
+    {
+        get => _isGroupLast;
+        set { if (_isGroupLast != value) { _isGroupLast = value; OnPropertyChanged(); } }
+    }
+
+    /// <summary>The group header ("PRODUCT GROUP ...") renders above the first member only.</summary>
+    public bool ShowGroupHeader => IsGroupMember && IsGroupFirst;
+
+    /// <summary>Header label, e.g. "PRODUCT GROUP" - on the first member only.</summary>
+    public string GroupHeaderText =>
+        string.IsNullOrWhiteSpace(Session.GroupName) ? "GROUP" : Session.GroupName.ToUpperInvariant() + " GROUP";
+
+    /// <summary>The brush for the group's left accent stripe + bracket.</summary>
+    public ISolidColorBrush GroupAccent => GroupAccentBrush;
+
+    private static readonly ISolidColorBrush GroupRowTintBrush = new SolidColorBrush(Color.FromRgb(0x1C, 0x23, 0x30));
+
+    /// <summary>Subtle tint behind a group member's row (transparent for solo sessions),
+    /// binding the members visually together.</summary>
+    public IBrush GroupRowBackground => IsGroupMember ? GroupRowTintBrush : Brushes.Transparent;
 
     public string RepoPath => Session.RepoPath;
 
