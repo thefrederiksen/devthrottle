@@ -4,22 +4,56 @@ A desktop application for managing multiple [Claude Code](https://docs.anthropic
 
 > **Platform:** Runs on **Windows 10/11** and **macOS (Apple Silicon)**. Both have shipping builds; Windows is currently the most complete experience.
 
-## Getting Started
+## Install
 
-CC Director installs itself **through Claude Code**: install Claude Code once, then paste a single prompt that downloads and installs CC Director for you. Works on **Windows** and **macOS (Apple Silicon)**, no admin needed. ([Why a prompt instead of an installer?](docs/PHILOSOPHY.md))
+**[Download the latest release](https://github.com/thefrederiksen/cc-director/releases/latest)** -- this link always points to the newest version, all platforms, all assets.
 
-You need a **paid Claude plan** -- Pro, Max, Team, or Enterprise. (The free Claude.ai plan does **not** include Claude Code.)
+### Windows
 
-### 1. Install Claude Code
+[![Download CC Director Setup for Windows](https://img.shields.io/badge/Download-Setup%20for%20Windows-2EA44F?style=for-the-badge)](https://github.com/thefrederiksen/cc-director/releases/latest/download/cc-director-setup-win-x64.exe)
 
-Use Anthropic's official **native installer** (no Node.js), then run `claude` once to sign in. **Do not use `npm`** -- it's the usual cause of "`claude` command not found" and PATH problems.
+1. Download **[cc-director-setup-win-x64.exe](https://github.com/thefrederiksen/cc-director/releases/latest/download/cc-director-setup-win-x64.exe)**.
+2. Double-click it. The wizard is self-contained -- it runs even with no .NET installed. If SmartScreen appears, click **More info** -> **Run anyway** (the exe is not code-signed yet).
+3. Follow the wizard. It checks prerequisites (and can auto-install the **.NET 10 runtime** for you via winget), then installs the Director app, 35+ `cc-*` CLI tools, and 14 Claude Code skills. Everything goes to user-writable locations -- **no admin needed**.
+
+### macOS (Apple Silicon)
+
+[![Download CC Director Setup for macOS](https://img.shields.io/badge/Download-Setup%20for%20macOS-2EA44F?style=for-the-badge)](https://github.com/thefrederiksen/cc-director/releases/latest/download/cc-director-setup-mac-arm64.zip)
+
+1. Download **[cc-director-setup-mac-arm64.zip](https://github.com/thefrederiksen/cc-director/releases/latest/download/cc-director-setup-mac-arm64.zip)** and unzip it.
+2. Right-click **CC Director Setup.app** -> **Open** (the app is not code-signed, so a plain double-click is blocked by Gatekeeper).
+3. Follow the wizard. It installs the Director to `~/Applications`, every `cc-*` tool into one shared Python environment, and links them into `~/.local/bin` (added to your shell `PATH`). **No sudo needed.**
+
+### Prerequisite: Claude Code
+
+CC Director manages [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions, so you need a **paid Claude plan** (Pro, Max, Team, or Enterprise -- the free Claude.ai plan does **not** include Claude Code) and Claude Code installed. Use Anthropic's official **native installer** (no Node.js; **do not use `npm`** -- it's the usual cause of "`claude` command not found" and PATH problems), then run `claude` once to sign in:
 
 - **Windows (PowerShell):** `irm https://claude.ai/install.ps1 | iex`
 - **macOS / Linux:** `curl -fsSL https://claude.ai/install.sh | bash`
 
 More options and troubleshooting: [Anthropic's setup guide](https://code.claude.com/docs/en/setup).
 
-### 2. Paste this prompt into Claude Code
+<details>
+<summary><b>What the Windows wizard looks like</b></summary>
+
+**Choose your profile** -- **Standard** for core document tools, email, media, and vault, or **Developer** for the full suite including browser automation, LinkedIn, Reddit, social media, and code generation.
+
+![Setup - Choose profile](images/setup-1-welcome.png)
+
+**Prerequisites check** -- the installer verifies the .NET 10 runtime (required; can be auto-installed), Claude Code, Python 3.11+, and Node.js 20+ are available; Brave Browser is optional.
+
+![Setup - Prerequisites](images/setup-2-prerequisites.png)
+
+**Install tools and skills** -- 15+ CLI tools and 14 Claude Code skills, all placed on your PATH.
+
+![Setup - Install](images/setup-3-update.png)
+
+</details>
+
+<details>
+<summary><b>Alternative install: paste one prompt into Claude Code (no wizard)</b></summary>
+
+CC Director can also install itself **through Claude Code**: paste a single prompt that downloads and installs CC Director for you. Works on **Windows** and **macOS (Apple Silicon)**, no admin needed. ([Why a prompt instead of an installer?](docs/PHILOSOPHY.md))
 
 Open Claude Code in any folder and paste the prompt below. It detects your OS, finds the latest release, verifies the download against the release manifest (SHA-256), and installs CC Director to a **user-writable** location -- so it needs no admin/sudo and the built-in auto-updater can later replace it in place.
 
@@ -73,26 +107,7 @@ DO NOT: use Program Files or /Applications, require admin/sudo, build from sourc
 
 Full reference, including why the prompt installs where it does: [docs/install/install-prompt.md](docs/install/install-prompt.md).
 
-<details>
-<summary><b>Alternative: Windows installer (also installs the cc-* CLI tools and skills)</b></summary>
-
-The one-prompt install above installs the Director app itself. On **Windows** you can instead run the setup wizard, which also installs 15+ `cc-*` CLI tools and 14 Claude Code skills and checks your prerequisites.
-
-[![Download CC Director Setup for Windows](https://img.shields.io/badge/Download-Setup%20for%20Windows-2EA44F?style=for-the-badge)](https://github.com/thefrederiksen/cc-director/releases/latest/download/cc-director-setup-win-x64.exe)
-
-Double-click the downloaded `.exe` (the wizard itself is self-contained and runs with no .NET installed). It checks your prerequisites -- the **.NET 10 runtime** (required; the wizard can install it for you via winget), Claude Code, Python 3.11+, Node.js 20+, and Brave Browser (optional) -- and tells you exactly what to install if anything is missing.
-
-**Choose your profile** -- **Standard** for core document tools, email, media, and vault, or **Developer** for the full suite including browser automation, LinkedIn, Reddit, social media, and code generation.
-
-![Setup - Choose profile](images/setup-1-welcome.png)
-
-**Prerequisites check** -- the installer verifies the .NET 10 runtime (required; can be auto-installed), Claude Code, Python 3.11+, and Node.js 20+ are available; Brave Browser is optional.
-
-![Setup - Prerequisites](images/setup-2-prerequisites.png)
-
-**Install tools and skills** -- 15+ CLI tools and 14 Claude Code skills, all placed on your PATH.
-
-![Setup - Install](images/setup-3-update.png)
+Note: the one-prompt install covers the Director app itself; the `cc-*` CLI tools and skills come with the setup wizard above.
 
 </details>
 
@@ -106,11 +121,13 @@ Grab the app directly from the [latest release](https://github.com/thefrederikse
 | Windows x64 | [cc-director-win-x64.exe](https://github.com/thefrederiksen/cc-director/releases/latest/download/cc-director-win-x64.exe) | Requires the [.NET 10 runtime](https://dotnet.microsoft.com/download/dotnet/10.0) (the setup wizard can install it for you) |
 | macOS (Apple Silicon) | [cc-director-mac-arm64.zip](https://github.com/thefrederiksen/cc-director/releases/latest/download/cc-director-mac-arm64.zip) | Unzip to `CC Director.app`, move to `~/Applications` (user-writable, so auto-update needs no sudo). First launch: right-click -> Open, or `xattr -dr com.apple.quarantine "~/Applications/CC Director.app"` |
 
-This installs the Director app only. The `cc-*` CLI tools and skills come with the **setup wizard** -- on Windows the `.exe` above, and on **macOS** the `CC Director Setup.app` (download `cc-director-setup-mac-arm64.zip` from the latest release, unzip, right-click -> Open). The macOS wizard installs the Director to `~/Applications`, installs every `cc-*` tool into one shared Python environment, and links them into `~/.local/bin` (added to your shell `PATH`).
+This installs the Director app only. The `cc-*` CLI tools and skills come with the **setup wizard** (see [Install](#install) above).
 
 </details>
 
-### 3. Start your first session
+## Getting Started
+
+### Start your first session
 
 Launch CC Director, point it at a repository, and create a session. That session is a real Claude Code instance running in an embedded console -- anything Claude Code can do, it does here.
 
