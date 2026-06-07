@@ -534,6 +534,17 @@ public sealed class TurnBriefContractValidationTests
     }
 
     [Fact]
+    public void Prompt_CarriesActionFirstRule()
+    {
+        // v3.3 (issue #208, the human reviewer's verdict): buttons and rail lines name
+        // the ACTION, never the mechanism.
+        var prompt = TurnBriefContract.BuildPrompt(Package());
+        Assert.Contains("ACTION-FIRST", prompt);
+        Assert.Contains("not 'send", prompt);
+        Assert.Contains("railLine names the action too", prompt);
+    }
+
+    [Fact]
     public void Prompt_ParkedReply_GetsItsOwnSection()
     {
         // The full section header (the RULES text also mentions the section by name,

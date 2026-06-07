@@ -216,7 +216,7 @@
                             @* v3 (issue #205): the wingman's pick renders as "(rec)" with the
                                reason in its note - at most one, enforced server-side. *@
                             <button class="brief-quick-btn @(o.Recommended ? "recommended" : "")" disabled="@_answering"
-                                    title="@(o.Note ?? $"send: {o.Send}")"
+                                    title="@(o.Note ?? DescribeSend(o.Send))"
                                     @onclick="() => AnswerSingleAsync(n, o)">
                                 <b>@o.Key@(o.Recommended ? " (rec)" : "")</b>
                                 @if (o.Note is not null)
@@ -487,6 +487,14 @@
 
     private static bool IsBareFileRef(string? ask)
         => ask is not null && BareFileRefPattern.IsMatch(ask.Trim());
+
+    /// <summary>Tooltip fallback when an option has no note: a control-only send ("\r" -
+    /// the parked-reply press-Enter convention, v3.2+) would render as blank - say what
+    /// it does instead (issue #208 human review).</summary>
+    private static string DescribeSend(string send)
+        => send.Length > 0 && send.All(c => c is '\r' or '\n')
+            ? "presses Enter - submits the reply you already typed"
+            : $"send: {send}";
 
     private string? LastAsk
     {

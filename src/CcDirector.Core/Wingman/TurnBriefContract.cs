@@ -28,7 +28,7 @@ public static class TurnBriefContract
     /// <summary>Stamped into every brief (issue #208) so review rounds and the eval
     /// harness can tell which contract produced a brief. Bump on every prompt/validation
     /// change.</summary>
-    public const string Version = "v3.2";
+    public const string Version = "v3.3";
 
     // ====================================================================
     // Prompt - built from the captured examples (docs/architecture/wingman/examples/)
@@ -77,12 +77,21 @@ public static class TurnBriefContract
         sb.AppendLine("  reply but NOT sent it - it was extracted mechanically from the composer, do not");
         sb.AppendLine("  second-guess it. The brief's job collapses to getting it sent: the statement");
         sb.AppendLine("  MUST quote it ('Your reply \"<parked text>\" is typed but unsent'); answerVia=keys;");
-        sb.AppendLine("  the recommended option is key 'send my typed reply', send \"\\r\" (Enter submits");
-        sb.AppendLine("  exactly what is parked - never resend the text itself, that would double it).");
-        sb.AppendLine("  Alternative options stay regular sendable options whose note warns the parked");
-        sb.AppendLine("  text must be cleared first. NEVER present a decision as open when the parked");
-        sb.AppendLine("  text already makes it. (No section, but the screen bottom clearly shows typed");
-        sb.AppendLine("  composer text? Apply the same treatment and say the send-state is uncertain.)");
+        sb.AppendLine("  the recommended option sends \"\\r\" (Enter submits exactly what is parked - never");
+        sb.AppendLine("  resend the text itself, that would double it). Alternative options stay regular");
+        sb.AppendLine("  sendable options whose note warns the parked text must be cleared first. NEVER");
+        sb.AppendLine("  present a decision as open when the parked text already makes it. (No section,");
+        sb.AppendLine("  but the screen bottom clearly shows typed composer text? Apply the same");
+        sb.AppendLine("  treatment and say the send-state is uncertain.)");
+        sb.AppendLine("- ACTION-FIRST (the human reviewer's verdict, v3.3): buttons and rail lines name");
+        sb.AppendLine("  the ACTION being decided, never the mechanism. A parked-reply recommended");
+        sb.AppendLine("  option's key is WHAT the reply triggers ('commit the README change'), not 'send");
+        sb.AppendLine("  my typed reply'; its note says Enter submits the already-typed reply. When the");
+        sb.AppendLine("  agent's reply contains its own suggestion ('say the word and I'll commit it'),");
+        sb.AppendLine("  that suggestion IS the recommendation and the statement LEADS with it ('Claude");
+        sb.AppendLine("  suggests committing the restructured README - ...'), background after. The");
+        sb.AppendLine("  railLine names the action too: 'commit README? reply typed - press Enter', not");
+        sb.AppendLine("  'typed reply unsent - press Enter'.");
         sb.AppendLine("- JARGON: write for a veteran developer who is NOT versed in this specific stack.");
         sb.AppendLine("  Explain every term of art inline or cut it; give issue/work-item numbers a 2-4");
         sb.AppendLine("  word gloss on first use ('#7624 - the deploy-protection fix'); NEVER put commit");
