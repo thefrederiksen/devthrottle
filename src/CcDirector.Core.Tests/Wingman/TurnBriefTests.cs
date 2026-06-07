@@ -451,6 +451,24 @@ public sealed class TurnBriefContractValidationTests
     }
 
     [Fact]
+    public void Validate_YouAsked_StampedFromPackage()
+    {
+        // v3.2 (issue #208): the resolved last user prompt rides the brief so consumers
+        // can show real words where the raw ask was a dictated @file path.
+        var brief = TurnBriefContract.ParseAndValidate(
+            """{ "intent": "x", "did": [], "needsYou": null }""", Package(), "wingman:test");
+        Assert.NotNull(brief);
+        Assert.Equal("last ask", brief.YouAsked);
+
+        var oversize = Package() with { LastUserPrompt = new string('q', 1_000) };
+        var capped = TurnBriefContract.ParseAndValidate(
+            """{ "intent": "x", "did": [], "needsYou": null }""", oversize, "wingman:test");
+        Assert.NotNull(capped);
+        Assert.NotNull(capped.YouAsked);
+        Assert.Equal(603, capped.YouAsked.Length); // 600 + "..."
+    }
+
+    [Fact]
     public void Validate_ParkedReply_NotQuotedInStatement_Rejected()
     {
         var p = Package() with { ParkedComposerText = "Posted, it's live" };

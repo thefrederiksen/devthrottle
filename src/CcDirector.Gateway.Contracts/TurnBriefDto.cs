@@ -69,6 +69,13 @@ public sealed class TurnBriefDto
     /// stamped mechanically at validation time so review rounds and the eval harness can
     /// compare briefs across contract deploys. Null on pre-v3.1 briefs.</summary>
     public string? ContractVersion { get; set; }
+
+    /// <summary>The user prompt that started this turn, as the wingman saw it (v3.2,
+    /// issue #208): stamped mechanically from the TurnPackage at validation time - which
+    /// means dictated @file prompts arrive here already RESOLVED to the file's words.
+    /// Consumers (BriefPane YOU ASKED) prefer this over a raw "@.temp/..." path. Null on
+    /// pre-v3.2 briefs.</summary>
+    public string? YouAsked { get; set; }
 }
 
 /// <summary>A wingman-suggested session-level action (v2.4, issue #201). The type vocabulary

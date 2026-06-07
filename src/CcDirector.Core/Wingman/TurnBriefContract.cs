@@ -205,6 +205,12 @@ public static class TurnBriefContract
                 GeneratedAtUtc = DateTime.UtcNow,
                 Model = generatorId,
                 ContractVersion = Version,
+                // The turn's user prompt as the wingman saw it (v3.2, issue #208):
+                // dictated @file prompts were already resolved to words on the package,
+                // so consumers can render a real YOU ASKED instead of an opaque path.
+                YouAsked = string.IsNullOrWhiteSpace(package.LastUserPrompt)
+                    ? null
+                    : Truncate(package.LastUserPrompt, 600),
                 Degraded = false,
                 Headline = Str(root, "headline"),
                 TurnTitle = Str(root, "turnTitle"),

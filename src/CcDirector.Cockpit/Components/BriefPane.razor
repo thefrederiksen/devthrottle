@@ -474,7 +474,32 @@
     private static bool IsBareAck(string ask) => BareAckPattern.IsMatch(ask);
 
     private string? Goal => _brief?.Goal;
-    private string? LastAsk => _brief?.LastAsk ?? _summary?.LastUserPrompt;
+
+    /// <summary>Dictated prompts arrive as one bare @file token ("@.temp/input_*.txt") -
+    /// an opaque path tells the reader nothing (issue #208, review rounds 3-6). The
+    /// wingman brief carries the RESOLVED words (TurnBrief.YouAsked, substituted from the
+    /// file at capture time) - prefer those exactly and only when the raw ask is such a
+    /// token. Mechanical check, mirrors DictatedPromptResolver's bare-reference shape.</summary>
+    private static readonly System.Text.RegularExpressions.Regex BareFileRefPattern = new(
+        @"^@[\w.\-]+(?:[/\\][\w.\-]+)+$",
+        System.Text.RegularExpressions.RegexOptions.None,
+        TimeSpan.FromMilliseconds(50));
+
+    private static bool IsBareFileRef(string? ask)
+        => ask is not null && BareFileRefPattern.IsMatch(ask.Trim());
+
+    private string? LastAsk
+    {
+        get
+        {
+            var raw = _brief?.LastAsk ?? _summary?.LastUserPrompt;
+            if (IsBareFileRef(raw)
+                && !string.IsNullOrWhiteSpace(_turnBrief?.YouAsked)
+                && !IsBareFileRef(_turnBrief.YouAsked))
+                return _turnBrief.YouAsked;
+            return raw;
+        }
+    }
     private string? FullReply => _brief?.FullReply ?? _summary?.LastAssistantText;
     private string? NeedsYou => _brief?.NeedsYou
         ?? (ActivityState == "WaitingForInput" && _summary?.LastAssistantText is not null
