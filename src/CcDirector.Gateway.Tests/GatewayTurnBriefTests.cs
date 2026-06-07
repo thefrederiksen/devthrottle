@@ -381,7 +381,7 @@ public sealed class GatewayTurnBriefAgentTests : IDisposable
                 Widgets = widgetsPerFetch(Interlocked.Increment(ref fetches)),
             }),
             (ep, sid, ct) => Task.FromResult("the screen tail"),
-            settle ?? TimeSpan.FromMilliseconds(20),
+            settleDelay: settle ?? TimeSpan.FromMilliseconds(20),
             generatorId: generatorId);
     }
 
@@ -410,6 +410,49 @@ public sealed class GatewayTurnBriefAgentTests : IDisposable
         Assert.Contains("the screen tail", _brain.Asks[0]); // the package reached the prompt
         Assert.True(Directory.GetFiles(_dir, "t*.json", SearchOption.AllDirectories).Any()); // #207 replay package persisted
         Assert.Equal(1, _brain.ClearCount);                 // stamping machine: cleared per brief
+    }
+
+    [Fact]
+    public async Task PoisonedBrain_ConsecutiveRejections_FireRecovery()
+    {
+        // The 2026-06-07 outage (issue #208): a brain whose auth broke REPLIES happily -
+        // with an error banner, not JSON - so the exception path never fires and it
+        // stamped stubs for 6 hours. A rejection STREAK must restart it.
+        _brain.ReplyJson = "Your organization has disabled Claude subscription access for Claude Code · Use an Anthropic API key instead";
+        using var agent = BuildAgent();
+
+        for (var i = 1; i <= GatewayTurnBriefAgent.PoisonedBrainRejectionThreshold; i++)
+        {
+            agent.OnTurnEnd(new TurnEndSignal(_sid, Endpoint));
+            var expected = i;
+            await WaitUntilAsync(() => _brain.Asks.Count == expected && _store.Latest(_sid) is { Degraded: true });
+        }
+
+        await WaitUntilAsync(() => Volatile.Read(ref _recoverCalls) >= 1);
+        Assert.Equal(1, _recoverCalls); // the streak collapses into ONE restart
+    }
+
+    [Fact]
+    public async Task PoisonedBrain_StreakBrokenByGoodBrief_NoRecovery()
+    {
+        // One-off hiccups must NOT restart the brain: a good brief resets the streak.
+        // Each brief cycle fetches turns twice (package + staleness) - grow the turn
+        // count per cycle so the non-degraded prior does not short-circuit cycle 3.
+        _brain.ReplyJson = "garbage, not JSON";
+        using var agent = BuildAgent(widgetsPerFetch: f => Widgets((f + 1) / 2));
+        agent.OnTurnEnd(new TurnEndSignal(_sid, Endpoint));
+        await WaitUntilAsync(() => _brain.Asks.Count == 1 && _store.Latest(_sid) is { Degraded: true });
+
+        _brain.ReplyJson =
+            """{"headline":"Fix login bug","intent":"Get the login bug fixed.","did":["patched"],"needsYou":null}""";
+        agent.OnTurnEnd(new TurnEndSignal(_sid, Endpoint));
+        await WaitUntilAsync(() => _store.Latest(_sid) is { Degraded: false });
+
+        _brain.ReplyJson = "garbage again";
+        agent.OnTurnEnd(new TurnEndSignal(_sid, Endpoint));
+        await WaitUntilAsync(() => _brain.Asks.Count == 3);
+
+        Assert.Equal(0, Volatile.Read(ref _recoverCalls));
     }
 
     private const string ExplainReplyJson =

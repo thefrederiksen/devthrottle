@@ -70,7 +70,14 @@ public sealed class GatewayTurnBriefAgent : IDisposable
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Task _worker;
     private int _recoveryInFlight;
+    private int _consecutiveRejections;
     private bool _disposed;
+
+    /// <summary>Consecutive validation rejections before the brain is presumed poisoned
+    /// and restarted (the 2026-06-07 auth-banner outage: a broken brain REPLIES, so only
+    /// a rejection streak reveals it). 3 = tolerant of a one-off model hiccup, still
+    /// bounds a real outage to ~3 stub briefs instead of hours of them.</summary>
+    public const int PoisonedBrainRejectionThreshold = 3;
 
     public GatewayTurnBriefStore Store => _store;
 
@@ -438,7 +445,25 @@ public sealed class GatewayTurnBriefAgent : IDisposable
 
             brief = TurnBriefContract.ParseAndValidate(ask.Text, package, _generatorId);
             if (brief is null)
+            {
                 FileLog.Write($"[GatewayTurnBriefAgent] sid={package.SessionId}: REJECTED by validation; degrading");
+
+                // POISONED-BRAIN DETECTION (2026-06-07 outage, issue #208): a brain whose
+                // auth/subscription broke REPLIES successfully - with an error banner, not
+                // JSON - so the exception path never fires and it stamps stubs forever
+                // (6 hours live). Consecutive validation rejections are the mechanical
+                // signal: one is a model hiccup; a streak means the brain itself answers
+                // garbage. Restart it - the one recovery verb, same as a dead brain.
+                if (Interlocked.Increment(ref _consecutiveRejections) >= PoisonedBrainRejectionThreshold)
+                {
+                    Interlocked.Exchange(ref _consecutiveRejections, 0);
+                    FireBrainRecovery($"{PoisonedBrainRejectionThreshold} consecutive validation rejections - brain presumed poisoned");
+                }
+            }
+            else
+            {
+                Interlocked.Exchange(ref _consecutiveRejections, 0);
+            }
         }
         catch (OperationCanceledException)
         {
