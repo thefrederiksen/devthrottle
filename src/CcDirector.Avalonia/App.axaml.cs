@@ -233,6 +233,9 @@ public partial class App : Application
             Updater.UpdateStaged += staged =>
                 global::Avalonia.Threading.Dispatcher.UIThread.Post(
                     () => mainWindow.ShowUpdateReady(staged.Version));
+            Updater.ProgressChanged += progress =>
+                global::Avalonia.Threading.Dispatcher.UIThread.Post(
+                    () => mainWindow.OnUpdateProgress(progress));
 
             FileLog.Write($"[App] StartUpdateService: enabled={enabled}, current={current}, target={options.InstallTarget}");
 

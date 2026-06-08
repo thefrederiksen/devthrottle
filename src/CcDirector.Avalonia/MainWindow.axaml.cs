@@ -3654,6 +3654,8 @@ public partial class MainWindow : Window
         FileLog.Write($"[MainWindow] ShowNotification: {message}");
         NotificationText.Text = message;
         NotificationIcon.IsVisible = true;
+        // A plain notification never carries a progress bar; hide any left over from a download.
+        HideDownloadProgress();
         NotificationBar.IsVisible = true;
     }
 
@@ -3661,6 +3663,7 @@ public partial class MainWindow : Window
     {
         NotificationText.Text = string.Empty;
         NotificationIcon.IsVisible = false;
+        HideDownloadProgress();
         NotificationBar.IsVisible = false;
     }
 
@@ -3701,6 +3704,15 @@ public partial class MainWindow : Window
 
     // ==================== AUTO-UPDATE NOTICE ====================
 
+    /// <summary>True once a verified build is staged, so the sidebar indicator stays green.</summary>
+    private bool _updateStaged;
+
+    // Icons reused from the Gateway indicator: a ring while busy, a check when ready,
+    // a cross on failure.
+    private const string UpdateIconRing = GatewayIconRing;
+    private const string UpdateIconCheck = GatewayIconCheck;
+    private const string UpdateIconCross = GatewayIconCross;
+
     /// <summary>
     /// Passively note that an update has been downloaded. It installs
     /// automatically the next time CC Director is launched -- the running app is
@@ -3711,6 +3723,129 @@ public partial class MainWindow : Window
     {
         FileLog.Write($"[MainWindow] ShowUpdateReady: {version}");
         ShowNotification($"CC Director {version} downloaded -- installs next time you open the app.");
+    }
+
+    /// <summary>
+    /// Drive the sidebar update indicator and the notification-bar progress bar from
+    /// UpdateService phase/byte events (already marshalled to the UI thread by App).
+    /// Makes the otherwise-silent check + download visible.
+    /// </summary>
+    public void OnUpdateProgress(CcDirector.Core.Update.UpdateProgress p)
+    {
+        try
+        {
+            switch (p.Phase)
+            {
+                case CcDirector.Core.Update.UpdatePhase.Checking:
+                    SetUpdateIndicator(UpdateIconRing, "#3B82F6", "#1B2A3A", "#3B82F6",
+                        "CHECKING FOR UPDATES", "contacting GitHub...");
+                    HideDownloadProgress();
+                    break;
+
+                case CcDirector.Core.Update.UpdatePhase.Downloading:
+                    var pct = p.Fraction is { } f ? (int)Math.Round(f * 100) : 0;
+                    SetUpdateIndicator(UpdateIconRing, "#3B82F6", "#1B2A3A", "#3B82F6",
+                        "DOWNLOADING UPDATE",
+                        p.Fraction is null ? $"{p.Version}" : $"{p.Version} - {pct}%");
+                    ShowDownloadProgress(p, pct);
+                    break;
+
+                case CcDirector.Core.Update.UpdatePhase.Verifying:
+                    SetUpdateIndicator(UpdateIconRing, "#3B82F6", "#1B2A3A", "#3B82F6",
+                        "VERIFYING UPDATE", $"{p.Version} - checking integrity");
+                    NotificationProgress.IsVisible = true;
+                    NotificationProgress.IsIndeterminate = false;
+                    NotificationProgress.Value = 100;
+                    NotificationProgressMeta.IsVisible = true;
+                    NotificationProgressMeta.Text = "verifying...";
+                    break;
+
+                case CcDirector.Core.Update.UpdatePhase.Staged:
+                    _updateStaged = true;
+                    SetUpdateIndicator(UpdateIconCheck, "#22C55E", "#1B3A2A", "#22C55E",
+                        "UPDATE READY", $"{p.Version} - installs on restart");
+                    HideDownloadProgress();
+                    break;
+
+                case CcDirector.Core.Update.UpdatePhase.UpToDate:
+                    // Nothing to do: keep the indicator hidden unless an update is already staged.
+                    if (!_updateStaged) UpdateIndicator.IsVisible = false;
+                    HideDownloadProgress();
+                    break;
+
+                case CcDirector.Core.Update.UpdatePhase.Failed:
+                    SetUpdateIndicator(UpdateIconCross, "#F59E0B", "#3A2A1B", "#F59E0B",
+                        "UPDATE CHECK FAILED", "click to retry");
+                    HideDownloadProgress();
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] OnUpdateProgress FAILED: {ex.Message}");
+        }
+    }
+
+    private void SetUpdateIndicator(string icon, string accent, string bg, string border, string label, string sub)
+    {
+        UpdateIndicatorIcon.Data = Geometry.Parse(icon);
+        UpdateIndicatorIcon.Fill = Brush.Parse(accent);
+        UpdateIndicator.Background = Brush.Parse(bg);
+        UpdateIndicator.BorderBrush = Brush.Parse(border);
+        UpdateIndicatorLabel.Text = label;
+        UpdateIndicatorLabel.Foreground = Brush.Parse(accent);
+        UpdateIndicatorSub.Text = sub;
+        ToolTip.SetTip(UpdateIndicator, $"{label}\n{sub}\nClick to check for updates now.");
+        UpdateIndicator.IsVisible = true;
+    }
+
+    private void ShowDownloadProgress(CcDirector.Core.Update.UpdateProgress p, int pct)
+    {
+        NotificationIcon.IsVisible = false;
+        NotificationText.Text = $"Downloading CC Director {p.Version}...";
+        NotificationProgress.IsVisible = true;
+        if (p.Fraction is not null)
+        {
+            NotificationProgress.IsIndeterminate = false;
+            NotificationProgress.Value = pct;
+            NotificationProgressMeta.Text = $"{pct}%   {FormatMb(p.Downloaded)} / {FormatMb(p.Total)}";
+        }
+        else
+        {
+            NotificationProgress.IsIndeterminate = true;
+            NotificationProgressMeta.Text = $"{FormatMb(p.Downloaded)} downloaded";
+        }
+        NotificationProgressMeta.IsVisible = true;
+        NotificationBar.IsVisible = true;
+    }
+
+    private void HideDownloadProgress()
+    {
+        NotificationProgress.IsVisible = false;
+        NotificationProgress.IsIndeterminate = false;
+        NotificationProgressMeta.IsVisible = false;
+    }
+
+    private static string FormatMb(long bytes) => $"{bytes / 1048576.0:0.0} MB";
+
+    /// <summary>Click the sidebar indicator to run a check now (off the UI thread).</summary>
+    private void UpdateIndicator_PointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        try
+        {
+            var updater = (global::Avalonia.Application.Current as App)?.Updater;
+            if (updater is null)
+            {
+                FileLog.Write("[MainWindow] UpdateIndicator_PointerPressed: no updater available");
+                return;
+            }
+            FileLog.Write("[MainWindow] UpdateIndicator clicked - manual update check");
+            _ = Task.Run(() => updater.CheckAndStageAsync());
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] UpdateIndicator_PointerPressed FAILED: {ex.Message}");
+        }
     }
 
     // ==================== RIGHT PANEL TOGGLE ====================

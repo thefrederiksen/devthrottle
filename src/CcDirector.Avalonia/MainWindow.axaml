@@ -250,6 +250,36 @@
                     </StackPanel>
                 </Border>
 
+                <!-- Auto-update status indicator. Mirrors the Gateway indicator above.
+                     Hidden when there is nothing to report; surfaces checking /
+                     downloading (with %) / ready / failed so updates are never silent.
+                     Click = check now. All colors/text set from code-behind off
+                     UpdateService.ProgressChanged. -->
+                <Border x:Name="UpdateIndicator" DockPanel.Dock="Bottom"
+                        Margin="8,0,8,4" Padding="10,8" CornerRadius="4"
+                        Background="#2A2A2A" BorderBrush="#3C3C3C" BorderThickness="1"
+                        Cursor="Hand" IsVisible="False"
+                        PointerPressed="UpdateIndicator_PointerPressed">
+                    <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                        <Viewbox Width="22" Height="22" VerticalAlignment="Center">
+                            <Path x:Name="UpdateIndicatorIcon"
+                                  Fill="#777777"
+                                  Data="M8,1 A7,7 0 1 0 8,15 A7,7 0 1 0 8,1 Z M8,3 A5,5 0 1 1 8,13 A5,5 0 1 1 8,3 Z" />
+                        </Viewbox>
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock x:Name="UpdateIndicatorLabel"
+                                       Text="UP TO DATE"
+                                       FontSize="11" FontWeight="SemiBold"
+                                       Foreground="#777777" />
+                            <TextBlock x:Name="UpdateIndicatorSub"
+                                       Text=""
+                                       FontSize="10" Foreground="#666666"
+                                       TextWrapping="Wrap" MaxWidth="186"
+                                       MaxLines="2" TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
                 <!-- Communications / Connections / Scheduler moved to the top toolbar
                      (their pending-count badge and LEADER pill ride along with them). -->
 
@@ -953,21 +983,34 @@
                         BorderBrush="#3C3C3C" BorderThickness="0,1,0,0"
                         Padding="8,4"
                         IsVisible="False">
-                    <DockPanel>
-                        <TextBlock x:Name="NotificationIcon" DockPanel.Dock="Left"
-                                   Text="(i)"
-                                   Foreground="#3B82F6"
-                                   FontSize="12" FontWeight="Bold"
-                                   VerticalAlignment="Center"
-                                   Margin="0,0,8,0"
-                                   IsVisible="False" />
-                        <TextBlock x:Name="NotificationText"
+                    <StackPanel Spacing="5">
+                        <DockPanel>
+                            <TextBlock x:Name="NotificationIcon" DockPanel.Dock="Left"
+                                       Text="(i)"
+                                       Foreground="#3B82F6"
+                                       FontSize="12" FontWeight="Bold"
+                                       VerticalAlignment="Center"
+                                       Margin="0,0,8,0"
+                                       IsVisible="False" />
+                            <TextBlock x:Name="NotificationText"
+                                       Text=""
+                                       Foreground="{DynamicResource TextForeground}"
+                                       FontSize="12"
+                                       VerticalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis" />
+                        </DockPanel>
+                        <!-- Download progress (auto-update). Hidden for plain notifications. -->
+                        <ProgressBar x:Name="NotificationProgress"
+                                     Height="6" Minimum="0" Maximum="100" Value="0"
+                                     Foreground="{DynamicResource AccentBrush}"
+                                     Background="#1E1E1E"
+                                     IsVisible="False" />
+                        <TextBlock x:Name="NotificationProgressMeta"
                                    Text=""
-                                   Foreground="{DynamicResource TextForeground}"
-                                   FontSize="12"
-                                   VerticalAlignment="Center"
-                                   TextTrimming="CharacterEllipsis" />
-                    </DockPanel>
+                                   FontSize="10" Foreground="#888888"
+                                   FontFamily="Cascadia Mono,Consolas,monospace"
+                                   IsVisible="False" />
+                    </StackPanel>
                 </Border>
 
                 <!-- ==================== PROMPT BAR ==================== -->

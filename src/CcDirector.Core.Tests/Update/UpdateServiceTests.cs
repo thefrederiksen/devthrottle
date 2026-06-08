@@ -146,6 +146,44 @@ public class UpdateServiceTests
         Assert.False(handler.WasCalled);
     }
 
+    // ---- UpdateProgress.Fraction -----------------------------------------
+
+    [Fact]
+    public void Fraction_KnownTotal_IsRatio()
+    {
+        var p = new UpdateProgress(UpdatePhase.Downloading, "0.7.0", Downloaded: 25, Total: 100);
+        Assert.Equal(0.25, p.Fraction);
+    }
+
+    [Fact]
+    public void Fraction_ZeroTotal_IsNull()
+    {
+        var p = new UpdateProgress(UpdatePhase.Downloading, "0.7.0", Downloaded: 25, Total: 0);
+        Assert.Null(p.Fraction);
+    }
+
+    // ---- Progress events --------------------------------------------------
+
+    [Fact]
+    public async Task CheckAndStageAsync_Disabled_RaisesNoProgress()
+    {
+        var svc = new UpdateService(
+            new UpdateOptions
+            {
+                Enabled = false,
+                CurrentVersion = new Version(0, 3, 2),
+                InstallTarget = "/tmp/cc-director",
+            },
+            new ThrowingHandler());
+
+        var phases = new List<UpdatePhase>();
+        svc.ProgressChanged += p => phases.Add(p.Phase);
+
+        // An inert (dev/slot) build must stay completely silent -- no "checking" flash.
+        await svc.CheckAndStageAsync();
+        Assert.Empty(phases);
+    }
+
     // ---- helpers ----------------------------------------------------------
 
     private static (string path, string sha256Hex) WriteTempWithHash(string content)

@@ -26,6 +26,38 @@ public sealed record UpdateOptions
 /// <summary>An update that has been downloaded, verified, and is ready to apply.</summary>
 public sealed record StagedUpdate(string Version, string StagedExecutable, string InstallTarget);
 
+/// <summary>Lifecycle phase of an update check/download, surfaced to the UI.</summary>
+public enum UpdatePhase
+{
+    /// <summary>Contacting GitHub to see whether a newer build exists.</summary>
+    Checking,
+    /// <summary>Downloading the new build's asset (byte progress in <see cref="UpdateProgress"/>).</summary>
+    Downloading,
+    /// <summary>Verifying the downloaded asset's SHA-256 against the release manifest.</summary>
+    Verifying,
+    /// <summary>A verified build is staged and will apply on next launch.</summary>
+    Staged,
+    /// <summary>Already on the latest build (or the only newer build was dismissed); nothing to do.</summary>
+    UpToDate,
+    /// <summary>The check/download failed (<see cref="UpdateProgress.Error"/> has the reason).</summary>
+    Failed,
+}
+
+/// <summary>
+/// Progress of an update check/download, raised on <see cref="UpdateService.ProgressChanged"/>.
+/// The host marshals these to the UI thread.
+/// </summary>
+public sealed record UpdateProgress(
+    UpdatePhase Phase,
+    string? Version = null,
+    long Downloaded = 0,
+    long Total = 0,
+    string? Error = null)
+{
+    /// <summary>Download fraction 0..1 when the total size is known; null when it is not.</summary>
+    public double? Fraction => Total > 0 ? (double)Downloaded / Total : null;
+}
+
 /// <summary>
 /// Checks GitHub Releases for a newer build, downloads the platform-appropriate
 /// asset, verifies it against the release manifest's SHA-256, and stages it for
@@ -42,14 +74,28 @@ public sealed class UpdateService
     /// <summary>Raised when an update has been downloaded and verified. Marshalled by the host to the UI thread.</summary>
     public event Action<StagedUpdate>? UpdateStaged;
 
+    /// <summary>
+    /// Raised on every phase transition and during download (roughly once per MiB).
+    /// Marshalled by the host to the UI thread. Lets the app show a "checking" /
+    /// "downloading N%" indicator and a progress bar instead of staging silently.
+    /// </summary>
+    public event Action<UpdateProgress>? ProgressChanged;
+
     public UpdateService(UpdateOptions options, HttpMessageHandler? handler = null)
     {
         _options = options;
         _http = handler is null ? new HttpClient() : new HttpClient(handler, disposeHandler: true);
-        _http.Timeout = TimeSpan.FromSeconds(60);
+        // The asset is a ~100 MB single-file exe. HttpClient.Timeout governs the whole
+        // operation -- including the streamed body read even under ResponseHeadersRead --
+        // so a 60s ceiling would abort a legitimate download on a slow link. Give the
+        // whole check+download a generous ceiling; the small metadata calls finish in well
+        // under a second regardless.
+        _http.Timeout = TimeSpan.FromMinutes(10);
         _http.DefaultRequestHeaders.UserAgent.ParseAdd("cc-director");
         _http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
     }
+
+    private void Report(UpdateProgress progress) => ProgressChanged?.Invoke(progress);
 
     /// <summary>
     /// Check for, download, and stage an update. Safe to fire-and-forget: this is
@@ -76,12 +122,14 @@ public sealed class UpdateService
             var state = UpdaterState.Load();
             state.LastCheckedAt = DateTimeOffset.UtcNow;
 
+            Report(new UpdateProgress(UpdatePhase.Checking));
             using var release = await FetchLatestReleaseAsync(ct);
             var tag = release.RootElement.GetProperty("tag_name").GetString() ?? "";
             var latest = TryParseTag(tag);
             if (latest is null)
             {
                 FileLog.Write($"[UpdateService] Could not parse version from tag '{tag}'; skipping.");
+                Report(new UpdateProgress(UpdatePhase.UpToDate));
                 state.Save();
                 return;
             }
@@ -89,6 +137,7 @@ public sealed class UpdateService
             if (!ShouldStage(_options.CurrentVersion, latest, state))
             {
                 FileLog.Write($"[UpdateService] Up to date or dismissed (latest={latest}, dismissed={state.DismissedVersion}).");
+                Report(new UpdateProgress(UpdatePhase.UpToDate));
                 state.Save();
                 return;
             }
@@ -98,6 +147,7 @@ public sealed class UpdateService
             if (assetUrl is null || manifestUrl is null)
             {
                 FileLog.Write($"[UpdateService] Release {tag} missing asset '{assetName}' or manifest; skipping.");
+                Report(new UpdateProgress(UpdatePhase.UpToDate));
                 state.Save();
                 return;
             }
@@ -106,6 +156,7 @@ public sealed class UpdateService
             var staged = await DownloadAndStageAsync(versionText, assetName, assetUrl, manifestUrl, ct);
             if (staged is null)
             {
+                Report(new UpdateProgress(UpdatePhase.Failed, versionText, Error: "download or verification failed"));
                 state.Save();
                 return;
             }
@@ -116,11 +167,13 @@ public sealed class UpdateService
             state.Save();
 
             FileLog.Write($"[UpdateService] Staged update {versionText}: {staged.StagedExecutable}");
+            Report(new UpdateProgress(UpdatePhase.Staged, versionText));
             UpdateStaged?.Invoke(staged);
         }
         catch (Exception ex)
         {
             FileLog.Write($"[UpdateService] CheckAndStageAsync FAILED: {ex.Message}");
+            Report(new UpdateProgress(UpdatePhase.Failed, Error: ex.Message));
         }
     }
 
@@ -140,8 +193,12 @@ public sealed class UpdateService
         Directory.CreateDirectory(dir);
 
         var assetPath = Path.Combine(dir, assetName);
-        await DownloadFileAsync(assetUrl, assetPath, ct);
+        Report(new UpdateProgress(UpdatePhase.Downloading, version, 0, 0));
+        var progress = new Progress<(long downloaded, long total)>(
+            t => Report(new UpdateProgress(UpdatePhase.Downloading, version, t.downloaded, t.total)));
+        await DownloadFileAsync(assetUrl, assetPath, progress, ct);
 
+        Report(new UpdateProgress(UpdatePhase.Verifying, version));
         var expectedSha = await FetchExpectedShaAsync(manifestUrl, assetName, ct);
         if (expectedSha is null)
         {
@@ -174,14 +231,43 @@ public sealed class UpdateService
         return new StagedUpdate(version, stagedExecutable, _options.InstallTarget);
     }
 
-    private async Task DownloadFileAsync(string url, string destPath, CancellationToken ct)
+    /// <summary>
+    /// Stream the asset to disk, reporting byte progress roughly once per MiB so the UI
+    /// can drive a progress bar. <paramref name="progress"/> total is 0 when the server
+    /// sends no Content-Length; a final report is always made on completion. Mirrors the
+    /// download loop in the setup engine's ReleaseSource.
+    /// </summary>
+    private async Task DownloadFileAsync(
+        string url, string destPath, IProgress<(long downloaded, long total)>? progress, CancellationToken ct)
     {
         FileLog.Write($"[UpdateService] Downloading {url} -> {destPath}");
         using var resp = await _http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
         resp.EnsureSuccessStatusCode();
+        var total = resp.Content.Headers.ContentLength ?? 0;
         await using var src = await resp.Content.ReadAsStreamAsync(ct);
         await using var dst = File.Create(destPath);
-        await src.CopyToAsync(dst, ct);
+
+        if (progress is null)
+        {
+            await src.CopyToAsync(dst, ct);
+            return;
+        }
+
+        var buffer = new byte[81920];
+        long downloaded = 0, lastReported = 0;
+        const long reportEvery = 1024 * 1024; // ~1 MiB between reports keeps UI marshaling cheap
+        int read;
+        while ((read = await src.ReadAsync(buffer, ct)) > 0)
+        {
+            await dst.WriteAsync(buffer.AsMemory(0, read), ct);
+            downloaded += read;
+            if (downloaded - lastReported >= reportEvery)
+            {
+                lastReported = downloaded;
+                progress.Report((downloaded, total));
+            }
+        }
+        progress.Report((downloaded, total > 0 ? total : downloaded));
     }
 
     private async Task<string?> FetchExpectedShaAsync(string manifestUrl, string assetName, CancellationToken ct)
