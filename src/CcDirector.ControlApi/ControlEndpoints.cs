@@ -2268,7 +2268,7 @@ internal static class ControlEndpoints
                 return Results.BadRequest(new { error = $"repoPath does not exist: {req.RepoPath}" });
 
             if (!Enum.TryParse<AgentKind>(req.Agent, ignoreCase: true, out var kind))
-                return Results.BadRequest(new { error = $"unknown agent: {req.Agent}. Valid: ClaudeCode, Pi, Codex, Gemini" });
+                return Results.BadRequest(new { error = $"unknown agent: {req.Agent}. Valid: ClaudeCode, Pi, Codex, Gemini, OpenCode" });
 
             IAgent agent = kind switch
             {

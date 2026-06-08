@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
+using CcDirector.Core.Agents;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Settings;
 using CcDirector.Core.Utilities;
@@ -27,12 +28,19 @@ public partial class SettingsDialog : Window
 
     // Shared detection/test logic, identical to what the REST Control API exposes.
     private readonly SettingsDetectionService _detector = new();
+    private readonly ToolDetectionService _toolDetector = new();
 
     // Loaded values, so Save only writes fields the user actually changed.
     private string _loadedScreenshots = "";
     private string _loadedGatewayUrl = "";
     private string _loadedGatewayAdvertised = "";
     private string _loadedGatewayToken = "";
+    private string _loadedClaudePath = "";
+    private string _loadedPiPath = "";
+    private string _loadedCodexPath = "";
+    private string _loadedGeminiPath = "";
+    private string _loadedOpenCodePath = "";
+    private string _loadedOpenAiKey = "";
     private bool _loadedAlpha;
 
     public SettingsDialog() : this(null, 0, null) { }
@@ -56,23 +64,35 @@ public partial class SettingsDialog : Window
         FileLog.Write("[SettingsDialog] LoadAsync: reading config.json");
         try
         {
-            var (screenshots, url, advertised, token, raw) = await Task.Run(ReadConfigSnapshot);
+            var (screenshots, url, advertised, token, claudePath, piPath, codexPath, geminiPath, openCodePath, openAiKey, raw) = await Task.Run(ReadConfigSnapshot);
 
             _loadedScreenshots = screenshots;
             _loadedGatewayUrl = url;
             _loadedGatewayAdvertised = advertised;
             _loadedGatewayToken = token;
+            _loadedClaudePath = claudePath;
+            _loadedPiPath = piPath;
+            _loadedCodexPath = codexPath;
+            _loadedGeminiPath = geminiPath;
+            _loadedOpenCodePath = openCodePath;
+            _loadedOpenAiKey = openAiKey;
             _loadedAlpha = AlphaMode.IsEnabled;
 
             ScreenshotsDirBox.Text = screenshots;
             GatewayUrlBox.Text = url;
             GatewayAdvertisedBox.Text = advertised;
             GatewayTokenBox.Text = token;
+            ClaudePathBox.Text = claudePath;
+            PiPathBox.Text = piPath;
+            CodexPathBox.Text = codexPath;
+            GeminiPathBox.Text = geminiPath;
+            OpenCodePathBox.Text = openCodePath;
+            OpenAiKeyBox.Text = openAiKey;
             AlphaFeaturesCheck.IsChecked = _loadedAlpha;
             RawConfigBox.Text = raw;
 
             LoadingText.IsVisible = false;
-            ContentPanel.IsVisible = true;
+            SettingsTabs.IsVisible = true;
             FileLog.Write("[SettingsDialog] LoadAsync: loaded");
         }
         catch (Exception ex)
@@ -84,21 +104,36 @@ public partial class SettingsDialog : Window
     }
 
     /// <summary>Read config off the UI thread. Returns the current field values + pretty raw JSON.</summary>
-    private static (string Screenshots, string Url, string Advertised, string Token, string Raw) ReadConfigSnapshot()
+    private static (string Screenshots, string Url, string Advertised, string Token, string ClaudePath, string PiPath, string CodexPath, string GeminiPath, string OpenCodePath, string OpenAiKey, string Raw) ReadConfigSnapshot()
     {
         var root = CcDirectorConfigService.ReadRaw();
         var gateway = root["gateway"] as JsonObject;
+        var agent = root["agent"] as JsonObject ?? root["Agent"] as JsonObject;
+        var voice = root["Voice"] as JsonObject ?? root["voice"] as JsonObject;
+        var options = (global::Avalonia.Application.Current as App)?.SessionManager?.Options
+            ?? (global::Avalonia.Application.Current as App)?.Options
+            ?? new AgentOptions();
 
         string Get(JsonObject? obj, string key) =>
             obj?[key] is JsonNode n && n is JsonValue ? n.GetValue<string>() : "";
+        string GetTool(string snakeKey, string pascalKey, string fallback) =>
+            Get(agent, snakeKey).Length > 0 ? Get(agent, snakeKey)
+            : Get(agent, pascalKey).Length > 0 ? Get(agent, pascalKey)
+            : fallback;
 
         var screenshots = Get(root["screenshots"] as JsonObject, "source_directory");
         var url = Get(gateway, "url");
         var advertised = Get(gateway, "tailnetEndpoint");
         var token = Get(gateway, "token");
+        var claudePath = GetTool("claude_path", "ClaudePath", options.ClaudePath);
+        var piPath = GetTool("pi_path", "PiPath", options.PiPath);
+        var codexPath = GetTool("codex_path", "CodexPath", options.CodexPath);
+        var geminiPath = GetTool("gemini_path", "GeminiPath", options.GeminiPath);
+        var openCodePath = GetTool("opencode_path", "OpenCodePath", options.OpenCodePath);
+        var openAiKey = Get(voice, "OpenAiKey");
         var raw = root.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
 
-        return (screenshots, url, advertised, token, raw);
+        return (screenshots, url, advertised, token, claudePath, piPath, codexPath, geminiPath, openCodePath, openAiKey, raw);
     }
 
     /// <summary>
@@ -175,6 +210,12 @@ public partial class SettingsDialog : Window
             var url = GatewayUrlBox.Text?.Trim() ?? "";
             var advertised = GatewayAdvertisedBox.Text?.Trim() ?? "";
             var token = GatewayTokenBox.Text?.Trim() ?? "";
+            var claudePath = ClaudePathBox.Text?.Trim() ?? "";
+            var piPath = PiPathBox.Text?.Trim() ?? "";
+            var codexPath = CodexPathBox.Text?.Trim() ?? "";
+            var geminiPath = GeminiPathBox.Text?.Trim() ?? "";
+            var openCodePath = OpenCodePathBox.Text?.Trim() ?? "";
+            var openAiKey = OpenAiKeyBox.Text?.Trim() ?? "";
 
             // Build a patch with ONLY the sections the user changed, so we touch nothing else.
             var patch = new JsonObject();
@@ -196,6 +237,27 @@ public partial class SettingsDialog : Window
                 };
             }
 
+            var toolsChanged = claudePath != _loadedClaudePath
+                || piPath != _loadedPiPath
+                || codexPath != _loadedCodexPath
+                || geminiPath != _loadedGeminiPath
+                || openCodePath != _loadedOpenCodePath;
+            if (toolsChanged)
+            {
+                patch["agent"] = new JsonObject
+                {
+                    ["claude_path"] = claudePath,
+                    ["pi_path"] = piPath,
+                    ["codex_path"] = codexPath,
+                    ["gemini_path"] = geminiPath,
+                    ["opencode_path"] = openCodePath,
+                };
+            }
+
+            var voiceChanged = openAiKey != _loadedOpenAiKey;
+            if (voiceChanged)
+                patch["Voice"] = new JsonObject { ["OpenAiKey"] = openAiKey };
+
             var alpha = AlphaFeaturesCheck.IsChecked == true;
             var alphaChanged = alpha != _loadedAlpha;
 
@@ -216,7 +278,16 @@ public partial class SettingsDialog : Window
             if (alphaChanged)
                 await Task.Run(() => AlphaMode.SetEnabled(alpha));
 
-            FileLog.Write($"[SettingsDialog] BtnSave_Click: saved sections={patch.Count}, gatewayChanged={gatewayChanged}, alphaChanged={alphaChanged}");
+            if (toolsChanged)
+                ApplyToolPathsToRunningOptions(claudePath, piPath, codexPath, geminiPath, openCodePath);
+
+            // Apply the key to the running options so Speak/dictation works without a restart.
+            // The dictation endpoint reads ResolveOpenAiKey() per connection off this same
+            // AgentOptions instance, so the Cockpit Speak button on this Director picks it up too.
+            if (voiceChanged)
+                ApplyOpenAiKeyToRunningOptions(openAiKey);
+
+            FileLog.Write($"[SettingsDialog] BtnSave_Click: saved sections={patch.Count}, gatewayChanged={gatewayChanged}, toolsChanged={toolsChanged}, voiceChanged={voiceChanged}, alphaChanged={alphaChanged}");
 
             // Re-register with the gateway live so a URL/endpoint/token change takes effect now.
             if (gatewayChanged && _reapplyGateway is not null)
@@ -237,6 +308,12 @@ public partial class SettingsDialog : Window
             _loadedGatewayUrl = url;
             _loadedGatewayAdvertised = advertised;
             _loadedGatewayToken = token;
+            _loadedClaudePath = claudePath;
+            _loadedPiPath = piPath;
+            _loadedCodexPath = codexPath;
+            _loadedGeminiPath = geminiPath;
+            _loadedOpenCodePath = openCodePath;
+            _loadedOpenAiKey = openAiKey;
             _loadedAlpha = alpha;
             RawConfigBox.Text = await Task.Run(() =>
                 CcDirectorConfigService.ReadRaw().ToJsonString(
@@ -365,6 +442,244 @@ public partial class SettingsDialog : Window
         GatewayTestStatus.Foreground = error
             ? global::Avalonia.Media.Brushes.IndianRed
             : global::Avalonia.Media.Brushes.MediumSeaGreen;
+    }
+
+    private async void BtnDetectClaude_Click(object? sender, RoutedEventArgs e) =>
+        await DetectToolAsync(AgentKind.ClaudeCode, ClaudePathBox, ClaudeStatus, DetectClaudeButton);
+
+    private async void BtnDetectPi_Click(object? sender, RoutedEventArgs e) =>
+        await DetectToolAsync(AgentKind.Pi, PiPathBox, PiStatus, DetectPiButton);
+
+    private async void BtnDetectCodex_Click(object? sender, RoutedEventArgs e) =>
+        await DetectToolAsync(AgentKind.Codex, CodexPathBox, CodexStatus, DetectCodexButton);
+
+    private async void BtnDetectGemini_Click(object? sender, RoutedEventArgs e) =>
+        await DetectToolAsync(AgentKind.Gemini, GeminiPathBox, GeminiStatus, DetectGeminiButton);
+
+    private async void BtnDetectOpenCode_Click(object? sender, RoutedEventArgs e) =>
+        await DetectToolAsync(AgentKind.OpenCode, OpenCodePathBox, OpenCodeStatus, DetectOpenCodeButton);
+
+    private async void BtnTestClaude_Click(object? sender, RoutedEventArgs e) =>
+        await TestToolAsync(AgentKind.ClaudeCode, ClaudePathBox, ClaudeStatus, TestClaudeButton);
+
+    private async void BtnTestPi_Click(object? sender, RoutedEventArgs e) =>
+        await TestToolAsync(AgentKind.Pi, PiPathBox, PiStatus, TestPiButton);
+
+    private async void BtnTestCodex_Click(object? sender, RoutedEventArgs e) =>
+        await TestToolAsync(AgentKind.Codex, CodexPathBox, CodexStatus, TestCodexButton);
+
+    private async void BtnTestGemini_Click(object? sender, RoutedEventArgs e) =>
+        await TestToolAsync(AgentKind.Gemini, GeminiPathBox, GeminiStatus, TestGeminiButton);
+
+    private async void BtnTestOpenCode_Click(object? sender, RoutedEventArgs e) =>
+        await TestToolAsync(AgentKind.OpenCode, OpenCodePathBox, OpenCodeStatus, TestOpenCodeButton);
+
+    private async void BtnBrowseClaude_Click(object? sender, RoutedEventArgs e) =>
+        await BrowseToolAsync("Select Claude Code executable", ClaudePathBox, ClaudeStatus);
+
+    private async void BtnBrowsePi_Click(object? sender, RoutedEventArgs e) =>
+        await BrowseToolAsync("Select Pi executable", PiPathBox, PiStatus);
+
+    private async void BtnBrowseCodex_Click(object? sender, RoutedEventArgs e) =>
+        await BrowseToolAsync("Select Codex executable", CodexPathBox, CodexStatus);
+
+    private async void BtnBrowseGemini_Click(object? sender, RoutedEventArgs e) =>
+        await BrowseToolAsync("Select Gemini executable", GeminiPathBox, GeminiStatus);
+
+    private async void BtnBrowseOpenCode_Click(object? sender, RoutedEventArgs e) =>
+        await BrowseToolAsync("Select OpenCode executable", OpenCodePathBox, OpenCodeStatus);
+
+    private async void BtnDetectAllTools_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write("[SettingsDialog] BtnDetectAllTools_Click");
+        DetectAllToolsButton.IsEnabled = false;
+        ShowAgentToolsStatus("Detecting all agent tools...", error: false);
+        try
+        {
+            await DetectToolAsync(AgentKind.ClaudeCode, ClaudePathBox, ClaudeStatus, DetectClaudeButton);
+            await DetectToolAsync(AgentKind.Pi, PiPathBox, PiStatus, DetectPiButton);
+            await DetectToolAsync(AgentKind.Codex, CodexPathBox, CodexStatus, DetectCodexButton);
+            await DetectToolAsync(AgentKind.Gemini, GeminiPathBox, GeminiStatus, DetectGeminiButton);
+            await DetectToolAsync(AgentKind.OpenCode, OpenCodePathBox, OpenCodeStatus, DetectOpenCodeButton);
+            ShowAgentToolsStatus("Detect All finished. Click Test All to validate working CLIs, then Save.", error: false);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[SettingsDialog] BtnDetectAllTools_Click FAILED: {ex.Message}");
+            ShowAgentToolsStatus($"Detect All failed: {ex.Message}", error: true);
+        }
+        finally
+        {
+            DetectAllToolsButton.IsEnabled = true;
+        }
+    }
+
+    private async void BtnTestAllTools_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write("[SettingsDialog] BtnTestAllTools_Click");
+        TestAllToolsButton.IsEnabled = false;
+        ShowAgentToolsStatus("Testing all configured agent tools...", error: false);
+        try
+        {
+            var results = new[]
+            {
+                await TestToolAsync(AgentKind.ClaudeCode, ClaudePathBox, ClaudeStatus, TestClaudeButton),
+                await TestToolAsync(AgentKind.Pi, PiPathBox, PiStatus, TestPiButton),
+                await TestToolAsync(AgentKind.Codex, CodexPathBox, CodexStatus, TestCodexButton),
+                await TestToolAsync(AgentKind.Gemini, GeminiPathBox, GeminiStatus, TestGeminiButton),
+                await TestToolAsync(AgentKind.OpenCode, OpenCodePathBox, OpenCodeStatus, TestOpenCodeButton),
+            };
+
+            var ok = results.Count(r => r.Ok);
+            ShowAgentToolsStatus($"Test All finished: {ok}/{results.Length} agent CLI(s) validated. Save to make validated tools available in New Session.", error: ok == 0);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[SettingsDialog] BtnTestAllTools_Click FAILED: {ex.Message}");
+            ShowAgentToolsStatus($"Test All failed: {ex.Message}", error: true);
+        }
+        finally
+        {
+            TestAllToolsButton.IsEnabled = true;
+        }
+    }
+
+    private async Task DetectToolAsync(AgentKind tool, TextBox box, TextBlock status, Button button)
+    {
+        FileLog.Write($"[SettingsDialog] DetectToolAsync: tool={tool}");
+        var options = CurrentOptions();
+        button.IsEnabled = false;
+        ShowToolStatus(status, "Detecting...", error: false);
+        try
+        {
+            var typedPath = box.Text?.Trim();
+            var result = await Task.Run(() => _toolDetector.DetectTool(tool, options, typedPath));
+            if (result.ResolvedPath is not null)
+                box.Text = result.ResolvedPath;
+            ShowToolStatus(status, $"{result.Message} Source: {result.Source}.", error: !result.Found);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[SettingsDialog] DetectToolAsync FAILED: tool={tool}, error={ex.Message}");
+            ShowToolStatus(status, $"Detection failed: {ex.Message}", error: true);
+        }
+        finally
+        {
+            button.IsEnabled = true;
+        }
+    }
+
+    private async Task<ToolTestResult> TestToolAsync(AgentKind tool, TextBox box, TextBlock status, Button button)
+    {
+        FileLog.Write($"[SettingsDialog] TestToolAsync: tool={tool}");
+        button.IsEnabled = false;
+        ShowToolStatus(status, "Testing...", error: false);
+        try
+        {
+            var result = await _toolDetector.TestToolAsync(tool, box.Text?.Trim() ?? "");
+            ShowToolStatus(status, result.Message, error: !result.Ok);
+            await Task.Run(() => CcDirectorConfigService.MergePatch(ToolDetectionService.BuildValidationPatch(result)));
+            FileLog.Write($"[SettingsDialog] TestToolAsync: persisted validation tool={tool}, ok={result.Ok}");
+            return result;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[SettingsDialog] TestToolAsync FAILED: tool={tool}, error={ex.Message}");
+            var result = new ToolTestResult(tool, ToolDetectionService.DisplayName(tool), false, box.Text?.Trim() ?? "", null, $"Test failed: {ex.Message}");
+            ShowToolStatus(status, result.Message, error: true);
+            return result;
+        }
+        finally
+        {
+            button.IsEnabled = true;
+        }
+    }
+
+    private async Task BrowseToolAsync(string title, TextBox box, TextBlock status)
+    {
+        FileLog.Write($"[SettingsDialog] BrowseToolAsync: title={title}");
+        try
+        {
+            var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = title,
+                AllowMultiple = false,
+                FileTypeFilter = new[]
+                {
+                    new FilePickerFileType("Executables")
+                    {
+                        Patterns = OperatingSystem.IsWindows()
+                            ? new[] { "*.exe", "*.cmd", "*.bat" }
+                            : new[] { "*" }
+                    }
+                }
+            });
+            if (files.Count == 0)
+                return;
+
+            box.Text = files[0].Path.LocalPath;
+            ShowToolStatus(status, $"Selected {box.Text}. Click Test to verify or Save to apply.", error: false);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[SettingsDialog] BrowseToolAsync FAILED: {ex.Message}");
+            ShowToolStatus(status, $"Browse failed: {ex.Message}", error: true);
+        }
+    }
+
+    private void ShowToolStatus(TextBlock status, string text, bool error)
+    {
+        status.Text = text;
+        status.IsVisible = true;
+        status.Foreground = error
+            ? global::Avalonia.Media.Brushes.IndianRed
+            : global::Avalonia.Media.Brushes.MediumSeaGreen;
+    }
+
+    private void ShowAgentToolsStatus(string text, bool error)
+    {
+        AgentToolsStatus.Text = text;
+        AgentToolsStatus.IsVisible = true;
+        AgentToolsStatus.Foreground = error
+            ? global::Avalonia.Media.Brushes.IndianRed
+            : global::Avalonia.Media.Brushes.MediumSeaGreen;
+    }
+
+    private static AgentOptions CurrentOptions()
+    {
+        var options = (global::Avalonia.Application.Current as App)?.SessionManager?.Options
+            ?? (global::Avalonia.Application.Current as App)?.Options;
+        return options ?? throw new InvalidOperationException("AgentOptions not loaded.");
+    }
+
+    private static void ApplyToolPathsToRunningOptions(string claudePath, string piPath, string codexPath, string geminiPath, string openCodePath)
+    {
+        FileLog.Write("[SettingsDialog] ApplyToolPathsToRunningOptions");
+        var options = CurrentOptions();
+        ToolDetectionService.SetConfiguredPath(AgentKind.ClaudeCode, options, claudePath);
+        ToolDetectionService.SetConfiguredPath(AgentKind.Pi, options, piPath);
+        ToolDetectionService.SetConfiguredPath(AgentKind.Codex, options, codexPath);
+        ToolDetectionService.SetConfiguredPath(AgentKind.Gemini, options, geminiPath);
+        ToolDetectionService.SetConfiguredPath(AgentKind.OpenCode, options, openCodePath);
+    }
+
+    /// <summary>Reveal or mask the OpenAI key text. Default masked; "Show" reveals it for verification.</summary>
+    private void ShowKeyCheck_Changed(object? sender, RoutedEventArgs e)
+    {
+        OpenAiKeyBox.RevealPassword = ShowKeyCheck.IsChecked == true;
+    }
+
+    /// <summary>
+    /// Push the entered OpenAI key onto the running AgentOptions so the voice mode and the
+    /// dictation pipeline pick it up immediately, without restarting the Director. An empty
+    /// box clears the key (the pipeline then falls back to the OPENAI_API_KEY environment
+    /// variable via <see cref="AgentOptions.ResolveOpenAiKey"/>).
+    /// </summary>
+    private static void ApplyOpenAiKeyToRunningOptions(string openAiKey)
+    {
+        FileLog.Write($"[SettingsDialog] ApplyOpenAiKeyToRunningOptions: key={(string.IsNullOrWhiteSpace(openAiKey) ? "<cleared>" : "<set>")}");
+        var options = CurrentOptions();
+        options.OpenAiKey = string.IsNullOrWhiteSpace(openAiKey) ? null : openAiKey;
     }
 
     /// <summary>The alpha-gated wake-word section follows the checkbox live (before Save).</summary>

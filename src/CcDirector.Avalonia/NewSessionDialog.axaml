@@ -59,9 +59,6 @@
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
-                    <!-- Agent picker (radio buttons). Non-Claude agents are alpha features:
-                         the whole picker is hidden unless alpha mode is on, leaving
-                         Claude Code as the only (implicit) agent. -->
                     <StackPanel Grid.Row="0" Orientation="Vertical">
                     <!-- Group session picker (issue #225): "Single session" (today's flow, the
                          Type picker applies) vs a group preset that creates several tied,
@@ -88,6 +85,8 @@
                                      ToolTip.Tip="Three tied sessions: Issue Submitter + Implementer + QA" />
                     </StackPanel>
 
+                    <!-- Agent picker (radio buttons). Claude/Pi are shipped; other CLIs become
+                         visible outside alpha once Settings > Agents validates their configured path. -->
                     <StackPanel x:Name="AgentPickerPanel" Orientation="Horizontal" Margin="0,0,0,12">
                         <TextBlock Text="Agent:"
                                    Foreground="#CCCCCC" FontSize="14"

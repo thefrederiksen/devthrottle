@@ -12,6 +12,7 @@ using CcDirector.Core.Claude;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Drivers;
 using CcDirector.Core.Sessions;
+using CcDirector.Core.Settings;
 using CcDirector.Core.Storage;
 using CcDirector.Core.Utilities;
 
@@ -392,11 +393,18 @@ public partial class NewSessionDialog : Window
             TypePickerPanel.IsVisible = SelectedGroupDefinition is null;
     }
 
-    /// <summary>"Verified driver = shipped": an agent shows outside alpha only when its
-    /// driver is a real, live-verified implementation rather than the GenericDriver
-    /// placeholder for unverified CLIs.</summary>
-    private static bool HasVerifiedDriver(AgentKind kind) =>
-        AgentDrivers.For(kind) is not GenericDriver;
+    /// <summary>An agent shows outside alpha when it has either a verified driver or the
+    /// Settings > Agents safe version check validated the currently configured CLI path.</summary>
+    private static bool IsAgentSelectableOutsideAlpha(AgentKind kind, AgentOptions options) =>
+        AgentDrivers.For(kind) is not GenericDriver || ToolDetectionService.IsToolValidated(kind, options);
+
+    private static AgentOptions CurrentOptions()
+    {
+        FileLog.Write("[NewSessionDialog] CurrentOptions");
+        return (Application.Current as App)?.SessionManager?.Options
+            ?? (Application.Current as App)?.Options
+            ?? new AgentOptions();
+    }
 
     public NewSessionDialog(RepositoryRegistry? registry = null, SessionHistoryStore? historyStore = null)
     {
@@ -409,21 +417,20 @@ public partial class NewSessionDialog : Window
         // quick-launch cards are alpha features - hidden by default. The dialog is
         // created fresh each time, so reading the flag once here is enough.
         //
-        // The AGENT PICKER itself is NOT gated (2026-06-05): the Director is a wrapper
-        // around agent CLIs it did not build. Per AGENT the rule is "verified driver =
-        // shipped": an agent leaves alpha when it has a real, live-verified driver
-        // (ClaudeDriver, PiDriver - docs/plans/agent-driver.md). Agents still on
-        // GenericDriver are unverified and stay alpha-only; the day someone writes and
-        // verifies their driver, they graduate automatically.
+        // Agent picker rule (2026-06-06): a CLI graduates from alpha when Settings >
+        // Agents has a successful Test result for the currently configured executable.
+        // Verified drivers (Claude/Pi) are still shipped by default; GenericDriver CLIs
+        // are selectable as soon as the user proves the CLI itself is installed/working.
         var alpha = AlphaMode.IsEnabled;
+        var options = CurrentOptions();
         AgentPickerPanel.IsVisible = true;
-        AgentRadioCodex.IsVisible = alpha || HasVerifiedDriver(AgentKind.Codex);
-        AgentRadioGemini.IsVisible = alpha || HasVerifiedDriver(AgentKind.Gemini);
-        AgentRadioOpenCode.IsVisible = alpha || HasVerifiedDriver(AgentKind.OpenCode);
+        AgentRadioCodex.IsVisible = alpha || IsAgentSelectableOutsideAlpha(AgentKind.Codex, options);
+        AgentRadioGemini.IsVisible = alpha || IsAgentSelectableOutsideAlpha(AgentKind.Gemini, options);
+        AgentRadioOpenCode.IsVisible = alpha || IsAgentSelectableOutsideAlpha(AgentKind.OpenCode, options);
         HandoversTab.IsVisible = alpha;
         GitHubTab.IsVisible = alpha;
         QuickLaunchPanel.IsVisible = alpha;
-        FileLog.Write($"[NewSessionDialog] Constructor: alphaFeatures={alpha}, agentPicker=always-on (verified drivers: Claude, Pi)");
+        FileLog.Write($"[NewSessionDialog] Constructor: alphaFeatures={alpha}, codexVisible={AgentRadioCodex.IsVisible}, geminiVisible={AgentRadioGemini.IsVisible}, openCodeVisible={AgentRadioOpenCode.IsVisible}");
 
         // Set dialog size to 80% of primary screen
         var screen = Screens.Primary;

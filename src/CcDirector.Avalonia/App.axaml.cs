@@ -6,10 +6,12 @@ using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using CcDirector.ControlApi;
+using CcDirector.Core.Agents;
 using CcDirector.Core.Claude;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Scheduler;
 using CcDirector.Core.Sessions;
+using CcDirector.Core.Settings;
 using CcDirector.Core.Storage;
 using CcDirector.Core.Update;
 using CcDirector.Core.Utilities;
@@ -634,6 +636,14 @@ public partial class App : Application
             {
                 if (agentSection.TryGetProperty("ClaudePath", out var cp))
                     Options.ClaudePath = cp.GetString() ?? "claude";
+                if (agentSection.TryGetProperty("PiPath", out var pp))
+                    Options.PiPath = pp.GetString() ?? Options.PiPath;
+                if (agentSection.TryGetProperty("CodexPath", out var cop))
+                    Options.CodexPath = cop.GetString() ?? Options.CodexPath;
+                if (agentSection.TryGetProperty("GeminiPath", out var gp))
+                    Options.GeminiPath = gp.GetString() ?? Options.GeminiPath;
+                if (agentSection.TryGetProperty("OpenCodePath", out var ocp))
+                    Options.OpenCodePath = ocp.GetString() ?? Options.OpenCodePath;
                 if (agentSection.TryGetProperty("DefaultBufferSizeBytes", out var bs))
                     Options.DefaultBufferSizeBytes = bs.GetInt32();
                 if (agentSection.TryGetProperty("GracefulShutdownTimeoutSeconds", out var gs))
@@ -663,11 +673,108 @@ public partial class App : Application
                     new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
                     ?? new List<RepositoryConfig>();
             }
+
+            ApplyConfiguredToolPaths();
+            ApplyConfiguredVoiceSettings();
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"Error loading config: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Apply user-editable tool paths from cc-director config.json. appsettings.json remains
+    /// the legacy/default source, but Settings > Tools writes to config.json so users can fix
+    /// paths live without editing the install directory.
+    /// </summary>
+    private void ApplyConfiguredToolPaths()
+    {
+        FileLog.Write("[App] ApplyConfiguredToolPaths");
+        try
+        {
+            var root = CcDirectorConfigService.ReadRaw();
+            var agent = root["agent"] as System.Text.Json.Nodes.JsonObject
+                ?? root["Agent"] as System.Text.Json.Nodes.JsonObject;
+            if (agent is null)
+            {
+                FileLog.Write("[App] ApplyConfiguredToolPaths: no agent section in config.json");
+                return;
+            }
+
+            var claude = ReadToolPath(agent, "claude_path", "ClaudePath");
+            if (!string.IsNullOrWhiteSpace(claude))
+                ToolDetectionService.SetConfiguredPath(AgentKind.ClaudeCode, Options, claude);
+
+            var pi = ReadToolPath(agent, "pi_path", "PiPath");
+            if (!string.IsNullOrWhiteSpace(pi))
+                ToolDetectionService.SetConfiguredPath(AgentKind.Pi, Options, pi);
+
+            var codex = ReadToolPath(agent, "codex_path", "CodexPath");
+            if (!string.IsNullOrWhiteSpace(codex))
+                ToolDetectionService.SetConfiguredPath(AgentKind.Codex, Options, codex);
+
+            var gemini = ReadToolPath(agent, "gemini_path", "GeminiPath");
+            if (!string.IsNullOrWhiteSpace(gemini))
+                ToolDetectionService.SetConfiguredPath(AgentKind.Gemini, Options, gemini);
+
+            var openCode = ReadToolPath(agent, "opencode_path", "OpenCodePath");
+            if (!string.IsNullOrWhiteSpace(openCode))
+                ToolDetectionService.SetConfiguredPath(AgentKind.OpenCode, Options, openCode);
+
+            FileLog.Write($"[App] ApplyConfiguredToolPaths: claude={Options.ClaudePath}, pi={Options.PiPath}, codex={Options.CodexPath}, gemini={Options.GeminiPath}, opencode={Options.OpenCodePath}");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[App] ApplyConfiguredToolPaths FAILED: {ex.Message}");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Overlay voice settings from cc-director config.json onto the running options. appsettings.json
+    /// (read in <see cref="LoadConfiguration"/>) is the install-dir default; config.json is the
+    /// user-editable runtime source that Settings > Voice writes to, so a key set in the UI survives
+    /// app updates that overwrite the install directory. config.json wins when present.
+    /// </summary>
+    private void ApplyConfiguredVoiceSettings()
+    {
+        FileLog.Write("[App] ApplyConfiguredVoiceSettings");
+        try
+        {
+            var root = CcDirectorConfigService.ReadRaw();
+            var voice = root["Voice"] as System.Text.Json.Nodes.JsonObject
+                ?? root["voice"] as System.Text.Json.Nodes.JsonObject;
+            if (voice is null)
+            {
+                FileLog.Write("[App] ApplyConfiguredVoiceSettings: no Voice section in config.json");
+                return;
+            }
+
+            if (voice["OpenAiKey"] is System.Text.Json.Nodes.JsonValue keyVal)
+            {
+                var key = keyVal.GetValue<string>();
+                if (!string.IsNullOrWhiteSpace(key))
+                    Options.OpenAiKey = key;
+            }
+
+            // Never log the key itself - only whether one is now configured.
+            FileLog.Write($"[App] ApplyConfiguredVoiceSettings: openAiKey={(string.IsNullOrWhiteSpace(Options.OpenAiKey) ? "<unset>" : "<set>")}");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[App] ApplyConfiguredVoiceSettings FAILED: {ex.Message}");
+            throw;
+        }
+    }
+
+    private static string? ReadToolPath(System.Text.Json.Nodes.JsonObject agent, string snakeKey, string pascalKey)
+    {
+        if (agent[snakeKey] is System.Text.Json.Nodes.JsonValue snake)
+            return snake.GetValue<string>();
+        if (agent[pascalKey] is System.Text.Json.Nodes.JsonValue pascal)
+            return pascal.GetValue<string>();
+        return null;
     }
 
     private static void WriteDefaultConfig(string configPath)

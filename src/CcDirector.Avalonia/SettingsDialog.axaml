@@ -2,11 +2,60 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="CcDirector.Avalonia.SettingsDialog"
         Title="CC Director Settings"
-        Width="660" Height="640"
-        MinWidth="560" MinHeight="480"
+        Width="760" Height="680"
+        MinWidth="640" MinHeight="520"
         WindowStartupLocation="CenterOwner"
         CanResize="True"
         Background="#252526">
+
+    <Window.Styles>
+        <Style Selector="TextBlock.sectionTitle">
+            <Setter Property="Foreground" Value="#CCCCCC" />
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Margin" Value="0,4,0,0" />
+        </Style>
+        <Style Selector="TextBlock.hint">
+            <Setter Property="Foreground" Value="#888888" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style Selector="TextBlock.fieldLabel">
+            <Setter Property="Foreground" Value="#AAAAAA" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Margin" Value="0,4,0,0" />
+        </Style>
+        <Style Selector="TextBox.settingsInput">
+            <Setter Property="Background" Value="#1E1E1E" />
+            <Setter Property="Foreground" Value="#CCCCCC" />
+            <Setter Property="CaretBrush" Value="#CCCCCC" />
+            <Setter Property="BorderBrush" Value="#3C3C3C" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="8,6" />
+        </Style>
+        <Style Selector="Button.dialogButton">
+            <Setter Property="Height" Value="30" />
+            <Setter Property="MinWidth" Value="76" />
+            <Setter Property="Padding" Value="14,0" />
+            <Setter Property="Background" Value="#3C3C3C" />
+            <Setter Property="Foreground" Value="#CCCCCC" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Button.primaryButton">
+            <Setter Property="Height" Value="30" />
+            <Setter Property="MinWidth" Value="140" />
+            <Setter Property="Padding" Value="14,0" />
+            <Setter Property="Background" Value="#007ACC" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+    </Window.Styles>
 
     <Grid Margin="16">
         <Grid.RowDefinitions>
@@ -19,140 +68,231 @@
 
         <TextBlock Grid.Row="0" Text="CC Director Settings"
                    Foreground="#CCCCCC" FontSize="16" FontWeight="SemiBold"
-                   Margin="0,0,0,4" />
+                   Margin="0,0,0,8" />
 
         <TextBlock x:Name="LoadingText" Grid.Row="1"
                    Text="Loading..."
                    Foreground="#888888" FontSize="12" FontStyle="Italic"
                    Margin="0,0,0,8" />
 
-        <!-- Padding="0,0,14,0" keeps the inline Detect/Test/Browse buttons clear of the
-             Fluent overlay scrollbar, which otherwise floats over and clips them. -->
-        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
-                      Padding="0,0,14,0">
-            <StackPanel x:Name="ContentPanel" IsVisible="False" Spacing="6">
+        <TabControl Grid.Row="2" x:Name="SettingsTabs" IsVisible="False">
+            <TabItem Header="Files">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,14,0">
+                    <StackPanel Spacing="8" Margin="0,4,0,0">
+                        <TextBlock Classes="sectionTitle" Text="Screenshots" />
+                        <TextBlock Classes="hint" Text="Where phone-uploaded images are filed so a session can read them by path. On a Mac this must be set explicitly." />
+                        <Grid ColumnDefinitions="*,Auto,Auto">
+                            <TextBox x:Name="ScreenshotsDirBox" Grid.Column="0" Classes="settingsInput"
+                                     Watermark="e.g. /Users/username/Desktop" />
+                            <Button x:Name="DetectScreenshotsButton" Grid.Column="1" Classes="dialogButton"
+                                    Content="Detect" Margin="8,0,0,0"
+                                    ToolTip.Tip="Find the folder where this OS saves screenshots"
+                                    Click="BtnDetectScreenshots_Click" />
+                            <Button x:Name="BrowseButton" Grid.Column="2" Classes="dialogButton"
+                                    Content="Browse..." Margin="8,0,0,0"
+                                    Click="BtnBrowse_Click" />
+                        </Grid>
+                        <TextBlock x:Name="ScreenshotsStatus" Text="" Foreground="#888888"
+                                   FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0" IsVisible="False" />
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
 
-                <!-- ============ Screenshots ============ -->
-                <TextBlock Text="Screenshots" Foreground="#CCCCCC" FontSize="14"
-                           FontWeight="SemiBold" Margin="0,4,0,0" />
-                <TextBlock Text="Where phone-uploaded images are filed so a session can read them by path. On a Mac this must be set explicitly."
-                           Foreground="#888888" FontSize="11" TextWrapping="Wrap" />
-                <Grid ColumnDefinitions="*,Auto,Auto">
-                    <TextBox x:Name="ScreenshotsDirBox" Grid.Column="0"
-                             Background="#1E1E1E" Foreground="#CCCCCC" CaretBrush="#CCCCCC"
-                             BorderBrush="#3C3C3C" BorderThickness="1" Padding="8,6"
-                             Watermark="e.g. /Users/username/Desktop" />
-                    <Button x:Name="DetectScreenshotsButton" Grid.Column="1" Content="Detect"
-                            Height="30" Margin="8,0,0,0" Padding="12,0"
-                            Background="#3C3C3C" Foreground="#CCCCCC"
-                            BorderThickness="0" Cursor="Hand"
-                            ToolTip.Tip="Find the folder where this OS saves screenshots"
-                            Click="BtnDetectScreenshots_Click" />
-                    <Button x:Name="BrowseButton" Grid.Column="2" Content="Browse..."
-                            Height="30" Margin="8,0,0,0" Padding="12,0"
-                            Background="#3C3C3C" Foreground="#CCCCCC"
-                            BorderThickness="0" Cursor="Hand"
-                            Click="BtnBrowse_Click" />
+            <TabItem Header="Gateway">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,14,0">
+                    <StackPanel Spacing="8" Margin="0,4,0,0">
+                        <TextBlock Classes="sectionTitle" Text="Gateway" />
+                        <TextBlock Classes="hint" Text="Connect this Director to a central gateway so it shows up there. Leave the URL blank to run local-only. Works on any network, not just a tailnet." />
+
+                        <TextBlock Classes="fieldLabel" Text="Gateway URL" />
+                        <Grid ColumnDefinitions="*,Auto,Auto">
+                            <TextBox x:Name="GatewayUrlBox" Grid.Column="0" Classes="settingsInput"
+                                     Watermark="e.g. http://gateway-host:7878" />
+                            <Button x:Name="DetectGatewayButton" Grid.Column="1" Classes="dialogButton"
+                                    Content="Detect" Margin="8,0,0,0"
+                                    ToolTip.Tip="Look for a gateway running on this machine"
+                                    Click="BtnDetectGateway_Click" />
+                            <Button x:Name="TestGatewayButton" Grid.Column="2" Classes="dialogButton"
+                                    Content="Test" Margin="8,0,0,0"
+                                    ToolTip.Tip="Check the gateway URL is reachable"
+                                    Click="BtnTestGateway_Click" />
+                        </Grid>
+
+                        <TextBlock Classes="fieldLabel" Text="Director public URL (any network)" />
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBox x:Name="GatewayAdvertisedBox" Grid.Column="0" Classes="settingsInput"
+                                     Watermark="how the gateway reaches THIS Director, e.g. http://this-host:7879" />
+                            <Button x:Name="DetectPublicUrlButton" Grid.Column="1" Classes="dialogButton"
+                                    Content="Detect" Margin="8,0,0,0"
+                                    ToolTip.Tip="Fill from this machine's network address + control port"
+                                    Click="BtnDetectPublicUrl_Click" />
+                        </Grid>
+                        <TextBlock Classes="hint" Text="Required when the gateway runs on a different machine. The gateway calls back to this URL, so it must be reachable from the gateway." />
+
+                        <TextBlock x:Name="GatewayTestStatus" Text="" Foreground="#888888"
+                                   FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0" IsVisible="False" />
+
+                        <TextBlock Classes="fieldLabel" Text="Gateway token (optional)" />
+                        <TextBox x:Name="GatewayTokenBox" Classes="settingsInput"
+                                 Watermark="only if the gateway requires one" />
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="Agents">
+                <Grid RowDefinitions="Auto,*">
+                    <StackPanel Grid.Row="0" Spacing="8" Margin="0,4,14,8">
+                        <TextBlock Classes="sectionTitle" Text="Agent tools" />
+                        <TextBlock Classes="hint" Text="Configure the command-line tools CC Director can launch. Use Detect to find common installs, Test to run a safe version check, or Browse to select an executable." />
+                        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
+                            <Button x:Name="DetectAllToolsButton" Classes="dialogButton" Content="Detect All"
+                                    Width="120" Click="BtnDetectAllTools_Click" />
+                            <Button x:Name="TestAllToolsButton" Classes="dialogButton" Content="Test All"
+                                    Width="120" Click="BtnTestAllTools_Click" />
+                            <TextBlock x:Name="AgentToolsStatus" Text="" Foreground="#888888"
+                                       FontSize="11" TextWrapping="Wrap" VerticalAlignment="Center"
+                                       IsVisible="False" />
+                        </StackPanel>
+                    </StackPanel>
+
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,14,0">
+                        <StackPanel Spacing="8">
+                        <Border Background="#1E1E1E" BorderBrush="#3C3C3C" BorderThickness="1" Padding="10">
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="Claude Code" Foreground="#CCCCCC" FontSize="13" FontWeight="SemiBold" />
+                                <Grid ColumnDefinitions="*,Auto,Auto,Auto">
+                                    <TextBox x:Name="ClaudePathBox" Grid.Column="0" Classes="settingsInput" Watermark="claude" />
+                                    <Button x:Name="DetectClaudeButton" Grid.Column="1" Classes="dialogButton" Content="Detect" Margin="8,0,0,0" Click="BtnDetectClaude_Click" />
+                                    <Button x:Name="TestClaudeButton" Grid.Column="2" Classes="dialogButton" Content="Test" Margin="8,0,0,0" Click="BtnTestClaude_Click" />
+                                    <Button x:Name="BrowseClaudeButton" Grid.Column="3" Classes="dialogButton" Content="Browse..." Margin="8,0,0,0" Click="BtnBrowseClaude_Click" />
+                                </Grid>
+                                <TextBlock x:Name="ClaudeStatus" Text="" Foreground="#888888" FontSize="11" TextWrapping="Wrap" IsVisible="False" />
+                            </StackPanel>
+                        </Border>
+
+                        <Border Background="#1E1E1E" BorderBrush="#3C3C3C" BorderThickness="1" Padding="10">
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="Pi" Foreground="#CCCCCC" FontSize="13" FontWeight="SemiBold" />
+                                <Grid ColumnDefinitions="*,Auto,Auto,Auto">
+                                    <TextBox x:Name="PiPathBox" Grid.Column="0" Classes="settingsInput" Watermark="pi or D:\Tools\Pi\pi.exe" />
+                                    <Button x:Name="DetectPiButton" Grid.Column="1" Classes="dialogButton" Content="Detect" Margin="8,0,0,0" Click="BtnDetectPi_Click" />
+                                    <Button x:Name="TestPiButton" Grid.Column="2" Classes="dialogButton" Content="Test" Margin="8,0,0,0" Click="BtnTestPi_Click" />
+                                    <Button x:Name="BrowsePiButton" Grid.Column="3" Classes="dialogButton" Content="Browse..." Margin="8,0,0,0" Click="BtnBrowsePi_Click" />
+                                </Grid>
+                                <TextBlock x:Name="PiStatus" Text="" Foreground="#888888" FontSize="11" TextWrapping="Wrap" IsVisible="False" />
+                            </StackPanel>
+                        </Border>
+
+                        <Border Background="#1E1E1E" BorderBrush="#3C3C3C" BorderThickness="1" Padding="10">
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="Codex" Foreground="#CCCCCC" FontSize="13" FontWeight="SemiBold" />
+                                <Grid ColumnDefinitions="*,Auto,Auto,Auto">
+                                    <TextBox x:Name="CodexPathBox" Grid.Column="0" Classes="settingsInput" Watermark="codex" />
+                                    <Button x:Name="DetectCodexButton" Grid.Column="1" Classes="dialogButton" Content="Detect" Margin="8,0,0,0" Click="BtnDetectCodex_Click" />
+                                    <Button x:Name="TestCodexButton" Grid.Column="2" Classes="dialogButton" Content="Test" Margin="8,0,0,0" Click="BtnTestCodex_Click" />
+                                    <Button x:Name="BrowseCodexButton" Grid.Column="3" Classes="dialogButton" Content="Browse..." Margin="8,0,0,0" Click="BtnBrowseCodex_Click" />
+                                </Grid>
+                                <TextBlock x:Name="CodexStatus" Text="" Foreground="#888888" FontSize="11" TextWrapping="Wrap" IsVisible="False" />
+                            </StackPanel>
+                        </Border>
+
+                        <Border Background="#1E1E1E" BorderBrush="#3C3C3C" BorderThickness="1" Padding="10">
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="Gemini" Foreground="#CCCCCC" FontSize="13" FontWeight="SemiBold" />
+                                <Grid ColumnDefinitions="*,Auto,Auto,Auto">
+                                    <TextBox x:Name="GeminiPathBox" Grid.Column="0" Classes="settingsInput" Watermark="gemini" />
+                                    <Button x:Name="DetectGeminiButton" Grid.Column="1" Classes="dialogButton" Content="Detect" Margin="8,0,0,0" Click="BtnDetectGemini_Click" />
+                                    <Button x:Name="TestGeminiButton" Grid.Column="2" Classes="dialogButton" Content="Test" Margin="8,0,0,0" Click="BtnTestGemini_Click" />
+                                    <Button x:Name="BrowseGeminiButton" Grid.Column="3" Classes="dialogButton" Content="Browse..." Margin="8,0,0,0" Click="BtnBrowseGemini_Click" />
+                                </Grid>
+                                <TextBlock x:Name="GeminiStatus" Text="" Foreground="#888888" FontSize="11" TextWrapping="Wrap" IsVisible="False" />
+                            </StackPanel>
+                        </Border>
+
+                        <Border Background="#1E1E1E" BorderBrush="#3C3C3C" BorderThickness="1" Padding="10">
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="OpenCode" Foreground="#CCCCCC" FontSize="13" FontWeight="SemiBold" />
+                                <Grid ColumnDefinitions="*,Auto,Auto,Auto">
+                                    <TextBox x:Name="OpenCodePathBox" Grid.Column="0" Classes="settingsInput" Watermark="opencode" />
+                                    <Button x:Name="DetectOpenCodeButton" Grid.Column="1" Classes="dialogButton" Content="Detect" Margin="8,0,0,0" Click="BtnDetectOpenCode_Click" />
+                                    <Button x:Name="TestOpenCodeButton" Grid.Column="2" Classes="dialogButton" Content="Test" Margin="8,0,0,0" Click="BtnTestOpenCode_Click" />
+                                    <Button x:Name="BrowseOpenCodeButton" Grid.Column="3" Classes="dialogButton" Content="Browse..." Margin="8,0,0,0" Click="BtnBrowseOpenCode_Click" />
+                                </Grid>
+                                <TextBlock x:Name="OpenCodeStatus" Text="" Foreground="#888888" FontSize="11" TextWrapping="Wrap" IsVisible="False" />
+                            </StackPanel>
+                        </Border>
+
+                        </StackPanel>
+                    </ScrollViewer>
                 </Grid>
-                <TextBlock x:Name="ScreenshotsStatus" Text="" Foreground="#888888"
-                           FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0" IsVisible="False" />
+            </TabItem>
 
-                <!-- ============ Gateway ============ -->
-                <TextBlock Text="Gateway" Foreground="#CCCCCC" FontSize="14"
-                           FontWeight="SemiBold" Margin="0,12,0,0" />
-                <TextBlock Text="Connect this Director to a central gateway so it shows up there. Leave the URL blank to run local-only. Works on any network, not just a tailnet."
-                           Foreground="#888888" FontSize="11" TextWrapping="Wrap" />
+            <TabItem Header="Voice">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,14,0">
+                    <StackPanel Spacing="8" Margin="0,4,0,0">
+                        <TextBlock Classes="sectionTitle" Text="Voice and dictation" />
+                        <TextBlock Classes="hint" Text="The Speak / dictation feature transcribes your microphone with OpenAI. Paste an OpenAI API key here to enable it, for both this app and the Cockpit Speak button. The key is stored in this machine's CC Director config and is never sent to browsers." />
 
-                <TextBlock Text="Gateway URL" Foreground="#AAAAAA" FontSize="11" Margin="0,4,0,0" />
-                <Grid ColumnDefinitions="*,Auto,Auto">
-                    <TextBox x:Name="GatewayUrlBox" Grid.Column="0"
-                             Background="#1E1E1E" Foreground="#CCCCCC" CaretBrush="#CCCCCC"
-                             BorderBrush="#3C3C3C" BorderThickness="1" Padding="8,6"
-                             Watermark="e.g. http://gateway-host:7878" />
-                    <Button x:Name="DetectGatewayButton" Grid.Column="1" Content="Detect"
-                            Height="30" Margin="8,0,0,0" Padding="12,0"
-                            Background="#3C3C3C" Foreground="#CCCCCC"
-                            BorderThickness="0" Cursor="Hand"
-                            ToolTip.Tip="Look for a gateway running on this machine"
-                            Click="BtnDetectGateway_Click" />
-                    <Button x:Name="TestGatewayButton" Grid.Column="2" Content="Test"
-                            Height="30" Margin="8,0,0,0" Padding="12,0"
-                            Background="#3C3C3C" Foreground="#CCCCCC"
-                            BorderThickness="0" Cursor="Hand"
-                            ToolTip.Tip="Check the gateway URL is reachable"
-                            Click="BtnTestGateway_Click" />
-                </Grid>
+                        <TextBlock Classes="fieldLabel" Text="OpenAI API key" />
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBox x:Name="OpenAiKeyBox" Grid.Column="0" Classes="settingsInput"
+                                     PasswordChar="*"
+                                     Watermark="sk-..." />
+                            <CheckBox x:Name="ShowKeyCheck" Grid.Column="1" Content="Show"
+                                      Foreground="#CCCCCC" Margin="8,0,0,0" VerticalAlignment="Center"
+                                      IsCheckedChanged="ShowKeyCheck_Changed"
+                                      ToolTip.Tip="Reveal the key text" />
+                        </Grid>
+                        <TextBlock Classes="hint" Text="If left blank, CC Director falls back to the OPENAI_API_KEY environment variable. Create a key at platform.openai.com/api-keys." />
+                        <TextBlock x:Name="VoiceStatus" Text="" Foreground="#888888"
+                                   FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0" IsVisible="False" />
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
 
-                <TextBlock Text="Director public URL (any network)" Foreground="#AAAAAA" FontSize="11" Margin="0,4,0,0" />
-                <Grid ColumnDefinitions="*,Auto">
-                    <TextBox x:Name="GatewayAdvertisedBox" Grid.Column="0"
-                             Background="#1E1E1E" Foreground="#CCCCCC" CaretBrush="#CCCCCC"
-                             BorderBrush="#3C3C3C" BorderThickness="1" Padding="8,6"
-                             Watermark="how the gateway reaches THIS Director, e.g. http://this-host:7879" />
-                    <Button x:Name="DetectPublicUrlButton" Grid.Column="1" Content="Detect"
-                            Height="30" Margin="8,0,0,0" Padding="12,0"
-                            Background="#3C3C3C" Foreground="#CCCCCC"
-                            BorderThickness="0" Cursor="Hand"
-                            ToolTip.Tip="Fill from this machine's network address + control port"
-                            Click="BtnDetectPublicUrl_Click" />
-                </Grid>
-                <TextBlock Text="Required when the gateway runs on a different machine. The gateway calls back to this URL, so it must be reachable from the gateway. On a Mac this is mandatory - the default loopback address is unreachable, which is why the Director never shows up."
-                           Foreground="#888888" FontSize="11" TextWrapping="Wrap" />
+            <TabItem Header="Features">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,14,0">
+                    <StackPanel Spacing="8" Margin="0,4,0,0">
+                        <TextBlock Classes="sectionTitle" Text="Alpha Features" />
+                        <TextBlock Classes="hint" Text="Unfinished features we are still testing. They may break, change, or disappear without notice, and no support is provided while they are in alpha." />
+                        <CheckBox x:Name="AlphaFeaturesCheck"
+                                  Content="Enable alpha features"
+                                  IsChecked="False"
+                                  Foreground="#CCCCCC" FontSize="13"
+                                  Margin="0,4,0,0"
+                                  IsCheckedChanged="AlphaCheck_Changed"
+                                  ToolTip.Tip="Default: off. Shows untested features - no guarantees they work." />
+                        <TextBlock Classes="hint" Margin="24,0,0,0"
+                                   Text="When enabled you get: unverified coding agents, session handover, FIFO voice mode, GitHub remote sessions, Assistant/Coach quick-launch, and the wake-word test below. Claude Code and Pi have verified drivers and are always available." />
 
-                <TextBlock x:Name="GatewayTestStatus" Text="" Foreground="#888888"
-                           FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0" IsVisible="False" />
+                        <StackPanel x:Name="AlphaVoicePanel" Spacing="6" Margin="24,8,0,0" IsVisible="False">
+                            <TextBlock Text="Voice wake-word test" Foreground="#CCCCCC" FontSize="12" FontWeight="SemiBold" />
+                            <TextBlock Classes="hint" Text="Sandbox for tuning the hands-free wake-word grammar: say &quot;wingman&quot; to start, dictate, then &quot;wingman send&quot; or &quot;wingman cancel&quot;. Emits to an on-screen box only, never to a live session." />
+                            <Button x:Name="WakeWordTestButton" Classes="dialogButton"
+                                    Content="Open Wake-Word Test" Width="170" HorizontalAlignment="Left"
+                                    Click="BtnWakeWordTest_Click" />
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
 
-                <TextBlock Text="Gateway token (optional)" Foreground="#AAAAAA" FontSize="11" Margin="0,4,0,0" />
-                <TextBox x:Name="GatewayTokenBox"
-                         Background="#1E1E1E" Foreground="#CCCCCC" CaretBrush="#CCCCCC"
-                         BorderBrush="#3C3C3C" BorderThickness="1" Padding="8,6"
-                         Watermark="only if the gateway requires one" />
-
-                <!-- ============ Alpha Features ============ -->
-                <TextBlock Text="Alpha Features" Foreground="#CCCCCC" FontSize="14"
-                           FontWeight="SemiBold" Margin="0,12,0,0" />
-                <TextBlock Text="Unfinished features we are still testing. They may break, change, or disappear without notice, and no support is provided while they are in alpha. Turning this on shows them everywhere in the app."
-                           Foreground="#888888" FontSize="11" TextWrapping="Wrap" />
-                <CheckBox x:Name="AlphaFeaturesCheck"
-                          Content="Enable alpha features"
-                          IsChecked="False"
-                          Foreground="#CCCCCC" FontSize="13"
-                          Margin="0,4,0,0"
-                          IsCheckedChanged="AlphaCheck_Changed"
-                          ToolTip.Tip="Default: off. Shows untested features - no guarantees they work." />
-                <TextBlock Text="When enabled you get: unverified coding agents (Codex, Gemini, opencode), session handover, FIFO voice mode, GitHub remote sessions, Assistant/Coach quick-launch, and the wake-word test below. (Claude Code and Pi have verified drivers and are always available.)"
-                           Foreground="#888888" FontSize="11" TextWrapping="Wrap" Margin="24,0,0,0" />
-
-                <!-- Voice wake-word sandbox: alpha-gated, follows the checkbox live
-                     (AlphaCheck_Changed in code-behind). -->
-                <StackPanel x:Name="AlphaVoicePanel" Spacing="6" Margin="24,8,0,0"
-                            IsVisible="False">
-                    <TextBlock Text="Voice wake-word test" Foreground="#CCCCCC" FontSize="12"
-                               FontWeight="SemiBold" />
-                    <TextBlock Text="Sandbox for tuning the hands-free wake-word grammar: say &quot;wingman&quot; to start, dictate, then &quot;wingman send&quot; or &quot;wingman cancel&quot;. Emits to an on-screen box only, never to a live session."
-                               Foreground="#888888" FontSize="11" TextWrapping="Wrap" />
-                    <Button x:Name="WakeWordTestButton" Content="Open Wake-Word Test"
-                            Height="30" Margin="0,2,0,0" Padding="14,0"
-                            HorizontalAlignment="Left"
-                            Background="#3C3C3C" Foreground="#CCCCCC"
-                            BorderThickness="0" Cursor="Hand"
-                            Click="BtnWakeWordTest_Click" />
-                </StackPanel>
-
-                <!-- ============ Advanced ============ -->
-                <TextBlock Text="Advanced: full config.json (read-only)" Foreground="#CCCCCC" FontSize="14"
-                           FontWeight="SemiBold" Margin="0,12,0,0" />
-                <TextBox x:Name="RawConfigBox" IsReadOnly="True"
-                         AcceptsReturn="True" TextWrapping="NoWrap"
-                         MinHeight="120" MaxHeight="220"
-                         ScrollViewer.VerticalScrollBarVisibility="Auto"
-                         ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                         Background="#1E1E1E" Foreground="#888888"
-                         BorderBrush="#3C3C3C" BorderThickness="1" Padding="8,6"
-                         FontFamily="Cascadia Mono, Consolas, Courier New" FontSize="11" />
-
-            </StackPanel>
-        </ScrollViewer>
+            <TabItem Header="Advanced">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,14,0">
+                    <StackPanel Spacing="8" Margin="0,4,0,0">
+                        <TextBlock Classes="sectionTitle" Text="Full config.json (read-only)" />
+                        <TextBlock Classes="hint" Text="Read-only view of the current CC Director config. Use the other tabs for safe edits." />
+                        <TextBox x:Name="RawConfigBox" IsReadOnly="True"
+                                 AcceptsReturn="True" TextWrapping="NoWrap"
+                                 MinHeight="360"
+                                 ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                 Background="#1E1E1E" Foreground="#888888"
+                                 BorderBrush="#3C3C3C" BorderThickness="1" Padding="8,6"
+                                 FontFamily="Cascadia Mono, Consolas, Courier New" FontSize="11" />
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+        </TabControl>
 
         <TextBlock x:Name="StatusText" Grid.Row="3"
                    Text="" Foreground="#888888" FontSize="11"
@@ -160,15 +300,9 @@
 
         <StackPanel Grid.Row="4" Orientation="Horizontal"
                     HorizontalAlignment="Right" Margin="0,12,0,0">
-            <Button x:Name="SaveButton" Content="Save and Close" Width="140" Height="30"
-                    Padding="14,0"
-                    Background="#007ACC" Foreground="White"
-                    BorderThickness="0" Cursor="Hand"
+            <Button x:Name="SaveButton" Classes="primaryButton" Content="Save and Close"
                     IsDefault="True" Click="BtnSave_Click" />
-            <Button Content="Cancel" Width="100" Height="30" Margin="8,0,0,0"
-                    Padding="14,0"
-                    Background="#3C3C3C" Foreground="#CCCCCC"
-                    BorderThickness="0" Cursor="Hand"
+            <Button Content="Cancel" Classes="dialogButton" Width="100" Margin="8,0,0,0"
                     IsCancel="True" Click="BtnClose_Click" />
         </StackPanel>
     </Grid>
