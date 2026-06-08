@@ -172,6 +172,42 @@
                     </StackPanel>
                 </Border>
 
+                <!-- Gateway and Cockpit (Gateway role only; hidden for a Workstation install) -->
+                <Border x:Name="GatewaySection"
+                        Background="#2A2D2E" CornerRadius="6" Padding="16" Margin="0,12,0,0"
+                        Visibility="Collapsed">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="Gateway &amp; Cockpit"
+                                       Foreground="White"
+                                       FontSize="16"
+                                       FontWeight="SemiBold" />
+                            <TextBlock Text="Always-on tray app + fleet dashboard"
+                                       Foreground="#888888"
+                                       FontSize="12"
+                                       Margin="0,2,0,0" />
+                            <ProgressBar x:Name="GatewayProgress"
+                                         Height="3" Margin="0,8,24,0"
+                                         Background="#3C3C3C" Foreground="#007ACC"
+                                         BorderThickness="0"
+                                         IsIndeterminate="True"
+                                         Visibility="Collapsed" />
+                        </StackPanel>
+
+                        <TextBlock x:Name="GatewayStatus"
+                                   Grid.Column="1"
+                                   Text="Pending"
+                                   Foreground="#CCCCCC"
+                                   FontSize="13" FontWeight="SemiBold"
+                                   VerticalAlignment="Center" />
+                    </Grid>
+                </Border>
+
                 <!-- Skills section -->
                 <Border Background="#2A2D2E" CornerRadius="6" Padding="16" Margin="0,12,0,0">
                     <StackPanel>

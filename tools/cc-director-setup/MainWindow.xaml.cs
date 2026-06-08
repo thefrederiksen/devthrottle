@@ -235,6 +235,11 @@ public partial class MainWindow : Window
         VersionText.Text = prep.Version;
         _installStep?.SetItems(prep.Items);
 
+        // A Gateway install adds the tray app + Cockpit (done by the gateway phase below); show that
+        // card up front so the user can see it's part of THIS install, not just a Workstation set.
+        if (_role == InstallRole.Gateway && !_isUpdate)
+            _installStep?.ShowGatewaySection();
+
         if (_isUpdate && prep.IsUpToDate)
         {
             SetupLog.Write($"[MainWindow] Already up to date: {prep.Version}");
@@ -278,6 +283,8 @@ public partial class MainWindow : Window
         _cachedPrep = prep;
 
         _installStep?.SetItems(prep.Items);
+        if (_role == InstallRole.Gateway && !_isUpdate)
+            _installStep?.ShowGatewaySection();
         _installStep?.SetStatus($"Repairing {prep.Version}...");
         _installStep?.ShowProgress();
 
@@ -317,6 +324,7 @@ public partial class MainWindow : Window
     {
         SetupLog.Write("[MainWindow] RunGatewayTrayInstallAsync: shelling the CLI");
         _installStep?.SetStatus("Installing the Gateway tray app...");
+        _installStep?.SetGatewayInstalling();
 
         try
         {
@@ -328,12 +336,15 @@ public partial class MainWindow : Window
             _gatewayResultMessage = result.Message;
             // result.Message already carries the tailnet Cockpit URL (never localhost).
             _installStep?.SetStatus(result.Message);
+            if (result.Success) _installStep?.SetGatewayDone();
+            else _installStep?.SetGatewayFailed();
             SetupLog.Write($"[MainWindow] Gateway install success={result.Success}: {result.Message}");
         }
         catch (Exception ex)
         {
             _gatewayResultMessage = $"Gateway install error: {ex.Message}";
             _installStep?.SetStatus(_gatewayResultMessage);
+            _installStep?.SetGatewayFailed();
             SetupLog.Write($"[MainWindow] RunGatewayTrayInstallAsync FAILED: {ex.Message}");
         }
     }

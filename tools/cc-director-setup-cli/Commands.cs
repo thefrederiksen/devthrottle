@@ -201,8 +201,9 @@ internal static class Commands
         }
         else if (!isGatewayInstall && !(installMode && Role(args) == InstallRole.Workstation))
         {
-            // A workstation install still (re)installs the Python tools bundle below even when the
-            // apps are current, so only short-circuit for update mode / Gateway here.
+            // An install of EITHER role still (re)installs the Python tools bundle and runs the
+            // per-user finalization below even when the apps are already current, so only a plain
+            // `update` short-circuits here.
             if (json) Program.WriteJson(new { mode = installMode ? "install" : "update", applied = Array.Empty<object>(), message = "nothing to do" });
             else Console.WriteLine("Nothing to do - all components up to date.");
             return Ok;
@@ -229,11 +230,13 @@ internal static class Commands
             if (!tray.Success) return Error;
         }
 
-        // Per-user Python tools bundle (the shared venv with every cc-* tool). Only on a per-user
-        // (workstation) install - NOT an elevated Gateway-only install, which runs as admin while the
-        // venv belongs in the logged-in user's profile (the non-elevated workstation install owns it).
+        // Per-user Python tools bundle (the shared venv with every cc-* tool). Installed for BOTH
+        // roles: the Gateway is a per-user tray app (no elevation), so a Gateway install is a true
+        // SUPERSET of a Workstation install and gets the tools too (INSTALLATION.md section 1). The
+        // old workstation-only gate dated from when the Gateway was an elevated Windows service that
+        // ran as admin while the venv belonged in the logged-in user's profile; that model is retired.
         var toolsInstalled = false;
-        if (installMode && Role(args) == InstallRole.Workstation && !args.HasFlag("dry-run") && OperatingSystem.IsWindows())
+        if (InstallScope.InstallsPythonTools(Role(args), installMode, args.HasFlag("dry-run"), OperatingSystem.IsWindows()))
         {
             var py = await new PythonToolsInstaller(layout).InstallAsync(release, source);
             if (json)

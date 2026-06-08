@@ -174,6 +174,34 @@ public partial class InstallStep : UserControl
         StatusText.Text = status;
     }
 
+    /// <summary>Reveal the Gateway and Cockpit card (Gateway-role installs only).</summary>
+    public void ShowGatewaySection()
+    {
+        GatewaySection.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>The Gateway tray app + Cockpit are being placed (indeterminate - the CLI streams log lines).</summary>
+    public void SetGatewayInstalling()
+    {
+        GatewayStatus.Text = "Installing";
+        GatewayStatus.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#007ACC"));
+        GatewayProgress.Visibility = Visibility.Visible;
+    }
+
+    public void SetGatewayDone()
+    {
+        GatewayStatus.Text = "Done";
+        GatewayStatus.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#22C55E"));
+        GatewayProgress.Visibility = Visibility.Collapsed;
+    }
+
+    public void SetGatewayFailed()
+    {
+        GatewayStatus.Text = "Failed";
+        GatewayStatus.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#CC4444"));
+        GatewayProgress.Visibility = Visibility.Collapsed;
+    }
+
     public void ShowProgress()
     {
         DirectorProgress.Visibility = Visibility.Visible;

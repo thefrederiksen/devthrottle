@@ -54,8 +54,11 @@ public sealed class EngineInstallRunner
         var release = await _source.FetchLatestAsync(ct);
         var version = release.Manifest.Version;
 
-        // Apps install individually (Director here; Gateway/Cockpit are the elevated CLI's job).
-        // Every cc-* Python tool now ships as ONE shared-venv bundle, shown as a single row.
+        // The engine places the Director here. The Gateway tray app + Cockpit are installed by the
+        // gateway phase (MainWindow.RunGatewayTrayInstallAsync shells the CLI - per-user, no elevation),
+        // NOT by this generic placer (it cannot extract the Cockpit zip or start the tray); the wizard
+        // shows them as their own "Gateway & Cockpit" card. Every cc-* Python tool ships as ONE
+        // shared-venv bundle, shown as a single row.
         var components = ComponentRegistry.ForRole(ComponentRegistry.Apps, Role);
 
         var items = new List<ToolDownloadItem>();
