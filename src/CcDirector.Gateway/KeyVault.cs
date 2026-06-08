@@ -57,6 +57,28 @@ public sealed class KeyVault
         }
     }
 
+    /// <summary>
+    /// Set <paramref name="name"/> only if it is not already present with a non-empty value.
+    /// Returns true if it was written, false if an existing value was kept. Used to seed a key
+    /// ONCE without ever clobbering a value an operator has rotated in - e.g. the one-time
+    /// OPENAI_API_KEY environment -> vault bootstrap on a Gateway install (INSTALLATION.md section 4).
+    /// </summary>
+    public bool SetIfAbsent(string name, string value)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            throw new ArgumentException("key name is required", nameof(name));
+        lock (_gate)
+        {
+            var map = Read();
+            if (map.TryGetValue(name, out var existing) && !string.IsNullOrWhiteSpace(existing))
+                return false;
+            map[name] = value ?? "";
+            Write(map);
+            FileLog.Write($"[KeyVault] SetIfAbsent: {name} seeded (length={value?.Length ?? 0})");
+            return true;
+        }
+    }
+
     /// <summary>Remove a key. Returns true if it existed.</summary>
     public bool Delete(string name)
     {

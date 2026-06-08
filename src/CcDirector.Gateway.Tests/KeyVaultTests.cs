@@ -90,4 +90,39 @@ public sealed class KeyVaultTests : IDisposable
         var vault = new KeyVault(_path);
         Assert.Throws<ArgumentException>(() => vault.Set("  ", "v"));
     }
+
+    [Fact]
+    public void SetIfAbsent_WhenMissing_WritesAndReturnsTrue()
+    {
+        var vault = new KeyVault(_path);
+        Assert.True(vault.SetIfAbsent("OPENAI_API_KEY", "sk-seed"));
+        Assert.Equal("sk-seed", vault.Get("OPENAI_API_KEY"));
+    }
+
+    [Fact]
+    public void SetIfAbsent_WhenPresent_KeepsExistingAndReturnsFalse()
+    {
+        // The bootstrap must never clobber a key an operator rotated in via the Cockpit.
+        var vault = new KeyVault(_path);
+        vault.Set("OPENAI_API_KEY", "sk-rotated");
+        Assert.False(vault.SetIfAbsent("OPENAI_API_KEY", "sk-seed"));
+        Assert.Equal("sk-rotated", vault.Get("OPENAI_API_KEY"));
+    }
+
+    [Fact]
+    public void SetIfAbsent_WhenExistingValueEmpty_SeedsAndReturnsTrue()
+    {
+        // An empty stored value is treated as absent, so a real key can still seed in.
+        var vault = new KeyVault(_path);
+        vault.Set("OPENAI_API_KEY", "");
+        Assert.True(vault.SetIfAbsent("OPENAI_API_KEY", "sk-seed"));
+        Assert.Equal("sk-seed", vault.Get("OPENAI_API_KEY"));
+    }
+
+    [Fact]
+    public void SetIfAbsent_EmptyName_Throws()
+    {
+        var vault = new KeyVault(_path);
+        Assert.Throws<ArgumentException>(() => vault.SetIfAbsent("  ", "v"));
+    }
 }

@@ -95,6 +95,31 @@ public sealed class GatewayHost : IAsyncDisposable
     }
 
     /// <summary>
+    /// One-time bootstrap of the central vault from the user environment (option A). If the vault
+    /// does not yet carry OPENAI_API_KEY, seed it from the environment (process, then User scope on
+    /// Windows). Never clobbers an existing vault value (the Cockpit is the live rotation surface).
+    /// Key name matches <see cref="Core.Configuration.OpenAiKeyResolver.KeyName"/>.
+    /// </summary>
+    private void SeedKeyVaultFromEnvironment()
+    {
+        const string keyName = "OPENAI_API_KEY";
+        var fromEnv = Environment.GetEnvironmentVariable(keyName);
+        if (string.IsNullOrWhiteSpace(fromEnv) && OperatingSystem.IsWindows())
+            fromEnv = Environment.GetEnvironmentVariable(keyName, EnvironmentVariableTarget.User);
+
+        if (string.IsNullOrWhiteSpace(fromEnv))
+        {
+            FileLog.Write($"[GatewayHost] no {keyName} in the environment to seed the vault from");
+            return;
+        }
+
+        var seeded = _keyVault.SetIfAbsent(keyName, fromEnv.Trim());
+        FileLog.Write(seeded
+            ? $"[GatewayHost] seeded vault {keyName} from the user environment (one-time bootstrap)"
+            : $"[GatewayHost] vault already has {keyName}; left as-is (vault is the source of truth)");
+    }
+
+    /// <summary>
     /// The Gateway's warm brain (issue #184): a claude.exe this process hosts itself - no
     /// Director dependency. Dormant until first use; RestartAsync is the recovery verb.
     /// </summary>
@@ -111,6 +136,13 @@ public sealed class GatewayHost : IAsyncDisposable
     public async Task StartAsync()
     {
         FileLog.Write($"[GatewayHost] StartAsync: port={Port}");
+
+        // Option A bootstrap (docs/install/INSTALLATION.md section 4): a Gateway install guarantees
+        // OPENAI_API_KEY is in the user environment. Seed the central vault from it ONCE here so the
+        // Cockpit shows the key as set and Directors can pull it immediately. The vault is the live
+        // source of truth thereafter - rotating the key in the Cockpit overwrites this seed, and we
+        // never clobber an existing vault value (SetIfAbsent).
+        SeedKeyVaultFromEnvironment();
 
         // Subscribe the Tailscale provisioner BEFORE Registry.Start() so the initial
         // file-discovery load fires OnDirectorAdded into it and every Director port

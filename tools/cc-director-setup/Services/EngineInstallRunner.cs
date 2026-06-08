@@ -28,6 +28,13 @@ public sealed class EngineInstallRunner
     /// </summary>
     public Func<string, Task<bool>>? OnProcessBlocking { get; set; }
 
+    /// <summary>
+    /// Invoked with the real installed cc-* tool count once the Python tools bundle finishes, so the
+    /// UI can show the true number - the bundle is a single row, not one row per tool, so the row
+    /// count (1) is not the tool count.
+    /// </summary>
+    public Action<int>? OnToolsInstalled { get; set; }
+
     private readonly InstallLayout _layout = InstallLayout.Default();
     private readonly ReleaseSource _source = new();
 
@@ -193,6 +200,9 @@ public sealed class EngineInstallRunner
         // PythonToolsInstaller uses synchronous process calls (venv, pip); offload so the UI thread is free.
         var result = await Task.Run(() => installer.InstallAsync(prep.Release, _source, progress, percent, ct), ct);
 
+        // Report the real tool count before flipping the row to Done, so the UI's summary
+        // (driven by the row's status change) already has the true number when it refreshes.
+        if (result.Success) OnToolsInstalled?.Invoke(result.ToolCount);
         if (bundleItem is not null)
         {
             bundleItem.Status = result.Success ? "Done" : "Failed";

@@ -210,7 +210,11 @@ public partial class MainWindow : Window
     {
         SetupLog.Write("[MainWindow] RunInstallAsync: starting");
 
-        var runner = new EngineInstallRunner { OnProcessBlocking = OnProcessBlockingAsync };
+        var runner = new EngineInstallRunner
+        {
+            OnProcessBlocking = OnProcessBlockingAsync,
+            OnToolsInstalled = c => Dispatcher.BeginInvoke(() => _installStep?.SetToolsInstalledCount(c)),
+        };
         _installPath = runner.BinDir;
         _directorExePath = runner.AppExePath;
 
@@ -275,7 +279,11 @@ public partial class MainWindow : Window
         NextButton.Content = _isUpdate ? "Updating..." : "Installing...";
         NextButton.IsEnabled = false;
 
-        var runner = new EngineInstallRunner { OnProcessBlocking = OnProcessBlockingAsync };
+        var runner = new EngineInstallRunner
+        {
+            OnProcessBlocking = OnProcessBlockingAsync,
+            OnToolsInstalled = c => Dispatcher.BeginInvoke(() => _installStep?.SetToolsInstalledCount(c)),
+        };
         _installPath = runner.BinDir;
         _directorExePath = runner.AppExePath;
 

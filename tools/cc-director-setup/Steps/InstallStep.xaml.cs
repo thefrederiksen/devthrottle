@@ -16,6 +16,10 @@ public partial class InstallStep : UserControl
     private List<ToolDownloadItem> _toolItems = [];
     private List<SkillItem> _skillItems = [];
 
+    // The real cc-* tool count, reported by the installer once the bundle finishes. The bundle is a
+    // single row, so the row count is not the tool count; null until known.
+    private int? _toolsInstalledCount;
+
     public InstallStep()
     {
         InitializeComponent();
@@ -86,7 +90,9 @@ public partial class InstallStep : UserControl
         _toolItems = items.Where(i => i.Name != "cc-director").ToList();
 
         ToolList.ItemsSource = _toolItems;
-        ToolsSummary.Text = $"{_toolItems.Count} tools";
+        // The bundle is one row representing many cc-* tools, so don't show the row count ("1 tools").
+        // The real count arrives via SetToolsInstalledCount when the bundle finishes.
+        ToolsSummary.Text = "cc-* command-line tools";
 
         // Set up skills list
         _skillItems = SkillInstaller.SkillNames
@@ -202,6 +208,13 @@ public partial class InstallStep : UserControl
         GatewayProgress.Visibility = Visibility.Collapsed;
     }
 
+    /// <summary>Record the real installed cc-* tool count (the bundle is one row) and refresh the summary.</summary>
+    public void SetToolsInstalledCount(int count)
+    {
+        _toolsInstalledCount = count;
+        UpdateToolsSummaryStatus();
+    }
+
     public void ShowProgress()
     {
         DirectorProgress.Visibility = Visibility.Visible;
@@ -230,12 +243,15 @@ public partial class InstallStep : UserControl
 
         if (processed == total)
         {
-            ToolsStatus.Text = $"{done} installed";
+            // The bundle row counts as one; prefer the real cc-* tool count when the installer
+            // has reported it (e.g. 26), falling back to the row count only if unknown.
+            var shown = _toolsInstalledCount ?? done;
+            ToolsStatus.Text = $"{shown} installed";
             ToolsStatus.Foreground = new SolidColorBrush(
                 (Color)ColorConverter.ConvertFromString("#22C55E"));
             ToolsSummary.Text = skipped > 0
-                ? $"{done} installed, {skipped} not yet released"
-                : $"{done} installed";
+                ? $"{shown} installed, {skipped} not yet released"
+                : $"{shown} installed";
             ToolsOverallProgress.Visibility = Visibility.Collapsed;
         }
         else

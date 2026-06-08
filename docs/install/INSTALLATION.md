@@ -152,9 +152,15 @@ The Cockpit ships self-contained inside its zip.
 A Gateway-role install has one extra requirement, checked up front and failed
 loudly (never half-installed):
 
-- **`OPENAI_API_KEY`** must be set in the user environment - the Gateway needs
-  it to start (`setx OPENAI_API_KEY "sk-..."`). The tray app runs in the user's
-  session and inherits the user environment directly.
+- **`OPENAI_API_KEY`** must be set in the user environment at install time
+  (`setx OPENAI_API_KEY "sk-..."`). It is a **one-time bootstrap**: on first
+  start the Gateway seeds its central key vault (`keyvault.json`) from this
+  environment variable when the vault does not already carry the key, so the
+  Cockpit shows it as set and Directors pull it immediately. The **vault is the
+  live source of truth** thereafter - rotate the key from the Cockpit's *API
+  Keys* page (which overwrites the seed); the bootstrap never clobbers an
+  existing vault value. The tray app runs in the user's session and inherits the
+  user environment directly.
 
 No elevation: the Gateway is a per-user tray app; the installer extracts the
 Cockpit, starts the tray app with `--managed`, and the app registers its own

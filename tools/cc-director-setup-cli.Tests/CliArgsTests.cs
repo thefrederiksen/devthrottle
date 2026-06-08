@@ -43,6 +43,16 @@ public class CliArgsTests
     }
 
     [Fact]
+    public void Parse_HelpFlagAfterCommand_IsCapturedSoDispatchCanShortCircuit()
+    {
+        // Regression: "uninstall --help" must NOT silently run uninstall. The parser keeps the
+        // command but records the help flag; Program.Main short-circuits to usage when it is set.
+        var args = CliArgs.Parse(["uninstall", "--help"]);
+        Assert.Equal("uninstall", args.Command);
+        Assert.True(args.HasFlag("help"));
+    }
+
+    [Fact]
     public void Parse_FlagBeforeOptionDoesNotSwallowNext()
     {
         // --dry-run is a known flag; --root must still be parsed as an option after it.

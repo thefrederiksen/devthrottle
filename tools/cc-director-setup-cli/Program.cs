@@ -20,6 +20,13 @@ public static class Program
     public static async Task<int> Main(string[] argv)
     {
         var args = CliArgs.Parse(argv);
+
+        // `--help` is a flag, so "uninstall --help" parses as the uninstall command with a help flag.
+        // Short-circuit to usage BEFORE dispatching, so appending --help to ANY command shows help
+        // instead of silently running that (destructive) command. (e.g. "uninstall --help".)
+        if (args.HasFlag("help"))
+            return Help();
+
         var json = args.HasFlag("json");
 
         // When launched elevated by the WPF wizard (a hidden console), tee stdout/stderr to a file
