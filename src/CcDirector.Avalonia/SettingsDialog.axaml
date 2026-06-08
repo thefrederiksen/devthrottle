@@ -231,7 +231,8 @@
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,14,0">
                     <StackPanel Spacing="8" Margin="0,4,0,0">
                         <TextBlock Classes="sectionTitle" Text="Voice and dictation" />
-                        <TextBlock Classes="hint" Text="The Speak / dictation feature transcribes your microphone with OpenAI. Paste an OpenAI API key here to enable it, for both this app and the Cockpit Speak button. The key is stored in this machine's CC Director config and is never sent to browsers." />
+                        <TextBlock Classes="hint" Text="Local OpenAI key for when this Director runs standalone (not connected to a Gateway). The Speak / dictation feature transcribes your microphone with OpenAI; paste a key here to enable it on this machine. It is stored in this machine's CC Director config and is never sent to browsers." />
+                        <TextBlock Classes="hint" Text="When this Director is connected to a Gateway, the key is managed centrally in the Cockpit instead and this local field is ignored." />
 
                         <TextBlock Classes="fieldLabel" Text="OpenAI API key" />
                         <Grid ColumnDefinitions="*,Auto">
@@ -243,7 +244,7 @@
                                       IsCheckedChanged="ShowKeyCheck_Changed"
                                       ToolTip.Tip="Reveal the key text" />
                         </Grid>
-                        <TextBlock Classes="hint" Text="If left blank, CC Director falls back to the OPENAI_API_KEY environment variable. Create a key at platform.openai.com/api-keys." />
+                        <TextBlock Classes="hint" Text="Create a key at platform.openai.com/api-keys." />
                         <TextBlock x:Name="VoiceStatus" Text="" Foreground="#888888"
                                    FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0" IsVisible="False" />
                     </StackPanel>

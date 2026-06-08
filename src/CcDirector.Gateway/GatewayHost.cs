@@ -43,6 +43,7 @@ public sealed class GatewayHost : IAsyncDisposable
     private readonly DirectorEndpointClient _client;
     private readonly TailscaleServeProvisioner _serveProvisioner;
     private readonly GatewayTurnBriefStore _turnBriefStore;
+    private readonly KeyVault _keyVault;
     private readonly SessionAssessments _assessments = new();
     private GatewayTurnBriefAgent? _briefAgent;
     private TurnEndWatcher? _turnEndWatcher;
@@ -64,7 +65,7 @@ public sealed class GatewayHost : IAsyncDisposable
     /// Override the gateway turn-brief store directory (issue #185). Tests pass an isolated
     /// temp directory; production omits it for the shared default.
     /// </param>
-    public GatewayHost(int port = DefaultPort, string? token = null, bool authEnabled = false, string? instancesDirectory = null, int? cockpitProxyPort = null, string? turnBriefDirectory = null)
+    public GatewayHost(int port = DefaultPort, string? token = null, bool authEnabled = false, string? instancesDirectory = null, int? cockpitProxyPort = null, string? turnBriefDirectory = null, string? keyVaultPath = null)
     {
         Port = port;
         Token = token ?? GatewayAuth.LoadOrCreate();
@@ -88,6 +89,9 @@ public sealed class GatewayHost : IAsyncDisposable
             Log = FileLog.Write,
         });
         _turnBriefStore = new GatewayTurnBriefStore(turnBriefDirectory);
+        // Production omits keyVaultPath for the shared default; tests pass an isolated path so
+        // they never touch the real %LOCALAPPDATA% key store.
+        _keyVault = new KeyVault(keyVaultPath);
     }
 
     /// <summary>
@@ -289,6 +293,11 @@ public sealed class GatewayHost : IAsyncDisposable
             // full brief history; the store outlives the dead Director, so this serves
             // sessions whose owner is gone.
             briefHistoryFor: sid => _turnBriefStore.List(sid));
+
+        // Central key vault (docs/architecture/gateway/GATEWAY_KEY_VAULT.md): set keys once
+        // here (via the Cockpit Keys page); Directors pull them on demand. Inherits the
+        // host-wide token middleware above.
+        VaultEndpoints.Map(_app, _keyVault);
 
         // Gateway-served turn briefs (issue #185): the Cockpit reads briefs from HERE; the
         // store serves even when the pipeline is disabled (read-only is always safe).

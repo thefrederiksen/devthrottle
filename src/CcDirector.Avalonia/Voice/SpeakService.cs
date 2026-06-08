@@ -26,6 +26,7 @@ namespace CcDirector.Avalonia.Voice;
 public sealed class SpeakService : IAsyncDisposable
 {
     private readonly AgentOptions _options;
+    private readonly OpenAiKeyResolver _keyResolver;
     private readonly int _micDeviceNumber;
 
     private MicAudioCapture? _mic;
@@ -67,6 +68,9 @@ public sealed class SpeakService : IAsyncDisposable
     public SpeakService(AgentOptions options, int micDeviceNumber = MicDevices.DefaultDeviceNumber)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
+        // Resolve the OpenAI key by mode: Gateway vault when attached to a Gateway, the local
+        // Settings > Voice key when standalone (docs/architecture/gateway/GATEWAY_KEY_VAULT.md).
+        _keyResolver = new OpenAiKeyResolver(options);
         _micDeviceNumber = micDeviceNumber;
     }
 
@@ -76,19 +80,25 @@ public sealed class SpeakService : IAsyncDisposable
         if (_started) throw new InvalidOperationException("SpeakService already started");
         FileLog.Write($"[SpeakService] StartAsync: profile={profile}");
 
+        // Resolve the key once for this session (Gateway vault or local key, per mode). No key
+        // means dictation is unavailable; surface where to set one instead of a raw connect error.
+        var apiKey = await _keyResolver.ResolveAsync(ct);
+        if (string.IsNullOrWhiteSpace(apiKey))
+            throw new InvalidOperationException(_keyResolver.UnavailableMessage);
+
         var dictPath = _options.ResolveDictationDictionaryPath();
         _dictionary = new DictionaryLoader(dictPath, watch: false);
 
-        _provider = new OpenAiRealtimeProvider(apiKey: _options.ResolveOpenAiKey());
+        _provider = new OpenAiRealtimeProvider(apiKey: apiKey);
         _cleanup = new CleanupOrchestrator(
-            apiKey: _options.ResolveOpenAiKey(),
+            apiKey: apiKey,
             model: _options.DictationCleanupModel);
         _audioBuffer = new AudioBuffer(spillDirectory: ResolveBufferSpillDir());
         // Live transcript preview (#215): re-transcribes the growing clip
         // every few seconds so the dialog shows the words while the user is
         // still talking. The session owns and disposes it.
         var preview = new LivePreviewTranscriber(
-            apiKey: _options.ResolveOpenAiKey(),
+            apiKey: apiKey,
             model: _options.DictationPreviewModel);
         _session = new DictationSession(_dictionary, _provider, _cleanup, _audioBuffer, preview);
 

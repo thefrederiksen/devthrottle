@@ -58,7 +58,7 @@ internal static class DictationEndpoint
     // recording whose audio we should recover.
     private const int MinRecoverableAudioBytes = 24_000;
 
-    public static void Map(IEndpointRouteBuilder app, AgentOptions options)
+    public static void Map(IEndpointRouteBuilder app, AgentOptions options, OpenAiKeyResolver keyResolver)
     {
         app.MapGet("/dictate.html", () =>
         {
@@ -114,7 +114,7 @@ internal static class DictationEndpoint
             var remoteIp = ctx.Connection.RemoteIpAddress?.ToString();
             try
             {
-                await ServeSessionAsync(ws, options, remoteIp, ctx.RequestAborted);
+                await ServeSessionAsync(ws, options, keyResolver, remoteIp, ctx.RequestAborted);
             }
             catch (Exception ex)
             {
@@ -125,7 +125,7 @@ internal static class DictationEndpoint
         });
     }
 
-    private static async Task ServeSessionAsync(WebSocket ws, AgentOptions options, string? remoteIp, CancellationToken ct)
+    private static async Task ServeSessionAsync(WebSocket ws, AgentOptions options, OpenAiKeyResolver keyResolver, string? remoteIp, CancellationToken ct)
     {
         await SendJsonAsync(ws, new { type = "ready" }, ct);
 
@@ -146,6 +146,18 @@ internal static class DictationEndpoint
 
         var profile = TryReadString(startMsg, "profile", out var p) && !string.IsNullOrWhiteSpace(p) ? p : "default";
 
+        // Resolve the OpenAI key for this Director's mode: the Gateway vault when attached to a
+        // Gateway, the local Settings > Voice key when standalone. No key -> dictation is
+        // unavailable; tell the user where to set one rather than failing with a raw error.
+        var apiKey = await keyResolver.ResolveAsync(ct);
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            FileLog.Write($"[DictationEndpoint] no OpenAI key available (usesGateway={keyResolver.UsesGateway})");
+            await TrySendErrorAsync(ws, keyResolver.UnavailableMessage, ct);
+            await TryCloseAsync(ws, WebSocketCloseStatus.PolicyViolation, "no api key");
+            return;
+        }
+
         // Build the dictation pipeline for this connection. Always streaming
         // (PCM16 from the browser's AudioWorklet to the OpenAI Realtime API).
         // The offline AudioBuffer with disk spill handles the case batch
@@ -153,10 +165,10 @@ internal static class DictationEndpoint
         var dictPath = options.ResolveDictationDictionaryPath();
         using var dictionary = new DictionaryLoader(dictPath, watch: false);
 
-        IDictationProvider provider = new OpenAiRealtimeProvider(apiKey: options.ResolveOpenAiKey());
+        IDictationProvider provider = new OpenAiRealtimeProvider(apiKey: apiKey);
 
         using var cleanup = new CleanupOrchestrator(
-            apiKey: options.ResolveOpenAiKey(),
+            apiKey: apiKey,
             model: options.DictationCleanupModel);
 
         var bufferSpillDir = ResolveBufferSpillDir();
@@ -165,7 +177,7 @@ internal static class DictationEndpoint
         // continuously while the user talks, not only at the final commit.
         // The session owns and disposes it.
         var preview = new LivePreviewTranscriber(
-            apiKey: options.ResolveOpenAiKey(),
+            apiKey: apiKey,
             model: options.DictationPreviewModel);
         await using var session = new DictationSession(dictionary, provider, cleanup, audioBuffer, preview);
 

@@ -393,7 +393,10 @@ internal static class RecordingEndpoints
 
         FileLog.Write($"[RecordingEndpoints] BuildService: root={root}, collection={collectionDir}");
 
-        var transcriber = new OpenAiRecordingTranscriber(dictionaryPath: DictionaryFilePath());
+        // The OpenAI key comes from the Gateway's own key vault (read in-process). A missing
+        // key leaves apiKey null and the transcriber fails the request loudly when used.
+        var openAiKey = new KeyVault().Get("OPENAI_API_KEY");
+        var transcriber = new OpenAiRecordingTranscriber(apiKey: openAiKey, dictionaryPath: DictionaryFilePath());
         var filer = new CcVaultFiler(collectionDir);
         return new RecordingIngestService(root, transcriber, filer, collectionDir);
     }

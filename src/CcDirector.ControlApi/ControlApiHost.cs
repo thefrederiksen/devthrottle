@@ -258,7 +258,10 @@ public sealed class ControlApiHost : IAsyncDisposable
         var gatewayUrl = gatewayConfig.IsEnabled ? gatewayConfig.Url : null;
 
         ControlEndpoints.Map(_app, _sessionManager, DirectorId, _version, _requestShutdownAsync, _authEnabled, _repositoryRegistry, _turnSummaryCache, gatewayUrl, _proactiveExplain, GatewayMonitor);
-        DictationEndpoint.Map(_app, _sessionManager.Options);
+        // Dictation key resolution: the Gateway vault when attached to a Gateway, the local
+        // Settings > Voice key when standalone (docs/architecture/gateway/GATEWAY_KEY_VAULT.md).
+        var openAiKeyResolver = new Core.Configuration.OpenAiKeyResolver(_sessionManager.Options, gatewayConfig);
+        DictationEndpoint.Map(_app, _sessionManager.Options, openAiKeyResolver);
         TerminalStreamEndpoint.Map(_app, _sessionManager);
         SessionUsageEndpoint.Map(_app, _sessionManager);
         ClaudeTranscriptsEndpoint.Map(_app);
