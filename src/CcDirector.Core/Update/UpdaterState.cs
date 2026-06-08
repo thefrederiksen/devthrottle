@@ -43,6 +43,19 @@ public sealed class UpdaterState
     [JsonPropertyName("dismissedVersion")]
     public string? DismissedVersion { get; set; }
 
+    /// <summary>
+    /// How many times startup has tried (and failed) to apply <see cref="StagedVersion"/>.
+    /// Bounds the apply so a staged update that never completes the swap cannot make the
+    /// app relaunch-and-exit forever (issue #242). Reset whenever the staged state is
+    /// cleared (success or give-up) or a different version stages.
+    /// </summary>
+    [JsonPropertyName("applyAttempts")]
+    public int ApplyAttempts { get; set; }
+
+    /// <summary>The version <see cref="ApplyAttempts"/> is counting for, so the counter resets when a new version stages.</summary>
+    [JsonPropertyName("applyAttemptVersion")]
+    public string? ApplyAttemptVersion { get; set; }
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,

@@ -36,13 +36,30 @@ public static class UpdateInstaller
     }
 
     /// <summary>
-    /// If a verified, newer update has been staged for THIS install path, launch
-    /// the relauncher to apply it and return true (the caller must then exit so the
-    /// swap can proceed). Called at startup, before any session exists, so applying
-    /// an update never loses running work. Returns false when nothing is pending.
+    /// Max times startup will hand a staged update to the relauncher before giving up.
+    /// A staged update whose swap never completes must NOT make us relaunch-and-exit
+    /// forever (issue #242), which presents to the user as "clicking does nothing".
     /// </summary>
-    public static bool TryApplyStagedUpdateAtStartup()
+    public const int MaxApplyAttempts = 2;
+
+    /// <summary>
+    /// True when the staged update has already failed to apply <see cref="MaxApplyAttempts"/>
+    /// times for its current version. Pure decision, unit-tested.
+    /// </summary>
+    public static bool HasExhaustedApplyAttempts(UpdaterState state, int maxAttempts)
+        => state.ApplyAttemptVersion == state.StagedVersion && state.ApplyAttempts >= maxAttempts;
+
+    /// <summary>
+    /// If a verified, newer update has been staged for THIS install path, launch the
+    /// relauncher to apply it and return true (the caller must then exit so the swap can
+    /// proceed). Called at startup, before any session exists, so applying an update never
+    /// loses running work. Returns false when nothing is pending or we boot the current
+    /// build instead; in the latter "gave up" case <paramref name="failureNotice"/> is set
+    /// to a user-facing message the caller should surface (issue #242 -- never fail silently).
+    /// </summary>
+    public static bool TryApplyStagedUpdateAtStartup(out string? failureNotice)
     {
+        failureNotice = null;
         try
         {
             var state = UpdaterState.Load();
@@ -56,17 +73,49 @@ public static class UpdateInstaller
                 return false;
 
             if (!StagedIsNewer(state.StagedVersion))
+            {
+                // The staged version is not newer than what's running -- the apply already
+                // succeeded (or is obsolete). Clear it so we never re-evaluate it again.
+                FileLog.Start();
+                FileLog.Write($"[UpdateInstaller] Staged {state.StagedVersion} is not newer than running build; clearing.");
+                ClearStagedState();
                 return false;
+            }
 
             if (!File.Exists(state.StagedExecutable))
             {
                 FileLog.Start();
-                FileLog.Write($"[UpdateInstaller] Staged executable missing, skipping: {state.StagedExecutable}");
+                FileLog.Write($"[UpdateInstaller] Staged executable missing, clearing: {state.StagedExecutable}");
+                ClearStagedState();
                 return false;
             }
 
+            // Bound the apply: if it has already failed MaxApplyAttempts times, give up,
+            // clear the staged state, and boot the current build with a visible notice
+            // instead of relaunching-and-exiting forever (issue #242).
+            if (HasExhaustedApplyAttempts(state, MaxApplyAttempts))
+            {
+                FileLog.Start();
+                FileLog.Write($"[UpdateInstaller] Giving up on staged update {state.StagedVersion} after {state.ApplyAttempts} failed apply attempts; clearing and booting current build.");
+                var version = state.StagedVersion;
+                ClearStagedState();
+                failureNotice =
+                    $"CC Director could not finish updating to {version} after {MaxApplyAttempts} attempts, " +
+                    "so it has started on the current version instead. The pending update was cleared and " +
+                    "will be retried later. See the log for details.";
+                return false;
+            }
+
+            // Record this attempt BEFORE launching, so a crash mid-apply still counts toward
+            // the bound (otherwise a swap that crashes silently would never increment). Reset
+            // the counter when a different version is now staged.
+            int priorAttempts = state.ApplyAttemptVersion == state.StagedVersion ? state.ApplyAttempts : 0;
+            state.ApplyAttemptVersion = state.StagedVersion;
+            state.ApplyAttempts = priorAttempts + 1;
+            state.Save();
+
             FileLog.Start();
-            FileLog.Write($"[UpdateInstaller] Applying staged update {state.StagedVersion} at startup -> {state.InstallTarget}");
+            FileLog.Write($"[UpdateInstaller] Applying staged update {state.StagedVersion} at startup (attempt {state.ApplyAttempts}/{MaxApplyAttempts}) -> {state.InstallTarget}");
             LaunchRelauncher(state.StagedExecutable, state.InstallTarget);
             return true;
         }
@@ -236,6 +285,8 @@ public static class UpdateInstaller
             s.StagedVersion = null;
             s.StagedExecutable = null;
             s.InstallTarget = null;
+            s.ApplyAttempts = 0;
+            s.ApplyAttemptVersion = null;
             s.Save();
         }
         catch (Exception ex)
