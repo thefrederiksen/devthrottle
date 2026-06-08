@@ -52,6 +52,16 @@ tmp_build_output/right_click_session.png
 
 .temp/
 
+# Root-level per-session scratch artifacts: screenshots, mockups, diagnostic
+# dumps. Keeps `tmp_*.png/html/txt` from accumulating in `git status`.
+/tmp_*
+
+# cc-browser native-host bridge: native-host.bat is generated locally by setup
+# with machine-specific paths, so it must not be tracked. (com.cc_browser.bridge.json
+# stays tracked as a PLACEHOLDER template; setup fills it in locally -- revert it
+# if it shows as modified.)
+/tools/cc-browser/native-host/native-host.bat
+
 # Data output files
 tools/cc-gmail/sent_contacts.json
 
