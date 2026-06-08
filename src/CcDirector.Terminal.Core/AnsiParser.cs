@@ -28,6 +28,18 @@ public class AnsiParser
     private readonly List<TerminalCell[]> _scrollback;
     private readonly int _maxScrollback;
 
+    // --- Height-independent scrollback (issue #240) ---
+    // Claude Code 2.1.x repaints its whole TUI in place (absolute cursor
+    // positioning, normal buffer, no scroll region), so at tall viewports no
+    // linefeed ever crosses the bottom margin: ScrollUp never fires, nothing
+    // spills to scrollback, and the panel can't scroll. We recover history by
+    // diffing consecutive repaint frames -- bounded by bare ESC[H, which Claude
+    // emits exactly once per frame -- and appending the lines that scroll off the
+    // top of the scrolling region. The grid is never modified here, so xterm
+    // parity is unaffected; this only ever appends to _scrollback.
+    private TerminalCell[][]? _committedFrame; // snapshot of the last completed frame
+    private int _scrollbackCountAtFrame;       // _scrollback.Count at last frame (ScrollUp reconciliation)
+
     // --- Cursor ---
     private int _cursorCol;
     private int _cursorRow;
@@ -193,6 +205,9 @@ public class AnsiParser
         _cursorCol = Math.Clamp(_cursorCol, 0, cols - 1);
         _cursorRow = Math.Clamp(_cursorRow, 0, rows - 1);
         _pendingWrap = false;
+        // The frame geometry changed; drop the repaint-diff baseline (issue #240).
+        _committedFrame = null;
+        _scrollbackCountAtFrame = _scrollback.Count;
     }
 
     public void Parse(byte[] data)
@@ -705,6 +720,11 @@ public class AnsiParser
             case 'H':                                                                  // CUP
             case 'f':                                                                  // HVP
             {
+                // Bare ESC[H (no params) is Claude Code's per-frame repaint marker
+                // (issue #240). The grid currently holds the just-finished frame;
+                // commit it to scrollback before the new frame overwrites it.
+                if (final == 'H' && _params.Count == 0)
+                    CommitRepaintFrame();
                 _pendingWrap = false;
                 int rowOneBased = OneBasedDefault(p0, 1);
                 int colOneBased = OneBasedDefault(p1, 1);
@@ -1044,6 +1064,119 @@ public class AnsiParser
         ClearRowBce(_scrollTop);
     }
 
+    // -----------------------------------------------------------------------
+    // Height-independent scrollback (issue #240): recover history from in-place
+    // repaint frames (Claude Code's TUI) that never trigger ScrollUp.
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// Called at a repaint frame boundary (bare ESC[H). The grid holds the
+    /// just-completed previous frame; diff it against the prior committed frame
+    /// and append the lines that scrolled off the top of the scrolling region.
+    /// The fixed bottom band (input box / separators) is located content-agnostically
+    /// as the longest identical suffix and excluded, so the box is never pushed into
+    /// scrollback. Appends nothing when the change is not a clean upward scroll, so
+    /// unrelated full repaints add no garbage. Never mutates the grid.
+    /// </summary>
+    private void CommitRepaintFrame()
+    {
+        if (_altCells != null) return; // never capture alt-screen frames
+
+        var current = SnapshotGrid();
+
+        // First frame, or just after a resize: establish the baseline.
+        if (_committedFrame == null || _committedFrame.Length != _rows)
+        {
+            _committedFrame = current;
+            _scrollbackCountAtFrame = _scrollback.Count;
+            return;
+        }
+
+        // If real scrolling (ScrollUp) already pushed lines since the last frame,
+        // that path captured the history -- don't double-count it here.
+        if (_scrollback.Count != _scrollbackCountAtFrame)
+        {
+            _committedFrame = current;
+            _scrollbackCountAtFrame = _scrollback.Count;
+            return;
+        }
+
+        var old = _committedFrame;
+
+        // The fixed bottom band (input box) is the longest identical suffix; the
+        // scrolling region is everything above it.
+        int fixedBottom = 0;
+        for (int r = _rows - 1; r >= 0; r--)
+        {
+            if (RowTextEquals(old[r], current[r])) fixedBottom++;
+            else break;
+        }
+        int regionBottom = _rows - 1 - fixedBottom; // last row index of the scroll region
+
+        if (regionBottom >= 1)
+        {
+            // Find the upward shift K that yields the longest contiguous run from
+            // the top where current[i] == old[i + K]. A strong run confirms a real
+            // scroll; in-place status lines lower in the region merely shorten it.
+            const int minRun = 3;    // contiguous top rows that must align to accept a scroll
+            const int maxShift = 64; // sane per-frame cap
+            int bestK = 0, bestRun = 0;
+            int kLimit = Math.Min(regionBottom, maxShift);
+            for (int k = 1; k <= kLimit; k++)
+            {
+                int run = 0;
+                for (int i = 0; i + k <= regionBottom; i++)
+                {
+                    if (RowTextEquals(current[i], old[i + k])) run++;
+                    else break;
+                }
+                if (run > bestRun) { bestRun = run; bestK = k; }
+            }
+
+            if (bestK > 0 && bestRun >= minRun)
+            {
+                for (int i = 0; i < bestK; i++)
+                {
+                    _scrollback.Add(CopyRow(old[i]));
+                    if (_scrollback.Count > _maxScrollback)
+                        _scrollback.RemoveAt(0);
+                }
+            }
+        }
+
+        _committedFrame = current;
+        _scrollbackCountAtFrame = _scrollback.Count;
+    }
+
+    private TerminalCell[][] SnapshotGrid()
+    {
+        var snap = new TerminalCell[_rows][];
+        for (int r = 0; r < _rows; r++)
+        {
+            var row = new TerminalCell[_cols];
+            for (int c = 0; c < _cols; c++)
+                row[c] = _cells[c, r];
+            snap[r] = row;
+        }
+        return snap;
+    }
+
+    private static TerminalCell[] CopyRow(TerminalCell[] row)
+    {
+        var copy = new TerminalCell[row.Length];
+        Array.Copy(row, copy, row.Length);
+        return copy;
+    }
+
+    /// <summary>Compare two rows by glyph content only, ignoring attribute noise (spinner restyles).</summary>
+    private static bool RowTextEquals(TerminalCell[] a, TerminalCell[] b)
+    {
+        if (a.Length != b.Length) return false;
+        for (int i = 0; i < a.Length; i++)
+            if (a[i].Character != b[i].Character) return false;
+        return true;
+    }
+
     private TerminalCell BceCell() => new() { Background = _bg };
 
     private void ClearRowBce(int row)
@@ -1333,6 +1466,7 @@ public class AnsiParser
             _scrollTop = 0;
             _scrollBottom = _rows - 1;
             _pendingWrap = false;
+            _committedFrame = null; // repaint-diff is for the primary buffer only (issue #240)
         }
         else
         {
@@ -1343,6 +1477,8 @@ public class AnsiParser
             _scrollBottom = Math.Min(_altSavedScrollBottom, _rows - 1);
             if (saveCursor) RestoreCursor();
             _pendingWrap = false;
+            _committedFrame = null; // rebaseline after returning to the primary buffer
+            _scrollbackCountAtFrame = _scrollback.Count;
         }
     }
 
@@ -1359,6 +1495,7 @@ public class AnsiParser
         _cursorVisible = true;
         _hasSavedCursor = false;
         _altCells = null;
+        _committedFrame = null; // drop repaint-diff baseline on RIS (issue #240)
         _g0IsDecSpecial = false;
         _g1IsDecSpecial = false;
         _activeCharset = 0;
