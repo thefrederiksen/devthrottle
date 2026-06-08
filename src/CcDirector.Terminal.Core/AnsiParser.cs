@@ -1137,7 +1137,14 @@ public class AnsiParser
             {
                 for (int i = 0; i < bestK; i++)
                 {
-                    _scrollback.Add(CopyRow(old[i]));
+                    var row = old[i];
+                    // Skip a non-blank line identical to the one just appended: the
+                    // frame-boundary capture can re-emit a settled line once (e.g. a
+                    // section header on both scroll-off and the final flush). Blank
+                    // lines are preserved so paragraph spacing survives.
+                    if (_scrollback.Count > 0 && !RowIsBlank(row) && RowTextEquals(_scrollback[^1], row))
+                        continue;
+                    _scrollback.Add(CopyRow(row));
                     if (_scrollback.Count > _maxScrollback)
                         _scrollback.RemoveAt(0);
                 }
@@ -1174,6 +1181,13 @@ public class AnsiParser
         if (a.Length != b.Length) return false;
         for (int i = 0; i < a.Length; i++)
             if (a[i].Character != b[i].Character) return false;
+        return true;
+    }
+
+    private static bool RowIsBlank(TerminalCell[] row)
+    {
+        foreach (var cell in row)
+            if (cell.Character != '\0' && cell.Character != ' ') return false;
         return true;
     }
 
