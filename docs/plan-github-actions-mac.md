@@ -179,6 +179,10 @@ Release assets:
 
 ## Implementation Status
 
+> NOTE (2026-06-09): `cc-director-crossplatform.sln` was later removed during a root cleanup, and the
+> macOS CI matrix described below was not retained. `ci.yml` and `release.yml` currently build only
+> `cc-director.sln` on Windows. The status below is kept as a historical record of the original plan.
+
 - [x] Step 1: Rename existing jobs for clarity (build-director-win, build-python-tools-win, build-setup-wizard-win)
 - [x] Step 2: Add Mac Director build job (build-director-mac)
 - [x] Step 3: Add Mac Python tools build job (build-python-tools-mac)
