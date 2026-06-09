@@ -58,7 +58,7 @@ internal static class DictationEndpoint
     // recording whose audio we should recover.
     private const int MinRecoverableAudioBytes = 24_000;
 
-    public static void Map(IEndpointRouteBuilder app, AgentOptions options, OpenAiKeyResolver keyResolver)
+    public static void Map(IEndpointRouteBuilder app, AgentOptions options, OpenAiKeyResolver keyResolver, DictionaryResolver dictionaryResolver)
     {
         app.MapGet("/dictate.html", () =>
         {
@@ -114,7 +114,7 @@ internal static class DictationEndpoint
             var remoteIp = ctx.Connection.RemoteIpAddress?.ToString();
             try
             {
-                await ServeSessionAsync(ws, options, keyResolver, remoteIp, ctx.RequestAborted);
+                await ServeSessionAsync(ws, options, keyResolver, dictionaryResolver, remoteIp, ctx.RequestAborted);
             }
             catch (Exception ex)
             {
@@ -125,7 +125,7 @@ internal static class DictationEndpoint
         });
     }
 
-    private static async Task ServeSessionAsync(WebSocket ws, AgentOptions options, OpenAiKeyResolver keyResolver, string? remoteIp, CancellationToken ct)
+    private static async Task ServeSessionAsync(WebSocket ws, AgentOptions options, OpenAiKeyResolver keyResolver, DictionaryResolver dictionaryResolver, string? remoteIp, CancellationToken ct)
     {
         await SendJsonAsync(ws, new { type = "ready" }, ct);
 
@@ -162,6 +162,10 @@ internal static class DictationEndpoint
         // (PCM16 from the browser's AudioWorklet to the OpenAI Realtime API).
         // The offline AudioBuffer with disk spill handles the case batch
         // mode used to cover.
+        // Pull the latest glossary from the Gateway when connected and refresh the local cache
+        // file (#253); standalone or unreachable falls back to the existing cache. Resolving here
+        // (start of each dictation) is the hot-reload path - a Cockpit edit lands on the next one.
+        await dictionaryResolver.ResolveAsync(ct);
         var dictPath = options.ResolveDictationDictionaryPath();
         using var dictionary = new DictionaryLoader(dictPath, watch: false);
 

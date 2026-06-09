@@ -2,6 +2,29 @@
 
 Last updated: 2026-05-21 (Speak button shipped in both desktop and browser; in-process NAudio capture on desktop; auto-insert on both surfaces). Only remaining work is global-hotkey/SendInput-into-foreign-windows (the original Phase 2) and Mac (Phase 5); both hardware-bound.
 
+## Gateway is the single source of truth for the dictionary (#253, 2026-06-09)
+
+The dictation dictionary (vocabulary + common mistranscriptions + per-profile
+cleanup toggles) lives in `%LOCALAPPDATA%\cc-director\dictation\dictionary.yaml`,
+edited in the Cockpit Dictionary page (`PUT /ingest/dictionary` on the Gateway).
+Because `%LOCALAPPDATA%` is per-machine, Director live dictation and Speak used to
+read only the LOCAL file, so a term added in the Cockpit reached a Director only
+when it was co-located with the Gateway. Other machines drifted.
+
+`DictionaryResolver` (`src/CcDirector.Core/Dictation/DictionaryResolver.cs`) makes
+the Gateway authoritative, mirroring the two-mode `OpenAiKeyResolver`:
+
+- **Connected to a Gateway** -> pull the glossary from `GET /ingest/dictionary`
+  and write it to the local `dictionary.yaml` cache. The Gateway always wins.
+- **Standalone, or Gateway unreachable** -> use the last-cached local file.
+- The gateway config is re-read on every resolve (not snapshotted), so a Director
+  that booted standalone self-heals into Gateway mode without a restart.
+
+It is called at the start of every dictation/Speak/recording-cleanup utterance
+(`SpeakService`, `DictationEndpoint`, `VoiceService`), so a Cockpit edit is picked
+up on the next utterance (a few-hundred-ms GET before STT) - no push channel,
+no file copying. The local file is purely a cache of the Gateway copy.
+
 ## Cleanup model switch (2026-05-21)
 
 Real-world dictation showed Haiku cleanup taking 10-20 seconds per

@@ -27,6 +27,7 @@ public sealed class SpeakService : IAsyncDisposable
 {
     private readonly AgentOptions _options;
     private readonly OpenAiKeyResolver _keyResolver;
+    private readonly DictionaryResolver _dictionaryResolver;
     private readonly int _micDeviceNumber;
 
     private MicAudioCapture? _mic;
@@ -71,6 +72,9 @@ public sealed class SpeakService : IAsyncDisposable
         // Resolve the OpenAI key by mode: Gateway vault when attached to a Gateway, the local
         // Settings > Voice key when standalone (docs/architecture/gateway/GATEWAY_KEY_VAULT.md).
         _keyResolver = new OpenAiKeyResolver(options);
+        // Resolve the dictation dictionary the same way: the Gateway's shared glossary when
+        // attached, the local cache when standalone (#253). A Cockpit edit reaches this Director.
+        _dictionaryResolver = new DictionaryResolver(options);
         _micDeviceNumber = micDeviceNumber;
     }
 
@@ -86,6 +90,10 @@ public sealed class SpeakService : IAsyncDisposable
         if (string.IsNullOrWhiteSpace(apiKey))
             throw new InvalidOperationException(_keyResolver.UnavailableMessage);
 
+        // Pull the latest glossary from the Gateway when connected and refresh the local cache
+        // file (#253); when standalone or the Gateway is unreachable this is a no-op and the
+        // loader below reads the existing cache. Resolving per-session is the hot-reload path.
+        await _dictionaryResolver.ResolveAsync(ct);
         var dictPath = _options.ResolveDictationDictionaryPath();
         _dictionary = new DictionaryLoader(dictPath, watch: false);
 

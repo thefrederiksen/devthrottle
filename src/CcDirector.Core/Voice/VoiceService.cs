@@ -194,10 +194,11 @@ public sealed class VoiceService
     /// <summary>
     /// Correct known dictionary terms in <paramref name="text"/> with the SAME
     /// shared <see cref="CleanupOrchestrator"/> the desktop dictation path uses:
-    /// verbatim, dictionary-only, reading the live dictionary from disk on each
-    /// call. This service is constructed per request, so an edit to the dictionary
-    /// takes effect on the very next utterance - there is no frozen startup
-    /// snapshot. Fails open: returns the input text unchanged on an empty
+    /// verbatim, dictionary-only, resolving the live dictionary on each call via
+    /// <see cref="DictionaryResolver"/> (Gateway-shared when attached, local cache
+    /// otherwise - #253). This service is constructed per request, so an edit to
+    /// the dictionary takes effect on the very next utterance - there is no frozen
+    /// startup snapshot. Fails open: returns the input text unchanged on an empty
     /// dictionary, a missing key, or any error, so a dictionary problem never costs
     /// the user their words.
     /// </summary>
@@ -210,9 +211,13 @@ public sealed class VoiceService
             return text;
         try
         {
-            using var loader = new DictionaryLoader(_options.ResolveDictationDictionaryPath(), watch: false);
+            // Resolve the dictionary by mode (#253): the Gateway's shared glossary when attached,
+            // the local cache when standalone. On the Gateway box the cache IS the source file, so
+            // this is a no-op round-trip; on a Director attached to a remote Gateway it picks up
+            // Cockpit edits without copying a file.
+            var dict = await new DictionaryResolver(_options).ResolveAsync(ct);
             using var cleanup = new CleanupOrchestrator(apiKey: key, model: _options.DictationCleanupModel);
-            var outcome = await cleanup.CleanAsync(text, loader.Current, "default", ct);
+            var outcome = await cleanup.CleanAsync(text, dict, "default", ct);
             FileLog.Write($"[VoiceService] dictionary correction: applied={outcome.Applied} reason=\"{outcome.Reason}\"");
             return outcome.Text;
         }

@@ -274,7 +274,13 @@ public sealed class ControlApiHost : IAsyncDisposable
         // added self-heals into Gateway mode without a restart.
         var openAiKeyResolver = new Core.Configuration.OpenAiKeyResolver(
             _sessionManager.Options, Core.Configuration.GatewayConfig.Load);
-        DictationEndpoint.Map(_app, _sessionManager.Options, openAiKeyResolver);
+        // Dictation glossary resolution mirrors the key resolver (#253): the Gateway's shared
+        // dictionary when attached, the local cache when standalone. GatewayConfig.Load (not the
+        // snapshot) is passed so the resolver re-reads config.json each dictation and self-heals
+        // into Gateway mode without a restart.
+        var dictionaryResolver = new Core.Dictation.DictionaryResolver(
+            _sessionManager.Options, Core.Configuration.GatewayConfig.Load);
+        DictationEndpoint.Map(_app, _sessionManager.Options, openAiKeyResolver, dictionaryResolver);
         TerminalStreamEndpoint.Map(_app, _sessionManager);
         SessionUsageEndpoint.Map(_app, _sessionManager);
         ClaudeTranscriptsEndpoint.Map(_app);
