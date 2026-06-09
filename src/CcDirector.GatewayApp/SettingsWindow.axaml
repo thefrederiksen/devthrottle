@@ -2,7 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="CcDirector.GatewayApp.SettingsWindow"
         Title="CC Director Gateway"
-        Width="480" Height="430"
+        Width="480" Height="600"
         CanResize="False"
         WindowStartupLocation="CenterScreen"
         RequestedThemeVariant="Dark"
@@ -64,6 +64,36 @@
             <TextBlock Grid.Row="5" Grid.Column="1" Classes="value" x:Name="ModeText" Text="..."/>
             <TextBlock Grid.Row="6" Grid.Column="0" Classes="label" Text="Brain"/>
             <TextBlock Grid.Row="6" Grid.Column="1" Classes="value" x:Name="BrainLineText" Text="..."/>
+          </Grid>
+        </StackPanel>
+      </Border>
+
+      <!-- About / installed: what this Gateway box is running and the versions on disk. -->
+      <Border Background="#252526" CornerRadius="3" Padding="14">
+        <StackPanel Spacing="10">
+          <TextBlock Text="ABOUT / INSTALLED" FontSize="11" FontWeight="SemiBold" Foreground="#888888"/>
+          <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto,Auto,Auto">
+            <Grid.Styles>
+              <Style Selector="TextBlock.label">
+                <Setter Property="FontSize" Value="12"/>
+                <Setter Property="Foreground" Value="#AAAAAA"/>
+                <Setter Property="Margin" Value="0,0,0,6"/>
+              </Style>
+              <Style Selector="TextBlock.value">
+                <Setter Property="FontSize" Value="12"/>
+                <Setter Property="Foreground" Value="#CCCCCC"/>
+                <Setter Property="Margin" Value="0,0,0,6"/>
+                <Setter Property="TextWrapping" Value="Wrap"/>
+              </Style>
+            </Grid.Styles>
+            <TextBlock Grid.Row="0" Grid.Column="0" Classes="label" Text="Build date"/>
+            <TextBlock Grid.Row="0" Grid.Column="1" Classes="value" x:Name="BuildDateText" Text="..."/>
+            <TextBlock Grid.Row="1" Grid.Column="0" Classes="label" Text="Cockpit URL"/>
+            <TextBlock Grid.Row="1" Grid.Column="1" Classes="value" x:Name="CockpitUrlText" Text="resolving..."/>
+            <TextBlock Grid.Row="2" Grid.Column="0" Classes="label" Text="Install root"/>
+            <TextBlock Grid.Row="2" Grid.Column="1" Classes="value" x:Name="InstallRootText" Text="..."/>
+            <TextBlock Grid.Row="3" Grid.Column="0" Classes="label" Text="Installed"/>
+            <TextBlock Grid.Row="3" Grid.Column="1" Classes="value" x:Name="InstalledText" Text="..."/>
           </Grid>
         </StackPanel>
       </Border>

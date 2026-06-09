@@ -1,7 +1,10 @@
 using System.Diagnostics;
 using System.Net.Http;
+using System.Linq;
 using Avalonia.Controls;
 using Avalonia.Threading;
+using CcDirector.Core.Diagnostics;
+using CcDirector.Core.Network;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Cockpit;
 using CcDirector.Setup.Engine;
@@ -38,6 +41,24 @@ public partial class SettingsWindow : Window
         ModeText.Text = GatewayAppOptions.Managed
             ? "managed (installed: supervises the Cockpit, auto-updates)"
             : "dev (Cockpit not supervised, no auto-update)";
+
+        // About / installed: local, fast reads (file times + installed.json).
+        BuildDateText.Text = AboutInfo.BuildDate()?.ToString("yyyy-MM-dd HH:mm:ss") ?? "(unknown)";
+        InstallRootText.Text = AboutInfo.InstallRoot;
+        var installed = AboutInfo.InstalledComponents();
+        InstalledText.Text = installed.Count == 0
+            ? "(no installed.json - dev build?)"
+            : string.Join(", ", installed.OrderBy(k => k.Key, StringComparer.OrdinalIgnoreCase)
+                .Select(kv => $"{kv.Key} {kv.Value}"));
+
+        // The front-door URL shells tailscale, so resolve it off the UI thread and fill in when ready.
+        _ = Task.Run(() =>
+        {
+            string url;
+            try { url = TailscaleIdentity.TryGetFrontDoorBaseUrl() is { } b ? b + "/" : "(Tailscale unavailable)"; }
+            catch { url = "(unavailable)"; }
+            Dispatcher.UIThread.Post(() => CockpitUrlText.Text = url);
+        });
 
         CloseButton.Click += (_, _) => Close();
         OpenLogsButton.Click += (_, _) => OpenFolder(Path.GetDirectoryName(FileLog.CurrentLogPath));
