@@ -6,11 +6,11 @@ schema_version: "1.0.0"
 project:
   name: CC Director
   description: Cross-platform application for managing multiple Claude Code CLI sessions, with a per-machine HTTP Control API, a tailnet Gateway for remote/mobile access, and background scheduling
-  version: "1.2.0"
+  version: "0.6.18"
   framework: ".NET 10"
   platform: "Windows 10/11 (Avalonia primary; WPF archived), Mac/Linux (experimental backend)"
 
-last_updated: "2026-06-06"
+last_updated: "2026-06-09"
 
 # C4 Level 1: System Context
 context:
@@ -421,6 +421,17 @@ containers:
       - name: ClaudeSummarizer
         description: IResponseSummarizer implementation that summarizes agent responses (fidelity over brevity) and long-turn progress via Haiku
         file: Voice/Services/ClaudeSummarizer.cs
+      - name: SessionType
+        description: Immutable per-session playbook (Implement / Discuss / BugReport) set at creation and enforced via a pre-prompt gate; drives type badges and type-aware mission clauses (issue #211)
+        file: Sessions/SessionType.cs
+      - name: SessionGroupDefinition / GroupReorder
+        description: Group-session model (issue #225) - a SessionGroupDefinition ties sessions into an ordered group with per-member Role (e.g. Submitter -> Implement -> QA); GroupReorder.MoveBlock moves a whole group as one unit and never splits it during drag reorder
+        files:
+          - Sessions/SessionGroupDefinition.cs
+          - Sessions/GroupReorder.cs
+      - name: AboutInfo
+        description: Assembles the About/diagnostics payload (version, build, URLs, installed components) shared by the Director About dialog and the Cockpit /about page
+        file: Diagnostics/AboutInfo.cs
 
   - id: native_apis
     name: Platform-Specific APIs
@@ -603,7 +614,7 @@ containers:
         description: Kestrel host runner; wires the registry, Tailscale provisioner and Director client; one instance per machine
         file: GatewayHost.cs
       - name: GatewayEndpoints
-        description: Main HTTP surface mapping Directors/Sessions/Recordings/Handovers/Fanout/Events routes, plus GET /cockpit (unauthenticated) answering where this machine's Cockpit lives - always the Tailscale front-door URL (null when Tailscale is down, never a loopback fallback) with a 500ms TCP liveness probe
+        description: Main HTTP surface - Directors (register/heartbeat/doorbell/verify/registration for discovery + two-way handshake #223/#224 + push-down state #186), fleet-wide Sessions (aggregated with Gateway-owned assessed-state stamps), per-session turnbriefs history (#185), interrupted-sessions + /restore (#212), Recordings/Handovers/Fanout/Events, /about diagnostics, and GET /cockpit (unauthenticated) answering where this machine's Cockpit lives - the Tailscale front-door URL with a 500ms TCP liveness probe (null when Tailscale is down, never a loopback fallback)
         file: Api/GatewayEndpoints.cs
       - name: RecordingEndpoints
         description: Phone-recorder ingest - register, upload audio chunks, complete, transcribe, promote, status, and dictionary endpoints
@@ -631,6 +642,34 @@ containers:
         files:
           - Util/GatewayAuth.cs
           - Util/AuthMiddleware.cs
+      - name: KeyVault
+        description: Fleet-wide central secret store (e.g. OPENAI_API_KEY) in a plain-JSON file outside git (%LOCALAPPDATA%\cc-director\config\keyvault.json), re-read on every request with atomic write-replace; the single source of truth Directors resolve at point of use instead of caching. Seeded once from the environment on Gateway start (SetIfAbsent - never clobbers).
+        file: KeyVault.cs
+      - name: VaultEndpoints
+        description: REST surface over KeyVault (GET/PUT/DELETE /vault/keys/{name}, GET /vault/keys names-only) backing the Cockpit "API Keys" page; values leave the Gateway only via a single-key GET, never the list. Behind the host-wide auth middleware.
+        file: Api/VaultEndpoints.cs
+      - name: SettingsEndpoints / GatewaySettingsHooks
+        description: GET /gateway/settings snapshot (version, uptime, director count, brain state, Cockpit status, autostart), POST /gateway/brain/restart (warm-brain recovery), PUT /gateway/autostart; GatewaySettingsHooks is the optional IoC bridge the tray process injects so the library can report run-mode/autostart it cannot otherwise know (degrades to "unsupported" when null)
+        files:
+          - Api/SettingsEndpoints.cs
+          - Api/GatewaySettingsHooks.cs
+      - name: GatewayTurnBriefAgent
+        description: The fleet's single warm-brain stamper - a coalescing work queue that, on each turn end, generates the TurnBrief (and on-demand ExplainReport, which outranks background stamping) via the TurnBriefContract prompt, validates mechanically, stores append-only, and degrades to an honest stub on failure; poisoned-brain detection restarts the brain after repeated validation rejections (issues #185/#187/#208/#217)
+        file: Briefing/GatewayTurnBriefAgent.cs
+      - name: GatewayTurnBriefStore
+        description: Append-only per-session .jsonl store of turn briefs (with an in-memory latest-brief cache for cheap polling), the raw TurnPackages that produced them, explain reports, and #207 feedback votes (replayable labeled examples); readers de-dupe by TurnNumber, latest wins
+        file: Briefing/GatewayTurnBriefStore.cs
+      - name: TurnEndWatcher / SessionAssessments
+        description: TurnEndWatcher fires the turn-end callback from push-fed observations (doorbell pings + heartbeat snapshots, with a 15s reconcile for non-pushing Directors, #186); SessionAssessments is the Gateway-owned activity judgment (WaitingForInput when the latest brief has NeedsYou, else Idle) that refutes a stale red dot
+        files:
+          - Briefing/TurnEndWatcher.cs
+          - Briefing/SessionAssessments.cs
+      - name: RestoreContextBuilder
+        description: Builds a continuation first-prompt for a restored (interrupted) session from its durable turn-brief history - state at death, trajectory, and explicit marching orders that re-ask the user before resuming - backing the one-click Restore (issue #212)
+        file: Recovery/RestoreContextBuilder.cs
+      - name: CockpitProxy
+        description: The one-URL front door (docs/plans/one-url-cockpit.md) - content-negotiated fallback proxy that forwards browser (text/html) requests to the loopback Cockpit and keeps /sessions|/directors|/cockpit dual-use (HTML page vs JSON API); serves an auto-refresh "Cockpit starting..." page during boot/crash/update
+        file: Cockpit/CockpitProxy.cs
 
   - id: gateway_app
     name: Gateway Tray App
@@ -653,6 +692,38 @@ containers:
           - Program.cs
           - App.axaml.cs
           - GatewayAppOptions.cs
+
+  - id: cockpit
+    name: Cockpit (Fleet Dashboard)
+    technology: C# / Blazor Server / ASP.NET Core
+    description: The whole-fleet web dashboard, served on loopback and exposed only behind the Gateway's one-URL front door (CockpitProxy). Renders the Gateway's aggregated roster, the structured wingman turn brief, per-session screen/git/tokens detail, and the brief-feedback flow; never talks to a Director directly (reads the Gateway REST surface).
+    project: CcDirector.Cockpit
+    dependencies:
+      - CcDirector.Gateway.Contracts
+    components:
+      - name: BriefPane
+        description: Renders the wingman turn brief tier-by-tier (wingman TurnBriefDto -> condenser -> raw) - YOU'RE DOING / YOU ASKED / NEEDS YOU (synthesized statement + verbatim evidence + option buttons + if-ignored) / ALL CLEAR / CLAUDE DID / mission-complete close / brief feedback vote
+        file: Components/BriefPane.razor
+      - name: Fleet / Sessions / SessionRail
+        description: The fleet card view and session roster/rail, painting each session by its EffectiveColor (the one fold of Director StatusColor + Gateway BriefingState)
+        files:
+          - Components/Fleet.razor
+          - Components/Sessions.razor
+          - Components/SessionRail.razor
+      - name: SessionDetail / DirectorDetail / Directors
+        description: Detail pages - a session's brief history, screen tail, git and token usage; a Director's sessions, repos and registration
+        files:
+          - Components/SessionDetail.razor
+          - Components/DirectorDetail.razor
+          - Components/Directors.razor
+      - name: TerminalPane
+        description: Read-only xterm.js terminal mirror fed by the Director stream (proxied through the Gateway)
+        file: Components/TerminalPane.razor
+      - name: Feedback / About
+        description: The /feedback brief-review corpus page (#207) and the /about diagnostics page (version, URLs, installed components)
+        files:
+          - Components/Feedback.razor
+          - Components/About.razor
 
   - id: gateway_contracts
     name: Gateway Contracts
@@ -681,6 +752,12 @@ containers:
         files:
           - RecordingManifest.cs
           - GoalAssessment.cs
+      - name: TurnBrief contracts
+        description: The wingman turn-brief DTOs every consumer renders verbatim - TurnBriefDto (headline, intent, did, needsYou with options/evidence/ifIgnored, allClear, suggestedAction), TurnBriefsResponse, ExplainReportDto, and the #207 feedback request/response/record types
+        file: TurnBriefDto.cs
+      - name: About / diagnostics DTO
+        description: AboutDto - version, build, URLs and installed-component list surfaced by the Director About dialog and Cockpit /about
+        file: AboutDto.cs
 
   - id: agent_brain
     name: Agent Brain Contract Library
@@ -951,6 +1028,25 @@ data_flows:
       - "StateVoteService appends to local state-votes.jsonl (authoritative)"
       - "Best-effort gh issue create/comment"
 
+  - id: turn_brief_flow
+    name: Turn Brief Flow (Gateway warm brain)
+    description: A completed turn becomes a structured brief every consumer renders verbatim
+    path:
+      - "Director pushes turn-end (doorbell) / heartbeat snapshot -> Gateway"
+      - "TurnEndWatcher detects the Working -> Waiting/Idle boundary"
+      - "GatewayTurnBriefAgent (single warm brain) generates the brief from the TurnBriefContract prompt, validates mechanically, degrades to a stub on failure"
+      - "GatewayTurnBriefStore appends the brief (+ TurnPackage) to the per-session .jsonl, updates the latest-brief cache"
+      - "Consumers (Cockpit BriefPane, rail, phone Wingman tab) GET /sessions/{sid}/turnbriefs[/latest] and render verbatim"
+      - "Brief feedback: POST /sessions/{sid}/turnbriefs/feedback stores a labeled example (#207)"
+
+  - id: key_vault_flow
+    name: Key Vault Resolution Flow
+    description: Centralized secret resolution so a Director never needs the key baked in
+    path:
+      - "Gateway start: KeyVault.SetIfAbsent seeds OPENAI_API_KEY from env (never clobbers)"
+      - "Owner edits keys on the Cockpit API Keys page -> PUT /vault/keys/{name} (behind auth)"
+      - "Director resolves the key at point of use: gateway-wins-when-connected, else local Settings, never an env fallback"
+
 # Security boundaries
 security_boundaries:
   - id: process_isolation
@@ -1000,6 +1096,22 @@ security_boundaries:
       token (gateway-token.txt); /healthz, /login, /logout are public. The trust
       boundary is the single-owner tailnet by design; the /file endpoint serves
       absolute paths without a sandbox and relies on that boundary.
+
+  - id: key_vault
+    name: Central Key Vault
+    description: >
+      Fleet secrets (e.g. OPENAI_API_KEY) live in a plain-JSON file OUTSIDE git at
+      %LOCALAPPDATA%\cc-director\config\keyvault.json, served by the Gateway's
+      /vault/keys endpoints behind the same bearer/cookie auth as the rest of the
+      surface. GET /vault/keys returns names only; values leave only via a single-key
+      GET. Secrets are stored in plaintext (no at-rest encryption) and rely on the
+      single-owner machine + tailnet trust boundary; they are never logged and never
+      committed.
+    components:
+      - "KeyVault.cs (file store)"
+      - "Api/VaultEndpoints.cs (token-gated REST)"
+    paths:
+      - keyvault: "%LOCALAPPDATA%\\cc-director\\config\\keyvault.json"
 
 # Design patterns used
 patterns:

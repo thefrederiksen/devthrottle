@@ -5,11 +5,11 @@
 schema_version: "1.0.0"
 project:
   name: CC Director
-  version: "1.2.0"
+  version: "0.6.18"
 
 # Last verification date - used for drift detection
 # Security profile is considered STALE if older than drift_threshold_days
-last_verified: "2026-06-03"
+last_verified: "2026-06-09"
 
 # Drift configuration
 drift:
@@ -24,13 +24,16 @@ owasp_desktop:
     description: Check for sensitive data stored insecurely
     status: PASS
     checks:
-      - No plaintext credentials in config files
+      - No API keys in source code
       - Session state uses user documents folder (not world-readable)
       - Logs stored in %LOCALAPPDATA% (user-specific)
+      - Central Key Vault file (keyvault.json) lives outside git and is never logged or committed
     mitigations:
-      - Credentials read from environment variables only (OPENAI_API_KEY)
-      - No API keys in source code
-      - Logs truncate sensitive content to ~100 chars
+      - Secrets resolved at point of use from the Gateway Key Vault or local Settings - never baked into source, never an env fallback
+      - Key Vault REST (/vault/keys) is behind bearer/cookie auth; GET /vault/keys returns names only, values only via single-key GET
+      - Logs truncate sensitive content to ~100 chars; secrets never logged
+    notes:
+      - "Accepted risk (by design): the Key Vault stores secrets in plaintext JSON with no at-rest encryption, relying on the single-owner machine + tailnet trust boundary - revisit if a non-owner ever shares the machine or tailnet"
 
   - id: DT-02
     name: Insufficient Input Validation
@@ -208,4 +211,4 @@ review_checklist:
   - "No PII in source code"
   - "Process.Start paths validated"
   - "Named pipe messages validated"
-  - "Environment variables for secrets (OPENAI_API_KEY)"
+  - "Secrets resolved via the central Key Vault or local Settings (never hardcoded, never an env fallback); keyvault.json stays outside git and out of logs"

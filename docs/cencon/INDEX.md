@@ -1,7 +1,7 @@
 # CC Director - CenCon Documentation Index
 
-**Version:** 1.2.0
-**Last Updated:** 2026-06-02
+**Version:** 0.6.18
+**Last Updated:** 2026-06-09
 **Schema:** CenCon Method v1.0
 
 ---
@@ -11,6 +11,8 @@
 CC Director is a Windows desktop application (Avalonia; the original WPF UI is archived) for managing multiple Claude Code CLI sessions simultaneously. It provides multi-session management, real-time activity tracking, session persistence, embedded console hosting, git integration, and voice mode. Each Director also runs a loopback HTTP **Control API**, and a per-machine **Gateway** publishes the local Directors over the owner's Tailscale tailnet for remote/mobile access. A background **scheduler** (single-leader across Directors) fires comm-queue runners, and a read-only **Wingman** derives session status from the terminal.
 
 This document serves as the central reference combining product requirements, system architecture, and security profile.
+
+**Recent additions (as of 0.6.18):** the Gateway now hosts the fleet **wingman turn-brief pipeline** (TurnEndWatcher -> single warm-brain GatewayTurnBriefAgent -> append-only GatewayTurnBriefStore), a central **Key Vault** for fleet secrets (plain-JSON, token-gated `/vault/keys`, seeded once from env), Gateway **Settings** endpoints, and session **Restore** (RestoreContextBuilder, #212). The **Cockpit** Blazor dashboard (served behind the Gateway's one-URL front door) renders the structured brief via `BriefPane` and the brief-feedback corpus. Core gained immutable **session types** (Implement/Discuss/BugReport, #211) and **session groups** (#225), and an **About/diagnostics** payload. See `architecture_manifest.yaml` for the authoritative component list.
 
 ---
 
