@@ -134,15 +134,21 @@
                         <TextBlock Text="Type:"
                                    Foreground="#CCCCCC" FontSize="14"
                                    VerticalAlignment="Center" Margin="0,0,16,0" />
-                        <ComboBox x:Name="TypeCombo" Width="420" SelectedIndex="0"
+                        <ComboBox x:Name="TypeCombo" Width="460" SelectedIndex="0"
                                   Background="#1E1E1E" Foreground="#CCCCCC"
                                   BorderBrush="#3C3C3C"
                                   VerticalAlignment="Center"
                                   ToolTip.Tip="What this session is for - drives its playbook">
-                            <ComboBoxItem Tag="Developer">
+                            <!-- Primary types (issue #259): Implementation is the default - it builds
+                                 AND verifies in one session (the dev<->QA loop). -->
+                            <ComboBoxItem Tag="Implementation">
                                 <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="Developer" FontWeight="SemiBold" Foreground="#CCCCCC" Width="90" />
-                                    <TextBlock Text="Write code, fix bugs, ship (default)" Foreground="#888888" />
+                                    <Border BorderBrush="#14B8A6" BorderThickness="1" CornerRadius="6"
+                                            Padding="6,0" Margin="0,0,8,0" VerticalAlignment="Center">
+                                        <TextBlock Text="I" Foreground="#14B8A6" FontSize="10" FontWeight="SemiBold" />
+                                    </Border>
+                                    <TextBlock Text="Implementation" FontWeight="SemiBold" Foreground="#CCCCCC" Width="104" />
+                                    <TextBlock Text="Build and verify - dev/QA loop in one session (default)" Foreground="#888888" />
                                 </StackPanel>
                             </ComboBoxItem>
                             <ComboBoxItem Tag="Product">
@@ -151,28 +157,8 @@
                                             Padding="6,0" Margin="0,0,8,0" VerticalAlignment="Center">
                                         <TextBlock Text="P" Foreground="#EC4899" FontSize="10" FontWeight="SemiBold" />
                                     </Border>
-                                    <TextBlock Text="Product" FontWeight="SemiBold" Foreground="#CCCCCC" Width="74" />
-                                    <TextBlock Text="Scope the work, file issues; never codes" Foreground="#888888" />
-                                </StackPanel>
-                            </ComboBoxItem>
-                            <ComboBoxItem Tag="QA">
-                                <StackPanel Orientation="Horizontal">
-                                    <Border BorderBrush="#A855F7" BorderThickness="1" CornerRadius="6"
-                                            Padding="6,0" Margin="0,0,8,0" VerticalAlignment="Center">
-                                        <TextBlock Text="Q" Foreground="#A855F7" FontSize="10" FontWeight="SemiBold" />
-                                    </Border>
-                                    <TextBlock Text="QA" FontWeight="SemiBold" Foreground="#CCCCCC" Width="74" />
-                                    <TextBlock Text="Verify against what was asked; never fix" Foreground="#888888" />
-                                </StackPanel>
-                            </ComboBoxItem>
-                            <ComboBoxItem Tag="Support">
-                                <StackPanel Orientation="Horizontal">
-                                    <Border BorderBrush="#10B981" BorderThickness="1" CornerRadius="6"
-                                            Padding="6,0" Margin="0,0,8,0" VerticalAlignment="Center">
-                                        <TextBlock Text="S" Foreground="#10B981" FontSize="10" FontWeight="SemiBold" />
-                                    </Border>
-                                    <TextBlock Text="Support" FontWeight="SemiBold" Foreground="#CCCCCC" Width="74" />
-                                    <TextBlock Text="Triage, answer, file issues; never edits" Foreground="#888888" />
+                                    <TextBlock Text="Product" FontWeight="SemiBold" Foreground="#CCCCCC" Width="104" />
+                                    <TextBlock Text="Scope the work, file the issue; never codes" Foreground="#888888" />
                                 </StackPanel>
                             </ComboBoxItem>
                             <ComboBoxItem Tag="Discuss">
@@ -181,8 +167,40 @@
                                             Padding="6,0" Margin="0,0,8,0" VerticalAlignment="Center">
                                         <TextBlock Text="D" Foreground="#22D3EE" FontSize="10" FontWeight="SemiBold" />
                                     </Border>
-                                    <TextBlock Text="Discuss" FontWeight="SemiBold" Foreground="#CCCCCC" Width="74" />
+                                    <TextBlock Text="Discuss" FontWeight="SemiBold" Foreground="#CCCCCC" Width="104" />
                                     <TextBlock Text="Talk only; never edits or commits" Foreground="#888888" />
+                                </StackPanel>
+                            </ComboBoxItem>
+                            <!-- Advanced/solo divider (issue #259): the single-role types. Developer
+                                 and QA are the halves of Implementation; rarely needed on their own. -->
+                            <ComboBoxItem IsEnabled="False">
+                                <TextBlock Text="ADVANCED - single role, rarely needed solo"
+                                           Foreground="#666666" FontSize="10" FontWeight="SemiBold" />
+                            </ComboBoxItem>
+                            <ComboBoxItem Tag="Developer">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="Developer" FontWeight="SemiBold" Foreground="#CCCCCC" Width="104" Margin="32,0,0,0" />
+                                    <TextBlock Text="Pure code, no QA hat" Foreground="#888888" />
+                                </StackPanel>
+                            </ComboBoxItem>
+                            <ComboBoxItem Tag="QA">
+                                <StackPanel Orientation="Horizontal">
+                                    <Border BorderBrush="#A855F7" BorderThickness="1" CornerRadius="6"
+                                            Padding="6,0" Margin="0,0,8,0" VerticalAlignment="Center">
+                                        <TextBlock Text="Q" Foreground="#A855F7" FontSize="10" FontWeight="SemiBold" />
+                                    </Border>
+                                    <TextBlock Text="QA" FontWeight="SemiBold" Foreground="#CCCCCC" Width="104" />
+                                    <TextBlock Text="Pure verify, never fixes" Foreground="#888888" />
+                                </StackPanel>
+                            </ComboBoxItem>
+                            <ComboBoxItem Tag="Support">
+                                <StackPanel Orientation="Horizontal">
+                                    <Border BorderBrush="#10B981" BorderThickness="1" CornerRadius="6"
+                                            Padding="6,0" Margin="0,0,8,0" VerticalAlignment="Center">
+                                        <TextBlock Text="S" Foreground="#10B981" FontSize="10" FontWeight="SemiBold" />
+                                    </Border>
+                                    <TextBlock Text="Support" FontWeight="SemiBold" Foreground="#CCCCCC" Width="104" />
+                                    <TextBlock Text="Triage incoming requests, file issues" Foreground="#888888" />
                                 </StackPanel>
                             </ComboBoxItem>
                         </ComboBox>

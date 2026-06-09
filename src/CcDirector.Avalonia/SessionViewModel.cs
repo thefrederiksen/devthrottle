@@ -273,9 +273,10 @@ public class SessionViewModel : INotifyPropertyChanged
     private static readonly ISolidColorBrush IssueSubmitterTypeBrush = new SolidColorBrush(Color.FromRgb(0xF5, 0x9E, 0x0B)); // amber (#225, legacy - hidden in #254 but kept so old sessions still paint)
     private static readonly ISolidColorBrush QaTypeBrush = new SolidColorBrush(Color.FromRgb(0xA8, 0x55, 0xF7));            // violet (#225)
     private static readonly ISolidColorBrush SupportTypeBrush = new SolidColorBrush(Color.FromRgb(0x10, 0xB9, 0x81));        // emerald (#254)
+    private static readonly ISolidColorBrush ImplementationTypeBrush = new SolidColorBrush(Color.FromRgb(0x14, 0xB8, 0xA6)); // teal (#259)
 
     /// <summary>True only for non-default types - drives the badge's IsVisible. The default
-    /// Developer type (#254, formerly Implement) carries no rail badge.</summary>
+    /// Developer type (#254, formerly Implement) carries no rail badge; Implementation (#259) does.</summary>
     public bool ShowSessionTypeBadge => Session.SessionType != SessionType.Developer;
 
     public string SessionTypeLabel => Session.SessionType switch
@@ -285,6 +286,7 @@ public class SessionViewModel : INotifyPropertyChanged
         SessionType.IssueSubmitter => "[S] Issue Submitter",
         SessionType.QA => "[Q] QA",
         SessionType.Support => "[S] Support",
+        SessionType.Implementation => "[I] Implementation",
         _ => ""
     };
 
@@ -294,6 +296,7 @@ public class SessionViewModel : INotifyPropertyChanged
         SessionType.IssueSubmitter => IssueSubmitterTypeBrush,
         SessionType.QA => QaTypeBrush,
         SessionType.Support => SupportTypeBrush,
+        SessionType.Implementation => ImplementationTypeBrush,
         _ => DiscussTypeBrush
     };
 
@@ -304,6 +307,7 @@ public class SessionViewModel : INotifyPropertyChanged
         SessionType.IssueSubmitter => "Issue-submitter session - files GitHub issues only, never writes code",
         SessionType.QA => "QA session - verifies what was built, never fixes; reports findings",
         SessionType.Support => "Support session - triage and answer, file issues for real bugs, never edits code",
+        SessionType.Implementation => "Implementation session - builds AND verifies in one session (dev<->QA loop); owns the working tree",
         _ => ""
     };
 
