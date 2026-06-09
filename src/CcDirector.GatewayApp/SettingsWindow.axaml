@@ -2,7 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="CcDirector.GatewayApp.SettingsWindow"
         Title="CC Director Gateway"
-        Width="480" Height="600"
+        Width="480" Height="680"
         CanResize="False"
         WindowStartupLocation="CenterScreen"
         RequestedThemeVariant="Dark"
@@ -28,7 +28,9 @@
       </StackPanel>
     </DockPanel>
 
-    <!-- Body -->
+    <!-- Body: scrolls when content (wrapped status values, long install paths) exceeds
+         the fixed-height window, so it can never overlap the docked footer buttons. -->
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
     <StackPanel Spacing="16" Margin="0,18,0,0">
 
       <!-- Status panel: this window is now a pure status light. All configuration
@@ -110,5 +112,6 @@
       </StackPanel>
 
     </StackPanel>
+    </ScrollViewer>
   </DockPanel>
 </Window>
