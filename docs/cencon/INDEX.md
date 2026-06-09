@@ -8,7 +8,7 @@
 
 ## Overview
 
-CC Director is a Windows desktop application (Avalonia; the original WPF UI is archived) for managing multiple Claude Code CLI sessions simultaneously. It provides multi-session management, real-time activity tracking, session persistence, embedded console hosting, git integration, and voice mode. Each Director also runs a loopback HTTP **Control API**, and a per-machine **Gateway** publishes the local Directors over the owner's Tailscale tailnet for remote/mobile access. A background **scheduler** (single-leader across Directors) fires comm-queue runners, and a read-only **Wingman** derives session status from the terminal.
+CC Director is a Windows desktop application (Avalonia; the original WPF UI has been removed) for managing multiple Claude Code CLI sessions simultaneously. It provides multi-session management, real-time activity tracking, session persistence, embedded console hosting, git integration, and voice mode. Each Director also runs a loopback HTTP **Control API**, and a per-machine **Gateway** publishes the local Directors over the owner's Tailscale tailnet for remote/mobile access. A background **scheduler** (single-leader across Directors) fires comm-queue runners, and a read-only **Wingman** derives session status from the terminal.
 
 This document serves as the central reference combining product requirements, system architecture, and security profile.
 
@@ -34,9 +34,9 @@ This document serves as the central reference combining product requirements, sy
 
 ## System Components
 
-### WPF UI Layer (archived/CcDirector.Wpf) - ARCHIVED
+### WPF UI Layer (removed) - HISTORICAL
 
-Superseded by the Avalonia UI; source moved under `archived/` and no longer built into the shipping app. Retained for reference only.
+The original WPF UI (`CcDirector.Wpf`) was superseded by the Avalonia UI and has been removed from the tree. The source remains available in git history if needed for reference.
 
 ### Avalonia UI Layer (CcDirector.Avalonia)
 
@@ -117,9 +117,9 @@ Superseded by the Avalonia UI; source moved under `archived/` and no longer buil
 
 Dependency-free DTOs shared by the Gateway, Control API, and clients (Director/Session/Health metadata; prompt/buffer/wingman/handover/fanout requests and responses; recording manifests; chat/TTS; agent-state records).
 
-### Communication Manager - ARCHIVED (archived/CcDirector.CommunicationManager)
+### Communication Manager - REMOVED (historical)
 
-Standalone WPF queue app, archived. The queue lives on as the Avalonia `CommManagerView` plus the shared `Communications` services in Core, surfaced remotely by the Gateway CommQueue endpoints.
+Standalone WPF queue app (`CcDirector.CommunicationManager`), removed from the tree (available in git history). The queue lives on as the Avalonia `CommManagerView` plus the shared `Communications` services in Core, surfaced remotely by the Gateway CommQueue endpoints.
 
 ### Engine (CcDirector.Engine)
 

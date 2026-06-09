@@ -53,7 +53,7 @@ release and its exact commit.
 **Rules:**
 
 - No `.csproj` may declare its own `<Version>` (a project-level value silently
-  overrides the props file). The only exception is `archived/`.
+  overrides the props file).
 - No version string is ever hardcoded in XAML/Razor/HTML. UIs **read** the
   version from their own assembly at runtime via
   `CcDirector.Core.AppVersion` (or the inline equivalent in projects that do

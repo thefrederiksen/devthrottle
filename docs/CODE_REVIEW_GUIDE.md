@@ -199,7 +199,6 @@ cc-director.sln
 |
 +-- images/                           # Screenshots for README
 +-- CLAUDE.md                         # Project instructions for Claude
-+-- HANDOVER.md                       # Development handover document
 +-- README.md                         # Project overview
 ```
 
