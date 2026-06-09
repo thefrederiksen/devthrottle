@@ -72,24 +72,10 @@ public partial class TalkPage : ContentPage
         ServerEntry.Text = savedServer;
         TokenEntry.Text = Preferences.Get(PrefToken, "");
 
-        // Configure the shared voice control for single-session use. Skip makes no
-        // sense without a queue; ExitButton pops back to the roster; the resting status
-        // line drops "Skip" so the wording matches the visible buttons. The control
-        // tells us what happened via these events:
-        //   - AnswerDelivered: stay on this session (no-op for us)
-        //   - HoldRequested: the session was just parked; pop back to the roster
-        //   - SkipRequested: unreachable here (Skip is hidden) - but wire defensively
-        //   - WingmanAnswered: stay on session (no-op)
-        //   - ExitRequested: user tapped the back button; pop back to the roster
-        Voice.Configure(_recorder, _tts, _foreground, () => TokenEntry.Text ?? "");
-        Voice.ShowSkip = false;
-        Voice.ExitButtonText = "< Back to sessions";
-        Voice.ReadyActionsLine = "Ask Agent, or Hold";
-        Voice.AnswerDelivered += OnVoiceAnswerDelivered;
-        Voice.HoldRequested += OnVoiceHoldRequested;
-        Voice.SkipRequested += OnVoiceHoldRequested;       // defensive
-        Voice.WingmanAnswered += OnVoiceWingmanAnswered;
-        Voice.ExitRequested += OnVoiceExitRequested;
+        // The Voice tab is a self-contained walkie-talkie (see the OnVoice* handlers): it
+        // drives the recorder + transcribe + send + TTS directly, so there is no shared
+        // control to configure here. _tts.PlayingChanged is hooked in OnAppearing to show
+        // the "Stop talking" button only while a reply plays.
     }
 
     protected override void OnAppearing()
@@ -100,7 +86,11 @@ public partial class TalkPage : ContentPage
         DeviceDisplay.Current.KeepScreenOn = true;
         _backgrounded = false;
         HookAppLifecycle();
-        Voice.OnHostAppearing();
+        // Hook reply playback so the "Stop talking" button tracks it (re-subscribe safely
+        // on a background return). Sync the button to the current state.
+        _tts.PlayingChanged -= OnTtsPlayingChanged;
+        _tts.PlayingChanged += OnTtsPlayingChanged;
+        VoiceStopSpeakingButton.IsVisible = _tts.IsPlaying;
         _ = LoadRosterAsync();
 
         // Returning from background onto an open session's Wingman tab: resume the brief
@@ -117,12 +107,12 @@ public partial class TalkPage : ContentPage
         // in both the background and the navigate-away cases. OnAppearing resumes it.
         StopWingmanBriefPoll();
 
-        // Background -> keep voice + foreground service alive so speech continues. Real
-        // navigation away -> tear down the voice control, the terminal stream, and the
-        // foreground service hold.
-        Voice.OnHostDisappearing(_backgrounded);
+        // Background -> keep reply playback + the foreground service alive so the voice keeps
+        // talking (Waze-style). Real navigation away -> tear the voice round-trip down.
         if (_backgrounded) return;
 
+        _tts.PlayingChanged -= OnTtsPlayingChanged;
+        StopVoiceActivity();
         UnhookAppLifecycle();
         UnloadTerminalWebView();
         _foreground.Stop();
@@ -233,39 +223,28 @@ public partial class TalkPage : ContentPage
         TalkSessionState.Text = string.IsNullOrWhiteSpace(session.LastStatusReason)
             ? session.ActivityState : session.LastStatusReason;
 
-        // Reset Wingman + Terminal panels for the new session; they load lazily on tab entry.
+        // Reset the three tab panels for the new session; they load lazily on tab entry.
         TerminalStatusLabel.Text = "";
         WingmanStatusLabel.Text = "";
         WingmanBriefContainer.Children.Clear();
         _lastBrief = null;
         if (WingmanInput is not null) WingmanInput.Text = "";
         if (TerminalInput is not null) TerminalInput.Text = "";
+        ResetVoiceUi();
 
         ListPanel.IsVisible = false;
         TalkPanel.IsVisible = true;
 
-        // The Wingman tab shows the Gateway turn brief, which the Gateway stamps for EVERY
-        // session, so it is always available. The Voice tab auto-speaks that briefing and
-        // only makes sense with wingman (auto-explain) on, so it stays gated; its column
-        // collapses to width 0 when hidden so Wingman + Terminal fill the bar with no gap.
-        VoiceTabButton.IsVisible = session.WingmanEnabled;
+        // All three tabs work on every session now: Voice (walkie-talkie), Wingman (the
+        // Gateway brief, stamped for every session) and Terminal. So all tab buttons show.
+        VoiceTabButton.IsVisible = true;
         WingmanTabButton.IsVisible = true;
-        TabSwitcher.ColumnDefinitions[0].Width =
-            session.WingmanEnabled ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+        TabSwitcher.ColumnDefinitions[0].Width = new GridLength(1, GridUnitType.Star);
 
-        if (!session.WingmanEnabled)
-        {
-            // Wingman-off sessions open on Terminal (their primary view); the Wingman tab
-            // is there to tap for the brief.
-            ShowTab("terminal");
-            return;
-        }
-
-        // Default tab is Voice: hand the session to the shared control which immediately
-        // fetches and speaks the wingman's briefing. The control's LoadSessionAsync also
-        // sets the gateway voice-mode flag so the desktop / web client agree.
-        ShowTab("voice");
-        _ = Voice.LoadSessionAsync(session);
+        // Open a wingman-on session on Voice (the headline) and a wingman-off / freshly
+        // created session on Terminal so the user watches it come alive. Either way the
+        // Voice tab is one tap away.
+        ShowTab(session.WingmanEnabled ? "voice" : "terminal");
     }
 
     // ===== three-tab switcher (Voice / Wingman / Terminal) =================
@@ -276,16 +255,14 @@ public partial class TalkPage : ContentPage
 
     /// <summary>
     /// Swap which inline section is visible and update the segmented control's highlight.
-    /// Starts/stops the Terminal stream on entry/exit; lazily loads the Wingman clean
-    /// output the first time the tab is shown for a session. Voice is the default and is
-    /// the inline shared VoiceSessionView; switching tabs does NOT tear it down, so the
-    /// briefing keeps playing if the user peeks at Wingman or Terminal.
+    /// Starts/stops the Terminal stream on entry/exit; polls the Wingman brief only while
+    /// that tab is shown; stops any voice recording/playback when the Voice tab is left.
     /// </summary>
     private void ShowTab(string tab)
     {
         _activeTab = tab;
 
-        Voice.IsVisible = tab == "voice";
+        VoiceSection.IsVisible = tab == "voice";
         WingmanSection.IsVisible = tab == "wingman";
         TerminalSection.IsVisible = tab == "terminal";
 
@@ -301,6 +278,10 @@ public partial class TalkPage : ContentPage
         {
             UnloadTerminalWebView();
         }
+
+        // Leaving the Voice tab stops an in-flight recording and any reply playback so the
+        // mic/audio never keep running behind another tab.
+        if (tab != "voice") StopVoiceActivity();
 
         // The Wingman tab polls the Gateway for the latest brief while it is the active tab;
         // leaving it stops the poll so we never fetch a brief the user cannot see.
@@ -332,13 +313,8 @@ public partial class TalkPage : ContentPage
     {
         StopWingmanBriefPoll();
         UnloadTerminalWebView();
-        if (_recorder.IsRecording)
-        {
-            try { _ = _recorder.StopAsync(); } catch { /* discarding a half-captured clip on leave */ }
-        }
-        // The Voice control owns TTS, voice-mode flag, and turn cancellation; ClearSession
-        // tears it all down.
-        Voice.ClearSession();
+        // Stop any in-flight recording and reply playback before leaving the session.
+        StopVoiceActivity();
         _selected = null;
         _foreground.Stop();
         TalkPanel.IsVisible = false;
@@ -346,15 +322,176 @@ public partial class TalkPage : ContentPage
         _ = LoadRosterAsync();
     }
 
-    // ===== shared-voice events =============================================
-    // Single-session mode: AnswerDelivered + WingmanAnswered are no-ops (stay on the
-    // session, the control already reset itself for the next turn). HoldRequested and
-    // ExitRequested pop back to the roster.
+    // ===== VOICE tab: walkie-talkie (record -> submit -> send -> speak reply) =====
+    // The big button toggles Record (green) <-> Submit (red). On Submit the clip is
+    // transcribed, sent to the agent, and the agent's reply is spoken aloud + shown. All
+    // self-contained: it drives the recorder, DirectorVoiceClient, and the TTS player.
 
-    private void OnVoiceAnswerDelivered(object? sender, EventArgs e) { /* stay on session */ }
-    private void OnVoiceWingmanAnswered(object? sender, EventArgs e) { /* stay on session */ }
-    private void OnVoiceHoldRequested(object? sender, EventArgs e) => GoBackToRoster();
-    private void OnVoiceExitRequested(object? sender, EventArgs e) => GoBackToRoster();
+    // True while the mic is capturing; true while the whole turn (transcribe/send/speak) runs.
+    private bool _voiceRecording;
+    private bool _voiceTurnBusy;
+
+    private void ResetVoiceUi()
+    {
+        _voiceRecording = false;
+        SetVoiceRecordingUi(false);
+        VoiceStatusLabel.Text = "Tap Record and talk to the agent.";
+        VoiceYouCard.IsVisible = false;
+        VoiceReplyCard.IsVisible = false;
+        VoiceYouLabel.Text = "";
+        VoiceReplyLabel.Text = "";
+    }
+
+    // The "Stop talking" button mirrors reply playback (fired on the main thread).
+    private void OnTtsPlayingChanged(bool playing) => VoiceStopSpeakingButton.IsVisible = playing;
+
+    private void OnVoiceStopSpeakingClicked(object? sender, EventArgs e) => _tts.Stop();
+
+    // Stop an in-flight recording (discarding the clip) and cut any reply playback. Safe to
+    // call when neither is active. Used on tab/page leave.
+    private void StopVoiceActivity()
+    {
+        _tts.Stop();
+        if (_voiceRecording || _recorder.IsRecording)
+        {
+            try { _ = _recorder.StopAsync(); } catch { /* discarding a half-captured clip on leave */ }
+            _voiceRecording = false;
+            SetVoiceRecordingUi(false);
+        }
+    }
+
+    private void SetVoiceRecordingUi(bool recording)
+    {
+        VoiceRecordButton.Text = recording ? "Submit" : "Record";
+        VoiceRecordButton.BackgroundColor = recording ? Color.FromArgb("#E5484D") : Color.FromArgb("#5FD08A");
+        VoiceRecordButton.TextColor = recording ? Colors.White : Color.FromArgb("#06210F");
+        VoiceCancelButton.IsVisible = recording;
+    }
+
+    private async void OnVoiceRecordClicked(object? sender, EventArgs e)
+    {
+        if (_selected is null || _voiceTurnBusy) return;
+
+        if (!_voiceRecording)
+        {
+            // Start capturing.
+            var status = await Permissions.RequestAsync<Permissions.Microphone>();
+            if (status != PermissionStatus.Granted)
+            {
+                await DisplayAlert("Microphone needed",
+                    "CC Director Client needs microphone access to talk to the agent.", "OK");
+                return;
+            }
+            try
+            {
+                _foreground.Start();
+                await _recorder.StartAsync();
+                _voiceRecording = true;
+                SetVoiceRecordingUi(true);
+                VoiceStatusLabel.Text = "Recording... tap Submit when you're done.";
+            }
+            catch (Exception ex)
+            {
+                _foreground.Stop();
+                await DisplayAlert("Recording error", ex.Message, "OK");
+            }
+            return;
+        }
+
+        // Submit: stop capturing and run the turn.
+        UtteranceAudio audio;
+        try
+        {
+            audio = await _recorder.StopAsync();
+        }
+        catch (Exception ex)
+        {
+            _voiceRecording = false;
+            SetVoiceRecordingUi(false);
+            _foreground.Stop();
+            await DisplayAlert("Recording error", ex.Message, "OK");
+            return;
+        }
+        _voiceRecording = false;
+        SetVoiceRecordingUi(false);
+        await RunVoiceTurnAsync(_selected, audio);
+    }
+
+    private async void OnVoiceCancelClicked(object? sender, EventArgs e)
+    {
+        if (!_voiceRecording) return;
+        try { await _recorder.StopAsync(); } catch { /* discard */ }
+        _voiceRecording = false;
+        SetVoiceRecordingUi(false);
+        _foreground.Stop();
+        VoiceStatusLabel.Text = "Tap Record and talk to the agent.";
+    }
+
+    // Transcribe the clip, send it to the agent, follow the turn to completion, then speak
+    // the reply aloud and show it. The foreground service stays up for the whole turn so
+    // capture + playback survive a screen-off.
+    private async Task RunVoiceTurnAsync(SessionInfo session, UtteranceAudio audio)
+    {
+        var gate = OfflineGuard.Check(DeviceOnline, "send your voice message");
+        if (!gate.Allowed) { VoiceStatusLabel.Text = gate.Message; _foreground.Stop(); return; }
+
+        _voiceTurnBusy = true;
+        VoiceRecordButton.IsEnabled = false;
+        try
+        {
+            var client = new DirectorVoiceClient(TokenEntry.Text ?? "");
+
+            VoiceStatusLabel.Text = "Transcribing...";
+            var t = await client.TranscribeUtteranceAsync(
+                session.TailnetEndpoint, session.SessionId, audio.Bytes, audio.Mime);
+            if (string.IsNullOrWhiteSpace(t.Text))
+            {
+                VoiceStatusLabel.Text = "Didn't catch that - tap Record and try again.";
+                return;
+            }
+            VoiceYouLabel.Text = t.Text;
+            VoiceYouCard.IsVisible = true;
+            VoiceReplyCard.IsVisible = false;
+
+            VoiceStatusLabel.Text = "Sending to the agent...";
+            var result = await client.SendChatAsync(session.TailnetEndpoint, session.SessionId, t.Text);
+            while (result.ShouldKeepPolling)
+            {
+                VoiceStatusLabel.Text = "Agent is working...";
+                await Task.Delay(TimeSpan.FromSeconds(3));
+                result = await client.PollChatAsync(session.TailnetEndpoint, session.SessionId, wantProgress: false);
+            }
+
+            // Prefer the concise spoken summary for TTS; show the fuller display text.
+            var shown = !string.IsNullOrWhiteSpace(result.DisplayText) ? result.DisplayText : result.Summary;
+            var spoken = !string.IsNullOrWhiteSpace(result.Summary) ? result.Summary : shown;
+            if (string.IsNullOrWhiteSpace(shown))
+            {
+                VoiceStatusLabel.Text = string.Equals(result.Status, "ok", StringComparison.OrdinalIgnoreCase)
+                    ? "Done - tap Record to reply." : $"Turn ended: {result.Status}";
+                return;
+            }
+
+            VoiceReplyLabel.Text = shown;
+            VoiceReplyCard.IsVisible = true;
+
+            VoiceStatusLabel.Text = "Speaking the reply...";
+            var mp3 = await client.SynthesizeSpeechAsync(session.TailnetEndpoint, spoken);
+            await _tts.PlayAsync(mp3);
+            VoiceStatusLabel.Text = "Tap Record to reply.";
+        }
+        catch (Exception ex)
+        {
+            VoiceStatusLabel.Text = "";
+            await DisplayAlert("Voice error", ex.Message, "OK");
+        }
+        finally
+        {
+            _voiceTurnBusy = false;
+            VoiceRecordButton.IsEnabled = true;
+            _foreground.Stop();
+        }
+    }
 
     // ===== FIFO launcher ===================================================
 

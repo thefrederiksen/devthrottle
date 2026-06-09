@@ -104,10 +104,53 @@
             <!-- Tab content area: all three sections share Row 1 and toggle IsVisible. -->
             <Grid Grid.Row="1">
 
-                <!-- ========== VOICE SECTION: the shared FIFO voice control, pinned-top
-                     buttons + scrolling output. Stay-on-session: AnswerDelivered is a
-                     no-op, HoldRequested pops back to the roster. -->
-                <controls:VoiceSessionView x:Name="Voice" IsVisible="True" />
+                <!-- ========== VOICE SECTION: walkie-talkie. Tap Record, talk, tap Submit;
+                     the words are transcribed and sent to the agent, then the agent's reply
+                     is spoken aloud (OpenAI voice) and shown. Rows: status (Auto), the
+                     you-said / agent-reply transcript (*), and the record controls (Auto). -->
+                <Grid x:Name="VoiceSection" IsVisible="True"
+                      RowDefinitions="Auto,*,Auto" Padding="20,8,20,16" RowSpacing="12">
+
+                    <Label Grid.Row="0" x:Name="VoiceStatusLabel"
+                           Text="Tap Record and talk to the agent." FontSize="14"
+                           TextColor="#8A93A6" HorizontalOptions="Center" HorizontalTextAlignment="Center" />
+
+                    <ScrollView Grid.Row="1">
+                        <VerticalStackLayout Spacing="12">
+                            <Border x:Name="VoiceYouCard" IsVisible="False" BackgroundColor="#0F1626"
+                                    StrokeShape="RoundRectangle 12" Padding="14">
+                                <VerticalStackLayout Spacing="4">
+                                    <Label Text="YOU SAID" FontSize="11" FontAttributes="Bold" TextColor="#37C2B6" />
+                                    <Label x:Name="VoiceYouLabel" Text="" TextColor="#E6EAF2" FontSize="15" />
+                                </VerticalStackLayout>
+                            </Border>
+                            <Border x:Name="VoiceReplyCard" IsVisible="False" BackgroundColor="#0F1626"
+                                    StrokeShape="RoundRectangle 12" Padding="14">
+                                <VerticalStackLayout Spacing="4">
+                                    <Label Text="AGENT" FontSize="11" FontAttributes="Bold" TextColor="#5FD08A" />
+                                    <Label x:Name="VoiceReplyLabel" Text="" TextColor="#E6EAF2" FontSize="15" />
+                                </VerticalStackLayout>
+                            </Border>
+                        </VerticalStackLayout>
+                    </ScrollView>
+
+                    <VerticalStackLayout Grid.Row="2" Spacing="8">
+                        <!-- Shown only while the reply is playing (issue #146 parity). -->
+                        <Button x:Name="VoiceStopSpeakingButton" Text="Stop talking" IsVisible="False"
+                                BackgroundColor="#E5484D" TextColor="White" HeightRequest="44"
+                                CornerRadius="10" Clicked="OnVoiceStopSpeakingClicked" />
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                            <!-- Toggles Record (green) <-> Submit (red) for walkie-talkie capture. -->
+                            <Button Grid.Column="0" x:Name="VoiceRecordButton" Text="Record"
+                                    BackgroundColor="#5FD08A" TextColor="#06210F" HeightRequest="64"
+                                    CornerRadius="14" FontSize="18" FontAttributes="Bold"
+                                    Clicked="OnVoiceRecordClicked" />
+                            <Button Grid.Column="1" x:Name="VoiceCancelButton" Text="Cancel" IsVisible="False"
+                                    BackgroundColor="#1A2236" TextColor="#8A93A6" HeightRequest="64"
+                                    Padding="20,0" CornerRadius="14" Clicked="OnVoiceCancelClicked" />
+                        </Grid>
+                    </VerticalStackLayout>
+                </Grid>
 
                 <!-- ========== WINGMAN SECTION: the structured turn brief =============
                      Renders the Gateway's latest TurnBriefDto verbatim (headline / you're
