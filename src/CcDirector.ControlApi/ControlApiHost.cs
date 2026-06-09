@@ -75,6 +75,7 @@ public sealed class ControlApiHost : IAsyncDisposable
     /// </summary>
     public Task<Gateway.Contracts.DirectorVerifyResultDto?> VerifyGatewayNowAsync(CancellationToken ct = default)
         => _gatewayClient?.VerifyAsync(ct) ?? Task.FromResult<Gateway.Contracts.DirectorVerifyResultDto?>(null);
+
     private TurnSummaryCache? _turnSummaryCache;
     private SessionStatusWingman? _statusWingman;
     private ProactiveExplainService? _proactiveExplain;
@@ -260,7 +261,11 @@ public sealed class ControlApiHost : IAsyncDisposable
         ControlEndpoints.Map(_app, _sessionManager, DirectorId, _version, _requestShutdownAsync, _authEnabled, _repositoryRegistry, _turnSummaryCache, gatewayUrl, _proactiveExplain, GatewayMonitor);
         // Dictation key resolution: the Gateway vault when attached to a Gateway, the local
         // Settings > Voice key when standalone (docs/architecture/gateway/GATEWAY_KEY_VAULT.md).
-        var openAiKeyResolver = new Core.Configuration.OpenAiKeyResolver(_sessionManager.Options, gatewayConfig);
+        // Pass GatewayConfig.Load (not the snapshot above) so the resolver re-reads config.json
+        // on every dictation: a Director that booted standalone and later had a gateway.url
+        // added self-heals into Gateway mode without a restart.
+        var openAiKeyResolver = new Core.Configuration.OpenAiKeyResolver(
+            _sessionManager.Options, Core.Configuration.GatewayConfig.Load);
         DictationEndpoint.Map(_app, _sessionManager.Options, openAiKeyResolver);
         TerminalStreamEndpoint.Map(_app, _sessionManager);
         SessionUsageEndpoint.Map(_app, _sessionManager);

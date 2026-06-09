@@ -18,7 +18,13 @@ namespace CcDirector.Core.Configuration;
 /// or the local setting when standalone. When neither yields a key, dictation is unavailable
 /// and <see cref="UnavailableMessage"/> tells the user where to set it for their mode.
 ///
-/// One resolver is meant to be long-lived (the in-memory cache spans dictation sessions); a
+/// The gateway config is re-read on every resolve (not snapshotted at construction), so a
+/// Director that booted standalone and later had a <c>gateway.url</c> added to config.json
+/// self-heals into Gateway mode without a restart. Caching the mode at startup was a real bug:
+/// a Director started before the gateway block existed stayed standalone forever - it both
+/// showed the wrong "Settings &gt; Voice" message and could never see the Gateway vault key.
+///
+/// One resolver is meant to be long-lived (the in-memory key cache spans dictation sessions); a
 /// fetch is retried after <see cref="InvalidateCache"/>, which callers invoke when the
 /// provider rejects the key (rotation).
 /// </summary>
@@ -29,29 +35,47 @@ public sealed class OpenAiKeyResolver
     private static readonly HttpClient SharedHttp = new() { Timeout = TimeSpan.FromSeconds(10) };
 
     private readonly AgentOptions _options;
-    private readonly GatewayConfig _gateway;
+    private readonly Func<GatewayConfig> _gatewayProvider;
     private readonly HttpClient _http;
     private readonly object _gate = new();
     private string? _cachedGatewayKey;
 
+    /// <summary>
+    /// Primary constructor. <paramref name="gatewayProvider"/> is invoked fresh every time the
+    /// mode or key is resolved, so a config.json change (e.g. a gateway.url added after the
+    /// Director booted) is honored without a restart. Production passes
+    /// <see cref="GatewayConfig.Load"/>; tests pass a closure they can flip.
+    /// </summary>
     /// <param name="options">The running options carrying the local (standalone) key.</param>
-    /// <param name="gateway">Gateway connection config; defaults to <see cref="GatewayConfig.Load"/>.</param>
+    /// <param name="gatewayProvider">Supplies the current gateway config on demand.</param>
     /// <param name="http">HTTP client for the vault fetch (tests inject a stub).</param>
-    public OpenAiKeyResolver(AgentOptions options, GatewayConfig? gateway = null, HttpClient? http = null)
+    public OpenAiKeyResolver(AgentOptions options, Func<GatewayConfig> gatewayProvider, HttpClient? http = null)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
-        _gateway = gateway ?? GatewayConfig.Load();
+        _gatewayProvider = gatewayProvider ?? throw new ArgumentNullException(nameof(gatewayProvider));
         _http = http ?? SharedHttp;
     }
 
+    /// <summary>
+    /// Convenience constructor pinning a FIXED gateway config (tests that assert one mode). When
+    /// <paramref name="gateway"/> is null, falls back to the dynamic <see cref="GatewayConfig.Load"/>.
+    /// </summary>
+    /// <param name="options">The running options carrying the local (standalone) key.</param>
+    /// <param name="gateway">A fixed gateway config, or null to read it live from config.json.</param>
+    /// <param name="http">HTTP client for the vault fetch (tests inject a stub).</param>
+    public OpenAiKeyResolver(AgentOptions options, GatewayConfig? gateway = null, HttpClient? http = null)
+        : this(options, gateway is null ? GatewayConfig.Load : () => gateway, http)
+    {
+    }
+
     /// <summary>True when this Director pulls keys from a Gateway (vs. the local standalone key).</summary>
-    public bool UsesGateway => _gateway.IsEnabled;
+    public bool UsesGateway => _gatewayProvider().IsEnabled;
 
     /// <summary>
     /// The mode-appropriate message to show when no key is available, so the user knows where
     /// to set one.
     /// </summary>
-    public string UnavailableMessage => _gateway.IsEnabled
+    public string UnavailableMessage => _gatewayProvider().IsEnabled
         ? "OpenAI key is not set on the Gateway. Open the Cockpit and set OPENAI_API_KEY under API Keys."
         : "OpenAI key is not set. Open Settings > Voice and add your OpenAI API key.";
 
@@ -61,8 +85,9 @@ public sealed class OpenAiKeyResolver
     /// </summary>
     public async Task<string?> ResolveAsync(CancellationToken ct = default)
     {
-        if (_gateway.IsEnabled)
-            return await ResolveFromGatewayAsync(ct);
+        var gateway = _gatewayProvider();
+        if (gateway.IsEnabled)
+            return await ResolveFromGatewayAsync(gateway, ct);
 
         var local = _options.OpenAiKey;
         return string.IsNullOrWhiteSpace(local) ? null : local.Trim();
@@ -74,7 +99,7 @@ public sealed class OpenAiKeyResolver
         lock (_gate) _cachedGatewayKey = null;
     }
 
-    private async Task<string?> ResolveFromGatewayAsync(CancellationToken ct)
+    private async Task<string?> ResolveFromGatewayAsync(GatewayConfig gateway, CancellationToken ct)
     {
         lock (_gate)
         {
@@ -82,12 +107,12 @@ public sealed class OpenAiKeyResolver
                 return _cachedGatewayKey;
         }
 
-        var url = _gateway.Url.TrimEnd('/') + "/vault/keys/" + KeyName;
+        var url = gateway.Url.TrimEnd('/') + "/vault/keys/" + KeyName;
         try
         {
             using var req = new HttpRequestMessage(HttpMethod.Get, url);
-            if (!string.IsNullOrWhiteSpace(_gateway.Token))
-                req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _gateway.Token);
+            if (!string.IsNullOrWhiteSpace(gateway.Token))
+                req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", gateway.Token);
 
             using var resp = await _http.SendAsync(req, ct);
             if (resp.StatusCode == HttpStatusCode.NotFound)

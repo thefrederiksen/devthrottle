@@ -106,6 +106,28 @@ public sealed class VaultGatewayIntegrationTests : IAsyncLifetime
         Assert.Contains("Settings > Voice", noKey.UnavailableMessage);
     }
 
+    [Fact]
+    public async Task Resolver_re_reads_gateway_config_so_a_late_added_gateway_self_heals()
+    {
+        // The exact production bug: a Director boots STANDALONE (config.json has no gateway.url
+        // yet), then the user adds a gateway block + sets the key in the Cockpit. Dictation must
+        // start working WITHOUT restarting the Director - the resolver re-reads the mode live
+        // rather than snapshotting it at construction.
+        await _http.PutAsJsonAsync("vault/keys/OPENAI_API_KEY", new { value = "sk-late-gateway" });
+
+        var mode = new GatewayConfig();                 // standalone at boot
+        var resolver = new OpenAiKeyResolver(new AgentOptions(), () => mode);
+        Assert.False(resolver.UsesGateway);
+        Assert.Null(await resolver.ResolveAsync());
+        Assert.Contains("Settings > Voice", resolver.UnavailableMessage);
+
+        // config.json gains a gateway block (what writing it later did) - same resolver instance.
+        mode = new GatewayConfig { Url = _gatewayBase, Token = Token };
+        Assert.True(resolver.UsesGateway);
+        Assert.Contains("Cockpit", resolver.UnavailableMessage);
+        Assert.Equal("sk-late-gateway", await resolver.ResolveAsync());
+    }
+
     private static int AllocateFreePort()
     {
         var listener = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
