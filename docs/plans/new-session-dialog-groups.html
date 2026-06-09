@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>New Session dialog redesign - mockup</title>
+<style>
+  :root{
+    --bg:#1b1b1b; --panel:#232323; --panel2:#1e1e1e; --titlebar:#2b2b2b;
+    --text:#cccccc; --muted:#8a8a8a; --line:#3a3a3a; --line2:#444;
+    --accent:#1e9bf0; --accent-dim:#1565c0; --field:#2a2a2a; --fieldline:#3f3f3f;
+    --btn:#3a3a3a; --btn-dis:#2f2f2f;
+    /* type badge colors (match SessionViewModel.cs) */
+    --t-discuss:#22d3ee; --t-bug:#ec4899; --t-submit:#f59e0b; --t-qa:#a855f7;
+    --t-support:#10b981; --t-implement:#9aa0a6;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#0f0f0f;color:var(--text);
+       font-family:"Segoe UI",-apple-system,system-ui,sans-serif;padding:28px;}
+  h1{font-size:22px;font-weight:600;margin:0 0 4px;color:#fff}
+  .sub{color:var(--muted);font-size:13px;margin:0 0 24px}
+  .legend-note{color:var(--muted);font-size:12px;margin:6px 0 22px}
+  .cols{display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start}
+  .col{flex:1 1 520px;min-width:480px}
+  .col h2{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
+          font-weight:600;margin:0 0 10px}
+
+  /* ---- window chrome ---- */
+  .win{background:var(--bg);border:1px solid #000;border-radius:6px;overflow:hidden;
+       box-shadow:0 12px 40px rgba(0,0,0,.55)}
+  .titlebar{background:var(--titlebar);height:34px;display:flex;align-items:center;
+            padding:0 10px;font-size:12.5px;color:#ddd;gap:8px;border-bottom:1px solid #000}
+  .titlebar .ico{width:14px;height:14px;border-radius:3px;
+       background:linear-gradient(135deg,#1e9bf0,#0d6cc0);display:inline-block}
+  .titlebar .spacer{flex:1}
+  .titlebar .winbtn{width:30px;text-align:center;color:#999}
+  .body{padding:18px 22px 20px}
+
+  .tabs{display:flex;gap:26px;border-bottom:1px solid var(--line);margin-bottom:18px}
+  .tab{font-size:18px;font-weight:600;padding:0 0 8px;color:#777;cursor:default}
+  .tab.active{color:#fff;border-bottom:2px solid var(--accent);margin-bottom:-1px}
+
+  .row{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+  .row .lbl{width:64px;color:var(--text);font-size:14px;flex:none}
+  .hint{color:var(--muted);font-size:12px;margin:-6px 0 14px 76px}
+
+  /* radios (BEFORE) */
+  .radio{display:inline-flex;align-items:center;gap:7px;font-size:14px;color:var(--text);cursor:default}
+  .dot{width:15px;height:15px;border-radius:50%;border:2px solid #777;flex:none;position:relative}
+  .dot.on{border-color:var(--accent)}
+  .dot.on::after{content:"";position:absolute;inset:3px;border-radius:50%;background:var(--accent)}
+
+  /* dropdown (AFTER) */
+  .dd{position:relative;display:inline-block;min-width:300px}
+  .dd .field{background:var(--field);border:1px solid var(--fieldline);border-radius:4px;
+       height:34px;display:flex;align-items:center;padding:0 10px;font-size:14px;gap:8px;cursor:pointer}
+  .dd .field .car{margin-left:auto;color:var(--muted)}
+  .dd-menu{position:absolute;top:38px;left:0;right:0;background:#262626;border:1px solid var(--line2);
+       border-radius:5px;box-shadow:0 14px 38px rgba(0,0,0,.6);z-index:5;overflow:hidden;padding:4px 0}
+  .opt{display:flex;align-items:flex-start;gap:10px;padding:8px 12px;cursor:pointer;font-size:13.5px}
+  .opt:hover{background:#30363d}
+  .opt.sel{background:#243447}
+  .opt .meta{display:flex;flex-direction:column;gap:2px}
+  .opt .nm{color:#eee;font-weight:500}
+  .opt .ds{color:var(--muted);font-size:11.5px}
+
+  /* type badge chip */
+  .badge{font-size:11px;font-weight:700;border:1px solid;border-radius:4px;padding:1px 6px;
+         line-height:1.5;white-space:nowrap;background:transparent}
+  .b-impl{color:var(--t-implement);border-color:var(--t-implement)}
+  .b-dev{color:var(--t-implement);border-color:var(--t-implement)}
+  .b-disc{color:var(--t-discuss);border-color:var(--t-discuss)}
+  .b-bug{color:var(--t-bug);border-color:var(--t-bug)}
+  .b-sub{color:var(--t-submit);border-color:var(--t-submit)}
+  .b-qa{color:var(--t-qa);border-color:var(--t-qa)}
+  .b-sup{color:var(--t-support);border-color:var(--t-support)}
+
+  /* repo picker */
+  .search{background:var(--field);border:1px solid var(--fieldline);border-radius:4px;
+          height:34px;display:flex;align-items:center;padding:0 10px;color:var(--muted);font-size:13px;margin-bottom:10px}
+  .grid{border:1px solid var(--line);border-radius:4px;overflow:hidden}
+  .ghead,.grow{display:grid;grid-template-columns:1.2fr 2fr .7fr;font-size:12.5px}
+  .ghead{background:#262626;color:var(--muted);padding:7px 12px;border-bottom:1px solid var(--line)}
+  .grow{padding:9px 12px;color:#bbb;border-bottom:1px solid #2b2b2b}
+  .grow.sel{background:#1d3b5c;color:#fff}
+  .grow .lu{color:var(--muted);text-align:right}
+
+  .checks{margin-top:14px;display:flex;flex-direction:column;gap:9px}
+  .chk{display:flex;align-items:center;gap:9px;font-size:13px}
+  .box{width:15px;height:15px;border:2px solid #777;border-radius:3px;flex:none;position:relative}
+  .box.on{background:var(--accent);border-color:var(--accent)}
+  .box.on::after{content:"";position:absolute;left:4px;top:1px;width:4px;height:8px;
+       border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
+
+  .foot{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}
+  .button{height:32px;padding:0 16px;border-radius:4px;font-size:13px;display:flex;align-items:center;border:1px solid var(--line2)}
+  .b-primary{background:var(--accent-dim);color:#fff;border-color:var(--accent-dim)}
+  .b-ghost{background:var(--btn);color:#ddd}
+
+  /* group expansion card */
+  .expand{margin-top:12px;background:#1d2730;border:1px solid #2c3b46;border-radius:6px;padding:12px 14px}
+  .expand .et{font-size:12px;color:var(--muted);margin-bottom:10px;text-transform:uppercase;letter-spacing:.06em}
+  .member{display:flex;align-items:center;gap:10px;padding:6px 0;font-size:13.5px;border-bottom:1px solid #243039}
+  .member:last-child{border-bottom:0}
+  .member .role{width:96px;color:#fff;font-weight:600}
+  .member .sname{color:var(--muted);font-family:Consolas,monospace;font-size:12.5px}
+  .arrow{color:#566; margin:0 4px}
+
+  /* legend */
+  .legend{margin-top:34px;border-top:1px solid var(--line);padding-top:20px}
+  .legend h2{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 14px}
+  .ltable{display:grid;grid-template-columns:120px 150px 1fr;gap:0;font-size:13px;
+          border:1px solid var(--line);border-radius:6px;overflow:hidden;max-width:900px}
+  .ltable .lh{background:#262626;color:var(--muted);padding:8px 12px;font-size:12px;text-transform:uppercase;letter-spacing:.05em}
+  .ltable .lc{padding:9px 12px;border-top:1px solid #2b2b2b;display:flex;align-items:center}
+  .new-tag{font-size:10px;font-weight:700;color:#0f0f0f;background:var(--t-support);border-radius:3px;padding:1px 5px;margin-left:8px}
+
+  .toggle-note{font-size:12px;color:var(--muted);margin:14px 0 0 76px;font-style:italic}
+  .pillrow{display:inline-flex;border:1px solid var(--fieldline);border-radius:5px;overflow:hidden}
+  .pill{padding:7px 16px;font-size:13.5px;color:var(--muted);cursor:pointer;background:var(--field)}
+  .pill.on{background:var(--accent-dim);color:#fff}
+</style>
+</head>
+<body>
+  <h1>New Session dialog &mdash; redesign mockup</h1>
+  <p class="sub">CC Director &middot; cleanup + 4-member Product group. Type picker becomes a dropdown; the Product group grows to Product / Developer / QA / Support.</p>
+  <p class="legend-note">This is a static design mock. Click <b>Single</b> / <b>Group</b> in the AFTER panel to switch the conditional row.</p>
+
+  <div class="cols">
+
+    <!-- ===================== BEFORE ===================== -->
+    <div class="col">
+      <h2>Before (today)</h2>
+      <div class="win">
+        <div class="titlebar"><span class="ico"></span> New Session <span class="spacer"></span>
+          <span class="winbtn">&#8211;</span><span class="winbtn">&#9633;</span><span class="winbtn">&#10005;</span></div>
+        <div class="body">
+          <div class="tabs"><div class="tab active">New Session</div><div class="tab">Resume Session</div></div>
+
+          <div class="row">
+            <span class="lbl">Create:</span>
+            <span class="radio"><span class="dot on"></span> Single session</span>
+            <span class="radio"><span class="dot"></span> Group: Product</span>
+          </div>
+          <div class="row">
+            <span class="lbl">Agent:</span>
+            <span class="radio"><span class="dot on"></span> Claude Code</span>
+            <span class="radio"><span class="dot"></span> Pi</span>
+          </div>
+          <div class="row">
+            <span class="lbl">Type:</span>
+            <span class="radio"><span class="dot on"></span> [I] Implement</span>
+            <span class="radio"><span class="dot"></span> [D] Discuss</span>
+            <span class="radio"><span class="dot"></span> [B] Bug Report</span>
+          </div>
+
+          <div style="margin-top:8px">
+            <div style="font-size:13px;margin-bottom:8px">Select a repository:</div>
+            <div class="search">Search...</div>
+            <div class="grid">
+              <div class="ghead"><span>Name</span><span>Path</span><span class="lu">Last Used</span></div>
+              <div class="grow sel"><span>cc-director</span><span>D:\ReposFred\cc-director</span><span class="lu">1m ago</span></div>
+              <div class="grow"><span>mindzieWeb</span><span>D:\ReposMindzie\mindzieWeb</span><span class="lu">2h ago</span></div>
+            </div>
+          </div>
+
+          <div class="checks">
+            <span class="chk"><span class="box on"></span> Bypass permission prompts</span>
+            <span class="chk"><span class="box"></span> Enable Remote Control</span>
+          </div>
+          <div class="foot">
+            <div class="button b-primary">Start Session</div>
+            <div class="button b-ghost">Cancel</div>
+          </div>
+        </div>
+      </div>
+      <p style="color:var(--muted);font-size:12px;margin-top:10px">
+        Problems: Type is a cramped radio row that only shows 3 of 5 types. "Group: Product"
+        is a radio glued onto the Create line. Product group only spins up 3 sessions.</p>
+    </div>
+
+    <!-- ===================== AFTER ===================== -->
+    <div class="col">
+      <h2>After (proposed)</h2>
+      <div class="win">
+        <div class="titlebar"><span class="ico"></span> New Session <span class="spacer"></span>
+          <span class="winbtn">&#8211;</span><span class="winbtn">&#9633;</span><span class="winbtn">&#10005;</span></div>
+        <div class="body">
+          <div class="tabs"><div class="tab active">New Session</div><div class="tab">Resume Session</div></div>
+
+          <!-- Create toggle -->
+          <div class="row">
+            <span class="lbl">Create:</span>
+            <span class="pillrow">
+              <span class="pill on" id="pillSingle" onclick="setMode('single')">Single session</span>
+              <span class="pill" id="pillGroup" onclick="setMode('group')">Group</span>
+            </span>
+          </div>
+
+          <!-- Agent dropdown -->
+          <div class="row">
+            <span class="lbl">Agent:</span>
+            <div class="dd" style="min-width:220px">
+              <div class="field">Claude Code <span class="car">&#9662;</span></div>
+            </div>
+          </div>
+
+          <!-- Conditional: Type (single) -->
+          <div id="typeBlock">
+            <div class="row">
+              <span class="lbl">Type:</span>
+              <div class="dd">
+                <div class="field"><span class="badge b-impl">&middot;</span> Developer <span class="car">&#9662;</span></div>
+                <div class="dd-menu">
+                  <div class="opt sel"><span class="badge b-impl">&middot;</span><div class="meta"><span class="nm">Developer</span><span class="ds">Write code, fix bugs, ship (default &mdash; no rail badge)</span></div></div>
+                  <div class="opt"><span class="badge b-bug">P</span><div class="meta"><span class="nm">Product</span><span class="ds">Scope the work, file issues for the developer &mdash; never codes</span></div></div>
+                  <div class="opt"><span class="badge b-qa">Q</span><div class="meta"><span class="nm">QA</span><span class="ds">Verify what was built, never fix &mdash; report findings</span></div></div>
+                  <div class="opt"><span class="badge b-sup">S</span><div class="meta"><span class="nm">Support <span class="new-tag">NEW</span></span><span class="ds">Triage incoming requests, file issues &mdash; never fixes</span></div></div>
+                  <div class="opt"><span class="badge b-disc">D</span><div class="meta"><span class="nm">Discuss</span><span class="ds">Talk only &mdash; never edits or commits</span></div></div>
+                </div>
+              </div>
+            </div>
+            <p class="toggle-note">Dropdown shown expanded for the mock &mdash; lists all session types with badge + one-line role.</p>
+          </div>
+
+          <!-- Conditional: Group (group) -->
+          <div id="groupBlock" style="display:none">
+            <div class="row">
+              <span class="lbl">Group:</span>
+              <div class="dd">
+                <div class="field">Product &mdash; 4 sessions <span class="car">&#9662;</span></div>
+              </div>
+            </div>
+            <div class="expand">
+              <div class="et">This group creates 4 tied sessions in the selected repo</div>
+              <div class="member"><span class="badge b-bug">P</span><span class="role">Product</span><span class="arrow">&rarr;</span><span class="sname">cc-director - product</span></div>
+              <div class="member"><span class="badge b-impl">&middot;</span><span class="role">Developer</span><span class="arrow">&rarr;</span><span class="sname">cc-director - developer</span></div>
+              <div class="member"><span class="badge b-qa">Q</span><span class="role">QA</span><span class="arrow">&rarr;</span><span class="sname">cc-director - qa</span></div>
+              <div class="member"><span class="badge b-sup">S</span><span class="role">Support</span><span class="arrow">&rarr;</span><span class="sname">cc-director - support</span></div>
+            </div>
+          </div>
+
+          <!-- repo picker (same as before) -->
+          <div style="margin-top:14px">
+            <div style="font-size:13px;margin-bottom:8px">Select a repository <span style="color:var(--muted)">(the repo decides the product)</span>:</div>
+            <div class="search">Search...</div>
+            <div class="grid">
+              <div class="ghead"><span>Name</span><span>Path</span><span class="lu">Last Used</span></div>
+              <div class="grow sel"><span>cc-director</span><span>D:\ReposFred\cc-director</span><span class="lu">1m ago</span></div>
+              <div class="grow"><span>mindzieWeb</span><span>D:\ReposMindzie\mindzieWeb</span><span class="lu">2h ago</span></div>
+            </div>
+          </div>
+
+          <div class="checks">
+            <span class="chk"><span class="box on"></span> Bypass permission prompts</span>
+            <span class="chk"><span class="box"></span> Enable Remote Control</span>
+            <span class="chk"><span class="box"></span> Wingman (auto-explain on turn-end + Voice tabs)</span>
+          </div>
+          <div class="foot">
+            <div class="button b-primary" id="startBtn">Start Session</div>
+            <div class="button b-ghost">Cancel</div>
+          </div>
+        </div>
+      </div>
+      <p style="color:var(--muted);font-size:12px;margin-top:10px">
+        Single &rarr; one Type dropdown (all types, badge + description). Group &rarr; one Group
+        dropdown; the card previews exactly which sessions get created.</p>
+    </div>
+  </div>
+
+  <!-- ===================== LEGEND ===================== -->
+  <div class="legend">
+    <h2>Session types &mdash; badges &amp; behavior</h2>
+    <div class="ltable">
+      <div class="lh">Badge</div><div class="lh">Type</div><div class="lh">Behavior</div>
+      <div class="lc"><span class="badge b-impl">&middot;</span></div><div class="lc">Developer</div><div class="lc">Write code, fix bugs, ship. Default; no badge on the rail. (was "Implement")</div>
+      <div class="lc"><span class="badge b-bug">P</span></div><div class="lc">Product</div><div class="lc">Scope the work, file issues for the developer to implement. Never codes. (was "Bug Report")</div>
+      <div class="lc"><span class="badge b-qa">Q</span></div><div class="lc">QA</div><div class="lc">Verify against what was asked; report findings, never fix.</div>
+      <div class="lc"><span class="badge b-sup">S</span></div><div class="lc">Support&nbsp;<span class="new-tag">NEW</span></div><div class="lc">Triage incoming questions/support, answer what it can, file issues for real bugs. Never edits code.</div>
+      <div class="lc"><span class="badge b-disc">D</span></div><div class="lc">Discuss</div><div class="lc">Talk only &mdash; never edits or commits.</div>
+    </div>
+    <p style="color:var(--muted);font-size:12px;margin-top:12px;max-width:900px">
+      Five types total. The <b>Product group</b> uses four of them &mdash; <b>Product</b>,
+      <b>Developer</b>, <b>QA</b>, <b>Support</b>; <b>Discuss</b> is single-session only.
+      "Implement" is renamed <b>Developer</b> and "Bug Report" is renamed <b>Product</b>;
+      "Issue Submitter" is dropped, which frees the <b>S</b> badge for Support.</p>
+  </div>
+
+<script>
+  function setMode(m){
+    var single = m==='single';
+    document.getElementById('typeBlock').style.display = single?'block':'none';
+    document.getElementById('groupBlock').style.display = single?'none':'block';
+    document.getElementById('pillSingle').classList.toggle('on',single);
+    document.getElementById('pillGroup').classList.toggle('on',!single);
+    document.getElementById('startBtn').textContent = single?'Start Session':'Start 4 Sessions';
+  }
+</script>
+</body>
+</html>
