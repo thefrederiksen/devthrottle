@@ -76,5 +76,25 @@
                    FontSize="12"
                    HorizontalAlignment="Center"
                    Margin="0,28,0,0" />
+
+        <!-- Uninstall entry (issue #257): shown only when an existing install is detected
+             (update mode). Removes the app, tools, PATH, skills, scheduled tasks, and the
+             Gateway autostart + Tailscale mapping; the user's data is preserved. -->
+        <Button x:Name="UninstallButton"
+                Content="Uninstall CC Director"
+                Style="{StaticResource DangerButton}"
+                HorizontalAlignment="Center"
+                Margin="0,28,0,0"
+                Visibility="Collapsed"
+                Click="UninstallButton_Click" />
+
+        <TextBlock x:Name="UninstallHint"
+                   Text="Removes the app, tools, and integration. Your data (config, vault, sign-ins) is kept."
+                   Foreground="{StaticResource DimText}"
+                   FontSize="11"
+                   TextAlignment="Center"
+                   TextWrapping="Wrap"
+                   Margin="40,8,40,0"
+                   Visibility="Collapsed" />
     </StackPanel>
 </UserControl>

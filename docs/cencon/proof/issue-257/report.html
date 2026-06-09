@@ -40,10 +40,11 @@
     on full-wipe - vault secrets and signed-in browser sessions). This is the user's production machine with
     no isolated VM, so a real run was explicitly deferred. The user directed <b>Phase 1 = engine + CLI inverse
     operations, proven by unit tests + a sandbox (no real uninstall)</b>, with the skill-ownership question
-    resolved by <b>adding an ownership manifest</b>. This report covers Phase 1 only. <b>The whole of #257 is NOT
-    finished</b> - Phase 2 (in-app Tools-&gt;Uninstall UI, Start Menu uninstall shortcut, the install-side
-    Add/Remove Programs registration call-site + skill-manifest write, safe-shutdown roster snapshot, detached
-    self-delete, and the real before/after destructive proof) remains.
+    resolved by <b>adding an ownership manifest</b>, plus - per the maintainer's follow-up - a <b>setup-wizard
+    Uninstall button</b> shown when the wizard detects an existing install. <b>The whole of #257 is NOT finished</b> -
+    still deferred to Phase 2: the in-app Director Tools-&gt;Uninstall menu item, the Start Menu uninstall shortcut,
+    the Add/Remove Programs registration, the safe-shutdown roster snapshot, the detached self-delete, and the real
+    before/after destructive proof (to run on a throwaway machine).
   </div>
 
   <h2>What Phase 1 implemented (engine: <code>tools/cc-director-setup-engine</code>)</h2>
@@ -63,6 +64,26 @@
   </ul>
   <p>The CLI <code>uninstall</code> / <code>uninstall --dry-run</code> command surfaces all of this through the
   existing <code>tools/cc-director-setup-cli</code> path - no CLI code change was needed.</p>
+
+  <h2>Setup-wizard Uninstall button (maintainer follow-up)</h2>
+  <ul>
+    <li><b>Entry point:</b> the existing <code>cc-director-setup</code> wizard. When it runs and
+      <code>InstallDetector.IsInstalled()</code> is true (update mode), the Welcome step now shows an
+      <b>"Uninstall CC Director"</b> button (Fig 2). No Start Menu entry (not wanted yet).</li>
+    <li><b>Behavior:</b> confirm dialog -&gt; <code>Uninstaller.Apply(role)</code> on a background thread -&gt; result
+      dialog. Role auto-detected: Gateway only when a Gateway install is actually present, else Workstation. Data
+      under the per-user root is preserved.</li>
+    <li><b>Install-side recording wired:</b> <code>SkillInstaller</code> now calls
+      <code>SkillManifest.RecordInstalled</code> after a successful skills install, so the Uninstall button actually
+      removes the <code>cc-director</code> skill on a machine installed from this release (older installs have no
+      record yet and report "skills: none recorded").</li>
+  </ul>
+
+  <h2>Fig 2 - The wizard Uninstall button (update mode)</h2>
+  <img src="wizard-uninstall-button.png" alt="Setup wizard Welcome step showing the Uninstall CC Director button"
+       style="max-width:100%;border:1px solid #3c3c3c;border-radius:6px;" />
+  <p class="sub">Live capture of the built wizard on this machine (install detected: v0.6.19). The destructive
+  confirm/Apply path was deliberately NOT triggered here - that is the cross-machine test.</p>
 
   <h2>Acceptance criteria - Phase 1 coverage</h2>
   <table>
