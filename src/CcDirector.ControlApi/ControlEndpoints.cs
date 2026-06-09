@@ -2287,7 +2287,7 @@ internal static class ControlEndpoints
             var sessionType = SessionType.Developer;
             if (!string.IsNullOrWhiteSpace(req.Type)
                 && !SessionTypeNames.TryParse(req.Type, out sessionType))
-                return Results.BadRequest(new { error = $"unknown type: {req.Type}. Valid: Developer, Discuss, Product, QA, Support" });
+                return Results.BadRequest(new { error = $"unknown type: {req.Type}. Valid: Implementation, Developer, Discuss, Product, QA, Support" });
 
             Session session;
             try

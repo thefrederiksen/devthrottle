@@ -84,30 +84,49 @@ public class SessionTypeTests
         Assert.Contains("Developer session", p);            // fixing happens elsewhere
     }
 
-    // ===== Group definitions (issue #225, grown to four members in #254) =====
-
     [Fact]
-    public void ProductGroup_HasFourMembers_InFixedOrder()
+    public void Playbook_Implementation_BuildAndVerifyLoop_Issue259()
     {
-        var product = SessionGroupDefinition.FindBuiltIn("Product");
-        Assert.NotNull(product);
-        Assert.Equal(4, product!.Members.Count);
-        Assert.Equal(SessionType.Product,   product.Members[0].Type);
-        Assert.Equal(SessionType.Developer, product.Members[1].Type);
-        Assert.Equal(SessionType.QA,        product.Members[2].Type);
-        Assert.Equal(SessionType.Support,   product.Members[3].Type);
-        Assert.Equal(" - product",   product.Members[0].NameSuffix);
-        Assert.Equal(" - developer", product.Members[1].NameSuffix);
-        Assert.Equal(" - qa",        product.Members[2].NameSuffix);
-        Assert.Equal(" - support",   product.Members[3].NameSuffix);
+        var p = SessionTypePlaybooks.For(SessionType.Implementation);
+        Assert.NotNull(p);
+        Assert.Contains("IMPLEMENTATION session", p);
+        Assert.Contains("OWN the working tree", p);          // single-tree ownership
+        Assert.Contains("VERIFY", p);                        // the QA half
+        Assert.Contains("re-verify", p, System.StringComparison.OrdinalIgnoreCase); // the loop
+        Assert.Contains("Do NOT hand", p);                   // no separate QA handoff
     }
 
     [Fact]
-    public void ProductGroup_HasNoIssueSubmitter_DroppedIn254()
+    public void ComposeSeed_Implementation_PlaybookThenTask()
+    {
+        var seed = SessionTypePlaybooks.ComposeSeed(SessionType.Implementation, "add the export flag");
+        Assert.NotNull(seed);
+        Assert.StartsWith("This is an IMPLEMENTATION session.", seed);
+        Assert.EndsWith("add the export flag", seed);
+    }
+
+    // ===== Group definitions (issue #225 -> #254 four members -> #259 two members) =====
+
+    [Fact]
+    public void ProductGroup_HasTwoMembers_ProductThenImplementation_Issue259()
     {
         var product = SessionGroupDefinition.FindBuiltIn("Product");
         Assert.NotNull(product);
-        Assert.DoesNotContain(product!.Members, m => m.Type == SessionType.IssueSubmitter);
+        Assert.Equal(2, product!.Members.Count);
+        Assert.Equal(SessionType.Product,        product.Members[0].Type);
+        Assert.Equal(SessionType.Implementation, product.Members[1].Type);
+        Assert.Equal(" - product",        product.Members[0].NameSuffix);
+        Assert.Equal(" - implementation", product.Members[1].NameSuffix);
+    }
+
+    [Fact]
+    public void ProductGroup_DroppedDeveloperQaSupportAndIssueSubmitter_Issue259()
+    {
+        var product = SessionGroupDefinition.FindBuiltIn("Product");
+        Assert.NotNull(product);
+        // Developer + QA merged into Implementation; Support left the group; IssueSubmitter long gone.
+        foreach (var t in new[] { SessionType.Developer, SessionType.QA, SessionType.Support, SessionType.IssueSubmitter })
+            Assert.DoesNotContain(product!.Members, m => m.Type == t);
     }
 
     [Fact]
@@ -204,7 +223,9 @@ public class SessionTypeTests
     [InlineData("Support", SessionType.Support)]
     [InlineData("Discuss", SessionType.Discuss)]
     [InlineData("IssueSubmitter", SessionType.IssueSubmitter)]
-    [InlineData("Implement", SessionType.Developer)]   // legacy alias
+    [InlineData("Implementation", SessionType.Implementation)] // new in #259
+    [InlineData("implementation", SessionType.Implementation)]
+    [InlineData("Implement", SessionType.Developer)]   // legacy alias (NOT Implementation)
     [InlineData("BugReport", SessionType.Product)]     // legacy alias
     [InlineData("developer", SessionType.Developer)]   // case-insensitive
     [InlineData("bugreport", SessionType.Product)]
@@ -289,10 +310,13 @@ public class SessionTypeTests
     [InlineData("Implement", SessionType.Developer)]   // pre-#254 default sessions
     [InlineData("BugReport", SessionType.Product)]     // pre-#254 bug sessions
     [InlineData("IssueSubmitter", SessionType.IssueSubmitter)] // legacy, still loads
-    [InlineData("QA", SessionType.QA)]
+    [InlineData("QA", SessionType.QA)]                 // #254 type, kept solo in #259
+    [InlineData("Developer", SessionType.Developer)]   // #254 type, kept solo in #259
+    [InlineData("Support", SessionType.Support)]       // #254 type, kept solo in #259
+    [InlineData("Implementation", SessionType.Implementation)] // new in #259, round-trips
     public void PersistedSession_LegacyTypeName_StillDeserializes(string storedName, SessionType expected)
     {
-        // AC6: every session persisted under a prior type name still loads after the #254 rename.
+        // AC6 (#254) + #259: every session persisted under any prior OR current type name still loads.
         var tempFile = Path.Combine(Path.GetTempPath(), $"test_store_{Guid.NewGuid()}.json");
         try
         {

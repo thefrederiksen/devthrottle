@@ -46,22 +46,21 @@ public sealed class SessionGroupDefinition
     public List<SessionGroupMember> Members { get; set; } = new();
 
     /// <summary>
-    /// The built-in group presets. The FIRST shipped group is the Product group
-    /// (issue #225, grown to four members in #254): Product -> Developer -> QA -> Support,
-    /// in that fixed order - the four roles of the CenCon development workflow.
+    /// The built-in group presets. The Product group (issue #225; four members in #254;
+    /// shrunk to TWO in #259) is Product -> Implementation, in that fixed order. Developer
+    /// and QA merged into the single Implementation session (build&lt;-&gt;verify loop) and
+    /// Support left the group - all three stay selectable solo, just not grouped.
     /// </summary>
     public static IReadOnlyList<SessionGroupDefinition> BuiltIn { get; } = new[]
     {
         new SessionGroupDefinition
         {
             Name = "Product",
-            Description = "Product + Developer + QA + Support - four tied sessions in one repo.",
+            Description = "Product + Implementation - two tied sessions in one repo.",
             Members = new List<SessionGroupMember>
             {
-                new(SessionType.Product,   " - product",   "Product"),
-                new(SessionType.Developer, " - developer", "Developer"),
-                new(SessionType.QA,        " - qa",        "QA"),
-                new(SessionType.Support,   " - support",   "Support"),
+                new(SessionType.Product,        " - product",        "Product"),
+                new(SessionType.Implementation, " - implementation", "Implementation"),
             },
         },
     };

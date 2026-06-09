@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Developer Agent Proof - Issue #259</title>
+<style>
+  :root { --bg:#1e1e1e; --panel:#252526; --border:#3c3c3c; --fg:#cccccc; --muted:#888888; --ok:#22c55e; --teal:#14b8a6; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font-family:Segoe UI, system-ui, sans-serif; line-height:1.5; }
+  .wrap { max-width:1040px; margin:0 auto; padding:32px 24px 80px; }
+  h1 { font-size:24px; margin:0 0 4px; }
+  h2 { font-size:18px; margin:32px 0 10px; border-bottom:1px solid var(--border); padding-bottom:6px; }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:20px; }
+  .badge { display:inline-block; padding:2px 10px; border-radius:6px; font-size:12px; font-weight:600; }
+  .b-ok { background:#1b3a2a; color:var(--ok); border:1px solid var(--ok); }
+  .chip { display:inline-block; border:1px solid var(--teal); color:var(--teal); border-radius:6px; padding:0 6px; font-size:11px; font-weight:700; }
+  table { border-collapse:collapse; width:100%; margin:12px 0; font-size:14px; }
+  th, td { border:1px solid var(--border); padding:8px 10px; text-align:left; vertical-align:top; }
+  th { background:var(--panel); }
+  code { background:#2d2d30; padding:1px 5px; border-radius:4px; font-family:Cascadia Mono, Consolas, monospace; font-size:12px; }
+  img { max-width:100%; border:1px solid var(--border); border-radius:6px; margin:8px 0; background:#000; }
+  .fig { color:var(--muted); font-size:12px; margin:0 0 18px; }
+  ul { margin:6px 0; } li { margin:3px 0; }
+  .done { background:var(--panel); border:1px solid var(--ok); border-radius:8px; padding:16px 18px; margin-top:28px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Developer Agent - Proof Report</h1>
+  <div class="sub">
+    Issue #259 - New Session dialog: merge Developer + QA into one Implementation session (revises #254)<br/>
+    Branch <code>feat/issue-259-implementation-merge</code> &middot; CenCon Development Method &middot;
+    Result: <span class="badge b-ok">ALL ACCEPTANCE CRITERIA MET</span>
+  </div>
+
+  <h2>What was implemented</h2>
+  <ul>
+    <li><b>New session type</b> <span class="chip">I</span> <code>SessionType.Implementation = 6</code> - builds AND
+      verifies in one session (the developer&lt;-&gt;QA loop), owns the working tree. Its playbook drives
+      write -&gt; verify -&gt; fix -&gt; re-verify. (<code>SessionType.cs</code>)</li>
+    <li><b>Type picker reordered</b> - Implementation is the default; primary list = Implementation / Product /
+      Discuss, then an <b>"ADVANCED - single role"</b> divider, then Developer / QA / Support (kept selectable
+      solo). (<code>NewSessionDialog.axaml</code>)</li>
+    <li><b>Product group 4 -&gt; 2</b> - now Product + Implementation, fixed order, <code>- product</code> /
+      <code>- implementation</code> suffixes. (<code>SessionGroupDefinition.cs</code>)</li>
+    <li><b>Rail badge</b> - <span class="chip">I</span> Implementation in teal <code>#14B8A6</code>; Developer keeps
+      its prior no-badge default. (<code>SessionViewModel.cs</code> + group preview)</li>
+    <li><b>"Start N Sessions" button</b> - the start button reflects the group size (2). (<code>NewSessionDialog.axaml.cs</code>)</li>
+    <li><b>CenCon doc</b> - <code>DEVELOPMENT_METHOD.md</code> now describes Developer + QA as roles inside one
+      Implementation session and softens the SOC 2 "separate QA identity" line to role separation.</li>
+    <li><b>Back-compat</b> - stable integer values + the existing alias converter; old <code>Developer</code>/
+      <code>QA</code>/<code>Support</code> and the #254 <code>Implement</code>/<code>BugReport</code> still load.
+      Note <code>"Implement"</code> (legacy alias -&gt; Developer) is NOT confused with <code>"Implementation"</code>.</li>
+  </ul>
+
+  <h2>Acceptance criteria - evidence</h2>
+  <table>
+    <tr><th>Criterion</th><th>Result / proof</th></tr>
+    <tr><td>Type picker: Implementation default + Product/Discuss primary, Developer/QA/Support under an Advanced divider</td>
+      <td><span class="badge b-ok">PASS</span> Fig 1 - live dropdown open.</td></tr>
+    <tr><td>Group "Product" previews exactly 2 (Product, Implementation); button reads "Start 2 Sessions"</td>
+      <td><span class="badge b-ok">PASS</span> Fig 2.</td></tr>
+    <tr><td>Creating the Product group makes <code>&lt;repo&gt; - product</code> + <code>&lt;repo&gt; - implementation</code> with correct types</td>
+      <td><span class="badge b-ok">PASS</span> Fig 3 + API: both share groupId <code>6d07ebbb-...</code>, types Product/Implementation.</td></tr>
+    <tr><td>Implementation playbook = build-then-verify loop + single-tree ownership</td>
+      <td><span class="badge b-ok">PASS</span> test <code>Playbook_Implementation_BuildAndVerifyLoop_Issue259</code> + a live Implementation session was created via the API.</td></tr>
+    <tr><td>Old type names still load (Developer/QA/Support + #254 Implement/BugReport)</td>
+      <td><span class="badge b-ok">PASS</span> theory <code>PersistedSession_LegacyTypeName_StillDeserializes</code> + <code>SessionTypeNames_TryParse_AcceptsCanonicalAndLegacy</code>.</td></tr>
+    <tr><td><span class="chip">I</span> teal badge on the rail; Developer keeps prior treatment</td>
+      <td><span class="badge b-ok">PASS</span> Fig 3 - "Z - Implementation [I]" teal badge.</td></tr>
+    <tr><td><code>DEVELOPMENT_METHOD.md</code> = Developer+QA as roles in one Implementation session, no separate QA identity</td>
+      <td><span class="badge b-ok">PASS</span> three targeted edits to the topology + SOC 2 lines.</td></tr>
+    <tr><td>Unit tests (group=2 in order; ComposeSeed; serialization + legacy alias)</td>
+      <td><span class="badge b-ok">PASS</span> 50/50 in the change's area (SessionType + GroupReorder + TurnBrief). Avalonia builds 0/0.</td></tr>
+  </table>
+
+  <h2>Fig 1 - Type dropdown (Implementation default + Advanced divider)</h2>
+  <img src="ac1-type-dropdown.png" alt="Type dropdown showing Implementation default, Product, Discuss, Advanced divider, Developer, QA, Support" />
+  <p class="fig">Implementation is selected (teal, default). Primary: Implementation / Product / Discuss. Below the "ADVANCED - single role, rarely needed solo" divider: Developer / QA / Support. No IssueSubmitter.</p>
+
+  <h2>Fig 2 - Group mode: 2-member preview + "Start 2 Sessions"</h2>
+  <img src="ac2-group-preview.png" alt="Group mode showing Product + Implementation preview and Start 2 Sessions button" />
+  <p class="fig">The Product group now creates two tied sessions; the start button reads "Start 2 Sessions".</p>
+
+  <h2>Fig 3 - Rail: solo Implementation badge + the 2-member Product group</h2>
+  <img src="ac3-group-rail.png" alt="Rail showing Z - Implementation [I] and the PRODUCT GROUP with product + implementation" />
+  <p class="fig">"Z - Implementation [I]" carries the teal badge. The PRODUCT GROUP bracket holds <code>cc-director - product</code> [P] and <code>cc-director - implementation</code> [I], adjacent.</p>
+
+  <h2>Verification method</h2>
+  <ul>
+    <li>Built slot-5 (<code>cc-director5.exe</code>), launched via the <code>cc-director-launch</code> scheduled task (clean parentage).</li>
+    <li>Created an Implementation session via the Control API (proving the API accepts the new type), then drove the dialog via UI Automation to open the Type dropdown, switch to Group mode, and invoke "Start 2 Sessions" on <code>cc-director</code>.</li>
+    <li>Cleaned up: closed the test sessions and stopped only <code>cc-director5.exe</code> (path-confirmed).</li>
+  </ul>
+
+  <h2>CenCon impact</h2>
+  <p>This change updates <code>docs/cencon/DEVELOPMENT_METHOD.md</code> in the same commit (the session topology
+  moved from four sessions to Product + Implementation + Support, with Developer/QA as roles inside Implementation).
+  The four roles and the <code>flow:*</code> labels are unchanged; no architecture_manifest / security_profile drift.</p>
+
+  <div class="done">
+    <b>I believe this is finished.</b> Implementation is the default type and the Product group's second member,
+    the picker and group preview match the mockup, the rail shows the teal [I] badge, old sessions still load,
+    the CenCon doc reflects the new topology, the build is clean, and the unit tests pass. Ready for QA.
+  </div>
+</div>
+</body>
+</html>

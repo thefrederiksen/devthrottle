@@ -22,8 +22,11 @@ When you sit down at cc-director, you do not start editing files. You start a wo
 it clearly defined, and then you let the Developer Agent and QA Agent carry it the rest of the way.
 This is not optional guidance - it is the method the repository enforces.
 
-The four agents are not hypothetical: they are the four running cc-director sessions
-(product / developer / QA / support). cc-director is the runtime of its own development method.
+The four agents are not hypothetical, but they no longer map one-to-one onto running sessions
+(issue #259): the **Developer and QA roles run inside a single Implementation session** that loops
+build&lt;-&gt;verify, alongside a **Product** session and a **Support** session. The four roles and
+the `flow:*` labels are unchanged; what changed is the session topology. cc-director is the runtime
+of its own development method.
 
 ---
 
@@ -49,10 +52,13 @@ The only work that may happen without an issue:
 
 ## 3. The Four Agents
 
-Each agent is a single-purpose Claude Code session (one of the four running cc-director sessions).
-Agents do not talk directly; they hand work down the line by changing the `flow:*` label on the
-issue. Between work items, an agent's memory is cleared so no context bleeds from the last ticket
-into the next (Section 7).
+Each agent is a single-purpose role. Product and Support are their own Claude Code sessions; the
+Developer and QA roles run together inside one **Implementation** session (issue #259) that loops
+build&lt;-&gt;verify in place rather than handing off between two sessions. Roles hand work down the
+line by changing the `flow:*` label on the issue - between separate sessions explicitly, and within
+the Implementation session as an internal `flow:ready-dev` -&gt; `flow:ready-qa` loop. Between work
+items, an agent's memory is cleared so no context bleeds from the last ticket into the next
+(Section 7).
 
 ### 3.1 Product Agent
 
@@ -80,8 +86,10 @@ into the next (Section 7).
 
 - **Job:** Loop over `flow:ready-qa` issues, verify each independently with proof, pass or fail.
 - **Independence:** Verifies actual behavior in the running app - it does not trust the Developer
-  Agent's report. (SOC 2 separation of duties; the QA session is a different identity from the
-  developer session.)
+  Agent's report. (SOC 2 separation of duties is preserved as ROLE separation: when Developer and QA
+  run inside one Implementation session (#259), the QA pass is still performed deliberately and
+  independently against what was asked - verify, fix, re-verify - never a rubber-stamp of the code
+  just written.)
 - **Fail path:** Labels `flow:qa-failed`, writes WHY, returns to Developer.
 - **Pass path:** Labels `flow:done`, closes the issue, links the QA proof report.
 - **Never stops on its own** - it takes the next QA item until the queue is empty.

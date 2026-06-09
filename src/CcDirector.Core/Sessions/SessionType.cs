@@ -50,8 +50,15 @@ public enum SessionType
     /// <summary>Triage and file, never fix (issue #254): handle incoming questions and support
     /// requests, answer what can be answered directly, and for real bugs or feature gaps file a
     /// GitHub issue complete enough for a Developer session to pick up cold. Never edits code.
-    /// The Product group's support member.</summary>
+    /// Kept selectable solo (#259); no longer part of the Product group.</summary>
     Support = 5,
+
+    /// <summary>Build AND verify in ONE session (issue #259, the design of record): owns the
+    /// working tree, runs the developer&lt;-&gt;QA loop internally (write code, then verify against
+    /// what was asked, fix what fails, re-verify) until the task is done. Replaces the separate
+    /// Developer + QA sessions of #254; it is the picker default and the Product group's second
+    /// member. Developer and QA remain defined for solo use and back-compat.</summary>
+    Implementation = 6,
 }
 
 /// <summary>
@@ -181,6 +188,17 @@ public static class SessionTypePlaybooks
             "session to pick up cold: the symptom, reproduction steps, evidence (file:line), and what a " +
             "good outcome looks like. Triage first, answer what you can, file the rest - fixing happens " +
             "in a separate Developer session.",
+
+        SessionType.Implementation =>
+            "This is an IMPLEMENTATION session. You OWN the working tree, the build, and the running app " +
+            "for this task - you are the only agent editing this checkout, so there is no other session " +
+            "to coordinate with. Run the build<->verify loop in ONE session: first write the code to " +
+            "satisfy the request; then put on the QA hat and VERIFY it against what was actually asked - " +
+            "reproduce the behavior, check the acceptance criteria, probe edge cases, build it, and run " +
+            "the app. Fix whatever fails and re-verify; loop until it genuinely passes. Do NOT hand the " +
+            "verify step to a separate QA session - it happens here, with full context. When it builds " +
+            "clean and you have proven it does what was asked, you are done: state plainly what you " +
+            "verified and how.",
 
         _ => null,
     };

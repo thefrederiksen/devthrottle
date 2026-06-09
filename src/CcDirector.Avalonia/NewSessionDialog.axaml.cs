@@ -333,6 +333,7 @@ public sealed class GroupMemberPreview
     private static readonly ISolidColorBrush SupportBrush = new SolidColorBrush(Color.FromRgb(0x10, 0xB9, 0x81));   // emerald
     private static readonly ISolidColorBrush DiscussBrush = new SolidColorBrush(Color.FromRgb(0x22, 0xD3, 0xEE));   // cyan
     private static readonly ISolidColorBrush LegacyBrush = new SolidColorBrush(Color.FromRgb(0xF5, 0x9E, 0x0B));    // amber
+    private static readonly ISolidColorBrush ImplementationBrush = new SolidColorBrush(Color.FromRgb(0x14, 0xB8, 0xA6)); // teal (#259)
 
     public GroupMemberPreview(SessionGroupMember member)
     {
@@ -345,6 +346,7 @@ public sealed class GroupMemberPreview
             SessionType.QA => "[Q] QA",
             SessionType.Support => "[S] Support",
             SessionType.Discuss => "[D] Discuss",
+            SessionType.Implementation => "[I] Implementation",
             SessionType.IssueSubmitter => "[S] Issue Submitter",
             _ => member.Type.ToString(),
         };
@@ -354,6 +356,7 @@ public sealed class GroupMemberPreview
             SessionType.QA => QaBrush,
             SessionType.Support => SupportBrush,
             SessionType.Discuss => DiscussBrush,
+            SessionType.Implementation => ImplementationBrush,
             SessionType.IssueSubmitter => LegacyBrush,
             _ => DeveloperBrush,
         };
@@ -424,7 +427,8 @@ public partial class NewSessionDialog : Window
                 && item.Tag is string tag
                 && SessionTypeNames.TryParse(tag, out var type))
                 return type;
-            return SessionType.Developer;
+            // The picker defaults to Implementation (#259); a missing/divider selection falls back to it.
+            return SessionType.Implementation;
         }
     }
 
@@ -447,6 +451,8 @@ public partial class NewSessionDialog : Window
             TypePickerPanel.IsVisible = !groupMode;
         if (GroupPickerPanel is not null)
             GroupPickerPanel.IsVisible = groupMode;
+        // Refresh the Start button so it shows "Start N Sessions" / "Start Session" (issue #259).
+        UpdateActionButton();
     }
 
     /// <summary>Render the preview card for the selected group: exactly which member sessions
@@ -460,6 +466,8 @@ public partial class NewSessionDialog : Window
         GroupPreviewList.ItemsSource = group?.Members
             .Select(m => new GroupMemberPreview(m))
             .ToList();
+        // The chosen group's size drives the "Start N Sessions" button text (issue #259).
+        UpdateActionButton();
         FileLog.Write($"[NewSessionDialog] GroupCombo_SelectionChanged: group={group?.Name}, members={group?.Members.Count ?? 0}");
     }
 
@@ -632,11 +640,18 @@ public partial class NewSessionDialog : Window
 
     private void UpdateActionButton()
     {
+        // The Single/Group toggle's IsChecked fires during XAML init, before the controls
+        // below it (BtnAction etc.) exist; bail until the UI is fully built (issue #259).
+        if (BtnAction is null || MainTabs is null || BtnCopyHandover is null)
+            return;
+
         BtnCopyHandover.IsVisible = MainTabs.SelectedIndex == 2 && HandoverList.SelectedItem != null;
 
         if (MainTabs.SelectedIndex == 0)
         {
-            BtnAction.Content = "Start Session";
+            // In Group mode the button reflects how many sessions get created (issue #259).
+            var group = SelectedGroupDefinition;
+            BtnAction.Content = group is not null ? $"Start {group.Members.Count} Sessions" : "Start Session";
             var isEnabled = !string.IsNullOrWhiteSpace(PathInput.Text);
             BtnAction.IsEnabled = isEnabled;
             BtnAction.Background = isEnabled ? NewSessionButtonBrush : DisabledButtonBrush;
