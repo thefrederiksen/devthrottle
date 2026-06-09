@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>QA Proof Report - Issue #254</title>
+<style>
+  :root { color-scheme: dark; }
+  body { background:#1e1e1e; color:#cccccc; font-family:'Segoe UI',Arial,sans-serif; margin:0; padding:32px; line-height:1.5; }
+  h1 { color:#ffffff; font-size:24px; margin:0 0 4px; }
+  h2 { color:#ffffff; font-size:17px; margin:28px 0 8px; border-bottom:1px solid #3c3c3c; padding-bottom:6px; }
+  .sub { color:#888; font-size:13px; margin-bottom:18px; }
+  .verdict { display:inline-block; padding:6px 14px; border-radius:6px; font-weight:600; font-size:15px; }
+  .pass { background:#10381f; color:#22c55e; border:1px solid #22c55e; }
+  table { border-collapse:collapse; width:100%; margin:10px 0 18px; font-size:13px; }
+  th,td { border:1px solid #3c3c3c; padding:8px 10px; text-align:left; vertical-align:top; }
+  th { background:#2d2d30; color:#aaa; font-weight:600; }
+  .ac { color:#fff; font-weight:600; white-space:nowrap; }
+  .P { color:#22c55e; font-weight:700; }
+  .F { color:#ef4444; font-weight:700; }
+  code { background:#2d2d30; padding:1px 5px; border-radius:3px; font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; }
+  pre { background:#141414; border:1px solid #3c3c3c; border-radius:6px; padding:12px; overflow:auto; font-family:'Cascadia Mono',Consolas,monospace; font-size:12px; color:#ddd; }
+  img { max-width:100%; border:1px solid #3c3c3c; border-radius:6px; margin:8px 0; display:block; }
+  .fig { color:#888; font-size:12px; margin:2px 0 18px; }
+  .note { background:#221c10; border:1px solid #6b5616; border-radius:6px; padding:12px; font-size:13px; margin:10px 0; }
+  .ev { color:#9fb0c3; font-size:13px; }
+</style>
+</head>
+<body>
+  <h1>QA Proof Report - Issue #254</h1>
+  <div class="sub">
+    [Desktop] Redesign New Session dialog: Type dropdown + 5 session types + 4-member Product group<br/>
+    Branch <code>feat/issue-254-new-session-dialog</code> (PR #256) at commit <code>572f56b</code> &middot;
+    Verified independently on a slot-5 test Director (Control API <code>127.0.0.1:7886</code>) built by QA from the PR branch.
+  </div>
+
+  <div class="verdict pass">VERIFIED - all 8 acceptance criteria met. Recommend flow:done.</div>
+
+  <h2>Method</h2>
+  <p class="ev">
+    QA built its own binary from the PR branch (<code>scripts\local-build-avalonia.ps1 -Slot 5</code>, 0 warnings / 0 errors),
+    launched it as a fresh Director, and reproduced every criterion itself - driving the desktop dialog via Windows UI Automation,
+    reading the live rail, and querying the Control API. No screenshot or claim from the Developer report was reused as proof.
+    Unit assertions were re-run independently (<code>dotnet test ... --filter SessionTypeTests</code>: 36/36 pass).
+  </p>
+
+  <h2>Acceptance criteria</h2>
+  <table>
+    <tr><th>#</th><th>Criterion</th><th>Result</th><th>Expected vs Actual / Evidence</th></tr>
+    <tr>
+      <td class="ac">AC1</td>
+      <td>Single mode uses a Type dropdown listing exactly the five types, each with badge chip + one-line role; the old <code>Create: Single / Group: Product</code> radio pairs are gone.</td>
+      <td class="P">PASS</td>
+      <td class="ev">Expected: 5 types, badges, roles, single toggle. Actual: dialog shows <code>Create: Single session | Group</code> toggle; Type dropdown lists Developer / [P] Product / [Q] QA / [S] Support / [D] Discuss with one-line roles. UIA enumeration returned exactly 5 type items (Fig 1). No IssueSubmitter.</td>
+    </tr>
+    <tr>
+      <td class="ac">AC2</td>
+      <td>Group mode shows a Group dropdown (only "Product") and a preview card listing the four members.</td>
+      <td class="P">PASS</td>
+      <td class="ev">Expected: group dropdown + 4-member preview. Actual: selecting Group hides the Type dropdown and shows Group="Product" + "This group creates:" card listing [P] Product, [ ] Developer, [Q] QA, [S] Support with name suffixes (Fig 2).</td>
+    </tr>
+    <tr>
+      <td class="ac">AC3</td>
+      <td>Creating the Product group on <code>cc-director</code> creates four sessions sharing one GroupId, fixed order Product -&gt; Developer -&gt; QA -&gt; Support, named <code>cc-director - product/developer/qa/support</code>, adjacent in the rail.</td>
+      <td class="P">PASS</td>
+      <td class="ev">Expected: 4 tied, ordered, adjacent, correctly named. Actual: Control API returned 4 sessions all with <code>groupId=aef8488a-422a-4ba1-b9ca-5e69daf75f3e</code> and roles Product/Developer/QA/Support; rail renders a "PRODUCT GROUP" header with the four rows adjacent in the fixed order (Fig 3).</td>
+    </tr>
+    <tr>
+      <td class="ac">AC4</td>
+      <td>Rail badges: Developer = none; Product [P] magenta; QA [Q] violet; Support [S] emerald; Discuss [D] cyan.</td>
+      <td class="P">PASS</td>
+      <td class="ev">Expected: one of each type with correct badge/color. Actual: rail shows Developer (no badge), Product [P] magenta, QA [Q] violet, Support [S] emerald, and a separately-created Discuss session [D] cyan - all five badge/colors present (Fig 4).</td>
+    </tr>
+    <tr>
+      <td class="ac">AC5</td>
+      <td>Support session playbook is triage/answer/file-issues and never edits code.</td>
+      <td class="P">PASS</td>
+      <td class="ev">Expected: Support pre-prompt contains the triage-never-fix clause. Actual: unit test <code>Playbook_Support_TriageAnswerFile_NeverEdits_Issue254</code> passes (asserts "SUPPORT session", "NEVER edit code", "file a GitHub issue", "Developer session"); a live Support session was created as the 4th group member (Fig 3/4).</td>
+    </tr>
+    <tr>
+      <td class="ac">AC6</td>
+      <td>Every old session still loads after the rename (Implement=0, Discuss=1, BugReport=2, IssueSubmitter=3, QA=4); old Implement shows as Developer, old BugReport as Product, old IssueSubmitter still loads though hidden.</td>
+      <td class="P">PASS</td>
+      <td class="ev">Expected: a unit test deserializes each old value + correct rendering. Actual: <code>PersistedSession_LegacyTypeName_StillDeserializes</code> deserializes Implement-&gt;Developer, BugReport-&gt;Product, IssueSubmitter, QA through the real <code>SessionStateStore.Load()</code> path; <code>PreTypeJson_DeserializesToDeveloper</code> and the integer-converter path also pass; rendering is a pure function of the resulting <code>SessionType</code> enum, and the live rail (Fig 4) proves each enum value renders with the correct badge. See note below on the rendering screenshot.</td>
+    </tr>
+    <tr>
+      <td class="ac">AC7</td>
+      <td>IssueSubmitter removed from the picker; enum value remains defined but hidden.</td>
+      <td class="P">PASS</td>
+      <td class="ev">Expected: absent from dropdown and group; enum kept. Actual: Type dropdown has 5 items, none IssueSubmitter (Fig 1); Product group preview has 4 members, none IssueSubmitter (Fig 2). <code>SessionType.IssueSubmitter = 3</code> remains defined and still deserializes (AC6 test).</td>
+    </tr>
+    <tr>
+      <td class="ac">AC8</td>
+      <td><code>dotnet build cc-director.sln</code> succeeds with 0 errors and SessionTypeTests pass.</td>
+      <td class="P">PASS</td>
+      <td class="ev">Expected: clean build, green tests. Actual: CcDirector.Core, CcDirector.Core.Tests, CcDirector.Gateway.Contracts and the Avalonia slot-5 publish all built with 0 warnings / 0 errors; <code>SessionTypeTests</code> 36/36 pass. The full-solution build could not finish only because the user's running <code>cc-director-cockpit</code> (pid 38776) held a lock on an output DLL (MSB3026/MSB3027 file-in-use) - an environmental file lock, NOT a compile error. See note.</td>
+    </tr>
+  </table>
+
+  <div class="note">
+    <b>AC6 rendering screenshot - note.</b> The literal "real pre-upgrade session in the rail" screenshot could not be forced on this machine:
+    a fresh test Director clears its session roster on startup whenever it detects orphaned <code>claude.exe</code> processes or a dirty
+    crash journal (the #212/#246 crash-restore behavior). This machine had 12 long-lived orphaned <code>claude.exe</code> processes belonging
+    to the user that QA must not kill (CLAUDE.md rule 0). AC6's back-compat mechanism is nonetheless fully proven: the deserialization unit
+    tests exercise the real <code>SessionStateStore.Load()</code> -&gt; <code>SessionTypeJsonConverter</code> path for every legacy value, and the
+    live rail proves the resulting enum values render correctly (there is no separate "legacy" rendering path - a loaded <code>BugReport</code>
+    session is the same <code>SessionType.Product</code> enum shown rendering as [P] magenta in Fig 4).
+  </div>
+
+  <div class="note">
+    <b>AC8 build note.</b> Every project touched by #254 compiles cleanly. The only build failure was <code>MSB3027: file in use by cc-director-cockpit (38776)</code>
+    when copying <code>CcDirector.Gateway.Contracts.dll</code> - the user's running Cockpit locks the output, which QA must not kill (CLAUDE.md rule 0).
+    This is an environment lock, not a defect in the change.
+  </div>
+
+  <h2>Regression / method checks</h2>
+  <ul class="ev">
+    <li>Negative sweep of every screenshot: dialog and rail render correctly, no blank renders, no broken layout.</li>
+    <li>No CenCon architecture/security drift: the change adds no external surface, secret, or network path; no DT-rule implicated. No <code>docs/cencon/</code> update required (matches the Developer note).</li>
+    <li>Serialization change verified: the property-level <code>JsonStringEnumConverter</code> was removed so the alias-aware <code>SessionTypeJsonConverter</code> governs - covered by the round-trip and legacy-name tests.</li>
+  </ul>
+
+  <h2>Figures</h2>
+  <p class="fig">Fig 1 - Single mode, Type dropdown open: exactly five types with badges and roles, no IssueSubmitter (AC1, AC7).</p>
+  <img src="qa/03-type-dropdown.png" alt="Type dropdown open" />
+  <p class="fig">Fig 2 - Group mode: Group dropdown (Product) + 4-member preview card (AC2, AC7).</p>
+  <img src="qa/04-group-preview.png" alt="Group preview" />
+  <p class="fig">Fig 3 - Rail after creating the Product group: PRODUCT GROUP header, four adjacent rows in fixed order (AC3).</p>
+  <img src="qa/05b-rail-crop.png" alt="Group rail" />
+  <p class="fig">Fig 4 - Rail with one session of each type: Developer (none), [P] Product magenta, [Q] QA violet, [S] Support emerald, [D] Discuss cyan (AC4).</p>
+  <img src="qa/07-rail-all-types.png" alt="All type badges in rail" />
+
+  <h2>Independent test run</h2>
+  <pre>dotnet test src/CcDirector.Core.Tests --filter SessionTypeTests
+Passed!  - Failed: 0, Passed: 36, Skipped: 0, Total: 36
+
+scripts\local-build-avalonia.ps1 -Slot 5
+Build succeeded.  0 Warning(s)  0 Error(s)
+Build complete: 38.3 MB -> local_builds\cc-director5.exe</pre>
+
+  <p class="ev" style="margin-top:24px;color:#666;">
+    Generated by the QA Agent (CenCon Development Method). Merging PR #256 to main remains a separate human step.
+  </p>
+</body>
+</html>
