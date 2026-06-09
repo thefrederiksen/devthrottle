@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Settings: before / after - CC Director</title>
+<style>
+  :root{--bg:#0B1020;--panel:#141B2E;--panel2:#1B2540;--ink:#E6EAF2;--muted:#8A93A6;
+        --line:#27324d;--green:#5FD08A;--blue:#5B8DEF;--amber:#E8B339;--red:#E5484D;}
+  *{box-sizing:border-box}
+  body{margin:0;background:#070A14;color:var(--ink);font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.5}
+  .frame{max-width:1500px;margin:0 auto;padding:24px 20px 80px}
+  .frame > h1{font-size:24px;margin:0 0 4px}
+  .frame > p.lead{color:var(--muted);font-size:14px;margin:0 0 24px;max-width:900px}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:22px;align-items:start}
+  .col > .tag{display:inline-block;font-size:12px;font-weight:700;letter-spacing:.08em;
+        padding:4px 10px;border-radius:999px;margin-bottom:12px;text-transform:uppercase}
+  .tag.before{background:#3a1d20;color:#f0a3a6;border:1px solid #5a2a2d}
+  .tag.after{background:#163524;color:#8fe3b3;border:1px solid #265a3c}
+  .col > p.note{color:var(--muted);font-size:13px;margin:0 0 16px}
+
+  /* tray window mock */
+  .tray{background:#1E1E1E;border:1px solid #333;border-radius:6px;width:100%;max-width:440px;
+        box-shadow:0 14px 40px rgba(0,0,0,.5);overflow:hidden;margin-bottom:18px}
+  .tray .bar{background:#2b2b2b;padding:7px 12px;display:flex;align-items:center;gap:8px;font-size:12px;color:#bbb;border-bottom:1px solid #333}
+  .tray .bar .dotrow{margin-left:auto;display:flex;gap:6px}
+  .tray .bar .dotrow i{width:10px;height:10px;border-radius:999px;display:inline-block;background:#444}
+  .tray .body{padding:16px}
+  .tray h3{font-size:16px;margin:0;color:#ccc;font-weight:600}
+  .tray .ver{font-size:11px;color:#888;margin:2px 0 14px}
+  .tray .box{background:#252526;border-radius:3px;padding:12px;margin-bottom:12px}
+  .tray .box h4{font-size:10px;letter-spacing:.06em;color:#888;margin:0 0 9px;font-weight:600}
+  .tray .kv{display:grid;grid-template-columns:110px 1fr;font-size:12px;margin-bottom:5px}
+  .tray .kv .k{color:#aaa} .tray .kv .v{color:#ccc}
+  .tray .v.bad{color:#E5484D} .tray .v.good{color:#5FD08A}
+  .tray .btn{display:inline-block;background:#3C3C3C;color:#ccc;border:1px solid #4a4a4a;border-radius:2px;padding:6px 12px;font-size:12px;margin-top:4px}
+  .tray .btn.primary{background:#007ACC;color:#fff;border-color:#007ACC}
+  .tray .help{font-size:10px;color:#666;margin:8px 0 0;line-height:1.4}
+  .tray .chk{font-size:12px;color:#ccc;display:flex;align-items:center;gap:8px}
+  .tray .chk input{accent-color:#007ACC}
+
+  .arrowdown{text-align:center;color:#555;font-size:13px;margin:4px 0 14px}
+
+  /* cockpit settings page mock */
+  .cockpit{background:var(--bg);border:1px solid var(--line);border-radius:12px;overflow:hidden;box-shadow:0 14px 40px rgba(0,0,0,.5)}
+  .cockpit .ck-bar{background:#0d1326;padding:8px 14px;font-size:12px;color:var(--muted);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px}
+  .cockpit .ck-bar .url{font-family:ui-monospace,Consolas,monospace;color:#9fb0d8}
+  .cockpit .ck-body{padding:22px 22px 26px}
+  .ck-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+  .ck-top h2{font-size:24px;margin:0}
+  .ck-top a{color:var(--blue);text-decoration:none;font-size:13px}
+  .ck-sub{color:var(--muted);font-size:13.5px;margin:0 0 18px;max-width:640px}
+  .section{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin:13px 0}
+  .section h3{font-size:15px;margin:0 0 2px}
+  .section .hint{color:var(--muted);font-size:12.5px;margin:0 0 12px}
+  .status{display:inline-flex;align-items:center;gap:8px;font-size:13.5px;margin-bottom:12px}
+  .dot{width:9px;height:9px;border-radius:999px;display:inline-block}
+  .dot.set{background:var(--green)} .dot.unset{background:var(--amber)} .dot.dead{background:var(--red)}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .ipt{flex:1;min-width:220px;background:#0B1020;color:var(--muted);border:1px solid var(--line);border-radius:8px;padding:9px 12px;font-size:13.5px;font-family:ui-monospace,Consolas,monospace}
+  .btn{background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:9px 15px;font-size:13.5px;cursor:default}
+  .btn.save{background:#1f7a47;border-color:#2a9c5b;color:#fff}
+  .btn.warn{color:var(--amber);border-color:#5a4a1f}
+  .ck-kv{display:grid;grid-template-columns:130px 1fr;font-size:13.5px;gap:2px 0}
+  .ck-kv .k{color:var(--muted)} .ck-kv .v{color:var(--ink)}
+  .ck-kv .v.mono{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+  .ck-kv .v.dead{color:var(--red)}
+  .pill{display:inline-block;font-size:11px;padding:2px 8px;border-radius:999px;background:#23314d;color:#9fb0d8;margin-left:8px}
+  .links{display:flex;flex-wrap:wrap;gap:10px;margin-top:4px}
+  .links a{display:inline-flex;align-items:center;gap:8px;background:var(--panel2);border:1px solid var(--line);
+        border-radius:10px;padding:10px 14px;color:var(--ink);text-decoration:none;font-size:13.5px;min-width:150px}
+  .links a .sub{color:var(--muted);font-size:11.5px;display:block}
+  .chk2{display:inline-flex;align-items:center;gap:9px;font-size:13.5px;color:var(--ink)}
+  .chk2 input{accent-color:var(--blue);width:16px;height:16px}
+  .callout{background:#10182e;border:1px solid var(--line);border-left:3px solid var(--blue);
+        border-radius:8px;padding:12px 14px;font-size:13px;color:#c3cde6;margin-top:16px}
+  .nav-note{background:#10182e;border:1px dashed #2f4a7a;border-radius:8px;padding:10px 13px;font-size:12.5px;color:#9fb0d8;margin:14px 0}
+  .crossed{color:#c98;}
+</style>
+</head>
+<body>
+<div class="frame">
+  <h1>Settings consolidation &mdash; before / after</h1>
+  <p class="lead">Goal: one place for settings, in the Cockpit, and stop splitting them between the tray window and an orphaned web page.
+     Real data from your machine (v0.6.15, port 7878, 3 Directors, brain DEAD, Cockpit on :7470).</p>
+
+  <div class="cols">
+
+    <!-- ===================== BEFORE ===================== -->
+    <div class="col">
+      <span class="tag before">Before &mdash; today</span>
+      <p class="note">Two disconnected places. The tray window is status-only. The one real settings page (API Keys) is not linked from anywhere &mdash; you can only reach it by typing <code>/keys</code>.</p>
+
+      <div class="tray">
+        <div class="bar">CC Director Gateway <span class="dotrow"><i></i><i></i><i></i></span></div>
+        <div class="body">
+          <h3>CC Director Gateway</h3>
+          <div class="ver">v0.6.15+a51c67cfee9f5c87afd50f71186f205445ea88a2</div>
+
+          <div class="box">
+            <h4>STATUS</h4>
+            <div class="kv"><span class="k">State</span><span class="v">Running</span></div>
+            <div class="kv"><span class="k">Port</span><span class="v">7878</span></div>
+            <div class="kv"><span class="k">Uptime</span><span class="v">30m 24s</span></div>
+            <div class="kv"><span class="k">Directors</span><span class="v">3</span></div>
+            <div class="kv"><span class="k">Cockpit</span><span class="v">reachable on :7470</span></div>
+            <div class="kv"><span class="k">Mode</span><span class="v">managed</span></div>
+          </div>
+
+          <div class="box">
+            <h4>BRAIN</h4>
+            <div class="kv"><span class="k">State</span><span class="v bad">DEAD (Exited 1)</span></div>
+            <div class="kv"><span class="k">Model</span><span class="v">opus</span></div>
+            <div class="kv"><span class="k">Session</span><span class="v">09b9d393-... (pid 78824)</span></div>
+            <span class="btn">Restart Brain</span>
+          </div>
+
+          <div class="box">
+            <h4>STARTUP</h4>
+            <label class="chk"><input type="checkbox" checked disabled> Start the Gateway when I log in</label>
+          </div>
+        </div>
+      </div>
+
+      <div class="nav-note">
+        Meanwhile, <b>API Keys</b> (your OpenAI key for dictation) lives at a separate web URL
+        <code>/keys</code> that <b>nothing links to</b>. The Cockpit dashboard has no Settings entry at all.
+        That is why it feels like the settings vanished.
+      </div>
+    </div>
+
+    <!-- ===================== AFTER ===================== -->
+    <div class="col">
+      <span class="tag after">After &mdash; proposed</span>
+      <p class="note">One Settings page in the Cockpit holds everything. The tray window shrinks to live status + a single button that opens it. Nothing is hidden behind a URL you have to memorize.</p>
+
+      <!-- slimmed tray -->
+      <div class="tray">
+        <div class="bar">CC Director Gateway <span class="dotrow"><i></i><i></i><i></i></span></div>
+        <div class="body">
+          <h3>CC Director Gateway</h3>
+          <div class="ver">v0.6.15 &middot; Running &middot; 3 Directors &middot; up 30m</div>
+
+          <div class="box">
+            <h4>STATUS</h4>
+            <div class="kv"><span class="k">State</span><span class="v good">Running on :7878</span></div>
+            <div class="kv"><span class="k">Cockpit</span><span class="v good">reachable on :7470</span></div>
+            <div class="kv"><span class="k">Brain</span><span class="v bad">DEAD &mdash; open Settings to restart</span></div>
+          </div>
+
+          <span class="btn primary">Open Settings in Cockpit &rarr;</span>
+          <p class="help">All configuration now lives in the Cockpit. This window just shows whether the Gateway is alive.
+            Open Logs / Open Config still here for quick disk access.</p>
+        </div>
+      </div>
+
+      <div class="arrowdown">the button opens &darr;</div>
+
+      <!-- cockpit settings page -->
+      <div class="cockpit">
+        <div class="ck-bar">&#128274; <span class="url">soren-north.taildb08ed.ts.net/settings</span></div>
+        <div class="ck-body">
+          <div class="ck-top">
+            <h2>Settings</h2>
+            <a>&larr; Dashboard</a>
+          </div>
+          <p class="ck-sub">Everything that configures the Gateway and the fleet, in one place. Settings here apply to every Director connected to this Gateway.</p>
+
+          <!-- API keys -->
+          <div class="section">
+            <h3>API Keys</h3>
+            <p class="hint">Stored once on the Gateway, pulled on demand by every Director. Never shown back, never written to a Director's disk.</p>
+            <div class="status"><span class="dot set"></span><span>OPENAI_API_KEY is set</span></div>
+            <div class="row">
+              <span class="ipt">Enter a new key to replace it</span>
+              <span class="btn save">Save</span>
+              <span class="btn warn">Remove</span>
+            </div>
+          </div>
+
+          <!-- brain -->
+          <div class="section">
+            <h3>Brain <span class="pill">warm claude.exe</span></h3>
+            <p class="hint">A hosted claude.exe used by Gateway agents. Model pinned via <code>brain_model</code>; change applies on next Gateway restart.</p>
+            <div class="status"><span class="dot dead"></span><span>DEAD (Exited 1) &mdash; restart to recover</span></div>
+            <div class="ck-kv">
+              <span class="k">Model</span><span class="v">opus</span>
+              <span class="k">Session</span><span class="v mono">09b9d393-a551-4d55-b4af-d41a2037d7fe (pid 78824)</span>
+            </div>
+            <div class="row" style="margin-top:12px"><span class="btn save">Restart Brain</span></div>
+          </div>
+
+          <!-- gateway -->
+          <div class="section">
+            <h3>Gateway</h3>
+            <div class="ck-kv">
+              <span class="k">State</span><span class="v">Running</span>
+              <span class="k">Port</span><span class="v mono">7878</span>
+              <span class="k">Cockpit</span><span class="v mono">:7470 (reachable)</span>
+              <span class="k">Mode</span><span class="v">managed (supervises Cockpit, auto-updates)</span>
+              <span class="k">Uptime</span><span class="v">30m 24s</span>
+              <span class="k">Version</span><span class="v mono">v0.6.15+a51c67c</span>
+              <span class="k">Directors</span><span class="v">3 connected</span>
+            </div>
+          </div>
+
+          <!-- startup -->
+          <div class="section">
+            <h3>Startup</h3>
+            <p class="hint">Registers a Run entry under HKCU so the Gateway starts in your session when you log in.</p>
+            <label class="chk2"><input type="checkbox" checked> Start the Gateway when I log in</label>
+          </div>
+
+          <!-- the orphaned pages, now reachable -->
+          <div class="section">
+            <h3>Files &amp; data</h3>
+            <p class="hint">The tool pages that used to be unlinked &mdash; now they have a home.</p>
+            <div class="links">
+              <a>Voice transcripts<span class="sub">/transcripts</span></a>
+              <a>Dictation dictionary<span class="sub">/dictionary</span></a>
+              <a>Builds<span class="sub">/exes</span></a>
+              <a>Open Logs folder<span class="sub">local disk</span></a>
+              <a>Open Config folder<span class="sub">local disk</span></a>
+            </div>
+          </div>
+
+          <div class="callout">
+            One URL to remember. The tray window points here; the dashboard gets a <b>Settings</b> link in its nav.
+            No more "where are the settings".
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</body>
+</html>
