@@ -2422,11 +2422,23 @@ internal static class ControlEndpoints
 
             try
             {
-                await sessionManager.KillSessionAsync(guid);
-                // Kill AND remove: without removal the dead session lingered as a zombie row
-                // in every roster (status Exited but still listed), was persisted at Director
-                // shutdown, and RESURRECTED on relaunch. DELETE means gone - same as the
-                // desktop's close flow, which has always paired kill with removal.
+                // Kill best-effort, then ALWAYS remove. The kill and the removal used to be two
+                // separate statements: if the kill threw (e.g. a broken pipe while sending Ctrl+C
+                // to an already-dying process), removal was skipped and the row was orphaned -
+                // claude gone, but the session still listed ("two sessions, one with no claude").
+                try
+                {
+                    await sessionManager.KillSessionAsync(guid);
+                }
+                catch (Exception killEx) when (killEx is not KeyNotFoundException)
+                {
+                    // The process may have already exited. That is not a reason to leave a zombie
+                    // row, so log and fall through to removal: DELETE always means gone - same as
+                    // the desktop's close flow, which has always paired kill with removal.
+                    // (KeyNotFoundException is let through to the outer 404 handler below.)
+                    FileLog.Write($"[ControlEndpoints] DELETE /sessions/{sid}: kill raised (process likely already gone): {killEx.Message}");
+                }
+
                 sessionManager.RemoveSession(guid);
                 return Results.Json(new { killed = true, removed = true });
             }

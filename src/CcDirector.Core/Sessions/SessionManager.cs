@@ -65,8 +65,75 @@ public sealed class SessionManager : IDisposable
     /// can announce sessions they created without going through CreateSession overloads.</summary>
     public void RaiseSessionCreated(Session session)
     {
+        // Every creation route (UI, web Control API, restore) funnels through here, so this
+        // is the one place to wire process-exit reaping for ALL sessions. Reaping removes a
+        // cleanly-exited session so it does not linger as a dead row with no process behind it
+        // (the "two sessions in the desktop, one with no claude" symptom). One-shot + idempotent
+        // downstream, so a duplicate announce of the same session does no harm.
+        WireSessionReaper(session);
+
         try { OnSessionCreated?.Invoke(session); }
         catch (Exception ex) { _log?.Invoke($"OnSessionCreated handler threw: {ex.Message}"); }
+    }
+
+    /// <summary>
+    /// Grace period between a clean process exit and reaping the session, so the final
+    /// terminal output flushes, the clean exit is briefly visible, and any explicit
+    /// DELETE racing the same exit settles first.
+    /// </summary>
+    internal int CleanExitReapDelayMs { get; set; } = 3000;
+
+    /// <summary>
+    /// Whether a process exit should reap (auto-remove) the session. Reap only local
+    /// interactive agent sessions that exited cleanly (code 0): a non-zero/abnormal exit
+    /// is left in place so the user sees it died and crash recovery (#212) can act, and
+    /// remote/embedded backends are never auto-removed on completion. Pure + static so it
+    /// is unit-testable without spawning a process.
+    /// </summary>
+    public static bool ShouldReapOnExit(SessionBackendType backendType, int exitCode)
+    {
+        if (exitCode != 0) return false;
+        // ConPty is the local interactive PTY session on every OS (the Unix PTY backend
+        // is still tracked under the ConPty enum value); Pipe is the per-prompt local
+        // process. Remote (GitHubActions), Studio and Embedded are never auto-reaped.
+        return backendType is SessionBackendType.ConPty or SessionBackendType.Pipe;
+    }
+
+    /// <summary>Subscribe a session's one-shot exit signal to the reaper.</summary>
+    private void WireSessionReaper(Session session)
+    {
+        session.OnExited += exitCode => OnSessionProcessExited(session, exitCode);
+    }
+
+    /// <summary>
+    /// React to a session's process exiting on its own (not via an explicit DELETE/close):
+    /// reap cleanly-exited local sessions after a short grace delay; keep everything else.
+    /// </summary>
+    private void OnSessionProcessExited(Session session, int exitCode)
+    {
+        if (!ShouldReapOnExit(session.BackendType, exitCode))
+        {
+            _log?.Invoke($"Session {session.Id} exited (code={exitCode}, backend={session.BackendType}); keeping row for recovery.");
+            return;
+        }
+
+        _log?.Invoke($"Session {session.Id} exited cleanly; reaping in {CleanExitReapDelayMs}ms.");
+        _ = ReapAfterDelayAsync(session.Id);
+    }
+
+    private async Task ReapAfterDelayAsync(Guid id)
+    {
+        if (CleanExitReapDelayMs > 0)
+            await Task.Delay(CleanExitReapDelayMs).ConfigureAwait(false);
+
+        // Re-check under the live dictionary: an explicit DELETE may have already removed it,
+        // or a restart may have replaced it with a live process. Only reap a session that is
+        // still tracked and still exited.
+        if (_sessions.TryGetValue(id, out var session) && session.Status == SessionStatus.Exited)
+        {
+            _log?.Invoke($"Reaping cleanly-exited session {id}.");
+            RemoveSession(id);
+        }
     }
 
     /// <summary>Create a new ConPty session that spawns claude.exe in the given repo path.</summary>
@@ -641,6 +708,19 @@ public sealed class SessionManager : IDisposable
                     : null,
             })
             .ToList();
+    }
+
+    /// <summary>
+    /// Adopt an already-constructed session into tracking, wiring it exactly as the
+    /// create/restore paths do (added to the roster, announced via
+    /// <see cref="RaiseSessionCreated"/>, which also wires process-exit reaping).
+    /// Internal seam for tests that need a session with a controllable backend in the
+    /// live roster - production code uses the typed CreateSession/Restore overloads.
+    /// </summary>
+    internal void AdoptSession(Session session)
+    {
+        _sessions[session.Id] = session;
+        RaiseSessionCreated(session);
     }
 
     /// <summary>Restore a single persisted embedded session into tracking.

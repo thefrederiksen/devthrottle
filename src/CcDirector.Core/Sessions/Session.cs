@@ -317,6 +317,14 @@ public sealed class Session : IDisposable
     /// <summary>Fires when ActivityState changes. Args: (oldState, newState).</summary>
     public event Action<ActivityState, ActivityState>? OnActivityStateChanged;
 
+    /// <summary>
+    /// Fires exactly once when the underlying process exits, carrying the exit code.
+    /// Lets the <see cref="SessionManager"/> reap a session whose agent process died on
+    /// its own (clean exit) so it does not linger as a dead "Exited" row with no process
+    /// behind it. Abnormal exits are deliberately left in place for crash recovery (#212).
+    /// </summary>
+    public event Action<int>? OnExited;
+
     // ---------- Wingman turn briefing (TURN_BRIEFING.md; orthogonal to ActivityState) ----------
 
     /// <summary>
@@ -1680,7 +1688,19 @@ public sealed class Session : IDisposable
         // Process exit is an authoritative, transport-independent signal - drive the
         // state directly so it works in both terminal-driven and hook modes.
         SetActivityState(ActivityState.Exited);
+
+        // Announce the exit exactly once (a backend could theoretically raise its
+        // ProcessExited more than once). This is an event-raise on a backend thread,
+        // so guard it: a faulting subscriber must not kill the exit-monitor thread.
+        if (!_exitNotified)
+        {
+            _exitNotified = true;
+            try { OnExited?.Invoke(exitCode); }
+            catch (Exception ex) { FileLog.Write($"[Session] OnExited handler threw: {ex.Message}"); }
+        }
     }
+
+    private bool _exitNotified;
 
     private void OnBackendStatusChanged(string status)
     {
