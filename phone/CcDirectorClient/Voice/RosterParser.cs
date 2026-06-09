@@ -55,6 +55,36 @@ public static class RosterParser
         return result;
     }
 
+    /// <summary>
+    /// Parse a single SessionDto object (e.g. the body returned by
+    /// POST /directors/{id}/sessions) into a <see cref="SessionInfo"/>. Unlike
+    /// <see cref="Parse"/> this does NOT drop by state - a freshly-created session is
+    /// still starting up and must be returned so the caller can open it. The owning
+    /// Director's <see cref="SessionInfo.TailnetEndpoint"/> is generally absent on a
+    /// create response (it is stamped by the Gateway roster aggregation, not by the
+    /// Director), so the caller should stamp it from the Director it created on.
+    /// Throws on malformed JSON.
+    /// </summary>
+    public static SessionInfo ParseOne(string json)
+    {
+        var d = JsonSerializer.Deserialize<RosterDto>(json, Opts)
+                ?? throw new JsonException("create-session response was not a JSON object");
+        return new SessionInfo
+        {
+            SessionId = d.SessionId ?? "",
+            Name = d.Name,
+            RepoPath = d.RepoPath ?? "",
+            ActivityState = d.ActivityState ?? "",
+            StatusColor = string.IsNullOrWhiteSpace(d.StatusColor) ? "unknown" : d.StatusColor!,
+            LastStatusReason = d.LastStatusReason ?? "",
+            TailnetEndpoint = (d.TailnetEndpoint ?? "").TrimEnd('/'),
+            MachineName = d.MachineName ?? "",
+            VoiceMode = d.VoiceMode,
+            OnHold = d.OnHold,
+            WingmanEnabled = d.WingmanEnabled,
+        };
+    }
+
     /// <summary>Wire shape matching the server SessionDto fields the client needs.</summary>
     private sealed class RosterDto
     {

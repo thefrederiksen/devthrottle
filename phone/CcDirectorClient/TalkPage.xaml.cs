@@ -341,6 +341,156 @@ public partial class TalkPage : ContentPage
         await Shell.Current.GoToAsync("//FifoPage");
     }
 
+    // ===== New-session flow (issue #245): pick a fleet Director + a recent repo =====
+
+    // The Director the user picked in step 1; its TailnetEndpoint is stamped onto the
+    // session we create so the phone can then open its terminal.
+    private DirectorInfo? _selectedDirector;
+    // Guards against a double-tap firing two POST /sessions while the first is in flight.
+    private bool _creatingSession;
+
+    private async void OnNewSessionClicked(object? sender, EventArgs e) => await OpenNewSessionPanelAsync();
+
+    private async Task OpenNewSessionPanelAsync()
+    {
+        SaveCreds();
+        _selectedDirector = null;
+        DirectorsList.ItemsSource = null;
+        ReposList.ItemsSource = null;
+        ReposStatusLabel.Text = "Pick a machine first.";
+        NewSessionStatusLabel.Text = "";
+        NewSessionPathEntry.Text = "";
+
+        ListPanel.IsVisible = false;
+        NewSessionPanel.IsVisible = true;
+
+        var gate = OfflineGuard.Check(DeviceOnline, "list machines");
+        if (!gate.Allowed) { DirectorsStatusLabel.Text = gate.Message; return; }
+
+        DirectorsStatusLabel.Text = "Loading machines...";
+        try
+        {
+            var gateway = new GatewayClient(ServerEntry.Text ?? "", TokenEntry.Text ?? "");
+            var directors = await gateway.GetDirectorsAsync();
+            var rows = directors.Select(ToDirectorRow).ToList();
+            DirectorsList.ItemsSource = rows;
+            DirectorsStatusLabel.Text = rows.Count == 0
+                ? "No machines found."
+                : $"{rows.Count} machine(s). Tap one.";
+
+            // Default-select the most-recently-seen machine (rows[0]) so the repos load
+            // with one fewer tap; setting SelectedItem fires OnDirectorSelected.
+            if (rows.Count > 0) DirectorsList.SelectedItem = rows[0];
+        }
+        catch (Exception ex)
+        {
+            DirectorsStatusLabel.Text = $"Could not load machines: {ex.Message}";
+        }
+    }
+
+    private async void OnDirectorSelected(object? sender, SelectionChangedEventArgs e)
+    {
+        if (e.CurrentSelection.FirstOrDefault() is not DirectorRow row) return;
+        _selectedDirector = row.Director;       // keep the highlight to show the choice
+        await LoadReposAsync(row.Director);
+    }
+
+    private async Task LoadReposAsync(DirectorInfo director)
+    {
+        ReposList.ItemsSource = null;
+        var gate = OfflineGuard.Check(DeviceOnline, "list repositories");
+        if (!gate.Allowed) { ReposStatusLabel.Text = gate.Message; return; }
+
+        ReposStatusLabel.Text = $"Loading repos on {director.DisplayName}...";
+        try
+        {
+            var gateway = new GatewayClient(ServerEntry.Text ?? "", TokenEntry.Text ?? "");
+            var repos = await gateway.GetReposAsync(director.DirectorId);
+            var rows = repos.Select(ToRepoRow).ToList();
+            ReposList.ItemsSource = rows;
+            ReposStatusLabel.Text = rows.Count == 0
+                ? "No recent repos here. Enter a path below."
+                : $"{rows.Count} recent repo(s). Tap one to start.";
+        }
+        catch (Exception ex)
+        {
+            ReposStatusLabel.Text = $"Could not load repos: {ex.Message}";
+        }
+    }
+
+    private async void OnRepoSelected(object? sender, SelectionChangedEventArgs e)
+    {
+        if (e.CurrentSelection.FirstOrDefault() is not RepoRow row) return;
+        if (sender is CollectionView cv) cv.SelectedItem = null;   // allow re-tapping
+        await CreateSessionAsync(row.Repo.Path);
+    }
+
+    private async void OnCreateSessionClicked(object? sender, EventArgs e)
+    {
+        var path = (NewSessionPathEntry.Text ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            NewSessionStatusLabel.Text = "Enter a repo path, or tap a recent repo above.";
+            return;
+        }
+        await CreateSessionAsync(path);
+    }
+
+    private async Task CreateSessionAsync(string repoPath)
+    {
+        if (_creatingSession) return;
+        if (_selectedDirector is null)
+        {
+            NewSessionStatusLabel.Text = "Pick a machine first.";
+            return;
+        }
+        var gate = OfflineGuard.Check(DeviceOnline, "start a session");
+        if (!gate.Allowed) { NewSessionStatusLabel.Text = gate.Message; return; }
+
+        var director = _selectedDirector;
+        _creatingSession = true;
+        NewSessionCreateButton.IsEnabled = false;
+        NewSessionCreateButton.Text = "Creating...";
+        NewSessionStatusLabel.Text = $"Creating session in {repoPath} on {director.DisplayName}...";
+        try
+        {
+            var gateway = new GatewayClient(ServerEntry.Text ?? "", TokenEntry.Text ?? "");
+            var session = await gateway.CreateSessionAsync(director, repoPath);
+            // Open the new session straight on the Terminal tab so the user watches it
+            // come alive. A freshly-created session is Wingman-off, so EnterTalk opens
+            // the Terminal tab automatically.
+            NewSessionPanel.IsVisible = false;
+            EnterTalk(session);
+        }
+        catch (Exception ex)
+        {
+            NewSessionStatusLabel.Text = $"Could not create session: {ex.Message}";
+        }
+        finally
+        {
+            _creatingSession = false;
+            NewSessionCreateButton.IsEnabled = true;
+            NewSessionCreateButton.Text = "Create session";
+        }
+    }
+
+    private void OnNewSessionBackClicked(object? sender, EventArgs e)
+    {
+        NewSessionPanel.IsVisible = false;
+        ListPanel.IsVisible = true;
+        _ = LoadRosterAsync();
+    }
+
+    private DirectorRow ToDirectorRow(DirectorInfo d)
+    {
+        var ver = string.IsNullOrWhiteSpace(d.Version) ? "" : $"v{d.Version}";
+        var seen = d.LastSeen.HasValue ? $"last seen {d.LastSeen.Value.ToLocalTime():t}" : "not seen recently";
+        var subtitle = string.IsNullOrWhiteSpace(ver) ? seen : $"{ver} - {seen}";
+        return new DirectorRow(d, d.DisplayName, subtitle);
+    }
+
+    private RepoRow ToRepoRow(RepoInfo r) => new(r, r.DisplayName, r.Path);
+
     // ===== WINGMAN tab: clean text output + annotation + Speak/Send -> agent =====
 
     private async void OnWingmanRefreshClicked(object? sender, EventArgs e)
@@ -512,6 +662,14 @@ public partial class TalkPage : ContentPage
         };
     }
 
+    // Show/hide the keys panel (input + Send + Enter/Esc/Stop + arrows). Hidden by
+    // default so the terminal fills the screen; the button label tracks the next action.
+    private void OnTerminalKeysToggleClicked(object? sender, EventArgs e)
+    {
+        TerminalControls.IsVisible = !TerminalControls.IsVisible;
+        TerminalKeysToggle.Text = TerminalControls.IsVisible ? "Hide keys" : "Keys";
+    }
+
     private async void OnTerminalSendClicked(object? sender, EventArgs e)
     {
         var text = (TerminalInput.Text ?? "").Trim();
@@ -610,4 +768,8 @@ public partial class TalkPage : ContentPage
     }
 
     private sealed record SessionRow(SessionInfo Session, string Name, string Subtitle, Color Dot);
+
+    // Picker rows for the new-session flow (issue #245).
+    private sealed record DirectorRow(DirectorInfo Director, string Name, string Subtitle);
+    private sealed record RepoRow(RepoInfo Repo, string Name, string Subtitle);
 }

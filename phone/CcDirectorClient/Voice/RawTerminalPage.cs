@@ -20,6 +20,13 @@ namespace CcDirectorClient.Voice;
 /// path) and nothing to bundle in the app. The page is read-only: typing still flows
 /// through the existing POST /prompt control buttons, never from here.
 ///
+/// Layout (issue #244): the WebView is sized by MAUI to fill the whole tab area (no
+/// fixed height, no outer ScrollView), so this page is the ONLY scroll container and
+/// owns both axes -- vertical scrollback via xterm's viewport, horizontal pan via
+/// #wrap. A "Fit width" toggle shrinks the xterm FONT (real layout change, so the
+/// scroll geometry stays correct) until the PTY's full column width maps onto the
+/// WebView width; one tap returns to 1:1 for full-resolution reading.
+///
 /// Pure (no MAUI/Android dependency) so it is unit tested off-device.
 /// </summary>
 public static class RawTerminalPage
@@ -47,8 +54,9 @@ public static class RawTerminalPage
     // The page mirrors the web client's Raw-terminal logic (connectRawStream / fitRawTerm
     // from session-view.html), trimmed to a single full-viewport terminal that connects
     // on load. The PTY column count is whatever the desktop pane set it to (reported in a
-    // size frame); the grid renders at that exact width and #wrap scrolls horizontally
-    // when it is wider than the phone, while xterm's own viewport owns vertical scrollback.
+    // size frame). In "fit width" mode (default) the font shrinks so all columns fit the
+    // WebView width with no horizontal pan; tapping the toggle restores 1:1 (full size,
+    // #wrap pans horizontally). xterm's own viewport owns vertical scrollback in both.
     private const string Template = """
 <!doctype html>
 <html lang="en">
@@ -58,11 +66,12 @@ public static class RawTerminalPage
 <link rel="stylesheet" href="__BASE__/xterm.css">
 <style>
   html, body { margin: 0; padding: 0; background: #1e1e1e; height: 100%; overflow: hidden; }
-  /* Scroll both axes. The grid is rendered at the PTY's exact geometry (see fit());
-     when that grid is wider or TALLER than this WebView, #wrap scrolls to reveal the
-     rest. Crucially the row count is never shrunk below the PTY's, so Claude Code's
-     cursor-relative redraws overwrite the input box in place instead of stacking
-     ghost copies down the history. */
+  /* The single scroll container. The grid renders at the PTY's exact geometry (see
+     applyFont/fit); when that grid is wider or TALLER than this WebView, #wrap scrolls
+     to reveal the rest. The row count is never shrunk below the PTY's, so Claude Code's
+     cursor-relative redraws overwrite the input box in place instead of stacking ghost
+     copies down the history. In fit-width mode the font is small enough that no
+     horizontal scroll is needed. */
   #wrap {
     position: absolute; inset: 0;
     overflow-x: auto; overflow-y: auto;
@@ -73,11 +82,21 @@ public static class RawTerminalPage
     position: absolute; left: 8px; top: 8px;
     color: #8a93a6; font-family: monospace; font-size: 12px;
   }
+  /* In-page toggle (self-contained; no MAUI round-trip). Sits over the bottom-right so
+     it never steals terminal real estate. Big enough to tap with a thumb. */
+  #fit {
+    position: absolute; right: 12px; bottom: 12px; z-index: 5;
+    background: rgba(20,27,46,0.92); color: #e6eaf2;
+    border: 1px solid #2a3550; border-radius: 9px;
+    font-family: monospace; font-size: 13px; padding: 9px 13px;
+    -webkit-user-select: none; user-select: none; touch-action: manipulation;
+  }
 </style>
 </head>
 <body>
 <div id="wrap"><div id="xterm"></div></div>
 <div id="msg">Connecting to terminal&hellip;</div>
+<div id="fit">1:1</div>
 <script src="__BASE__/xterm.js"></script>
 <script src="__BASE__/xterm-addon-canvas.js"></script>
 <script>
@@ -85,10 +104,14 @@ public static class RawTerminalPage
   var BASE = __BASE_JSON__;
   var SID = __SID_JSON__;
   var WSBASE = BASE.replace(/^http/, "ws");   // http->ws, https->wss
+  var BASE_FONT = 13;                          // 1:1 (actual-size) font, in px
   var hostEl = document.getElementById("xterm");
   var wrapEl = document.getElementById("wrap");
   var msgEl = document.getElementById("msg");
+  var fitBtn = document.getElementById("fit");
   var term = null, ws = null, reconnect = null, want = true, lastCols = 0, lastRows = 0;
+  var fitWidth = true;     // default: show the whole PTY width on a narrow phone
+  var baseCharW = 0;       // measured per-column pixel width at BASE_FONT (cached)
 
   if (typeof Terminal === "undefined") {
     msgEl.textContent = "Terminal renderer (xterm.js) failed to load.";
@@ -97,7 +120,7 @@ public static class RawTerminalPage
 
   term = new Terminal({
     fontFamily: '"Cascadia Code", Consolas, "Courier New", monospace',
-    fontSize: 13,
+    fontSize: BASE_FONT,
     lineHeight: 1.0,
     scrollback: 5000,
     cursorBlink: false,
@@ -122,13 +145,49 @@ public static class RawTerminalPage
     return 0;
   }
 
-  // Size xterm to the PTY. Columns mirror the PTY exactly so wrapping matches. Rows
-  // are NEVER fewer than the PTY's: Claude Code redraws its input box with cursor-up
-  // moves sized to the PTY height, so an xterm shorter than the PTY would clip those
-  // moves and leave each old box behind as a duplicate. We therefore use the larger
-  // of (rows that fit this WebView) and (the PTY's own row count). When the WebView is
-  // tall this matches the web client (extra rows, xterm scrollback owns history); when
-  // it is short the grid is taller than the box and #wrap scrolls to the live bottom.
+  // True grid pixel width, measured from the rendered grid.
+  function gridW() {
+    var el = term.element;
+    return el ? el.getBoundingClientRect().width : 0;
+  }
+
+  // Choose the font size. In fit-width mode we shrink BASE_FONT just enough that all
+  // lastCols columns map onto the WebView width, so the whole width is visible with no
+  // horizontal pan. char width scales linearly with font, so we cache the per-column
+  // width measured at BASE_FONT (baseCharW) and solve for the largest font that fits.
+  // Changing the FONT (not a CSS transform) keeps xterm's layout/scroll geometry
+  // correct, unlike scale() which is visual-only. Returns BASE_FONT when fit is off.
+  function chooseFont() {
+    if (!fitWidth || lastCols <= 0) return BASE_FONT;
+    // Cache baseCharW the first time the grid is rendered at BASE_FONT.
+    if (baseCharW <= 0 && term.options.fontSize === BASE_FONT) {
+      var gw = gridW();
+      if (gw > 0 && term.cols > 0) baseCharW = gw / term.cols;
+    }
+    if (baseCharW <= 0) return BASE_FONT;     // not measurable yet; a later pass fixes it
+    var st = getComputedStyle(hostEl);
+    var padX = (parseFloat(st.paddingLeft) || 0) + (parseFloat(st.paddingRight) || 0);
+    var avail = wrapEl.clientWidth - padX;
+    if (avail <= 0) return BASE_FONT;
+    var needed = lastCols * baseCharW;         // grid width at BASE_FONT
+    if (needed <= avail) return BASE_FONT;     // already fits at full size
+    return Math.max(6, Math.floor(BASE_FONT * avail / needed));
+  }
+
+  // Apply the chosen font, then size the rows to match. Rows are NEVER fewer than the
+  // PTY's: Claude Code redraws its input box with cursor-up moves sized to the PTY
+  // height, so an xterm shorter than the PTY would clip those moves and leave each old
+  // box behind as a duplicate. We use the larger of (rows that fit this WebView at the
+  // current cell height) and (the PTY's own row count).
+  function applyFont() {
+    if (lastCols <= 0) return;
+    var target = chooseFont();
+    if ((term.options.fontSize || BASE_FONT) !== target) {
+      try { term.options.fontSize = target; } catch (e) {}
+    }
+    fit();
+  }
+
   function fit() {
     if (lastCols <= 0) return;
     var ch = cellH();
@@ -150,12 +209,23 @@ public static class RawTerminalPage
     if (slack < 48) wrapEl.scrollTop = wrapEl.scrollHeight;
   }
 
+  // Toggle fit-width <-> 1:1. Exposed on window too so the host could drive it later.
+  function setFitWidth(on) {
+    fitWidth = !!on;
+    fitBtn.textContent = fitWidth ? "1:1" : "Fit";   // label = what a tap will DO next
+    applyFont();
+    requestAnimationFrame(function () { applyFont(); stickBottom(); });
+  }
+  window.ccSetFitWidth = setFitWidth;
+  fitBtn.addEventListener("click", function () { setFitWidth(!fitWidth); });
+  fitBtn.textContent = fitWidth ? "1:1" : "Fit";
+
   if (window.ResizeObserver) {
     var pending = false;
     new ResizeObserver(function () {
       if (pending) return;
       pending = true;
-      requestAnimationFrame(function () { pending = false; fit(); });
+      requestAnimationFrame(function () { pending = false; applyFont(); });
     }).observe(wrapEl);
   }
 
@@ -168,7 +238,7 @@ public static class RawTerminalPage
     sock.onmessage = function (ev) {
       if (typeof ev.data === "string") {
         var m; try { m = JSON.parse(ev.data); } catch (e) { return; }
-        if (m.type === "size" && m.cols > 0) { lastCols = m.cols; lastRows = m.rows || lastRows; fit(); }
+        if (m.type === "size" && m.cols > 0) { lastCols = m.cols; lastRows = m.rows || lastRows; applyFont(); }
         else if (m.type === "closed") { term.write("\r\n[stream closed: " + (m.reason || "") + "]\r\n"); }
         return;
       }

@@ -132,6 +132,82 @@ public sealed class GatewayClient
         return roster;
     }
 
+    // ===== Start a new session (pick a fleet Director + a recent repo) ======
+
+    /// <summary>
+    /// List the Directors (machines) in the fleet (GET /directors). Throws on a
+    /// network or HTTP failure so the picker can show the real reason instead of a
+    /// silently empty list.
+    /// </summary>
+    public async Task<List<DirectorInfo>> GetDirectorsAsync(CancellationToken ct = default)
+    {
+        ClientLog.Write($"[GatewayClient] GetDirectors: base={_baseUrl}");
+        using var http = NewClient(TimeSpan.FromSeconds(20));
+        var resp = await http.GetAsync($"{_baseUrl}/directors", ct);
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode)
+            throw new HttpRequestException($"GET /directors failed: {(int)resp.StatusCode} {body}");
+
+        var list = FleetParser.ParseDirectors(body);
+        ClientLog.Write($"[GatewayClient] GetDirectors OK: count={list.Count}");
+        return list;
+    }
+
+    /// <summary>
+    /// List a Director's recent repositories (GET /directors/{id}/repos), newest-used
+    /// first. Throws on a network or HTTP failure so the picker can show the real
+    /// reason instead of a silently empty list.
+    /// </summary>
+    public async Task<List<RepoInfo>> GetReposAsync(string directorId, CancellationToken ct = default)
+    {
+        ClientLog.Write($"[GatewayClient] GetRepos: base={_baseUrl}, director={directorId}");
+        using var http = NewClient(TimeSpan.FromSeconds(20));
+        var resp = await http.GetAsync(
+            $"{_baseUrl}/directors/{Uri.EscapeDataString(directorId)}/repos", ct);
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode)
+            throw new HttpRequestException($"GET /directors/{directorId}/repos failed: {(int)resp.StatusCode} {body}");
+
+        var list = FleetParser.ParseRepos(body);
+        ClientLog.Write($"[GatewayClient] GetRepos OK: director={directorId}, count={list.Count}");
+        return list;
+    }
+
+    /// <summary>
+    /// Start a new session on <paramref name="director"/> in <paramref name="repoPath"/>
+    /// (POST /directors/{id}/sessions) and return it as a <see cref="SessionInfo"/>.
+    /// The create response does not carry the owning Director's Tailnet base URL (the
+    /// Gateway stamps that only on the roster aggregation), so the chosen Director's
+    /// <see cref="DirectorInfo.TailnetEndpoint"/> is stamped onto the result here - it
+    /// is the address the phone then uses to open the new session's terminal/voice.
+    /// Throws on HTTP failure with the server's real error text.
+    /// </summary>
+    public async Task<SessionInfo> CreateSessionAsync(
+        DirectorInfo director, string repoPath, string agent = "ClaudeCode",
+        string? type = null, bool wingmanEnabled = false, CancellationToken ct = default)
+    {
+        ClientLog.Write($"[GatewayClient] CreateSession: director={director.DirectorId}, repo={repoPath}, agent={agent}");
+        var payload = FleetParser.BuildCreateBody(repoPath, agent, type, wingmanEnabled);
+        using var http = NewClient(TimeSpan.FromSeconds(60));
+        using var req = new HttpRequestMessage(
+            HttpMethod.Post, $"{_baseUrl}/directors/{Uri.EscapeDataString(director.DirectorId)}/sessions")
+        {
+            Content = new StringContent(payload, Encoding.UTF8, "application/json"),
+        };
+        var resp = await http.SendAsync(req, ct);
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode)
+            throw new HttpRequestException(ExtractError(body, (int)resp.StatusCode));
+
+        var session = RosterParser.ParseOne(body);
+        if (string.IsNullOrWhiteSpace(session.TailnetEndpoint))
+            session.TailnetEndpoint = director.TailnetEndpoint;
+        if (string.IsNullOrWhiteSpace(session.MachineName))
+            session.MachineName = director.MachineName;
+        ClientLog.Write($"[GatewayClient] CreateSession OK: sid={session.SessionId}, endpoint={session.TailnetEndpoint}");
+        return session;
+    }
+
     // ===== Exes page (Director executables + build slots) ===================
 
     /// <summary>
