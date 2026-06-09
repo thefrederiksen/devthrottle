@@ -159,6 +159,37 @@ public class UninstallerTests : IDisposable
     }
 
     [Fact]
+    public void RemoveSkills_MalformedManifest_NeverEscapesOrWipesSkillsTree()
+    {
+        // A hand-corrupted/hostile manifest: blank (would resolve to the skills dir itself),
+        // a parent-escape, a nested path, plus one legit name.
+        Directory.CreateDirectory(_layout.SetupStateDir);
+        File.WriteAllText(_layout.SkillManifestPath, """["", "..\\evil", "a/b", "cc-director"]""");
+
+        var skills = Path.Combine(_dir, "skills");
+        var legit = Path.Combine(skills, "cc-director");
+        var userSkill = Path.Combine(skills, "user-skill");
+        var sibling = Path.Combine(_dir, "evil");           // the "..\evil" target, OUTSIDE skills
+        Directory.CreateDirectory(legit);
+        Directory.CreateDirectory(userSkill);
+        Directory.CreateDirectory(sibling);
+        File.WriteAllText(Path.Combine(userSkill, "SKILL.md"), "user");
+
+        var steps = new List<string>();
+        var errors = new List<string>();
+        new Uninstaller(_layout).RemoveSkills(steps, errors, skillsBaseDir: skills);
+
+        // Only the legit, simple-named, manifested skill is removed.
+        Assert.False(Directory.Exists(legit));
+        // Everything the guard refuses survives: the whole skills tree, the user's skill, the sibling.
+        Assert.True(Directory.Exists(skills));
+        Assert.True(Directory.Exists(userSkill));
+        Assert.True(Directory.Exists(sibling));
+        // The unsafe entries are surfaced as refusals, not silently skipped.
+        Assert.Contains(errors, e => e.Contains("refused"));
+    }
+
+    [Fact]
     public void Plan_ListsManifestedSkills()
     {
         SkillManifest.RecordInstalled(_layout, new[] { "cc-director" });

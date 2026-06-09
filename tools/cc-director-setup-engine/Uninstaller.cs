@@ -145,18 +145,30 @@ public sealed class Uninstaller
         if (owned.Count == 0) { steps.Add("skills: none recorded (nothing to remove)"); return; }
 
         var baseDir = skillsBaseDir ?? SkillsBaseDir();
+        var baseFull = System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(baseDir));
         foreach (var skill in owned)
         {
-            var dir = System.IO.Path.Combine(baseDir, skill);
-            if (!Directory.Exists(dir)) { steps.Add($"skill '{skill}': not present"); continue; }
+            // SAFETY: never trust a manifest entry to be a simple child name. A blank entry would
+            // make Path.Combine resolve to baseDir itself (deleting the WHOLE skills tree), and a
+            // "..\x" entry would escape it. Refuse anything whose resolved parent is not exactly the
+            // skills dir - this is a destructive op, so the guard lives at the point of deletion.
+            var dirFull = System.IO.Path.GetFullPath(System.IO.Path.Combine(baseDir, skill));
+            if (string.IsNullOrWhiteSpace(skill) ||
+                !string.Equals(System.IO.Path.GetDirectoryName(dirFull), baseFull, StringComparison.OrdinalIgnoreCase))
+            {
+                errors.Add($"skill '{skill}': refused (resolves outside {baseDir})");
+                continue;
+            }
+
+            if (!Directory.Exists(dirFull)) { steps.Add($"skill '{skill}': not present"); continue; }
             try
             {
-                Directory.Delete(dir, recursive: true);
-                steps.Add($"removed skill '{skill}': {dir}");
+                Directory.Delete(dirFull, recursive: true);
+                steps.Add($"removed skill '{skill}': {dirFull}");
             }
             catch (Exception ex)
             {
-                errors.Add($"skill '{skill}' ({dir}): {ex.Message}");
+                errors.Add($"skill '{skill}' ({dirFull}): {ex.Message}");
             }
         }
     }
