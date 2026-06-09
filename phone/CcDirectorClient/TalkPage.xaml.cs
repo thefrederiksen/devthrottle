@@ -1094,6 +1094,65 @@ public partial class TalkPage : ContentPage
         await SendTerminalKeysAsync(text, appendEnter: true);
     }
 
+    // Dictate into the terminal input (same dialog as the Wingman tab's Speak), then either
+    // park the transcript in the box or send it as a typed line. Mirrors OnWingmanSpeakClicked
+    // but targets TerminalInput and the terminal's send path.
+    private async void OnTerminalSpeakClicked(object? sender, EventArgs e)
+    {
+        if (_selected is null) return;
+
+        var status = await Permissions.RequestAsync<Permissions.Microphone>();
+        if (status != PermissionStatus.Granted)
+        {
+            await DisplayAlert("Microphone needed",
+                "CC Director Client needs microphone access to dictate.", "OK");
+            return;
+        }
+
+        SpeakDictationResult dictation;
+        try
+        {
+            dictation = await SpeakIntoTextboxDialog.PromptAsync(Navigation, _recorder);
+        }
+        catch (Exception ex)
+        {
+            TerminalStatusLabel.Text = "";
+            await DisplayAlert("Dictation error", ex.Message, "OK");
+            return;
+        }
+
+        if (dictation.Action == SpeakAction.Cancel || dictation.Audio is null)
+        {
+            TerminalStatusLabel.Text = "";
+            return;
+        }
+
+        var gate = OfflineGuard.Check(DeviceOnline, "transcribe your dictation");
+        if (!gate.Allowed) { TerminalStatusLabel.Text = gate.Message; return; }
+
+        try
+        {
+            TerminalStatusLabel.Text = "Transcribing...";
+            var client = new DirectorVoiceClient(TokenEntry.Text ?? "");
+            var t = await client.TranscribeUtteranceAsync(
+                _selected.TailnetEndpoint, _selected.SessionId,
+                dictation.Audio.Bytes, dictation.Audio.Mime);
+
+            var existing = TerminalInput.Text ?? "";
+            TerminalInput.Text = string.IsNullOrWhiteSpace(existing)
+                ? t.Text : (existing.TrimEnd() + " " + t.Text);
+            TerminalStatusLabel.Text = "";
+
+            if (dictation.Action == SpeakAction.Send)
+                OnTerminalSendClicked(this, EventArgs.Empty);
+        }
+        catch (Exception ex)
+        {
+            TerminalStatusLabel.Text = "";
+            await DisplayAlert("Dictation error", ex.Message, "OK");
+        }
+    }
+
     private async void OnTerminalEnterClicked(object? sender, EventArgs e)
         => await SendTerminalKeysAsync("\r", appendEnter: false);
 

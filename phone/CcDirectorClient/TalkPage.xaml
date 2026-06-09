@@ -170,10 +170,13 @@
                     <!-- Collapsible controls: hidden by default so the terminal is maximized.
                          The Keys button toggles this whole panel. -->
                     <VerticalStackLayout Grid.Row="2" x:Name="TerminalControls" IsVisible="False" Spacing="8">
-                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
                             <Entry Grid.Column="0" x:Name="TerminalInput" Placeholder="type / send..."
                                    TextColor="#E6EAF2" PlaceholderColor="#5A6378" BackgroundColor="#0F1626" />
-                            <Button Grid.Column="1" x:Name="TerminalSendButton" Text="Send"
+                            <Button Grid.Column="1" x:Name="TerminalSpeakButton" Text="Speak"
+                                    BackgroundColor="#0E7C6B" TextColor="White" HeightRequest="46"
+                                    Padding="16,0" CornerRadius="10" Clicked="OnTerminalSpeakClicked" />
+                            <Button Grid.Column="2" x:Name="TerminalSendButton" Text="Send"
                                     BackgroundColor="#2B6CB0" TextColor="White" HeightRequest="46"
                                     Padding="16,0" CornerRadius="10" Clicked="OnTerminalSendClicked" />
                         </Grid>
