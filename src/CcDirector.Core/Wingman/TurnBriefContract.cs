@@ -29,7 +29,7 @@ public static class TurnBriefContract
     /// <summary>Stamped into every brief (issue #208) so review rounds and the eval
     /// harness can tell which contract produced a brief. Bump on every prompt/validation
     /// change.</summary>
-    public const string Version = "v3.3";
+    public const string Version = "v3.4";
 
     // ====================================================================
     // Prompt - built from the captured examples (docs/architecture/wingman/examples/)
@@ -40,7 +40,9 @@ public static class TurnBriefContract
         var sb = new StringBuilder();
         sb.AppendLine("You are the WINGMAN: you brief a busy engineering lead the moment one of their");
         sb.AppendLine("AI coding agents finishes a turn. The lead runs many agents; your brief is the");
-        sb.AppendLine("only thing they read. Your job is INTERPRETATION - reduce their cognitive load.");
+        sb.AppendLine("only thing they read. The agent's reply is GROUND TRUTH: you COMPRESS it and add");
+        sb.AppendLine("the decision layer (does the lead need to act, and the options) - you NEVER restate");
+        sb.AppendLine("its conclusions in your own words and NEVER assert anything its reply contradicts.");
         sb.AppendLine();
         sb.AppendLine("THE COLD-READER BAR (every needsYou must pass it): the reader has not seen this");
         sb.AppendLine("session for HOURS and remembers NOTHING. They will read ONLY your brief. They");
@@ -61,7 +63,7 @@ public static class TurnBriefContract
     "selectionMode": "single" | "multiple",
     "submit": null | "\r",
     "options": [ { "key": "short label", "send": "exact text or key sequence", "note": "REQUIRED: the consequence and risk of choosing this (<=18 words) - 'yes' to WHAT, and what happens then", "recommended": false | true on AT MOST ONE option, reason inside its note } ],
-    "evidence": "EXACT verbatim quote from the AGENT REPLY or the SCREEN - copied character-for-character, never paraphrased. Prefer a clean sentence from the agent reply over picker/menu UI fragments (a garbled '[ ] Commit Approve...' receipt is worthless to the reader).",
+    "evidence": "REQUIRED. Claude's actual decisive line: an EXACT verbatim quote from the AGENT REPLY or the SCREEN, copied character-for-character, never paraphrased. The reader sees THIS as Claude's own words, above your statement - it is the anchor that proves your statement matches what Claude said, not a footnote. A needsYou with no verbatim evidence is REJECTED. Prefer a clean sentence from the agent reply over picker/menu UI fragments (a garbled '[ ] Commit Approve...' receipt is worthless to the reader).",
     "urgency": "blocking" | "review" | "fyi",
     "confidence": "high" | "ambiguous",
     "railLine": "<= 8 words",
@@ -73,6 +75,13 @@ public static class TurnBriefContract
 """);
         sb.AppendLine();
         sb.AppendLine("Rules learned from real captures:");
+        sb.AppendLine("- NON-CONTRADICTION (the trust rule, v3.4): the agent's reply is ground truth. NEVER");
+        sb.AppendLine("  state a conclusion the reply contradicts - if the reply found a bug, do NOT say");
+        sb.AppendLine("  'nothing is broken'; if the reply says a value WAS set, do not call it 'never set'.");
+        sb.AppendLine("  When unsure your summary matches the reply, QUOTE the reply instead of summarizing.");
+        sb.AppendLine("  The evidence field is REQUIRED on every needsYou and is Claude's verbatim decisive");
+        sb.AppendLine("  line - the reader sees it as Claude's own words, so a statement that drifts from it");
+        sb.AppendLine("  is immediately visible. A needsYou with no verifiable verbatim evidence is REJECTED.");
         sb.AppendLine("- PARKED REPLY (review rounds 1-3's headline finding): when this prompt contains a");
         sb.AppendLine("  '=== PARKED, UNSENT USER REPLY ===' section, the user has ALREADY typed that");
         sb.AppendLine("  reply but NOT sent it - it was extracted mechanically from the composer, do not");
@@ -367,17 +376,35 @@ public static class TurnBriefContract
                     return null;
                 }
 
-                // Evidence must be VERBATIM from the reply or the screen (whitespace-tolerant).
-                // Failed validation does not kill the brief - it kills the RECEIPTS, visibly.
-                if (!string.IsNullOrWhiteSpace(n.Evidence))
+                // FIDELITY GUARD (v3.4): the evidence is Claude's verbatim decisive line, shown
+                // to the reader AS CLAUDE'S OWN WORDS - the anchor that proves the statement
+                // matches what Claude actually said. It must be VERBATIM from the reply or the
+                // screen (whitespace-tolerant). When there IS substantive source text to quote, a
+                // needsYou with no verifiable verbatim anchor is REJECTED (degrades to an honest
+                // stub) - an unanchored brief is exactly the re-derived, sometimes-wrong narrative
+                // that drove the user back to the terminal (the cc-director "??" brief that
+                // inverted a bug finding into "nothing is broken"). Pre-v3.4 this only DROPPED the
+                // receipt and shipped anyway; now it kills the brief.
+                var hasSourceText = !string.IsNullOrWhiteSpace(package.LastAssistantText)
+                    || !string.IsNullOrWhiteSpace(package.ScreenTail);
+                var verifiedEvidence = !string.IsNullOrWhiteSpace(n.Evidence)
+                    && ((package.LastAssistantText is not null && BriefBuilder.FindVerbatim(package.LastAssistantText, n.Evidence) is not null)
+                        || BriefBuilder.FindVerbatim(package.ScreenTail, n.Evidence) is not null);
+                if (!verifiedEvidence)
                 {
-                    var inReply = package.LastAssistantText is not null && BriefBuilder.FindVerbatim(package.LastAssistantText, n.Evidence) is not null;
-                    var onScreen = BriefBuilder.FindVerbatim(package.ScreenTail, n.Evidence) is not null;
-                    if (!inReply && !onScreen)
+                    // Parked-reply briefs already carry a STRONGER anchor enforced above: the
+                    // statement must quote the user's verbatim typed text. Don't double-require a
+                    // reply/screen quote there. Otherwise, when there IS source text to quote, an
+                    // unanchored needsYou is rejected.
+                    if (hasSourceText && string.IsNullOrWhiteSpace(package.ParkedComposerText))
                     {
-                        FileLog.Write("[TurnBriefContract] validation: evidence not verbatim; dropping receipts");
-                        n.Evidence = "";
+                        FileLog.Write("[TurnBriefContract] validation: needsYou lacks a verbatim evidence anchor; rejecting");
+                        return null;
                     }
+                    // No source text to quote (rare: empty reply AND empty screen), or a parked
+                    // reply already anchors the statement - keep the brief but carry no unverified
+                    // receipt rather than invent one.
+                    n.Evidence = "";
                 }
 
                 brief.NeedsYou = n;

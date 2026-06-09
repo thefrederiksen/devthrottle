@@ -214,8 +214,11 @@ public sealed class TurnBriefContractValidationTests
     }
 
     [Fact]
-    public void Validate_ParaphrasedEvidence_DropsReceiptsButKeepsBrief()
+    public void Validate_ParaphrasedEvidence_Rejected()
     {
+        // FIDELITY GUARD (v3.4): evidence that is NOT verbatim from the reply or screen means
+        // the brief is not anchored to Claude's words - it is rejected (degrades to a stub),
+        // not shipped with the receipt merely dropped. Pre-v3.4 this kept the brief.
         var json = """
         { "intent": "x", "did": ["y"],
           "needsYou": { "statement": "s", "answerVia": "reply", "selectionMode": "single",
@@ -223,9 +226,78 @@ public sealed class TurnBriefContractValidationTests
             "evidence": "Please approve options one and two so I can proceed",
             "urgency": "review", "confidence": "high", "railLine": "approve?" } }
         """;
-        var brief = TurnBriefContract.ParseAndValidate(json, Package(), "wingman:test");
+        Assert.Null(TurnBriefContract.ParseAndValidate(json, Package(), "wingman:test"));
+    }
+
+    [Fact]
+    public void Validate_NeedsYouWithoutEvidence_Rejected()
+    {
+        // FIDELITY GUARD (v3.4): a needsYou with no verbatim anchor, while there IS source
+        // text to quote (the default package carries an agent reply), is rejected. This is the
+        // teeth behind "the brief must not re-derive what Claude said".
+        var json = """
+        { "intent": "x", "did": ["y"],
+          "needsYou": { "statement": "Approve to continue.", "answerVia": "reply",
+            "selectionMode": "single", "submit": null,
+            "options": [ { "key": "Approve", "send": "approve" } ],
+            "evidence": "", "urgency": "review", "confidence": "high", "railLine": "approve?" } }
+        """;
+        Assert.Null(TurnBriefContract.ParseAndValidate(json, Package(), "wingman:test"));
+    }
+
+    [Fact]
+    public void Validate_ContradictoryStatement_RejectedWhenUnanchored()
+    {
+        // The real failure that drove this change (cc-director "??" brief): the agent's reply
+        // found a real bug, but the brief inverted it to "nothing is broken" with no verbatim
+        // anchor. Under v3.4 an unanchored needsYou like this cannot ship.
+        var p = Package(reply: "I found a real encoding bug: the name is a CustomName set via rename and the ?? is a mangled emoji.");
+        var json = """
+        { "intent": "x", "did": ["looked at the session name"],
+          "needsYou": {
+            "statement": "The ?? is just a placeholder that was never set. Nothing is broken; it is purely cosmetic.",
+            "answerVia": "reply", "selectionMode": "single", "submit": null,
+            "options": [ { "key": "Rename it", "send": "rename it" }, { "key": "Leave it", "send": "leave it" } ],
+            "evidence": "", "urgency": "fyi", "confidence": "high", "railLine": "rename or leave?" } }
+        """;
+        Assert.Null(TurnBriefContract.ParseAndValidate(json, p, "wingman:test"));
+    }
+
+    [Fact]
+    public void Validate_NeedsYouWithVerbatimEvidence_FromScreen_Accepted()
+    {
+        // The anchor may come from the SCREEN (on-screen menu the agent never restated in a
+        // reply), not only the agent reply - same as the existing evidence machinery.
+        var p = Package(reply: null, screen: "Do you want to proceed with the deploy? (y/n)");
+        var json = """
+        { "intent": "x", "did": ["prepared the deploy"],
+          "needsYou": {
+            "statement": "The deploy is staged and the agent is asking whether to proceed.",
+            "answerVia": "keys", "selectionMode": "single", "submit": null,
+            "options": [ { "key": "Yes", "send": "y" } ],
+            "evidence": "Do you want to proceed with the deploy? (y/n)",
+            "urgency": "review", "confidence": "high", "railLine": "proceed with deploy?" } }
+        """;
+        var brief = TurnBriefContract.ParseAndValidate(json, p, "wingman:test");
         Assert.NotNull(brief);
-        Assert.Equal("", brief.NeedsYou?.Evidence); // receipts killed, visibly
+        Assert.Equal("Do you want to proceed with the deploy? (y/n)", brief.NeedsYou?.Evidence);
+    }
+
+    [Fact]
+    public void Validate_NeedsYouNoSourceText_KeptWithoutReceipt()
+    {
+        // Degenerate case: empty reply AND empty screen - nothing to quote. The brief is not
+        // rejected (there is no source to anchor to), but it carries no invented receipt.
+        var p = Package(reply: null, screen: "");
+        var json = """
+        { "intent": "x", "did": [],
+          "needsYou": { "statement": "s", "answerVia": "reply", "selectionMode": "single",
+            "submit": null, "options": [ { "key": "a", "send": "a" } ],
+            "evidence": "", "urgency": "review", "confidence": "high", "railLine": "r" } }
+        """;
+        var brief = TurnBriefContract.ParseAndValidate(json, p, "wingman:test");
+        Assert.NotNull(brief);
+        Assert.Equal("", brief.NeedsYou?.Evidence);
     }
 
     // ===== suggestedAction (v2.4, issue #201: mission-complete close suggestion) =====
@@ -346,7 +418,7 @@ public sealed class TurnBriefContractValidationTests
               { "key": "sweep all", "send": "sweep", "note": "commits 14 files belonging to other sessions - risky" },
               { "key": "leave them", "send": "leave", "note": "each session commits its own work", "recommended": true }
             ],
-            "evidence": "", "urgency": "review", "confidence": "high",
+            "evidence": "Approve 1+2 and I'll continue.", "urgency": "review", "confidence": "high",
             "railLine": "leftovers - sweep or leave?",
             "ifIgnored": "nothing breaks - the session just sits idle" } }
         """;
@@ -369,7 +441,7 @@ public sealed class TurnBriefContractValidationTests
               { "key": "a", "send": "a", "recommended": true },
               { "key": "b", "send": "b", "recommended": true }
             ],
-            "evidence": "", "urgency": "review", "confidence": "high", "railLine": "r" } }
+            "evidence": "Approve 1+2 and I'll continue.", "urgency": "review", "confidence": "high", "railLine": "r" } }
         """;
         var brief = TurnBriefContract.ParseAndValidate(json, Package(), "wingman:test");
         Assert.NotNull(brief);
@@ -397,7 +469,7 @@ public sealed class TurnBriefContractValidationTests
         { "intent": "x", "did": [],
           "needsYou": {
             "statement": "s", "answerVia": "reply", "selectionMode": "single", "submit": null,
-            "options": [], "evidence": "", "urgency": "blocking", "confidence": "high", "railLine": "r",
+            "options": [], "evidence": "Approve 1+2 and I'll continue.", "urgency": "blocking", "confidence": "high", "railLine": "r",
             "ifIgnored": "the session stays blocked until you answer" } }
         """;
         var brief = TurnBriefContract.ParseAndValidate(json, Package(), "wingman:test");
@@ -413,7 +485,7 @@ public sealed class TurnBriefContractValidationTests
           "needsYou": {
             "statement": "s", "answerVia": "reply", "selectionMode": "single", "submit": null,
             "options": [ { "key": "a", "send": "a" } ],
-            "evidence": "", "urgency": "review", "confidence": "high", "railLine": "r" } }
+            "evidence": "Approve 1+2 and I'll continue.", "urgency": "review", "confidence": "high", "railLine": "r" } }
         """;
         var brief = TurnBriefContract.ParseAndValidate(json, Package(), "wingman:test");
         Assert.NotNull(brief);
@@ -439,7 +511,7 @@ public sealed class TurnBriefContractValidationTests
         { "intent": "x", "did": [], "allClear": "all good",
           "needsYou": {
             "statement": "s", "answerVia": "reply", "selectionMode": "single", "submit": null,
-            "options": [], "evidence": "", "urgency": "review", "confidence": "high", "railLine": "r" } }
+            "options": [], "evidence": "Approve 1+2 and I'll continue.", "urgency": "review", "confidence": "high", "railLine": "r" } }
         """;
         var brief = TurnBriefContract.ParseAndValidate(json, Package(), "wingman:test");
         Assert.NotNull(brief);
@@ -564,6 +636,17 @@ public sealed class TurnBriefContractValidationTests
         Assert.Contains("ACTION-FIRST", prompt);
         Assert.Contains("not 'send", prompt);
         Assert.Contains("railLine names the action too", prompt);
+    }
+
+    [Fact]
+    public void Prompt_CarriesNonContradictionRule()
+    {
+        // v3.4 (the trust fix): the agent's reply is ground truth; the brief must never
+        // contradict it, and every needsYou must carry a verbatim evidence anchor.
+        var prompt = TurnBriefContract.BuildPrompt(Package());
+        Assert.Contains("GROUND TRUTH", prompt);
+        Assert.Contains("NON-CONTRADICTION", prompt);
+        Assert.Contains("no verifiable verbatim evidence is REJECTED", prompt);
     }
 
     [Fact]

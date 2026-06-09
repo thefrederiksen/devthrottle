@@ -185,6 +185,16 @@
                         <span class="brief-cond-warn">wingman unsure</span>
                     }
                 </div>
+                @* v3.4 (the trust fix): Claude's actual decisive line, verbatim, shown FIRST
+                   and expanded - the brief leads with Claude's own words instead of competing
+                   with the terminal on fidelity. The synthesized statement follows it. *@
+                @if (!string.IsNullOrWhiteSpace(n.Evidence))
+                {
+                    <div class="brief-claude-said">
+                        <span class="brief-claude-said-label">Claude said</span>
+                        <div class="brief-evidence">@n.Evidence</div>
+                    </div>
+                }
                 <div class="brief-needsyou urgency-@n.Urgency">@n.Statement</div>
 
                 @if (n.Options.Count > 0 && n.SelectionMode == "multiple")
@@ -213,12 +223,13 @@
                     <div class="brief-quick">
                         @foreach (var o in n.Options)
                         {
-                            @* v3 (issue #205): the wingman's pick renders as "(rec)" with the
-                               reason in its note - at most one, enforced server-side. *@
+                            @* v3 (issue #205): the wingman's pick renders as "(recommended)" with
+                               the reason in its note - at most one, enforced server-side. Spelled
+                               out, not "(rec)", which read as "record" to users. *@
                             <button class="brief-quick-btn @(o.Recommended ? "recommended" : "")" disabled="@_answering"
                                     title="@(o.Note ?? DescribeSend(o.Send))"
                                     @onclick="() => AnswerSingleAsync(n, o)">
-                                <b>@o.Key@(o.Recommended ? " (rec)" : "")</b>
+                                <b>@o.Key@(o.Recommended ? " (recommended)" : "")</b>
                                 @if (o.Note is not null)
                                 {
                                     <span class="brief-opt-note">@o.Note</span>
@@ -234,16 +245,6 @@
                     <div class="brief-ifignored">If you do nothing: @n.IfIgnored</div>
                 }
 
-                @if (!string.IsNullOrWhiteSpace(n.Evidence))
-                {
-                    <button class="brief-expand" @onclick="() => _showEvidence = !_showEvidence">
-                        @(_showEvidence ? "hide Claude's words" : "Claude's words (verbatim)")
-                    </button>
-                    @if (_showEvidence)
-                    {
-                        <div class="brief-evidence">@n.Evidence</div>
-                    }
-                }
             </div>
         }
         @if (HasSuggestedClose)
@@ -436,7 +437,6 @@
     private string? _error;
     private bool _loading;
     private bool _showFull;
-    private bool _showEvidence;
     private bool _answering;
     private string? _answerStatus;
     private readonly HashSet<string> _toggled = new(StringComparer.Ordinal);

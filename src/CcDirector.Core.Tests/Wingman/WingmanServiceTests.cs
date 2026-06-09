@@ -157,6 +157,42 @@ public sealed class WingmanServiceTests
     }
 
     [Fact]
+    public void ParseExplainJson_keeps_claude_verbatim_when_found_in_terminal()
+    {
+        // The trust anchor survives only when it is provably Claude's own words.
+        const string raw = @"{
+            ""what_claude_wants"": ""Use JWT or session cookies (for the login refactor)?"",
+            ""claude_verbatim"": ""Use JWT or session cookies?""
+        }";
+        const string terminal = "I finished the login refactor.\n\nUse JWT or session cookies?\n\n> ";
+        var b = WingmanService.ParseExplainJson(raw, terminal);
+        Assert.Equal("Use JWT or session cookies?", b.ClaudeVerbatim);
+    }
+
+    [Fact]
+    public void ParseExplainJson_drops_claude_verbatim_when_not_in_terminal()
+    {
+        // A "Claude said" line that is NOT verbatim in the terminal is a drift - it is dropped
+        // rather than shown as Claude's words (the desktop renders the anchor only when present).
+        const string raw = @"{
+            ""what_claude_wants"": ""Nothing is broken; the name is just cosmetic."",
+            ""claude_verbatim"": ""The name is just a placeholder that was never set.""
+        }";
+        const string terminal = "It is a CustomName set via rename; the ?? is a mangled emoji - a real encoding bug.";
+        var b = WingmanService.ParseExplainJson(raw, terminal);
+        Assert.Equal("", b.ClaudeVerbatim);
+    }
+
+    [Fact]
+    public void ParseExplainJson_drops_claude_verbatim_when_no_source_text()
+    {
+        // No terminal source passed (legacy callers / tests) -> nothing to anchor against, so the
+        // unverified anchor is dropped rather than trusted blindly.
+        const string raw = @"{ ""claude_verbatim"": ""anything at all"" }";
+        Assert.Equal("", WingmanService.ParseExplainJson(raw).ClaudeVerbatim);
+    }
+
+    [Fact]
     public void ParseExplainJson_reads_running_in_background_verdict()
     {
         // The background-running override: when the agent is parked on its own build, the model

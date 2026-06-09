@@ -911,7 +911,13 @@ public static class WingmanService
             // working unchanged. Free-text ask mode keeps the plain-string contract.
             if (explain)
             {
-                var parsed = ParseExplainJson(raw);
+                // Pass the terminal text so claude_verbatim can be validated verbatim - the same
+                // anchor discipline the turn brief uses (a shown "Claude said" must be provably
+                // Claude's words, never a paraphrase the model drifted into).
+                var sourceText = context.BufferTailText;
+                if (context.ScreenRows is { Count: > 0 } rows)
+                    sourceText = sourceText + "\n" + string.Join("\n", rows);
+                var parsed = ParseExplainJson(raw, sourceText);
                 if (parsed.Answer.Length > 4000) parsed.Answer = parsed.Answer[..3997] + "...";
                 return new WingmanAskResult
                 {
@@ -920,6 +926,7 @@ public static class WingmanService
                     WhatHappened = parsed.WhatHappened,
                     LongDescription = parsed.LongDescription,
                     WhatClaudeWants = parsed.WhatClaudeWants,
+                    ClaudeVerbatim = parsed.ClaudeVerbatim,
                     Say = parsed.Say,
                     QuickReplies = parsed.Actions,
                     RunningInBackground = parsed.RunningInBackground,
@@ -971,6 +978,12 @@ public static class WingmanService
         public string WhatHappened { get; set; } = "";
         public string LongDescription { get; set; } = "";
         public string WhatClaudeWants { get; set; } = "";
+
+        /// <summary>The agent's decisive line, verbatim from the terminal (the trust anchor).
+        /// Server-side validated against the terminal text; empty when unverified or nothing
+        /// is pending.</summary>
+        public string ClaudeVerbatim { get; set; } = "";
+
         public string Say { get; set; } = "";
         public List<string> Actions { get; set; } = new();
 
@@ -985,7 +998,7 @@ public static class WingmanService
     /// model returns plain text instead - the legacy text is treated as the briefing body so
     /// the briefing is still useful even when the JSON wrapper goes missing.
     /// </summary>
-    internal static ExplainBriefing ParseExplainJson(string raw)
+    internal static ExplainBriefing ParseExplainJson(string raw, string? sourceText = null)
     {
         var result = new ExplainBriefing();
         if (string.IsNullOrWhiteSpace(raw)) return result;
@@ -1012,6 +1025,9 @@ public static class WingmanService
             result.WhatHappened = ReadString(root, "what_happened");
             result.LongDescription = ReadString(root, "long_description");
             result.WhatClaudeWants = ReadString(root, "what_claude_wants");
+            // The trust anchor: kept only when it is provably Claude's own words (verbatim in
+            // the terminal). A drifting summary is then immediately visible against it.
+            result.ClaudeVerbatim = ValidateVerbatim(ReadString(root, "claude_verbatim"), sourceText);
             result.Say = ReadString(root, "say");
             result.Actions = ReadStringArray(root, "actions", maxCount: 4);
             result.RunningInBackground = ReadBool(root, "running_in_background");
@@ -1034,6 +1050,21 @@ public static class WingmanService
         if (!root.TryGetProperty(name, out var el)) return "";
         if (el.ValueKind != System.Text.Json.JsonValueKind.String) return "";
         return (el.GetString() ?? "").Trim();
+    }
+
+    /// <summary>Keep claude_verbatim only when it is found VERBATIM (whitespace-tolerant) in the
+    /// terminal source - the trust anchor must be provably Claude's words, never a drift. Returns
+    /// the source's own matched span (faithful spacing), or "" when unverified or no source.</summary>
+    private static string ValidateVerbatim(string candidate, string? sourceText)
+    {
+        if (string.IsNullOrWhiteSpace(candidate) || string.IsNullOrWhiteSpace(sourceText)) return "";
+        var found = BriefBuilder.FindVerbatim(sourceText, candidate);
+        if (found is null)
+        {
+            FileLog.Write("[WingmanService] explain claude_verbatim not verbatim in terminal; dropping");
+            return "";
+        }
+        return found;
     }
 
     /// <summary>Read a boolean field tolerantly: a real JSON true/false, or a "true"/"false"
@@ -1292,6 +1323,11 @@ public static class WingmanService
         sb.AppendLine("  (a) what happened while they were away, and");
         sb.AppendLine("  (b) what Claude is asking them to do next (or that nothing is pending).");
         sb.AppendLine();
+        sb.AppendLine("The terminal is GROUND TRUTH. You COMPRESS it and add the decision layer; you NEVER");
+        sb.AppendLine("restate Claude's conclusions in your own words wrongly and NEVER assert anything the");
+        sb.AppendLine("terminal contradicts (if Claude found a bug, do not say nothing is wrong). You anchor");
+        sb.AppendLine("your briefing with Claude's verbatim words in the claude_verbatim field.");
+        sb.AppendLine();
         sb.AppendLine("Return a single JSON object with EXACTLY these fields and no others. Output ONLY the JSON object, no markdown fence, no commentary before or after:");
         sb.AppendLine();
         sb.AppendLine("{");
@@ -1299,6 +1335,7 @@ public static class WingmanService
         sb.AppendLine("  \"what_happened\": \"<the QUICK on-screen line - 1 short sentence, scan-friendly; rules below>\",");
         sb.AppendLine("  \"long_description\": \"<the LONGER on-screen detail - 1-2 short paragraphs; rules below>\",");
         sb.AppendLine("  \"what_claude_wants\": \"<the question Claude is waiting on, verbatim when possible; rules below>\",");
+        sb.AppendLine("  \"claude_verbatim\": \"<the agent's decisive line copied CHARACTER-FOR-CHARACTER from the terminal; empty when nothing is pending; rules below>\",");
         sb.AppendLine("  \"say\": \"<the same content rewritten for the ear; smooth prose; rules below>\",");
         sb.AppendLine("  \"actions\": [\"<tap-to-answer option>\", \"...\"],");
         sb.AppendLine("  \"running_in_background\": <true or false - is the agent parked on its OWN background task and NOT waiting on you? rules below>");
@@ -1338,6 +1375,12 @@ public static class WingmanService
         sb.AppendLine("- Preserve the agent's phrasing. Do NOT reword, soften, summarize, or improve the actual question. The user trusts the agent's words over yours.");
         sb.AppendLine("- Only add a few words of clarification IN PARENTHESES when the bare question is ambiguous without context. Example: \"Want me to implement it?\" -> \"Want me to implement it (the Tailscale auto-provisioning)?\"");
         sb.AppendLine("- If the agent asked multiple questions, include them all.");
+        sb.AppendLine();
+        sb.AppendLine("Rules for claude_verbatim (the trust anchor - Claude's own words, shown ABOVE what_claude_wants):");
+        sb.AppendLine("- This is rendered to the user AS CLAUDE'S OWN WORDS - it is the PROOF that your what_claude_wants matches what Claude actually said. The user trusts this over your summary.");
+        sb.AppendLine("- Copy the agent's decisive line CHARACTER-FOR-CHARACTER from the terminal. Do NOT add the parenthetical clarification that what_claude_wants may carry, do NOT reword, do NOT shorten.");
+        sb.AppendLine("- It is validated against the terminal: if it is not found verbatim there it is DROPPED, so an approximation is worthless - copy exactly or return an empty string.");
+        sb.AppendLine("- Empty string when nothing is pending (the agent is working, idle, or on a background task).");
         sb.AppendLine();
         sb.AppendLine("Rules for say (the spoken version, used by the phone's voice mode):");
         sb.AppendLine("- Same content as what_happened + what_claude_wants but optimized for the ear, not the screen. Smooth prose, one short paragraph.");

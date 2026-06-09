@@ -273,6 +273,7 @@ internal static class ControlEndpoints
                 whatHappened = session.CachedExplainWhatHappened,
                 longDescription = session.CachedExplainLongDescription,
                 whatClaudeWants = session.CachedExplainWhatClaudeWants,
+                claudeVerbatim = session.CachedExplainClaudeVerbatim,
                 say = session.CachedExplainSay,
             });
         });

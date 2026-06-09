@@ -140,7 +140,7 @@ public sealed class ProactiveExplainService : IDisposable
                     // every consumer that reads them on that event (the Wingman tab, the session
                     // list headline) would see the PREVIOUS briefing's fields and only catch up
                     // on the next regeneration. Order matters: populate, then notify.
-                    session.SetCachedExplainStructured(result.Headline, result.WhatHappened, result.LongDescription, result.WhatClaudeWants, result.Say);
+                    session.SetCachedExplainStructured(result.Headline, result.WhatHappened, result.LongDescription, result.WhatClaudeWants, result.Say, result.ClaudeVerbatim);
                     session.SetCachedExplain(result.Answer, result.Model, result.QuickReplies);
                     // Apply the running_in_background verdict: this is the one sanctioned override
                     // of the dumb timer's red "needs you". When true the SessionStatusWingman paints

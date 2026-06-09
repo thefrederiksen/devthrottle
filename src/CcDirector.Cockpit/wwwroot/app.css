@@ -459,8 +459,13 @@ body{background:var(--panel);color:var(--text);
 .brief-needsyou.urgency-blocking{border-left-color:#F14C4C}
 .brief-needsyou.urgency-review{border-left-color:#F14C4C}
 .brief-needsyou.urgency-fyi{border-left-color:#F59E0B;background:#262017;color:#e8dcc8}
-.brief-evidence{margin-top:8px;border-left:3px solid var(--border);background:var(--panel);
-  color:var(--text2);padding:10px 14px;border-radius:0 5px 5px 0;font-size:13px;white-space:pre-wrap}
+/* v3.4 (the trust fix): Claude's verbatim decisive line, rendered FIRST and expanded as
+   Claude's own voice (blue accent, full-readability text) - not a muted footnote receipt. */
+.brief-claude-said{margin:2px 0 10px}
+.brief-claude-said-label{display:block;font-size:10px;font-weight:700;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--text3);margin-bottom:4px}
+.brief-evidence{border-left:3px solid #6EA8FF;background:var(--panel);
+  color:var(--text);padding:8px 14px;border-radius:0 5px 5px 0;font-size:13px;white-space:pre-wrap}
 
 /* mission-complete close suggestion (issue #201): green = done, the close is an approval */
 .brief-mission-complete .blabel{color:#22C55E}

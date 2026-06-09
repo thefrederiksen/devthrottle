@@ -1,6 +1,28 @@
 # Wingman Turn Briefing - the architecture for understanding a turn
 
-**Status:** v2.4 - BUILT (phases 1-3); contract frozen against captured examples (incl. multi-select), extended additively with the session headline + turn title (v2.2), the chapter model - headline = chapter title + explicit `newChapter` boundary (v2.3, 2026-06-05), and the mission-complete `suggestedAction` (v2.4, 2026-06-06, issue #201)
+**Status:** v3.4 - BUILT; contract frozen against captured examples (incl. multi-select), extended additively with the session headline + turn title (v2.2), the chapter model - headline = chapter title + explicit `newChapter` boundary (v2.3, 2026-06-05), the mission-complete `suggestedAction` (v2.4, 2026-06-06, issue #201), the cold-reader bar (v3, issue #205), the parked-reply invariants (v3.2, issue #208), action-first rail/buttons (v3.3), and the **FIDELITY guard (v3.4, 2026-06-09)**
+
+## v3.4 - the fidelity guard (the trust fix)
+
+The wingman was distrusted because it RE-DERIVED a turn's narrative from the raw screen
+scrape and could contradict what the agent actually said (a real brief inverted a bug finding
+into "nothing is broken, purely cosmetic" at `confidence: high`). One caught contradiction
+destroys trust for every later brief, so the user fell back to reading the terminal ~80% of
+the time. v3.4 binds the brief to the agent's verbatim words:
+
+- The prompt's framing changed from "your job is INTERPRETATION" to **the agent's reply is
+  GROUND TRUTH** - the wingman COMPRESSES it and adds the decision layer; it never restates
+  the reply's conclusions in its own words and never asserts anything the reply contradicts
+  (the NON-CONTRADICTION rule).
+- `evidence` is now REQUIRED on every `needsYou` and is the agent's verbatim decisive line.
+  Mechanical validation (`ParseAndValidate`) REJECTS a `needsYou` that has no verbatim anchor
+  in the reply or the screen when there IS source text to quote (degrades to an honest stub) -
+  pre-v3.4 it merely dropped the receipt and shipped the unanchored brief. Parked-reply briefs
+  are exempt: they already carry the stronger invariant that the statement quotes the user's
+  verbatim typed text.
+- Consumers render `evidence` FIRST and expanded, as Claude's own words ("Claude said"), above
+  the synthesized statement - it is the anchor that proves the statement matches the reply, not
+  a collapsed footnote (Cockpit BriefPane, phone NeedsYou card).
 **Supersedes:** the rule-based parts of the Brief view (docs/plans/cockpit-brief-view.md), which
 become this design's labeled degrade tier.
 **Related:** docs/wingman/CHARTER.md (the invariants this design must honor)

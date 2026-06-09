@@ -848,10 +848,15 @@ public partial class MainWindow : Window
         // enabled. If it's off, the tab button is hidden and the Wingman left panel
         // stays collapsed.
         WingmanTabButton.IsVisible = vm.Session.WingmanEnabled;
-        // Render whatever cached briefing the ProactiveExplainService has produced so
-        // far (or the brand-new greeting set on session creation). The tab is a
-        // passive viewer; it does not run the wingman itself.
+        // Render whatever cached briefing the ProactiveExplainService has produced so far
+        // (or the brand-new greeting set on session creation) IMMEDIATELY for responsiveness,
+        // then asynchronously upgrade to the richer Gateway turn brief if one exists. Reset the
+        // per-session gateway-brief state first so a stale brief from the previous session is
+        // never shown against the incoming one.
+        _wingmanShowingGatewayBrief = false;
+        _lastWingmanGatewayFetchUtc = DateTime.MinValue;
         RenderWingmanCachedExplain(vm.Session);
+        RefreshWingmanTabAsync(vm.Session, force: true);
 
         // Restore prompt text for incoming session
         PromptInput.Text = vm.Session.PendingPromptText ?? "";
@@ -907,6 +912,10 @@ public partial class MainWindow : Window
         Dispatcher.UIThread.Post(() =>
         {
             if (_activeSession is null) return;
+            // The local explain changed. The Gateway turn brief is the preferred source when
+            // present, so don't clobber a shown gateway brief with the weaker local one - the
+            // gateway poll keeps it fresh. Only re-render when the local explain IS the source.
+            if (_wingmanShowingGatewayBrief) return;
             RenderWingmanCachedExplain(_activeSession.Session);
         });
     }
@@ -2444,6 +2453,15 @@ public partial class MainWindow : Window
         WingmanWhatNextSection.IsVisible = isRed && !string.IsNullOrEmpty(whatNext);
         WingmanWhatNextText.Text = whatNext ?? "";
 
+        // CLAUDE SAID: the verbatim trust anchor (validated against the terminal). Shown above the
+        // synthesized "what Claude wants" line so the user sees Claude's actual words and can catch
+        // any drift in the summary. Hidden when no verbatim line was validated.
+        var verbatim = session.CachedExplainClaudeVerbatim?.Trim();
+        var hasVerbatim = !string.IsNullOrEmpty(verbatim);
+        WingmanClaudeSaidLabel.IsVisible = hasVerbatim;
+        WingmanClaudeVerbatimText.IsVisible = hasVerbatim;
+        WingmanClaudeVerbatimText.Text = verbatim ?? "";
+
         // Tap-to-answer buttons: one per briefing action (Session.CachedQuickReplies).
         // Clicking sends that literal text to the agent through the normal send path, so
         // the user can answer the ask in one click instead of typing. Rebuilt each render
@@ -2514,6 +2532,13 @@ public partial class MainWindow : Window
 
     private global::Avalonia.Threading.DispatcherTimer? _wingmanFreshnessTimer;
 
+    // Desktop Wingman tab: the Gateway turn brief (the rich per-turn brief the warm brain stamps,
+    // same content the Cockpit shows) is the PREFERRED source when the Director is gateway-connected
+    // and a brief exists; otherwise the local explain. These track the current source so the local
+    // explain event + freshness timer never clobber a shown gateway brief, and throttle the poll.
+    private bool _wingmanShowingGatewayBrief;
+    private DateTime _lastWingmanGatewayFetchUtc = DateTime.MinValue;
+
     private void EnsureWingmanFreshnessTimer()
     {
         if (_wingmanFreshnessTimer is not null) return;
@@ -2525,13 +2550,19 @@ public partial class MainWindow : Window
         {
             if (_activeLeftTab != "Wingman" || _activeSession is null) return;
             var s = _activeSession.Session;
-            // Self-correct the orange box visibility as the session flips red<->working<->idle.
-            // RenderWingmanCachedExplain only runs on briefing changes, and the status color can
-            // change without a new briefing (e.g. after the user answers), so re-gate it here.
-            var isRed = string.Equals(s.StatusColor, "red", StringComparison.OrdinalIgnoreCase);
-            WingmanWhatNextSection.IsVisible = isRed && !string.IsNullOrEmpty(s.CachedExplainWhatClaudeWants);
-            if (string.IsNullOrEmpty(s.CachedExplainModel) && s.CachedExplainAt is null) return;
-            UpdateWingmanMetaText(s);
+            // Poll the Gateway for a fresh turn brief (throttled internally to ~3s). Preferred
+            // source when present; falls back to the local explain when absent.
+            RefreshWingmanTabAsync(s, force: false);
+            // While the LOCAL explain is the shown source, self-correct the orange box visibility
+            // as the session flips red<->working<->idle (the status color can change without a new
+            // briefing). When a gateway brief is shown, its own render owns that gating.
+            if (!_wingmanShowingGatewayBrief)
+            {
+                var isRed = string.Equals(s.StatusColor, "red", StringComparison.OrdinalIgnoreCase);
+                WingmanWhatNextSection.IsVisible = isRed && !string.IsNullOrEmpty(s.CachedExplainWhatClaudeWants);
+                if (string.IsNullOrEmpty(s.CachedExplainModel) && s.CachedExplainAt is null) return;
+                UpdateWingmanMetaText(s);
+            }
         };
         _wingmanFreshnessTimer.Start();
     }
@@ -2597,6 +2628,155 @@ public partial class MainWindow : Window
         FileLog.Write($"[MainWindow] SendWingmanActionReply: sid={_activeSession.Session.Id}, text=\"{text}\"");
         PromptInput.Text = text;
         SendPrompt();
+    }
+
+    // ==================== GATEWAY TURN BRIEF (preferred Wingman-tab source) ====================
+
+    /// <summary>
+    /// Fetch the latest Gateway turn brief for the session and render it (preferred over the local
+    /// explain), else leave/show the local explain. Throttled to ~3s unless forced, so the 2s
+    /// freshness timer can call it every tick. Best-effort: a null brief (no gateway configured,
+    /// none stamped yet, or unreachable) keeps the local explain shown - a source preference, not
+    /// a silent failure.
+    /// </summary>
+    private async void RefreshWingmanTabAsync(global::CcDirector.Core.Sessions.Session session, bool force)
+    {
+        var sid = session.Id;
+        if (!force && (DateTime.UtcNow - _lastWingmanGatewayFetchUtc) < TimeSpan.FromSeconds(3))
+            return;
+        _lastWingmanGatewayFetchUtc = DateTime.UtcNow;
+
+        var host = (global::Avalonia.Application.Current as App)?.ControlApiHost;
+        global::CcDirector.Gateway.Contracts.TurnBriefDto? brief = null;
+        if (host is not null)
+        {
+            try { brief = await host.GetLatestTurnBriefAsync(sid.ToString()); }
+            catch (Exception ex) { FileLog.Write($"[MainWindow] RefreshWingmanTabAsync FAILED: {ex.Message}"); }
+        }
+
+        // Stale guard: the active session or tab may have changed while awaiting the network call.
+        if (_activeSession is null || _activeSession.Session.Id != sid || _activeLeftTab != "Wingman") return;
+
+        if (brief is not null && !brief.Degraded)
+        {
+            _wingmanShowingGatewayBrief = true;
+            RenderWingmanTurnBrief(brief);
+        }
+        else if (_wingmanShowingGatewayBrief)
+        {
+            // A brief was showing but is now gone (session ended / gateway down): drop back to the
+            // local explain rather than leave stale content on screen.
+            _wingmanShowingGatewayBrief = false;
+            RenderWingmanCachedExplain(session);
+        }
+    }
+
+    /// <summary>
+    /// Render a Gateway turn brief into the EXISTING Wingman-tab controls - Claude's verbatim words
+    /// first (CLAUDE SAID), the statement in the orange "what next" box, tap-to-answer option
+    /// buttons, and "if you do nothing". The richer sibling of <see cref="RenderWingmanCachedExplain"/>.
+    /// </summary>
+    private void RenderWingmanTurnBrief(global::CcDirector.Gateway.Contracts.TurnBriefDto brief)
+    {
+        var ny = brief.NeedsYou;
+
+        WingmanEmptyText.IsVisible = false;
+        WingmanHeaderRow.IsVisible = true;
+
+        // Title = chapter headline (fallback intent, then the all-clear line when nothing is needed).
+        var title = !string.IsNullOrWhiteSpace(brief.Headline) ? brief.Headline.Trim()
+                  : !string.IsNullOrWhiteSpace(brief.Intent) ? brief.Intent.Trim()
+                  : (ny is null ? (brief.AllClear ?? "").Trim() : "");
+        WingmanTitleText.IsVisible = !string.IsNullOrEmpty(title);
+        WingmanTitleText.Text = title;
+
+        // CLAUDE SAID - the verbatim trust anchor (NeedsYou.Evidence), shown above the statement.
+        var verbatim = ny?.Evidence?.Trim();
+        var hasVerbatim = !string.IsNullOrEmpty(verbatim);
+        WingmanClaudeSaidLabel.IsVisible = hasVerbatim;
+        WingmanClaudeVerbatimText.IsVisible = hasVerbatim;
+        WingmanClaudeVerbatimText.Text = verbatim ?? "";
+
+        // Statement + the orange "what Claude wants" box: shown whenever there is a needs-you. The
+        // gateway brief only carries a NeedsYou when the warm brain decided something is needed, so
+        // (unlike the local explain) it does not need a red-status gate to avoid false alarms.
+        var hasAsk = ny is not null && !string.IsNullOrWhiteSpace(ny.Statement);
+        WingmanWhatNextSection.IsVisible = hasAsk;
+        WingmanWhatNextText.Text = ny?.Statement ?? "";
+
+        // Tap-to-answer options.
+        if (ny is not null && ny.Options.Count > 0) RenderWingmanBriefOptions(ny);
+        else { WingmanActionsPanel.Children.Clear(); WingmanActionsPanel.IsVisible = false; }
+
+        // "If you do nothing" - the single most triage-relevant fact.
+        var ifIgnored = ny?.IfIgnored?.Trim();
+        WingmanIfIgnoredText.IsVisible = !string.IsNullOrEmpty(ifIgnored);
+        WingmanIfIgnoredText.Text = string.IsNullOrEmpty(ifIgnored) ? "" : $"If you do nothing: {ifIgnored}";
+
+        // The gateway brief has no spoken field; the QA voice preview is a local-explain surface.
+        WingmanVoiceSection.IsVisible = false;
+
+        // Meta: model + turn + freshness.
+        WingmanMetaText.Text = $"{brief.Model}  turn {brief.TurnNumber}  {RelativeTime.Ago(DateTime.UtcNow - brief.GeneratedAtUtc)}";
+    }
+
+    /// <summary>
+    /// Build one tap-to-answer button per brief option. The recommended option is spelled out
+    /// "(recommended)" (never "(rec)") and outlined green; the note becomes the tooltip. Clicking
+    /// sends the option through the appropriate path (raw keys vs reply) via <see cref="SendWingmanBriefOption"/>.
+    /// </summary>
+    private void RenderWingmanBriefOptions(global::CcDirector.Gateway.Contracts.TurnBriefNeedsYou ny)
+    {
+        WingmanActionsPanel.Children.Clear();
+        var shown = 0;
+        foreach (var o in ny.Options)
+        {
+            if (o is null || string.IsNullOrEmpty(o.Send)) continue;
+            var button = new global::Avalonia.Controls.Button
+            {
+                Content = o.Key + (o.Recommended ? " (recommended)" : ""),
+                Background = new global::Avalonia.Media.SolidColorBrush(global::Avalonia.Media.Color.FromRgb(0xD9, 0x77, 0x06)),
+                Foreground = global::Avalonia.Media.Brushes.White,
+                BorderThickness = o.Recommended ? new global::Avalonia.Thickness(2) : new global::Avalonia.Thickness(0),
+                BorderBrush = o.Recommended ? new global::Avalonia.Media.SolidColorBrush(global::Avalonia.Media.Color.FromRgb(0x22, 0xC5, 0x5E)) : null,
+                CornerRadius = new global::Avalonia.CornerRadius(4),
+                Padding = new global::Avalonia.Thickness(12, 6),
+                Margin = new global::Avalonia.Thickness(0, 0, 8, 8),
+                FontSize = 13,
+                FontWeight = global::Avalonia.Media.FontWeight.SemiBold,
+                Cursor = new global::Avalonia.Input.Cursor(global::Avalonia.Input.StandardCursorType.Hand),
+            };
+            if (!string.IsNullOrWhiteSpace(o.Note))
+                global::Avalonia.Controls.ToolTip.SetTip(button, o.Note);
+            var opt = o;
+            var answerVia = ny.AnswerVia;
+            button.Click += (_, _) => SendWingmanBriefOption(opt, answerVia);
+            WingmanActionsPanel.Children.Add(button);
+            shown++;
+        }
+        WingmanActionsPanel.IsVisible = shown > 0;
+    }
+
+    /// <summary>
+    /// Send a brief option to the active session. A "keys" answer (on-screen menu) carries a raw
+    /// key sequence (e.g. "1\r") and is sent literally; a reply answer is routed through the
+    /// composer path so it renders in the Clean view with a trailing Enter.
+    /// </summary>
+    private async void SendWingmanBriefOption(global::CcDirector.Gateway.Contracts.TurnBriefOption o, string answerVia)
+    {
+        if (_activeSession is null || string.IsNullOrEmpty(o.Send)) return;
+        foreach (var child in WingmanActionsPanel.Children)
+            if (child is global::Avalonia.Controls.Button b) b.IsEnabled = false;
+        FileLog.Write($"[MainWindow] SendWingmanBriefOption: sid={_activeSession.Session.Id}, key=\"{o.Key}\", answerVia={answerVia}");
+        if (string.Equals(answerVia, "keys", StringComparison.OrdinalIgnoreCase))
+        {
+            try { await _activeSession.Session.SendTextAsync(o.Send); }
+            catch (Exception ex) { FileLog.Write($"[MainWindow] SendWingmanBriefOption keys FAILED: {ex.Message}"); }
+        }
+        else
+        {
+            SendWingmanActionReply(o.Send);
+        }
     }
 
     // Whether the QA voice-preview box is shown. Off by default to keep the tab clean;

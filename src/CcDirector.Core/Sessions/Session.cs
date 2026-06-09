@@ -542,6 +542,12 @@ public sealed class Session : IDisposable
     /// <summary>Latest briefing's on-screen "what Claude wants" section (verbatim agent question when state is red).</summary>
     public string? CachedExplainWhatClaudeWants { get; private set; }
 
+    /// <summary>Latest briefing's trust anchor: the agent's decisive line copied verbatim from the
+    /// terminal (server-side validated, empty when unverified or nothing pending). Rendered as
+    /// Claude's own words above <see cref="CachedExplainWhatClaudeWants"/> so a drifting summary
+    /// is visible against it - mirrors the turn brief's verbatim evidence.</summary>
+    public string? CachedExplainClaudeVerbatim { get; private set; }
+
     /// <summary>Latest briefing's spoken-version field, used by the phone's voice mode on demand. No markdown.</summary>
     public string? CachedExplainSay { get; private set; }
 
@@ -571,12 +577,13 @@ public sealed class Session : IDisposable
     /// joined text. Fields are independent of <see cref="SetCachedExplain"/> so the caller
     /// can update them in one shot from <see cref="WingmanAskResult"/>.
     /// </summary>
-    public void SetCachedExplainStructured(string? headline, string? whatHappened, string? longDescription, string? whatClaudeWants, string? say)
+    public void SetCachedExplainStructured(string? headline, string? whatHappened, string? longDescription, string? whatClaudeWants, string? say, string? claudeVerbatim = null)
     {
         CachedExplainHeadline = string.IsNullOrWhiteSpace(headline) ? null : headline.Trim();
         CachedExplainWhatHappened = string.IsNullOrWhiteSpace(whatHappened) ? null : whatHappened.Trim();
         CachedExplainLongDescription = string.IsNullOrWhiteSpace(longDescription) ? null : longDescription.Trim();
         CachedExplainWhatClaudeWants = string.IsNullOrWhiteSpace(whatClaudeWants) ? null : whatClaudeWants.Trim();
+        CachedExplainClaudeVerbatim = string.IsNullOrWhiteSpace(claudeVerbatim) ? null : claudeVerbatim.Trim();
         CachedExplainSay = string.IsNullOrWhiteSpace(say) ? null : say.Trim();
     }
 

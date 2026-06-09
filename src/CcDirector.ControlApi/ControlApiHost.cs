@@ -76,6 +76,14 @@ public sealed class ControlApiHost : IAsyncDisposable
     public Task<Gateway.Contracts.DirectorVerifyResultDto?> VerifyGatewayNowAsync(CancellationToken ct = default)
         => _gatewayClient?.VerifyAsync(ct) ?? Task.FromResult<Gateway.Contracts.DirectorVerifyResultDto?>(null);
 
+    /// <summary>
+    /// Fetch the latest Gateway turn brief for a session - the desktop Wingman tab's source.
+    /// Null when no Gateway is configured/connected or none stamped yet; the caller then shows
+    /// the local explain instead.
+    /// </summary>
+    public Task<Gateway.Contracts.TurnBriefDto?> GetLatestTurnBriefAsync(string sessionId, CancellationToken ct = default)
+        => _gatewayClient?.GetLatestTurnBriefAsync(sessionId, ct) ?? Task.FromResult<Gateway.Contracts.TurnBriefDto?>(null);
+
     private TurnSummaryCache? _turnSummaryCache;
     private SessionStatusWingman? _statusWingman;
     private ProactiveExplainService? _proactiveExplain;

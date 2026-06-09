@@ -116,6 +116,34 @@ public sealed class GatewayClient : IDisposable
     }
 
     /// <summary>
+    /// Fetch the latest Gateway turn brief for a session - the desktop Wingman tab's source
+    /// (the rich per-turn brief the warm brain stamps, same content the Cockpit renders).
+    /// Returns null when the Gateway is disabled, has no brief yet (404), or is unreachable;
+    /// the caller then shows the local explain instead. Best-effort, never throws - same
+    /// posture as the rest of this network client.
+    /// </summary>
+    public async Task<TurnBriefDto?> GetLatestTurnBriefAsync(string sessionId, CancellationToken ct = default)
+    {
+        if (!_config.IsEnabled || string.IsNullOrWhiteSpace(sessionId)) return null;
+        try
+        {
+            using var resp = await _http.GetAsync($"sessions/{sessionId}/turnbriefs/latest", ct);
+            if (resp.StatusCode == HttpStatusCode.NotFound) return null;   // no brief stamped yet
+            if (!resp.IsSuccessStatusCode)
+            {
+                FileLog.Write($"[GatewayClient] GetLatestTurnBriefAsync {sessionId}: HTTP {(int)resp.StatusCode}");
+                return null;
+            }
+            return await resp.Content.ReadFromJsonAsync<TurnBriefDto>(ct);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GatewayClient] GetLatestTurnBriefAsync {sessionId} FAILED: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Start the registration lifecycle. Fire-and-forget: the first register attempt
     /// runs in the background so a slow or unreachable Gateway never blocks Director
     /// startup. The heartbeat timer is set up regardless.

@@ -70,6 +70,15 @@ public sealed class WingmanAskResult
     public string WhatClaudeWants { get; set; } = "";
 
     /// <summary>
+    /// The agent's decisive line copied CHARACTER-FOR-CHARACTER from the terminal (the trust
+    /// anchor, mirrors the turn brief's verbatim evidence). Server-side validated: only kept
+    /// when it is found verbatim in the session's terminal text, else empty. Rendered AS
+    /// CLAUDE'S OWN WORDS above the synthesized <see cref="WhatClaudeWants"/> so a drifting
+    /// summary is immediately visible. Empty when nothing is pending or no exact line exists.
+    /// </summary>
+    public string ClaudeVerbatim { get; set; } = "";
+
+    /// <summary>
     /// Spoken version of the briefing - smooth prose, no markdown, optimised for TTS.
     /// Populated in explain mode and read on demand by the phone's voice mode when the
     /// user opens a session; we do NOT pre-render TTS audio. Empty for free-text ask

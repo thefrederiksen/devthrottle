@@ -873,8 +873,20 @@
                                             BorderBrush="#D97706" BorderThickness="2"
                                             CornerRadius="4" Padding="10,8">
                                         <StackPanel Spacing="4">
+                                            <!-- CLAUDE SAID: the trust anchor - Claude's decisive
+                                                 line VERBATIM (validated against the terminal),
+                                                 shown above the synthesized line so a drifting
+                                                 summary is immediately visible. Hidden when no
+                                                 verbatim line was validated. -->
+                                            <TextBlock x:Name="WingmanClaudeSaidLabel"
+                                                       Text="CLAUDE SAID" IsVisible="False"
+                                                       Foreground="#9FB4D8" FontSize="11" FontWeight="Bold" />
+                                            <TextBlock x:Name="WingmanClaudeVerbatimText" IsVisible="False"
+                                                       Foreground="#E8F0FF" FontSize="14"
+                                                       TextWrapping="Wrap" />
                                             <TextBlock Text="WHAT CLAUDE WANTS YOU TO DO NEXT"
-                                                       Foreground="#F59E0B" FontSize="11" FontWeight="Bold" />
+                                                       Foreground="#F59E0B" FontSize="11" FontWeight="Bold"
+                                                       Margin="0,4,0,0" />
                                             <TextBlock x:Name="WingmanWhatNextText"
                                                        Foreground="#FFFFFF" FontSize="14"
                                                        TextWrapping="Wrap" />
@@ -886,6 +898,12 @@
                                             <WrapPanel x:Name="WingmanActionsPanel"
                                                        Orientation="Horizontal"
                                                        Margin="0,6,0,0" IsVisible="False" />
+                                            <!-- "If you do nothing" - the single most triage-relevant
+                                                 fact, from the gateway brief's NeedsYou.IfIgnored.
+                                                 Hidden for the local explain (which has no such field). -->
+                                            <TextBlock x:Name="WingmanIfIgnoredText" IsVisible="False"
+                                                       Foreground="#C9B58A" FontSize="12" FontStyle="Italic"
+                                                       TextWrapping="Wrap" Margin="0,4,0,0" />
                                         </StackPanel>
                                     </Border>
 
