@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>New Session dialog - merge Developer + QA into one Implementation session</title>
+<style>
+  :root{
+    --bg:#1b1b1b; --panel:#232323; --panel2:#1e1e1e; --titlebar:#2b2b2b;
+    --text:#cccccc; --muted:#8a8a8a; --line:#3a3a3a; --line2:#444;
+    --accent:#1e9bf0; --accent-dim:#1565c0; --field:#2a2a2a; --fieldline:#3f3f3f;
+    --btn:#3a3a3a; --btn-dis:#2f2f2f;
+    /* type badge colors (match SessionViewModel.cs) */
+    --t-discuss:#22d3ee; --t-bug:#ec4899; --t-submit:#f59e0b; --t-qa:#a855f7;
+    --t-support:#10b981; --t-implement:#9aa0a6;
+    /* NEW type: Implementation (build + verify loop) */
+    --t-impl:#14b8a6;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#0f0f0f;color:var(--text);
+       font-family:"Segoe UI",-apple-system,system-ui,sans-serif;padding:28px;}
+  h1{font-size:22px;font-weight:600;margin:0 0 4px;color:#fff}
+  .sub{color:var(--muted);font-size:13px;margin:0 0 8px;max-width:980px;line-height:1.5}
+  .legend-note{color:var(--muted);font-size:12px;margin:6px 0 22px}
+  .cols{display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start}
+  .col{flex:1 1 520px;min-width:480px}
+  .col h2{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
+          font-weight:600;margin:0 0 10px}
+
+  /* ---- window chrome ---- */
+  .win{background:var(--bg);border:1px solid #000;border-radius:6px;overflow:hidden;
+       box-shadow:0 12px 40px rgba(0,0,0,.55)}
+  .titlebar{background:var(--titlebar);height:34px;display:flex;align-items:center;
+            padding:0 10px;font-size:12.5px;color:#ddd;gap:8px;border-bottom:1px solid #000}
+  .titlebar .ico{width:14px;height:14px;border-radius:3px;
+       background:linear-gradient(135deg,#1e9bf0,#0d6cc0);display:inline-block}
+  .titlebar .spacer{flex:1}
+  .titlebar .winbtn{width:30px;text-align:center;color:#999}
+  .body{padding:18px 22px 20px}
+
+  .tabs{display:flex;gap:26px;border-bottom:1px solid var(--line);margin-bottom:18px}
+  .tab{font-size:18px;font-weight:600;padding:0 0 8px;color:#777;cursor:default}
+  .tab.active{color:#fff;border-bottom:2px solid var(--accent);margin-bottom:-1px}
+
+  .row{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+  .row .lbl{width:64px;color:var(--text);font-size:14px;flex:none}
+
+  /* toggle pills */
+  .pillrow{display:inline-flex;border:1px solid var(--fieldline);border-radius:5px;overflow:hidden}
+  .pill{padding:7px 16px;font-size:13.5px;color:var(--muted);background:var(--field)}
+  .pill.on{background:var(--accent-dim);color:#fff}
+
+  /* dropdown */
+  .dd{position:relative;display:inline-block;min-width:330px}
+  .dd .field{background:var(--field);border:1px solid var(--fieldline);border-radius:4px;
+       height:34px;display:flex;align-items:center;padding:0 10px;font-size:14px;gap:8px}
+  .dd .field .car{margin-left:auto;color:var(--muted)}
+  .dd-menu{position:absolute;top:38px;left:0;right:0;background:#262626;border:1px solid var(--line2);
+       border-radius:5px;box-shadow:0 14px 38px rgba(0,0,0,.6);z-index:5;overflow:hidden;padding:4px 0}
+  .opt{display:flex;align-items:flex-start;gap:10px;padding:8px 12px;font-size:13.5px}
+  .opt.sel{background:#243447}
+  .opt .meta{display:flex;flex-direction:column;gap:2px}
+  .opt .nm{color:#eee;font-weight:500}
+  .opt .ds{color:var(--muted);font-size:11.5px}
+  .ddiv{font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:#6a6a6a;
+        padding:8px 12px 4px;border-top:1px solid #333;margin-top:4px}
+
+  /* type badge chip */
+  .badge{font-size:11px;font-weight:700;border:1px solid;border-radius:4px;padding:1px 6px;
+         line-height:1.5;white-space:nowrap;background:transparent}
+  .b-impl{color:var(--t-implement);border-color:var(--t-implement)}
+  .b-implm{color:var(--t-impl);border-color:var(--t-impl)}
+  .b-disc{color:var(--t-discuss);border-color:var(--t-discuss)}
+  .b-bug{color:var(--t-bug);border-color:var(--t-bug)}
+  .b-qa{color:var(--t-qa);border-color:var(--t-qa)}
+  .b-sup{color:var(--t-support);border-color:var(--t-support)}
+
+  /* repo picker */
+  .search{background:var(--field);border:1px solid var(--fieldline);border-radius:4px;
+          height:34px;display:flex;align-items:center;padding:0 10px;color:var(--muted);font-size:13px;margin-bottom:10px}
+  .grid{border:1px solid var(--line);border-radius:4px;overflow:hidden}
+  .ghead,.grow{display:grid;grid-template-columns:1.2fr 2fr .7fr;font-size:12.5px}
+  .ghead{background:#262626;color:var(--muted);padding:7px 12px;border-bottom:1px solid var(--line)}
+  .grow{padding:9px 12px;color:#bbb;border-bottom:1px solid #2b2b2b}
+  .grow.sel{background:#1d3b5c;color:#fff}
+  .grow .lu{color:var(--muted);text-align:right}
+
+  .checks{margin-top:14px;display:flex;flex-direction:column;gap:9px}
+  .chk{display:flex;align-items:center;gap:9px;font-size:13px}
+  .box{width:15px;height:15px;border:2px solid #777;border-radius:3px;flex:none;position:relative}
+  .box.on{background:var(--accent);border-color:var(--accent)}
+  .box.on::after{content:"";position:absolute;left:4px;top:1px;width:4px;height:8px;
+       border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
+
+  .foot{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}
+  .button{height:32px;padding:0 16px;border-radius:4px;font-size:13px;display:flex;align-items:center;border:1px solid var(--line2)}
+  .b-primary{background:var(--accent-dim);color:#fff;border-color:var(--accent-dim)}
+  .b-ghost{background:var(--btn);color:#ddd}
+
+  /* group expansion card */
+  .expand{margin-top:12px;background:#1d2730;border:1px solid #2c3b46;border-radius:6px;padding:12px 14px}
+  .expand .et{font-size:12px;color:var(--muted);margin-bottom:10px;text-transform:uppercase;letter-spacing:.06em}
+  .member{display:flex;align-items:center;gap:10px;padding:6px 0;font-size:13.5px;border-bottom:1px solid #243039}
+  .member:last-child{border-bottom:0}
+  .member .role{width:118px;color:#fff;font-weight:600}
+  .member .sname{color:var(--muted);font-family:Consolas,monospace;font-size:12.5px}
+  .member .loop{margin-left:auto;color:#5f8fb0;font-size:11.5px;font-style:italic}
+  .arrow{color:#566;margin:0 4px}
+
+  .sectlbl{font-size:12px;color:var(--muted);margin:18px 0 6px;text-transform:uppercase;letter-spacing:.05em}
+
+  /* legend */
+  .legend{margin-top:34px;border-top:1px solid var(--line);padding-top:20px}
+  .legend h2{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 14px}
+  .ltable{display:grid;grid-template-columns:120px 160px 1fr;gap:0;font-size:13px;
+          border:1px solid var(--line);border-radius:6px;overflow:hidden;max-width:980px}
+  .ltable .lh{background:#262626;color:var(--muted);padding:8px 12px;font-size:12px;text-transform:uppercase;letter-spacing:.05em}
+  .ltable .lc{padding:9px 12px;border-top:1px solid #2b2b2b;display:flex;align-items:center}
+  .new-tag{font-size:10px;font-weight:700;color:#04201c;background:var(--t-impl);border-radius:3px;padding:1px 5px;margin-left:8px}
+
+  /* why box */
+  .why{margin-top:30px;border:1px solid #2c3b46;background:#16212a;border-radius:8px;padding:18px 22px;max-width:980px}
+  .why h3{margin:0 0 10px;font-size:14px;color:#fff}
+  .why ul{margin:0;padding-left:20px;line-height:1.7;font-size:13px;color:#cfcfcf}
+  .why b{color:#fff}
+</style>
+</head>
+<body>
+  <h1>New Session dialog &mdash; merge Developer + QA into one Implementation session</h1>
+  <p class="sub">Revises <b>#254</b>. Developer and QA stop being two separate sessions. They become roles
+  inside <b>one Implementation session</b> that loops build&harr;verify until the task is done. The Product group
+  shrinks from four tied sessions to two: <b>Product</b> + <b>Implementation</b>. Support leaves the group
+  (the type stays selectable solo).</p>
+  <p class="legend-note">Static design mock. Dropdowns are drawn open so every option is visible at once.</p>
+
+  <div class="cols">
+
+    <!-- ===================== BEFORE (#254 design) ===================== -->
+    <div class="col">
+      <h2>Before &mdash; #254 design</h2>
+      <div class="win">
+        <div class="titlebar"><span class="ico"></span> New Session <span class="spacer"></span>
+          <span class="winbtn">&#8211;</span><span class="winbtn">&#9633;</span><span class="winbtn">&#10005;</span></div>
+        <div class="body">
+          <div class="tabs"><div class="tab active">New Session</div><div class="tab">Resume Session</div></div>
+
+          <div class="row">
+            <span class="lbl">Create:</span>
+            <span class="pillrow"><span class="pill on">Single session</span><span class="pill">Group</span></span>
+          </div>
+
+          <div class="sectlbl">Single &mdash; Type dropdown (5 types)</div>
+          <div class="dd">
+            <div class="field"><span class="badge b-impl">&middot;</span> Developer <span class="car">&#9662;</span></div>
+            <div class="dd-menu">
+              <div class="opt sel"><span class="badge b-impl">&middot;</span><div class="meta"><span class="nm">Developer</span><span class="ds">Write code, fix bugs, ship (default)</span></div></div>
+              <div class="opt"><span class="badge b-bug">P</span><div class="meta"><span class="nm">Product</span><span class="ds">Scope the work, file issues for the developer</span></div></div>
+              <div class="opt"><span class="badge b-qa">Q</span><div class="meta"><span class="nm">QA</span><span class="ds">Verify what was built, never fix</span></div></div>
+              <div class="opt"><span class="badge b-sup">S</span><div class="meta"><span class="nm">Support</span><span class="ds">Triage incoming requests, file issues</span></div></div>
+              <div class="opt"><span class="badge b-disc">D</span><div class="meta"><span class="nm">Discuss</span><span class="ds">Talk only &mdash; never edits or commits</span></div></div>
+            </div>
+          </div>
+
+          <div class="sectlbl">Group &mdash; Product = 4 tied sessions</div>
+          <div class="expand">
+            <div class="et">This group creates 4 tied sessions in the selected repo</div>
+            <div class="member"><span class="badge b-bug">P</span><span class="role">Product</span><span class="arrow">&rarr;</span><span class="sname">cc-director - product</span></div>
+            <div class="member"><span class="badge b-impl">&middot;</span><span class="role">Developer</span><span class="arrow">&rarr;</span><span class="sname">cc-director - developer</span></div>
+            <div class="member"><span class="badge b-qa">Q</span><span class="role">QA</span><span class="arrow">&rarr;</span><span class="sname">cc-director - qa</span></div>
+            <div class="member"><span class="badge b-sup">S</span><span class="role">Support</span><span class="arrow">&rarr;</span><span class="sname">cc-director - support</span></div>
+          </div>
+
+          <div class="foot">
+            <div class="button b-primary">Start 4 Sessions</div>
+            <div class="button b-ghost">Cancel</div>
+          </div>
+        </div>
+      </div>
+      <p style="color:var(--muted);font-size:12px;margin-top:10px">
+        Developer and QA are <b>separate sessions</b> on the same repo &mdash; they fight over the working
+        tree, the build, and the running app, and every dev&harr;QA turn is a cross-session handoff.</p>
+    </div>
+
+    <!-- ===================== AFTER (this issue) ===================== -->
+    <div class="col">
+      <h2>After &mdash; this issue</h2>
+      <div class="win">
+        <div class="titlebar"><span class="ico"></span> New Session <span class="spacer"></span>
+          <span class="winbtn">&#8211;</span><span class="winbtn">&#9633;</span><span class="winbtn">&#10005;</span></div>
+        <div class="body">
+          <div class="tabs"><div class="tab active">New Session</div><div class="tab">Resume Session</div></div>
+
+          <div class="row">
+            <span class="lbl">Create:</span>
+            <span class="pillrow"><span class="pill on">Single session</span><span class="pill">Group</span></span>
+          </div>
+
+          <div class="sectlbl">Single &mdash; Type dropdown</div>
+          <div class="dd">
+            <div class="field"><span class="badge b-implm">I</span> Implementation <span class="car">&#9662;</span></div>
+            <div class="dd-menu">
+              <div class="opt sel"><span class="badge b-implm">I</span><div class="meta"><span class="nm">Implementation</span><span class="ds">Build <b>and</b> verify &mdash; runs the developer&harr;QA loop in one session (default)</span></div></div>
+              <div class="opt"><span class="badge b-bug">P</span><div class="meta"><span class="nm">Product</span><span class="ds">Scope the work, file the issue &mdash; never codes</span></div></div>
+              <div class="opt"><span class="badge b-disc">D</span><div class="meta"><span class="nm">Discuss</span><span class="ds">Talk only &mdash; never edits or commits</span></div></div>
+              <div class="ddiv">Advanced &mdash; single role, rarely needed solo</div>
+              <div class="opt"><span class="badge b-impl">&middot;</span><div class="meta"><span class="nm">Developer</span><span class="ds">Pure code, no QA hat</span></div></div>
+              <div class="opt"><span class="badge b-qa">Q</span><div class="meta"><span class="nm">QA</span><span class="ds">Pure verify, never fixes</span></div></div>
+              <div class="opt"><span class="badge b-sup">S</span><div class="meta"><span class="nm">Support</span><span class="ds">Triage incoming requests, file issues</span></div></div>
+            </div>
+          </div>
+
+          <div class="sectlbl">Group &mdash; Product = 2 tied sessions</div>
+          <div class="expand">
+            <div class="et">This group creates 2 tied sessions in the selected repo</div>
+            <div class="member"><span class="badge b-bug">P</span><span class="role">Product</span><span class="arrow">&rarr;</span><span class="sname">cc-director - product</span></div>
+            <div class="member"><span class="badge b-implm">I</span><span class="role">Implementation</span><span class="arrow">&rarr;</span><span class="sname">cc-director - implementation</span><span class="loop">dev&harr;QA loop inside</span></div>
+          </div>
+
+          <div class="foot">
+            <div class="button b-primary">Start 2 Sessions</div>
+            <div class="button b-ghost">Cancel</div>
+          </div>
+        </div>
+      </div>
+      <p style="color:var(--muted);font-size:12px;margin-top:10px">
+        One session owns the tree, builds, and runs the app. The dev&harr;QA loop runs <b>inside</b> it with full
+        context &mdash; no handoffs, no two agents fighting one checkout.</p>
+    </div>
+  </div>
+
+  <!-- ===================== LEGEND ===================== -->
+  <div class="legend">
+    <h2>Session types after this change</h2>
+    <div class="ltable">
+      <div class="lh">Badge</div><div class="lh">Type</div><div class="lh">Behavior</div>
+      <div class="lc"><span class="badge b-implm">I</span></div><div class="lc">Implementation&nbsp;<span class="new-tag">NEW</span></div><div class="lc">The default. Builds <b>and</b> verifies in one session, looping developer&harr;QA until the task is done. Owns the working tree.</div>
+      <div class="lc"><span class="badge b-bug">P</span></div><div class="lc">Product</div><div class="lc">Scope the work, file the issue for Implementation to pick up. Never codes.</div>
+      <div class="lc"><span class="badge b-disc">D</span></div><div class="lc">Discuss</div><div class="lc">Talk only &mdash; never edits or commits.</div>
+      <div class="lc"><span class="badge b-impl">&middot;</span></div><div class="lc">Developer</div><div class="lc">Solo code, no QA hat. Kept selectable; not in any group. (was the default)</div>
+      <div class="lc"><span class="badge b-qa">Q</span></div><div class="lc">QA</div><div class="lc">Solo verify, never fixes. Kept selectable; not in any group.</div>
+      <div class="lc"><span class="badge b-sup">S</span></div><div class="lc">Support</div><div class="lc">Triage incoming questions/requests, file issues. Kept selectable; left the group.</div>
+    </div>
+    <p style="color:var(--muted);font-size:12px;margin-top:12px;max-width:980px">
+      The <b>Product group</b> now uses two types &mdash; <b>Product</b> and <b>Implementation</b>.
+      Developer, QA, and Support stay defined (old sessions still load, you can still spin one up solo)
+      but are no longer part of the group. Integer enum values stay stable; legacy names keep deserializing,
+      same pattern #254 established.</p>
+  </div>
+
+  <!-- ===================== WHY ===================== -->
+  <div class="why">
+    <h3>Why merge Developer + QA into one session</h3>
+    <ul>
+      <li><b>Same-repo parallelism doesn't work.</b> Two sessions on one repo fight over the working tree, build output, the running app, ports, and slots. You can't reliably test a build while another agent is mid-edit on the same checkout.</li>
+      <li><b>Dev&harr;QA is a tight loop, not a one-way handoff.</b> QA finds a defect &rarr; dev fixes &rarr; QA re-verifies &rarr; repeat. Across two sessions every turn costs a label handoff, a context reload, and a re-orientation. In one session the loop keeps full context and runs fast.</li>
+      <li><b>Single owner of the working tree.</b> The Implementation session is the only thing that edits, builds, and runs the app &mdash; no coordination protocol between two agents over one filesystem.</li>
+      <li><b>Simpler human model.</b> Product (decide + specify) &rarr; Implementation (build + verify, looping) &rarr; ship.</li>
+    </ul>
+    <p style="color:var(--muted);font-size:12px;margin-top:12px;margin-bottom:0">
+      CenCon note: the four agent <b>roles</b> and the flow:* labels are unchanged &mdash; Developer and QA now
+      run as roles <b>inside</b> the Implementation session, looping over flow:ready-dev / flow:ready-qa internally.
+      The SOC 2 "QA is a different identity from the developer session" line in DEVELOPMENT_METHOD.md softens to
+      role separation within one session.</p>
+  </div>
+</body>
+</html>
