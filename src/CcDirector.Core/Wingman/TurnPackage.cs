@@ -23,9 +23,9 @@ public sealed record TurnPackage(
     string? CurrentHeadline = null,
     string? ParkedComposerText = null,
     // Issue #236: the session's declared purpose, so the brief contract can apply a
-    // per-type mission clause (a BugReport session whose issue is filed is DONE -> suggest
-    // close). Defaults to Implement, the back-compat no-op.
-    SessionType SessionType = SessionType.Implement);
+    // per-type mission clause (a Product session whose issue is filed is DONE -> suggest
+    // close). Defaults to Developer, the back-compat no-op.
+    SessionType SessionType = SessionType.Developer);
 
 /// <summary>
 /// Builds a <see cref="TurnPackage"/> from the parsed transcript widgets, the current screen
@@ -46,7 +46,7 @@ public static class TurnPackageBuilder
         string screenTail,
         TurnBriefDto? priorBrief,
         IReadOnlyList<TurnBriefDto>? recentBriefs = null,
-        SessionType sessionType = SessionType.Implement)
+        SessionType sessionType = SessionType.Developer)
     {
         ArgumentNullException.ThrowIfNull(widgets);
 

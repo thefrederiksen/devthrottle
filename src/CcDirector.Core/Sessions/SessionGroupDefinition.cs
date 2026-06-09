@@ -17,7 +17,7 @@ public sealed class SessionGroupMember
     }
 
     /// <summary>The session type to create (drives the seeded playbook).</summary>
-    public SessionType Type { get; set; } = SessionType.Implement;
+    public SessionType Type { get; set; } = SessionType.Developer;
 
     /// <summary>Appended to the repo name for this member's session name, e.g. " - qa".</summary>
     public string NameSuffix { get; set; } = "";
@@ -47,19 +47,21 @@ public sealed class SessionGroupDefinition
 
     /// <summary>
     /// The built-in group presets. The FIRST shipped group is the Product group
-    /// (issue #225): Issue Submitter -> Implementer -> QA, in that fixed order.
+    /// (issue #225, grown to four members in #254): Product -> Developer -> QA -> Support,
+    /// in that fixed order - the four roles of the CenCon development workflow.
     /// </summary>
     public static IReadOnlyList<SessionGroupDefinition> BuiltIn { get; } = new[]
     {
         new SessionGroupDefinition
         {
             Name = "Product",
-            Description = "Issue Submitter + Implementer + QA - three tied sessions in one repo.",
+            Description = "Product + Developer + QA + Support - four tied sessions in one repo.",
             Members = new List<SessionGroupMember>
             {
-                new(SessionType.IssueSubmitter, " - submit issues", "Submitter"),
-                new(SessionType.Implement,      " - implement",     "Implementer"),
-                new(SessionType.QA,             " - qa",            "QA"),
+                new(SessionType.Product,   " - product",   "Product"),
+                new(SessionType.Developer, " - developer", "Developer"),
+                new(SessionType.QA,        " - qa",        "QA"),
+                new(SessionType.Support,   " - support",   "Support"),
             },
         },
     };

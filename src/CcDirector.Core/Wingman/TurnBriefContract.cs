@@ -156,12 +156,12 @@ public static class TurnBriefContract
         sb.AppendLine();
         sb.AppendLine("=== SESSION CONTEXT ===");
         // Per-type mission clause (issue #236): a typed session's purpose sharpens the
-        // brief. A BugReport session has a KNOWABLE end - one filed issue - so the close
-        // suggestion is reliable here in a way a fuzzy Implement "done" never is.
+        // brief. A Product session has a KNOWABLE end - one filed issue - so the close
+        // suggestion is reliable here in a way a fuzzy Developer "done" never is.
         switch (p.SessionType)
         {
-            case SessionType.BugReport:
-                sb.AppendLine("SESSION TYPE: BUG REPORT. This session's ONLY mission is to file one GitHub issue -");
+            case SessionType.Product:
+                sb.AppendLine("SESSION TYPE: PRODUCT. This session's ONLY mission is to file one GitHub issue -");
                 sb.AppendLine("  it must NOT fix the bug. The moment the transcript shows the filed issue URL/number,");
                 sb.AppendLine("  the mission is COMPLETE: set suggestedAction={\"type\":\"close_session\",\"reason\":\"Issue");
                 sb.AppendLine("  #<n> filed\"} and make needsYou say the issue is filed and the action is closing this");

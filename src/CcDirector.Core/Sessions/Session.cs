@@ -123,7 +123,7 @@ public sealed class Session : IDisposable
     /// BugReport. Chosen once at creation and IMMUTABLE afterwards - this is identity,
     /// not status. Internal-set like <see cref="AgentKind"/>: creation and restore
     /// paths stamp it, nothing else writes it.</summary>
-    public SessionType SessionType { get; internal set; } = SessionType.Implement;
+    public SessionType SessionType { get; internal set; } = SessionType.Developer;
 
     /// <summary>If this session was created as part of a group (issue #225), the shared
     /// group identity its members travel by; null for a solo session. Members of the same

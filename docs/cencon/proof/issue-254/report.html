@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Developer Agent Proof - Issue #254</title>
+<style>
+  :root { --bg:#1e1e1e; --panel:#252526; --border:#3c3c3c; --fg:#cccccc; --muted:#888888; --accent:#007acc; --ok:#22c55e; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font-family:Segoe UI, system-ui, sans-serif; line-height:1.5; }
+  .wrap { max-width:1040px; margin:0 auto; padding:32px 24px 80px; }
+  h1 { font-size:24px; margin:0 0 4px; }
+  h2 { font-size:18px; margin:32px 0 10px; border-bottom:1px solid var(--border); padding-bottom:6px; }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:20px; }
+  .badge { display:inline-block; padding:2px 10px; border-radius:6px; font-size:12px; font-weight:600; }
+  .b-ok { background:#1b3a2a; color:var(--ok); border:1px solid var(--ok); }
+  table { border-collapse:collapse; width:100%; margin:12px 0; font-size:14px; }
+  th, td { border:1px solid var(--border); padding:8px 10px; text-align:left; vertical-align:top; }
+  th { background:var(--panel); }
+  code { background:#2d2d30; padding:1px 5px; border-radius:4px; font-family:Cascadia Mono, Consolas, monospace; font-size:12px; }
+  img { max-width:100%; border:1px solid var(--border); border-radius:6px; margin:8px 0; background:#000; }
+  .fig { color:var(--muted); font-size:12px; margin:0 0 18px; }
+  ul { margin:6px 0; } li { margin:3px 0; }
+  .done { background:var(--panel); border:1px solid var(--ok); border-radius:8px; padding:16px 18px; margin-top:28px; }
+  .ac { font-weight:600; color:#fff; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Developer Agent - Proof Report</h1>
+  <div class="sub">
+    Issue #254 - [Desktop] Redesign New Session dialog: Type dropdown + 5 session types + 4-member Product group<br/>
+    Branch <code>feat/issue-254-new-session-dialog</code> &middot; CenCon Development Method &middot;
+    Result: <span class="badge b-ok">ALL ACCEPTANCE CRITERIA MET</span>
+  </div>
+
+  <h2>What was implemented</h2>
+  <ul>
+    <li><b>Dialog redesign</b> - the <code>Create:</code> radio pairs became a <b>Single session | Group</b> toggle.
+      Single mode shows a <b>Type dropdown</b> (badge chip + one-line role); Group mode shows a <b>Group dropdown
+      + a preview card</b> of the member sessions. (<code>NewSessionDialog.axaml</code> + <code>.axaml.cs</code>)</li>
+    <li><b>Five session types</b> - <code>Implement</code> renamed to <b>Developer</b> (int 0), <code>BugReport</code>
+      renamed to <b>Product</b> (int 2), new <b>Support</b> (int 5); <code>IssueSubmitter</code> (int 3) kept but
+      hidden from the picker. (<code>SessionType.cs</code>)</li>
+    <li><b>Back-compat serialization</b> - replaced <code>JsonStringEnumConverter</code> with a custom
+      <code>SessionTypeJsonConverter</code> + <code>SessionTypeNames.TryParse</code> that read the legacy names
+      (<code>Implement</code>/<code>BugReport</code>) as aliases, so every session persisted before the rename still
+      loads. (Assumption 1 confirmed real: the type persists by string name.)</li>
+    <li><b>Product group = 4 members</b> - Product, Developer, QA, Support in fixed order with
+      <code>- product/-developer/-qa/-support</code> suffixes. (<code>SessionGroupDefinition.cs</code>)</li>
+    <li><b>Rail badges</b> - Product <code>[P]</code> magenta, QA <code>[Q]</code> violet, Support <code>[S]</code>
+      emerald, Discuss <code>[D]</code> cyan; Developer no badge. (<code>SessionViewModel.cs</code>)</li>
+    <li><b>API parse sites</b> - <code>ControlEndpoints</code> and <code>GatewayTurnBriefAgent</code> route type
+      parsing through the alias-aware <code>SessionTypeNames.TryParse</code>.</li>
+  </ul>
+
+  <h2>Acceptance criteria - evidence</h2>
+  <table>
+    <tr><th>#</th><th>Criterion</th><th>Result / proof</th></tr>
+    <tr><td>AC1</td><td>Single mode uses a Type dropdown of the five types</td>
+      <td><span class="badge b-ok">PASS</span> Live dialog, dropdown open showing Developer / Product / QA / Support / Discuss (Fig 1).</td></tr>
+    <tr><td>AC2</td><td>Group mode shows a group dropdown + 4-member preview</td>
+      <td><span class="badge b-ok">PASS</span> Live dialog Group mode, "This group creates:" card lists Product, Developer, QA, Support (Fig 2).</td></tr>
+    <tr><td>AC3</td><td>Product group creates exactly 4 grouped sessions, fixed order, adjacent</td>
+      <td><span class="badge b-ok">PASS</span> Created live on <code>cc-director</code>; all 4 share groupId
+      <code>20acf36e-...</code>, named <code>cc-director - product/developer/qa/support</code>, rendered under one
+      PRODUCT GROUP bracket (Fig 3).</td></tr>
+    <tr><td>AC4</td><td>Badges render per type</td>
+      <td><span class="badge b-ok">PASS</span> One session of each type: Developer = no badge, Product <code>[P]</code>
+      magenta, QA <code>[Q]</code> violet, Support <code>[S]</code> emerald, Discuss <code>[D]</code> cyan (Fig 4).</td></tr>
+    <tr><td>AC5</td><td>Support behavior seeded (triage / answer / file, never fix)</td>
+      <td><span class="badge b-ok">PASS</span> Unit test <code>Playbook_Support_TriageAnswerFile_NeverEdits_Issue254</code>
+      asserts the playbook text; a live Support session was created (Fig 4).</td></tr>
+    <tr><td>AC6</td><td>Every old session still loads after the rename</td>
+      <td><span class="badge b-ok">PASS</span> Tests <code>PersistedSession_LegacyTypeName_StillDeserializes</code>
+      (Implement-&gt;Developer, BugReport-&gt;Product, IssueSubmitter still loads) and
+      <code>SessionTypeNames_TryParse_AcceptsCanonicalAndLegacy</code> deserialize stored JSON of each old value.</td></tr>
+    <tr><td>AC7</td><td>IssueSubmitter removed from the picker</td>
+      <td><span class="badge b-ok">PASS</span> Not in the Type dropdown (Fig 1) nor the group preview (Fig 2); enum
+      value retained but hidden. Test <code>ProductGroup_HasNoIssueSubmitter_DroppedIn254</code>.</td></tr>
+    <tr><td>AC8</td><td>Builds clean, SessionTypeTests pass</td>
+      <td><span class="badge b-ok">PASS</span> <code>dotnet build</code> on the changed projects: 0 warnings, 0 errors.
+      43/43 tests in the change's blast radius pass (SessionTypeTests + GroupReorderTests + TurnBriefTests).</td></tr>
+  </table>
+
+  <h2>Fig 1 - AC1: Type dropdown (five types, no IssueSubmitter)</h2>
+  <img src="ac1-type-dropdown.png" alt="Type dropdown open showing five types" />
+  <p class="fig">Single mode. The dropdown lists exactly Developer, Product, QA, Support, Discuss - each with badge chip + one-line role.</p>
+
+  <h2>Fig 2 - AC2: Group mode preview card</h2>
+  <img src="ac2-group-preview.png" alt="Group mode with Product group preview" />
+  <p class="fig">Group radio selected; the Product group dropdown + "This group creates:" card shows the four members in fixed order.</p>
+
+  <h2>Fig 3 - AC3: Product group in the rail (4 adjacent grouped sessions)</h2>
+  <img src="ac3-group-rail.png" alt="Rail showing PRODUCT GROUP with four members" />
+  <p class="fig">Created live on <code>cc-director</code>. PRODUCT GROUP bracket holds product -&gt; developer -&gt; qa -&gt; support, all one groupId.</p>
+
+  <h2>Fig 4 - AC4 / AC5: Badges per type</h2>
+  <img src="ac4-badges-rail-zoom.png" alt="Rail badges for each type" />
+  <p class="fig">Developer (no badge), Product <code>[P]</code> magenta, QA <code>[Q]</code> violet, Support <code>[S]</code> emerald, Discuss <code>[D]</code> cyan.</p>
+
+  <h2>CenCon impact</h2>
+  <p>No architecture or security drift. The change adds no external surface, secret, or network path - it renames/extends
+  an enum and redesigns one desktop dialog inside the existing <code>core_services</code> and <code>avalonia_ui</code>
+  containers. No <code>docs/cencon/</code> file required updating; <code>architecture_manifest.yaml</code> and
+  <code>security_profile.yaml</code> remain current (both dated 2026-06-09). No blocking security rule (DT-01..DT-NN)
+  is touched.</p>
+
+  <h2>Verification method</h2>
+  <ul>
+    <li>Built slot-5 test binary (<code>cc-director5.exe</code>) and launched it via the <code>cc-director-launch</code>
+      scheduled task (clean parentage, CLAUDE.md rule 0b).</li>
+    <li>Drove it via the Control API (loopback <code>127.0.0.1:7886</code>) to create one session of each type, and via
+      UI Automation to open the dialog, the Type dropdown, switch to Group mode, and create the Product group on
+      <code>cc-director</code>.</li>
+    <li>Cleaned up afterward: closed the test sessions and stopped only <code>cc-director5.exe</code> (path-confirmed).</li>
+  </ul>
+
+  <div class="done">
+    <span class="ac">I believe this is finished.</span> All eight acceptance criteria are met and proven - the dialog
+    redesign, the five-type model, the alias-aware back-compat, the 4-member Product group, and the badges all behave as
+    specified, the solution builds clean, and the unit tests pass. Ready for QA.
+  </div>
+</div>
+</body>
+</html>

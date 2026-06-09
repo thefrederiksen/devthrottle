@@ -92,8 +92,8 @@ public sealed class GatewayTurnBriefAgent : IDisposable
             async (ep, sid, ct) => (await client.GetBufferAsync(ep, sid, lines: 80, ct: ct))?.Text ?? "",
             fetchRepoPath: async (ep, sid, ct) => (await client.GetSessionAsync(ep, sid, ct))?.RepoPath,
             fetchSessionType: async (ep, sid, ct) =>
-                Enum.TryParse<Core.Sessions.SessionType>((await client.GetSessionAsync(ep, sid, ct))?.Type, out var t)
-                    ? t : Core.Sessions.SessionType.Implement,
+                Core.Sessions.SessionTypeNames.TryParse((await client.GetSessionAsync(ep, sid, ct))?.Type, out var t)
+                    ? t : Core.Sessions.SessionType.Developer,
             generatorId: generatorId)
     {
     }
@@ -119,9 +119,9 @@ public sealed class GatewayTurnBriefAgent : IDisposable
         // Tests that don't care about @file substitution get the no-repo answer: the
         // resolver then keeps prompts verbatim (same behavior as a remote Director).
         _fetchRepoPath = fetchRepoPath ?? ((_, _, _) => Task.FromResult<string?>(null));
-        // Issue #236: untyped fetch (tests, old callers) defaults to Implement - no mission
+        // Issue #236: untyped fetch (tests, old callers) defaults to Developer - no mission
         // clause, identical brief to before.
-        _fetchSessionType = fetchSessionType ?? ((_, _, _) => Task.FromResult(Core.Sessions.SessionType.Implement));
+        _fetchSessionType = fetchSessionType ?? ((_, _, _) => Task.FromResult(Core.Sessions.SessionType.Developer));
         _settleDelay = settleDelay ?? SettleDelay;
         _worker = Task.Run(WorkerLoopAsync);
     }
