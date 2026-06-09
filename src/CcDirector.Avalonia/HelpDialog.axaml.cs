@@ -1,11 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using CcDirector.ControlApi;
+using CcDirector.Core.Configuration;
+using CcDirector.Core.Diagnostics;
 using CcDirector.Core.Utilities;
 
 namespace CcDirector.Avalonia;
@@ -67,7 +70,7 @@ public partial class HelpDialog : Window
             instanceFile = Path.Combine(InstanceRegistration.InstancesDirectory, $"{host.DirectorId}.json");
         }
 
-        return new List<(string, string)>
+        var rows = new List<(string, string)>
         {
             ("Version", version),
             ("CC Director ID", directorId),
@@ -79,6 +82,20 @@ public partial class HelpDialog : Window
             ("User", Environment.UserName),
             ("Instance file", instanceFile),
         };
+
+        // Deployment + connection diagnostics: which build this is, where it lives, the Gateway it
+        // talks to (the URL), and the versions of every installed component.
+        if (AboutInfo.BuildDate() is { } built)
+            rows.Add(("Build date", built.ToString("yyyy-MM-dd HH:mm:ss")));
+        rows.Add(("Install root", AboutInfo.InstallRoot));
+
+        var gateway = GatewayConfig.Load();
+        rows.Add(("Gateway", gateway.IsEnabled ? gateway.Url : "(standalone - no gateway configured)"));
+
+        foreach (var kv in AboutInfo.InstalledComponents().OrderBy(k => k.Key, StringComparer.OrdinalIgnoreCase))
+            rows.Add(($"Installed: {kv.Key}", kv.Value));
+
+        return rows;
     }
 
     private static Control MakeRow(string label, string value)

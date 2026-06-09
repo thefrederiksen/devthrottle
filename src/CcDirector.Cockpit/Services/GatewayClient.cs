@@ -136,6 +136,17 @@ public sealed class GatewayClient
     }
 
     /// <summary>
+    /// Gateway About/diagnostics (<c>GET /about</c>): product, version, build date, install root,
+    /// the one Cockpit URL, and the installed component versions on the Gateway box. Throws on
+    /// transport failure - the About page surfaces it as a banner.
+    /// </summary>
+    public async Task<AboutDto> GetAboutAsync(CancellationToken ct = default)
+    {
+        var a = await _http.GetFromJsonAsync<AboutDto>("about", ct);
+        return a ?? throw new HttpRequestException("about returned an empty body");
+    }
+
+    /// <summary>
     /// The repositories a given Director offers for a new session. The Gateway proxies this to
     /// the Director's <c>GET /repos</c>, so the Cockpit never needs that Director's endpoint.
     /// </summary>

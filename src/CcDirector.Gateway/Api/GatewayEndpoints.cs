@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Net.Http.Json;
 using System.Net.Sockets;
+using CcDirector.Core.Diagnostics;
 using CcDirector.Core.Network;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Cockpit;
@@ -137,6 +138,21 @@ internal static class GatewayEndpoints
                 ServerTime = DateTime.UtcNow,
             });
         });
+
+        // About / diagnostics: product, version, build date, install root, the one Cockpit URL, and
+        // the installed component versions (from installed.json on this box). Feeds the Cockpit About
+        // page; loopback-reachable like the rest of the read API.
+        app.MapGet("/about", () => Results.Json(new AboutDto
+        {
+            Product = AboutInfo.ProductName,
+            Version = AboutInfo.VersionFull,
+            BuildDate = AboutInfo.BuildDate()?.ToString("yyyy-MM-dd HH:mm:ss"),
+            MachineName = Environment.MachineName,
+            InstallRoot = AboutInfo.InstallRoot,
+            CockpitUrl = TailscaleIdentity.TryGetFrontDoorBaseUrl() is { } fd ? fd + "/" : null,
+            InstalledComponents = new Dictionary<string, string>(AboutInfo.InstalledComponents()),
+            ServerTime = DateTime.UtcNow,
+        }));
 
         // Where is this machine's Cockpit? ONE URL: the Cockpit is served through the Gateway
         // front door (fallback proxy), so the answer is the front-door base URL itself - never
