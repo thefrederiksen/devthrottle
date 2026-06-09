@@ -103,6 +103,23 @@ public class RawTerminalPageTests
     }
 
     [Fact]
+    public void BuildHtml_HasManualZoomControlsAndPinch()
+    {
+        var html = RawTerminalPage.BuildHtml("http://10.0.2.2:7883", Sid);
+
+        // Follow-up to #244/#245: "I need to zoom the terminal so I can read it." A-/A+
+        // buttons, a host hook, and two-finger pinch all set an explicit zoom font that
+        // overrides fit-width by winning in chooseFont(). Like fit, zoom changes the real
+        // xterm font (not a CSS scale) so #wrap pans correctly at any size.
+        Assert.Contains("id=\"zoomout\"", html);
+        Assert.Contains("id=\"zoomin\"", html);
+        Assert.Contains("window.ccSetZoom", html);
+        Assert.Contains("function setZoom(px)", html);
+        Assert.Contains("if (zoomFont > 0) return zoomFont;", html);
+        Assert.Contains("touchmove", html);
+    }
+
+    [Fact]
     public void BuildHtml_HasNoFixedPixelHeightSoMauiSizesTheWebView()
     {
         var html = RawTerminalPage.BuildHtml("http://10.0.2.2:7883", Sid);
