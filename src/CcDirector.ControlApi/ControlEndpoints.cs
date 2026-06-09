@@ -2281,12 +2281,13 @@ internal static class ControlEndpoints
                 _ => throw new InvalidOperationException("unreachable"),
             };
 
-            // Session type (issue #211): identity chosen once at creation. Null/empty
-            // means Implement so pre-#211 clients keep today's behavior exactly.
-            var sessionType = SessionType.Implement;
+            // Session type (issue #211, renamed in #254): identity chosen once at creation.
+            // Null/empty means Developer so pre-#211 clients keep today's behavior exactly.
+            // SessionTypeNames.TryParse accepts the legacy names (Implement/BugReport) too.
+            var sessionType = SessionType.Developer;
             if (!string.IsNullOrWhiteSpace(req.Type)
-                && !Enum.TryParse(req.Type, ignoreCase: true, out sessionType))
-                return Results.BadRequest(new { error = $"unknown type: {req.Type}. Valid: Implement, Discuss, BugReport" });
+                && !SessionTypeNames.TryParse(req.Type, out sessionType))
+                return Results.BadRequest(new { error = $"unknown type: {req.Type}. Valid: Developer, Discuss, Product, QA, Support" });
 
             Session session;
             try

@@ -33,9 +33,11 @@ public class PersistedSession
     public AgentKind AgentKind { get; set; } = AgentKind.ClaudeCode;
 
     /// <summary>The session's declared purpose (issue #211). Defaults to Implement so
-    /// sessions persisted before this field existed deserialize to today's behavior.</summary>
-    [JsonConverter(typeof(JsonStringEnumConverter))]
-    public SessionType SessionType { get; set; } = SessionType.Implement;
+    /// sessions persisted before this field existed deserialize to today's behavior.
+    /// The type-level <see cref="SessionTypeJsonConverter"/> governs serialization (it writes
+    /// the canonical name and reads the #254 legacy aliases), so no property-level converter
+    /// override here - that would shadow the alias handling and break old-session loading.</summary>
+    public SessionType SessionType { get; set; } = SessionType.Developer;
 
     /// <summary>Group identity (issue #225), null for solo sessions. Persisted so a group
     /// survives a restart intact - members restore adjacent and still tied.</summary>

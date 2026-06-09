@@ -670,7 +670,7 @@ public partial class MainWindow : Window
         _ => new ClaudeAgent(_sessionManager.Options)
     };
 
-    private SessionViewModel? CreateSession(string repoPath, string? resumeSessionId = null, string? claudeArgs = null, AgentKind agentKind = AgentKind.ClaudeCode, SessionType sessionType = SessionType.Implement, Guid? groupId = null, string? groupRole = null, string? groupName = null)
+    private SessionViewModel? CreateSession(string repoPath, string? resumeSessionId = null, string? claudeArgs = null, AgentKind agentKind = AgentKind.ClaudeCode, SessionType sessionType = SessionType.Developer, Guid? groupId = null, string? groupRole = null, string? groupName = null)
     {
         FileLog.Write($"[MainWindow] CreateSession: repoPath={repoPath}, agent={agentKind}, type={sessionType}, group={groupId?.ToString() ?? "none"}, resume={resumeSessionId ?? "null"}, args={claudeArgs ?? "default"}");
         _lastSessionCreateError = null;

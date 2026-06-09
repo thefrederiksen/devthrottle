@@ -268,37 +268,42 @@ public class SessionViewModel : INotifyPropertyChanged
     // Session-type badge (issue #211): OUTLINED chip so identity never reads as a status
     // color. Only the non-default types are shown - Implement carries no badge, keeping
     // the common case clutter-free. Cyan/magenta deliberately sit outside the state palette.
-    private static readonly ISolidColorBrush DiscussTypeBrush = new SolidColorBrush(Color.FromRgb(0x22, 0xD3, 0xEE));
-    private static readonly ISolidColorBrush BugReportTypeBrush = new SolidColorBrush(Color.FromRgb(0xEC, 0x48, 0x99));
-    private static readonly ISolidColorBrush IssueSubmitterTypeBrush = new SolidColorBrush(Color.FromRgb(0xF5, 0x9E, 0x0B)); // amber (#225)
+    private static readonly ISolidColorBrush DiscussTypeBrush = new SolidColorBrush(Color.FromRgb(0x22, 0xD3, 0xEE));        // cyan
+    private static readonly ISolidColorBrush ProductTypeBrush = new SolidColorBrush(Color.FromRgb(0xEC, 0x48, 0x99));        // magenta (#254, was BugReport)
+    private static readonly ISolidColorBrush IssueSubmitterTypeBrush = new SolidColorBrush(Color.FromRgb(0xF5, 0x9E, 0x0B)); // amber (#225, legacy - hidden in #254 but kept so old sessions still paint)
     private static readonly ISolidColorBrush QaTypeBrush = new SolidColorBrush(Color.FromRgb(0xA8, 0x55, 0xF7));            // violet (#225)
+    private static readonly ISolidColorBrush SupportTypeBrush = new SolidColorBrush(Color.FromRgb(0x10, 0xB9, 0x81));        // emerald (#254)
 
-    /// <summary>True only for non-default types - drives the badge's IsVisible.</summary>
-    public bool ShowSessionTypeBadge => Session.SessionType != SessionType.Implement;
+    /// <summary>True only for non-default types - drives the badge's IsVisible. The default
+    /// Developer type (#254, formerly Implement) carries no rail badge.</summary>
+    public bool ShowSessionTypeBadge => Session.SessionType != SessionType.Developer;
 
     public string SessionTypeLabel => Session.SessionType switch
     {
         SessionType.Discuss => "[D] Discuss",
-        SessionType.BugReport => "[B] Bug Report",
+        SessionType.Product => "[P] Product",
         SessionType.IssueSubmitter => "[S] Issue Submitter",
         SessionType.QA => "[Q] QA",
+        SessionType.Support => "[S] Support",
         _ => ""
     };
 
     public ISolidColorBrush SessionTypeBadgeBrush => Session.SessionType switch
     {
-        SessionType.BugReport => BugReportTypeBrush,
+        SessionType.Product => ProductTypeBrush,
         SessionType.IssueSubmitter => IssueSubmitterTypeBrush,
         SessionType.QA => QaTypeBrush,
+        SessionType.Support => SupportTypeBrush,
         _ => DiscussTypeBrush
     };
 
     public string SessionTypeTooltip => Session.SessionType switch
     {
         SessionType.Discuss => "Discussion session - talk only, no edits or commits",
-        SessionType.BugReport => "Bug-report session - investigate and file an issue, never fix here",
+        SessionType.Product => "Product session - scope the work and file issues, never fix here",
         SessionType.IssueSubmitter => "Issue-submitter session - files GitHub issues only, never writes code",
         SessionType.QA => "QA session - verifies what was built, never fixes; reports findings",
+        SessionType.Support => "Support session - triage and answer, file issues for real bugs, never edits code",
         _ => ""
     };
 

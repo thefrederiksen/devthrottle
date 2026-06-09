@@ -168,7 +168,7 @@ public sealed class SessionManager : IDisposable
     /// null for a solo session.</param>
     /// <param name="groupRole">The member's descriptive role within its group (issue #225).</param>
     /// <param name="groupName">The group's display name (issue #225), for the desktop header.</param>
-    public Session CreateSession(string repoPath, IAgent agent, string? userArgs, SessionBackendType backendType, string? resumeSessionId, SessionType sessionType = SessionType.Implement, Guid? groupId = null, string? groupRole = null, string? groupName = null)
+    public Session CreateSession(string repoPath, IAgent agent, string? userArgs, SessionBackendType backendType, string? resumeSessionId, SessionType sessionType = SessionType.Developer, Guid? groupId = null, string? groupRole = null, string? groupName = null)
     {
         if (agent is null)
             throw new ArgumentNullException(nameof(agent));
