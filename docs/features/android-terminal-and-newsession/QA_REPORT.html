@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CC Director Client (Android) - QA Report: Terminal view + Start a new session</title>
+<style>
+  :root {
+    --bg: #0b1020; --panel: #141b2e; --panel2: #0f1626; --line: #2a3550;
+    --text: #e6eaf2; --dim: #8a93a6; --green: #5fd08a; --blue: #2b6cb0;
+    --red: #e5484d; --yellow: #e8b339; --amber: #f59e0b;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.55; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 32px 24px 96px; }
+  header.title { border-bottom: 1px solid var(--line); padding-bottom: 18px; margin-bottom: 8px; }
+  h1 { font-size: 30px; margin: 0 0 6px; }
+  h2 { font-size: 22px; margin: 40px 0 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+  h3 { font-size: 17px; margin: 26px 0 8px; color: var(--green); }
+  .sub { color: var(--dim); font-size: 14px; }
+  code, .mono { font-family: "Cascadia Code", Consolas, "Courier New", monospace; font-size: 13px; }
+  code { background: var(--panel2); padding: 1px 6px; border-radius: 5px; color: #cbd5e1; }
+  a { color: #6ea8fe; }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 14px; }
+  th, td { border: 1px solid var(--line); padding: 9px 12px; text-align: left; vertical-align: top; }
+  th { background: var(--panel); }
+  td.pass { color: var(--green); font-weight: 600; }
+  .pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .pill.pass { background: rgba(95,208,138,.15); color: var(--green); border: 1px solid rgba(95,208,138,.4); }
+  .pill.note { background: rgba(245,158,11,.13); color: var(--amber); border: 1px solid rgba(245,158,11,.4); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; margin: 16px 0; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; align-items: start; }
+  @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+  figure { margin: 0; background: var(--panel2); border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+  figure img { width: 100%; border-radius: 8px; display: block; background: #000; }
+  figcaption { color: var(--dim); font-size: 13px; margin-top: 10px; }
+  figcaption b { color: var(--text); }
+  ul.tight { margin: 8px 0; padding-left: 22px; }
+  ul.tight li { margin: 4px 0; }
+  .kv { color: var(--dim); }
+  .kv b { color: var(--text); font-weight: 600; }
+  .before { border-left: 3px solid var(--red); padding-left: 14px; }
+  .after { border-left: 3px solid var(--green); padding-left: 14px; }
+  .foot { color: var(--dim); font-size: 13px; margin-top: 40px; border-top: 1px solid var(--line); padding-top: 16px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="title">
+  <h1>CC Director Client (Android) - QA Report</h1>
+  <div class="sub">Terminal view fix (issue #244) and Start a new session (issue #245)
+    &nbsp;|&nbsp; 2026-06-08 &nbsp;|&nbsp; build verified on emulator <code>emulator-5554</code> (cc_rec_test, Android)</div>
+</header>
+
+<h2>1. Summary</h2>
+<table>
+  <tr><th>Item</th><th>Result</th></tr>
+  <tr><td>App</td><td><code>phone/CcDirectorClient</code> (.NET MAUI, net10.0-android), package <code>com.ccdirector.client</code></td></tr>
+  <tr><td>Android build</td><td class="pass">Clean - 0 errors</td></tr>
+  <tr><td>Unit tests (the two features)</td><td class="pass">26 / 26 passing (10 RawTerminalPage + 16 FleetParser)</td></tr>
+  <tr><td>Issue #244 - Terminal view</td><td class="pass">Verified live on device - fills screen, scrolls, fit-width + 1:1 toggle, collapsible keys</td></tr>
+  <tr><td>Issue #245 - Start a new session</td><td class="pass">Verified live end-to-end - machine + recent-repo pickers, create, opens on terminal</td></tr>
+  <tr><td>Live gateway used</td><td>Real CC Director Gateway (3 Directors, live sessions), reached from the emulator over <code>adb reverse</code></td></tr>
+  <tr><td>Backend changes</td><td>None - both features use existing Gateway endpoints (<code>/directors</code>, <code>/directors/{id}/repos</code>, <code>POST /directors/{id}/sessions</code>, <code>/sessions/{sid}/stream</code>)</td></tr>
+</table>
+
+<div class="card">
+  <b>How this was verified.</b> The MAUI Android app was built and installed to an emulator. The app was pointed at a
+  running CC Director Gateway (<code>http://127.0.0.1:7878</code>, reached from the emulator via
+  <code>adb reverse</code> to the host). Every screenshot below is a real capture from the running app driving the
+  live gateway and a live Director - not a mockup. The end-to-end "create" test ran against the local development
+  Director only, in a throwaway folder; that session was killed and the folder removed afterward (see
+  <a href="#cleanup">Cleanup</a>).
+</div>
+
+<h2>2. Issue #244 - Terminal view must work 100%</h2>
+
+<h3>The problem</h3>
+<div class="before">
+  The Terminal tab wrapped an xterm.js <code>WebView</code> inside an outer MAUI <code>ScrollView</code>, with the
+  WebView pinned to a fixed <code>HeightRequest="600"</code>. Two defects fell out of that:
+  <ul class="tight">
+    <li><b>Nested scroll conflict.</b> The WebView is itself a scroll container, so the outer page fought its drag
+      gesture - "really hard to move back and forth."</li>
+    <li><b>Fixed 600px height.</b> The terminal never filled the screen; the live input box was often off-screen -
+      "it doesn't show the whole screen."</li>
+    <li>At the PTY's true column width the grid is far wider than a portrait phone, so the whole width was never
+      visible at once either.</li>
+  </ul>
+</div>
+
+<h3>The fix</h3>
+<div class="after">
+  <ul class="tight">
+    <li>Removed the outer <code>ScrollView</code> and the fixed height. The terminal is now in a
+      <code>Grid Auto,*,Auto</code> and fills all remaining vertical space; the WebView is the only scroll
+      container and owns both axes.</li>
+    <li>Added a <b>Fit width</b> mode (default on): the xterm font shrinks so all PTY columns map onto the WebView
+      width - the whole width shows with no horizontal pan. One tap on the <b>1:1</b> toggle returns to full
+      resolution (horizontal pan via the page). Font sizing is a real layout change, so scroll geometry stays
+      correct (unlike a visual CSS scale).</li>
+    <li>The control keys (input, Send, Enter/Esc/Stop, arrows) collapse behind a <b>Keys</b> toggle so the terminal
+      is maximized by default.</li>
+    <li>The existing safeguard - never shrink rows below the PTY's row count, so Claude Code's cursor-up redraws do
+      not stack ghost copies - is retained and unit-tested.</li>
+  </ul>
+</div>
+
+<div class="grid">
+  <figure>
+    <img src="shots/03_terminal_open.png" alt="Terminal fit-width">
+    <figcaption><b>Terminal fills the screen (fit-width).</b> Opening a live session goes straight to the Terminal
+      tab. The terminal occupies the full height (no 600px dead-space), renders the live PTY stream, and defaults to
+      fit-width so the entire width is visible. The <code>1:1</code> toggle sits bottom-right; <code>Keys</code>
+      top-right.</figcaption>
+  </figure>
+  <figure>
+    <img src="shots/05_terminal_actualsize.png" alt="Terminal 1:1 actual size">
+    <figcaption><b>1:1 (actual size) after tapping the toggle.</b> Font jumps to full resolution and the content is
+      crisply readable; content wider than the screen pans horizontally. The toggle label flips to <code>Fit</code>
+      to go back. (This shot mirrors this very QA run's terminal output.)</figcaption>
+  </figure>
+  <figure>
+    <img src="shots/04_terminal_keys.png" alt="Terminal keys panel">
+    <figcaption><b>Collapsible Keys panel.</b> Tapping <code>Keys</code> (label flips to <code>Hide keys</code>)
+      reveals the input + Send and the Enter / Esc / Stop and arrow rows, while the terminal stays maximized above.
+      Hidden by default.</figcaption>
+  </figure>
+  <figure>
+    <img src="shots/09_newsession_terminal.png" alt="Live terminal of a fresh session">
+    <figcaption><b>Live PTY render.</b> A freshly created Claude Code session shown full-width: the real banner
+      (<span class="mono">Claude Code v2.1.169</span>, model line, repo path, prompt) streams over the WebSocket and
+      renders coherently - no stacked ghost frames.</figcaption>
+  </figure>
+</div>
+
+<h2>3. Issue #245 - Start a new session from recent repos</h2>
+
+<h3>What was built</h3>
+<ul class="tight">
+  <li>A <b>+ New session</b> button on the roster opens a two-step picker: <b>1. Machine</b> (any Director in the
+    fleet, from <code>GET /directors</code>) then <b>2. Repository</b> (that Director's recent repos, newest-first,
+    from <code>GET /directors/{id}/repos</code>), plus an "Or enter a path" fallback.</li>
+  <li>The most-recently-seen machine is auto-selected and its repos load immediately. Switching machine reloads that
+    machine's repos.</li>
+  <li>Tapping a repo (or Create with a typed path) calls <code>POST /directors/{id}/sessions</code>, shows a
+    <b>Creating...</b> busy state, and on success opens the new session straight on the Terminal tab.</li>
+  <li>New pure-logic classes <code>DirectorInfo</code>, <code>RepoInfo</code>, <code>FleetParser</code> and 3
+    <code>GatewayClient</code> methods. No backend changes - the Gateway already exposed every endpoint.</li>
+</ul>
+
+<div class="grid">
+  <figure>
+    <img src="shots/02_roster_connected.png" alt="Roster loaded from gateway">
+    <figcaption><b>Roster live from the Gateway.</b> "2 session(s). Tap one to talk." with authoritative status
+      dots (red "needs you", blue "working"). The green <b>+ New session</b> button sits above FIFO. This confirms
+      the phone is talking to the real gateway.</figcaption>
+  </figure>
+  <figure>
+    <img src="shots/06_newsession_machines.png" alt="Machine and repo pickers">
+    <figcaption><b>Machine + repo pickers.</b> "3 machine(s)" listed; the most-recent (SOREN, v0.6.17) is
+      auto-selected (orange) and its 2 recent repos (<span class="mono">trading-live</span>,
+      <span class="mono">cc-director</span>) loaded automatically.</figcaption>
+  </figure>
+  <figure>
+    <img src="shots/07_newsession_sorennorth.png" alt="Switching machine reloads repos">
+    <figcaption><b>Per-machine repos.</b> Selecting a different machine (SOREN_NORTH, v0.6.9) reloads its list -
+      now "72 recent repo(s)" - proving the repo list is fetched per Director, not shared.</figcaption>
+  </figure>
+  <figure>
+    <img src="shots/08_creating.png" alt="Session created, opening terminal">
+    <figcaption><b>Created and opening.</b> After Create, the app navigates to the new session
+      (<span class="mono">D:\ReposFred\_qa_newsession_test</span>) on the Terminal tab while the stream connects -
+      the responsive-UI path (no blocked thread). It then renders live (see the live-render shot above).</figcaption>
+  </figure>
+</div>
+
+<h2>4. Unit tests</h2>
+<p class="sub">Pure-logic classes are link-included into the off-device test project (single source of truth) and
+run on plain net10.0.</p>
+<table>
+  <tr><th>Suite</th><th>Tests</th><th>Covers</th><th>Result</th></tr>
+  <tr><td><code>RawTerminalPageTests</code></td><td>10</td>
+      <td>asset URLs, JSON-literal embedding, ws/wss scheme, PTY-row floor (no ghosting), read-only,
+          fit-width toggle + hook, default fit-on, font-shrink fit math, no fixed height</td>
+      <td class="pass">PASS</td></tr>
+  <tr><td><code>FleetParserTests</code></td><td>16</td>
+      <td>director parse/sort/case-insensitivity, controlEndpoint fallback, repo parse/sort, create-body builder
+          (required repoPath, defaults, optional omission, trim), create-response mapping</td>
+      <td class="pass">PASS</td></tr>
+  <tr><td><b>Total (both features)</b></td><td><b>26</b></td><td>-</td><td class="pass">26 / 26 PASS</td></tr>
+</table>
+<p class="sub">Note: the project's pre-existing <code>ConductorStateTests</code> (5 failures) are unrelated to this
+work - they fail identically on a clean checkout (verified by stashing these changes and re-running), and touch no
+file changed here.</p>
+
+<h2 id="cleanup">5. Test environment, scope, and cleanup</h2>
+<div class="card">
+  <p class="kv"><b>Environment.</b> Android emulator <code>emulator-5554</code>; app pointed at a live Gateway via
+    <code>adb reverse tcp:7878</code> (gateway) and <code>tcp:7889</code> (local Director). The gateway reported 3
+    real Directors (SOREN, SOREN_NORTH, SORENLAPTOP).</p>
+  <p class="kv"><b>Scope notes (honest).</b></p>
+  <ul class="tight">
+    <li>The <b>terminal stream</b> and the <b>end-to-end create</b> were exercised against the <b>local development
+      Director</b> (SOREN_NORTH, <code>127.0.0.1:7889</code>), the only Director reachable from the emulator without
+      Tailscale. Remote Directors (SOREN, SORENLAPTOP) are tailnet HTTPS endpoints; on a real phone the device is on
+      the tailnet and reaches them directly - that path is the same code, not separately re-run here.</li>
+    <li>The create test used a throwaway folder <code>D:\ReposFred\_qa_newsession_test</code>. <b>Cleanup done:</b>
+      the session was killed + removed (<code>DELETE /sessions/{sid}</code> -> <code>{"killed":true,"removed":true}</code>),
+      the folder de-registered from the Director's recent list, and the folder deleted - all verified gone.</li>
+  </ul>
+</div>
+
+<h2>6. Verdict</h2>
+<p>
+  <span class="pill pass">#244 Terminal view - PASS</span>
+  &nbsp;
+  <span class="pill pass">#245 Start a new session - PASS</span>
+</p>
+<p class="sub">Both features build clean, are unit-tested, and were exercised live on a device against a real
+gateway and Director. The terminal now fills the screen and scrolls cleanly with fit-width/1:1 control; starting a
+new session from a recent repo works from machine pick through to the live terminal of the new session.</p>
+
+<div class="foot">
+  CC Director Client - Android QA. Issues
+  <a href="https://github.com/thefrederiksen/cc-director/issues/244">#244</a> and
+  <a href="https://github.com/thefrederiksen/cc-director/issues/245">#245</a>.
+  Screenshots in <code>shots/</code>.
+</div>
+
+</div>
+</body>
+</html>
