@@ -4,7 +4,7 @@ using System.Runtime.Versioning;
 namespace CcDirector.Setup.Engine;
 
 /// <summary>The kind of thing an uninstall step removes.</summary>
-public enum UninstallKind { Autostart, Directory, PathEntry, Shortcut }
+public enum UninstallKind { Autostart, Directory, PathEntry, Shortcut, Skill, ScheduledTask, TailscaleServe, ArpEntry }
 
 /// <summary>One thing the uninstaller would remove, with whether it is currently present.</summary>
 public sealed record UninstallTarget(UninstallKind Kind, string Description, string Path, bool Present);
@@ -54,6 +54,11 @@ public sealed class Uninstaller
         System.IO.Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.StartMenu), "Programs", "CC Director.lnk");
 
+    /// <summary>The per-user Claude Code skills directory (%USERPROFILE%\.claude\skills). Skills are
+    /// installed here per-user; only the names in the <see cref="SkillManifest"/> are ours to remove.</summary>
+    private static string SkillsBaseDir() => System.IO.Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude", "skills");
+
     /// <summary>What an uninstall would remove (existence-checked). Pure: no side effects.</summary>
     public IReadOnlyList<UninstallTarget> Plan(InstallRole role)
     {
@@ -69,6 +74,23 @@ public sealed class Uninstaller
         targets.Add(new UninstallTarget(UninstallKind.PathEntry, "PATH entry", _layout.BinDir, IsBinOnUserPath()));
         var lnk = ShortcutPath();
         targets.Add(new UninstallTarget(UninstallKind.Shortcut, "Start Menu shortcut", lnk, File.Exists(lnk)));
+
+        // Owned skills (issue #257): one entry per skill the install recorded, existence-checked
+        // against %USERPROFILE%\.claude\skills. Only manifested skills are ever listed, so the
+        // user's own skills never appear here.
+        var skillsBase = SkillsBaseDir();
+        foreach (var skill in SkillManifest.Load(_layout).OwnedSkills)
+        {
+            var dir = System.IO.Path.Combine(skillsBase, skill);
+            targets.Add(new UninstallTarget(UninstallKind.Skill, $"Skill '{skill}'", dir, Directory.Exists(dir)));
+        }
+
+        // Add/Remove Programs registration (issue #257), Windows only. Cheap registry read.
+        if (OperatingSystem.IsWindows())
+            targets.Add(new UninstallTarget(
+                UninstallKind.ArpEntry, "Add/Remove Programs entry",
+                $@"HKCU\...\Uninstall\{AddRemovePrograms.DefaultKeyName}", AddRemovePrograms.IsRegistered()));
+
         return targets;
     }
 
@@ -83,6 +105,8 @@ public sealed class Uninstaller
         {
             StopGatewayTrayApp(steps);
             RemoveAutostart(steps, errors);
+            // The 443 front-door Serve mapping is the Gateway's, so its teardown is Gateway-scoped.
+            RemoveTailscaleServe(steps, errors);
         }
 
         RemoveDirectories(role, steps, errors);
@@ -98,9 +122,82 @@ public sealed class Uninstaller
 
         RemoveShortcut(steps, errors);
 
+        // Integration points common to both roles (issue #257). Skills + scheduled tasks are per-user
+        // and role-independent; the Add/Remove Programs entry is Windows-only.
+        RemoveSkills(steps, errors);
+        RemoveScheduledTasks(steps, errors);
+        if (OperatingSystem.IsWindows())
+            RemoveArpEntry(steps, errors);
+
         var ok = errors.Count == 0;
         EngineLog.Write($"[Uninstaller] Apply done: success={ok}, errors={errors.Count}");
         return new UninstallReport(ok, steps, errors);
+    }
+
+    /// <summary>
+    /// Remove ONLY the skills the install recorded in the <see cref="SkillManifest"/> (issue #257).
+    /// A user-authored skill that is not in the manifest is never touched - that is the whole point
+    /// of the manifest (AC8). <paramref name="skillsBaseDir"/> is injectable for tests/sandbox.
+    /// </summary>
+    public void RemoveSkills(List<string> steps, List<string> errors, string? skillsBaseDir = null)
+    {
+        var owned = SkillManifest.Load(_layout).OwnedSkills;
+        if (owned.Count == 0) { steps.Add("skills: none recorded (nothing to remove)"); return; }
+
+        var baseDir = skillsBaseDir ?? SkillsBaseDir();
+        foreach (var skill in owned)
+        {
+            var dir = System.IO.Path.Combine(baseDir, skill);
+            if (!Directory.Exists(dir)) { steps.Add($"skill '{skill}': not present"); continue; }
+            try
+            {
+                Directory.Delete(dir, recursive: true);
+                steps.Add($"removed skill '{skill}': {dir}");
+            }
+            catch (Exception ex)
+            {
+                errors.Add($"skill '{skill}' ({dir}): {ex.Message}");
+            }
+        }
+    }
+
+    /// <summary>Remove CC Director's scheduled tasks if present (issue #257). Absent tasks are
+    /// reported as skipped, never errors. <paramref name="runner"/> is injectable for tests.</summary>
+    public void RemoveScheduledTasks(List<string> steps, List<string> errors, ScheduledTaskRemover.Runner? runner = null)
+    {
+        foreach (var r in ScheduledTaskRemover.RemoveAll(runner))
+        {
+            if (!r.Present) steps.Add($"scheduled task '{r.TaskName}': not present");
+            else if (r.Removed) steps.Add($"removed scheduled task '{r.TaskName}'");
+            else errors.Add($"scheduled task '{r.TaskName}': {r.Error ?? "removal failed"}");
+        }
+    }
+
+    /// <summary>Tear down CC Director's Tailscale Serve 443 front-door mapping (issue #257). A machine
+    /// without the tailscale CLI is a clean no-op. <paramref name="runner"/> is injectable for tests.</summary>
+    public void RemoveTailscaleServe(List<string> steps, List<string> errors, TailscaleServeTeardown.Runner? runner = null)
+    {
+        var r = TailscaleServeTeardown.RemoveFrontDoor(runner);
+        if (!r.Attempted) steps.Add("Tailscale Serve: tailscale CLI not present (nothing to remove)");
+        else if (r.Removed) steps.Add($"removed Tailscale Serve front-door mapping (--https={TailscaleServeTeardown.FrontDoorHttpsPort})");
+        else errors.Add($"Tailscale Serve front-door mapping: {r.Error ?? "removal failed"}");
+    }
+
+    /// <summary>Remove the Add/Remove Programs registration if present (issue #257).
+    /// <paramref name="keyName"/> is injectable so tests use a throwaway key.</summary>
+    [SupportedOSPlatform("windows")]
+    public void RemoveArpEntry(List<string> steps, List<string> errors, string keyName = AddRemovePrograms.DefaultKeyName)
+    {
+        try
+        {
+            steps.Add(AddRemovePrograms.Unregister(keyName)
+                ? "removed Add/Remove Programs entry"
+                : "Add/Remove Programs entry: not present");
+        }
+        catch (Exception ex)
+        {
+            errors.Add($"Add/Remove Programs entry: {ex.Message}");
+        }
     }
 
     /// <summary>Delete only the install-owned directories (never the per-user root or sibling data dirs).</summary>

@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Developer Agent Proof - Issue #257 (Phase 1)</title>
+<style>
+  :root { --bg:#1e1e1e; --panel:#252526; --border:#3c3c3c; --fg:#cccccc; --muted:#888888; --ok:#22c55e; --warn:#f59e0b; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font-family:Segoe UI, system-ui, sans-serif; line-height:1.5; }
+  .wrap { max-width:1040px; margin:0 auto; padding:32px 24px 80px; }
+  h1 { font-size:24px; margin:0 0 4px; }
+  h2 { font-size:18px; margin:30px 0 10px; border-bottom:1px solid var(--border); padding-bottom:6px; }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:20px; }
+  .badge { display:inline-block; padding:2px 10px; border-radius:6px; font-size:12px; font-weight:600; }
+  .b-ok { background:#1b3a2a; color:var(--ok); border:1px solid var(--ok); }
+  .b-warn { background:#3a2a1b; color:var(--warn); border:1px solid var(--warn); }
+  table { border-collapse:collapse; width:100%; margin:12px 0; font-size:14px; }
+  th, td { border:1px solid var(--border); padding:8px 10px; text-align:left; vertical-align:top; }
+  th { background:var(--panel); }
+  code { background:#2d2d30; padding:1px 5px; border-radius:4px; font-family:Cascadia Mono, Consolas, monospace; font-size:12px; }
+  pre { background:#0e0e0e; border:1px solid var(--border); border-radius:6px; padding:14px; overflow:auto; font-family:Cascadia Mono, Consolas, monospace; font-size:12px; color:#d4d4d4; }
+  ul { margin:6px 0; } li { margin:3px 0; }
+  .done { background:var(--panel); border:1px solid var(--ok); border-radius:8px; padding:16px 18px; margin-top:28px; }
+  .note { background:var(--panel); border:1px solid var(--warn); border-radius:8px; padding:14px 16px; margin:18px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Developer Agent - Proof Report (Phase 1)</h1>
+  <div class="sub">
+    Issue #257 - [Installer] Uninstall CC Director from the UI<br/>
+    Branch <code>feat/issue-257-uninstall-phase1</code> &middot; CenCon Development Method &middot;
+    Scope: <span class="badge b-ok">PHASE 1 - engine + CLI inverse ops</span>
+  </div>
+
+  <div class="note">
+    <b>Scope &amp; proof note (human-directed).</b> Issue #257 is a large feature whose ACs 4-7 require a
+    <i>real, destructive</i> uninstall (wiping PATH, scheduled tasks, Tailscale Serve, the app tree, and -
+    on full-wipe - vault secrets and signed-in browser sessions). This is the user's production machine with
+    no isolated VM, so a real run was explicitly deferred. The user directed <b>Phase 1 = engine + CLI inverse
+    operations, proven by unit tests + a sandbox (no real uninstall)</b>, with the skill-ownership question
+    resolved by <b>adding an ownership manifest</b>. This report covers Phase 1 only. <b>The whole of #257 is NOT
+    finished</b> - Phase 2 (in-app Tools-&gt;Uninstall UI, Start Menu uninstall shortcut, the install-side
+    Add/Remove Programs registration call-site + skill-manifest write, safe-shutdown roster snapshot, detached
+    self-delete, and the real before/after destructive proof) remains.
+  </div>
+
+  <h2>What Phase 1 implemented (engine: <code>tools/cc-director-setup-engine</code>)</h2>
+  <ul>
+    <li><b><code>SkillManifest</code></b> - records the skill names CC Director installed, at
+      <code>config/setup/skills.json</code>. The single ownership-truth that makes AC8 safe (Assumption 3 resolved
+      by "add an ownership manifest").</li>
+    <li><b><code>ScheduledTaskRemover</code></b> - removes <code>cc-director-launch</code> /
+      <code>cc-director-gateway-launch</code> if present; absent = skipped (Assumption 4). OS call behind a seam.</li>
+    <li><b><code>TailscaleServeTeardown</code></b> - removes ONLY the 443 front-door mapping
+      (<code>serve --https=443 off</code>); CLI-absent = clean no-op; already-off = success (Assumption 5).</li>
+    <li><b><code>AddRemovePrograms</code></b> - Register / IsRegistered / Unregister the
+      <code>HKCU\...\Uninstall\CcDirector</code> entry (key name parameterized for test isolation).</li>
+    <li><b><code>Uninstaller</code></b> - new <code>UninstallKind</code>s and <code>Apply()</code> steps wire all four
+      in (skills + tasks for both roles, Tailscale + autostart for Gateway, ARP on Windows), with the existing
+      idempotent removed/skipped/failed report. <code>Plan()</code> inventories manifested skills + the ARP entry.</li>
+  </ul>
+  <p>The CLI <code>uninstall</code> / <code>uninstall --dry-run</code> command surfaces all of this through the
+  existing <code>tools/cc-director-setup-cli</code> path - no CLI code change was needed.</p>
+
+  <h2>Acceptance criteria - Phase 1 coverage</h2>
+  <table>
+    <tr><th>AC</th><th>Status</th><th>Evidence</th></tr>
+    <tr><td>AC5 (removal mechanics: tasks, Tailscale, skills, ARP)</td><td><span class="badge b-ok">MET (mechanics)</span></td>
+      <td>Engine ops + 40 passing tests, incl. a <b>real</b> <code>schtasks</code> round-trip on a throwaway task and a <b>real</b> HKCU registry round-trip on a throwaway key. (App-tree/PATH/shortcut/autostart already existed.)</td></tr>
+    <tr><td>AC8 (only CC Director's skills, never the user's)</td><td><span class="badge b-ok">MET</span></td>
+      <td>Manifest-driven removal. Test <code>RemoveSkills_RemovesOnlyManifestedSkills_LeavesUserSkills</code>: a user-authored skill with no manifest entry is left untouched; <code>RemoveSkills_NoManifest_RemovesNothing</code> proves a same-named skill is never removed without an ownership record.</td></tr>
+    <tr><td>AC9 (idempotent + report)</td><td><span class="badge b-ok">MET</span></td>
+      <td>Absent artifacts report as skipped (not errors); failures surface per-item in the report. Tests + the dry-run Plan (Fig 1).</td></tr>
+    <tr><td>AC10 (builds clean, tests pass)</td><td><span class="badge b-ok">MET</span></td>
+      <td>Engine + CLI build: 0 warnings, 0 errors. 137/137 engine tests pass (40 in this change's area).</td></tr>
+    <tr><td>AC1/2/3/4/6/7 (in-app UI, ARP/Start-Menu discoverability end-to-end, safe-shutdown, self-delete, real destructive run)</td><td><span class="badge b-warn">DEFERRED - Phase 2</span></td>
+      <td>Require the in-app UI and a real (VM) destructive uninstall; out of Phase 1 by the human-directed scope.</td></tr>
+  </table>
+
+  <h2>Fig 1 - Real CLI dry-run Plan against a sandbox root (read-only, safe)</h2>
+  <p class="sub">A fake install footprint under a throwaway <code>CC_DIRECTOR_ROOT</code>; the new Skill + ArpEntry
+  inventory is manifest-driven (<code>cc-director</code> present in the real skills dir, <code>sandbox-only-skill</code>
+  absent; ARP not registered because Phase 1 does not yet write it on install).</p>
+  <pre>Uninstall plan (role 'Workstation') - removes ONLY install-owned files; your data is preserved:
+  [x] Directory  Director app (...\cc-uninstall-sandbox-...\app)
+  [x] Directory  CLI tools (...\cc-uninstall-sandbox-...\bin)
+  [ ] Directory  Python runtime (...)
+  [ ] Directory  Python tools venv (...)
+  [ ] PathEntry  PATH entry (...\bin)
+  [x] Shortcut   Start Menu shortcut (...\Programs\CC Director.lnk)
+  [x] Skill      Skill 'cc-director' (...\.claude\skills\cc-director)
+  [ ] Skill      Skill 'sandbox-only-skill' (...\.claude\skills\sandbox-only-skill)
+  [ ] ArpEntry   Add/Remove Programs entry (HKCU\...\Uninstall\CcDirector)</pre>
+  <p class="sub">Full capture: <code>docs/cencon/proof/issue-257/cli-dry-run.txt</code>. Test list:
+  <code>docs/cencon/proof/issue-257/test-results.txt</code>.</p>
+
+  <h2>Why no real uninstall was run</h2>
+  <p>The OS-touching removals are <b>machine-global, not scoped to <code>CC_DIRECTOR_ROOT</code></b>: scheduled tasks,
+  the Tailscale 443 mapping, and skills under <code>%USERPROFILE%\.claude\skills</code>. Running the real
+  <code>Apply()</code> on this machine - even with a fake root - would delete the user's real
+  <code>cc-director-launch</code> tasks, tear down the live Gateway front door, and remove real skills. So the
+  destructive paths are proven instead by (a) seam-injected unit tests and (b) real round-trips on
+  <i>uniquely-named throwaway</i> artifacts (a sandbox scheduled task and a throwaway registry key), and the
+  read-only <code>--dry-run</code> Plan against a sandbox root.</p>
+
+  <h2>CenCon impact</h2>
+  <p>No architecture or security drift; the change <i>reduces</i> the eventual surface. The setup tool/engine is not
+  yet a container in <code>architecture_manifest.yaml</code> (issue Assumption 7) - that is the Support Agent's to
+  add and does not block this work.</p>
+
+  <div class="done">
+    <b>Phase 1 is finished and proven; issue #257 as a whole is NOT.</b> The engine/CLI inverse operations build
+    clean and pass 137/137 tests (incl. real schtasks + registry round-trips and the AC8 only-our-skills guard).
+    I am NOT marking #257 ready-qa, because ACs 1-4, 6, 7 (the in-app UI and the real destructive run) are Phase 2.
+    Recommend the Product Agent split #257 into a closed Phase-1 item and a Phase-2 issue.
+  </div>
+</div>
+</body>
+</html>
