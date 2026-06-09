@@ -1,0 +1,11 @@
+Uninstall plan (role 'Workstation') - removes ONLY install-owned files; your data is preserved:
+  [x] Directory  Director app (C:\Users\soren\AppData\Local\Temp\cc-uninstall-sandbox-198c63fef4764164b33ad48386c4fb8b\app)
+  [x] Directory  CLI tools (C:\Users\soren\AppData\Local\Temp\cc-uninstall-sandbox-198c63fef4764164b33ad48386c4fb8b\bin)
+  [ ] Directory  Python runtime (C:\Users\soren\AppData\Local\Temp\cc-uninstall-sandbox-198c63fef4764164b33ad48386c4fb8b\python)
+  [ ] Directory  Python tools venv (C:\Users\soren\AppData\Local\Temp\cc-uninstall-sandbox-198c63fef4764164b33ad48386c4fb8b\pyenv)
+  [ ] PathEntry  PATH entry (C:\Users\soren\AppData\Local\Temp\cc-uninstall-sandbox-198c63fef4764164b33ad48386c4fb8b\bin)
+  [x] Shortcut   Start Menu shortcut (C:\Users\soren\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\CC Director.lnk)
+  [x] Skill      Skill 'cc-director' (C:\Users\soren\.claude\skills\cc-director)
+  [ ] Skill      Skill 'sandbox-only-skill' (C:\Users\soren\.claude\skills\sandbox-only-skill)
+  [ ] ArpEntry   Add/Remove Programs entry (HKCU\...\Uninstall\CcDirector)
+

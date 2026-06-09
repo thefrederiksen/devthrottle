@@ -64,6 +64,10 @@ public sealed class InstallLayout
     /// <summary>The installed-version manifest: component id -> the version actually placed on disk.</summary>
     public string InstalledManifestPath => Path.Combine(SetupStateDir, "installed.json");
 
+    /// <summary>The owned-skills manifest (issue #257): the skill names CC Director installed into
+    /// %USERPROFILE%\.claude\skills, so uninstall removes only those and never the user's own.</summary>
+    public string SkillManifestPath => Path.Combine(SetupStateDir, "skills.json");
+
     /// <summary>The shared app config (%LOCALAPPDATA%\cc-director\config\config.json), incl. the autoUpdate section.</summary>
     public string ConfigPath => Path.Combine(LocalRoot, "config", "config.json");
 

@@ -7,6 +7,10 @@ namespace CcDirectorSetup.Steps;
 
 public partial class WelcomeStep : UserControl
 {
+    /// <summary>Raised when the user clicks Uninstall (update mode only). MainWindow runs the
+    /// engine uninstaller; the step itself stays UI-only.</summary>
+    public event EventHandler? UninstallRequested;
+
     public WelcomeStep(bool isUpdate, string? installedVersion)
     {
         InitializeComponent();
@@ -25,9 +29,19 @@ public partial class WelcomeStep : UserControl
                 VersionInfoText.Text = $"Currently installed: v{displayVersion}";
                 VersionInfoText.Visibility = Visibility.Visible;
             }
+
+            // An existing install is present, so offer to remove it (issue #257).
+            UninstallButton.Visibility = Visibility.Visible;
+            UninstallHint.Visibility = Visibility.Visible;
         }
 
         SetupLog.Write($"[WelcomeStep] Created: isUpdate={isUpdate}");
+    }
+
+    private void UninstallButton_Click(object sender, RoutedEventArgs e)
+    {
+        SetupLog.Write("[WelcomeStep] UninstallButton_Click");
+        UninstallRequested?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>The install type the user picked (Workstation by default).</summary>

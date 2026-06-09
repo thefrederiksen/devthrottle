@@ -69,6 +69,66 @@ public partial class MainWindow : Window
             _ = FetchLatestVersionAsync();
     }
 
+    /// <summary>Build the Welcome step and wire its Uninstall request (issue #257). The step
+    /// only shows the button in update mode, so the handler is harmless on a fresh install.</summary>
+    private WelcomeStep BuildWelcomeStep()
+    {
+        var step = new WelcomeStep(_isUpdate, _installedVersion);
+        step.UninstallRequested += OnUninstallRequested;
+        return step;
+    }
+
+    /// <summary>
+    /// Run the engine uninstaller for the detected role (issue #257). The Gateway role is a
+    /// superset; we pick it only when a Gateway install is actually present so a Workstation box
+    /// never tries to stop a tray app it does not have. Data under the per-user root is preserved.
+    /// Entry-point boundary: owns the try-catch and shows a friendly result.
+    /// </summary>
+    private async void OnUninstallRequested(object? sender, EventArgs e)
+    {
+        var layout = InstallLayout.Default();
+        var role = Directory.Exists(layout.GatewayDir) ? InstallRole.Gateway : InstallRole.Workstation;
+        SetupLog.Write($"[MainWindow] OnUninstallRequested: role={role}");
+
+        var detail = role == InstallRole.Gateway
+            ? "the app, the CLI tools, the PATH entry, the CC Director skills, scheduled tasks, the Gateway autostart, and the Tailscale mapping"
+            : "the app, the CLI tools, the PATH entry, the CC Director skills, and scheduled tasks";
+        var confirm = MessageBox.Show(this,
+            $"Uninstall CC Director?\n\nThis removes {detail}.\n\n" +
+            $"Your data (config, vault, sign-ins, recordings) is preserved under:\n{layout.LocalRoot}\n\nContinue?",
+            "Uninstall CC Director",
+            MessageBoxButton.OKCancel, MessageBoxImage.Warning);
+        if (confirm != MessageBoxResult.OK)
+        {
+            SetupLog.Write("[MainWindow] OnUninstallRequested: cancelled by user");
+            return;
+        }
+
+        BackButton.IsEnabled = false;
+        NextButton.IsEnabled = false;
+        try
+        {
+            var report = await Task.Run(() => new Uninstaller(layout).Apply(role));
+            SetupLog.Write($"[MainWindow] Uninstall done: success={report.Success}, steps={report.Steps.Count}, errors={report.Errors.Count}");
+
+            var summary = report.Success
+                ? $"Uninstall complete.\n\nYour data was preserved at:\n{layout.LocalRoot}"
+                : $"Uninstall finished with {report.Errors.Count} issue(s):\n\n - "
+                    + string.Join("\n - ", report.Errors)
+                    + $"\n\nYour data was preserved at:\n{layout.LocalRoot}";
+            MessageBox.Show(this, summary, "Uninstall CC Director",
+                MessageBoxButton.OK, report.Success ? MessageBoxImage.Information : MessageBoxImage.Warning);
+            Close();
+        }
+        catch (Exception ex)
+        {
+            SetupLog.Write($"[MainWindow] OnUninstallRequested FAILED: {ex}");
+            MessageBox.Show(this, $"Uninstall failed:\n\n{ex.Message}", "Uninstall CC Director",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+            NextButton.IsEnabled = true;
+        }
+    }
+
     private async Task FetchLatestVersionAsync()
     {
         SetupLog.Write("[MainWindow] FetchLatestVersionAsync: checking for latest release");
@@ -107,7 +167,7 @@ public partial class MainWindow : Window
 
         StepContent.Content = step switch
         {
-            1 => _welcomeStep ??= new WelcomeStep(_isUpdate, _installedVersion),
+            1 => _welcomeStep ??= BuildWelcomeStep(),
             2 => _prerequisitesStep ??= new PrerequisitesStep(OnPrerequisitesChecked, _isUpdate),
             3 => _skillsStep ??= new SkillsStep(_isUpdate),
             4 => _installStep ??= new InstallStep(),

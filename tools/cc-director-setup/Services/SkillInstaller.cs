@@ -52,6 +52,23 @@ public sealed class SkillInstaller
 
         var done = skillItems.Count(s => s.Status == "Done");
         SetupLog.Write($"[SkillInstaller] InstallSkillsAsync: {done}/{skillItems.Count} installed");
+
+        // Record which skills we installed so the uninstaller (issue #257) can remove EXACTLY
+        // these and never the user's own skills. Bookkeeping that runs after the skills are
+        // already on disk: a failure here is logged, not fatal to the completed install.
+        var installed = skillItems.Where(s => s.Status == "Done").Select(s => s.Name).ToList();
+        if (installed.Count > 0)
+        {
+            try
+            {
+                CcDirector.Setup.Engine.SkillManifest.RecordInstalled(
+                    CcDirector.Setup.Engine.InstallLayout.Default(), installed);
+            }
+            catch (Exception ex)
+            {
+                SetupLog.Write($"[SkillInstaller] InstallSkillsAsync: skill manifest write FAILED (uninstall may not remove skills): {ex.Message}");
+            }
+        }
     }
 
     private static async Task<bool> DownloadSkillFileAsync(string destPath, string repoPath)
