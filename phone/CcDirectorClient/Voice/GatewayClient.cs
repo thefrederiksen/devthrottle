@@ -94,6 +94,14 @@ public sealed class DictionaryModel
 }
 
 /// <summary>
+/// Result of fetching the latest turn brief: the <see cref="Brief"/> (null when the session
+/// has none yet) and the session's <see cref="BriefingState"/> ("None"|"Briefing"|"Briefed"|
+/// "Failed") read from the Gateway's 404 body so the tab can say "wingman is reading" instead
+/// of a flat "no brief yet".
+/// </summary>
+public sealed record LatestBrief(TurnBrief? Brief, string BriefingState);
+
+/// <summary>
 /// Reads the session roster from the Gateway (GET /sessions), which aggregates
 /// every session across all Directors and stamps each with the owning Director's
 /// Tailnet base URL. This is the conductor's and the talk screen's source of
@@ -130,6 +138,75 @@ public sealed class GatewayClient
         var roster = RosterParser.Parse(body);
         ClientLog.Write($"[GatewayClient] GetRoster OK: count={roster.Count}");
         return roster;
+    }
+
+    // ===== Wingman turn briefs (the Gateway is the brief store) =============
+
+    /// <summary>
+    /// Fetch the latest wingman turn brief for a session (GET /sessions/{sid}/turnbriefs/latest).
+    /// Returns the parsed brief, or a null brief plus the session's briefing state when none
+    /// exists yet (the Gateway answers 404 with { briefingState }). Throws on any other HTTP
+    /// or network failure so the Wingman tab shows the real reason rather than a blank card.
+    /// </summary>
+    public async Task<LatestBrief> GetLatestBriefAsync(string sessionId, CancellationToken ct = default)
+    {
+        ClientLog.Write($"[GatewayClient] GetLatestBrief: base={_baseUrl}, sid={sessionId}");
+        using var http = NewClient(TimeSpan.FromSeconds(20));
+        var resp = await http.GetAsync(
+            $"{_baseUrl}/sessions/{Uri.EscapeDataString(sessionId)}/turnbriefs/latest", ct);
+        var body = await resp.Content.ReadAsStringAsync(ct);
+
+        if (resp.StatusCode == HttpStatusCode.NotFound)
+        {
+            var state = TurnBriefParser.ParseBriefingState(body);
+            ClientLog.Write($"[GatewayClient] GetLatestBrief: none yet, briefingState={state}");
+            return new LatestBrief(null, state);
+        }
+        if (!resp.IsSuccessStatusCode)
+            throw new HttpRequestException($"GET /turnbriefs/latest failed: {(int)resp.StatusCode} {body}");
+
+        var brief = TurnBriefParser.Parse(body);
+        ClientLog.Write($"[GatewayClient] GetLatestBrief OK: turn={brief?.TurnNumber}, model={brief?.Model}");
+        return new LatestBrief(brief, brief is null ? "None" : "Briefed");
+    }
+
+    /// <summary>
+    /// Record a vote on a brief (POST /sessions/{sid}/turnbriefs/feedback). <paramref name="vote"/>
+    /// is "up" or "down"; <paramref name="turnNumber"/> selects the brief (0 = latest). Throws on
+    /// HTTP failure with the server's real error text so the tap's optimistic mark can be reverted.
+    /// </summary>
+    public async Task SendBriefFeedbackAsync(
+        string sessionId, int turnNumber, string vote, string note = "", CancellationToken ct = default)
+    {
+        ClientLog.Write($"[GatewayClient] SendBriefFeedback: sid={sessionId}, turn={turnNumber}, vote={vote}");
+        var payload = JsonSerializer.Serialize(new { turnNumber, vote, note });
+        using var http = NewClient(TimeSpan.FromSeconds(20));
+        using var req = new HttpRequestMessage(
+            HttpMethod.Post, $"{_baseUrl}/sessions/{Uri.EscapeDataString(sessionId)}/turnbriefs/feedback")
+        {
+            Content = new StringContent(payload, Encoding.UTF8, "application/json"),
+        };
+        var resp = await http.SendAsync(req, ct);
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode)
+            throw new HttpRequestException(ExtractError(body, (int)resp.StatusCode));
+        ClientLog.Write($"[GatewayClient] SendBriefFeedback OK: sid={sessionId}");
+    }
+
+    /// <summary>
+    /// Close (kill) a session through the Gateway (DELETE /sessions/{sid}), which forwards the
+    /// shutdown to the owning Director. Used by the wingman's mission-complete suggestion. Throws
+    /// on HTTP failure with the server's real error text so the caller can surface it.
+    /// </summary>
+    public async Task CloseSessionAsync(string sessionId, CancellationToken ct = default)
+    {
+        ClientLog.Write($"[GatewayClient] CloseSession: sid={sessionId}");
+        using var http = NewClient(TimeSpan.FromSeconds(30));
+        var resp = await http.DeleteAsync($"{_baseUrl}/sessions/{Uri.EscapeDataString(sessionId)}", ct);
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode)
+            throw new HttpRequestException(ExtractError(body, (int)resp.StatusCode));
+        ClientLog.Write($"[GatewayClient] CloseSession OK: sid={sessionId}");
     }
 
     // ===== Start a new session (pick a fleet Director + a recent repo) ======

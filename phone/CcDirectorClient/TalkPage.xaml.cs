@@ -1,5 +1,6 @@
 using CcDirectorClient.Recording;
 using CcDirectorClient.Voice;
+using Microsoft.Maui.Controls.Shapes;
 
 namespace CcDirectorClient;
 
@@ -48,6 +49,13 @@ public partial class TalkPage : ContentPage
     // overlapping calls.
     private bool _wingmanBusy;
 
+    // The latest brief currently rendered, kept so the vote/close actions know its
+    // TurnNumber + suggested action, and so the poll can skip an unchanged re-render.
+    private TurnBrief? _lastBrief;
+
+    // Cancels the Wingman brief poll loop when the tab or page is left.
+    private CancellationTokenSource? _wingmanPollCts;
+
     public TalkPage(IUtteranceRecorder recorder, IReplySpeaker tts, IVoiceForeground foreground)
     {
         InitializeComponent();
@@ -94,12 +102,20 @@ public partial class TalkPage : ContentPage
         HookAppLifecycle();
         Voice.OnHostAppearing();
         _ = LoadRosterAsync();
+
+        // Returning from background onto an open session's Wingman tab: resume the brief
+        // poll that OnDisappearing stopped.
+        if (_selected is not null && _activeTab == "wingman") StartWingmanBriefPoll();
     }
 
     protected override void OnDisappearing()
     {
         base.OnDisappearing();
         DeviceDisplay.Current.KeepScreenOn = false;
+
+        // The page is no longer in front, so the Wingman brief is not visible: stop polling
+        // in both the background and the navigate-away cases. OnAppearing resumes it.
+        StopWingmanBriefPoll();
 
         // Background -> keep voice + foreground service alive so speech continues. Real
         // navigation away -> tear down the voice control, the terminal stream, and the
@@ -219,23 +235,28 @@ public partial class TalkPage : ContentPage
 
         // Reset Wingman + Terminal panels for the new session; they load lazily on tab entry.
         TerminalStatusLabel.Text = "";
-        WingmanOutputLabel.Text = "Loading clean output...";
-        WingmanNoteLabel.Text = "Tap Refresh for a read on this session.";
         WingmanStatusLabel.Text = "";
+        WingmanBriefContainer.Children.Clear();
+        _lastBrief = null;
         if (WingmanInput is not null) WingmanInput.Text = "";
         if (TerminalInput is not null) TerminalInput.Text = "";
 
         ListPanel.IsVisible = false;
         TalkPanel.IsVisible = true;
 
-        // Wingman-off sessions live as plain terminal cards: hide the Voice + Wingman tab
-        // buttons and open straight on the Terminal tab. There is no auto-explain briefing
-        // to speak and no voice / wingman content to show.
+        // The Wingman tab shows the Gateway turn brief, which the Gateway stamps for EVERY
+        // session, so it is always available. The Voice tab auto-speaks that briefing and
+        // only makes sense with wingman (auto-explain) on, so it stays gated; its column
+        // collapses to width 0 when hidden so Wingman + Terminal fill the bar with no gap.
         VoiceTabButton.IsVisible = session.WingmanEnabled;
-        WingmanTabButton.IsVisible = session.WingmanEnabled;
+        WingmanTabButton.IsVisible = true;
+        TabSwitcher.ColumnDefinitions[0].Width =
+            session.WingmanEnabled ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
 
         if (!session.WingmanEnabled)
         {
+            // Wingman-off sessions open on Terminal (their primary view); the Wingman tab
+            // is there to tap for the brief.
             ShowTab("terminal");
             return;
         }
@@ -281,11 +302,12 @@ public partial class TalkPage : ContentPage
             UnloadTerminalWebView();
         }
 
-        if (tab == "wingman" && _selected is not null
-            && WingmanOutputLabel.Text == "Loading clean output...")
-        {
-            _ = RefreshWingmanOutputAsync();
-        }
+        // The Wingman tab polls the Gateway for the latest brief while it is the active tab;
+        // leaving it stops the poll so we never fetch a brief the user cannot see.
+        if (tab == "wingman" && _selected is not null)
+            StartWingmanBriefPoll();
+        else
+            StopWingmanBriefPoll();
     }
 
     private void SetTabButton(Button button, bool selected)
@@ -308,6 +330,7 @@ public partial class TalkPage : ContentPage
 
     private void GoBackToRoster()
     {
+        StopWingmanBriefPoll();
         UnloadTerminalWebView();
         if (_recorder.IsRecording)
         {
@@ -496,29 +519,82 @@ public partial class TalkPage : ContentPage
     private async void OnWingmanRefreshClicked(object? sender, EventArgs e)
     {
         if (_selected is null) return;
-        await RefreshWingmanNoteAsync();
-        await RefreshWingmanOutputAsync();
+        await RefreshWingmanBriefAsync();
     }
 
-    private async Task RefreshWingmanNoteAsync()
+    // ----- brief poll ------------------------------------------------------
+    // The brief is stamped by the Gateway at each turn's end; the tab polls for the latest
+    // while it is in front so a new one appears on its own. A single poll loop, cancelled on
+    // tab/page leave, owns the cadence; the busy guard keeps it from overlapping a manual
+    // Refresh or a post-send nudge.
+
+    private void StartWingmanBriefPoll()
+    {
+        StopWingmanBriefPoll();
+        var cts = new CancellationTokenSource();
+        _wingmanPollCts = cts;
+        _ = WingmanBriefPollLoopAsync(cts.Token);
+    }
+
+    private void StopWingmanBriefPoll()
+    {
+        _wingmanPollCts?.Cancel();
+        _wingmanPollCts?.Dispose();
+        _wingmanPollCts = null;
+    }
+
+    private async Task WingmanBriefPollLoopAsync(CancellationToken ct)
+    {
+        // First fetch is immediate; then every 5s until the tab/page is left.
+        while (!ct.IsCancellationRequested)
+        {
+            await RefreshWingmanBriefAsync();
+            try { await Task.Delay(TimeSpan.FromSeconds(5), ct); }
+            catch (OperationCanceledException) { return; }
+        }
+    }
+
+    private async Task RefreshWingmanBriefAsync()
     {
         if (_selected is null || _wingmanBusy) return;
         var session = _selected;
-        var gate = OfflineGuard.Check(DeviceOnline, "read the session");
+        var gate = OfflineGuard.Check(DeviceOnline, "load the wingman brief");
         if (!gate.Allowed) { WingmanStatusLabel.Text = gate.Message; return; }
         try
         {
             _wingmanBusy = true;
-            WingmanStatusLabel.Text = "Reading the session...";
-            var client = new DirectorVoiceClient(TokenEntry.Text ?? "");
-            var note = await client.ExplainAsync(session.TailnetEndpoint, session.SessionId);
-            WingmanNoteLabel.Text = string.IsNullOrWhiteSpace(note)
-                ? "Nothing to report yet." : note;
-            WingmanStatusLabel.Text = "";
+            var gateway = new GatewayClient(ServerEntry.Text ?? "", TokenEntry.Text ?? "");
+            var latest = await gateway.GetLatestBriefAsync(session.SessionId);
+
+            // Session switched or tab left while the fetch was in flight: drop the result.
+            if (_selected is null || _selected.SessionId != session.SessionId || _activeTab != "wingman")
+                return;
+
+            if (latest.Brief is null)
+            {
+                _lastBrief = null;
+                WingmanBriefContainer.Children.Clear();
+                WingmanStatusLabel.Text = string.Equals(latest.BriefingState, "Briefing", StringComparison.OrdinalIgnoreCase)
+                    ? "Wingman is reading this turn..."
+                    : "No brief yet - the wingman writes one at each turn's end.";
+                return;
+            }
+
+            WingmanStatusLabel.Text = BriefStatusLine(latest.Brief);
+
+            // Skip a redundant rebuild when the brief has not changed - avoids the 5s
+            // flicker and keeps an evidence expander the user opened.
+            if (_lastBrief is not null
+                && _lastBrief.TurnNumber == latest.Brief.TurnNumber
+                && _lastBrief.GeneratedAtUtc == latest.Brief.GeneratedAtUtc)
+                return;
+
+            _lastBrief = latest.Brief;
+            RenderBrief(latest.Brief);
         }
         catch (Exception ex)
         {
-            WingmanStatusLabel.Text = $"Wingman note failed: {ex.Message}";
+            WingmanStatusLabel.Text = $"Could not load the brief: {ex.Message}";
         }
         finally
         {
@@ -526,22 +602,363 @@ public partial class TalkPage : ContentPage
         }
     }
 
-    private async Task RefreshWingmanOutputAsync()
+    private static string BriefStatusLine(TurnBrief b)
+    {
+        var model = string.IsNullOrWhiteSpace(b.Model) ? "wingman" : b.Model;
+        var tag = b.Degraded ? " (degraded)" : "";
+        return $"Brief from {model}{tag} - turn {b.TurnNumber}";
+    }
+
+    // ----- brief rendering -------------------------------------------------
+    // The cards are built in code (content is variable) into WingmanBriefContainer, mirroring
+    // the desktop BriefPane: headline / you're doing / you asked / NEEDS YOU (tappable
+    // options) / ALL CLEAR / CLAUDE DID / vote / mission-complete.
+
+    private static readonly Color Ink = Color.FromArgb("#E6EAF2");
+    private static readonly Color Mut = Color.FromArgb("#8A93A6");
+    private static readonly Color CardBg = Color.FromArgb("#0F1626");
+    private static readonly Color CardLine = Color.FromArgb("#1E2A44");
+    private static readonly Color Teal = Color.FromArgb("#37C2B6");
+    private static readonly Color GoodGreen = Color.FromArgb("#5FD08A");
+    private static readonly Color WarnAmber = Color.FromArgb("#E8B339");
+    private static readonly Color BadRed = Color.FromArgb("#E5484D");
+
+    private void RenderBrief(TurnBrief b)
+    {
+        var stack = WingmanBriefContainer;
+        stack.Children.Clear();
+
+        // Headline (falls back to intent) + optional new-chapter pill.
+        var headline = !string.IsNullOrWhiteSpace(b.Headline) ? b.Headline
+            : (!string.IsNullOrWhiteSpace(b.Intent) ? b.Intent : "This session");
+        var headBox = new VerticalStackLayout { Spacing = 6 };
+        headBox.Children.Add(new Label
+        { Text = headline, TextColor = Ink, FontSize = 18, FontAttributes = FontAttributes.Bold });
+        if (b.NewChapter) headBox.Children.Add(Pill("New chapter", Mut));
+        stack.Children.Add(Card(CardBg, CardLine, headBox));
+
+        // You're doing (rolling intent), only when it says more than the headline already did.
+        if (!string.IsNullOrWhiteSpace(b.Intent) && !string.Equals(b.Intent, headline, StringComparison.Ordinal))
+            stack.Children.Add(Card(CardBg, CardLine, Section("YOU'RE DOING", Teal, b.Intent)));
+
+        // You asked.
+        if (!string.IsNullOrWhiteSpace(b.YouAsked))
+            stack.Children.Add(Card(CardBg, CardLine, Section("YOU ASKED", Mut, "\"" + b.YouAsked!.Trim() + "\"")));
+
+        // Needs you / all clear.
+        if (b.NeedsYou is not null)
+            stack.Children.Add(NeedsYouCard(b.NeedsYou));
+        else if (!string.IsNullOrWhiteSpace(b.AllClear))
+            stack.Children.Add(AllClearCard(b.AllClear!));
+
+        // Claude did.
+        if (b.Did is not null && b.Did.Count > 0)
+            stack.Children.Add(Card(CardBg, CardLine, DidSection(b.Did)));
+
+        // Vote strip.
+        stack.Children.Add(VoteStrip());
+
+        // Mission complete (only the known close_session type is rendered).
+        if (b.SuggestedAction is not null
+            && string.Equals(b.SuggestedAction.Type, "close_session", StringComparison.OrdinalIgnoreCase))
+            stack.Children.Add(MissionCompleteCard(b.SuggestedAction));
+    }
+
+    private static Border Card(Color bg, Color border, View content) => new()
+    {
+        BackgroundColor = bg,
+        Stroke = new SolidColorBrush(border),
+        StrokeThickness = 1,
+        StrokeShape = new RoundRectangle { CornerRadius = 13 },
+        Padding = new Thickness(14, 13),
+        Content = content,
+    };
+
+    private static Label HeadLabel(string text, Color color) => new()
+    { Text = text, TextColor = color, FontSize = 11, FontAttributes = FontAttributes.Bold, CharacterSpacing = 0.6 };
+
+    private static VerticalStackLayout Section(string label, Color labelColor, string body)
+    {
+        var v = new VerticalStackLayout { Spacing = 5 };
+        v.Children.Add(HeadLabel(label, labelColor));
+        v.Children.Add(new Label { Text = body, TextColor = Ink, FontSize = 14, LineHeight = 1.35 });
+        return v;
+    }
+
+    private static Border Pill(string text, Color textColor) => new()
+    {
+        BackgroundColor = Colors.Transparent,
+        Stroke = new SolidColorBrush(CardLine),
+        StrokeThickness = 1,
+        StrokeShape = new RoundRectangle { CornerRadius = 20 },
+        Padding = new Thickness(9, 2),
+        HorizontalOptions = LayoutOptions.Start,
+        Content = new Label { Text = text, TextColor = textColor, FontSize = 11 },
+    };
+
+    private static VerticalStackLayout DidSection(List<string> did)
+    {
+        var v = new VerticalStackLayout { Spacing = 5 };
+        v.Children.Add(HeadLabel("CLAUDE DID", Mut));
+        foreach (var d in did)
+        {
+            if (string.IsNullOrWhiteSpace(d)) continue;
+            var g = new Grid
+            {
+                ColumnSpacing = 8,
+                ColumnDefinitions = { new ColumnDefinition(GridLength.Auto), new ColumnDefinition(GridLength.Star) },
+            };
+            var dot = new Label { Text = "-", TextColor = Mut, FontSize = 14 };
+            var lbl = new Label { Text = d.Trim(), TextColor = Ink, FontSize = 14, LineHeight = 1.4 };
+            Grid.SetColumn(dot, 0);
+            Grid.SetColumn(lbl, 1);
+            g.Children.Add(dot);
+            g.Children.Add(lbl);
+            v.Children.Add(g);
+        }
+        return v;
+    }
+
+    private Border NeedsYouCard(TurnBriefNeedsYou n)
+    {
+        var fyi = string.Equals(n.Urgency, "fyi", StringComparison.OrdinalIgnoreCase);
+        var border = fyi ? WarnAmber : BadRed;
+        var v = new VerticalStackLayout { Spacing = 8 };
+        v.Children.Add(HeadLabel("NEEDS YOU", fyi ? WarnAmber : Color.FromArgb("#FF8A8E")));
+        // v3.4 (the trust fix): Claude's verbatim decisive line comes FIRST and expanded - the
+        // brief leads with Claude's own words, not a re-derived summary the user cannot trust.
+        if (!string.IsNullOrWhiteSpace(n.Evidence))
+        {
+            v.Children.Add(new Label
+            { Text = "CLAUDE SAID", TextColor = Color.FromArgb("#9FB4D8"), FontSize = 10, CharacterSpacing = 1.2, FontAttributes = FontAttributes.Bold });
+            v.Children.Add(new Label
+            { Text = n.Evidence.Trim(), TextColor = Ink, FontSize = 14, LineHeight = 1.4 });
+        }
+
+        v.Children.Add(new Label
+        { Text = n.Statement, TextColor = Ink, FontSize = 15, FontAttributes = FontAttributes.Bold, LineHeight = 1.4 });
+
+        if (string.Equals(n.Confidence, "ambiguous", StringComparison.OrdinalIgnoreCase))
+            v.Children.Add(new Label { Text = "Wingman is unsure - double-check.", TextColor = WarnAmber, FontSize = 12 });
+
+        // Options.
+        if (n.Options is not null && n.Options.Count > 0)
+        {
+            var multiple = string.Equals(n.SelectionMode, "multiple", StringComparison.OrdinalIgnoreCase);
+            var opts = new VerticalStackLayout { Spacing = 8 };
+            foreach (var o in n.Options) opts.Children.Add(OptionButton(o, n, multiple));
+            if (multiple && !string.IsNullOrWhiteSpace(n.Submit))
+            {
+                var submit = new Button
+                {
+                    Text = "Submit", BackgroundColor = Color.FromArgb("#2B6CB0"), TextColor = Colors.White,
+                    HeightRequest = 46, CornerRadius = 11,
+                };
+                submit.Clicked += async (_, _) => await SendBriefAnswerAsync(n.Submit!, appendEnter: false, label: "Submitted");
+                opts.Children.Add(submit);
+            }
+            v.Children.Add(opts);
+        }
+
+        // If you do nothing.
+        if (!string.IsNullOrWhiteSpace(n.IfIgnored))
+        {
+            var g = new Grid
+            {
+                ColumnSpacing = 6,
+                ColumnDefinitions = { new ColumnDefinition(GridLength.Auto), new ColumnDefinition(GridLength.Star) },
+            };
+            var head = new Label
+            { Text = "If you do nothing:", TextColor = Color.FromArgb("#F0C558"), FontSize = 12.5, FontAttributes = FontAttributes.Bold };
+            var body = new Label { Text = n.IfIgnored!.Trim(), TextColor = WarnAmber, FontSize = 12.5, LineHeight = 1.35 };
+            Grid.SetColumn(head, 0);
+            Grid.SetColumn(body, 1);
+            g.Children.Add(head);
+            g.Children.Add(body);
+            v.Children.Add(g);
+        }
+
+        return Card(CardBg, border, v);
+    }
+
+    private Border OptionButton(TurnBriefOption o, TurnBriefNeedsYou n, bool multiple)
+    {
+        var inner = new Grid
+        {
+            ColumnSpacing = 10,
+            ColumnDefinitions = { new ColumnDefinition(GridLength.Star), new ColumnDefinition(GridLength.Auto) },
+        };
+        var textStack = new VerticalStackLayout { Spacing = 2 };
+        textStack.Children.Add(new Label { Text = o.Key, TextColor = Ink, FontSize = 14, FontAttributes = FontAttributes.Bold });
+        if (!string.IsNullOrWhiteSpace(o.Note))
+            textStack.Children.Add(new Label { Text = o.Note!.Trim(), TextColor = Mut, FontSize = 12, LineHeight = 1.3 });
+        Grid.SetColumn(textStack, 0);
+        inner.Children.Add(textStack);
+
+        if (o.Recommended)
+        {
+            var pill = new Border
+            {
+                BackgroundColor = GoodGreen,
+                StrokeThickness = 0,
+                StrokeShape = new RoundRectangle { CornerRadius = 20 },
+                Padding = new Thickness(8, 3),
+                VerticalOptions = LayoutOptions.Start,
+                Content = new Label { Text = "REC", TextColor = Color.FromArgb("#06210F"), FontSize = 10, FontAttributes = FontAttributes.Bold },
+            };
+            Grid.SetColumn(pill, 1);
+            inner.Children.Add(pill);
+        }
+
+        var card = new Border
+        {
+            BackgroundColor = o.Recommended ? Color.FromArgb("#15291C") : Color.FromArgb("#1A2236"),
+            Stroke = new SolidColorBrush(o.Recommended ? GoodGreen : CardLine),
+            StrokeThickness = 1,
+            StrokeShape = new RoundRectangle { CornerRadius = 11 },
+            Padding = new Thickness(12, 11),
+            Content = inner,
+        };
+
+        // single: a tap answers (append Enter when the answer is a typed reply). multiple: a
+        // tap toggles the choice (no Enter); the Submit button completes the answer. keys:
+        // the option's Send already carries its own key sequence, so never append Enter.
+        var appendEnter = !multiple && string.Equals(n.AnswerVia, "reply", StringComparison.OrdinalIgnoreCase);
+        var tap = new TapGestureRecognizer();
+        tap.Tapped += async (_, _) => await SendBriefAnswerAsync(o.Send, appendEnter, o.Key);
+        card.GestureRecognizers.Add(tap);
+        return card;
+    }
+
+    private Border AllClearCard(string text)
+    {
+        var v = new VerticalStackLayout { Spacing = 5 };
+        v.Children.Add(HeadLabel("ALL CLEAR", GoodGreen));
+        v.Children.Add(new Label { Text = text.Trim(), TextColor = Ink, FontSize = 15, LineHeight = 1.4 });
+        return Card(Color.FromArgb("#0E1B14"), GoodGreen, v);
+    }
+
+    private Border MissionCompleteCard(TurnBriefSuggestedAction action)
+    {
+        var v = new VerticalStackLayout { Spacing = 9 };
+        v.Children.Add(HeadLabel("MISSION COMPLETE?", GoodGreen));
+        var reason = string.IsNullOrWhiteSpace(action.Reason)
+            ? "Wingman thinks the goal is delivered." : action.Reason.Trim();
+        v.Children.Add(new Label { Text = reason, TextColor = Ink, FontSize = 14, LineHeight = 1.4 });
+        var close = new Button
+        {
+            Text = "Close this session", BackgroundColor = GoodGreen, TextColor = Color.FromArgb("#06210F"),
+            FontAttributes = FontAttributes.Bold, HeightRequest = 48, CornerRadius = 11,
+        };
+        close.Clicked += async (_, _) => await CloseSessionFromBriefAsync();
+        v.Children.Add(close);
+        return Card(Color.FromArgb("#0E1B14"), GoodGreen, v);
+    }
+
+    private Border VoteStrip()
+    {
+        var g = new Grid
+        {
+            ColumnSpacing = 8,
+            ColumnDefinitions = { new ColumnDefinition(GridLength.Star), new ColumnDefinition(GridLength.Auto), new ColumnDefinition(GridLength.Auto) },
+        };
+        var prompt = new Label { Text = "Was this read useful?", TextColor = Mut, FontSize = 12, VerticalOptions = LayoutOptions.Center };
+        var up = VoteButton("Useful", "up");
+        var down = VoteButton("Wrong", "down");
+        Grid.SetColumn(prompt, 0);
+        Grid.SetColumn(up, 1);
+        Grid.SetColumn(down, 2);
+        g.Children.Add(prompt);
+        g.Children.Add(up);
+        g.Children.Add(down);
+        return Card(CardBg, CardLine, g);
+    }
+
+    private Button VoteButton(string text, string vote)
+    {
+        var btn = new Button
+        {
+            Text = text, BackgroundColor = Color.FromArgb("#1A2236"), TextColor = Mut, FontSize = 12,
+            HeightRequest = 34, Padding = new Thickness(12, 0), CornerRadius = 8,
+        };
+        btn.Clicked += async (_, _) => await SendVoteAsync(btn, vote);
+        return btn;
+    }
+
+    // ----- brief actions ---------------------------------------------------
+    // All optimistic: the tap shows its effect immediately, then the next poll reconciles
+    // the real state from the Gateway (per the project's optimistic-UI rule).
+
+    private async Task SendBriefAnswerAsync(string send, bool appendEnter, string label)
     {
         if (_selected is null) return;
         var session = _selected;
-        var gate = OfflineGuard.Check(DeviceOnline, "load the clean output");
-        if (!gate.Allowed) { WingmanOutputLabel.Text = gate.Message; return; }
+        var gate = OfflineGuard.Check(DeviceOnline, "answer the wingman");
+        if (!gate.Allowed) { WingmanStatusLabel.Text = gate.Message; return; }
         try
         {
+            WingmanStatusLabel.Text = $"Sent: {label}";
             var client = new DirectorVoiceClient(TokenEntry.Text ?? "");
-            var text = await client.GetTurnsTextAsync(session.TailnetEndpoint, session.SessionId);
-            WingmanOutputLabel.Text = string.IsNullOrWhiteSpace(text)
-                ? "No clean output yet for this session." : text;
+            await client.SendKeysAsync(session.TailnetEndpoint, session.SessionId, send, appendEnter);
+            // The next brief lands at the turn's end; nudge a refresh shortly after so the
+            // change shows up without waiting for the 5s poll tick.
+            _ = RefreshSoonAsync();
         }
         catch (Exception ex)
         {
-            WingmanOutputLabel.Text = $"Could not load clean output: {ex.Message}";
+            await DisplayAlert("Send error", ex.Message, "OK");
+        }
+    }
+
+    private async Task RefreshSoonAsync()
+    {
+        await Task.Delay(TimeSpan.FromSeconds(2));
+        await RefreshWingmanBriefAsync();
+    }
+
+    private async Task SendVoteAsync(Button btn, string vote)
+    {
+        if (_selected is null || _lastBrief is null) return;
+        var session = _selected;
+        var brief = _lastBrief;
+        var gate = OfflineGuard.Check(DeviceOnline, "send feedback");
+        if (!gate.Allowed) { WingmanStatusLabel.Text = gate.Message; return; }
+        try
+        {
+            // Optimistic mark on the tapped button.
+            btn.BackgroundColor = string.Equals(vote, "up", StringComparison.Ordinal) ? GoodGreen : BadRed;
+            btn.TextColor = Colors.White;
+            var gateway = new GatewayClient(ServerEntry.Text ?? "", TokenEntry.Text ?? "");
+            await gateway.SendBriefFeedbackAsync(session.SessionId, brief.TurnNumber, vote);
+            WingmanStatusLabel.Text = "Thanks - feedback recorded.";
+        }
+        catch (Exception ex)
+        {
+            btn.BackgroundColor = Color.FromArgb("#1A2236");
+            btn.TextColor = Mut;
+            await DisplayAlert("Feedback error", ex.Message, "OK");
+        }
+    }
+
+    private async Task CloseSessionFromBriefAsync()
+    {
+        if (_selected is null) return;
+        var session = _selected;
+        var ok = await DisplayAlert("Close session?",
+            $"Close \"{session.DisplayName}\"? This shuts the session down.", "Close", "Cancel");
+        if (!ok) return;
+        var gate = OfflineGuard.Check(DeviceOnline, "close the session");
+        if (!gate.Allowed) { WingmanStatusLabel.Text = gate.Message; return; }
+        try
+        {
+            WingmanStatusLabel.Text = "Closing session...";
+            var gateway = new GatewayClient(ServerEntry.Text ?? "", TokenEntry.Text ?? "");
+            await gateway.CloseSessionAsync(session.SessionId);
+            GoBackToRoster();
+        }
+        catch (Exception ex)
+        {
+            await DisplayAlert("Close error", ex.Message, "OK");
         }
     }
 
@@ -627,8 +1044,7 @@ public partial class TalkPage : ContentPage
             WingmanInput.Text = "";
             WingmanStatusLabel.Text = string.Equals(result.Status, "ok", StringComparison.OrdinalIgnoreCase)
                 ? "" : $"Turn ended: {result.Status}";
-            await RefreshWingmanOutputAsync();
-            await RefreshWingmanNoteAsync();
+            await RefreshWingmanBriefAsync();
         }
         catch (Exception ex)
         {

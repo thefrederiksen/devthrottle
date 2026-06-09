@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Wingman tab (phone) - proposed</title>
+<style>
+  :root{
+    --bg:#06090F; --panel:#0B1120; --card:#0F1626; --chip:#1A2236;
+    --ink:#E6EAF2; --mut:#8A93A6; --line:#1E2A44;
+    --blue:#2B6CB0; --green:#5FD08A; --amber:#E8B339; --red:#E5484D; --teal:#37C2B6;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#05070c;color:var(--ink);
+       font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;}
+  h1{font-size:18px;font-weight:600;margin:22px 20px 4px}
+  .sub{color:var(--mut);font-size:13px;margin:0 20px 18px}
+  .stage{display:flex;gap:26px;flex-wrap:wrap;padding:0 20px 40px}
+  .col h2{font-size:13px;color:var(--mut);font-weight:600;text-transform:uppercase;
+          letter-spacing:.06em;margin:0 0 10px 4px}
+
+  /* phone frame */
+  .phone{width:390px;background:var(--bg);border-radius:30px;border:1px solid #20283c;
+         overflow:hidden;box-shadow:0 18px 50px rgba(0,0,0,.55)}
+  .statusbar{height:30px;background:#05070c}
+  .head{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line)}
+  .dot{width:11px;height:11px;border-radius:50%}
+  .name{font-weight:600;font-size:15px}
+  .head .repo{color:var(--mut);font-size:12px}
+
+  /* tab bar */
+  .tabs{display:flex;gap:8px;padding:10px 12px 0}
+  .tab{flex:1;text-align:center;padding:9px 0;border-radius:9px;background:var(--chip);
+       color:var(--mut);font-size:13px;font-weight:600}
+  .tab.on{background:#16243f;color:var(--ink);box-shadow:inset 0 0 0 1px #2c4straeven}
+  .tab.on{box-shadow:inset 0 0 0 1px #2c466f}
+
+  .body{padding:12px;display:flex;flex-direction:column;gap:11px;height:560px;overflow:auto}
+  .status{color:var(--mut);font-size:12px;padding:0 2px}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:13px 14px}
+  .headline{font-size:17px;font-weight:700;line-height:1.25}
+  .chapter{display:inline-block;margin-top:6px;font-size:11px;color:var(--mut);
+           border:1px solid var(--line);border-radius:20px;padding:2px 9px}
+
+  .label{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--mut);margin-bottom:5px}
+  .doing .label{color:var(--teal)}
+  .asked .val{color:var(--ink)}
+  .val{font-size:14px;line-height:1.45}
+  .muted{color:var(--mut)}
+
+  /* needs-you */
+  .needs{border:1px solid rgba(229,72,77,.55);background:linear-gradient(180deg,rgba(229,72,77,.10),rgba(229,72,77,.02))}
+  .needs .label{color:#ff8a8e}
+  .statement{font-size:15px;font-weight:600;line-height:1.4;margin-bottom:4px}
+  .evidence{margin:8px 0 4px;border-left:3px solid var(--line);padding:6px 10px;color:var(--mut);
+            font-size:12.5px;font-style:italic;background:rgba(255,255,255,.02)}
+  .evtoggle{color:#9fb4d8;font-size:12px;margin-top:2px}
+  .opts{display:flex;flex-direction:column;gap:8px;margin-top:11px}
+  .opt{display:flex;align-items:center;gap:10px;padding:11px 12px;border-radius:11px;
+       background:var(--chip);border:1px solid var(--line)}
+  .opt .key{font-weight:700;font-size:14px}
+  .opt .note{color:var(--mut);font-size:12px;margin-top:2px}
+  .opt.rec{border-color:rgba(95,208,138,.6);background:rgba(95,208,138,.08)}
+  .recpill{margin-left:auto;font-size:10px;font-weight:800;color:#06210F;background:var(--green);
+           padding:3px 8px;border-radius:20px;align-self:flex-start}
+  .ifignored{margin-top:11px;font-size:12.5px;color:#e8b339}
+  .ifignored b{color:#f0c558}
+
+  /* all-clear / mission complete */
+  .clear{border:1px solid rgba(95,208,138,.5);background:linear-gradient(180deg,rgba(95,208,138,.10),rgba(95,208,138,.02))}
+  .clear .label{color:#9be7b5}
+  .clear .val{font-size:15px}
+  .mission{border:1px solid rgba(95,208,138,.55)}
+  .mission .label{color:#9be7b5}
+  .closebtn{margin-top:10px;width:100%;padding:12px;border-radius:11px;border:0;
+            background:var(--green);color:#06210F;font-weight:800;font-size:14px}
+
+  /* did */
+  .did ul{margin:4px 0 0;padding-left:18px}
+  .did li{font-size:13.5px;line-height:1.5;margin-bottom:3px}
+  .fullreply{color:#9fb4d8;font-size:12px;margin-top:7px}
+
+  /* footer / input */
+  .meta{display:flex;justify-content:space-between;align-items:center;color:var(--mut);font-size:11px;padding:2px 4px}
+  .votes{display:flex;gap:8px}
+  .vote{border:1px solid var(--line);border-radius:8px;padding:4px 10px;font-size:12px;color:var(--mut)}
+  .inputrow{display:flex;gap:8px;margin-top:2px}
+  .input{flex:1;background:#0F1626;border:1px solid var(--line);border-radius:10px;
+         padding:11px 12px;color:var(--ink);font-size:13px}
+  .btn{border:0;border-radius:10px;padding:0 16px;font-weight:700;font-size:14px}
+  .speak{background:var(--teal);color:#04201d}
+  .send{background:var(--blue);color:#fff}
+  .annot{font-size:11px;color:#6f7a90;text-align:center;margin-top:14px}
+</style>
+</head>
+<body>
+  <h1>Wingman tab &mdash; proposed (phone)</h1>
+  <p class="sub">Renders the real Gateway turn brief (TurnBriefDto) the desktop/Cockpit BriefPane uses. Two states shown. Data is illustrative.</p>
+
+  <div class="stage">
+
+    <!-- ============ STATE 1: NEEDS YOU ============ -->
+    <div class="col">
+      <h2>State A &mdash; needs you (red)</h2>
+      <div class="phone">
+        <div class="statusbar"></div>
+        <div class="head">
+          <div class="dot" style="background:var(--red)"></div>
+          <div>
+            <div class="name">api-gateway</div>
+            <div class="repo">cc-director &middot; SOREN_NORTH</div>
+          </div>
+        </div>
+        <div class="tabs">
+          <div class="tab">Voice</div>
+          <div class="tab on">Wingman</div>
+          <div class="tab">Terminal</div>
+        </div>
+
+        <div class="body">
+          <div class="status">Brief from wingman:opus &middot; turn 7 &middot; 12s ago</div>
+
+          <div class="card">
+            <div class="headline">Migrating auth to OAuth</div>
+            <span class="chapter">New chapter</span>
+          </div>
+
+          <div class="card doing">
+            <div class="label">You're doing</div>
+            <div class="val">Switching the login flow from API keys to OAuth so external partners can self-serve.</div>
+          </div>
+
+          <div class="card asked">
+            <div class="label">You asked</div>
+            <div class="val">"go ahead and run the migration"</div>
+          </div>
+
+          <div class="card needs">
+            <div class="label">Needs you</div>
+            <div class="statement">Claude is asking whether to drop the legacy <code>api_keys</code> table now or keep it for one release.</div>
+            <div class="evtoggle">&#9662; show exact words</div>
+            <div class="evidence">"This will permanently delete the api_keys table (1,204 rows). Proceed? (1) Drop now (2) Keep one release (3) Cancel"</div>
+
+            <div class="opts">
+              <div class="opt rec">
+                <div>
+                  <div class="key">Keep one release</div>
+                  <div class="note">Safe rollback path; drop next version.</div>
+                </div>
+                <span class="recpill">REC</span>
+              </div>
+              <div class="opt">
+                <div>
+                  <div class="key">Drop now</div>
+                  <div class="note">Irreversible &mdash; 1,204 rows deleted.</div>
+                </div>
+              </div>
+              <div class="opt">
+                <div>
+                  <div class="key">Cancel</div>
+                  <div class="note">Stop the migration, change nothing.</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="ifignored"><b>If you do nothing:</b> Claude waits, blocked, and the migration stays half-applied.</div>
+          </div>
+
+          <div class="card did">
+            <div class="label">Claude did</div>
+            <ul>
+              <li>Added the <code>oauth_clients</code> table and a migration script.</li>
+              <li>Rewrote 6 endpoints to accept bearer tokens.</li>
+              <li>Paused at the destructive drop step for your call.</li>
+            </ul>
+            <div class="fullreply">&#9662; full reply</div>
+          </div>
+
+          <div class="meta">
+            <span>Was this read useful?</span>
+            <div class="votes"><span class="vote">Useful</span><span class="vote">Wrong</span></div>
+          </div>
+
+          <div class="inputrow">
+            <input class="input" placeholder="reply or ask...">
+            <button class="btn speak">Speak</button>
+            <button class="btn send">Send</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ STATE 2: ALL CLEAR + MISSION COMPLETE ============ -->
+    <div class="col">
+      <h2>State B &mdash; all clear / done (green)</h2>
+      <div class="phone">
+        <div class="statusbar"></div>
+        <div class="head">
+          <div class="dot" style="background:var(--green)"></div>
+          <div>
+            <div class="name">release-bot</div>
+            <div class="repo">cc-director &middot; SOREN_NORTH</div>
+          </div>
+        </div>
+        <div class="tabs">
+          <div class="tab">Voice</div>
+          <div class="tab on">Wingman</div>
+          <div class="tab">Terminal</div>
+        </div>
+
+        <div class="body">
+          <div class="status">Brief from wingman:opus &middot; turn 11 &middot; 4s ago</div>
+
+          <div class="card">
+            <div class="headline">Shipping v0.6.18</div>
+          </div>
+
+          <div class="card doing">
+            <div class="label">You're doing</div>
+            <div class="val">Cutting the v0.6.18 release and pushing it to the fleet.</div>
+          </div>
+
+          <div class="card clear">
+            <div class="label">All clear</div>
+            <div class="val">v0.6.18 is published and live on GitHub Releases &mdash; nothing needs you right now.</div>
+          </div>
+
+          <div class="card did">
+            <div class="label">Claude did</div>
+            <ul>
+              <li>Bumped the version and built all 8 release assets.</li>
+              <li>Tagged v0.6.18 and pushed the GitHub release.</li>
+              <li>Verified the fleet manifest updated.</li>
+            </ul>
+            <div class="fullreply">&#9662; full reply</div>
+          </div>
+
+          <div class="card mission">
+            <div class="label">Mission complete?</div>
+            <div class="val">Wingman thinks the goal is delivered: the release is out and verified.</div>
+            <button class="closebtn">Close this session</button>
+          </div>
+
+          <div class="inputrow">
+            <input class="input" placeholder="reply or ask...">
+            <button class="btn speak">Speak</button>
+            <button class="btn send">Send</button>
+          </div>
+        </div>
+      </div>
+      <p class="annot">Tapping an option (State A) or Close (State B) sends instantly with optimistic feedback,<br>then reconciles on the next brief &mdash; no waiting on a poll.</p>
+    </div>
+
+  </div>
+</body>
+</html>
