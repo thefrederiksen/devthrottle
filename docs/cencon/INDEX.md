@@ -314,10 +314,35 @@ See [security_profile.yaml](security_profile.yaml) for full scan rules and drift
 
 | Document | Purpose |
 |----------|---------|
+| [DEVELOPMENT_METHOD.md](DEVELOPMENT_METHOD.md) | CenCon Development Method - how cc-director is changed (four agents, flow:* label state machine, Definition of Ready/Done) |
 | [architecture_manifest.yaml](architecture_manifest.yaml) | Machine-readable C4 model |
 | [security_profile.yaml](security_profile.yaml) | Security scan rules and drift config |
 | [CC_DOCGEN_SPEC.md](CC_DOCGEN_SPEC.md) | Diagram generator specification |
 | [../CodingStyle.md](../CodingStyle.md) | Coding standards |
+
+---
+
+## CenCon Development Method (how this repo is changed)
+
+CenCon governs not only how cc-director is **documented** but how it is **changed**. The
+[DEVELOPMENT_METHOD.md](DEVELOPMENT_METHOD.md) defines a four-agent process whose runtime is the four
+running cc-director sessions (Product / Developer / QA / Support). The single hard rule: **no code is
+written without a clearly-defined GitHub issue that passed the Definition of Ready.**
+
+State is carried by `flow:*` labels on GitHub issues in `thefrederiksen/cc-director`:
+
+| Label | Stage | Owning agent | Skill |
+|-------|-------|--------------|-------|
+| `flow:ready-dev` | spec ready to implement | Developer Agent | `.claude/skills/developer-agent` |
+| `flow:rejected` | spec too weak; bounced back | Product Agent | `.claude/skills/product-agent` |
+| `flow:ready-qa` | implemented + proof linked | QA Agent | `.claude/skills/qa-agent` |
+| `flow:qa-failed` | defect; bounced back | Developer Agent | `.claude/skills/developer-agent` |
+| `flow:done` | verified with proof; closed | - | - |
+| `flow:needs-human` | 3-strike escalation | the human | - |
+
+Proof (screenshot + HTML report) is committed to the PR branch under `docs/cencon/proof/issue-<n>/`
+and linked repo-relative from the issue; merging the PR to `main` is always a human step. The Support
+Agent owns and keeps these CenCon documents current.
 
 ---
 
