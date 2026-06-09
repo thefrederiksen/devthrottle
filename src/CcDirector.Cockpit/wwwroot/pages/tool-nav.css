@@ -1,0 +1,54 @@
+/*
+  Shared left navigation rail for the Cockpit's plain-HTML tool pages
+  (dictionary, transcripts/voice, exes/builds, settings, keys). These pages are
+  NOT Blazor, so they do not get MainLayout's <NavMenu />. This file plus
+  tool-nav.js reproduce the SAME rail (one definition, included by each page via
+  two lines) so the main menu is present on every Cockpit page, not only the
+  Blazor ones.
+
+  The rail's variables are scoped to .nv (not :root) so they never collide with
+  each tool page's own palette. Class names and rules mirror app.css's .nv*
+  block on purpose - keep the two in sync if the rail look changes.
+*/
+
+/* Flex shell injected by tool-nav.js: rail on the left, the page's existing
+   body content on the right (it owns its own scrolling). */
+.cc-shell{display:flex;height:100vh;overflow:hidden}
+.cc-main{flex:1;min-width:0;min-height:0;overflow:auto}
+
+/* ===== navigation rail (mirrors app.css .nv*) ===== */
+.nv{
+  --sidebar:#252526; --button:#3C3C3C; --text:#CCCCCC; --text2:#AAAAAA;
+  --text3:#888888; --accent:#007ACC; --selected:#094771; --hover:#2A2D2E;
+  --border:#3C3C3C;
+  flex:none;width:172px;display:flex;flex-direction:column;background:var(--sidebar);
+  border-right:1px solid var(--border);padding:6px 6px 8px;transition:width .12s ease}
+.nv-collapsed{width:46px}
+.nv-head{display:flex;align-items:center;gap:6px;padding:2px 2px 8px}
+.nv-brand{font-size:13px;font-weight:700;letter-spacing:.08em;color:var(--accent);
+  border:1px solid var(--accent);border-radius:5px;padding:2px 6px}
+.nv-collapsed .nv-brand{display:none}
+.nv-toggle{margin-left:auto;flex:none;width:24px;height:24px;font-size:14px;line-height:1;
+  cursor:pointer;color:var(--text2);background:transparent;border:1px solid var(--border);
+  border-radius:5px;display:flex;align-items:center;justify-content:center;padding:0}
+.nv-collapsed .nv-toggle{margin:0 auto}
+.nv-toggle:hover{color:#fff;background:var(--button)}
+.nv-item{display:flex;align-items:center;gap:9px;color:var(--text2);text-decoration:none;
+  font-size:12.5px;font-weight:500;border-radius:6px;padding:7px 9px;margin:1px 0;
+  border-left:3px solid transparent;white-space:nowrap;overflow:hidden}
+.nv-item:hover{color:var(--text);background:var(--hover)}
+.nv-item.active{color:#fff;background:var(--selected);border-left-color:var(--accent)}
+.nv-collapsed .nv-item{justify-content:center;padding:7px 0}
+.nv-collapsed .nv-label{display:none}
+.nv-ico{flex:none;width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.3;
+  stroke-linecap:round;stroke-linejoin:round}
+.nv-sep{height:1px;background:var(--border);margin:7px 4px}
+.nv-spacer{flex:1}
+.nv-foot{font-size:10px;color:var(--text3);text-align:center;padding:4px 0 2px}
+.nv-collapsed .nv-foot{font-size:9px}
+@media (max-width:720px){
+  .nv{width:46px}
+  .nv .nv-label,.nv .nv-brand{display:none}
+  .nv .nv-item{justify-content:center;padding:7px 0}
+  .nv .nv-toggle{display:none}
+}
