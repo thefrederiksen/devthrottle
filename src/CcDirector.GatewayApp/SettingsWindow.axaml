@@ -2,7 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="CcDirector.GatewayApp.SettingsWindow"
         Title="CC Director Gateway"
-        Width="480" Height="600"
+        Width="480" Height="430"
         CanResize="False"
         WindowStartupLocation="CenterScreen"
         RequestedThemeVariant="Dark"
@@ -31,11 +31,12 @@
     <!-- Body -->
     <StackPanel Spacing="16" Margin="0,18,0,0">
 
-      <!-- Status panel -->
+      <!-- Status panel: this window is now a pure status light. All configuration
+           (API keys, brain, startup) lives in the Cockpit Settings page below. -->
       <Border Background="#252526" CornerRadius="3" Padding="14">
         <StackPanel Spacing="10">
           <TextBlock Text="STATUS" FontSize="11" FontWeight="SemiBold" Foreground="#888888"/>
-          <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" >
+          <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto">
             <Grid.Styles>
               <Style Selector="TextBlock.label">
                 <Setter Property="FontSize" Value="12"/>
@@ -46,6 +47,7 @@
                 <Setter Property="FontSize" Value="12"/>
                 <Setter Property="Foreground" Value="#CCCCCC"/>
                 <Setter Property="Margin" Value="0,0,0,6"/>
+                <Setter Property="TextWrapping" Value="Wrap"/>
               </Style>
             </Grid.Styles>
             <TextBlock Grid.Row="0" Grid.Column="0" Classes="label" Text="State"/>
@@ -60,56 +62,22 @@
             <TextBlock Grid.Row="4" Grid.Column="1" Classes="value" x:Name="CockpitText" Text="..."/>
             <TextBlock Grid.Row="5" Grid.Column="0" Classes="label" Text="Mode"/>
             <TextBlock Grid.Row="5" Grid.Column="1" Classes="value" x:Name="ModeText" Text="..."/>
+            <TextBlock Grid.Row="6" Grid.Column="0" Classes="label" Text="Brain"/>
+            <TextBlock Grid.Row="6" Grid.Column="1" Classes="value" x:Name="BrainLineText" Text="..."/>
           </Grid>
         </StackPanel>
       </Border>
 
-      <!-- Brain: the Gateway's in-process claude.exe (issue #184). Spawned on first
-           use; RESTART BRAIN is the one recovery verb (and doubles as manual start). -->
-      <Border Background="#252526" CornerRadius="3" Padding="14">
-        <StackPanel Spacing="10">
-          <TextBlock Text="BRAIN" FontSize="11" FontWeight="SemiBold" Foreground="#888888"/>
-          <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto,Auto">
-            <Grid.Styles>
-              <Style Selector="TextBlock.label">
-                <Setter Property="FontSize" Value="12"/>
-                <Setter Property="Foreground" Value="#AAAAAA"/>
-                <Setter Property="Margin" Value="0,0,0,6"/>
-              </Style>
-              <Style Selector="TextBlock.value">
-                <Setter Property="FontSize" Value="12"/>
-                <Setter Property="Foreground" Value="#CCCCCC"/>
-                <Setter Property="Margin" Value="0,0,0,6"/>
-              </Style>
-            </Grid.Styles>
-            <TextBlock Grid.Row="0" Grid.Column="0" Classes="label" Text="State"/>
-            <TextBlock Grid.Row="0" Grid.Column="1" Classes="value" x:Name="BrainStateText" Text="..."/>
-            <TextBlock Grid.Row="1" Grid.Column="0" Classes="label" Text="Model"/>
-            <TextBlock Grid.Row="1" Grid.Column="1" Classes="value" x:Name="BrainModelText" Text="..."/>
-            <TextBlock Grid.Row="2" Grid.Column="0" Classes="label" Text="Session"/>
-            <TextBlock Grid.Row="2" Grid.Column="1" Classes="value" x:Name="BrainSessionText" Text="..."/>
-          </Grid>
-          <StackPanel Orientation="Horizontal" Spacing="10">
-            <Button x:Name="RestartBrainButton" Content="Restart Brain"
-                    Background="#3C3C3C" Foreground="#CCCCCC" Padding="12,6" CornerRadius="2"/>
-            <TextBlock x:Name="BrainActionText" Text="" FontSize="11" Foreground="#888888"
-                       VerticalAlignment="Center"/>
-          </StackPanel>
-          <TextBlock Text="A warm claude.exe hosted by this Gateway (no Director involved). It starts on first use; restart replaces a wedged or dead brain. The model is pinned via config.json 'brain_model' (default: opus); a change applies on the next Gateway restart."
-                     FontSize="10" Foreground="#666666" TextWrapping="Wrap"/>
-        </StackPanel>
-      </Border>
-
-      <!-- Startup -->
-      <Border Background="#252526" CornerRadius="3" Padding="14">
-        <StackPanel Spacing="10">
-          <TextBlock Text="STARTUP" FontSize="11" FontWeight="SemiBold" Foreground="#888888"/>
-          <CheckBox x:Name="AutostartCheck" Foreground="#CCCCCC" FontSize="12"
-                    Content="Start the Gateway when I log in"/>
-          <TextBlock Text="Registers a Run entry under HKCU; the Gateway runs in your session so its agents run as you."
-                     FontSize="10" Foreground="#666666" TextWrapping="Wrap"/>
-        </StackPanel>
-      </Border>
+      <!-- The bridge to the one settings home (docs/architecture/gateway/SETTINGS_OWNERSHIP.md):
+           configuration moved into the Cockpit, so this window points there instead of
+           duplicating the controls. -->
+      <StackPanel Spacing="8">
+        <Button x:Name="OpenSettingsButton" Content="Open Settings in Cockpit"
+                Background="#007ACC" Foreground="#FFFFFF" Padding="16,8" CornerRadius="2"
+                HorizontalAlignment="Left"/>
+        <TextBlock Text="API keys, the Brain (restart), and startup now live in the Cockpit. This window just shows whether the Gateway is alive."
+                   FontSize="10" Foreground="#666666" TextWrapping="Wrap"/>
+      </StackPanel>
 
     </StackPanel>
   </DockPanel>

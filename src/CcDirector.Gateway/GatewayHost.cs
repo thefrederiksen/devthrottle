@@ -32,6 +32,16 @@ public sealed class GatewayHost : IAsyncDisposable
     public DirectorRegistry Registry { get; }
     public bool AuthEnabled { get; }
 
+    /// <summary>When this host was constructed - the Cockpit Settings page reads it for uptime.</summary>
+    public DateTime StartedAtUtc { get; } = DateTime.UtcNow;
+
+    /// <summary>
+    /// Host-process-owned settings the Cockpit Settings page needs (run mode + autostart). The
+    /// GatewayApp tray process sets this before <see cref="StartAsync"/>; null on hosts that have
+    /// no tray (the dev console host), where the settings endpoint degrades gracefully.
+    /// </summary>
+    public Api.GatewaySettingsHooks? SettingsHooks { get; set; }
+
     /// <summary>
     /// Invoked when POST /shutdown is received (the self-update helper asking the running Gateway
     /// to exit so its exe unlocks). The hosting process decides how to exit: the tray app stops the
@@ -330,6 +340,11 @@ public sealed class GatewayHost : IAsyncDisposable
         // here (via the Cockpit Keys page); Directors pull them on demand. Inherits the
         // host-wide token middleware above.
         VaultEndpoints.Map(_app, _keyVault);
+
+        // The Cockpit Settings page surface (docs/architecture/gateway/SETTINGS_OWNERSHIP.md):
+        // one snapshot GET plus brain-restart and autostart actions. Reads this host directly
+        // for status/brain; run mode + autostart come from SettingsHooks (GatewayApp-owned).
+        SettingsEndpoints.Map(_app, this);
 
         // Gateway-served turn briefs (issue #185): the Cockpit reads briefs from HERE; the
         // store serves even when the pipeline is disabled (read-only is always safe).

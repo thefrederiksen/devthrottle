@@ -72,6 +72,7 @@ app.MapGet("/exes", () => ServePage("exes.html"));
 app.MapGet("/transcripts", () => ServePage("transcripts.html"));
 app.MapGet("/dictionary", () => ServePage("dictionary.html"));
 app.MapGet("/keys", () => ServePage("keys.html"));
+app.MapGet("/settings", () => ServePage("settings.html"));
 app.MapGet("/voice", () => Results.Redirect("/transcripts"));
 
 app.MapRazorComponents<App>()

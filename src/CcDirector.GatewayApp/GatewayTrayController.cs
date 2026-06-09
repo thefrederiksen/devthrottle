@@ -145,6 +145,28 @@ public sealed class GatewayTrayController : IDisposable
                 FileLog.Write("[GatewayTrayController] shutdown requested via /shutdown (self-update)");
                 _ = QuitAsync();
             };
+            // Back the Cockpit Settings page with the tray-owned bits (run mode + autostart Run-key):
+            // the host hosts the REST surface, but only the tray process knows its mode and owns the
+            // per-user autostart entry (which needs THIS exe path + the managed-launch arguments).
+            host.SettingsHooks = new CcDirector.Gateway.Api.GatewaySettingsHooks
+            {
+                Mode = () => GatewayAppOptions.Managed ? "managed" : "dev",
+                AutostartEnabled = () =>
+                    OperatingSystem.IsWindows() ? GatewayAutostart.IsRegistered() : (bool?)null,
+                SetAutostart = enable =>
+                {
+                    if (!OperatingSystem.IsWindows()) return false;
+                    if (enable)
+                    {
+                        var exe = Environment.ProcessPath
+                                  ?? throw new InvalidOperationException("Could not resolve own exe path");
+                        GatewayAutostart.EnsureRegistered(exe, GatewayAppOptions.AutostartArguments());
+                        return true;
+                    }
+                    GatewayAutostart.Unregister();
+                    return false;
+                },
+            };
             await host.StartAsync();
             _host = host;
             SetState(HostState.Running);

@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Settings - CC Director Gateway</title>
+<style>
+  :root{--bg:#0B1020;--panel:#141B2E;--panel2:#1B2540;--ink:#E6EAF2;--muted:#8A93A6;
+        --line:#27324d;--green:#5FD08A;--blue:#5B8DEF;--amber:#E8B339;--red:#E5484D;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.5}
+  .wrap{max-width:760px;margin:0 auto;padding:28px 20px 90px}
+  .top{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+  h1{font-size:26px;margin:0}
+  a.back{color:var(--blue);text-decoration:none;font-size:14px}
+  .sub{color:var(--muted);font-size:14px;margin:6px 0 18px;max-width:640px}
+  .section{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin:14px 0}
+  .section h2{font-size:16px;margin:0 0 2px}
+  .section .hint{color:var(--muted);font-size:12.5px;margin:0 0 14px}
+  .status{display:inline-flex;align-items:center;gap:8px;font-size:13.5px;margin-bottom:14px}
+  .dot{width:9px;height:9px;border-radius:999px;display:inline-block;background:var(--muted)}
+  .dot.green{background:var(--green)} .dot.amber{background:var(--amber)} .dot.red{background:var(--red)}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  input[type=password],input[type=text]{flex:1;min-width:240px;background:#0B1020;color:var(--ink);
+        border:1px solid var(--line);border-radius:8px;padding:9px 12px;font-size:14px;font-family:ui-monospace,Consolas,monospace}
+  input:focus{outline:none;border-color:var(--blue)}
+  button{background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:9px 16px;font-size:14px;cursor:pointer}
+  button:hover{border-color:var(--blue)}
+  button.save{background:#1f7a47;border-color:#2a9c5b;color:#fff}
+  button:disabled{opacity:.5;cursor:default}
+  button.danger{color:var(--red);border-color:#5a2a2d}
+  button.danger:hover{border-color:var(--red)}
+  .msg{font-size:12.5px;margin-top:12px;min-height:16px}
+  .msg.ok{color:var(--green)} .msg.err{color:var(--red)}
+  label.show{display:inline-flex;align-items:center;gap:7px;color:var(--muted);font-size:13px}
+  .kv{display:grid;grid-template-columns:140px 1fr;font-size:13.5px;gap:3px 0}
+  .kv .k{color:var(--muted)} .kv .v{color:var(--ink)} .kv .v.mono{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+  .kv .v.red{color:var(--red)} .kv .v.green{color:var(--green)}
+  .chk{display:inline-flex;align-items:center;gap:9px;font-size:14px;color:var(--ink);cursor:pointer}
+  .chk input{accent-color:var(--blue);width:16px;height:16px}
+  .links{display:flex;flex-wrap:wrap;gap:10px;margin-top:2px}
+  .links a{display:inline-flex;flex-direction:column;background:var(--panel2);border:1px solid var(--line);
+        border-radius:10px;padding:10px 14px;color:var(--ink);text-decoration:none;font-size:13.5px;min-width:150px}
+  .links a:hover{border-color:var(--blue)}
+  .links a .s{color:var(--muted);font-size:11.5px;margin-top:2px}
+  .pill{display:inline-block;font-size:11px;padding:2px 8px;border-radius:999px;background:#23314d;color:#9fb0d8;margin-left:8px;vertical-align:middle}
+  .loading{color:var(--muted);text-align:center;padding:60px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <h1>Settings</h1>
+    <a class="back" href="/">&larr; Dashboard</a>
+  </div>
+  <p class="sub">Everything that configures this Gateway and the fleet, in one place. Settings here apply to every Director connected to this Gateway.</p>
+
+  <!-- API Keys -->
+  <div class="section">
+    <h2>API Keys</h2>
+    <p class="hint">Stored once here on the Gateway, pulled on demand by every Director. Never shown back in this page and never written to a Director's disk.</p>
+    <div class="status">
+      <span class="dot" id="keydot"></span>
+      <span id="keystate">Loading...</span>
+    </div>
+    <div class="row">
+      <input id="keybox" type="password" placeholder="sk-..." autocomplete="off" spellcheck="false">
+      <button class="save" id="savebtn">Save</button>
+      <button class="danger" id="delbtn" style="display:none">Remove</button>
+    </div>
+    <div style="margin-top:10px">
+      <label class="show"><input type="checkbox" id="showbox"> Show what I type</label>
+    </div>
+    <div class="msg" id="keymsg"></div>
+  </div>
+
+  <!-- Brain -->
+  <div class="section">
+    <h2>Brain <span class="pill">warm claude.exe</span></h2>
+    <p class="hint">A hosted claude.exe used by Gateway agents (the wingman). It starts on first use; restart replaces a wedged or dead brain. The model is pinned via config.json <code>brain_model</code>; a change applies on the next Gateway restart.</p>
+    <div class="status">
+      <span class="dot" id="braindot"></span>
+      <span id="brainstate">Loading...</span>
+    </div>
+    <div class="kv">
+      <span class="k">Model</span><span class="v" id="brainmodel">-</span>
+      <span class="k">Session</span><span class="v mono" id="brainsession">-</span>
+    </div>
+    <div class="row" style="margin-top:14px">
+      <button id="restartbtn">Restart Brain</button>
+      <span class="hint" id="brainmsg" style="margin:0"></span>
+    </div>
+  </div>
+
+  <!-- Gateway -->
+  <div class="section">
+    <h2>Gateway</h2>
+    <p class="hint">The Gateway process serving this page and supervising the fleet.</p>
+    <div class="kv" id="gwkv">
+      <span class="k">State</span><span class="v" id="gwstate">-</span>
+      <span class="k">Port</span><span class="v mono" id="gwport">-</span>
+      <span class="k">Cockpit</span><span class="v mono" id="gwcockpit">-</span>
+      <span class="k">Mode</span><span class="v" id="gwmode">-</span>
+      <span class="k">Uptime</span><span class="v" id="gwuptime">-</span>
+      <span class="k">Version</span><span class="v mono" id="gwversion">-</span>
+      <span class="k">Directors</span><span class="v" id="gwdirectors">-</span>
+    </div>
+  </div>
+
+  <!-- Startup -->
+  <div class="section">
+    <h2>Startup</h2>
+    <p class="hint">Registers a Run entry under HKCU so the Gateway starts in your session when you log in. The fleet only works while you are logged in, so this is per-user, never a machine service.</p>
+    <label class="chk"><input type="checkbox" id="autostart" disabled> Start the Gateway when I log in</label>
+    <div class="msg" id="autostartmsg"></div>
+  </div>
+
+  <!-- Files & data -->
+  <div class="section">
+    <h2>Files &amp; data</h2>
+    <p class="hint">The Gateway's other tool pages.</p>
+    <div class="links">
+      <a href="/transcripts">Voice transcripts<span class="s">recordings &amp; transcripts</span></a>
+      <a href="/dictionary">Dictation dictionary<span class="s">custom terms</span></a>
+      <a href="/exes">Builds<span class="s">local_builds slots</span></a>
+      <a href="/keys">API keys page<span class="s">full key vault</span></a>
+    </div>
+  </div>
+</div>
+
+<script>
+  const KEY = 'OPENAI_API_KEY';
+
+  // ---- API key block (talks to the existing vault endpoints) ----
+  function setKeyMsg(text, ok){
+    const m = document.getElementById('keymsg');
+    m.textContent = text || '';
+    m.className = 'msg ' + (ok ? 'ok' : 'err');
+  }
+
+  function renderKey(isSet){
+    document.getElementById('keydot').className = 'dot ' + (isSet ? 'green' : 'amber');
+    document.getElementById('keystate').textContent = isSet ? 'OPENAI_API_KEY is set' : 'OPENAI_API_KEY is not set';
+    document.getElementById('keybox').placeholder = isSet ? 'Enter a new key to replace it' : 'sk-...';
+    document.getElementById('delbtn').style.display = isSet ? '' : 'none';
+  }
+
+  async function loadKey(){
+    try {
+      const r = await fetch('/vault/keys');
+      if (!r.ok) throw new Error(r.status);
+      const d = await r.json();
+      renderKey((d.names || []).includes(KEY));
+    } catch (e) {
+      document.getElementById('keystate').textContent = 'Failed to load (is the Gateway running?)';
+    }
+  }
+
+  async function saveKey(){
+    const box = document.getElementById('keybox');
+    const btn = document.getElementById('savebtn');
+    const value = box.value.trim();
+    if (!value){ setKeyMsg('Enter a key first.', false); return; }
+    btn.disabled = true; setKeyMsg('Saving...', true);
+    try {
+      const r = await fetch('/vault/keys/' + KEY, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value }),
+      });
+      if (r.ok){ box.value=''; await loadKey(); setKeyMsg('Saved. Directors pick it up on their next dictation.', true); }
+      else { const e = await r.json().catch(()=>({})); setKeyMsg('Save failed: ' + (e.error || r.status), false); }
+    } catch (e){ setKeyMsg('Save failed: ' + e, false); }
+    btn.disabled = false;
+  }
+
+  async function removeKey(){
+    setKeyMsg('Removing...', true);
+    try {
+      const r = await fetch('/vault/keys/' + KEY, { method: 'DELETE' });
+      if (r.ok){ await loadKey(); setKeyMsg('Key removed.', true); }
+      else { setKeyMsg('Remove failed: ' + r.status, false); }
+    } catch (e){ setKeyMsg('Remove failed: ' + e, false); }
+  }
+
+  // ---- Brain + Gateway + Startup block (one snapshot endpoint) ----
+  function fmtUptime(sec){
+    sec = Math.max(0, sec|0);
+    const h = (sec/3600)|0, m = ((sec%3600)/60)|0, s = sec%60;
+    return h >= 1 ? `${h}h ${String(m).padStart(2,'0')}m` : `${m}m ${String(s).padStart(2,'0')}s`;
+  }
+
+  function renderBrain(b){
+    const alive = b.alive, started = b.started;
+    const dot = document.getElementById('braindot');
+    dot.className = 'dot ' + (alive ? 'green' : (started ? 'red' : 'amber'));
+    document.getElementById('brainstate').textContent = b.detail || '-';
+    document.getElementById('brainmodel').textContent = b.model || '-';
+    document.getElementById('brainsession').textContent =
+      b.sessionId ? `${b.sessionId} (pid ${b.pid})` : '-';
+  }
+
+  function renderSnapshot(d){
+    renderBrain(d.brain || {});
+    document.getElementById('gwstate').textContent = d.state || '-';
+    document.getElementById('gwstate').className = 'v green';
+    document.getElementById('gwport').textContent = d.port;
+    const c = d.cockpit || {};
+    const ck = document.getElementById('gwcockpit');
+    ck.textContent = c.up ? `reachable on :${c.port}` : `not reachable on :${c.port}`;
+    ck.className = 'v mono ' + (c.up ? 'green' : 'red');
+    document.getElementById('gwmode').textContent =
+      d.mode === 'managed' ? 'managed (supervises the Cockpit, auto-updates)'
+      : d.mode === 'dev' ? 'dev (Cockpit not supervised, no auto-update)'
+      : d.mode;
+    document.getElementById('gwuptime').textContent = fmtUptime(d.uptimeSeconds);
+    document.getElementById('gwversion').textContent = 'v' + d.version;
+    document.getElementById('gwdirectors').textContent =
+      d.directors + (d.directors === 1 ? ' connected' : ' connected');
+
+    const a = d.autostart || {};
+    const box = document.getElementById('autostart');
+    if (a.supported){ box.checked = !!a.enabled; box.disabled = false; }
+    else { box.disabled = true; document.getElementById('autostartmsg').textContent = 'Autostart is not supported on this host.'; }
+  }
+
+  async function loadSnapshot(){
+    try {
+      const r = await fetch('/gateway/settings');
+      if (!r.ok) throw new Error(r.status);
+      renderSnapshot(await r.json());
+    } catch (e) {
+      document.getElementById('brainstate').textContent = 'Failed to load (is the Gateway running?)';
+    }
+  }
+
+  async function restartBrain(){
+    const btn = document.getElementById('restartbtn');
+    const msg = document.getElementById('brainmsg');
+    btn.disabled = true; msg.textContent = 'restarting (spawning claude.exe)...';
+    try {
+      const r = await fetch('/gateway/brain/restart', { method: 'POST' });
+      const d = await r.json().catch(()=>({}));
+      if (r.ok && d.ok){ renderBrain(d.brain || {}); msg.textContent = `brain ready (pid ${d.brain?.pid})`; }
+      else { msg.textContent = 'restart FAILED: ' + (d.error || r.status); }
+    } catch (e){ msg.textContent = 'restart FAILED: ' + e; }
+    btn.disabled = false;
+  }
+
+  async function toggleAutostart(e){
+    const enabled = e.target.checked;
+    const msg = document.getElementById('autostartmsg');
+    msg.className = 'msg ok'; msg.textContent = 'Saving...';
+    try {
+      const r = await fetch('/gateway/autostart', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      });
+      const d = await r.json().catch(()=>({}));
+      if (r.ok && d.supported){ e.target.checked = !!d.enabled; msg.textContent = d.enabled ? 'Will start at login.' : 'Will not start at login.'; }
+      else { msg.className = 'msg err'; msg.textContent = 'Could not change autostart.'; await loadSnapshot(); }
+    } catch (err){ msg.className = 'msg err'; msg.textContent = 'Failed: ' + err; await loadSnapshot(); }
+  }
+
+  document.getElementById('savebtn').addEventListener('click', saveKey);
+  document.getElementById('delbtn').addEventListener('click', removeKey);
+  document.getElementById('showbox').addEventListener('change', e => {
+    document.getElementById('keybox').type = e.target.checked ? 'text' : 'password';
+  });
+  document.getElementById('restartbtn').addEventListener('click', restartBrain);
+  document.getElementById('autostart').addEventListener('change', toggleAutostart);
+
+  loadKey();
+  loadSnapshot();
+</script>
+</body>
+</html>

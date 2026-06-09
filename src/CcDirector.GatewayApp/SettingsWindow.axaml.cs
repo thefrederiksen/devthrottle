@@ -9,10 +9,13 @@ using CcDirector.Setup.Engine;
 namespace CcDirector.GatewayApp;
 
 /// <summary>
-/// The Gateway's status + settings window, opened from the tray menu (or a left-click on the
-/// tray icon). Shows live status (state, port, uptime, Director count, Cockpit reachability)
-/// refreshed by a background timer, and owns the autostart toggle. All I/O (Cockpit probe,
-/// folder opens, registry writes) runs off the UI thread; the window opens instantly.
+/// The Gateway's tray status window, opened from the tray menu (or a left-click on the tray
+/// icon). It is now a pure status light: live state (port, uptime, Director count, Cockpit
+/// reachability, a one-line brain summary), refreshed by a background timer. All configuration
+/// (API keys, brain restart, autostart) moved into the Cockpit Settings page
+/// (docs/architecture/gateway/SETTINGS_OWNERSHIP.md); the "Open Settings in Cockpit" button is
+/// the bridge there. All I/O (Cockpit probe, folder opens, browser launch) runs off the UI
+/// thread; the window opens instantly.
 /// </summary>
 public partial class SettingsWindow : Window
 {
@@ -20,7 +23,6 @@ public partial class SettingsWindow : Window
 
     private readonly GatewayTrayController _controller;
     private readonly DispatcherTimer _refresh;
-    private bool _suppressAutostartEvent;
 
     // XAML-less designer ctor (Avalonia previewer); never used at runtime.
     public SettingsWindow() : this(null!) { }
@@ -40,8 +42,7 @@ public partial class SettingsWindow : Window
         CloseButton.Click += (_, _) => Close();
         OpenLogsButton.Click += (_, _) => OpenFolder(Path.GetDirectoryName(FileLog.CurrentLogPath));
         OpenConfigButton.Click += (_, _) => OpenFolder(Path.GetDirectoryName(InstallLayout.Default().ConfigPath));
-        AutostartCheck.IsCheckedChanged += OnAutostartToggled;
-        RestartBrainButton.Click += OnRestartBrainClick;
+        OpenSettingsButton.Click += (_, _) => OpenCockpitSettings();
 
         _refresh = new DispatcherTimer(TimeSpan.FromSeconds(2), DispatcherPriority.Background, (_, _) => _ = RefreshAsync());
         Closed += (_, _) =>
@@ -58,7 +59,7 @@ public partial class SettingsWindow : Window
     {
         if (_controller is null) return;
 
-        // Cheap reads first (instant), the Cockpit probe + registry read off-thread.
+        // Cheap reads first (instant), the Cockpit probe off-thread.
         StateText.Text = _controller.StateText;
         var up = DateTime.UtcNow - _controller.StartedAtUtc;
         UptimeText.Text = up.TotalHours >= 1
@@ -67,116 +68,65 @@ public partial class SettingsWindow : Window
         DirectorsText.Text = (_controller.Host?.Registry.ListDirectors().Count ?? 0).ToString();
 
         var cockpitPort = CockpitSupervisor.ResolvePort();
-        var (cockpitUp, autostart) = await Task.Run(async () =>
+        var cockpitUp = await Task.Run(async () =>
         {
-            bool reachable;
             try
             {
                 using var resp = await Http.GetAsync($"http://127.0.0.1:{cockpitPort}/");
-                reachable = resp.IsSuccessStatusCode;
+                return resp.IsSuccessStatusCode;
             }
             catch
             {
-                reachable = false;
+                return false;
             }
-            var registered = OperatingSystem.IsWindows() && GatewayAutostart.IsRegistered();
-            return (reachable, registered);
         });
 
         CockpitText.Text = cockpitUp ? $"reachable on :{cockpitPort}" : $"not reachable on :{cockpitPort}";
-
-        _suppressAutostartEvent = true;
-        AutostartCheck.IsChecked = autostart;
-        _suppressAutostartEvent = false;
 
         await RefreshBrainAsync();
     }
 
     /// <summary>
-    /// Brain status line (issue #184). GetHealthAsync reads transcript files off disk,
-    /// so it runs off the UI thread; it never spawns the brain - a dormant brain just
-    /// shows "not started".
+    /// One-line brain summary (issue #184). GetHealthAsync reads transcript files off disk, so it
+    /// runs off the UI thread; it never spawns the brain - a dormant brain just shows "not started".
+    /// The restart verb itself now lives in the Cockpit Settings page.
     /// </summary>
     private async Task RefreshBrainAsync()
     {
-        BrainModelText.Text = _controller.Host?.BrainModel ?? "-";
-
         var brain = _controller.Brain;
         if (brain is null)
         {
-            BrainStateText.Text = "unavailable";
-            BrainSessionText.Text = "-";
+            BrainLineText.Text = "unavailable";
             return;
         }
 
-        var sessionId = brain.SessionId;
-        var pid = brain.ProcessId;
         var health = await Task.Run(() => brain.GetHealthAsync());
-
-        BrainStateText.Text = health.Status == "NotStarted"
+        BrainLineText.Text = health.Status == "NotStarted"
             ? "not started (spawns on first use)"
             : health.IsAlive
-                ? $"alive - {health.ActivityState}, idle {health.IdleSeconds:F0}s, context {health.ContextTokens:N0} tokens"
-                : $"DEAD ({health.Status}) - use Restart Brain";
-        BrainSessionText.Text = sessionId is null ? "-" : $"{sessionId} (pid {pid})";
+                ? $"alive ({_controller.Host?.BrainModel ?? "-"}), idle {health.IdleSeconds:F0}s"
+                : $"DEAD ({health.Status}) - restart in the Cockpit";
     }
 
-    private void OnRestartBrainClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    /// <summary>
+    /// Open the Cockpit Settings page in the default browser. The loopback Cockpit child serves
+    /// the page directly (no front-door token needed for a local click), so the URL is always the
+    /// local Cockpit port - reliable whether or not Tailscale is up.
+    /// </summary>
+    private void OpenCockpitSettings()
     {
-        var brain = _controller?.Brain;
-        if (brain is null) return;
-
-        RestartBrainButton.IsEnabled = false;
-        BrainActionText.Text = "restarting (spawning claude.exe)...";
-        FileLog.Write("[SettingsWindow] Restart Brain clicked");
-        _ = Task.Run(async () =>
-        {
-            string outcome;
-            try
-            {
-                await brain.RestartAsync();
-                outcome = $"brain ready (pid {brain.ProcessId})";
-                FileLog.Write($"[SettingsWindow] brain restart OK: pid={brain.ProcessId}, session={brain.SessionId}");
-            }
-            catch (Exception ex)
-            {
-                outcome = $"restart FAILED: {ex.Message}";
-                FileLog.Write($"[SettingsWindow] brain restart FAILED: {ex.Message}");
-            }
-            await Dispatcher.UIThread.InvokeAsync(async () =>
-            {
-                BrainActionText.Text = outcome;
-                RestartBrainButton.IsEnabled = true;
-                await RefreshBrainAsync();
-            });
-        });
-    }
-
-    private void OnAutostartToggled(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
-    {
-        if (_suppressAutostartEvent || _controller is null) return;
-        var enable = AutostartCheck.IsChecked == true;
+        var port = CockpitSupervisor.ResolvePort();
+        var url = $"http://127.0.0.1:{port}/settings";
+        FileLog.Write($"[SettingsWindow] Open Settings in Cockpit -> {url}");
         _ = Task.Run(() =>
         {
             try
             {
-                if (!OperatingSystem.IsWindows()) return;
-                if (enable)
-                {
-                    var exe = Environment.ProcessPath
-                              ?? throw new InvalidOperationException("Could not resolve own exe path");
-                    GatewayAutostart.EnsureRegistered(exe, GatewayAppOptions.AutostartArguments());
-                    FileLog.Write("[SettingsWindow] autostart enabled");
-                }
-                else
-                {
-                    GatewayAutostart.Unregister();
-                    FileLog.Write("[SettingsWindow] autostart disabled");
-                }
+                Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[SettingsWindow] autostart toggle FAILED: {ex.Message}");
+                FileLog.Write($"[SettingsWindow] OpenCockpitSettings FAILED: {ex.Message}");
             }
         });
     }

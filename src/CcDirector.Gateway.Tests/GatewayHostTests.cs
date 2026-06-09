@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json.Nodes;
 using CcDirector.ControlApi;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Sessions;
@@ -137,6 +138,46 @@ public sealed class GatewayHostTests : IAsyncLifetime
     {
         using var anonClient = new HttpClient { BaseAddress = _http.BaseAddress };
         var resp = await anonClient.GetAsync("directors");
+        Assert.Equal(HttpStatusCode.Unauthorized, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task GatewaySettings_returns_status_brain_and_autostart_snapshot()
+    {
+        var obj = await _http.GetFromJsonAsync<JsonObject>("gateway/settings");
+        Assert.NotNull(obj);
+        Assert.Equal("Running", (string?)obj["state"]);
+        Assert.Equal(_gatewayPort, (int?)obj["port"]);
+        Assert.False(string.IsNullOrEmpty((string?)obj["version"]));
+        // No SettingsHooks are set on a bare host, so mode is unknown and autostart is unsupported.
+        Assert.Equal("unknown", (string?)obj["mode"]);
+
+        var autostart = obj["autostart"] as JsonObject;
+        Assert.NotNull(autostart);
+        Assert.False((bool?)autostart["supported"]);
+
+        // The brain never spawns just to report health: a dormant brain reads as not started.
+        var brain = obj["brain"] as JsonObject;
+        Assert.NotNull(brain);
+        Assert.False((bool?)brain["started"]);
+        Assert.Contains("not started", (string?)brain["detail"]);
+    }
+
+    [Fact]
+    public async Task GatewayAutostart_put_is_unsupported_without_a_hook()
+    {
+        var resp = await _http.PutAsJsonAsync("gateway/autostart", new JsonObject { ["enabled"] = true });
+        resp.EnsureSuccessStatusCode();
+        var body = await resp.Content.ReadFromJsonAsync<JsonObject>();
+        Assert.NotNull(body);
+        Assert.False((bool?)body["supported"]);
+    }
+
+    [Fact]
+    public async Task GatewaySettings_get_requires_auth()
+    {
+        using var anonClient = new HttpClient { BaseAddress = _http.BaseAddress };
+        var resp = await anonClient.GetAsync("gateway/settings");
         Assert.Equal(HttpStatusCode.Unauthorized, resp.StatusCode);
     }
 
