@@ -36,7 +36,8 @@ internal static class GatewayEndpoints
         Action<string, string, string>? onSessionState = null, Func<string, string?>? assessedStateFor = null,
         Func<string, (string BriefingState, string? RailLine)>? briefStampFor = null,
         Func<string, (string? RailLine, string? Headline)>? interruptedBriefFor = null,
-        Func<string, List<TurnBriefDto>>? briefHistoryFor = null)
+        Func<string, List<TurnBriefDto>>? briefHistoryFor = null,
+        SessionOwnerCache? owners = null)
     {
         // Graceful exit for the self-update helper: answer first (so the caller gets its 200),
         // then hand off to the host's shutdown handler shortly after. 501 when the hosting
@@ -379,6 +380,9 @@ internal static class GatewayEndpoints
                     s.MachineName = d.MachineName;
                     s.User = d.User;
                     s.TailnetEndpoint = baseUrl;
+                    // Issue #288: remember who owns this session so the WS proxy answers 503 (owner
+                    // offline) instead of 404 once this Director goes dark.
+                    owners?.Remember(s.SessionId, d.DirectorId);
                     // Issue #186: stamp the GATEWAY-owned assessedState. Suppressed while
                     // the session is mechanically working (raw activity always wins there);
                     // the Director's own annotation (if any) is overwritten - the Gateway
