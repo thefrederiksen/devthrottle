@@ -1,17 +1,22 @@
-using System.Collections.Concurrent;
 using CcDirector.Core.Storage;
 
 namespace CcDirector.Core.Utilities;
 
 /// <summary>
 /// Simple thread-safe file logger. Writes to cc-director logs/director/ directory.
+///
+/// The actual dequeue/rollover/flush work lives in <see cref="FileLogWriter"/> so the day-rollover
+/// behavior can be unit-tested with an injectable clock (issue #171). This type is the thin static
+/// facade the rest of the app calls; it wires the engine to wall-clock time and the real log
+/// directory.
 /// </summary>
 public static class FileLog
 {
     private static readonly string LogDir = CcStorage.ToolLogs("director");
 
-    private static readonly BlockingCollection<string> _queue = new(1024);
-    private static Thread? _writerThread;
+    private static readonly FileLogWriter _writer =
+        new(LogDir, Environment.ProcessId, () => DateTime.Now);
+
     private static int _started;
 
     /// <summary>Start the background writer thread. Safe to call multiple times.</summary>
@@ -20,14 +25,7 @@ public static class FileLog
         if (Interlocked.CompareExchange(ref _started, 1, 0) != 0)
             return;
 
-        Directory.CreateDirectory(LogDir);
-
-        _writerThread = new Thread(WriterLoop)
-        {
-            IsBackground = true,
-            Name = "FileLog-Writer"
-        };
-        _writerThread.Start();
+        _writer.Start();
     }
 
     /// <summary>Log a message with a timestamp prefix.</summary>
@@ -35,7 +33,7 @@ public static class FileLog
     {
         if (_started == 0) return;
         var line = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} {message}";
-        _queue.TryAdd(line);
+        _writer.Enqueue(line);
         System.Diagnostics.Debug.WriteLine(line);
     }
 
@@ -44,51 +42,10 @@ public static class FileLog
     {
         if (Interlocked.CompareExchange(ref _started, 0, 1) != 1)
             return;
-        _queue.CompleteAdding();
-        _writerThread?.Join(TimeSpan.FromSeconds(3));
+        _writer.Stop();
     }
 
     /// <summary>Returns the current log file path (useful for display).</summary>
     public static string CurrentLogPath =>
         Path.Combine(LogDir, $"director-{DateTime.Now:yyyy-MM-dd}-{Environment.ProcessId}.log");
-
-    private static void WriterLoop()
-    {
-        StreamWriter? writer = null;
-        string? currentDate = null;
-
-        try
-        {
-            foreach (var line in _queue.GetConsumingEnumerable())
-            {
-                var today = DateTime.Now.ToString("yyyy-MM-dd");
-                if (today != currentDate)
-                {
-                    writer?.Flush();
-                    writer?.Dispose();
-                    currentDate = today;
-                    var pid = Environment.ProcessId;
-                    var path = Path.Combine(LogDir, $"director-{currentDate}-{pid}.log");
-                    writer = new StreamWriter(path, append: true) { AutoFlush = false };
-                }
-
-                if (writer == null)
-                    continue;
-                writer.WriteLine(line);
-
-                // Flush if queue is empty (no more pending writes)
-                if (_queue.Count == 0)
-                    writer.Flush();
-            }
-        }
-        catch (InvalidOperationException)
-        {
-            // GetConsumingEnumerable throws when CompleteAdding is called
-        }
-        finally
-        {
-            writer?.Flush();
-            writer?.Dispose();
-        }
-    }
 }

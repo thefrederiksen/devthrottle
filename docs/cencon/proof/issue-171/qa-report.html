@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #171 (FileLog midnight rollover)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem auto; max-width: 980px; color: #1c2433; line-height: 1.5; }
+  h1 { border-bottom: 3px solid #5319e7; padding-bottom: .4rem; }
+  h2 { margin-top: 2rem; color: #2a2f45; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #d0d4dc; padding: .55rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #f0ecfb; }
+  .pass { color: #0a7d2c; font-weight: 700; }
+  .fail { color: #b30000; font-weight: 700; }
+  code { background: #f4f5f7; padding: .1rem .35rem; border-radius: 3px; font-family: Consolas, monospace; }
+  pre { background: #1c2433; color: #e8eaf0; padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: .85rem; }
+  .verdict { background: #e7f7ec; border: 1px solid #0a7d2c; border-radius: 6px; padding: 1rem 1.25rem; margin-top: 2rem; }
+  .meta { color: #5a6072; font-size: .9rem; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #171</h1>
+<p class="meta">
+  <strong>Issue:</strong> [Logging] FileLog midnight rollover loses all writes (new day's file stays 0 bytes)<br>
+  <strong>PR:</strong> #277 &middot; branch <code>issue-171-filelog-rollover</code><br>
+  <strong>Verified by:</strong> QA Agent (independent context - did NOT reuse the Developer Agent's binary, output, or screenshots)<br>
+  <strong>Method:</strong> CenCon Development Method - independent verification against the issue's acceptance criteria.
+</p>
+
+<h2>What was verified</h2>
+<p>
+  This is a backend logging-engine fix. The issue's acceptance criteria specify the proof target as
+  <em>unit/integration tests driving the rollover via an injectable clock</em> (not UI). QA independently
+  built the solution and ran the regression tests, and diffed the change against the pre-fix code
+  (<code>ccbc879:src/CcDirector.Core/Utilities/FileLog.cs</code>) to confirm each test is non-vacuous -
+  i.e. it targets a bug that genuinely existed in the old code.
+</p>
+
+<h2>Acceptance criteria</h2>
+<table>
+  <tr><th>#</th><th>Criterion</th><th>Test (proof)</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+  <tr>
+    <td>1</td>
+    <td>After a simulated date rollover, a subsequent <code>Write</code> lands in the new day's file (non-zero, contains the line).</td>
+    <td><code>Write_AfterDateRollover_LandsInNewDaysFile</code></td>
+    <td>Day-2 file exists, length &gt; 0, contains the post-rollover line.</td>
+    <td>Day-2 file exists, non-zero, contains <code>day2-line</code>. Old code (hardcoded <code>DateTime.Now</code>) could not even be driven across midnight - this is the exact #171 failure (0-byte new file), now fixed.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td>A transient exception in the write path does not terminate the writer thread; logging continues.</td>
+    <td><code>Write_WhenWritePathThrowsOnce_WriterSurvivesAndKeepsLogging</code></td>
+    <td>After a forced throw on one line, the next line still lands.</td>
+    <td><code>after-boom</code> lands after the forced <code>InvalidTimeZoneException</code>. Old code wrapped the whole <code>foreach</code> in one <code>try</code>, so the throw killed the thread - confirmed by diff. Now per-line try/catch keeps the loop alive.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td>Writes flush to disk within a bounded interval even while the queue stays non-empty.</td>
+    <td><code>Write_WhileQueueStaysBusy_FlushesWithinBoundedInterval</code></td>
+    <td>Content reaches disk via the periodic flush before <code>Stop()</code> is called, with a continuously fed queue.</td>
+    <td><code>busy-line-0</code> on disk before Stop(); clock driven past the 1s <code>FlushInterval</code> with a non-draining queue. Old code flushed only when <code>_queue.Count == 0</code> - never under load (confirmed by diff). Now bounded flush triggers.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>+</td>
+    <td>Supporting: dated log path is derived in one testable place.</td>
+    <td><code>ComputeLogPath_UsesDateAndProcessId</code></td>
+    <td><code>director-yyyy-MM-dd-{pid}.log</code> for the given instant.</td>
+    <td>Matches exactly.</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>QA-run test output (independent)</h2>
+<pre>Passed!  - Failed:     0, Passed:     4, Skipped:     0, Total:     4 - CcDirector.Core.Tests.dll (net10.0)</pre>
+
+<h2>Regression / method sweep</h2>
+<ul>
+  <li><strong>Full solution build:</strong> <code>dotnet build cc-director.sln</code> -&gt; Build succeeded, 0 Warning(s), 0 Error(s).</li>
+  <li><strong>Public API:</strong> <code>FileLog.Start/Write/Stop/CurrentLogPath</code> unchanged - callers untouched (facade pattern over the new internal <code>FileLogWriter</code>).</li>
+  <li><strong>Out-of-scope:</strong> log naming/dir/line format unchanged; Gateway/Cockpit logging untouched (matches issue OUT scope).</li>
+  <li><strong>CenCon:</strong> internal logging engine - no blocking security rule (DT-*) affected; no architecture/security doc change required.</li>
+  <li><strong>Non-vacuous proof:</strong> each test targets a bug confirmed present in the pre-fix code via git diff (hardcoded clock, single outer try, count==0-only flush).</li>
+</ul>
+
+<div class="verdict">
+  <strong>VERIFIED - all acceptance criteria met.</strong> 3/3 acceptance criteria (plus the supporting path test) pass
+  in an independent QA run; full solution builds clean; the fix matches the confirmed root cause and the change is
+  scoped, regression-free, and CenCon-compliant. PASS.
+</div>
+</body>
+</html>

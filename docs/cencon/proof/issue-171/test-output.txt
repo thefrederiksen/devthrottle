@@ -1,0 +1,5 @@
+  Passed CcDirector.Core.Tests.Utilities.FileLogWriterTests.Write_WhileQueueStaysBusy_FlushesWithinBoundedInterval [28 ms]
+  Passed CcDirector.Core.Tests.Utilities.FileLogWriterTests.Write_WhenWritePathThrowsOnce_WriterSurvivesAndKeepsLogging [33 ms]
+  Passed CcDirector.Core.Tests.Utilities.FileLogWriterTests.ComputeLogPath_UsesDateAndProcessId [< 1 ms]
+  Passed CcDirector.Core.Tests.Utilities.FileLogWriterTests.Write_AfterDateRollover_LandsInNewDaysFile [58 ms]
+Total tests: 4
