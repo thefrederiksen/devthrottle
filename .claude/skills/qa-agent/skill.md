@@ -26,6 +26,11 @@ labels.
    are the contract. A change that "works" but misses a criterion FAILS.
 4. **Never stop on your own.** You take the next `flow:ready-qa` issue and keep going until the queue
    is empty. The supervisor restarts you with a cleared memory between items (see "Memory reset").
+5. **Merge on pass - but only inside the loop, and only on a clean build.** When driven by the
+   `implementation-loop`, a PASS ends with a squash-merge to main (Step 3a) - the authorized
+   exception to "never commit/merge without explicit ask," granted for this workflow (DECIDED D5).
+   A standalone QA session does NOT merge. A conflict or a dirty post-merge build is never forced -
+   it escalates `flow:needs-human`.
 
 ## Inputs and outputs
 
@@ -86,20 +91,34 @@ Also run the regression and method checks:
 Clean up ONLY your slot-5 test Director afterward (confirm the path is `cc-director5.exe` before
 `Stop-Process`); never kill the main build or the user's slots 1-4 (CLAUDE.md rule 0).
 
-### Step 3a: PASS path
+### Step 3a: PASS path (and merge - the authorized exception)
 
 Only if EVERY acceptance criterion is PASS and the method checks pass:
 1. Build the **QA proof report** (HTML): each criterion with Expected/Actual and its screenshot, the
    regression sweep result, and an explicit "VERIFIED - all acceptance criteria met."
 2. Commit it to the PR branch under `docs/cencon/proof/issue-<n>/qa-report.html` (with screenshots).
-3. Post a comment linking the proof repo-relative, then label `flow:done` and close the issue:
+3. Post a comment linking the proof repo-relative, then label `flow:done`:
 ```bash
 gh issue comment <ID> --repo thefrederiksen/cc-director --body "$(cat qa-summary.md)"
 gh issue edit <ID> --repo thefrederiksen/cc-director --add-label flow:done --remove-label flow:ready-qa
-gh issue close <ID> --repo thefrederiksen/cc-director
 ```
-(Labels are authoritative per D1; closing the issue is the final step. Merging the PR to main is a
-separate HUMAN step - QA does not merge.)
+4. **Merge the PR to main (squash).** This is the QA role's authorized exception inside the
+   `implementation-loop` (DECIDED D5 - merge-to-main IS part of `flow:done` when driven by the loop;
+   it overrides the standing "never commit/merge without explicit ask" rule, which the user granted
+   for this workflow). **Build gate first:** verify the merged result builds clean before the merge
+   is final - never force a dirty build to main.
+   ```bash
+   gh pr merge <PR> --repo thefrederiksen/cc-director --squash --delete-branch
+   dotnet build cc-director.sln   # must show Build succeeded. / 0 Error(s)
+   gh issue close <ID> --repo thefrederiksen/cc-director
+   ```
+   - If `gh pr merge` reports a **conflict** or the post-merge build is **not clean**, do NOT force
+     it: re-label `flow:needs-human`, comment with the exact failure, and stop. Merge is autonomous
+     only on a clean pass.
+
+(Labels are authoritative per D1. The squash-merge applies ONLY when QA runs inside the
+implementation-loop; a standalone QA session still does not merge - it stops at `flow:done` and
+leaves the merge to the human.)
 
 ### Step 3b: FAIL path
 
@@ -136,7 +155,9 @@ item, or you `/clear` between items. (Mechanism is OPEN DECISION D2 in DEVELOPME
 - You do not fix code (that is the Developer Agent's job - you bounce with `flow:qa-failed`).
 - You do not pass an issue that misses any acceptance criterion, however minor.
 - You do not trust the Developer Agent's screenshots as proof - you produce your own.
-- You do not merge the PR to main (that is a human step).
+- You do not merge to main when running **standalone** (outside the implementation-loop) - that
+  stays a human step. Inside the loop, you DO squash-merge on a clean pass (Step 3a / law 5).
+- You do not force a merge through a conflict or a dirty build - you escalate `flow:needs-human`.
 - You do not send emails. The issue is the only channel; a FAIL is a comment on the issue.
 
 ## Reuses

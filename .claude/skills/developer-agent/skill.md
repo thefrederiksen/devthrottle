@@ -77,8 +77,18 @@ Returned to Product Agent. This issue does not meet the Definition of Ready.
 2. <specific question 2>
 ```
 
-Then STOP - the Product Agent owns it now. (If running interactively with no Product Agent session,
-tell the user and ask for the missing specificity.)
+Then STOP - the Product Agent owns it now.
+
+**When invoked by the `implementation-loop` skill** (no Product Agent session is present to
+re-sharpen), do NOT bounce to a nonexistent Product seat and do NOT guess. Instead escalate the
+issue to the human and halt the loop for this issue:
+
+```bash
+gh issue edit <ID> --repo thefrederiksen/cc-director --add-label flow:needs-human --remove-label flow:ready-dev
+```
+
+Then report the missing DoR items to the user and stop. (If running interactively with no Product
+Agent session, the same applies - tell the user and ask for the missing specificity.)
 
 ### Step 3: Plan before implementing
 
@@ -165,6 +175,16 @@ branch). You do NOT merge to main and you do NOT push to main unless the human e
 
 If the QA Agent returns the issue as `flow:qa-failed`, read its comment (the specific defect), fix
 it (re-running Steps 3-5), and re-label `flow:ready-qa`. Same proof bar applies.
+
+### Running inside the implementation-loop
+
+The `implementation-loop` skill drives the Developer and QA roles in one session (issue #259): you
+implement and hand to `flow:ready-qa`, the QA role verifies in place, and on a `flow:qa-failed`
+bounce you fix and re-hand (Step 6). You do NOT merge - the QA role performs the squash-merge to
+main on pass (its authority within the loop). You still do not merge or push to main yourself.
+The loop stops a runaway after 3 `flow:qa-failed` bounces on the same issue by escalating
+`flow:needs-human`; if you cannot satisfy a criterion after a fix, say so plainly so the loop can
+escalate rather than churn.
 
 ## UI surfaces and their style guides
 
