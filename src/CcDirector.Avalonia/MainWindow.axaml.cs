@@ -1419,28 +1419,32 @@ public partial class MainWindow : Window
         OpenUrlInBrowser($"https://github.com/{slug}/actions");
     }
 
-    // Open the Cockpit. We ASK THE LOCAL GATEWAY (GET /cockpit) rather than hardcoding a
+    // Open the Cockpit. We ASK THE CONFIGURED GATEWAY (GET /cockpit) rather than hardcoding a
     // host/port: the gateway owns the Cockpit port and returns its Tailscale front-door URL.
-    // There is NO localhost fallback by design -- if the gateway has no tailnet URL (Tailscale
-    // down) we say so and open nothing, never a loopback URL that only works on this machine.
-    // Both failure paths surface as a modal dialog: a toolbar button that silently does
-    // nothing is just confusing.
+    // The base URL comes from the one configured source of truth -- GatewayConfig (the gateway
+    // block of config.json). When a remote gateway is configured we probe IT; we fall back to
+    // the local 127.0.0.1:7878 default ONLY when no gateway URL is configured at all (the
+    // same-machine setup). There is NO localhost fallback in the browser: if the gateway has no
+    // tailnet URL (Tailscale down) we say so and open nothing, never a loopback URL that only
+    // works on this machine. Both failure paths surface as a modal dialog naming the URL we
+    // actually probed: a toolbar button that silently does nothing is just confusing.
     private async void BtnCockpit_Click(object? sender, RoutedEventArgs e)
     {
-        FileLog.Write("[MainWindow] BtnCockpit_Click: asking gateway for Cockpit URL");
+        var baseUrl = CockpitUrlResolver.ResolveCockpitBase(GatewayConfig.Load());
+        FileLog.Write($"[MainWindow] BtnCockpit_Click: asking gateway for Cockpit URL, baseUrl={baseUrl}");
         try
         {
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
             var info = await http.GetFromJsonAsync<global::CcDirector.Gateway.Contracts.CockpitInfoDto>(
-                Controls.DirectorView.DirectorView.DefaultGatewayUrl + "/cockpit");
+                baseUrl + "/cockpit");
             if (info?.Url is { } url)
             {
-                FileLog.Write($"[MainWindow] BtnCockpit_Click: opening {url} (up={info.Up})");
+                FileLog.Write($"[MainWindow] BtnCockpit_Click: opening {url} (up={info.Up}, baseUrl={baseUrl})");
                 OpenUrlInBrowser(url);
             }
             else
             {
-                FileLog.Write("[MainWindow] BtnCockpit_Click: gateway returned no Tailscale URL (Tailscale unavailable); opening nothing. cc-director never opens a localhost URL.");
+                FileLog.Write($"[MainWindow] BtnCockpit_Click: gateway at {baseUrl} returned no Tailscale URL (Tailscale unavailable); opening nothing. cc-director never opens a localhost URL.");
                 await new MessageDialog(
                     "Cannot Open Cockpit",
                     "Tailscale is unavailable on this machine, so there is no tailnet URL for the " +
@@ -1451,11 +1455,16 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[MainWindow] BtnCockpit_Click FAILED: {ex.Message}");
+            FileLog.Write($"[MainWindow] BtnCockpit_Click FAILED (baseUrl={baseUrl}): {ex.Message}");
+            // The "is the Gateway tray app running on THIS machine?" hint only makes sense for
+            // the loopback default. For a configured remote gateway the failure is about
+            // reachability (the remote gateway is down, or the tailnet is unreachable).
+            var hint = CockpitUrlResolver.IsLocalhostDefault(baseUrl)
+                ? "\n\nIs the Gateway tray app (cc-director-gateway) running on this machine?"
+                : "\n\nIs the Gateway running on that machine and reachable over your tailnet?";
             await new MessageDialog(
                 "Cannot Open Cockpit",
-                $"Could not reach the local gateway at {Controls.DirectorView.DirectorView.DefaultGatewayUrl}: " +
-                $"{ex.Message}\n\nIs the Gateway tray app (cc-director-gateway) running on this machine?")
+                $"Could not reach the gateway at {baseUrl}: {ex.Message}{hint}")
                 .ShowDialog<bool?>(this);
         }
     }
