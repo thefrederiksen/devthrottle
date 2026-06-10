@@ -1,140 +1,105 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<title>QA Report - Issue #199 (Persisted Cockpit logging)</title>
+<meta charset="utf-8" />
+<title>QA Proof - Issue #199 (re-verification after criterion-4 fix)</title>
 <style>
-  body { font-family: Segoe UI, Arial, sans-serif; background:#1b1d23; color:#e6e6e6; margin:0; padding:24px; }
-  h1 { font-size:20px; } h2 { font-size:16px; margin-top:28px; border-bottom:1px solid #333; padding-bottom:6px; }
-  .verdict { display:inline-block; padding:6px 14px; border-radius:6px; font-weight:bold; }
-  .fail { background:#5a1620; color:#ff9aa9; }
-  .pass { background:#16331f; color:#7ee2a0; }
-  table { border-collapse:collapse; width:100%; margin-top:10px; }
-  th,td { border:1px solid #333; padding:8px 10px; vertical-align:top; text-align:left; font-size:13px; }
-  th { background:#23262e; }
-  .p { color:#7ee2a0; font-weight:bold; } .f { color:#ff9aa9; font-weight:bold; }
-  code,pre { background:#11131a; color:#cfe3ff; border-radius:4px; }
-  pre { padding:12px; overflow-x:auto; font-size:12px; line-height:1.45; }
-  code { padding:1px 4px; }
-  img { max-width:100%; border:1px solid #333; border-radius:6px; margin-top:8px; }
-  .muted { color:#9aa0aa; font-size:12px; }
+  body { font-family: Segoe UI, system-ui, sans-serif; margin: 24px; color: #1b1b1b; }
+  h1 { font-size: 22px; } h2 { font-size: 17px; margin-top: 28px; }
+  .pass { color: #137333; font-weight: 600; }
+  .fail { color: #b00020; font-weight: 600; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; }
+  th, td { border: 1px solid #ccc; padding: 8px 10px; text-align: left; vertical-align: top; font-size: 13px; }
+  th { background: #f2f2f2; }
+  code, pre { font-family: Consolas, monospace; font-size: 12px; background: #f6f8fa; }
+  pre { padding: 10px; overflow-x: auto; border: 1px solid #e1e4e8; }
+  img { max-width: 1100px; border: 1px solid #ccc; margin: 8px 0; }
+  .verdict { font-size: 18px; padding: 12px; background: #e6f4ea; border: 1px solid #137333; border-radius: 6px; }
 </style>
 </head>
 <body>
-<h1>QA Report &mdash; Issue #199: Persisted INFO logging of user actions + stream/circuit lifecycle</h1>
-<p>PR #294 &middot; branch <code>issue-199-cockpit-logging</code> &middot; verified independently by the QA Agent.</p>
-<p>Verdict: <span class="verdict fail">FAIL &mdash; acceptance criterion 4 not met</span></p>
+<h1>QA Proof - Issue #199: Persisted Cockpit logging (re-verification)</h1>
+<p><strong>PR:</strong> #294 &nbsp; <strong>Branch:</strong> issue-199-cockpit-logging &nbsp;
+<strong>HEAD:</strong> 3aea2e0 (fix: emit blank-terminal WARNING from a reachable path)</p>
+<p>This issue was previously bounced <code>flow:qa-failed</code> for criterion 4 (the empty-DirectorBase
+WARNING was unreachable dead code in <code>TerminalPane.OnAfterRenderAsync</code>). The developer moved the
+WARNING into <code>Cockpit.OnSelect</code> (the single selection funnel). I re-verified <em>every</em>
+acceptance criterion independently - I did not assume the earlier-passing ones still hold.</p>
 
-<p class="muted">Independent method: built <code>cc-director.sln</code> (Debug, 0 warnings); ran the Cockpit
-myself against an isolated <code>CC_DIRECTOR_ROOT</code> and a stub Gateway serving two fake sessions
-(one with a Director endpoint, one with an EMPTY endpoint); drove the live Blazor UI with Playwright
-(Chromium) with <code>localStorage.cockpit.debug=1</code> set; read the persisted Cockpit log and the
-browser console. I did NOT reuse the developer's binary, log, or screenshots.</p>
+<h2>Method (independent)</h2>
+<p>Built <code>cc-director.sln</code> Debug myself (Build succeeded, 0 Warning(s), 0 Error(s)); ran the
+Cockpit (<code>cc-director-cockpit.exe</code>) against an <strong>isolated</strong>
+<code>CC_DIRECTOR_ROOT</code> and a stub Gateway serving two sessions - one WITH a tailnet endpoint, one
+with an EMPTY endpoint (the blank-terminal failure mode). Drove the live Blazor UI with Playwright
+(Chromium, <code>localStorage.cockpit.debug=1</code>) and read the persisted log + browser console. The
+developer's binary, log, and screenshots were not reused.</p>
 
 <h2>Acceptance criteria</h2>
 <table>
-<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (my run)</th><th>Result</th></tr>
-
-<tr><td>1</td>
-<td>After exercising the Cockpit, <code>...\logs\cockpit\cockpit-YYYY-MM-DD-&lt;PID&gt;.log</code> exists and contains INFO lines.</td>
-<td>Dated log file at canonical path with INFO content.</td>
-<td>File <code>cockpit-2026-06-10-264472.log</code> created at the canonical path; contains the startup
-INFO banner and INFO action lines. Verified live (not the dev's file).</td>
-<td class="p">PASS</td></tr>
-
-<tr><td>2</td>
-<td>A representative action sequence produces one INFO line per action, each carrying <code>sid</code> + director endpoint.</td>
-<td>One INFO line per click; each has <code>sid</code> + <code>dir</code>.</td>
-<td>My clicks mapped 1:1 to lines: <code>action=select-session source=rail sid=... dir=http://qa-test-box.example.ts.net:7887</code>,
-<code>action=center-tab ... tab=term</code>, <code>action=new-session-open ...</code>. Every line carries <code>sid</code> + <code>dir</code>.</td>
-<td class="p">PASS</td></tr>
-
-<tr><td>3</td>
-<td>Terminal connect attempt + outcome logged server-side; with <code>cockpit.debug=1</code> the browser console logs ws open/close with code+reason.</td>
-<td>Server: connect attempt line. Browser: gated ws lifecycle.</td>
-<td>Server: <code>TerminalPane connect attempt ... wsUrl=...</code> + <code>connect dispatched</code>.
-Browser console (debug on): <code>[cockpit-terminal] ws connect attempt</code>, <code>ws error</code>,
-<code>ws close ... code 1006 reason (none)</code>, <code>ws reconnect scheduled ... attempt N in 1200ms</code>.</td>
-<td class="p">PASS</td></tr>
-
-<tr><td>4</td>
-<td>The blank-terminal failure mode (empty DirectorBase / no connect) is now visible in the persisted log. <b>Proof: the WARNING line.</b></td>
-<td>A <code>TerminalPane empty DirectorBase ...</code> WARNING appears in the persisted log when a session with no endpoint is opened.</td>
-<td><b>No WARNING is ever produced.</b> I selected the empty-endpoint session and attempted its Terminal tab;
-the log shows <code>action=select-session ... sid=qa199-fake-nodir-0002 dir=</code> but <b>no</b>
-<code>empty DirectorBase</code> WARNING. Root cause below.</td>
-<td class="f">FAIL</td></tr>
-</table>
-
-<h2>Defect (criterion 4): the empty-DirectorBase WARNING is unreachable dead code</h2>
-<p><code>Cockpit.razor</code> short-circuits a session with an empty <code>TailnetEndpoint</code> to a guard
-message <b>before</b> <code>TerminalPane</code> is ever rendered:</p>
-<pre>// Cockpit.razor (~line 97)
-else if (string.IsNullOrWhiteSpace(Selected.TailnetEndpoint))
-{
-    ... &lt;div class="right-empty-sub"&gt;This session's Director has no tailnet endpoint,
-        so it can't be driven over Tailscale. ...&lt;/div&gt;
-}
-else   // (~line 108) ONLY here does the center/Terminal tab (and TerminalPane) render
-{
-    ...
-    &lt;TerminalPane ... DirectorBase="@Selected.TailnetEndpoint" /&gt;   // line 193
-}</pre>
-<p><code>TerminalPane</code> is consumed in exactly one place (Cockpit.razor line 193), inside the
-<code>else</code> branch reached <b>only when <code>TailnetEndpoint</code> is non-empty</b>. The WARNING
-guard in <code>TerminalPane.OnAfterRenderAsync</code> (line 46&ndash;49) checks
-<code>string.IsNullOrEmpty(DirectorBase)</code> &mdash; but <code>DirectorBase</code> is bound to that same
-non-empty <code>TailnetEndpoint</code>. The two conditions are mutually exclusive, so the WARNING can
-<b>never</b> fire through the live UI. The developer's own proof log
-(<code>docs/cencon/proof/issue-199/cockpit-actions.log</code>) contains no WARNING line either &mdash; the
-criterion was claimed but never demonstrated.</p>
-
-<h3>Reproduce</h3>
-<ol>
-<li>Run the Cockpit against a Gateway that returns a session with an empty <code>tailnetEndpoint</code>.</li>
-<li>Select that session, open the Terminal tab.</li>
-<li>Read the persisted <code>cockpit-*.log</code>.</li>
-<li><b>Expected:</b> a <code>TerminalPane empty DirectorBase for sid=... (rowState=...)</code> WARNING.
-<b>Actual:</b> no WARNING; the UI shows the &quot;no tailnet endpoint&quot; guard and TerminalPane is never mounted.</li>
-</ol>
-
-<h3>Suggested fix direction (for the Developer Agent)</h3>
-<p>Emit the empty-DirectorBase / blank-terminal WARNING from a code path that actually runs for an
-endpoint-less session &mdash; e.g. log it in <code>Cockpit.razor</code> at the
-<code>IsNullOrWhiteSpace(Selected.TailnetEndpoint)</code> guard branch (where the user actually hits the
-blank/ungovernable terminal state), or change the render so TerminalPane still mounts and warns. The
-WARNING must be observable in the persisted log to satisfy criterion 4.</p>
-
-<h2>My evidence</h2>
-<p>Live Cockpit rendered, QA Demo Session selected, all composer actions present (rail click &rarr; tab &rarr; Send/Queue/Interrupt/Esc/Attach/Speak):</p>
-<img src="qa-cockpit-rendered.png" alt="Cockpit rendered with session selected">
-<p>Empty-endpoint session shows the guard message instead of a terminal &mdash; TerminalPane (and its WARNING) never mount:</p>
-<img src="qa-nodir-guard-message.png" alt="No tailnet endpoint guard message">
-<p>Persisted Cockpit log from my run (note: action lines present; no <code>empty DirectorBase</code> WARNING despite opening the endpoint-less session):</p>
-<pre>2026-06-10 19:12:59.333 INFO  [cc-director-cockpit] Cockpit starting (pid=264472) ...
-2026-06-10 19:13:24.452 INFO  [Cockpit] Cockpit action=select-session source=rail sid=qa199-fake-session-0001 dir=http://qa-test-box.example.ts.net:7887
-2026-06-10 19:13:26.537 INFO  [Cockpit] Cockpit action=center-tab sid=qa199-fake-session-0001 dir=http://qa-test-box.example.ts.net:7887 tab=term
-2026-06-10 19:13:26.560 INFO  [TerminalPane] TerminalPane connect attempt sid=qa199-fake-session-0001 dir=http://qa-test-box.example.ts.net:7887 wsUrl=ws://127.0.0.1:7470/sessions/qa199-fake-session-0001/stream
-2026-06-10 19:13:26.582 INFO  [TerminalPane] TerminalPane connect dispatched sid=qa199-fake-session-0001 wsUrl=...
-2026-06-10 19:13:29.619 INFO  [Cockpit] Cockpit action=select-session source=rail sid=qa199-fake-nodir-0002 dir=
-2026-06-10 19:13:39.721 INFO  [Cockpit] Cockpit action=new-session-open sid=qa199-fake-nodir-0002 dir=
-2026-06-10 19:14:22.923 INFO  [Cockpit] Cockpit action=select-session source=rail sid=qa199-fake-nodir-0002 dir=
-(no &quot;TerminalPane empty DirectorBase&quot; WARNING anywhere in the file)</pre>
-<p>Browser console (with <code>cockpit.debug=1</code>) &mdash; criterion-3 ws lifecycle, gated by the flag:</p>
-<pre>[cockpit-terminal] ws connect attempt ws://127.0.0.1:7470/sessions/qa199-fake-session-0001/stream attempt 1
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (my proof)</th><th>Result</th></tr>
+<tr>
+  <td>1</td>
+  <td>Cockpit log file exists at canonical path with INFO lines.</td>
+  <td>cockpit-YYYY-MM-DD-&lt;PID&gt;.log under logs\cockpit with INFO content.</td>
+  <td><code>...\logs\cockpit\cockpit-2026-06-10-293704.log</code> created (CC_DIRECTOR_ROOT honoured);
+  startup banner INFO line + action INFO lines. Format
+  <code>yyyy-MM-dd HH:mm:ss.fff LEVEL [category] message</code> matches Director/Gateway.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td>One INFO line per user action, each carrying sid + director endpoint.</td>
+  <td>select-session (with source), tab switch, etc., each with sid + dir.</td>
+  <td><pre>INFO [Cockpit] Cockpit action=select-session source=rail sid=i199-real-0001 dir=http://qa-test-box.example.ts.net:7887
+INFO [Cockpit] Cockpit action=center-tab sid=i199-real-0001 dir=http://qa-test-box.example.ts.net:7887 tab=term
+INFO [Cockpit] Cockpit action=select-session source=rail sid=i199-nodir-0002 dir=</pre></td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>3</td>
+  <td>Terminal connect attempt + outcome logged server-side; ws open/close with code+reason in browser
+  console under cockpit.debug=1.</td>
+  <td>Server-side connect attempt/dispatched; browser ws lifecycle gated by the debug flag.</td>
+  <td>Server-side:
+  <pre>INFO [TerminalPane] TerminalPane connect attempt sid=i199-real-0001 dir=... wsUrl=ws://127.0.0.1:7471/sessions/i199-real-0001/stream
+INFO [TerminalPane] TerminalPane connect dispatched sid=i199-real-0001 wsUrl=...</pre>
+  Browser console (cockpit.debug=1):
+  <pre>[cockpit-terminal] ws connect attempt ... attempt 1
 [cockpit-terminal] ws error ...
 [cockpit-terminal] ws close ... code 1006 reason (none)
 [cockpit-terminal] ws reconnect scheduled ... attempt 2 in 1200ms</pre>
+  (Default - flag off - the console stays quiet; verified gating in source.)</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>4</td>
+  <td>The blank-terminal failure mode (empty DirectorBase / no connect) is visible in the persisted log.
+  <strong>Proof: the WARNING line.</strong></td>
+  <td>Selecting the endpoint-less session writes a WARNING; the endpoint-having session does not.</td>
+  <td>Selecting sid=i199-nodir-0002 (empty endpoint) produced, on the same selection:
+  <pre>INFO [Cockpit] Cockpit action=select-session source=rail sid=i199-nodir-0002 dir=
+WARN [Cockpit] Cockpit empty DirectorBase for sid=i199-nodir-0002 source=rail (rowState=WaitingForInput); session has no tailnet endpoint, live terminal cannot connect - blank-terminal failure mode</pre>
+  Selecting the endpoint-having session (sid=i199-real-0001) produced its INFO line with NO following
+  WARNING - the WARNING is specific to the endpoint-less case. The previously-unreachable code is now
+  reachable from OnSelect. <strong>The defect is fixed.</strong></td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
 
-<h2>Regression / method sweep</h2>
-<ul>
-<li>Build: <code>dotnet build cc-director.sln</code> &mdash; Build succeeded, 0 Warning(s), 0 Error(s).</li>
-<li>Tests: Cockpit 16/16 pass; Gateway (Cockpit filter) 35/35 pass.</li>
-<li>Negative sweep of every screenshot: rail, tabs, composer, guard message all render correctly; no obvious adjacent breakage.</li>
-<li>CenCon: change is additive logging; no DT rule touched, no architecture/security drift.</li>
-</ul>
+<h2>Regression sweep</h2>
+<p>Endpoint-having session renders the full detail (Wingman/Terminal tabs, composer, Screenshots/Queue/
+Director panels) - normal governable state. Endpoint-less session shows the "no tailnet endpoint" guard.
+No layout/console regressions observed. 16 Cockpit tests pass; solution builds 0/0.</p>
 
-<p class="muted">Criteria 1&ndash;3 PASS with independent proof. Criterion 4 FAILS: the WARNING that is the
-required proof of the blank-terminal failure mode is unreachable. Bouncing to the Developer Agent.</p>
+<h3>Endpoint-less session (guard + WARNING)</h3>
+<img src="qa-nodir-guard.png" alt="endpoint-less guard" />
+<h3>Endpoint-having session (normal detail)</h3>
+<img src="qa-has-endpoint.png" alt="endpoint-having detail" />
+<h3>Browser console with cockpit.debug=1</h3>
+<img src="qa-console-terminal.png" alt="browser console terminal" />
+
+<h2 class="verdict">VERIFIED - all 4 acceptance criteria met. Criterion-4 defect fixed and reproduced.</h2>
+<p>Evidence files: <code>cockpit-qa.log</code> (full persisted log), <code>console-cockpit.txt</code>
+(captured browser console), screenshots above.</p>
 </body>
 </html>
