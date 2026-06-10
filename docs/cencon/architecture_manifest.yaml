@@ -654,6 +654,20 @@ containers:
       - name: WorkListEndpoints
         description: REST surface over WorkListStore backing the queue-runner work lists (issue #273). POST/GET /lists, GET /lists/{name}, POST/PATCH /lists/{name}/items, DELETE /lists/{name}/items/{source}/{id}, POST/DELETE /lists/{name}/consumer (single-consumer claim, 409 on double-claim). Behind the host-wide auth middleware.
         file: Api/WorkListEndpoints.cs
+      - name: WorkListRunner
+        description: The thin Gateway queue runner (issue #274, child 3 of #270) - the heart of the autonomous work-item queue. Claims a named list's single-consumer claim (rides #273's 409), then drains it in GET /lists/{name} order ONE github item in flight at a time - for each source=github item it starts one implementation session on a Director seeded with /implementation-loop <id>, watches that session's transcript until it emits child 1's IMPL-LOOP-TERMINAL sentinel (#272), records the per-item signal (done/needs-human/failed), then advances; never re-drives a stuck item (retry is OUT v1). Source-gating rule v1 - non-github (devops/jira) refs are skipped (never started, left in the list). Releases the consumer claim when the list is drained. All orchestration lives here at the Gateway; the Director stays dumb.
+        files:
+          - Running/WorkListRunner.cs
+          - Running/WorkListRunResult.cs
+          - Running/IImplSessionDriver.cs
+          - Running/DirectorImplSessionDriver.cs
+          - Running/ImplLoopTerminalSignal.cs
+      - name: WorkListRunnerManager
+        description: Enforces the v1 same-machine single-drain guard (issue #274) - a machine has exactly one slot-5 test Director (one build output, one Control API port), so at most one list drains per machine at a time; a second concurrent drain on the same machine is refused. Cross-machine concurrency (different machine keys) is admitted - v1 parallelism is across machines only.
+        file: Running/WorkListRunnerManager.cs
+      - name: WorkListRunnerEndpoints
+        description: The queue-runner REST surface (issue #274). POST /lists/{name}/run { directorId, repoPath, listConsumer?, machineKey? } resolves the target Director from the registry, applies the same-machine guard (409 if the machine is busy), then drains the list via WorkListRunner (409 if the list is already claimed) and returns the per-item timeline (source/id/outcome/signal/sessionId). Lives entirely at the Gateway - no runner logic in the Director host. Behind the host-wide auth middleware.
+        file: Api/WorkListRunnerEndpoints.cs
       - name: SettingsEndpoints / GatewaySettingsHooks
         description: GET /gateway/settings snapshot (version, uptime, director count, brain state, Cockpit status, autostart), POST /gateway/brain/restart (warm-brain recovery), PUT /gateway/autostart; GatewaySettingsHooks is the optional IoC bridge the tray process injects so the library can report run-mode/autostart it cannot otherwise know (degrades to "unsupported" when null)
         files:

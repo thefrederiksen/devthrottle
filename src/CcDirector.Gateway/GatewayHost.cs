@@ -55,6 +55,7 @@ public sealed class GatewayHost : IAsyncDisposable
     private readonly GatewayTurnBriefStore _turnBriefStore;
     private readonly KeyVault _keyVault;
     private readonly WorkListStore _workLists = new();
+    private readonly Running.WorkListRunnerManager _runnerManager = new();
     private readonly SessionAssessments _assessments = new();
     private GatewayTurnBriefAgent? _briefAgent;
     private TurnEndWatcher? _turnEndWatcher;
@@ -348,6 +349,13 @@ public sealed class GatewayHost : IAsyncDisposable
         // #270). Inherits the host-wide token middleware above and is reachable cross-machine like
         // the rest of the Gateway surface.
         WorkListEndpoints.Map(_app, _workLists);
+
+        // The queue runner (issue #274, child 3 of #270): the thin orchestration that turns a named
+        // work list into unattended, ordered runs - one implementation session per github item,
+        // watched to its IMPL-LOOP-TERMINAL sentinel (child 1, #272) before advancing. All runner
+        // logic lives HERE at the Gateway; the Director host gains nothing (criterion 7). The
+        // same-machine single-drain guard (criterion 8) lives on the shared runner manager.
+        WorkListRunnerEndpoints.Map(_app, _workLists, Registry, _client, _runnerManager);
 
         // The Cockpit Settings page surface (docs/architecture/gateway/SETTINGS_OWNERSHIP.md):
         // one snapshot GET plus brain-restart and autostart actions. Reads this host directly

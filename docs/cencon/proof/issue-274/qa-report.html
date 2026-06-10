@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Issue #274 - Queue Runner - QA VERIFICATION</title>
+<style>
+body{font-family:Segoe UI,Arial,sans-serif;background:#1e1e1e;color:#ddd;margin:0;padding:32px;}
+h1{color:#4ec9b0;} h2{color:#9cdcfe;margin-top:28px;}
+table{border-collapse:collapse;width:100%;margin-top:16px;}
+th,td{border:1px solid #3c3c3c;padding:10px 12px;text-align:left;vertical-align:top;font-size:14px;}
+th{background:#252526;color:#9cdcfe;}
+.pass{color:#6a9955;font-weight:bold;} .fail{color:#f44747;font-weight:bold;}
+code{color:#ce9178;} .meta{color:#858585;font-size:13px;}
+</style></head><body>
+<h1>QA Verification - Issue #274: Gateway queue runner drains one named list, one implementation session per item</h1>
+<p class="meta">QA Agent (CenCon Development Method). Independent verification - the Developer Agent's report and screenshots were NOT trusted. This report is the QA identity's own proof: I checked out PR #282 (branch issue-274-queue-runner), built the full solution myself (Build succeeded, 0 Warning(s), 0 Error(s)), and ran the test suite myself, generating my own proof report via CC274_PROOF_DIR over real HTTP against the production GatewayHost.</p>
+<p class="pass">VERDICT: PASS - all 8 acceptance criteria met. Verified 2026-06-10.</p>
+
+<h2>How I verified (independent)</h2>
+<ul>
+<li><b>Build (merge gate):</b> <code>dotnet build cc-director.sln</code> -> <code>Build succeeded. 0 Warning(s) 0 Error(s)</code>. The three foreign #251 tools/cc-director-setup files compile cleanly and are NOT part of this PR (untracked / unrelated working-tree state - deliberately left untouched).</li>
+<li><b>#274 tests:</b> <code>dotnet test ... --filter WorkListRunner|ImplLoopTerminalSignal</code> -> <b>19/19 passed</b> (runner sequencing, manager same-machine guard, sentinel parse, and the end-to-end-over-HTTP proof test).</li>
+<li><b>End-to-end over real HTTP:</b> <code>WorkListRunnerEndpointProofTests.EndToEnd_AllAcceptanceCriteria_ProvenOverHttp</code> boots the real <code>GatewayHost</code>, registers two stub Directors (two machine names) answering <code>POST /sessions</code> + <code>GET /sessions/{sid}/buffer</code>, and drives <code>POST /lists/{name}/run</code> over real HTTP with a Bearer token for every criterion. My own run wrote <b>Overall: ALL CRITERIA PASS</b>.</li>
+<li><b>Criterion 7 by inspection (my own grep):</b> 0 runner-named files (<code>WorkListRunner*.cs</code> / <code>ImplLoopTerminal*.cs</code>) under <code>src/CcDirector.Avalonia</code> or <code>src/CcDirector.ControlApi</code>; all 7 production source files live under <code>src/CcDirector.Gateway/Running</code> + <code>/Api</code> (plus the GatewayHost wiring line).</li>
+</ul>
+
+<h2>Acceptance criteria - Expected vs Actual (observed in my own run)</h2>
+<table>
+<tr><th>#</th><th>Acceptance criterion (Expected)</th><th>Actual (QA observed)</th><th>Result</th></tr>
+<tr><td>1</td><td>Two github items: session-1 starts, terminal signal, THEN session-2 - never overlapping; each seeded with /implementation-loop &lt;id&gt;.</td><td><code>start order=262,263; seeds=/implementation-loop 262 | /implementation-loop 263; overlap=False</code></td><td class="pass">PASS</td></tr>
+<tr><td>2</td><td>Runner records per item which of done/needs-human/failed it ended on (parsed from IMPL-LOOP-TERMINAL, correlated by issue).</td><td><code>item[262].signal=Done; item[263].signal=NeedsHuman</code> (matches the sentinels the sessions emitted)</td><td class="pass">PASS</td></tr>
+<tr><td>3</td><td>Source gating: a devops/jira item is NEVER started (no /implementation-loop seeded); skipped, advance to next runnable, left untouched in list.</td><td><code>start order=262 (only the github item); outcomes=SkippedNonGithub,Ran,SkippedNonGithub; list still=1203,262,CCD-44</code></td><td class="pass">PASS</td></tr>
+<tr><td>4</td><td>After the last item, the runner releases the consumer claim via DELETE /lists/{name}/consumer; GET shows the claim cleared.</td><td><code>consumerReleased=True; GET consumer=null</code></td><td class="pass">PASS</td></tr>
+<tr><td>5</td><td>A second drain attempt while the claim is held is refused with HTTP 409 (rides #273 consumer claim).</td><td><code>second POST /lists/locked/consumer -> 409</code></td><td class="pass">PASS</td></tr>
+<tr><td>6</td><td>Two lists on two different machines drain concurrently, one session each, no interference.</td><td><code>machine-1 ran 100->Done; machine-2 ran 200->Done; both OK=True; start orders isolated</code></td><td class="pass">PASS</td></tr>
+<tr><td>7</td><td>No list/runner logic in the Director host - new code under src/CcDirector.Gateway only.</td><td><code>runner files under Gateway/Running=6; runner-named files under Avalonia/ControlApi host=0</code> (confirmed by my own grep)</td><td class="pass">PASS</td></tr>
+<tr><td>8</td><td>Same-machine second drain refused (v1 guard), not run concurrently against the shared slot-5 Director.</td><td><code>second concurrent run on MACHINE-1 -> 409 (Conflict)</code></td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>Regression and method (CenCon) sweep</h2>
+<ul>
+<li><b>Full solution build:</b> clean - 0 warnings, 0 errors.</li>
+<li><b>Adjacent surface (#273 consumer claim):</b> exercised by the e2e test (POST/DELETE /lists/{name}/consumer 409/release) - intact, not broken by the runner.</li>
+<li><b>Full Gateway.Tests run:</b> 385 passed / 1 failed. The single failure is <code>DictationEndpointTests.FullPipeline_transcribes_phase0_clip2_with_realtime_provider</code> - a live realtime-STT WebSocket test asserting on partial-transcript timing ("expected at least 1 partial transcript, got 0"). It is network/timing/provider dependent, is NOT touched by this branch (last changed in commit d82db15, unrelated to #274), and is a documented pre-existing flake - NOT a regression introduced by #274.</li>
+<li><b>CenCon docs:</b> docs/cencon/architecture_manifest.yaml updated to record WorkListRunner, WorkListRunnerManager and WorkListRunnerEndpoints under the Gateway container. No security_profile drift; no blocking DT rule touched.</li>
+<li><b>No-fallback / no-unicode:</b> code fails explicitly (throws on no-such-list, refuses on claim conflict); proof artifacts are ASCII-only.</li>
+<li><b>Auth:</b> the /lists/{name}/run route sits behind the host-wide auth middleware (e2e test authenticates with a Bearer token).</li>
+</ul>
+
+<p class="pass">VERIFIED - all acceptance criteria met. QA PASS.</p>
+</body></html>
