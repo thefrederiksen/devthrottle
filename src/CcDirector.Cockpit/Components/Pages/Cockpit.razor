@@ -201,6 +201,16 @@
                                shared right panel's tab flips). *@
                             <div class="brief-split">
                                 <div class="brief-scroll">
+                                    @if (!string.IsNullOrEmpty(_quickReplyNotice))
+                                    {
+                                        @* Issue #227: explicit answer-transition / acknowledged
+                                           notice - no silent conveyor teleport, and the
+                                           only-one-needs-you case gets immediate feedback. *@
+                                        <div class="quick-reply-notice">
+                                            <span class="quick-reply-notice-dot"></span>
+                                            <span>@_quickReplyNotice</span>
+                                        </div>
+                                    }
                                     <BriefPane @key="Selected.SessionId" SessionId="@Selected.SessionId"
                                                DirectorBase="@Selected.TailnetEndpoint"
                                                ActivityState="@Selected.ActivityState"
@@ -1008,20 +1018,37 @@
     // One-click answer from the Brief's option buttons: send the key as the reply, then
     // advance the conveyor to the next session that needs the user (FIFO behaviour).
     private bool _quickReplying;
+    /// <summary>Explicit answer-transition notice (issue #227): replaces the silent conveyor
+    /// teleport. When the answer advances to another needs-you session we say so before the
+    /// jump; when it was the only one we acknowledge the answer immediately instead of leaving
+    /// the user to wait for the 2s poll to repaint the session blue. Cleared on the next
+    /// selection (OnSelect).</summary>
+    private string? _quickReplyNotice;
     private async Task QuickReplyAsync(string text)
     {
         var sel = Selected;
         var dir = DirBase;
         if (sel is null || string.IsNullOrWhiteSpace(dir) || _quickReplying) return;
         _quickReplying = true;
+        _quickReplyNotice = null;
         try
         {
             await Director.SendPromptAsync(dir, sel.SessionId, text, _cts.Token);
             // Advance past the answered session when others are waiting. The answered one
-            // drops out of the needs-you list on the next poll.
+            // drops out of the needs-you list on the next poll. Either way the user gets an
+            // explicit message - no silent teleport, no dead air on the single-session case.
             var others = NeedsYouOrdered.Where(s => s.SessionId != sel.SessionId).ToList();
             if (others.Count > 0)
+            {
+                // Switch first (OnSelect clears per-session state incl. any stale notice),
+                // THEN stamp the transition message so it survives onto the next session.
                 await OnSelect(others[0].SessionId, "quick-reply-advance");
+                _quickReplyNotice = "answered - moving to the next session that needs you";
+            }
+            else
+            {
+                _quickReplyNotice = "answered - waiting for Claude to pick it up";
+            }
         }
         catch (Exception ex)
         {
@@ -1254,6 +1281,7 @@
         Nav.NavigateTo($"/cockpit/{sessionId}", replace: true);
         _compose = "";
         _actError = null;
+        _quickReplyNotice = null;   // a manual selection clears any stale answer-transition notice
         _shotStatus = null;
         _renaming = false;
         _killArmed = false;

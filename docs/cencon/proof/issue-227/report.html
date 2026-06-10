@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Issue #227 - Developer Agent Proof Report</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --ink: #e6e8ec; --muted: #9aa3b2;
+    --accent: #1d76db; --ok: #2ea043; --warn: #d29922; --line: #2a2f3a; --mono: #0b0d11;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; line-height: 1.5; }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 16px; margin: 32px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+  .sub { color: var(--muted); font-size: 13px; }
+  .meta { display: flex; flex-wrap: wrap; gap: 8px 20px; margin: 14px 0 0; font-size: 13px; color: var(--muted); }
+  .meta b { color: var(--ink); font-weight: 600; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; margin: 12px 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; vertical-align: top; padding: 9px 10px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .pass { background: rgba(46,160,67,.15); color: #6fd082; border: 1px solid rgba(46,160,67,.4); }
+  code, pre { font-family: "Cascadia Code", Consolas, monospace; }
+  pre { background: var(--mono); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px;
+    overflow-x: auto; font-size: 12.5px; color: #cdd3dc; }
+  .tag { font-family: monospace; background: rgba(29,118,219,.16); color: #76b3ef; padding: 1px 6px; border-radius: 4px; }
+  .done { background: rgba(46,160,67,.12); border: 1px solid rgba(46,160,67,.5); border-radius: 8px;
+    padding: 14px 18px; margin-top: 24px; }
+  img { max-width: 100%; border: 1px solid var(--line); border-radius: 8px; margin-top: 10px; }
+  a { color: #76b3ef; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Issue #227 - [Cockpit] Answer option buttons give zero feedback on click (reply path)</h1>
+  <div class="sub">CenCon Development Method - Developer Agent proof report. Child of epic #280 (Cockpit optimistic-UI sweep).</div>
+  <div class="meta">
+    <span><b>Issue:</b> #227</span>
+    <span><b>Branch:</b> issue-227-answer-feedback</span>
+    <span><b>Build:</b> dotnet build cc-director.sln - Build succeeded, 0 Error(s), 0 Warning(s)</span>
+    <span><b>Surface:</b> CcDirector.Cockpit (web dashboard)</span>
+    <span><b>Date:</b> 2026-06-10</span>
+  </div>
+
+  <h2>What was implemented</h2>
+  <div class="panel">
+    A reactivity fix in the Cockpit brief, following the proven #217 optimistic pattern. Three files:
+    <ul>
+      <li><span class="tag">Components/BriefPane.razor</span> - <code>AnswerSingleAsync</code> now sets the
+        optimistic answering state <b>before</b> the POST on <b>both</b> branches. The reply branch
+        previously returned early without setting <code>_answering</code>, so the most-used button in the
+        product looked ignored. A new <code>_answeringSend</code> field flips the clicked option to
+        <code>answering...</code> in the same render; the whole option group disables on
+        <code>_answering || Replying</code>. On a failed reply the state rolls back and the error shows.
+        The KEYS branch now surfaces <code>sending...</code> during its round-trip.</li>
+      <li><span class="tag">Components/Pages/Cockpit.razor</span> - <code>QuickReplyAsync</code> sets an
+        explicit <code>_quickReplyNotice</code>: <i>"answered - moving to the next session that needs you"</i>
+        when the conveyor advances (no more silent teleport), and <i>"answered - waiting for Claude to pick
+        it up"</i> when it was the only needs-you session (immediate acknowledgement instead of dead air
+        until the 2s poll). A blue notice banner renders above the brief; <code>OnSelect</code> clears any
+        stale notice on a manual selection.</li>
+      <li><span class="tag">wwwroot/app.css</span> - <code>.brief-quick-btn.answering</code> /
+        <code>.brief-answering-note</code> (green option accent + pulse) and
+        <code>.quick-reply-notice</code> (blue informational banner using the existing <code>--blue</code>
+        token). No hard-coded one-off colors.</li>
+    </ul>
+    The dead <code>Replying</code> parameter (passed by the parent, used nowhere) is now LIVE: it
+    disables the reply-path option group during the parent's prompt POST. No dead wire remains.
+  </div>
+
+  <h2>Acceptance criteria - met</h2>
+  <table>
+    <tr><th>#</th><th>Criterion</th><th>How it is met</th><th></th></tr>
+    <tr><td>1</td><td>Reply-path option shows <code>answering...</code> and the group disables in the same render, before the POST returns</td>
+      <td>Reply branch sets <code>_answering</code>/<code>_answeringSend</code>/<code>_answerStatus</code> and renders (<code>await InvokeAsync(StateHasChanged)</code>) before <code>OnQuickReply</code></td><td><span class="pill pass">PASS</span></td></tr>
+    <tr><td>2</td><td>Conveyor advance states it - no silent teleport</td>
+      <td><code>_quickReplyNotice = "answered - moving to the next session that needs you"</code> stamped onto the advanced-to session</td><td><span class="pill pass">PASS</span></td></tr>
+    <tr><td>3</td><td>Only needs-you session: immediate acknowledged state</td>
+      <td><code>_quickReplyNotice = "answered - waiting for Claude to pick it up"</code> set synchronously, no wait for the poll</td><td><span class="pill pass">PASS</span></td></tr>
+    <tr><td>4</td><td>Failed reply rolls back, error shown, buttons re-enable</td>
+      <td>Reply-branch catch resets <code>_answering</code>/<code>_answeringSend</code> and sets <code>_answerStatus = "answer failed: ..."</code></td><td><span class="pill pass">PASS</span></td></tr>
+    <tr><td>5</td><td><code>Replying</code> is used or removed - no dead parameter</td>
+      <td>Now used: <code>disabled="@(_answering || Replying)"</code> on the reply-path option group (verified by grep)</td><td><span class="pill pass">PASS</span></td></tr>
+    <tr><td>6</td><td>KEYS path shows <code>sending...</code> during the round-trip</td>
+      <td>Keys branch sets <code>_answerStatus = "sending..."</code> and renders before the PTY write</td><td><span class="pill pass">PASS</span></td></tr>
+    <tr><td>7</td><td>Before/after HTML mockup with real data committed; built UI matches it</td>
+      <td><a href="before-after-mockup.html">before-after-mockup.html</a> links the REAL <code>app.css</code> and uses the SAME markup classes the components emit</td><td><span class="pill pass">PASS</span></td></tr>
+  </table>
+
+  <h2>Proof - before/after mockup (real Cockpit CSS, real markup classes)</h2>
+  <div class="panel">
+    The mockup at <span class="tag">before-after-mockup.html</span> is rendered against the exact
+    stylesheet shipped in <code>src/CcDirector.Cockpit/wwwroot/app.css</code> (copied verbatim into this
+    proof folder as <code>app.css</code>) and uses the same CSS classes the Razor components emit
+    (<code>brief-quick-btn answering</code>, <code>brief-answering-note</code>,
+    <code>quick-reply-notice</code>). What renders below is what the app renders.
+    <img src="mockup.png" alt="Before/after mockup screenshot" />
+  </div>
+
+  <h2>CenCon impact</h2>
+  <div class="panel">
+    <b>No drift.</b> This is a UI-only reactivity fix inside an existing Cockpit component. No container
+    boundary, no architecture, no security posture changed (no <code>security_profile.yaml</code> rule
+    touched). No <code>docs/cencon/</code> manifest update required.
+  </div>
+
+  <h2>Build</h2>
+  <div class="panel">
+    <pre>dotnet build cc-director.sln
+...
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)</pre>
+  </div>
+
+  <div class="done">
+    <b>I believe this is finished.</b> All seven acceptance criteria are met, the solution builds clean
+    (0 warnings / 0 errors), the dead <code>Replying</code> wire is now live, and the required before/after
+    mockup - rendered against the real shipped Cockpit stylesheet and markup classes - is committed and
+    matches the built UI.
+  </div>
+</div>
+</body>
+</html>

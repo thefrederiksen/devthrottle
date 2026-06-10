@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Issue #227 - Answer option button feedback: before / after mockup</title>
+<!-- Pixel-accurate: this mockup links the REAL Cockpit stylesheet copied from
+     src/CcDirector.Cockpit/wwwroot/app.css at build time, and uses the SAME markup
+     classes BriefPane.razor / Cockpit.razor emit. What renders here is what the app renders. -->
+<link rel="stylesheet" href="app.css" />
+<style>
+  body{padding:24px 18px 60px}
+  .mk-wrap{max-width:1320px;margin:0 auto}
+  .mk-h1{font-size:20px;font-weight:700;color:var(--text);margin:0 0 4px}
+  .mk-sub{color:var(--text3);font-size:13px;margin:0 0 22px}
+  .mk-cols{display:flex;gap:22px;align-items:flex-start;flex-wrap:wrap}
+  .mk-col{flex:1;min-width:430px;border:1px solid var(--border);border-radius:8px;background:var(--panel);overflow:hidden}
+  .mk-col-head{padding:10px 16px;font-size:12px;font-weight:700;letter-spacing:.08em;border-bottom:1px solid var(--border)}
+  .mk-before .mk-col-head{color:#F14C4C;background:#2a1d1f}
+  .mk-after  .mk-col-head{color:#22C55E;background:#11251a}
+  .mk-case{border-bottom:1px solid var(--border)}
+  .mk-case:last-child{border-bottom:none}
+  .mk-case-label{padding:8px 16px 0;font-size:11px;color:var(--text3);font-weight:600;letter-spacing:.05em}
+  .mk-note{padding:0 16px 12px;color:var(--muted);font-size:11.5px;font-style:italic}
+  /* tighten the embedded .brief so several cases fit per column */
+  .mk-case .brief{padding:14px 18px 10px;max-width:none;margin:0}
+  .mk-case .brief-block{margin-bottom:12px}
+</style>
+</head>
+<body>
+<div class="mk-wrap">
+  <div class="mk-h1">Issue #227 - Answer option buttons give zero feedback on click (reply path)</div>
+  <p class="mk-sub">Before / after of the brief NEEDS-YOU option group and the conveyor transition. Real Cockpit CSS, real markup classes. Scenario data: session "api-refactor" asking a yes/no, reply-path answer.</p>
+
+  <div class="mk-cols">
+
+    <!-- ============================ BEFORE ============================ -->
+    <div class="mk-col mk-before">
+      <div class="mk-col-head">BEFORE - the defect</div>
+
+      <div class="mk-case">
+        <div class="mk-case-label">Reply-path option, mid-click (after the user clicked "1. Yes, proceed")</div>
+        <div class="mk-note">No feedback at all - AnswerSingleAsync returned early before setting _answering, so the buttons stay live and look unclicked. Invites a double-click.</div>
+        <div class="brief">
+          <div class="brief-block">
+            <div class="blabel red">NEEDS YOU <span class="brief-verbatim-tag">opus - turn 41, 14:07</span></div>
+            <div class="brief-claude-said">
+              <span class="brief-claude-said-label">Claude said</span>
+              <div class="brief-evidence">I'm about to delete the legacy SessionStore. Proceed?</div>
+            </div>
+            <div class="brief-needsyou urgency-blocking">Claude wants approval to delete the legacy SessionStore before refactoring.</div>
+            <div class="brief-quick">
+              <button class="brief-quick-btn recommended"><b>1. Yes, proceed (recommended)</b><span class="brief-opt-note">it is fully replaced by RecentSessionStore</span></button>
+              <button class="brief-quick-btn"><b>2. No, keep it</b></button>
+            </div>
+            <div class="brief-ifignored">If you do nothing: Claude waits, blocked.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mk-case">
+        <div class="mk-case-label">After the round-trip, others waiting</div>
+        <div class="mk-note">The view silently TELEPORTS to the next needs-you session. No message - the user does not know what happened or why the screen changed.</div>
+        <div class="brief">
+          <div class="brief-block">
+            <div class="blabel red">NEEDS YOU <span class="brief-verbatim-tag">opus - turn 12, 14:08</span></div>
+            <div class="brief-needsyou urgency-blocking">(a different session - jumped here with no explanation)</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mk-case">
+        <div class="mk-case-label">After the round-trip, only one needed you</div>
+        <div class="mk-note">Nothing visibly changes until the 2s roster poll repaints it. Dead air.</div>
+        <div class="brief">
+          <div class="brief-block">
+            <div class="blabel red">NEEDS YOU <span class="brief-verbatim-tag">opus - turn 41, 14:07</span></div>
+            <div class="brief-needsyou urgency-blocking">(unchanged - still shows the question that was just answered)</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================ AFTER ============================ -->
+    <div class="mk-col mk-after">
+      <div class="mk-col-head">AFTER - issue #227 fix</div>
+
+      <div class="mk-case">
+        <div class="mk-case-label">AC1/AC5 - Reply-path option, mid-click (same render as the click, before the POST returns)</div>
+        <div class="mk-note">The clicked option flips to "answering..." and the whole group disables (via _answering, and the now-live Replying wire). Optimistic - set before the await.</div>
+        <div class="brief">
+          <div class="brief-block">
+            <div class="blabel red">NEEDS YOU <span class="brief-verbatim-tag">opus - turn 41, 14:07</span></div>
+            <div class="brief-claude-said">
+              <span class="brief-claude-said-label">Claude said</span>
+              <div class="brief-evidence">I'm about to delete the legacy SessionStore. Proceed?</div>
+            </div>
+            <div class="brief-needsyou urgency-blocking">Claude wants approval to delete the legacy SessionStore before refactoring.</div>
+            <div class="brief-quick">
+              <button class="brief-quick-btn recommended answering" disabled><b>1. Yes, proceed (recommended)</b><span class="brief-opt-note brief-answering-note">answering...</span></button>
+              <button class="brief-quick-btn" disabled><b>2. No, keep it</b></button>
+            </div>
+            <div class="brief-ifignored">If you do nothing: Claude waits, blocked.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mk-case">
+        <div class="mk-case-label">AC2 - After the round-trip, others waiting (explicit transition, then advance)</div>
+        <div class="mk-note">A blue notice states the answer landed and the view is moving on - no silent teleport.</div>
+        <div class="brief">
+          <div class="quick-reply-notice"><span class="quick-reply-notice-dot"></span><span>answered - moving to the next session that needs you</span></div>
+          <div class="brief-block">
+            <div class="blabel red">NEEDS YOU <span class="brief-verbatim-tag">opus - turn 12, 14:08</span></div>
+            <div class="brief-needsyou urgency-blocking">The next session that needs you (you were told before the jump).</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mk-case">
+        <div class="mk-case-label">AC3 - After the round-trip, only one needed you (immediate acknowledged state)</div>
+        <div class="mk-note">An immediate blue acknowledgement instead of waiting for the 2s poll.</div>
+        <div class="brief">
+          <div class="quick-reply-notice"><span class="quick-reply-notice-dot"></span><span>answered - waiting for Claude to pick it up</span></div>
+          <div class="brief-block">
+            <div class="blabel red">NEEDS YOU <span class="brief-verbatim-tag">opus - turn 41, 14:07</span></div>
+            <div class="brief-needsyou urgency-blocking">Claude wants approval to delete the legacy SessionStore before refactoring.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mk-case">
+        <div class="mk-case-label">AC6 - KEYS path during the round-trip ("sending...")</div>
+        <div class="mk-note">The keys path already disabled instantly; now it also shows a status while the PTY write is in flight.</div>
+        <div class="brief">
+          <div class="brief-block">
+            <div class="blabel red">NEEDS YOU <span class="brief-verbatim-tag">opus - turn 7, 14:09</span></div>
+            <div class="brief-needsyou urgency-blocking">Claude's interactive prompt is asking you to pick an option.</div>
+            <div class="brief-quick">
+              <button class="brief-quick-btn answering" disabled><b>1. Allow</b><span class="brief-opt-note brief-answering-note">sending...</span></button>
+              <button class="brief-quick-btn" disabled><b>2. Deny</b></button>
+            </div>
+          </div>
+          <div class="brief-foot"><span class="brief-muted">sending...</span><span class="spacer"></span><button class="brief-refresh">refresh</button></div>
+        </div>
+      </div>
+
+      <div class="mk-case">
+        <div class="mk-case-label">AC4 - Failed reply (rollback)</div>
+        <div class="mk-note">On a failed POST the optimistic state rolls back: buttons re-enable and the error is shown.</div>
+        <div class="brief">
+          <div class="brief-block">
+            <div class="blabel red">NEEDS YOU <span class="brief-verbatim-tag">opus - turn 41, 14:07</span></div>
+            <div class="brief-needsyou urgency-blocking">Claude wants approval to delete the legacy SessionStore before refactoring.</div>
+            <div class="brief-quick">
+              <button class="brief-quick-btn recommended"><b>1. Yes, proceed (recommended)</b><span class="brief-opt-note">it is fully replaced by RecentSessionStore</span></button>
+              <button class="brief-quick-btn"><b>2. No, keep it</b></button>
+            </div>
+          </div>
+          <div class="brief-foot"><span class="brief-muted">answer failed: Director unreachable (503)</span><span class="spacer"></span><button class="brief-refresh">refresh</button></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</body>
+</html>

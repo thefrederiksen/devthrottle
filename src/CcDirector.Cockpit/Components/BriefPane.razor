@@ -226,12 +226,20 @@
                         {
                             @* v3 (issue #205): the wingman's pick renders as "(recommended)" with
                                the reason in its note - at most one, enforced server-side. Spelled
-                               out, not "(rec)", which read as "record" to users. *@
-                            <button class="brief-quick-btn @(o.Recommended ? "recommended" : "")" disabled="@_answering"
+                               out, not "(rec)", which read as "record" to users.
+                               Issue #227: the option group disables on the optimistic _answering
+                               flag OR the parent's Replying busy flag (the previously-dead wire,
+                               now live), and the clicked option shows "answering..." instantly. *@
+                            <button class="brief-quick-btn @(o.Recommended ? "recommended" : "") @(_answeringSend == o.Send ? "answering" : "")"
+                                    disabled="@(_answering || Replying)"
                                     title="@(o.Note ?? DescribeSend(o.Send))"
                                     @onclick="() => AnswerSingleAsync(n, o)">
                                 <b>@o.Key@(o.Recommended ? " (recommended)" : "")</b>
-                                @if (o.Note is not null)
+                                @if (_answeringSend == o.Send)
+                                {
+                                    <span class="brief-opt-note brief-answering-note">answering...</span>
+                                }
+                                else if (o.Note is not null)
                                 {
                                     <span class="brief-opt-note">@o.Note</span>
                                 }
@@ -439,6 +447,10 @@
     private bool _loading;
     private bool _showFull;
     private bool _answering;
+    /// <summary>The <c>Send</c> of the option the user just clicked (issue #227): drives the
+    /// "answering..." label on that single option, so the click target itself shows the busy
+    /// state, not just a disabled group. Null when no answer is in flight.</summary>
+    private string? _answeringSend;
     private string? _answerStatus;
     private readonly HashSet<string> _toggled = new(StringComparer.Ordinal);
     private string _lastSeenState = "";
@@ -707,16 +719,39 @@
     }
 
     /// <summary>Single-select answer: keys go raw to the PTY; replies go through the
-    /// parent's prompt path (which also advances the needs-you conveyor).</summary>
+    /// parent's prompt path (which also advances the needs-you conveyor). Either way the
+    /// clicked option flips to its busy state in the SAME render as the click (issue #227,
+    /// the #217 optimistic pattern): the option group disables and the clicked option shows
+    /// "answering..." BEFORE the POST leaves, so the most-used action never looks ignored.</summary>
     private async Task AnswerSingleAsync(TurnBriefNeedsYou n, TurnBriefOption o)
     {
         if (n.AnswerVia == "reply")
         {
-            await OnQuickReply.InvokeAsync(o.Send);
+            // Optimistic busy state, set and rendered before the prompt POST leaves. The
+            // parent advances the needs-you conveyor (or, when this was the only one, leaves
+            // us here) - this pane is re-keyed on a session switch, so the visible busy state
+            // lives only until that switch; rolled back here only on failure.
+            _answering = true;
+            _answeringSend = o.Send;
+            _answerStatus = "answering...";
+            await InvokeAsync(StateHasChanged);
+            try
+            {
+                await OnQuickReply.InvokeAsync(o.Send);
+            }
+            catch (Exception ex)
+            {
+                Log.LogWarning(ex, "reply answer failed for sid={Sid}", SessionId);
+                _answering = false;
+                _answeringSend = null;
+                _answerStatus = $"answer failed: {ex.Message}";
+            }
             return;
         }
         _answering = true;
-        _answerStatus = null;
+        _answeringSend = o.Send;
+        _answerStatus = "sending...";
+        await InvokeAsync(StateHasChanged);
         try
         {
             await Director.SendInputAsync(DirectorBase, SessionId, o.Send);
@@ -730,6 +765,7 @@
         finally
         {
             _answering = false;
+            _answeringSend = null;
         }
     }
 
