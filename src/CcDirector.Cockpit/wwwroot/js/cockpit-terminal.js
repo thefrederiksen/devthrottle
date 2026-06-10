@@ -20,6 +20,17 @@
 
 const terms = new Map(); // id -> state
 
+// Browser-side stream diagnostics (issue #199), OFF by default so a normal session's console
+// stays quiet. Turn on from the browser console with: localStorage.setItem('cockpit.debug','1')
+// (then re-select the session). Read on every call so it can be toggled live without a reload.
+function debugOn() {
+  try { return localStorage.getItem("cockpit.debug") === "1"; } catch (e) { return false; }
+}
+function dbg() {
+  if (!debugOn()) return;
+  try { console.log.apply(console, ["[cockpit-terminal]"].concat(Array.prototype.slice.call(arguments))); } catch (e) {}
+}
+
 // Bounded reconnect (issue #198): a hung/failing WebSocket used to retry every 1200ms FOREVER
 // with no on-screen feedback, indistinguishable from a healthy idle stream (blank pane). We now
 // show a visible status line on every connect attempt and stop after a run of consecutive
@@ -107,13 +118,15 @@ function openWs(state) {
     ? "stream lost, reconnecting to " + wsHost + " (attempt " + (state.attempts + 1) + ")..."
     : "connecting to " + wsHost + "...");
   let ws;
+  const connectStartedAt = (typeof performance !== "undefined" ? performance.now() : Date.now());
+  dbg("ws connect attempt", state.wsUrl, "attempt", state.attempts + 1);
   try { ws = new WebSocket(state.wsUrl); }
-  catch (e) { statusLine(state, "cannot open stream: " + e.message); return; }
+  catch (e) { statusLine(state, "cannot open stream: " + e.message); dbg("ws construct failed", e && e.message); return; }
   ws.binaryType = "arraybuffer";
   state.ws = ws;
 
-  ws.onopen = () => { console.info("[cockpit-terminal] ws open", state.wsUrl); };
-  ws.onerror = () => { console.warn("[cockpit-terminal] ws error", state.wsUrl); };
+  ws.onopen = () => { dbg("ws open", state.wsUrl, "after", Math.round((typeof performance !== "undefined" ? performance.now() : Date.now()) - connectStartedAt) + "ms"); };
+  ws.onerror = () => { dbg("ws error", state.wsUrl); };
 
   ws.onmessage = (ev) => {
     if (!state.gotFirstByte) {
@@ -122,6 +135,9 @@ function openWs(state) {
       // Director path is up. Replay starts at byte 0, so resetting here loses nothing.
       state.gotFirstByte = true;
       state.attempts = 0;
+      var firstFrameMs = Math.round((typeof performance !== "undefined" ? performance.now() : Date.now()) - connectStartedAt);
+      var firstFrameBytes = (typeof ev.data === "string") ? ev.data.length : (ev.data ? ev.data.byteLength : 0);
+      dbg("ws first frame", state.wsUrl, firstFrameBytes + " bytes", firstFrameMs + "ms since connect");
       try { t.reset(); } catch (e) {}
     }
     if (typeof ev.data === "string") {
@@ -136,14 +152,16 @@ function openWs(state) {
   };
   ws.onclose = (ev) => {
     if (state.ws === ws) state.ws = null;
-    console.warn("[cockpit-terminal] ws close", ev && ev.code, (ev && ev.reason) || "");
+    dbg("ws close", state.wsUrl, "code", (ev && ev.code), "reason", (ev && ev.reason) || "(none)");
     if (!state.wantOpen || state.reconnectTimer) return;
     state.attempts += 1;
     if (state.attempts > MAX_RECONNECT_ATTEMPTS) {
       statusLine(state, "stream to " + wsHost + " is down - gave up after " + MAX_RECONNECT_ATTEMPTS +
         " attempts (last close code " + (ev && ev.code) + "). Re-select the session to retry.");
+      dbg("ws gave up", state.wsUrl, "after", MAX_RECONNECT_ATTEMPTS, "attempts");
       return;
     }
+    dbg("ws reconnect scheduled", state.wsUrl, "attempt", state.attempts + 1, "in", RECONNECT_DELAY_MS + "ms");
     state.reconnectTimer = setTimeout(() => {
       state.reconnectTimer = null;
       if (state.wantOpen) openWs(state);

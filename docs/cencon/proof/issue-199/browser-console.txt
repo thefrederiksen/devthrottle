@@ -1,0 +1,40 @@
+info: [2026-06-10T22:58:03.275Z] Information: Normalizing '_blazor' to 'http://127.0.0.1:7470/_blazor'.
+error: Failed to load resource: the server responded with a status of 404 (Not Found)
+info: [2026-06-10T22:58:03.317Z] Information: WebSocket connected to ws://127.0.0.1:7470/_blazor?id=gOh1ZxQOFkueU0vx2zVVuQ.
+info: [2026-06-10T22:58:03.374Z] Information: Normalizing '_blazor' to 'http://127.0.0.1:7470/_blazor'.
+info: [2026-06-10T22:58:03.386Z] Information: WebSocket connected to ws://127.0.0.1:7470/_blazor?id=CkrQFQ8vAsX0reRXojNmAg.
+log: [cockpit-terminal] ws connect attempt ws://127.0.0.1:7470/sessions/3926e02f-dd2e-41d9-b522-c539a33583cc/stream attempt 1
+error: WebSocket connection to 'ws://127.0.0.1:7470/sessions/3926e02f-dd2e-41d9-b522-c539a33583cc/stream' failed: Error during WebSocket handshake: Unexpected response code: 404
+log: [cockpit-terminal] ws error ws://127.0.0.1:7470/sessions/3926e02f-dd2e-41d9-b522-c539a33583cc/stream
+log: [cockpit-terminal] ws close ws://127.0.0.1:7470/sessions/3926e02f-dd2e-41d9-b522-c539a33583cc/stream code 1006 reason (none)
+log: [cockpit-terminal] ws reconnect scheduled ws://127.0.0.1:7470/sessions/3926e02f-dd2e-41d9-b522-c539a33583cc/stream attempt 2 in 1200ms
+log: [cockpit-terminal] ws connect attempt ws://127.0.0.1:7470/sessions/3926e02f-dd2e-41d9-b522-c539a33583cc/stream attempt 2
+error: WebSocket connection to 'ws://127.0.0.1:7470/sessions/3926e02f-dd2e-41d9-b522-c539a33583cc/stream' failed: Error during WebSocket handshake: Unexpected response code: 404
+log: [cockpit-terminal] ws error ws://127.0.0.1:7470/sessions/3926e02f-dd2e-41d9-b522-c539a33583cc/stream
+log: [cockpit-terminal] ws close ws://127.0.0.1:7470/sessions/3926e02f-dd2e-41d9-b522-c539a33583cc/stream code 1006 reason (none)
+log: [cockpit-terminal] ws reconnect scheduled ws://127.0.0.1:7470/sessions/3926e02f-dd2e-41d9-b522-c539a33583cc/stream attempt 3 in 1200ms
+log: [cockpit-terminal] ws connect attempt ws://127.0.0.1:7470/sessions/3926e02f-dd2e-41d9-b522-c539a33583cc/stream attempt 3
+error: WebSocket connection to 'ws://127.0.0.1:7470/sessions/3926e02f-dd2e-41d9-b522-c539a33583cc/stream' failed: Error during WebSocket handshake: Unexpected response code: 404
+log: [cockpit-terminal] ws error ws://127.0.0.1:7470/sessions/3926e02f-dd2e-41d9-b522-c539a33583cc/stream
+log: [cockpit-terminal] ws close ws://127.0.0.1:7470/sessions/3926e02f-dd2e-41d9-b522-c539a33583cc/stream code 1006 reason (none)
+log: [cockpit-terminal] ws reconnect scheduled ws://127.0.0.1:7470/sessions/3926e02f-dd2e-41d9-b522-c539a33583cc/stream attempt 4 in 1200ms
+log: [cockpit-terminal] ws connect attempt ws://127.0.0.1:7470/sessions/3926e02f-dd2e-41d9-b522-c539a33583cc/stream attempt 4
+error: WebSocket connection to 'ws://127.0.0.1:7470/sessions/3926e02f-dd2e-41d9-b522-c539a33583cc/stream' failed: Error during WebSocket handshake: Unexpected response code: 404
+log: [cockpit-terminal] ws error ws://127.0.0.1:7470/sessions/3926e02f-dd2e-41d9-b522-c539a33583cc/stream
+log: [cockpit-terminal] ws close ws://127.0.0.1:7470/sessions/3926e02f-dd2e-41d9-b522-c539a33583cc/stream code 1006 reason (none)
+log: [cockpit-terminal] ws reconnect scheduled ws://127.0.0.1:7470/sessions/3926e02f-dd2e-41d9-b522-c539a33583cc/stream attempt 5 in 1200ms
+log: [cockpit-terminal] ws connect attempt ws://127.0.0.1:7470/sessions/3926e02f-dd2e-41d9-b522-c539a33583cc/stream attempt 1
+error: WebSocket connection to 'ws://127.0.0.1:7470/sessions/3926e02f-dd2e-41d9-b522-c539a33583cc/stream' failed: Error during WebSocket handshake: Unexpected response code: 404
+log: [cockpit-terminal] ws error ws://127.0.0.1:7470/sessions/3926e02f-dd2e-41d9-b522-c539a33583cc/stream
+log: [cockpit-terminal] ws close ws://127.0.0.1:7470/sessions/3926e02f-dd2e-41d9-b522-c539a33583cc/stream code 1006 reason (none)
+log: [cockpit-terminal] ws reconnect scheduled ws://127.0.0.1:7470/sessions/3926e02f-dd2e-41d9-b522-c539a33583cc/stream attempt 2 in 1200ms
+log: [cockpit-terminal] ws connect attempt ws://127.0.0.1:7470/sessions/3926e02f-dd2e-41d9-b522-c539a33583cc/stream attempt 2
+error: WebSocket connection to 'ws://127.0.0.1:7470/sessions/3926e02f-dd2e-41d9-b522-c539a33583cc/stream' failed: Error during WebSocket handshake: Unexpected response code: 404
+log: [cockpit-terminal] ws error ws://127.0.0.1:7470/sessions/3926e02f-dd2e-41d9-b522-c539a33583cc/stream
+log: [cockpit-terminal] ws close ws://127.0.0.1:7470/sessions/3926e02f-dd2e-41d9-b522-c539a33583cc/stream code 1006 reason (none)
+log: [cockpit-terminal] ws reconnect scheduled ws://127.0.0.1:7470/sessions/3926e02f-dd2e-41d9-b522-c539a33583cc/stream attempt 3 in 1200ms
+log: [cockpit-terminal] ws connect attempt ws://127.0.0.1:7470/sessions/3926e02f-dd2e-41d9-b522-c539a33583cc/stream attempt 3
+error: WebSocket connection to 'ws://127.0.0.1:7470/sessions/3926e02f-dd2e-41d9-b522-c539a33583cc/stream' failed: Error during WebSocket handshake: Unexpected response code: 404
+log: [cockpit-terminal] ws error ws://127.0.0.1:7470/sessions/3926e02f-dd2e-41d9-b522-c539a33583cc/stream
+log: [cockpit-terminal] ws close ws://127.0.0.1:7470/sessions/3926e02f-dd2e-41d9-b522-c539a33583cc/stream code 1006 reason (none)
+log: [cockpit-terminal] ws reconnect scheduled ws://127.0.0.1:7470/sessions/3926e02f-dd2e-41d9-b522-c539a33583cc/stream attempt 4 in 1200ms

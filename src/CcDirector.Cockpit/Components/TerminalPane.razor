@@ -18,6 +18,9 @@
 @code {
     [Parameter] public string SessionId { get; set; } = "";
     [Parameter] public string DirectorBase { get; set; } = "";   // e.g. https://host:7887
+    // The owning session's activity/assessed state, logged with the empty-DirectorBase WARNING
+    // (issue #199) so the blank-terminal trace carries the session's state at connect time.
+    [Parameter] public string RowState { get; set; } = "";
 
     private ElementReference _host;
     private IJSObjectReference? _module;
@@ -34,14 +37,27 @@
         // connect (it is still used for the keystroke leg in OnInput). Guard on _connectedSid so
         // we connect exactly once per session, with a retry on a later render if the attempt throws.
         if (string.IsNullOrEmpty(SessionId) || _connectedSid == SessionId) return;
+
+        // Blank-terminal failure mode (issue #199 / #198): an empty DirectorBase means this
+        // session's Director advertised no reachable endpoint, so the keystroke leg can never
+        // connect and the pane is the silent blank terminal we could not previously diagnose.
+        // The stream leg is same-origin and only needs SessionId, so we still attempt it - but
+        // this WARNING makes the degraded state visible in the persisted log instead of guesswork.
+        if (string.IsNullOrEmpty(DirectorBase))
+            Log.LogWarning(
+                "TerminalPane empty DirectorBase for sid={Sid} (rowState={RowState}); keystroke leg disabled, stream leg attempted same-origin",
+                SessionId, RowState);
+
         _connectedSid = SessionId;
         try
         {
             _selfRef = DotNetObjectReference.Create(this);
             _module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/cockpit-terminal.js");
             var wsUrl = CockpitWsUrls.Stream(Nav.BaseUri, SessionId);
-            Log.LogInformation("TerminalPane connecting sid={Sid} to {WsUrl}", SessionId, wsUrl);
+            Log.LogInformation("TerminalPane connect attempt sid={Sid} dir={Dir} wsUrl={WsUrl}",
+                SessionId, string.IsNullOrEmpty(DirectorBase) ? "(none)" : DirectorBase, wsUrl);
             await _module.InvokeVoidAsync("connect", SessionId, _host, wsUrl, _selfRef);
+            Log.LogInformation("TerminalPane connect dispatched sid={Sid} wsUrl={WsUrl}", SessionId, wsUrl);
         }
         catch (Exception ex)
         {

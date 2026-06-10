@@ -54,7 +54,7 @@
                                 class="@($"mini-dot{(s.SessionId == _selectedId ? " mini-sel" : "")}")"
                                 style="background:@DotColor(SessionOrdering.EffectiveColor(s))"
                                 title="@($"{SessionTitle(s)} - {s.ActivityState}")"
-                                @onclick="() => OnSelect(s.SessionId)"></button>
+                                @onclick="@(() => OnSelect(s.SessionId, "rail-mini"))"></button>
                     }
                 </div>
             }
@@ -80,7 +80,7 @@
                              Directors="_directors"
                              SelectedSessionId="@_selectedId"
                              ViewMode="@_viewMode"
-                             OnSelect="OnSelect"
+                             OnSelect="@(sid => OnSelect(sid, "rail"))"
                              OnNewSession="OpenNewSessionFor"
                              OnMenuAction="OnRailMenuAction" />
             }
@@ -190,7 +190,7 @@
                             @* Lazy: the stream socket only opens when the Terminal tab is opened,
                                so flipping through briefs never pays the replay cost. *@
                             <div class="term-wrap">
-                                <TerminalPane @key="Selected.SessionId" SessionId="@Selected.SessionId" DirectorBase="@Selected.TailnetEndpoint" />
+                                <TerminalPane @key="Selected.SessionId" SessionId="@Selected.SessionId" DirectorBase="@Selected.TailnetEndpoint" RowState="@(Selected.AssessedState ?? Selected.ActivityState)" />
                             </div>
                         }
                         else
@@ -972,6 +972,7 @@
     private async Task SetCenterTab(string tab)
     {
         if (Selected is null) return;
+        ActionInfo("center-tab", $"tab={tab}");
         _centerTabBySession[Selected.SessionId] = tab;
         // Coming back to the Wingman tab re-shows the story column - make sure its data is
         // there (cleared on session switch; cheap no-op when already loaded).
@@ -1001,7 +1002,7 @@
         var next = idx < 0
             ? (delta > 0 ? 0 : list.Count - 1)
             : (idx + delta + list.Count) % list.Count;
-        await OnSelect(list[next].SessionId);
+        await OnSelect(list[next].SessionId, "needs-you-nav");
     }
 
     // One-click answer from the Brief's option buttons: send the key as the reply, then
@@ -1020,7 +1021,7 @@
             // drops out of the needs-you list on the next poll.
             var others = NeedsYouOrdered.Where(s => s.SessionId != sel.SessionId).ToList();
             if (others.Count > 0)
-                await OnSelect(others[0].SessionId);
+                await OnSelect(others[0].SessionId, "quick-reply-advance");
         }
         catch (Exception ex)
         {
@@ -1049,7 +1050,7 @@
     {
         if (!string.IsNullOrEmpty(SidParam) && SidParam != _selectedId
             && _sessions.Any(s => s.SessionId == SidParam))
-            await OnSelect(SidParam);
+            await OnSelect(SidParam, "deep-link");
     }
 
     // Restore the left-panel preferences once the circuit can do JS interop. These are
@@ -1226,8 +1227,15 @@
     private bool _shotsBusy;
     private string? _shotsError;
 
-    private async Task OnSelect(string sessionId)
+    // Source of a selection (issue #199): which gesture drove it - rail click, the needs-you
+    // conveyor, a deep link, or a quick-reply advance. Logged so a session-switch line in the
+    // persisted log says WHY the session changed, not just that it did.
+    private async Task OnSelect(string sessionId, string source = "rail")
     {
+        var picked = _sessions.FirstOrDefault(s => s.SessionId == sessionId);
+        Log.LogInformation(
+            "Cockpit action=select-session source={Source} sid={Sid} dir={Dir}",
+            source, sessionId, picked?.TailnetEndpoint ?? "(none)");
         _selectedId = sessionId;
         // Keep the address bar deep-linkable (/cockpit/{sid}) without adding history entries.
         // OnParametersSetAsync guards on SidParam != _selectedId, so this never re-enters.
@@ -1281,6 +1289,7 @@
     {
         var sel = Selected; var dir = sel?.TailnetEndpoint;
         if (sel is null || string.IsNullOrWhiteSpace(_compose) || string.IsNullOrWhiteSpace(dir)) return;
+        Log.LogInformation("Cockpit action=send sid={Sid} dir={Dir} chars={Chars}", sel.SessionId, dir, _compose.Length);
         await Act(async () =>
         {
             await Director.SendPromptAsync(dir!, sel.SessionId, _compose, _cts.Token);
@@ -1292,6 +1301,7 @@
     {
         var sel = Selected; var dir = sel?.TailnetEndpoint;
         if (sel is null || string.IsNullOrWhiteSpace(_compose) || string.IsNullOrWhiteSpace(dir)) return;
+        Log.LogInformation("Cockpit action=queue sid={Sid} dir={Dir} chars={Chars}", sel.SessionId, dir, _compose.Length);
         await Act(async () =>
         {
             _queue = await Director.EnqueueAsync(dir!, sel.SessionId, _compose, _cts.Token);
@@ -1317,6 +1327,7 @@
     {
         var sel = Selected; var dir = sel?.TailnetEndpoint;
         if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
+        Log.LogInformation("Cockpit action=interrupt sid={Sid} dir={Dir}", sel.SessionId, dir);
         await Act(() => Director.InterruptAsync(dir!, sel.SessionId, _cts.Token));
     }
 
@@ -1324,6 +1335,7 @@
     {
         var sel = Selected; var dir = sel?.TailnetEndpoint;
         if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
+        Log.LogInformation("Cockpit action=escape sid={Sid} dir={Dir}", sel.SessionId, dir);
         await Act(() => Director.EscapeAsync(dir!, sel.SessionId, _cts.Token));
     }
 
@@ -1348,6 +1360,10 @@
         var sent = 0;
         foreach (var f in files)
         {
+            // One INFO line per attachment (name + size), per the issue's composer-Attach action.
+            Log.LogInformation(
+                "Cockpit action=attach sid={Sid} dir={Dir} name={Name} bytes={Bytes}",
+                sel.SessionId, dir, f.Name, f.Size);
             try
             {
                 await using var s = f.OpenReadStream(20 * 1024 * 1024, _cts.Token); // 20 MB cap
@@ -1408,6 +1424,7 @@
     private async Task OpenDictate()
     {
         if (Selected is null || string.IsNullOrWhiteSpace(DirBase) || _dictating) return;
+        Log.LogInformation("Cockpit action=speak-start sid={Sid} dir={Dir}", Selected.SessionId, DirBase);
         try
         {
             _dictating = true;
@@ -1438,6 +1455,7 @@
     public Task OnDictateInsert(string text)
     {
         _dictating = false;
+        ActionInfo("speak-stop", "result=insert");
         if (!string.IsNullOrWhiteSpace(text))
             _compose = string.IsNullOrEmpty(_compose) ? text : _compose + " " + text;
         return InvokeAsync(StateHasChanged);
@@ -1449,6 +1467,7 @@
     public async Task OnDictateSend(string text)
     {
         _dictating = false;
+        ActionInfo("speak-stop", "result=send");
         if (!string.IsNullOrWhiteSpace(text))
             _compose = string.IsNullOrEmpty(_compose) ? text : _compose + " " + text;
         await InvokeAsync(StateHasChanged);
@@ -1460,7 +1479,20 @@
     public Task OnDictateCancel()
     {
         _dictating = false;
+        ActionInfo("speak-stop", "result=cancel");
         return InvokeAsync(StateHasChanged);
+    }
+
+    // One INFO line per user action (issue #199), every line carrying the selected session id and
+    // its owning Director endpoint so a click can be traced to the session + box it drove. `detail`
+    // appends action-specific context (tab name, attachment, etc.).
+    private void ActionInfo(string action, string? detail = null)
+    {
+        var sel = Selected;
+        var tail = detail is null ? "" : $" {detail}";
+        Log.LogInformation(
+            "Cockpit action={Action} sid={Sid} dir={Dir}{Detail}",
+            action, sel?.SessionId ?? "(none)", sel?.TailnetEndpoint ?? "(none)", tail);
     }
 
     private async Task Act(Func<Task> action)
@@ -1503,6 +1535,7 @@
     private async Task SetRightTab(string tab)
     {
         if (tab is not ("shots" or "queue" or "director")) return;
+        ActionInfo("right-tab", $"tab={tab}");
         _rightTab = tab;
         await SavePref("cockpit.rightTab", tab);
         await LoadRightTabAsync();
@@ -1898,6 +1931,9 @@
     {
         var s = a.Session;
         var dir = s.TailnetEndpoint;
+        Log.LogInformation(
+            "Cockpit action=kebab kebab={Kebab} sid={Sid} dir={Dir}",
+            a.Action, s.SessionId, string.IsNullOrWhiteSpace(dir) ? "(none)" : dir);
         if (string.IsNullOrWhiteSpace(dir))
         {
             ShowRailNotice("This session has no reachable Director endpoint.");
@@ -2045,6 +2081,8 @@
     // ----- new session (created on a chosen Director via the Gateway proxy) -----
     private async Task OpenNewSession()
     {
+        Log.LogInformation("Cockpit action=new-session-open sid={Sid} dir={Dir}",
+            Selected?.SessionId ?? "(none)", Selected?.TailnetEndpoint ?? "(none)");
         _showNewSession = true;
         _nsError = null;
         _nsRepoPath = ""; _nsRepoPathManual = ""; _nsAgent = "ClaudeCode"; _nsType = "Implement";
@@ -2155,6 +2193,11 @@
     private async Task CreateLocal(string repo, string? args)
     {
         _acting = true; _nsError = null;
+        // New-session submit (issue #199): no sid exists yet, so log the director it targets plus
+        // the repo + options chosen; the created sid is logged once the Gateway returns it.
+        Log.LogInformation(
+            "Cockpit action=new-session-submit director={Director} repo={Repo} agent={Agent} type={Type} wingman={Wingman}",
+            _nsDirectorId, repo, _nsAgent, _nsType, _nsWingman);
         try
         {
             var req = new NewSessionRequest
@@ -2166,9 +2209,11 @@
                 WingmanEnabled = _nsWingman,
             };
             var created = await Gateway.CreateSessionAsync(_nsDirectorId, req, _cts.Token);
+            Log.LogInformation("Cockpit new-session created sid={Sid} director={Director}",
+                created?.SessionId ?? "(none)", _nsDirectorId);
             _showNewSession = false;
             await RefreshAsync();
-            if (created is not null) await OnSelect(created.SessionId);
+            if (created is not null) await OnSelect(created.SessionId, "new-session");
         }
         catch (Exception ex) { _nsError = ex.Message; Log.LogWarning(ex, "CreateSession failed"); }
         finally { _acting = false; }
@@ -2210,6 +2255,8 @@
     // ----- settings (read/write a Director's config; the Director re-applies live) -----
     private async Task OpenSettings()
     {
+        Log.LogInformation("Cockpit action=settings-open sid={Sid} dir={Dir}",
+            Selected?.SessionId ?? "(none)", Selected?.TailnetEndpoint ?? "(none)");
         _showSettings = true; _setError = null; _setStatus = null;
         try
         {
@@ -2257,6 +2304,7 @@
     {
         var ep = SettingsEndpointFor(_setDirectorId);
         if (string.IsNullOrWhiteSpace(ep)) { _setError = "that Director has no reachable endpoint"; return; }
+        Log.LogInformation("Cockpit action=settings-save director={Director} dir={Dir}", _setDirectorId, ep);
         _acting = true; _setError = null; _setStatus = null;
         try
         {
@@ -2344,6 +2392,8 @@
     private async Task DoFanout()
     {
         if (_fanoutSelected.Count == 0 || string.IsNullOrWhiteSpace(_fanoutText)) return;
+        Log.LogInformation("Cockpit action=fanout targets={Count} chars={Chars} sids={Sids}",
+            _fanoutSelected.Count, _fanoutText.Length, string.Join(",", _fanoutSelected));
         _fanoutBusy = true;
         _fanoutError = null;
         _fanoutResults = new();
@@ -2432,7 +2482,7 @@
                 await RefreshAsync();
                 var target = resp.TargetSession?.SessionId;
                 _showHandover = false;
-                if (!string.IsNullOrEmpty(target)) await OnSelect(target!);
+                if (!string.IsNullOrEmpty(target)) await OnSelect(target, "handover-target");
             }
             else { _hoError = resp?.Error ?? "handover was not accepted"; }
         }

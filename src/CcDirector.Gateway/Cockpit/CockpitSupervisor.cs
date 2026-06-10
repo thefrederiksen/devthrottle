@@ -122,10 +122,22 @@ public sealed class CockpitSupervisor : IDisposable
                     WorkingDirectory = Path.GetDirectoryName(_exePath) ?? Environment.CurrentDirectory,
                     UseShellExecute = false,
                     CreateNoWindow = true,
+                    // Capture the child's stdout/stderr (issue #199): without this the Cockpit's
+                    // console output (startup errors, unhandled exceptions printed before its own
+                    // file sink is up) went to an invisible console and was lost. We mirror each
+                    // line into the Gateway's FileLog tagged with the child pid.
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
                 };
                 // The published exe has no launchSettings, so pin its URL here.
                 psi.Environment["ASPNETCORE_URLS"] = $"http://127.0.0.1:{_port}";
                 proc = Process.Start(psi) ?? throw new InvalidOperationException("Process.Start returned null");
+                // BeginXxxReadLine drives the OutputDataReceived/ErrorDataReceived events on a
+                // thread-pool thread, so reading the child's streams never blocks the supervise loop.
+                proc.OutputDataReceived += (_, e) => LogChildLine(proc.Id, "out", e.Data);
+                proc.ErrorDataReceived += (_, e) => LogChildLine(proc.Id, "err", e.Data);
+                proc.BeginOutputReadLine();
+                proc.BeginErrorReadLine();
             }
             catch (Exception ex)
             {
@@ -180,6 +192,17 @@ public sealed class CockpitSupervisor : IDisposable
         {
             FileLog.Write($"[CockpitSupervisor] Cockpit update check skipped: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Mirror one line of the managed Cockpit child's stdout/stderr into the Gateway FileLog,
+    /// tagged with the child pid and stream (issue #199). A null payload is the end-of-stream
+    /// signal the redirected-read events raise on exit - skip it.
+    /// </summary>
+    private static void LogChildLine(int pid, string stream, string? data)
+    {
+        if (data is null) return;
+        FileLog.Write($"[CockpitSupervisor] cockpit pid={pid} {stream}: {data}");
     }
 
     private static void KillOrphans()

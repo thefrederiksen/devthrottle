@@ -1,0 +1,16 @@
+2026-06-10 18:54:54.703 INFO  [cc-director-cockpit] Cockpit starting (pid=475980) on (pending); log file: C:\Users\soren\AppData\Local\cc-director\logs\cockpit\cockpit-2026-06-10-475980.log
+2026-06-10 18:56:44.717 INFO  [Cockpit] Cockpit action=new-session-open sid=(none) dir=(none)
+2026-06-10 18:58:07.441 INFO  [Cockpit] Cockpit action=select-session source=rail sid=3926e02f-dd2e-41d9-b522-c539a33583cc dir=http://soren-north.taildb08ed.ts.net:7887
+2026-06-10 18:58:09.536 INFO  [Cockpit] Cockpit action=kebab kebab=rename sid=3926e02f-dd2e-41d9-b522-c539a33583cc dir=http://soren-north.taildb08ed.ts.net:7887
+2026-06-10 18:58:09.536 INFO  [Cockpit] Cockpit action=select-session source=rail sid=3926e02f-dd2e-41d9-b522-c539a33583cc dir=http://soren-north.taildb08ed.ts.net:7887
+2026-06-10 18:58:10.069 INFO  [Cockpit] Cockpit action=center-tab sid=3926e02f-dd2e-41d9-b522-c539a33583cc dir=http://soren-north.taildb08ed.ts.net:7887 tab=term
+2026-06-10 18:58:10.086 INFO  [TerminalPane] TerminalPane connect attempt sid=3926e02f-dd2e-41d9-b522-c539a33583cc dir=http://soren-north.taildb08ed.ts.net:7887 wsUrl=ws://127.0.0.1:7470/sessions/3926e02f-dd2e-41d9-b522-c539a33583cc/stream
+2026-06-10 18:58:10.117 INFO  [TerminalPane] TerminalPane connect dispatched sid=3926e02f-dd2e-41d9-b522-c539a33583cc wsUrl=ws://127.0.0.1:7470/sessions/3926e02f-dd2e-41d9-b522-c539a33583cc/stream
+2026-06-10 18:58:14.114 INFO  [Cockpit] Cockpit action=center-tab sid=3926e02f-dd2e-41d9-b522-c539a33583cc dir=http://soren-north.taildb08ed.ts.net:7887 tab=brief
+2026-06-10 18:58:17.983 INFO  [Cockpit] Cockpit action=select-session source=rail sid=3926e02f-dd2e-41d9-b522-c539a33583cc dir=http://soren-north.taildb08ed.ts.net:7887
+2026-06-10 18:58:18.533 INFO  [Cockpit] Cockpit action=right-tab sid=3926e02f-dd2e-41d9-b522-c539a33583cc dir=http://soren-north.taildb08ed.ts.net:7887 tab=shots
+2026-06-10 18:58:19.078 INFO  [Cockpit] Cockpit action=new-session-open sid=3926e02f-dd2e-41d9-b522-c539a33583cc dir=http://soren-north.taildb08ed.ts.net:7887
+2026-06-10 18:58:20.761 INFO  [Cockpit] Cockpit action=settings-open sid=3926e02f-dd2e-41d9-b522-c539a33583cc dir=http://soren-north.taildb08ed.ts.net:7887
+2026-06-10 18:58:23.296 INFO  [Cockpit] Cockpit action=center-tab sid=3926e02f-dd2e-41d9-b522-c539a33583cc dir=http://soren-north.taildb08ed.ts.net:7887 tab=term
+2026-06-10 18:58:23.312 INFO  [TerminalPane] TerminalPane connect attempt sid=3926e02f-dd2e-41d9-b522-c539a33583cc dir=http://soren-north.taildb08ed.ts.net:7887 wsUrl=ws://127.0.0.1:7470/sessions/3926e02f-dd2e-41d9-b522-c539a33583cc/stream
+2026-06-10 18:58:23.321 INFO  [TerminalPane] TerminalPane connect dispatched sid=3926e02f-dd2e-41d9-b522-c539a33583cc wsUrl=ws://127.0.0.1:7470/sessions/3926e02f-dd2e-41d9-b522-c539a33583cc/stream
