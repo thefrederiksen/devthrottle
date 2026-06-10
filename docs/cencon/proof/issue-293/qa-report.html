@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Issue #293 - QA Agent Proof Report</title>
+<style>
+  body { font-family:-apple-system,Segoe UI,Roboto,sans-serif; background:#1b1b1f; color:#d4d4d8; margin:0; padding:32px; line-height:1.55; }
+  h1 { color:#fff; font-size:22px; border-bottom:1px solid #333; padding-bottom:10px; }
+  h2 { color:#8ec6ff; font-size:16px; margin-top:30px; }
+  code, pre { font-family:Consolas,"Cascadia Mono",monospace; }
+  pre { background:#111; border:1px solid #2a2a2e; border-radius:6px; padding:12px 14px; overflow-x:auto; color:#cfcfd3; }
+  .ok { color:#7ee07e; font-weight:600; }
+  table { border-collapse:collapse; width:100%; margin-top:8px; }
+  th, td { border:1px solid #333; padding:8px 10px; text-align:left; vertical-align:top; font-size:14px; }
+  th { background:#26262b; color:#fff; }
+  img { max-width:100%; border:1px solid #333; border-radius:6px; margin-top:10px; }
+  .note { color:#9a9aa2; font-size:13px; }
+</style>
+</head>
+<body>
+<h1>Issue #293 &mdash; QA Agent verdict: <span class="ok">VERIFIED (flow:done)</span></h1>
+<p class="note">Independent QA &middot; PR #295 &middot; re-cut branch (single commit <code>8cd7662</code>, off <code>origin/main</code>) &middot; verified live on SOREN_NORTH (Tailscale up, MagicDNS <code>soren-north.taildb08ed.ts.net</code>).</p>
+
+<h2>History</h2>
+<p>First QA pass <strong>FAILED</strong> (<code>flow:qa-failed</code>): the feature code was correct, but PR #295 bundled two unmerged issue&nbsp;#198 commits (the branch was cut from <code>bugfix/198-terminal-pane-resilience</code> instead of <code>main</code>). The Developer re-cut the branch off <code>origin/main</code> (cherry-picked only the #293 commit). This report verifies the re-cut branch.</p>
+
+<h2>Blocking defect from the first pass &mdash; now resolved</h2>
+<pre>git log origin/main..HEAD
+<span class="ok">8cd7662 fix(#293): advertise tailnet front door in handover copy + Help dialog</span>   &lt;- the ONLY commit; #198 commits gone</pre>
+<p>PR #295 now contains exactly one commit, isolated to issue #293. Verified there is no longer any issue&nbsp;#198 file (<code>TerminalPane.razor</code>, <code>cockpit-terminal.js</code>) in the branch diff vs <code>main</code>.</p>
+
+<h2>Acceptance criteria &mdash; Expected vs Actual (independently reproduced)</h2>
+<table>
+  <tr><th>Criterion</th><th>Expected</th><th>Actual (live, QA re-run)</th><th>Result</th></tr>
+  <tr>
+    <td>Tailnet up &rarr; both surfaces advertise the front door</td>
+    <td><code>https://&lt;magicdns&gt;:&lt;port&gt;</code></td>
+    <td><code>ResolveAdvertisedControlApiEndpoint(7886)</code> = <code>https://soren-north.taildb08ed.ts.net:7886</code> (the exact method both UI surfaces call)</td>
+    <td class="ok">PASS</td>
+  </tr>
+  <tr>
+    <td>Tailscale down &rarr; clearly-labelled loopback</td>
+    <td><code>http://127.0.0.1:&lt;port&gt; (local only - Tailscale unavailable)</code></td>
+    <td><code>FormatAdvertisedControlApiEndpoint(null,7886)</code> = <code>http://127.0.0.1:7886 (local only - Tailscale unavailable)</code></td>
+    <td class="ok">PASS</td>
+  </tr>
+  <tr>
+    <td>Pasted tailnet value is reachable</td>
+    <td><code>GET &lt;endpoint&gt;/healthz</code> 2xx</td>
+    <td><code>https://soren-north.taildb08ed.ts.net:7886/healthz</code> &rarr; <strong>200</strong></td>
+    <td class="ok">PASS</td>
+  </tr>
+  <tr>
+    <td>"Confirmed CORRECT" loopback uses untouched</td>
+    <td>Only the 2 surfaces change</td>
+    <td>#293 commit touches only HelpDialog/MainWindow/TailscaleIdentity(+tests); <code>MainWindow:1795</code> <code>/sessions/{id}/view</code> loopback (do-not-touch list) left as-is</td>
+    <td class="ok">PASS</td>
+  </tr>
+</table>
+
+<h2>Regression / method checks</h2>
+<ul>
+  <li class="ok">Full solution builds clean off the re-cut branch: <code>Build succeeded. 0 Warning(s) 0 Error(s)</code> (confirms dropping #198's changes broke nothing).</li>
+  <li class="ok"><code>TailscaleIdentityTests</code>: 24/24 pass.</li>
+  <li class="ok">CenCon: no architecture/security drift; no new network listener (Kestrel still binds loopback only); no DT rule affected.</li>
+  <li class="ok">PR isolated to one issue (CenCon hard gate satisfied).</li>
+</ul>
+
+<h2>Live verification output</h2>
+<img src="qa-rerun-verification.png" alt="QA re-run: branch isolated, resolver front door, healthz 200, build + tests green" />
+
+<h2>Verdict</h2>
+<p class="ok">VERIFIED &mdash; all acceptance criteria met, regression/method checks pass, PR isolated to #293.</p>
+<p class="note">Standalone QA does not merge: PR #295 is left open for the human to squash-merge (DEVELOPMENT_METHOD.md &mdash; merge-on-pass applies only inside the implementation-loop).</p>
+</body>
+</html>
