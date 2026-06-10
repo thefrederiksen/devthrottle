@@ -620,7 +620,11 @@ public sealed class SessionStatusWingmanTests
                 "  >> bypass permissions on (shift+tab to cycle)\r\n";
             session.Buffer.Write(System.Text.Encoding.UTF8.GetBytes(frame));
 
-            await Task.Delay(TimeSpan.FromMilliseconds(1500));
+            // The wingman watcher extracts asynchronously; poll for the push instead of a fixed
+            // delay (a hard sleep flakes under CI load when extraction takes longer than the guess).
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            while (captured is null && sw.Elapsed < TimeSpan.FromSeconds(5))
+                await Task.Delay(50);
 
             Assert.Equal("wingman", capturedSource);
             Assert.Equal("commit the cc-playwright changes too", captured);
