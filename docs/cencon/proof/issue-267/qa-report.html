@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof - Issue #267 - Cockpit toolbar button uses the configured gateway URL</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background: #1e1e1e; color: #e0e0e0; margin: 0; padding: 24px; }
+  h1 { color: #4ea1ff; font-size: 22px; }
+  h2 { color: #7ec8ff; border-bottom: 1px solid #333; padding-bottom: 4px; margin-top: 32px; }
+  .verdict { background: #14391a; border: 1px solid #2e7d32; padding: 12px 16px; border-radius: 6px; font-size: 16px; font-weight: bold; color: #8fe08f; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #3a3a3a; padding: 8px 10px; text-align: left; vertical-align: top; font-size: 13px; }
+  th { background: #2a2a2a; color: #9fd0ff; }
+  .pass { color: #6fdc6f; font-weight: bold; }
+  code, pre { background: #0d0d0d; color: #d4d4d4; padding: 2px 5px; border-radius: 3px; font-family: Consolas, monospace; font-size: 12px; }
+  pre { padding: 10px; overflow-x: auto; white-space: pre-wrap; }
+  img { max-width: 900px; border: 1px solid #444; margin: 8px 0; display: block; }
+  .meta { color: #999; font-size: 12px; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #267</h1>
+<p class="meta">
+  <b>Title:</b> [Cockpit] Open-in-Cockpit toolbar button must use the configured gateway URL, not hardcoded 127.0.0.1:7878<br>
+  <b>PR:</b> #292 (branch <code>issue-267-cockpit-configured-gateway</code>, commit 03a7ad7)<br>
+  <b>QA date:</b> 2026-06-10 &nbsp;|&nbsp; <b>Verifier:</b> QA Agent (independent context)<br>
+  <b>Method:</b> Built slot-5 test Director (<code>local_builds\cc-director5.exe</code>, Build succeeded / 0 Error(s)), launched via the
+  <code>cc-director-launch</code> scheduled task, drove the real <b>Cockpit</b> toolbar button through Windows UI Automation
+  (AutomationId <code>BtnCockpit</code>), and read the Director log + the live dialog element tree for each scenario.
+  The Director's own <code>config.json</code> gateway block was edited per scenario and restored byte-for-byte afterward.
+</p>
+
+<div class="verdict">VERIFIED - all 6 acceptance criteria met.</div>
+
+<h2>Acceptance Criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (my own proof)</th><th>Result</th></tr>
+
+<tr>
+  <td>AC1</td>
+  <td>Remote gateway configured + no local gateway: click issues <code>GET http://&lt;remote&gt;:7878/cockpit</code> and opens the front-door URL that endpoint returns.</td>
+  <td>Log <code>baseUrl=http://&lt;remote&gt;:7878</code>; browser opens the remote front door.</td>
+  <td>With <code>gateway.url=http://soren-north.taildb08ed.ts.net:7878</code> and nothing listening on local 7878, clicking BtnCockpit logged:<br>
+    <pre>BtnCockpit_Click: asking gateway for Cockpit URL, baseUrl=http://soren-north.taildb08ed.ts.net:7878
+BtnCockpit_Click: opening https://soren-north.taildb08ed.ts.net/ (up=True, baseUrl=http://soren-north.taildb08ed.ts.net:7878)</pre>
+    Probed the configured remote gateway and opened the remote front door <code>https://soren-north.taildb08ed.ts.net/</code>.</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>AC2</td>
+  <td>No gateway configured: behavior unchanged - probes loopback default <code>http://127.0.0.1:7878/cockpit</code>.</td>
+  <td>Log <code>baseUrl=http://127.0.0.1:7878</code>.</td>
+  <td>With the <code>gateway</code> block removed from config.json, clicking BtnCockpit logged:<br>
+    <pre>BtnCockpit_Click: asking gateway for Cockpit URL, baseUrl=http://127.0.0.1:7878
+BtnCockpit_Click FAILED (baseUrl=http://127.0.0.1:7878): No connection could be made because the target machine actively refused it. (127.0.0.1:7878)</pre>
+    Loopback default used exactly as before.</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>AC3</td>
+  <td>Trailing slash: configured <code>http://host:7878/</code> produces request URL <code>http://host:7878/cockpit</code>.</td>
+  <td>Unit test green.</td>
+  <td><code>ResolveCockpitBase_TrailingSlash_StripsSlashSoCockpitPathIsClean</code> passed: asserts base = <code>http://host:7878</code> and base+"/cockpit" = <code>http://host:7878/cockpit</code> (no <code>//cockpit</code>).</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>AC4</td>
+  <td>Error dialog names the exact probed URL; the "Gateway tray app running on this machine?" hint appears only for the loopback default.</td>
+  <td>Loopback failure -> local-machine hint naming 127.0.0.1:7878. Remote failure -> remote URL named, tailnet hint, local hint absent.</td>
+  <td><b>Loopback case</b> (read from live dialog element tree):<br>
+    <pre>Could not reach the gateway at http://127.0.0.1:7878: No connection could be made because the target machine actively refused it. (127.0.0.1:7878)
+
+Is the Gateway tray app (cc-director-gateway) running on this machine?</pre>
+    <b>Remote-down case</b> (config <code>gateway.url=http://unreachable-remote.taildb08ed.ts.net:7878</code>):<br>
+    <pre>Could not reach the gateway at http://unreachable-remote.taildb08ed.ts.net:7878: No such host is known. (unreachable-remote.taildb08ed.ts.net:7878)
+
+Is the Gateway running on that machine and reachable over your tailnet?</pre>
+    Each dialog names the exact probed URL; the local-machine hint appears ONLY for loopback, the tailnet hint ONLY for remote. Screenshot below.</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>AC5</td>
+  <td>No <code>127.0.0.1</code>/<code>localhost</code> Cockpit URL is ever opened in the browser when a remote gateway is configured.</td>
+  <td>Browser navigates only to the remote front door for a remote setup.</td>
+  <td>AC1's open line opened <code>https://soren-north.taildb08ed.ts.net/</code> (the remote front door) - never a loopback URL. In the loopback-config case the probe failed and opened nothing (dialog only). Invariant kept.</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>AC6</td>
+  <td>Unit tests present and green: <code>ResolveCockpitBase_UrlConfigured_ReturnsConfiguredUrl</code>, <code>ResolveCockpitBase_NoUrl_ReturnsLocalhostDefault</code>, trailing-slash case.</td>
+  <td>3/3 green.</td>
+  <td><pre>Passed CockpitUrlResolverTests.ResolveCockpitBase_TrailingSlash_StripsSlashSoCockpitPathIsClean [5 ms]
+Passed CockpitUrlResolverTests.ResolveCockpitBase_NoUrl_ReturnsLocalhostDefault [&lt; 1 ms]
+Passed CockpitUrlResolverTests.ResolveCockpitBase_UrlConfigured_ReturnsConfiguredUrl [&lt; 1 ms]
+Total tests: 3   Passed: 3   Failed: 0</pre></td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Screenshot: AC4 remote-gateway-down error dialog</h2>
+<p>Dialog names the remote URL <code>http://unreachable-remote.taildb08ed.ts.net:7878</code> with the tailnet reachability hint;
+the local-machine "Gateway tray app on this machine?" hint is correctly absent.</p>
+<img src="qa/qa-ac4-remote-down-dialog.png" alt="Remote-down error dialog">
+
+<h2>Note on the loopback dialog screenshot</h2>
+<p>The loopback / AC2 dialog content was captured by reading the live Avalonia dialog element tree via UI Automation
+(the verbatim text is quoted under AC4 above) - a stronger, pixel-independent proof. A flat pixel capture of that dialog
+was occluded by another of the user's running Director windows sitting on top at the same screen coordinates (those windows
+must not be touched per CLAUDE.md rule 0), so the UIA text read is the authoritative evidence for the loopback case.</p>
+
+<h2>Regression / method sweep</h2>
+<ul>
+  <li>Scope honored: only <code>MainWindow.BtnCockpit_Click</code> + new UI-free <code>CockpitUrlResolver</code> + tests changed.
+      <code>DirectorView._gatewayUrl</code> left unchanged with a <code>// TODO #267-followup</code> note exactly as the issue mandates (OUT of scope).</li>
+  <li>No gateway-side, <code>/cockpit</code> endpoint, or auth-middleware change (confirmed by diff).</li>
+  <li>Selection-by-configuration, not a fallback chain: single source of truth <code>gateway.url</code>; loopback only when unconfigured.</li>
+  <li>Solution builds clean: <code>Build succeeded. 0 Warning(s) 0 Error(s)</code>.</li>
+  <li>No security (DT-rule) impact; no architecture/security CenCon doc change required.</li>
+</ul>
+
+</body>
+</html>
