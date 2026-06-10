@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Fix Verification - Issue #255 (after flow:qa-failed)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background:#1E1E1E; color:#CCCCCC; margin:0; padding:32px; line-height:1.5; }
+  h1 { color:#fff; font-size:22px; border-bottom:2px solid #007ACC; padding-bottom:10px; }
+  h2 { color:#fff; font-size:17px; margin-top:28px; border-left:4px solid #007ACC; padding-left:10px; }
+  code, pre { font-family: Cascadia Mono, Consolas, monospace; }
+  pre { background:#252526; border:1px solid #3C3C3C; border-radius:4px; padding:12px; overflow-x:auto; font-size:12px; color:#D4D4D4; }
+  table { border-collapse:collapse; width:100%; margin:12px 0; }
+  th, td { border:1px solid #3C3C3C; padding:8px 10px; text-align:left; vertical-align:top; font-size:13px; }
+  th { background:#252526; color:#fff; }
+  .pass { color:#22C55E; font-weight:600; }
+  .img { border:1px solid #3C3C3C; border-radius:4px; max-width:760px; display:block; margin:10px 0; }
+  .meta { color:#888; font-size:12px; }
+  .done { background:#1B3A2A; border-left:4px solid #22C55E; padding:12px 14px; border-radius:3px; color:#D6F5E0; font-weight:600; }
+</style>
+</head>
+<body>
+
+<h1>Fix Verification - Issue #255 (resolving flow:qa-failed)</h1>
+<p class="meta">Defect: the AC3 parent-tunnel handler hijacked submenu leaf clicks &middot; Re-verified on a fresh slot-5 build &middot; 2026-06-10</p>
+
+<h2>The defect (from QA)</h2>
+<p>The tunnel-phase <code>PointerPressed</code> handler on the parent "Open in Browser" item also fired for presses on its descendant submenu leaves (a tunnel route passes through ancestors), so every leaf click ran the parent's default action and a profile could never be selected.</p>
+
+<h2>The fix</h2>
+<p>The handler now launches the default ONLY when the press lands on the parent's own header. The submenu flies out to a popup outside the header rectangle, so a press whose position (relative to the parent) is within the header bounds is a header click; anything outside falls through to the leaf's own <code>Click</code>.</p>
+<pre>parent.AddHandler(PointerPressedEvent, (_, e) =>
+{
+    var pos = e.GetPosition(parent);
+    bool onHeader = pos.X &gt;= 0 &amp;&amp; pos.Y &gt;= 0
+        &amp;&amp; pos.X &lt;= parent.Bounds.Width &amp;&amp; pos.Y &lt;= parent.Bounds.Height;
+    if (!onHeader)
+        return;                       // leaf press - let the leaf handle it
+
+    e.Handled = true;
+    _linkContextMenu?.Close();
+    OpenInBrowserDefault(target);
+}, RoutingStrategies.Tunnel);</pre>
+
+<h2>Re-verification (Director log, all three distinct behaviors)</h2>
+<table>
+<tr><th>Action</th><th>Expected handler</th><th>Actual (log)</th><th>Result</th></tr>
+<tr>
+  <td>Click Edge -&gt; "Profile 2 (mindzie)" leaf</td>
+  <td><code>OpenInBrowserProfile</code> (folder Profile 1) + save default</td>
+  <td><code>OpenWithProfile: profile=Profile 1 ... started pid=60324</code>; <code>BrowserDefaultStore.Save</code>; <code>OpenInBrowserProfile: ... Microsoft Edge/Profile 1</code></td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>Plain-click the parent "Open in Browser" header</td>
+  <td><code>OpenInBrowserDefault</code> reopens remembered default</td>
+  <td><code>OpenInBrowserDefault: opened ... in Microsoft Edge/Profile 1</code></td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>Click "System default" leaf</td>
+  <td><code>OpenInBrowserSystemDefault</code></td>
+  <td><code>OpenInBrowserSystemDefault: https://dev.azure.com/mindzie/FixTest</code></td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<p>The same Profile-2-leaf click that produced <code>OpenInBrowserDefault</code> + no saved default BEFORE the fix now produces <code>OpenInBrowserProfile</code> + a saved <code>config.json</code> <code>browser.default</code> (folder <code>Profile 1</code>) AFTER the fix - a clean before/after at the identical coordinate.</p>
+
+<p>config.json after selecting "Profile 2 (mindzie)":</p>
+<pre>browser.default: exe=C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe  folder=Profile 1</pre>
+
+<img class="img" src="qa/fix-verified-submenu.png" alt="Edge submenu open with both profiles, leaves now selectable">
+
+<h2>Build</h2>
+<pre>dotnet build src/CcDirector.Terminal.Avalonia   Build succeeded.  0 Warning(s)  0 Error(s)</pre>
+
+<div class="done">Defect resolved. Leaf clicks now run their own action (profile launch / system default), the parent plain-click still reopens the remembered default, and the sticky default saves correctly. Re-handing to QA.</div>
+
+</body>
+</html>

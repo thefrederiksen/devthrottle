@@ -8,8 +8,10 @@ using System.Threading;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
+using CcDirector.Core.Browsers;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Utilities;
 using CcDirector.Terminal.Avalonia.Rendering;
@@ -120,6 +122,13 @@ public class TerminalControl : Control
 
     /// <summary>Raised when the user requests to view a file from a terminal link.</summary>
     public event Action<string>? ViewFileRequested;
+
+    /// <summary>
+    /// Raised when an "Open in Browser" action fails (e.g. the remembered browser exe or profile
+    /// folder no longer exists). The host shows the message to the user; the terminal never
+    /// silently falls back to the system default.
+    /// </summary>
+    public event Action<string>? BrowserLaunchFailed;
 
     /// <summary>Raised when the renderer mode changes (so host can update background).</summary>
     public event Action<Color>? RendererBackgroundChanged;
@@ -1450,9 +1459,8 @@ public class TerminalControl : Control
 
             if (FileExtensions.IsHtml(link))
             {
-                var browserItem = new MenuItem { Header = "Open in Browser" };
-                browserItem.Click += (_, _) => OpenPathInBrowser();
-                _linkContextMenu.Items.Add(browserItem);
+                string htmlTarget = ResolvePath(link).Replace('/', '\\').TrimEnd('\\');
+                _linkContextMenu.Items.Add(BuildOpenInBrowserMenuItem(htmlTarget));
                 addedViewerItem = true;
             }
 
@@ -1475,9 +1483,7 @@ public class TerminalControl : Control
             copyItem.Click += (_, _) => _ = CopyLinkToClipboardAsync();
             _linkContextMenu.Items.Add(copyItem);
 
-            var browserItem = new MenuItem { Header = "Open in Browser" };
-            browserItem.Click += (_, _) => OpenInBrowser();
-            _linkContextMenu.Items.Add(browserItem);
+            _linkContextMenu.Items.Add(BuildOpenInBrowserMenuItem(_detectedLink));
         }
 
         this.ContextMenu = _linkContextMenu;
@@ -1537,47 +1543,139 @@ public class TerminalControl : Control
     }
 
     /// <summary>
-    /// Open URL in default browser.
+    /// Builds the "Open in Browser" menu item for <paramref name="target"/> (a URL or a local
+    /// file path). A plain click on the item reopens the remembered default; hovering expands a
+    /// submenu of "System default" plus each installed browser, each with its real profiles
+    /// (re-read from that browser's Local State so newly added profiles appear without a restart).
     /// </summary>
-    private void OpenInBrowser()
+    private MenuItem BuildOpenInBrowserMenuItem(string target)
     {
-        if (string.IsNullOrEmpty(_detectedLink)) return;
+        var parent = new MenuItem { Header = "Open in Browser" };
+        // A submenu parent in Avalonia does NOT raise Click on its header - pressing the header
+        // just expands the submenu. To make a plain click on the parent reopen the remembered
+        // default (while HOVER still expands the submenu for AC1), intercept the header press in
+        // the tunnel phase, before the submenu-open handling runs.
+        //
+        // The tunnel route also passes through this parent for presses on its OWN submenu leaves
+        // (they are descendants), so we must launch the default ONLY when the press lands on the
+        // parent's own header. The submenu flies out to a popup outside the header's bounds, so a
+        // press whose position is within the header rectangle is a header click; anything outside
+        // is a leaf press that must fall through to that leaf's own Click handler.
+        parent.AddHandler(PointerPressedEvent, (_, e) =>
+        {
+            var pos = e.GetPosition(parent);
+            bool onHeader = pos.X >= 0 && pos.Y >= 0
+                && pos.X <= parent.Bounds.Width && pos.Y <= parent.Bounds.Height;
+            if (!onHeader)
+                return;
 
+            e.Handled = true;
+            _linkContextMenu?.Close();
+            OpenInBrowserDefault(target);
+        }, RoutingStrategies.Tunnel);
+
+        var systemItem = new MenuItem { Header = "System default" };
+        systemItem.Click += (_, e) =>
+        {
+            e.Handled = true;
+            OpenInBrowserSystemDefault(target);
+        };
+        parent.Items.Add(systemItem);
+
+        foreach (var browser in BrowserLauncher.DetectBrowsers())
+        {
+            var browserItem = new MenuItem { Header = browser.DisplayName };
+
+            var profiles = BrowserLauncher.GetProfiles(browser);
+            if (profiles.Count == 0)
+            {
+                browserItem.Items.Add(new MenuItem { Header = "(no profiles found)", IsEnabled = false });
+            }
+            else
+            {
+                foreach (var profile in profiles)
+                {
+                    string header = profile.Account is null
+                        ? profile.DisplayName
+                        : $"{profile.DisplayName} ({profile.Account})";
+
+                    var profileItem = new MenuItem { Header = header };
+                    var capturedBrowser = browser;
+                    var capturedFolder = profile.FolderName;
+                    profileItem.Click += (_, e) =>
+                    {
+                        e.Handled = true;
+                        OpenInBrowserProfile(target, capturedBrowser, capturedFolder);
+                    };
+                    browserItem.Items.Add(profileItem);
+                }
+            }
+
+            parent.Items.Add(browserItem);
+        }
+
+        return parent;
+    }
+
+    /// <summary>
+    /// Opens <paramref name="target"/> using the remembered default browser+profile. If no default
+    /// has been chosen, opens the system default (the historical behavior). If a default exists but
+    /// its browser or profile is missing, surfaces a clear error - never silently falls back.
+    /// </summary>
+    private void OpenInBrowserDefault(string target)
+    {
         try
         {
-            var startInfo = new ProcessStartInfo(_detectedLink)
+            var remembered = BrowserDefaultStore.Load();
+            if (remembered is null)
             {
-                UseShellExecute = true
-            };
-            Process.Start(startInfo);
-            FileLog.Write($"[TerminalControl] Opened in browser: {_detectedLink}");
+                FileLog.Write($"[TerminalControl] OpenInBrowserDefault: no remembered default, using system default: {target}");
+                BrowserLauncher.OpenSystemDefault(target);
+                return;
+            }
+
+            var browser = BrowserDefaultStore.ResolveBrowser(remembered.ExePath);
+            BrowserLauncher.OpenWithProfile(target, browser, remembered.ProfileFolder);
+            FileLog.Write($"[TerminalControl] OpenInBrowserDefault: opened {target} in {browser.DisplayName}/{remembered.ProfileFolder}");
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[TerminalControl] OpenInBrowser FAILED: {ex.Message}");
+            FileLog.Write($"[TerminalControl] OpenInBrowserDefault FAILED: {ex.Message}");
+            BrowserLaunchFailed?.Invoke($"Could not open in browser.\n\n{ex.Message}");
+        }
+    }
+
+    /// <summary>Opens <paramref name="target"/> in the OS default browser (an explicit menu choice).</summary>
+    private void OpenInBrowserSystemDefault(string target)
+    {
+        try
+        {
+            BrowserLauncher.OpenSystemDefault(target);
+            FileLog.Write($"[TerminalControl] OpenInBrowserSystemDefault: {target}");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[TerminalControl] OpenInBrowserSystemDefault FAILED: {ex.Message}");
+            BrowserLaunchFailed?.Invoke($"Could not open in the system default browser.\n\n{ex.Message}");
         }
     }
 
     /// <summary>
-    /// Open a local file path in the default browser (used for .html/.htm).
+    /// Opens <paramref name="target"/> in a specific browser+profile and remembers that choice as
+    /// the new default. Surfaces a clear error if the launch fails - never silently falls back.
     /// </summary>
-    private void OpenPathInBrowser()
+    private void OpenInBrowserProfile(string target, BrowserInfo browser, string profileFolder)
     {
-        if (string.IsNullOrEmpty(_detectedLink)) return;
-
         try
         {
-            string path = ResolvePath(_detectedLink).Replace('/', '\\').TrimEnd('\\');
-            var startInfo = new ProcessStartInfo(path)
-            {
-                UseShellExecute = true
-            };
-            Process.Start(startInfo);
-            FileLog.Write($"[TerminalControl] Opened path in browser: {path}");
+            BrowserLauncher.OpenWithProfile(target, browser, profileFolder);
+            BrowserDefaultStore.Save(new BrowserDefault(browser.ExePath, profileFolder));
+            FileLog.Write($"[TerminalControl] OpenInBrowserProfile: opened {target} in {browser.DisplayName}/{profileFolder}");
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[TerminalControl] OpenPathInBrowser FAILED: {ex.Message}");
+            FileLog.Write($"[TerminalControl] OpenInBrowserProfile FAILED: {ex.Message}");
+            BrowserLaunchFailed?.Invoke($"Could not open in {browser.DisplayName}.\n\n{ex.Message}");
         }
     }
 

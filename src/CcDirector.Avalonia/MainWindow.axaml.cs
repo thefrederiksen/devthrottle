@@ -140,6 +140,7 @@ public partial class MainWindow : Window
 
         TerminalHost.ScrollChanged += OnTerminalScrollChanged;
         TerminalHost.ViewFileRequested += OnTerminalViewFileRequested;
+        TerminalHost.BrowserLaunchFailed += OnTerminalBrowserLaunchFailed;
         TerminalScrollBar.PropertyChanged += TerminalScrollBar_PropertyChanged;
 
         SessionList.AddHandler(DragDrop.DragOverEvent, SessionList_DragOver);
@@ -1860,6 +1861,19 @@ public partial class MainWindow : Window
         int offset = (int)(TerminalScrollBar.Maximum - TerminalScrollBar.Value);
         TerminalHost.ScrollOffset = offset;
         _updatingScrollBar = false;
+    }
+
+    private async void OnTerminalBrowserLaunchFailed(string message)
+    {
+        FileLog.Write($"[MainWindow] OnTerminalBrowserLaunchFailed: {message}");
+        try
+        {
+            await MessageBox.ShowAsync(this, "Open in Browser", message);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] OnTerminalBrowserLaunchFailed FAILED: {ex.Message}");
+        }
     }
 
     private void OnTerminalViewFileRequested(string path)
