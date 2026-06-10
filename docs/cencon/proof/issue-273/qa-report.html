@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof - Issue #273 Named work lists (CenCon QA Agent)</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; background: #0f1115; color: #e6e6e6; }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 32px 24px 80px; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  .sub { color: #9aa4b2; margin: 0 0 24px; font-size: 14px; }
+  .verdict { background: #11331d; border: 1px solid #1f7a3f; color: #7ee2a8; padding: 14px 18px; border-radius: 8px; font-weight: 600; margin: 0 0 28px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid #232733; vertical-align: top; }
+  th { color: #9aa4b2; font-weight: 600; background: #161a22; }
+  .pass { color: #7ee2a8; font-weight: 700; }
+  .fail { color: #ff8b8b; font-weight: 700; }
+  code, pre { font-family: Consolas, monospace; background: #161a22; }
+  pre { padding: 14px; border-radius: 8px; overflow-x: auto; font-size: 12px; border: 1px solid #232733; color: #cdd6e3; }
+  .meta { font-size: 13px; color: #9aa4b2; margin: 24px 0 8px; }
+  h2 { font-size: 17px; margin: 32px 0 10px; border-top: 1px solid #232733; padding-top: 22px; }
+  .note { font-size: 12.5px; color: #9aa4b2; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>QA Proof Report &mdash; Issue #273</h1>
+  <p class="sub">[Gateway] Named work lists as a first-class REST resource (CRUD + ordering + single-consumer claim) &mdash; PR #278, branch <code>issue-273-work-lists</code></p>
+
+  <div class="verdict">VERIFIED &mdash; all 8 acceptance criteria met. Independent verification by the CenCon QA Agent.</div>
+
+  <p class="meta">
+    Method: QA built the solution from the PR branch (clean: 0 warnings, 0 errors) and booted the <b>real <code>GatewayHost</code></b>
+    (full wiring &mdash; host-wide Bearer-token auth middleware + routing + <code>WorkListEndpoints</code>) on a loopback port with auth ON,
+    then drove every criterion over real HTTP with QA's own harness (not the developer's binary or transcript). Criterion 8 was issued from a
+    <b>separate OS process</b> (<code>curl.exe</code>, a distinct PID from the host). The full request/response transcript is committed alongside
+    this report as <code>qa-rest-transcript.txt</code>.
+  </p>
+
+  <table>
+    <tr><th>#</th><th>Acceptance criterion</th><th>Expected</th><th>Actual (observed)</th><th>Result</th></tr>
+    <tr>
+      <td>1</td><td>POST /lists creates a named list; GET /lists returns it.</td>
+      <td>POST 200; GET lists includes "backlog".</td>
+      <td>POST <code>/lists {"name":"backlog"}</code> &rarr; 200 <code>{"name":"backlog"}</code>; GET <code>/lists</code> &rarr; 200, list present.</td>
+      <td class="pass">PASS</td>
+    </tr>
+    <tr>
+      <td>2</td><td>POST item appends; GET shows source/id/area round-tripped exactly, in append order.</td>
+      <td>3 items in order; 262/Gateway, 263/Core, 264/(null area); source=github preserved.</td>
+      <td>ids = [262, 263, 264]; area0 = Gateway, area1 = Core, area2 = null; source = github on all.</td>
+      <td class="pass">PASS</td>
+    </tr>
+    <tr>
+      <td>3</td><td>Mixed-source refs accepted and stored in one ordered list, none rejected at the store.</td>
+      <td>github/262, devops/1203, jira/CCD-44 all stored, in order.</td>
+      <td>sources = [github, devops, jira]; ids = [262, 1203, CCD-44]; all accepted, order preserved.</td>
+      <td class="pass">PASS</td>
+    </tr>
+    <tr>
+      <td>4</td><td>PATCH /lists/{name}/items reorders; subsequent GET reflects new order.</td>
+      <td>After PATCH [jira, github, devops] order is CCD-44, 262, 1203.</td>
+      <td>PATCH 200; GET order = [CCD-44, 262, 1203].</td>
+      <td class="pass">PASS</td>
+    </tr>
+    <tr>
+      <td>5</td><td>DELETE /lists/{name}/items/{source}/{id} removes that one item; others keep relative order.</td>
+      <td>DELETE github/262 &rarr; removed; remaining [CCD-44, 1203] keep order.</td>
+      <td>DELETE 200 <code>{"removed":true}</code>; remaining = [CCD-44, 1203].</td>
+      <td class="pass">PASS</td>
+    </tr>
+    <tr>
+      <td>6</td><td>Consumer claim succeeds once; second claim refused (409); release; re-claim succeeds.</td>
+      <td>1st 200; 2nd (held) 409; release 200; re-claim 200.</td>
+      <td>1st = 200 (token minted); 2nd = <b>409 Conflict</b> "list already has an active consumer"; release = 200; re-claim = 200 (new token).</td>
+      <td class="pass">PASS</td>
+    </tr>
+    <tr>
+      <td>7</td><td>Stored list has name + ordered refs + consumer ONLY; no item-status field.</td>
+      <td>GET payload carries only name/items/consumer + per-item source/id/area; no status/flow anywhere.</td>
+      <td>top-level fields = [name, items, consumer]; per-item fields = [source, id, area] only; no "status"/"flow" present.</td>
+      <td class="pass">PASS</td>
+    </tr>
+    <tr>
+      <td>8</td><td>Endpoints reachable cross-machine via the Gateway, not bound to a single Director &mdash; verified from outside the Gateway process.</td>
+      <td>A request from a separate OS process reaches /lists behind the Gateway's auth.</td>
+      <td>curl.exe (PID 20148, distinct from host PID 31404) &rarr; GET <code>/lists</code> with Bearer token = <b>200</b>; same external process with NO token = <b>401</b>. Endpoints sit behind the host-wide token middleware and answer external callers.</td>
+      <td class="pass">PASS</td>
+    </tr>
+  </table>
+
+  <h2>Auth-guard (regression / security check)</h2>
+  <p class="note">The /lists surface is mapped <em>after</em> the host-wide auth middleware in <code>GatewayHost</code> (line ~350, after the
+  <code>AuthMiddleware</code> at line ~292). Confirmed empirically: <code>GET /lists</code> with no Bearer token returns
+  <b>401 Unauthorized</b> <code>{"error":"missing or invalid token"}</code>. No new unauthenticated surface introduced.</p>
+
+  <h2>Method &amp; CenCon checks</h2>
+  <ul class="note">
+    <li><b>Build:</b> <code>dotnet build cc-director.sln</code> &rarr; Build succeeded, 0 Warning(s), 0 Error(s).</li>
+    <li><b>Unit tests:</b> 19 work-list tests green (<code>WorkListStoreTests</code> 10 + <code>WorkListEndpointsTests</code> 9).</li>
+    <li><b>Regression sweep:</b> full Gateway test suite = 366/367 pass. The single failure
+      (<code>DictationEndpointTests.FullPipeline_transcribes_phase0_clip2_with_realtime_provider</code>) is a pre-existing
+      <em>environmental</em> failure: it opens a live OpenAI realtime transcription websocket and expects partial transcripts
+      (none arrive without a network/API key in the sandbox). It is NOT in this PR's changed files (last touched by unrelated
+      dictation commit d82db15) and has zero coupling to the work-list code &mdash; not a regression caused by #273.</li>
+    <li><b>CenCon docs:</b> <code>docs/cencon/architecture_manifest.yaml</code> updated &mdash; <code>WorkListStore</code> and
+      <code>WorkListEndpoints</code> added to the Gateway container with accurate descriptions; last_updated bumped.</li>
+    <li><b>Coding standards:</b> all four new source files are ASCII-only (no unicode). No fallback programming &mdash; validation throws
+      explicit exceptions; endpoints return explicit error JSON (no silent catch-and-continue). FileLog on every public store method.
+      No new security/DT-rule violation; endpoints inherit existing Bearer-token auth.</li>
+  </ul>
+
+  <p class="note" style="margin-top:28px">Verified by the CenCon QA Agent (independent of the Developer Agent's report). Date: 2026-06-10.</p>
+</div>
+</body>
+</html>

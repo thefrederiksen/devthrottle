@@ -1,0 +1,117 @@
+GATEWAY: real GatewayHost (auth ON, Tailscale OFF) listening on http://127.0.0.1:49502
+AUTH: Bearer proof-token-273
+
+=== CRITERION 1: create a named list; GET /lists returns it ===
+[C1] POST /lists
+    REQ  {"name":"backlog"}
+    RESP 200 OK  {"name":"backlog"}
+
+    ASSERT PASS: POST /lists -> 200
+
+[C1] GET /lists
+    RESP 200 OK  {"lists":[{"name":"backlog","items":[],"consumer":null}]}
+
+    ASSERT PASS: GET /lists contains backlog
+
+=== CRITERION 2: append structured refs; round-trip source/id/area in order ===
+[C2] POST /lists/backlog/items
+    REQ  {"source":"github","id":"262","area":"Gateway"}
+    RESP 200 OK  {"name":"backlog","appended":{"source":"github","id":"262","area":"Gateway"}}
+
+[C2] POST /lists/backlog/items
+    REQ  {"source":"github","id":"263","area":"Core"}
+    RESP 200 OK  {"name":"backlog","appended":{"source":"github","id":"263","area":"Core"}}
+
+[C2] POST /lists/backlog/items
+    REQ  {"source":"github","id":"264"}
+    RESP 200 OK  {"name":"backlog","appended":{"source":"github","id":"264","area":null}}
+
+[C2] GET /lists/backlog
+    RESP 200 OK  {"name":"backlog","items":[{"source":"github","id":"262","area":"Gateway"},{"source":"github","id":"263","area":"Core"},{"source":"github","id":"264","area":null}],"consumer":null}
+
+    ASSERT PASS: ids in append order 262,263,264
+
+    ASSERT PASS: item0 source=github round-tripped
+
+    ASSERT PASS: item0 area=Gateway round-tripped
+
+=== CRITERION 3: mixed-source refs coexist in one ordered list ===
+[C3] POST /lists
+    REQ  {"name":"mixed"}
+    RESP 200 OK  {"name":"mixed"}
+
+[C3] POST /lists/mixed/items
+    REQ  {"source":"github","id":"262"}
+    RESP 200 OK  {"name":"mixed","appended":{"source":"github","id":"262","area":null}}
+
+[C3] POST /lists/mixed/items
+    REQ  {"source":"devops","id":"1203"}
+    RESP 200 OK  {"name":"mixed","appended":{"source":"devops","id":"1203","area":null}}
+
+[C3] POST /lists/mixed/items
+    REQ  {"source":"jira","id":"CCD-44"}
+    RESP 200 OK  {"name":"mixed","appended":{"source":"jira","id":"CCD-44","area":null}}
+
+[C3] GET /lists/mixed
+    RESP 200 OK  {"name":"mixed","items":[{"source":"github","id":"262","area":null},{"source":"devops","id":"1203","area":null},{"source":"jira","id":"CCD-44","area":null}],"consumer":null}
+
+    ASSERT PASS: sources in order github,devops,jira
+
+    ASSERT PASS: ids in order 262,1203,CCD-44 (no source rejected)
+
+=== CRITERION 4: PATCH reorders the list ===
+[C4] PATCH /lists/backlog/items
+    REQ  [{"source":"github","id":"264"},{"source":"github","id":"262"},{"source":"github","id":"263"}]
+    RESP 200 OK  {"name":"backlog","items":[{"source":"github","id":"264","area":null},{"source":"github","id":"262","area":null},{"source":"github","id":"263","area":null}]}
+
+[C4] GET /lists/backlog
+    RESP 200 OK  {"name":"backlog","items":[{"source":"github","id":"264","area":null},{"source":"github","id":"262","area":null},{"source":"github","id":"263","area":null}],"consumer":null}
+
+    ASSERT PASS: order now 264,262,263
+
+=== CRITERION 5: DELETE /lists/{name}/items/{source}/{id} removes one, keeps rest ===
+[C5] DELETE /lists/mixed/items/devops/1203
+    RESP 200 OK  {"name":"mixed","source":"devops","id":"1203","removed":true}
+
+[C5] GET /lists/mixed
+    RESP 200 OK  {"name":"mixed","items":[{"source":"github","id":"262","area":null},{"source":"jira","id":"CCD-44","area":null}],"consumer":null}
+
+    ASSERT PASS: devops/1203 gone; github/262 and jira/CCD-44 keep order
+
+=== CRITERION 6: single-consumer claim / double-claim refused / release / re-claim ===
+[C6] POST /lists/backlog/consumer
+    RESP 200 OK  {"name":"backlog","consumer":"45553b3848a64dfd8da915c8b63c0c74"}
+
+    ASSERT PASS: first claim -> 200
+
+[C6] POST /lists/backlog/consumer
+    RESP 409 Conflict  {"error":"list already has an active consumer","name":"backlog"}
+
+    ASSERT PASS: second claim while held -> 409
+
+[C6] DELETE /lists/backlog/consumer
+    RESP 200 OK  {"name":"backlog","released":true}
+
+    ASSERT PASS: release -> 200
+
+[C6] POST /lists/backlog/consumer
+    RESP 200 OK  {"name":"backlog","consumer":"914da4a31f9a4f98bd2723b694ff6d2a"}
+
+    ASSERT PASS: re-claim after release -> 200
+
+=== CRITERION 7: stored list has NO item-status field ===
+[C7] GET /lists/mixed
+    RESP 200 OK  {"name":"mixed","items":[{"source":"github","id":"262","area":null},{"source":"jira","id":"CCD-44","area":null}],"consumer":null}
+
+    ASSERT PASS: list fields {name,items,consumer} contain no status/flow
+
+    ASSERT PASS: no per-item status/flow field
+
+=== CRITERION 8: request issued from a SEPARATE process (cross-process reachability) ===
+    EXTERNAL PROCESS pid=9080 (powershell.exe, separate from gateway pid=34512)
+    STATUS=200
+    BODY={"lists":[{"name":"backlog","items":[{"source":"github","id":"264","area":null},{"source":"github","id":"262","area":null},{"source":"github","id":"263","area":null}],"consumer":"914da4a31f9a4f98bd2723b694ff6d2a"},{"name":"mixed","items":[{"source":"github","id":"262","area":null},{"source":"jira","id":"CCD-44","area":null}],"consumer":null}]}
+    ASSERT PASS: external process reached the Gateway /lists and got 200 with the list
+
+
+ALL CRITERIA PASSED (1-8).
