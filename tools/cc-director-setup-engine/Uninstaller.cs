@@ -94,8 +94,12 @@ public sealed class Uninstaller
         return targets;
     }
 
-    /// <summary>Remove everything in scope for the role. Best-effort: collects per-step errors.</summary>
-    public UninstallReport Apply(InstallRole role)
+    /// <summary>
+    /// Remove everything in scope for the role. Best-effort: collects per-step errors.
+    /// <paramref name="progress"/> (optional) reports a friendly, present-tense message as each
+    /// phase begins, so a UI can show live progress instead of a frozen window.
+    /// </summary>
+    public UninstallReport Apply(InstallRole role, IProgress<string>? progress = null)
     {
         var steps = new List<string>();
         var errors = new List<string>();
@@ -103,31 +107,43 @@ public sealed class Uninstaller
 
         if (role == InstallRole.Gateway && OperatingSystem.IsWindows())
         {
+            progress?.Report("Stopping the Gateway tray app");
             StopGatewayTrayApp(steps);
+            progress?.Report("Removing the Gateway autostart");
             RemoveAutostart(steps, errors);
             // The 443 front-door Serve mapping is the Gateway's, so its teardown is Gateway-scoped.
+            progress?.Report("Removing the Tailscale mapping");
             RemoveTailscaleServe(steps, errors);
         }
 
+        progress?.Report("Removing the app and CLI tools");
         RemoveDirectories(role, steps, errors);
 
         if (OperatingSystem.IsWindows())
         {
+            progress?.Report("Removing the PATH entry");
             RemovePathEntry(steps, errors);
         }
         else
         {
+            progress?.Report("Removing the shell PATH entries and shims");
             RemoveMacArtifacts(steps, errors);
         }
 
+        progress?.Report("Removing the Start Menu shortcut");
         RemoveShortcut(steps, errors);
 
         // Integration points common to both roles (issue #257). Skills + scheduled tasks are per-user
         // and role-independent; the Add/Remove Programs entry is Windows-only.
+        progress?.Report("Removing the CC Director skills");
         RemoveSkills(steps, errors);
+        progress?.Report("Removing scheduled tasks");
         RemoveScheduledTasks(steps, errors);
         if (OperatingSystem.IsWindows())
+        {
+            progress?.Report("Removing the Apps & features entry");
             RemoveArpEntry(steps, errors);
+        }
 
         var ok = errors.Count == 0;
         EngineLog.Write($"[Uninstaller] Apply done: success={ok}, errors={errors.Count}");
