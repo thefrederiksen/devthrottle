@@ -24,10 +24,10 @@
 <p><strong>Route per-session WebSocket legs (dictate + terminal stream) through the Gateway so a remote Cockpit never needs a Director's address.</strong></p>
 
 <div class="meta">
-  <strong>Date:</strong> 2026-06-10 &nbsp;·&nbsp; <strong>Merged commit on main:</strong> <code>e388446</code> (PR #283), atop Cockpit compile fix <code>dd3cd59</code> (PR #286)<br>
+  <strong>Date:</strong> 2026-06-10 &nbsp;·&nbsp; <strong>Merged commit on main:</strong> <code>e388446</code> (PR #283), atop Cockpit compile fix <code>dd3cd59</code> (PR #286); <strong>AC4-503 fix</strong> <code>91bcd07</code> (PR #289, issue #288)<br>
   <strong>Box A — Gateway host:</strong> SOREN_NORTH (tailnet <code>soren-north.taildb08ed.ts.net</code>) — runs the Gateway + Cockpit + the owning Director <code>37cea6e2</code> (advertises loopback <code>http://127.0.0.1:7887</code>, the original failing case).<br>
   <strong>Box B — remote browser/client:</strong> SORENLAPTOP (tailnet <code>100.89.217.71</code>) — a different physical machine, where the per-session WS connections originate.<br>
-  <strong>Deploy:</strong> SOREN_NORTH redeployed from <code>main</code> via <code>redeploy-gateway.ps1</code> + <code>deploy-cockpit.ps1</code> (Cockpit DLL ts 2026-06-10 16:38). No Director processes killed.
+  <strong>Deploy:</strong> SOREN_NORTH redeployed from <code>main</code> via <code>redeploy-gateway.ps1</code> + <code>deploy-cockpit.ps1</code> (Cockpit DLL ts 2026-06-10 16:38). AC4-503 re-verified after redeploying the Gateway from <code>main</code> <code>91bcd07</code> (PR #289) at 18:11. No Director processes killed except a throwaway slot-5 test Director (<code>ce7e7143</code>) stood up only to be killed for the offline-owner case.
 </div>
 
 <h2>Why this needed two machines</h2>
@@ -71,8 +71,8 @@
   </tr>
   <tr>
     <td>AC4</td><td>Offline Director → 503 (no hang)</td>
-    <td class="partial">DISCREPANCY — see note</td>
-    <td><strong>Not reproducible as specified.</strong> The proxy resolves ownership via <code>GetSessionAsync</code> on the Director <em>before</em> forwarding, and in the live fleet every Director's resolve endpoint equals its forward endpoint (<code>37cea6e2</code>: loopback only; <code>a0d9f4a3</code>: ControlEndpoint == TailnetEndpoint). So an <em>offline</em> Director fails at resolution → returns <strong>404, not 503</strong>. The 503 branch only triggers if a Director resolves but its (distinct) ForwardDestination is unreachable — which no current Director exhibits. <code>SessionWsProxyEndpointsTests</code> does <strong>not</strong> cover the 503 path (its own comment defers it to "the cross-machine proof run"). Tracked as follow-up <strong>#288</strong>: align the spec (offline → 404) or have the proxy resolve-from-registry then 503 on forward failure.</td>
+    <td class="pass">PASS (live) — fixed in #289</td>
+    <td><strong>Now reproducible and passing.</strong> PR #289 (issue #288) added a <code>SessionOwnerCache</code>: the fleet aggregator (<code>GET /sessions</code>) and the WS proxy record every session's owning Director, so a session the fleet has seen resolves to <strong>503</strong> (not 404) once its Director goes dark — only a never-observed session yields 404. Verified live on the redeployed Gateway (<code>91bcd07</code>): stood up a throwaway slot-5 Director (<code>ce7e7143</code>), created session <code>e74b86e3-d34e-4c8b-ab09-b3e28bf217d7</code>, primed the cache via <code>GET /sessions</code>, then killed only that Director. From SORENLAPTOP (<code>100.89.217.71</code>): <code>GET /sessions/e74b86e3-…/stream</code> → <strong>HTTP 503</strong>; <code>GET /sessions/00000000-…-000000000000/stream</code> → <strong>HTTP 404</strong>. Gateway log lines in Raw evidence below. <code>SessionWsProxyEndpointsTests</code> now covers both the 503 (known-owner-offline) and 404 (none-cached) paths.</td>
   </tr>
   <tr>
     <td>AC5</td><td>Loud failure names "Director unreachable"</td>
@@ -104,6 +104,14 @@ UPGRADED 101 OK  (response status: 101)
 # AC4 — unknown session
 GET https://soren-north.taildb08ed.ts.net/sessions/00000000-0000-0000-0000-000000000000/stream -> HTTP 404
 
+# AC4-503 (fixed in #289) — known session whose owning Director was killed, from SORENLAPTOP (remote)
+GET https://soren-north.taildb08ed.ts.net/sessions/e74b86e3-d34e-4c8b-ab09-b3e28bf217d7/stream -> HTTP 503
+GET https://soren-north.taildb08ed.ts.net/sessions/00000000-0000-0000-0000-000000000000/stream -> HTTP 404
+# Gateway log (SOREN_NORTH, %LOCALAPPDATA%\cc-director\logs\director\director-2026-06-10-8052.log):
+2026-06-10 18:15:11.796 [SessionWsProxy] open leg=stream sid=e74b86e3-d34e-4c8b-ab09-b3e28bf217d7 client=100.89.217.71
+2026-06-10 18:15:11.800 [SessionWsProxy] leg=stream sid=e74b86e3-d34e-4c8b-ab09-b3e28bf217d7 -> 503 (known owner ce7e7143-30c8-4b78-beff-a1637936528f offline/unreachable)
+2026-06-10 18:15:11.991 [SessionWsProxy] leg=stream sid=00000000-0000-0000-0000-000000000000 -> 404 (no owning director across the fleet, none cached)
+
 # Director-side forwarding proof (SOREN_NORTH Director log)
 2026-06-10 16:52:00.385 [TerminalStreamEndpoint] GET /sessions/3926e02f-.../stream from 127.0.0.1
 2026-06-10 16:52:28.063 [DictationEndpoint] GET /dictate from 127.0.0.1
@@ -116,7 +124,7 @@ GET https://soren-north.taildb08ed.ts.net/sessions/00000000-0000-0000-0000-00000
 
 
 <div class="verdict">
-  <strong>Verdict: VERIFIED (with one spec discrepancy noted).</strong> AC1 (terminal cross-machine), AC2 (dictation routing cross-machine), AC3 (no loopback), AC4-404, AC5 (loud-failure dialog), the Director-side forwarding proof, and the unit suite all pass <strong>live, cross-machine</strong> from a second tailnet machine. The remote-Cockpit per-session WebSocket regression is fixed. <strong>AC4-503 is a spec/impl discrepancy, not a pass:</strong> an offline Director returns 404 (resolution gates on reachability), not the specified 503; the 503 branch is unreachable for the current fleet and is not unit-covered — tracked as a follow-up. AC6 (same-machine) confirmed indirectly via the deploy-host Cockpit serving + the proxy's same-origin resolution.
+  <strong>Verdict: VERIFIED.</strong> AC1 (terminal cross-machine), AC2 (dictation routing cross-machine), AC3 (no loopback), AC4-404, <strong>AC4-503 (fixed in #289)</strong>, AC5 (loud-failure dialog), the Director-side forwarding proof, and the unit suite all pass <strong>live, cross-machine</strong> from a second tailnet machine. The remote-Cockpit per-session WebSocket regression is fixed. The earlier AC4-503 discrepancy is resolved: with the <code>SessionOwnerCache</code> from PR #289 deployed, an offline owning Director now returns <strong>503</strong> for a known session and <strong>404</strong> only for a never-observed session — confirmed live from SORENLAPTOP against the redeployed Gateway, with matching <code>[SessionWsProxy]</code> log lines. AC6 (same-machine) confirmed indirectly via the deploy-host Cockpit serving + the proxy's same-origin resolution.
 </div>
 
 </body>
