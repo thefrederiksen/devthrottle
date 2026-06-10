@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #175 - Developer Agent Proof</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 980px; margin: 2rem auto; padding: 0 1rem; color: #1b1f23; }
+  h1 { border-bottom: 2px solid #d0d7de; padding-bottom: .4rem; }
+  h2 { margin-top: 2rem; border-bottom: 1px solid #e1e4e8; padding-bottom: .3rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #d0d7de; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #f6f8fa; }
+  code, pre { font-family: Consolas, monospace; }
+  pre { background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px; padding: .8rem; overflow-x: auto; }
+  .pass { color: #1a7f37; font-weight: 600; }
+  .meta { color: #57606a; font-size: .9rem; }
+</style>
+</head>
+<body>
+<h1>Issue #175 - GatewayTrayInstaller inherits stdio: piped CLI callers hang forever</h1>
+<p class="meta">Role: Developer Agent (CenCon Development Method) &middot; Repo: thefrederiksen/cc-director &middot; Branch: loop/175-installer-stdio</p>
+
+<h2>1. What was implemented</h2>
+<p>
+  The Gateway tray-app launch in <code>tools/cc-director-setup-engine/GatewayTrayInstaller.cs</code>
+  (step 4 of <code>InstallAsync</code>) started the long-lived tray Gateway with
+  <code>UseShellExecute=false</code>, so the Gateway inherited the setup CLI's stdout/stderr handles
+  and held them open for its whole lifetime. Any caller that PIPES the CLI
+  (<code>... | Select-Object</code>, <code>... | tail</code>) therefore hung forever after the CLI
+  itself had exited (the live v0.6.6 90-minute phantom hang).
+</p>
+<p>
+  The fix extracts the launch <code>ProcessStartInfo</code> into a testable static seam
+  <code>BuildTrayLaunchInfo(gatewayExe, workingDirectory)</code> and sets
+  <code>UseShellExecute=true</code> (with NO <code>RedirectStandard*</code>), exactly mirroring the
+  already-proven fix on the GatewayApp self-update relaunch path
+  (<code>src/CcDirector.GatewayApp/Program.cs</code> <code>startGateway</code>). A code comment
+  references issue #175 and that precedent.
+</p>
+
+<h2>2. The change (diff)</h2>
+<pre>// tools/cc-director-setup-engine/GatewayTrayInstaller.cs - step 4
+-            var psi = new ProcessStartInfo
+-            {
+-                FileName = gatewayExe,
+-                Arguments = InstalledArguments,
+-                WorkingDirectory = _layout.GatewayDir,
+-                UseShellExecute = false,
+-            };
++            var psi = BuildTrayLaunchInfo(gatewayExe, _layout.GatewayDir);
+
+// new static seam (UseShellExecute=true, no redirection; see issue #175):
++    public static ProcessStartInfo BuildTrayLaunchInfo(string gatewayExe, string workingDirectory)
++    {
++        ArgumentException.ThrowIfNullOrWhiteSpace(gatewayExe);
++        ArgumentException.ThrowIfNullOrWhiteSpace(workingDirectory);
++        return new ProcessStartInfo
++        {
++            FileName = gatewayExe,
++            Arguments = InstalledArguments,
++            WorkingDirectory = workingDirectory,
++            UseShellExecute = true,
++        };
++    }</pre>
+
+<h2>3. Acceptance criteria - how each is met and proven</h2>
+<table>
+  <tr><th>Acceptance criterion</th><th>How the code satisfies it</th><th>Proof</th></tr>
+  <tr>
+    <td>Piping the gateway-install output returns to the prompt after the CLI exits instead of hanging.</td>
+    <td>The Gateway is launched with <code>UseShellExecute=true</code>, so it does not inherit the
+        caller's stdout pipe; the pipe closes when the CLI exits even though the Gateway keeps running.</td>
+    <td>Deterministic end-to-end test
+        <code>PipedCaller_ReturnsWithFix_AndWouldHangWithoutIt</code>: with the OLD config a piped
+        reader BLOCKS for the full window (hang reproduced); with the production
+        <code>BuildTrayLaunchInfo</code> config it reaches EOF promptly while the child is still
+        alive. <span class="pass">PASS</span></td>
+  </tr>
+  <tr>
+    <td>The tray Gateway still launches and registers after install.</td>
+    <td>Only <code>UseShellExecute</code> changed; <code>FileName</code>, <code>Arguments</code>
+        (<code>--managed</code>) and <code>WorkingDirectory</code> are unchanged, and the existing
+        health-wait (gateway <code>/healthz</code>, Cockpit, autostart Run key) is untouched.
+        Mirrors the GatewayApp self-update relaunch precedent which launches the same exe this way.</td>
+    <td><code>BuildTrayLaunchInfo_UsesShellExecute_NoRedirection</code> asserts the launch config is
+        intact (exe, args, working dir) plus the fix. <span class="pass">PASS</span><br>
+        Live machine fleet still healthy at end of run: Gateway 7878 <code>/healthz</code> 200,
+        Cockpit 7470 <code>/</code> 200, Director 7887 <code>/healthz</code> 200.</td>
+  </tr>
+  <tr>
+    <td>The tray-launch <code>ProcessStartInfo</code> sets <code>UseShellExecute=true</code>.</td>
+    <td>Set in <code>BuildTrayLaunchInfo</code>.</td>
+    <td>The diff (Section 2) and
+        <code>BuildTrayLaunchInfo_UsesShellExecute_NoRedirection</code> asserting
+        <code>UseShellExecute==true</code> and no redirection. <span class="pass">PASS</span></td>
+  </tr>
+</table>
+
+<h2>4. Test run (committed: test-run.txt)</h2>
+<pre>Passed CcDirector.Setup.Engine.Tests.GatewayTrayInstallerTests.PipedCaller_ReturnsWithFix_AndWouldHangWithoutIt [3 s]
+Passed CcDirector.Setup.Engine.Tests.GatewayTrayInstallerTests.BuildTrayLaunchInfo_UsesShellExecute_NoRedirection [&lt; 1 ms]
+Passed CcDirector.Setup.Engine.Tests.GatewayTrayInstallerTests.DefaultPorts_AreCanonical [2 ms]
+Passed CcDirector.Setup.Engine.Tests.GatewayTrayInstallerTests.InstalledArguments_IsManaged [&lt; 1 ms]
+
+Full suite: Passed! - Failed: 0, Passed: 147, Skipped: 0, Total: 147 (CcDirector.Setup.Engine.Tests)
+Solution build: Build succeeded. 0 Warning(s), 0 Error(s) (dotnet build cc-director.sln)</pre>
+
+<h2>5. How the end-to-end proof reproduces the hang</h2>
+<p>
+  <code>PipedCaller_ReturnsWithFix_AndWouldHangWithoutIt</code> opens an anonymous pipe whose write
+  end is marked inheritable, then starts a long-lived child (<code>ping -n 30 127.0.0.1</code>) two
+  ways and tries to read the pipe to EOF:
+</p>
+<ul>
+  <li><b>OLD</b> (<code>UseShellExecute=false</code>): <code>Process.Start</code> creates the child
+      with <code>bInheritHandles=TRUE</code>, so the child inherits the write handle - exactly how the
+      real Gateway inherited the setup CLI's stdout. The reader gets NO EOF within the window:
+      the hang, reproduced. The test asserts this.</li>
+  <li><b>NEW</b> (the production <code>BuildTrayLaunchInfo</code>, <code>UseShellExecute=true</code>):
+      <code>ShellExecuteEx</code> launches with <code>bInheritHandles=FALSE</code>, so the handle is
+      NOT passed to the child; the reader reaches EOF promptly even though the child is still alive -
+      the piped caller returns. The test asserts this.</li>
+</ul>
+
+<h2>6. CenCon impact</h2>
+<p>
+  No architecture drift and no security-posture change. The launch targets the same exe by the same
+  resolved path (no string concatenation - DT-rule on process paths unaffected) and removes an
+  inherited-handle leak rather than introducing one. No <code>docs/cencon/</code> manifest or
+  security_profile update required.
+</p>
+
+<h2>7. Statement</h2>
+<p class="pass">I believe this issue is finished. All three acceptance criteria are met and proven by
+committed automated tests; the solution builds clean (0 warnings, 0 errors); and the live machine
+fleet was left untouched and confirmed healthy.</p>
+</body>
+</html>

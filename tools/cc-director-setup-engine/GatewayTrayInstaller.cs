@@ -99,13 +99,7 @@ public sealed class GatewayTrayInstaller
         // never disagree.
         try
         {
-            var psi = new ProcessStartInfo
-            {
-                FileName = gatewayExe,
-                Arguments = InstalledArguments,
-                WorkingDirectory = _layout.GatewayDir,
-                UseShellExecute = false,
-            };
+            var psi = BuildTrayLaunchInfo(gatewayExe, _layout.GatewayDir);
             using var p = Process.Start(psi)
                 ?? throw new InvalidOperationException("Process.Start returned null");
             steps.Add($"started Gateway tray app pid={p.Id} ({InstalledArguments})");
@@ -133,6 +127,30 @@ public sealed class GatewayTrayInstaller
 
         EngineLog.Write("[GatewayTrayInstaller] InstallAsync success");
         return new GatewayInstallResult(true, $"Gateway tray app installed and running; Cockpit live at {TailnetResolver.FrontDoorUrl()}.", steps);
+    }
+
+    /// <summary>
+    /// Builds the <see cref="ProcessStartInfo"/> for launching the long-lived tray Gateway.
+    ///
+    /// <c>UseShellExecute=true</c> (with NO <c>RedirectStandard*</c>) so the Gateway does NOT inherit
+    /// the setup CLI's stdout/stderr handles. An inherited stdout pipe keeps the caller's pipe open
+    /// for the Gateway's whole lifetime, so any caller that PIPES the CLI
+    /// (e.g. "... | Select-Object", "... | tail") hangs forever after the CLI exits. This mirrors the
+    /// proven fix on the GatewayApp self-update relaunch path (see
+    /// src/CcDirector.GatewayApp/Program.cs startGateway). See issue #175.
+    /// </summary>
+    public static ProcessStartInfo BuildTrayLaunchInfo(string gatewayExe, string workingDirectory)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(gatewayExe);
+        ArgumentException.ThrowIfNullOrWhiteSpace(workingDirectory);
+
+        return new ProcessStartInfo
+        {
+            FileName = gatewayExe,
+            Arguments = InstalledArguments,
+            WorkingDirectory = workingDirectory,
+            UseShellExecute = true,
+        };
     }
 
     /// <summary>
