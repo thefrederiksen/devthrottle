@@ -6,6 +6,7 @@ using CcDirector.Gateway;
 using CcDirector.Gateway.Api;
 using CcDirector.Gateway.Contracts;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.Logging;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests;
