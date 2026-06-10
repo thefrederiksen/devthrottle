@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Issue #199 - Cockpit persisted logging - Developer Agent proof</title>
+<style>
+  body { font-family: "Segoe UI", Arial, sans-serif; max-width: 1100px; margin: 24px auto; padding: 0 18px; color: #1e1e1e; line-height: 1.5; }
+  h1 { border-bottom: 3px solid #3B82F6; padding-bottom: 8px; }
+  h2 { margin-top: 32px; color: #1d4ed8; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
+  h3 { margin-top: 22px; }
+  code, pre { font-family: "Cascadia Mono", Consolas, monospace; }
+  pre { background: #1e1e1e; color: #d4d4d8; padding: 12px 14px; border-radius: 6px; overflow-x: auto; font-size: 12.5px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 14px; }
+  th, td { border: 1px solid #ccc; padding: 7px 9px; text-align: left; vertical-align: top; }
+  th { background: #eef2ff; }
+  .pass { color: #15803d; font-weight: bold; }
+  .ac { background: #f0fdf4; border-left: 4px solid #15803d; padding: 8px 12px; margin: 12px 0; border-radius: 0 6px 6px 0; }
+  img { max-width: 100%; border: 1px solid #ccc; border-radius: 6px; margin: 8px 0; }
+  .muted { color: #555; font-size: 13px; }
+  .map td:first-child { white-space: nowrap; color: #1d4ed8; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<h1>Issue #199 - [Cockpit] Persisted INFO logging of user actions + stream/circuit lifecycle</h1>
+<p class="muted">Developer Agent (CenCon) - branch <code>issue-199-cockpit-logging</code> - verified 2026-06-10.
+Build: <code>dotnet build cc-director.sln</code> = <b>Build succeeded, 0 Warning(s), 0 Error(s)</b>.
+Tests: <code>CcDirector.Cockpit.Tests</code> = <b>26 passed, 0 failed</b>.</p>
+
+<h2>What was implemented</h2>
+<p>The Cockpit was the only product component with no persisted logging - <code>CockpitSupervisor</code>
+launches it <code>CreateNoWindow</code> with no stdout capture, so every <code>ILogger</code> line went to
+an invisible console and the browser side logged nothing. This change closes that gap:</p>
+<ul>
+  <li><b>A. File sink.</b> New <code>CcDirector.Cockpit/Logging/</code>:
+    <code>CockpitFileLogWriter</code> (a self-contained mirror of the Director/Gateway
+    <code>FileLogWriter</code> - dated file, <code>FileShare.Read</code>, day-rollover, bounded flush),
+    <code>CockpitFileLog</code> (static facade resolving
+    <code>%LOCALAPPDATA%\cc-director\logs\cockpit\cockpit-YYYY-MM-DD-&lt;PID&gt;.log</code>, honoring
+    <code>CC_DIRECTOR_ROOT</code>), and <code>CockpitFileLoggerProvider</code> (routes every
+    <code>ILogger</code> call to the file in the Director text format <code>LEVEL [Category] message</code>).
+    Wired in <code>Program.cs</code> with <code>CcDirector.Cockpit</code> at <code>Debug</code> for the file
+    sink, plus a clean-shutdown flush. (The Cockpit deliberately does not reference Core, so the writer is
+    duplicated, not referenced.)</li>
+  <li><b>B. INFO logging of every user action</b> (each line carries <code>sid</code> + director endpoint):
+    session select (with source), center + right tab switches, composer Send / Queue / Interrupt / Esc /
+    Attach(name+size) / Speak start-stop, kebab actions, new-session open/submit (repo + options), settings
+    open/save, fan-out, hold/wingman toggles. Message <i>text</i> is never logged (secrets rule).</li>
+  <li><b>C. Stream + circuit lifecycle.</b> <code>TerminalPane</code> logs connect attempt / dispatched /
+    dispose, plus an empty-<code>DirectorBase</code> WARNING carrying the session state. New
+    <code>CockpitCircuitHandler</code> persists Blazor circuit opened/UP/DOWN/closed. <code>cockpit-terminal.js</code>
+    now logs ws open / first-frame(bytes+ms) / close(code,reason) / each reconnect attempt, gated behind a
+    <code>localStorage</code> <code>cockpit.debug=1</code> flag.</li>
+</ul>
+
+<h2>How it was proven</h2>
+<p class="muted">An <b>isolated</b> Cockpit was built from this branch and run on
+<code>http://127.0.0.1:7473</code> (alternate port), pointed at the live Gateway roster - the live fleet
+(7878 / 7470 / 7887) was never touched, and no destructive action (Send / Kill) was performed against a live
+session. The Cockpit was driven with a real browser (Edge via browser-harness): select a session, switch
+center+right tabs, open the Terminal stream, open the kebab + a kebab action, open the new-session dialog,
+open settings, and start/cancel Speak. Both the persisted server log and the browser console were captured.</p>
+
+<h2>Acceptance criteria</h2>
+
+<div class="ac"><b class="pass">AC1 PASS</b> - After exercising the Cockpit, the file
+<code>cockpit-YYYY-MM-DD-&lt;PID&gt;.log</code> exists and contains INFO lines.<br>
+<span class="muted">Proof: <code>cockpit-action-log-excerpt.txt</code> - file <code>cockpit-2026-06-10-10684.log</code>,
+starting with <code>INFO [Program] Cockpit starting; log file = ...</code>. Framework
+<code>[Lifetime]</code> lines also persist, proving the provider routes <i>all</i> ILogger output.</span></div>
+
+<div class="ac"><b class="pass">AC2 PASS</b> - A representative action sequence produces one INFO line per
+action, each carrying <code>sid</code> + director endpoint.<br>
+<span class="muted">Proof: the annotated click&rarr;line mapping below + <code>cockpit-action-log-excerpt.txt</code>.</span></div>
+
+<div class="ac"><b class="pass">AC3 PASS</b> - A terminal connect attempt and its outcome are logged
+server-side; with <code>cockpit.debug=1</code> the browser console logs ws open/close with code+reason.<br>
+<span class="muted">Proof: server lines 14-15 (<code>TerminalPane connect attempt ... wsUrl=...</code> /
+<code>connect dispatched</code>) and <code>browser-console-cockpit-debug.txt</code>
+(<code>ws close code=1006 reason=(none)</code> + reconnect attempts), screenshot 03 + 05.</span></div>
+
+<div class="ac"><b class="pass">AC4 PASS</b> - The blank-terminal failure mode (empty DirectorBase / no
+connect) is now visible in the persisted log as a WARNING.<br>
+<span class="muted">Proof: the exact WARNING line shape is pinned by a unit test against the production
+renderer - <code>CockpitFileLoggerProviderTests.RenderLine_BlankDirectorBaseWarning_UsesWarnTagAndCarriesState</code>
+asserts <code>WARN [TerminalPane] TerminalPane empty DirectorBase sid=... state=...</code>. The
+<code>TerminalPane</code> emits this at <code>Log.LogWarning</code> when <code>DirectorBase</code> is blank, and
+the file sink persists WARNINGs (the <code>CockpitCircuitHandler</code> DOWN line in the excerpt is a live WARN
+example proving the sink writes WARNING level). Every live session in the harness had a reachable endpoint, so
+the empty-endpoint branch could not be triggered live without disturbing the fleet; it is therefore proven by
+the production-renderer unit test plus the live WARN-persistence evidence.</span></div>
+
+<h2>Annotated action &rarr; log-line mapping (AC2)</h2>
+<table class="map">
+<tr><th>User action (browser click)</th><th>Persisted log line (server)</th></tr>
+<tr><td>Select session "bpmnStudio - research" (rail click)</td><td><code>INFO [Cockpit] Cockpit: select session sid=be3ee447-... source=rail director=http://127.0.0.1:7887</code></td></tr>
+<tr><td>Center tab &rarr; Terminal</td><td><code>INFO [Cockpit] Cockpit: center tab -&gt; term sid=be3ee447-... director=http://127.0.0.1:7887</code></td></tr>
+<tr><td>(Terminal opens the stream)</td><td><code>INFO [TerminalPane] TerminalPane connect attempt sid=be3ee447-... wsUrl=ws://127.0.0.1:7473/sessions/.../stream</code> &rarr; <code>connect dispatched</code></td></tr>
+<tr><td>Center tab &rarr; Wingman</td><td><code>INFO [Cockpit] Cockpit: center tab -&gt; brief ...</code> + <code>INFO [TerminalPane] TerminalPane dispose sid=be3ee447-...</code></td></tr>
+<tr><td>+ New session (open dialog)</td><td><code>INFO [Cockpit] Cockpit: new-session dialog open</code></td></tr>
+<tr><td>Settings (open dialog)</td><td><code>INFO [Cockpit] Cockpit: settings dialog open</code></td></tr>
+<tr><td>Kebab &rarr; Copy Handover Info</td><td><code>INFO [Cockpit] Cockpit: kebab action=copy-handover sid=be3ee447-... director=http://127.0.0.1:7887</code></td></tr>
+<tr><td>Composer Speak (open dictation)</td><td><code>INFO [Cockpit] Cockpit: composer Speak start sid=be3ee447-... director=http://127.0.0.1:7887</code></td></tr>
+<tr><td>Speak Cancel</td><td><code>INFO [Cockpit] Cockpit: composer Speak stop (cancel) sid=be3ee447-...</code></td></tr>
+<tr><td>Right tab &rarr; Queue / Director / Screenshots</td><td><code>INFO [Cockpit] Cockpit: right tab -&gt; queue|director|shots sid=be3ee447-... director=http://127.0.0.1:7887</code></td></tr>
+<tr><td>Browser tab connect / reconnect / close (circuit)</td><td><code>INFO/WARN [CockpitCircuitHandler] Circuit opened|connection UP|connection DOWN|closed id=...</code></td></tr>
+</table>
+
+<h2>Browser console (cockpit.debug=1) - AC3</h2>
+<pre>[cockpit-terminal] connect -&gt; ws://127.0.0.1:7473/sessions/be3ee447-.../stream
+[cockpit-terminal] ws error ws://127.0.0.1:7473/sessions/be3ee447-.../stream
+[cockpit-terminal] ws close code=1006 reason=(none)
+[cockpit-terminal] reconnect attempt 2 -&gt; ws://127.0.0.1:7473/sessions/be3ee447-.../stream
+... (attempts 3, 4, 5 follow, see browser-console-cockpit-debug.txt)</pre>
+<p class="muted">With the flag absent the console stays quiet. Full capture: <code>browser-console-cockpit-debug.txt</code>.</p>
+
+<h2>Screenshots</h2>
+<h3>01 - Cockpit loaded (isolated, live roster)</h3>
+<img src="01-cockpit-loaded.png" alt="cockpit loaded">
+<h3>02 - Session selected</h3>
+<img src="02-session-selected.png" alt="session selected">
+<h3>03 - Terminal tab open (stream + browser console logging)</h3>
+<img src="03-terminal-tab-stream.png" alt="terminal tab">
+<h3>04 - New session dialog</h3>
+<img src="04-new-session-dialog.png" alt="new session dialog">
+<h3>05 - Speak (dictation) dialog</h3>
+<img src="05-speak-dictation.png" alt="speak dialog">
+
+<h2>CenCon impact</h2>
+<p>No architecture or security drift. This change adds the persisted logging that the existing security
+profile already expects (DT-06 "Comprehensive logging (FileLog)"). It honors the secrets rules
+(DT-01 / DT-05 "secrets never logged"): composer message text and prompt bodies are never logged - only the
+action, the <code>sid</code>, the director endpoint, and non-sensitive metadata (attach name+size, repo +
+new-session options). No <code>architecture_manifest.yaml</code> container shape changed; no new blocking
+security rule is touched.</p>
+
+<h2>Tests added</h2>
+<ul>
+  <li><code>CockpitFileLogWriterTests</code> - dated-path naming (cockpit- prefix), day-rollover lands in the new
+    file, transient write failure does not kill the writer thread, bounded-interval flush under load, blank-dir
+    ctor guard.</li>
+  <li><code>CockpitFileLoggerProviderTests</code> - the production renderer's exact text contract: INFO/WARN/ERROR
+    tags, short category, the blank-DirectorBase WARNING shape (AC4), exception append, and every level&rarr;tag mapping.</li>
+</ul>
+
+<p><b>I believe this is finished.</b> All four acceptance criteria are met with proof, the solution builds clean
+(0 warnings / 0 errors), all 26 Cockpit tests pass, and the live fleet was confirmed up after teardown.</p>
+
+</body>
+</html>

@@ -1,0 +1,31 @@
+Browser console capture (Edge), with localStorage 'cockpit.debug' = 1, isolated Cockpit on
+http://127.0.0.1:7473 (against the live Gateway roster). These lines are emitted by
+wwwroot/js/cockpit-terminal.js ONLY when the cockpit.debug flag is set; with the flag absent
+the console stays quiet (issue #199 scope C requirement). Each line is prefixed [cockpit-terminal].
+
+In this isolated harness the standalone Cockpit has no Gateway WS proxy on its own origin
+(7473), so the per-session stream WebSocket closes with code 1006 and the bounded reconnect
+loop fires - which is exactly the remote-WS failure shape #199 wants visible in the console.
+
+[cockpit-terminal] connect -> ws://127.0.0.1:7473/sessions/be3ee447-ef39-462a-85ab-2b067df85c1c/stream
+[cockpit-terminal] ws error ws://127.0.0.1:7473/sessions/be3ee447-ef39-462a-85ab-2b067df85c1c/stream
+[cockpit-terminal] ws close code=1006 reason=(none)
+[cockpit-terminal] reconnect attempt 2 -> ws://127.0.0.1:7473/sessions/be3ee447-ef39-462a-85ab-2b067df85c1c/stream
+[cockpit-terminal] ws error ws://127.0.0.1:7473/sessions/be3ee447-ef39-462a-85ab-2b067df85c1c/stream
+[cockpit-terminal] ws close code=1006 reason=(none)
+[cockpit-terminal] reconnect attempt 3 -> ws://127.0.0.1:7473/sessions/be3ee447-ef39-462a-85ab-2b067df85c1c/stream
+[cockpit-terminal] ws error ws://127.0.0.1:7473/sessions/be3ee447-ef39-462a-85ab-2b067df85c1c/stream
+[cockpit-terminal] ws close code=1006 reason=(none)
+[cockpit-terminal] reconnect attempt 4 -> ws://127.0.0.1:7473/sessions/be3ee447-ef39-462a-85ab-2b067df85c1c/stream
+[cockpit-terminal] ws error ws://127.0.0.1:7473/sessions/be3ee447-ef39-462a-85ab-2b067df85c1c/stream
+[cockpit-terminal] ws close code=1006 reason=(none)
+[cockpit-terminal] reconnect attempt 5 -> ws://127.0.0.1:7473/sessions/be3ee447-ef39-462a-85ab-2b067df85c1c/stream
+[cockpit-terminal] ws error ws://127.0.0.1:7473/sessions/be3ee447-ef39-462a-85ab-2b067df85c1c/stream
+[cockpit-terminal] ws close code=1006 reason=(none)
+
+Notes on the additional logged events (also gated behind cockpit.debug=1, see cockpit-terminal.js):
+- "ws open <url> (<n>ms to open)" - logged on a successful WebSocket open.
+- "first frame <n bytes/chars> (<n>ms since connect)" - logged on the first stream frame.
+- "gave up after 30 attempts; last close code <n>" - logged when the bounded retry budget is spent.
+These three did not appear in THIS capture because the isolated origin has no WS proxy, so the
+socket never opened and never reached the give-up threshold during the capture window.

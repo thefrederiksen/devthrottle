@@ -1,11 +1,29 @@
 using CcDirector.Cockpit.Components;
+using CcDirector.Cockpit.Logging;
 using CcDirector.Cockpit.Services;
 using Microsoft.AspNetCore.HttpOverrides;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Persisted logging (issue #199): the Cockpit was the only product component with no file sink.
+// Start the background writer FIRST, then route ILogger through it, so every component's
+// Log.* call (action logging + stream/circuit lifecycle) lands in
+// %LOCALAPPDATA%\cc-director\logs\cockpit\cockpit-YYYY-MM-DD-<PID>.log. Keep the framework's
+// own providers (console) for the dev `dotnet run` case; the file provider is additive.
+CockpitFileLog.Start();
+builder.Logging.AddProvider(new CockpitFileLoggerProvider());
+// Effective floor for the file sink: Debug for our own components (so DEBUG diagnostics persist
+// during active development per the issue's INFO-heavy direction), Information elsewhere to keep
+// the framework's own chatter out of the file.
+builder.Logging.SetMinimumLevel(LogLevel.Information);
+builder.Logging.AddFilter("CcDirector.Cockpit", LogLevel.Debug);
+CockpitFileLog.Write($"INFO [Program] Cockpit starting; log file = {CockpitFileLog.CurrentLogPath}");
+
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
+
+// Persist Blazor circuit reconnect events to the Cockpit log (issue #199, scope C).
+builder.Services.AddScoped<Microsoft.AspNetCore.Components.Server.Circuits.CircuitHandler, CcDirector.Cockpit.Logging.CockpitCircuitHandler>();
 
 // The Gateway base URL. Defaults to the loopback Gateway on this box; override in
 // appsettings.json (Cockpit:GatewayUrl) or via env var Cockpit__GatewayUrl.
@@ -86,5 +104,12 @@ app.MapGet("/voice", () => Results.Redirect("/transcripts"));
 
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
+
+// Flush and stop the file-log writer on a clean shutdown so the tail of the log is not lost.
+app.Lifetime.ApplicationStopped.Register(() =>
+{
+    CockpitFileLog.Write("INFO [Program] Cockpit stopped");
+    CockpitFileLog.Stop();
+});
 
 app.Run();

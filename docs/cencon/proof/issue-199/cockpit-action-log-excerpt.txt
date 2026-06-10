@@ -1,0 +1,27 @@
+2026-06-10 18:59:40.395 INFO [Program] Cockpit starting; log file = C:\Users\soren\AppData\Local\cc-director\logs\cockpit\cockpit-2026-06-10-10684.log
+2026-06-10 18:59:40.538 INFO [Lifetime] Now listening on: http://127.0.0.1:7473
+2026-06-10 18:59:40.539 INFO [Lifetime] Application started. Press Ctrl+C to shut down.
+2026-06-10 18:59:40.539 INFO [Lifetime] Hosting environment: Development
+2026-06-10 18:59:40.539 INFO [Lifetime] Content root path: D:\ReposFred\cc-director-wt-199\src\CcDirector.Cockpit
+2026-06-10 19:00:06.954 INFO [CockpitCircuitHandler] Circuit opened id=WtPcTVc9OzAdjfE98RBwZv32UgyM4UjN5Mbjprc9sLk
+2026-06-10 19:00:06.955 INFO [CockpitCircuitHandler] Circuit connection UP id=WtPcTVc9OzAdjfE98RBwZv32UgyM4UjN5Mbjprc9sLk (browser (re)connected)
+2026-06-10 19:00:07.160 WARN [CockpitCircuitHandler] Circuit connection DOWN id=WtPcTVc9OzAdjfE98RBwZv32UgyM4UjN5Mbjprc9sLk (browser disconnected; reconnect pending)
+2026-06-10 19:00:07.161 INFO [CockpitCircuitHandler] Circuit closed id=WtPcTVc9OzAdjfE98RBwZv32UgyM4UjN5Mbjprc9sLk
+2026-06-10 19:00:07.615 INFO [CockpitCircuitHandler] Circuit opened id=ZQiJKhnWTT4t8T32HixUnBDLJ_ENbbBkma3VLcUU8OA
+2026-06-10 19:00:07.615 INFO [CockpitCircuitHandler] Circuit connection UP id=ZQiJKhnWTT4t8T32HixUnBDLJ_ENbbBkma3VLcUU8OA (browser (re)connected)
+2026-06-10 19:01:06.594 INFO [Cockpit] Cockpit: select session sid=be3ee447-ef39-462a-85ab-2b067df85c1c source=rail director=http://127.0.0.1:7887
+2026-06-10 19:01:09.750 INFO [Cockpit] Cockpit: center tab -> term sid=be3ee447-ef39-462a-85ab-2b067df85c1c director=http://127.0.0.1:7887
+2026-06-10 19:01:09.781 INFO [TerminalPane] TerminalPane connect attempt sid=be3ee447-ef39-462a-85ab-2b067df85c1c wsUrl=ws://127.0.0.1:7473/sessions/be3ee447-ef39-462a-85ab-2b067df85c1c/stream
+2026-06-10 19:01:09.793 INFO [TerminalPane] TerminalPane connect dispatched sid=be3ee447-ef39-462a-85ab-2b067df85c1c
+2026-06-10 19:01:14.906 INFO [Cockpit] Cockpit: center tab -> brief sid=be3ee447-ef39-462a-85ab-2b067df85c1c director=http://127.0.0.1:7887
+2026-06-10 19:01:14.907 INFO [TerminalPane] TerminalPane dispose sid=be3ee447-ef39-462a-85ab-2b067df85c1c
+2026-06-10 19:01:55.156 INFO [Cockpit] Cockpit: select session sid=be3ee447-ef39-462a-85ab-2b067df85c1c source=rail director=http://127.0.0.1:7887
+2026-06-10 19:01:57.519 INFO [Cockpit] Cockpit: new-session dialog open
+2026-06-10 19:02:01.231 INFO [Cockpit] Cockpit: settings dialog open
+2026-06-10 19:02:43.487 INFO [Cockpit] Cockpit: select session sid=be3ee447-ef39-462a-85ab-2b067df85c1c source=rail director=http://127.0.0.1:7887
+2026-06-10 19:03:11.073 INFO [Cockpit] Cockpit: kebab action=copy-handover sid=be3ee447-ef39-462a-85ab-2b067df85c1c director=http://127.0.0.1:7887
+2026-06-10 19:03:58.188 INFO [Cockpit] Cockpit: composer Speak start sid=be3ee447-ef39-462a-85ab-2b067df85c1c director=http://127.0.0.1:7887
+2026-06-10 19:04:00.324 INFO [Cockpit] Cockpit: composer Speak stop (cancel) sid=be3ee447-ef39-462a-85ab-2b067df85c1c
+2026-06-10 19:04:42.473 INFO [Cockpit] Cockpit: right tab -> queue sid=be3ee447-ef39-462a-85ab-2b067df85c1c director=http://127.0.0.1:7887
+2026-06-10 19:04:43.497 INFO [Cockpit] Cockpit: right tab -> director sid=be3ee447-ef39-462a-85ab-2b067df85c1c director=http://127.0.0.1:7887
+2026-06-10 19:04:44.504 INFO [Cockpit] Cockpit: right tab -> shots sid=be3ee447-ef39-462a-85ab-2b067df85c1c director=http://127.0.0.1:7887

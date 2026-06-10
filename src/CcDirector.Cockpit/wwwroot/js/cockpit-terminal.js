@@ -20,6 +20,17 @@
 
 const terms = new Map(); // id -> state
 
+// Browser-side stream logging (issue #199), gated behind a localStorage flag so a normal user's
+// console stays quiet while a developer debugging the remote-WS failures (#198/#226/#268) can flip
+// it on with `localStorage.setItem('cockpit.debug','1')` and reload. When off, dbg() is a no-op.
+function debugOn() {
+  try { return window.localStorage.getItem("cockpit.debug") === "1"; } catch (e) { return false; }
+}
+function dbg() {
+  if (!debugOn()) return;
+  try { console.log.apply(console, ["[cockpit-terminal]"].concat(Array.prototype.slice.call(arguments))); } catch (e) {}
+}
+
 // Bounded reconnect (issue #198): a hung/failing WebSocket used to retry every 1200ms FOREVER
 // with no on-screen feedback, indistinguishable from a healthy idle stream (blank pane). We now
 // show a visible status line on every connect attempt and stop after a run of consecutive
@@ -79,7 +90,7 @@ export function connect(id, hostEl, wsUrl, dotNetRef) {
     term.onData((data) => { try { dotNetRef.invokeMethodAsync("OnInput", data); } catch (e) {} });
   }
 
-  const state = { term, ws: null, wantOpen: true, host: hostEl, wsUrl, reconnectTimer: null, lastCols: 0, lastRows: 0, attempts: 0, gotFirstByte: false };
+  const state = { term, ws: null, wantOpen: true, host: hostEl, wsUrl, reconnectTimer: null, lastCols: 0, lastRows: 0, attempts: 0, gotFirstByte: false, connectStartedAt: 0 };
   terms.set(id, state);
 
   openWs(state);
@@ -103,17 +114,22 @@ function openWs(state) {
   t.reset(); // each connection replays full history from byte 0
   state.gotFirstByte = false;
   const wsHost = wsHostOf(state.wsUrl);
+  if (state.attempts > 0)
+    dbg("reconnect attempt", state.attempts + 1, "->", state.wsUrl);
+  else
+    dbg("connect ->", state.wsUrl);
   statusLine(state, state.attempts > 0
     ? "stream lost, reconnecting to " + wsHost + " (attempt " + (state.attempts + 1) + ")..."
     : "connecting to " + wsHost + "...");
   let ws;
+  state.connectStartedAt = Date.now();
   try { ws = new WebSocket(state.wsUrl); }
-  catch (e) { statusLine(state, "cannot open stream: " + e.message); return; }
+  catch (e) { dbg("ws construct failed:", e && e.message); statusLine(state, "cannot open stream: " + e.message); return; }
   ws.binaryType = "arraybuffer";
   state.ws = ws;
 
-  ws.onopen = () => { console.info("[cockpit-terminal] ws open", state.wsUrl); };
-  ws.onerror = () => { console.warn("[cockpit-terminal] ws error", state.wsUrl); };
+  ws.onopen = () => { dbg("ws open", state.wsUrl, "(" + (Date.now() - state.connectStartedAt) + "ms to open)"); };
+  ws.onerror = () => { dbg("ws error", state.wsUrl); };
 
   ws.onmessage = (ev) => {
     if (!state.gotFirstByte) {
@@ -122,6 +138,10 @@ function openWs(state) {
       // Director path is up. Replay starts at byte 0, so resetting here loses nothing.
       state.gotFirstByte = true;
       state.attempts = 0;
+      var firstBytes = typeof ev.data === "string"
+        ? (ev.data.length + " chars")
+        : ((ev.data && ev.data.byteLength ? ev.data.byteLength : 0) + " bytes");
+      dbg("first frame", firstBytes, "(" + (Date.now() - state.connectStartedAt) + "ms since connect)");
       try { t.reset(); } catch (e) {}
     }
     if (typeof ev.data === "string") {
@@ -136,10 +156,11 @@ function openWs(state) {
   };
   ws.onclose = (ev) => {
     if (state.ws === ws) state.ws = null;
-    console.warn("[cockpit-terminal] ws close", ev && ev.code, (ev && ev.reason) || "");
+    dbg("ws close", "code=" + (ev && ev.code), "reason=" + ((ev && ev.reason) || "(none)"));
     if (!state.wantOpen || state.reconnectTimer) return;
     state.attempts += 1;
     if (state.attempts > MAX_RECONNECT_ATTEMPTS) {
+      dbg("gave up after", MAX_RECONNECT_ATTEMPTS, "attempts; last close code", ev && ev.code);
       statusLine(state, "stream to " + wsHost + " is down - gave up after " + MAX_RECONNECT_ATTEMPTS +
         " attempts (last close code " + (ev && ev.code) + "). Re-select the session to retry.");
       return;
