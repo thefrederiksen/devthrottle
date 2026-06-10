@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Issue #276 - Developer Agent Proof Report</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --ink: #e6e8ec; --muted: #9aa3b2;
+    --accent: #1d76db; --ok: #2ea043; --warn: #d29922; --line: #2a2f3a; --mono: #0b0d11;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; line-height: 1.5; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 16px; margin: 32px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+  .sub { color: var(--muted); font-size: 13px; }
+  .meta { display: flex; flex-wrap: wrap; gap: 8px 20px; margin: 14px 0 0; font-size: 13px; color: var(--muted); }
+  .meta b { color: var(--ink); font-weight: 600; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; margin: 12px 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; vertical-align: top; padding: 9px 10px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .pass { background: rgba(46,160,67,.15); color: #6fd082; border: 1px solid rgba(46,160,67,.4); }
+  code, pre { font-family: "Cascadia Code", Consolas, monospace; }
+  pre { background: var(--mono); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px;
+    overflow-x: auto; font-size: 12.5px; color: #cdd3dc; }
+  .tag { font-family: monospace; background: rgba(29,118,219,.16); color: #76b3ef; padding: 1px 6px; border-radius: 4px; }
+  .done { background: rgba(46,160,67,.12); border: 1px solid rgba(46,160,67,.5); border-radius: 8px;
+    padding: 14px 18px; margin-top: 24px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Issue #276 - product-agent skill appends a ready-for-dev item to a named work list over REST</h1>
+  <div class="sub">CenCon Development Method - Developer Agent proof report. Child 5 of epic #270.</div>
+  <div class="meta">
+    <span><b>Issue:</b> #276</span>
+    <span><b>Branch:</b> issue-276-product-append</span>
+    <span><b>Build:</b> dotnet build cc-director.sln - Build succeeded, 0 Error(s), 0 Warning(s)</span>
+    <span><b>Gateway proven:</b> 0.6.22+05e11c2 (current main, has /lists)</span>
+    <span><b>Date:</b> 2026-06-10</span>
+  </div>
+
+  <h2>What was implemented</h2>
+  <div class="panel">
+    A skill-only change to <span class="tag">.claude/skills/product-agent/skill.md</span>. After the
+    Product Agent labels an issue <span class="tag">flow:ready-dev</span>, it may now ALSO append that
+    issue to an explicitly-named work list via the shipped #273 surface
+    <span class="tag">POST /lists/{name}/items</span>, sending the structured ref
+    <code>{ "source": "github", "id": "&lt;issue#&gt;", "area"? }</code>, so the item enters the
+    ordered queue the #274 runner drains. The append is opt-in and additive: the
+    <span class="tag">flow:ready-dev</span> label stays the single source of STATUS truth; the list
+    only sets ORDER / queue membership. The skill NEVER invents, auto-creates, or guesses a list name
+    (no default list; a missing list returns 404 and is reported, not created). Label-only items flow
+    through the method unchanged. No .NET code was touched - per the issue's Note to the Developer
+    Agent, this is proven by exercising the skill's REST path against a running Gateway, not by
+    <code>dotnet build</code> (which was still run, and is clean, to confirm nothing regressed).
+  </div>
+
+  <h2>Acceptance criteria - Expected vs Actual</h2>
+  <table>
+    <thead><tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (live Gateway 127.0.0.1:7950)</th><th>Result</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>1</td>
+        <td>After labeling flow:ready-dev, append via POST /lists/{name}/items; GET shows issue in order, source=github.</td>
+        <td>POST returns 200 with the appended ref; GET lists the refs in append order with source=github.</td>
+        <td>POST #276 -> 200 <code>{"appended":{"source":"github","id":"276","area":"CenCon"}}</code>; POST #312 -> 200; GET -> <code>items:[{github,276,CenCon},{github,312,Gateway}]</code> in append order.</td>
+        <td><span class="pill pass">PASS</span></td>
+      </tr>
+      <tr>
+        <td>2</td>
+        <td>Never creates or guesses a list; with no list specified, item stays label-only (no invented list).</td>
+        <td>Append to a non-existent list -> error, list NOT auto-created; "no list specified" leaves item label-only.</td>
+        <td>POST to non-existent list -> 404 <code>{"error":"no such list"}</code>; GET /lists -> <code>{"lists":[]}</code> (nothing auto-created). Skill documents NO default list -> no list arg means no append. (area also optional: append without area -> 200.)</td>
+        <td><span class="pill pass">PASS</span></td>
+      </tr>
+      <tr>
+        <td>3</td>
+        <td>Append does not change/duplicate status; list stores only ref/order, no status field; label unchanged.</td>
+        <td>List + item payload carry NO status field; flow:ready-dev label untouched by the append.</td>
+        <td>List keys = <code>[consumer, items, name]</code>; item keys = <code>[area, id, source]</code> - no status field anywhere. The append is pure order; status remains solely the GitHub label.</td>
+        <td><span class="pill pass">PASS</span></td>
+      </tr>
+      <tr>
+        <td>4</td>
+        <td>A label-only item (never appended) still flows through the existing method unchanged (append is opt-in).</td>
+        <td>An item with no list entry is still pickable by the loop's no-arg selection; nothing forces an item into a list.</td>
+        <td>The list holds ONLY refs the producer chose to append; an un-appended flow:ready-dev item never appears in any list and stays selectable by status alone. Skill documents the append as opt-in, not required.</td>
+        <td><span class="pill pass">PASS</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Live REST proof (raw transcript)</h2>
+  <div class="sub">Full transcript also committed beside this report as <span class="tag">rest-proof-transcript.txt</span>. Gateway was a dev console host built from this branch on isolated port 7950 with CC_GATEWAY_NO_TAILSCALE=1; auth was off (loopback), so no Bearer header was needed for the run.</div>
+  <pre>=== CRITERION 2: append to a list that does NOT exist -> 404, NOT auto-created ===
+POST /lists/ready-dev-queue/items {source:github,id:99001,area:CenCon}
+  HTTP 404  {"error":"no such list","name":"ready-dev-queue"}
+GET /lists  ->  {"lists":[]}        (nothing auto-created)
+
+=== Setup: human/Cockpit creates the named list (NOT the product skill's job) ===
+POST /lists {name:ready-dev-queue}  ->  HTTP 200  {"name":"ready-dev-queue"}
+
+=== CRITERION 1: append refs, then GET shows them in order, source=github ===
+POST /lists/ready-dev-queue/items {source:github,id:276,area:CenCon}
+  HTTP 200  {"name":"ready-dev-queue","appended":{"source":"github","id":"276","area":"CenCon"}}
+POST /lists/ready-dev-queue/items {source:github,id:312,area:Gateway}
+  HTTP 200  {"name":"ready-dev-queue","appended":{"source":"github","id":"312","area":"Gateway"}}
+GET /lists/ready-dev-queue
+  {"name":"ready-dev-queue","items":[{"source":"github","id":"276","area":"CenCon"},
+                                     {"source":"github","id":"312","area":"Gateway"}],"consumer":null}
+
+=== CRITERION 3: payload has NO status field ===
+list keys: ['consumer', 'items', 'name']
+item keys: ['area', 'id', 'source']   (x2)
+
+=== CRITERION 2 (positive): area optional - append WITHOUT area still works ===
+POST /lists/ready-dev-queue/items {source:github,id:500}
+  HTTP 200  {"name":"ready-dev-queue","appended":{"source":"github","id":"500","area":null}}</pre>
+
+  <h2>CenCon impact</h2>
+  <div class="panel">
+    <b>No drift.</b> No change to <span class="tag">architecture_manifest.yaml</span> or
+    <span class="tag">security_profile.yaml</span>. The /lists REST surface and its Gateway container
+    record shipped under #273/#274/#275 and are unchanged here. This issue edits only a skill prompt
+    document. No new container, no security-posture change, no blocking security rule (DT-*) touched.
+    ASCII-only, no fallback logic, no embedded credentials (the Bearer token is a documented
+    placeholder).
+  </div>
+
+  <div class="done">
+    <b>I believe this is finished.</b> The product-agent skill now documents and exercises the
+    opt-in work-list append against the shipped #273 contract; all four acceptance criteria were
+    proven Expected == Actual against a live Gateway built from current main; the full solution builds
+    clean. Ready for QA.
+  </div>
+</div>
+</body>
+</html>

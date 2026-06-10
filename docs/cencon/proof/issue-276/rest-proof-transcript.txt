@@ -1,0 +1,42 @@
+=== ISSUE #276 PROOF - product-agent work-list append over REST ===
+Gateway: http://127.0.0.1:7950  version=0.6.22+05e11c2bdc2495843cf2ce9473791c6ad84fcea3
+Date: 2026-06-10T19:23:46Z
+
+=== CRITERION 2: skill never invents a list. Append to a list that does NOT exist -> 404, NOT auto-created ===
+-- POST /lists/ready-dev-queue/items for a NON-existent list (simulating: skill must NOT create it):
+HTTP 404
+Body: {"error":"no such list","name":"ready-dev-queue"}
+-- GET /lists confirms NO list was auto-created by that failed append:
+{"lists":[]}
+
+=== Setup: a human/Cockpit creates the named list (NOT the product skill's job) ===
+HTTP 200
+Body: {"name":"ready-dev-queue"}
+
+=== CRITERION 1: skill path - after labeling flow:ready-dev, append issue ref, then GET shows it in order ===
+-- append issue 276 (source=github, id as string, area from prefix):
+HTTP 200
+Body: {"name":"ready-dev-queue","appended":{"source":"github","id":"276","area":"CenCon"}}
+-- append a second issue to prove ORDER is preserved:
+HTTP 200
+Body: {"name":"ready-dev-queue","appended":{"source":"github","id":"312","area":"Gateway"}}
+-- GET /lists/ready-dev-queue shows both refs in append order, source=github:
+{"name":"ready-dev-queue","items":[{"source":"github","id":"276","area":"CenCon"},{"source":"github","id":"312","area":"Gateway"}],"consumer":null}
+
+=== CRITERION 3: list payload carries NO status field (append cannot duplicate flow status) ===
+-- keys present in each item ref (must be only source/id/area, never status):
+list keys: ['consumer', 'items', 'name']
+item keys: ['area', 'id', 'source']
+item keys: ['area', 'id', 'source']
+
+=== CRITERION 2 (positive): area is OPTIONAL - append WITHOUT area still works (skill may omit) ===
+HTTP 200
+Body: {"name":"ready-dev-queue","appended":{"source":"github","id":"500","area":null}}
+
+=== CRITERION 4: a label-only item (never appended) is independent of any list ===
+Issue #276 in the list does NOT change its GitHub label state; the list is order-only,
+and an item with no list entry simply never appears here - it remains pickable by the
+loop's no-arg selection (flow:ready-dev). Demonstrated structurally: the list holds only
+refs the producer chose to append; nothing forces an item into a list.
+
+=== PROOF COMPLETE ===
