@@ -1,0 +1,176 @@
+GATEWAY_UP base=http://127.0.0.1:50771 token=qa273-token-2b80d54cd6a74d7894eb75154e2bc4a2
+ENDPOINT_FILE D:\qa-273-verify\endpoint.txt
+
+========== AUTH-GUARD (no token -> 401): PASS ==========
+  Expected: GET /lists with no Bearer token -> 401 Unauthorized
+  Actual:   status=401 body={"error":"missing or invalid token"}
+
+[req] POST /lists {"name":"backlog"}
+[resp] 200 {"name":"backlog"}
+[req] GET /lists
+[resp] 200
+{
+  "lists": [
+    {
+      "name": "backlog",
+      "items": [],
+      "consumer": null
+    }
+  ]
+}
+
+========== C1 create+list: PASS ==========
+  Expected: POST /lists 200; GET /lists includes 'backlog'
+  Actual:   POST status=200; GET contains backlog=True
+
+[req] 3x POST /lists/backlog/items (github 262/Gateway, 263/Core, 264/none)
+[req] GET /lists/backlog
+[resp] 200
+{
+  "name": "backlog",
+  "items": [
+    {
+      "source": "github",
+      "id": "262",
+      "area": "Gateway"
+    },
+    {
+      "source": "github",
+      "id": "263",
+      "area": "Core"
+    },
+    {
+      "source": "github",
+      "id": "264",
+      "area": null
+    }
+  ],
+  "consumer": null
+}
+
+========== C2 append + round-trip source/id/area in order: PASS ==========
+  Expected: 3 items in append order; 262/Gateway, 263/Core, 264/null area; source=github preserved
+  Actual:   ids=[262,263,264] area0=Gateway
+
+[req] append github/262, devops/1203, jira/CCD-44 to 'mixed'
+[req] GET /lists/mixed
+[resp] 200
+{
+  "name": "mixed",
+  "items": [
+    {
+      "source": "github",
+      "id": "262",
+      "area": null
+    },
+    {
+      "source": "devops",
+      "id": "1203",
+      "area": null
+    },
+    {
+      "source": "jira",
+      "id": "CCD-44",
+      "area": null
+    }
+  ],
+  "consumer": null
+}
+
+========== C3 mixed-source accepted + ordered: PASS ==========
+  Expected: github/262, devops/1203, jira/CCD-44 all stored, in order, none rejected
+  Actual:   sources=[github,devops,jira] ids=[262,1203,CCD-44]
+
+[req] PATCH /lists/mixed/items [jira/CCD-44, github/262, devops/1203]
+[resp] 200
+[req] GET /lists/mixed
+[resp] 200
+{
+  "name": "mixed",
+  "items": [
+    {
+      "source": "jira",
+      "id": "CCD-44",
+      "area": null
+    },
+    {
+      "source": "github",
+      "id": "262",
+      "area": null
+    },
+    {
+      "source": "devops",
+      "id": "1203",
+      "area": null
+    }
+  ],
+  "consumer": null
+}
+
+========== C4 PATCH reorders: PASS ==========
+  Expected: after PATCH, order is CCD-44, 262, 1203
+  Actual:   patch status=200; order=[CCD-44,262,1203]
+
+[req] DELETE /lists/mixed/items/github/262
+[resp] 200 {"name":"mixed","source":"github","id":"262","removed":true}
+[req] GET /lists/mixed
+[resp] 200
+{
+  "name": "mixed",
+  "items": [
+    {
+      "source": "jira",
+      "id": "CCD-44",
+      "area": null
+    },
+    {
+      "source": "devops",
+      "id": "1203",
+      "area": null
+    }
+  ],
+  "consumer": null
+}
+
+========== C5 DELETE by source+id; rest keep order: PASS ==========
+  Expected: github/262 removed; remaining [CCD-44, 1203] keep relative order
+  Actual:   delete status=200; remaining=[CCD-44,1203]
+
+[req] POST consumer (1st) -> 200 {"name":"mixed","consumer":"eda15945f8854929b1500e8098ad011c"}
+[req] POST consumer (2nd, held) -> 409 {"error":"list already has an active consumer","name":"mixed"}
+[req] DELETE consumer -> 200 {"name":"mixed","released":true}
+[req] POST consumer (after release) -> 200 {"name":"mixed","consumer":"60afd1d951734604906eb759a3234bc4"}
+
+========== C6 single-consumer claim semantics: PASS ==========
+  Expected: 1st claim 200; 2nd (held) 409; release 200; re-claim 200
+  Actual:   1st=200 2nd=409 release=200 reclaim=200
+
+[req] GET /lists/mixed (inspect for status field)
+[resp] 200
+{
+  "name": "mixed",
+  "items": [
+    {
+      "source": "jira",
+      "id": "CCD-44",
+      "area": null
+    },
+    {
+      "source": "devops",
+      "id": "1203",
+      "area": null
+    }
+  ],
+  "consumer": "60afd1d951734604906eb759a3234bc4"
+}
+
+========== C7 no item-status field: PASS ==========
+  Expected: payload carries only name/items/consumer + per-item source/id/area; no status/flow anywhere
+  Actual:   top-level fields=[name,items,consumer]; per-item has-no-status=True
+
+
+#### SUMMARY ####
+PASS=8 FAIL=0 (criterion 8 verified separately from another OS process)
+
+TRANSCRIPT_WRITTEN D:\qa-273-verify\transcript.txt
+HOLDING_OPEN_FOR_EXTERNAL_PROBE
