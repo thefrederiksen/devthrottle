@@ -1,8 +1,17 @@
 using CcDirector.Cockpit.Components;
+using CcDirector.Cockpit.Logging;
 using CcDirector.Cockpit.Services;
 using Microsoft.AspNetCore.HttpOverrides;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Persisted file sink (issue #199): route every Cockpit log line to
+// %LOCALAPPDATA%\cc-director\logs\cockpit\cockpit-YYYY-MM-DD-<PID>.log, matching the
+// Director/Gateway FileLog format and rotation. The configured category levels in
+// appsettings.json (CcDirector.Cockpit: Debug) still apply - the factory filters before the
+// sink is called. Registered first so even early startup lines are captured.
+var cockpitFileLog = new CockpitFileLoggerProvider();
+builder.Logging.AddProvider(cockpitFileLog);
 
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
@@ -54,6 +63,13 @@ builder.Services.Configure<ForwardedHeadersOptions>(o =>
 });
 
 var app = builder.Build();
+
+// First persisted line: proves the file sink is live and records where it writes (issue #199).
+app.Logger.LogInformation(
+    "Cockpit starting (pid={Pid}) on {Urls}; log file: {LogPath}",
+    Environment.ProcessId,
+    string.Join(",", app.Urls.Count == 0 ? new[] { "(pending)" } : app.Urls.ToArray()),
+    cockpitFileLog.CurrentLogPath);
 
 app.UseForwardedHeaders();
 

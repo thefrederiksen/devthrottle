@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>QA Proof - Issue #199 (re-verification after criterion-4 fix)</title>
+<style>
+  body { font-family: Segoe UI, system-ui, sans-serif; margin: 24px; color: #1b1b1b; }
+  h1 { font-size: 22px; } h2 { font-size: 17px; margin-top: 28px; }
+  .pass { color: #137333; font-weight: 600; }
+  .fail { color: #b00020; font-weight: 600; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; }
+  th, td { border: 1px solid #ccc; padding: 8px 10px; text-align: left; vertical-align: top; font-size: 13px; }
+  th { background: #f2f2f2; }
+  code, pre { font-family: Consolas, monospace; font-size: 12px; background: #f6f8fa; }
+  pre { padding: 10px; overflow-x: auto; border: 1px solid #e1e4e8; }
+  img { max-width: 1100px; border: 1px solid #ccc; margin: 8px 0; }
+  .verdict { font-size: 18px; padding: 12px; background: #e6f4ea; border: 1px solid #137333; border-radius: 6px; }
+</style>
+</head>
+<body>
+<h1>QA Proof - Issue #199: Persisted Cockpit logging (re-verification)</h1>
+<p><strong>PR:</strong> #294 &nbsp; <strong>Branch:</strong> issue-199-cockpit-logging &nbsp;
+<strong>HEAD:</strong> 3aea2e0 (fix: emit blank-terminal WARNING from a reachable path)</p>
+<p>This issue was previously bounced <code>flow:qa-failed</code> for criterion 4 (the empty-DirectorBase
+WARNING was unreachable dead code in <code>TerminalPane.OnAfterRenderAsync</code>). The developer moved the
+WARNING into <code>Cockpit.OnSelect</code> (the single selection funnel). I re-verified <em>every</em>
+acceptance criterion independently - I did not assume the earlier-passing ones still hold.</p>
+
+<h2>Method (independent)</h2>
+<p>Built <code>cc-director.sln</code> Debug myself (Build succeeded, 0 Warning(s), 0 Error(s)); ran the
+Cockpit (<code>cc-director-cockpit.exe</code>) against an <strong>isolated</strong>
+<code>CC_DIRECTOR_ROOT</code> and a stub Gateway serving two sessions - one WITH a tailnet endpoint, one
+with an EMPTY endpoint (the blank-terminal failure mode). Drove the live Blazor UI with Playwright
+(Chromium, <code>localStorage.cockpit.debug=1</code>) and read the persisted log + browser console. The
+developer's binary, log, and screenshots were not reused.</p>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (my proof)</th><th>Result</th></tr>
+<tr>
+  <td>1</td>
+  <td>Cockpit log file exists at canonical path with INFO lines.</td>
+  <td>cockpit-YYYY-MM-DD-&lt;PID&gt;.log under logs\cockpit with INFO content.</td>
+  <td><code>...\logs\cockpit\cockpit-2026-06-10-293704.log</code> created (CC_DIRECTOR_ROOT honoured);
+  startup banner INFO line + action INFO lines. Format
+  <code>yyyy-MM-dd HH:mm:ss.fff LEVEL [category] message</code> matches Director/Gateway.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td>One INFO line per user action, each carrying sid + director endpoint.</td>
+  <td>select-session (with source), tab switch, etc., each with sid + dir.</td>
+  <td><pre>INFO [Cockpit] Cockpit action=select-session source=rail sid=i199-real-0001 dir=http://qa-test-box.example.ts.net:7887
+INFO [Cockpit] Cockpit action=center-tab sid=i199-real-0001 dir=http://qa-test-box.example.ts.net:7887 tab=term
+INFO [Cockpit] Cockpit action=select-session source=rail sid=i199-nodir-0002 dir=</pre></td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>3</td>
+  <td>Terminal connect attempt + outcome logged server-side; ws open/close with code+reason in browser
+  console under cockpit.debug=1.</td>
+  <td>Server-side connect attempt/dispatched; browser ws lifecycle gated by the debug flag.</td>
+  <td>Server-side:
+  <pre>INFO [TerminalPane] TerminalPane connect attempt sid=i199-real-0001 dir=... wsUrl=ws://127.0.0.1:7471/sessions/i199-real-0001/stream
+INFO [TerminalPane] TerminalPane connect dispatched sid=i199-real-0001 wsUrl=...</pre>
+  Browser console (cockpit.debug=1):
+  <pre>[cockpit-terminal] ws connect attempt ... attempt 1
+[cockpit-terminal] ws error ...
+[cockpit-terminal] ws close ... code 1006 reason (none)
+[cockpit-terminal] ws reconnect scheduled ... attempt 2 in 1200ms</pre>
+  (Default - flag off - the console stays quiet; verified gating in source.)</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>4</td>
+  <td>The blank-terminal failure mode (empty DirectorBase / no connect) is visible in the persisted log.
+  <strong>Proof: the WARNING line.</strong></td>
+  <td>Selecting the endpoint-less session writes a WARNING; the endpoint-having session does not.</td>
+  <td>Selecting sid=i199-nodir-0002 (empty endpoint) produced, on the same selection:
+  <pre>INFO [Cockpit] Cockpit action=select-session source=rail sid=i199-nodir-0002 dir=
+WARN [Cockpit] Cockpit empty DirectorBase for sid=i199-nodir-0002 source=rail (rowState=WaitingForInput); session has no tailnet endpoint, live terminal cannot connect - blank-terminal failure mode</pre>
+  Selecting the endpoint-having session (sid=i199-real-0001) produced its INFO line with NO following
+  WARNING - the WARNING is specific to the endpoint-less case. The previously-unreachable code is now
+  reachable from OnSelect. <strong>The defect is fixed.</strong></td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Regression sweep</h2>
+<p>Endpoint-having session renders the full detail (Wingman/Terminal tabs, composer, Screenshots/Queue/
+Director panels) - normal governable state. Endpoint-less session shows the "no tailnet endpoint" guard.
+No layout/console regressions observed. 16 Cockpit tests pass; solution builds 0/0.</p>
+
+<h3>Endpoint-less session (guard + WARNING)</h3>
+<img src="qa-nodir-guard.png" alt="endpoint-less guard" />
+<h3>Endpoint-having session (normal detail)</h3>
+<img src="qa-has-endpoint.png" alt="endpoint-having detail" />
+<h3>Browser console with cockpit.debug=1</h3>
+<img src="qa-console-terminal.png" alt="browser console terminal" />
+
+<h2 class="verdict">VERIFIED - all 4 acceptance criteria met. Criterion-4 defect fixed and reproduced.</h2>
+<p>Evidence files: <code>cockpit-qa.log</code> (full persisted log), <code>console-cockpit.txt</code>
+(captured browser console), screenshots above.</p>
+</body>
+</html>

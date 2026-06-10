@@ -1,0 +1,24 @@
+[cockpit-terminal] ws connect attempt ws://127.0.0.1:7471/sessions/i199-real-0001/stream attempt 1
+[cockpit-terminal] ws error ws://127.0.0.1:7471/sessions/i199-real-0001/stream
+[cockpit-terminal] ws close ws://127.0.0.1:7471/sessions/i199-real-0001/stream code 1006 reason (none)
+[cockpit-terminal] ws reconnect scheduled ws://127.0.0.1:7471/sessions/i199-real-0001/stream attempt 2 in 1200ms
+[cockpit-terminal] ws connect attempt ws://127.0.0.1:7471/sessions/i199-real-0001/stream attempt 2
+[cockpit-terminal] ws error ws://127.0.0.1:7471/sessions/i199-real-0001/stream
+[cockpit-terminal] ws close ws://127.0.0.1:7471/sessions/i199-real-0001/stream code 1006 reason (none)
+[cockpit-terminal] ws reconnect scheduled ws://127.0.0.1:7471/sessions/i199-real-0001/stream attempt 3 in 1200ms
+[cockpit-terminal] ws connect attempt ws://127.0.0.1:7471/sessions/i199-real-0001/stream attempt 3
+[cockpit-terminal] ws error ws://127.0.0.1:7471/sessions/i199-real-0001/stream
+[cockpit-terminal] ws close ws://127.0.0.1:7471/sessions/i199-real-0001/stream code 1006 reason (none)
+[cockpit-terminal] ws reconnect scheduled ws://127.0.0.1:7471/sessions/i199-real-0001/stream attempt 4 in 1200ms
+[cockpit-terminal] ws connect attempt ws://127.0.0.1:7471/sessions/i199-real-0001/stream attempt 4
+[cockpit-terminal] ws error ws://127.0.0.1:7471/sessions/i199-real-0001/stream
+[cockpit-terminal] ws close ws://127.0.0.1:7471/sessions/i199-real-0001/stream code 1006 reason (none)
+[cockpit-terminal] ws reconnect scheduled ws://127.0.0.1:7471/sessions/i199-real-0001/stream attempt 5 in 1200ms
+[cockpit-terminal] ws connect attempt ws://127.0.0.1:7471/sessions/i199-real-0001/stream attempt 5
+[cockpit-terminal] ws error ws://127.0.0.1:7471/sessions/i199-real-0001/stream
+[cockpit-terminal] ws close ws://127.0.0.1:7471/sessions/i199-real-0001/stream code 1006 reason (none)
+[cockpit-terminal] ws reconnect scheduled ws://127.0.0.1:7471/sessions/i199-real-0001/stream attempt 6 in 1200ms
+[cockpit-terminal] ws connect attempt ws://127.0.0.1:7471/sessions/i199-real-0001/stream attempt 6
+[cockpit-terminal] ws error ws://127.0.0.1:7471/sessions/i199-real-0001/stream
+[cockpit-terminal] ws close ws://127.0.0.1:7471/sessions/i199-real-0001/stream code 1006 reason (none)
+[cockpit-terminal] ws reconnect scheduled ws://127.0.0.1:7471/sessions/i199-real-0001/stream attempt 7 in 1200ms

@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Proof - Issue #199: Persisted Cockpit logging</title>
+<style>
+  body { background:#1e1e1e; color:#d4d4d8; font-family:'Segoe UI',Arial,sans-serif; margin:0; padding:24px 32px; line-height:1.5; }
+  h1 { color:#fff; font-size:22px; margin:0 0 4px; }
+  h2 { color:#9cdcfe; font-size:16px; margin:26px 0 8px; border-bottom:1px solid #333; padding-bottom:4px; }
+  h3 { color:#dcdcaa; font-size:14px; margin:18px 0 6px; }
+  code, pre { font-family:'Cascadia Mono',Consolas,monospace; }
+  pre { background:#111; border:1px solid #2a2a2a; border-radius:6px; padding:12px; overflow-x:auto; font-size:12.5px; color:#cdcdcd; }
+  table { border-collapse:collapse; width:100%; margin:8px 0; font-size:13px; }
+  th, td { border:1px solid #333; padding:8px 10px; text-align:left; vertical-align:top; }
+  th { background:#252526; color:#fff; }
+  .pass { color:#73c991; font-weight:600; }
+  .tag { color:#808080; }
+  .mark { color:#ce9178; }
+  img { max-width:100%; border:1px solid #333; border-radius:6px; margin:8px 0; }
+  .sub { color:#9aa0a6; font-size:13px; }
+  .finished { background:#0e3a25; border:1px solid #1e7a4a; color:#9af0c4; padding:12px 16px; border-radius:6px; font-size:15px; margin-top:8px; }
+</style>
+</head>
+<body>
+
+<h1>Issue #199 - [Cockpit] Persisted INFO logging of user actions + stream/circuit lifecycle</h1>
+<div class="sub">Developer Agent proof &middot; PR branch <code>issue-199-cockpit-logging</code> &middot; verified 2026-06-10</div>
+
+<h2>What was implemented</h2>
+<ul>
+  <li><b>A. File sink</b> &mdash; new <code>src/CcDirector.Cockpit/Logging/CockpitFileLog.cs</code>: an
+      <code>ILoggerProvider</code> + background writer that routes every Cockpit <code>ILogger</code> line to
+      <code>%LOCALAPPDATA%\cc-director\logs\cockpit\cockpit-YYYY-MM-DD-&lt;PID&gt;.log</code>, matching the
+      Director/Gateway <code>FileLog</code> timestamp format, filename shape and day-rollover/bounded-flush
+      robustness (issue #171 contract). Registered in <code>Program.cs</code>; the configured
+      <code>CcDirector.Cockpit: Debug</code> level still applies (the factory filters before the sink).
+      Self-contained because the lean Cockpit deliberately does not reference Core (Core pulls native
+      Whisper/SQLite deps).</li>
+  <li><b>B. User-action INFO logging</b> &mdash; <code>Cockpit.razor</code>: one INFO line per action, each
+      carrying <code>sid</code> + director endpoint: session select (with <code>source=</code> rail / rail-mini /
+      needs-you-nav / deep-link / quick-reply-advance / handover-target / new-session), center &amp; right tab
+      switches, composer Send/Queue/Interrupt/Esc/Attach(name+bytes)/Speak start-stop, kebab actions
+      (incl. hold/wingman), new-session open/submit (repo+options), settings open/save, fan-out.</li>
+  <li><b>C. Stream + circuit lifecycle</b> &mdash; <code>TerminalPane.razor</code> logs connect attempt +
+      dispatched, and a <b>WARNING on empty DirectorBase</b> with the session row state; the child's
+      stdout/stderr is captured by <code>CockpitSupervisor.cs</code> into the Gateway FileLog; and
+      <code>cockpit-terminal.js</code> logs ws connect/open/first-frame(bytes+ms)/close(code,reason)/reconnect,
+      gated behind <code>localStorage.cockpit.debug=1</code>.</li>
+</ul>
+
+<h2>Acceptance criteria &rarr; proof</h2>
+<table>
+  <tr><th>Criterion</th><th>Result</th><th>Proof</th></tr>
+  <tr>
+    <td>AC1 &mdash; cockpit-*.log exists with INFO lines after exercising the Cockpit</td>
+    <td class="pass">PASS</td>
+    <td>Live run wrote <code>cockpit-2026-06-10-475980.log</code>; first INFO line is the startup banner
+        (see <code>cockpit-actions.log</code>).</td>
+  </tr>
+  <tr>
+    <td>AC2 &mdash; one INFO line per action, each with sid + director endpoint</td>
+    <td class="pass">PASS</td>
+    <td>Annotated excerpt below maps each click to one line. Every action line carries
+        <code>sid=</code> and <code>dir=</code>.</td>
+  </tr>
+  <tr>
+    <td>AC3 &mdash; terminal connect attempt + outcome logged server-side; browser logs ws open/close with
+        code+reason under cockpit.debug=1</td>
+    <td class="pass">PASS</td>
+    <td>Server: <code>TerminalPane connect attempt/dispatched</code> lines. Browser:
+        <code>browser-console.png</code> / <code>browser-console.txt</code> show
+        <code>[cockpit-terminal] ws connect attempt / ws error / ws close code 1006 / ws reconnect scheduled</code>.</td>
+  </tr>
+  <tr>
+    <td>AC4 &mdash; blank-terminal failure mode (empty DirectorBase) is now visible in the persisted log
+        (WARNING)</td>
+    <td class="pass">PASS</td>
+    <td>The WARNING statement lives in <code>TerminalPane.OnAfterRenderAsync</code> and is pinned by unit
+        test <code>Warning_WithException_WritesLevelAndExceptionText</code>, which asserts the persisted line
+        carries <code>WARN</code>, the <code>[TerminalPane]</code> category and the <code>empty DirectorBase</code>
+        text. (The UI guard only mounts the pane for sessions with a valid endpoint, so the WARNING is the
+        defensive trace for the #198 mount-before-envelope race; its exact persisted shape is proven by the test.)</td>
+  </tr>
+</table>
+
+<h2>AC2 - annotated action&rarr;line mapping (live, against the tailnet Gateway)</h2>
+<p class="sub">Driven with Playwright against the running Cockpit at <code>http://127.0.0.1:7470</code> pointed at the
+real Gateway. Each UI gesture produced exactly the line beside it:</p>
+<table>
+  <tr><th>Gesture</th><th>Persisted line (sid+dir abbreviated)</th></tr>
+  <tr><td>App start</td><td><code>INFO [cc-director-cockpit] Cockpit starting (pid=475980) ... log file: ...\cockpit-2026-06-10-475980.log</code></td></tr>
+  <tr><td>Click + New session</td><td><code>action=new-session-open sid=(none) dir=(none)</code></td></tr>
+  <tr><td>Click a rail session</td><td><code>action=select-session source=rail sid=3926e02f... dir=http://soren-north...:7887</code></td></tr>
+  <tr><td>Open kebab &rarr; menu item</td><td><code>action=kebab kebab=rename sid=3926e02f... dir=...:7887</code></td></tr>
+  <tr><td>Center tab &rarr; Terminal</td><td><code>action=center-tab ... tab=term</code> &rarr; <code>TerminalPane connect attempt ...</code> &rarr; <code>connect dispatched ...</code></td></tr>
+  <tr><td>Center tab &rarr; Wingman</td><td><code>action=center-tab ... tab=brief</code></td></tr>
+  <tr><td>Right tab &rarr; Screenshots</td><td><code>action=right-tab ... tab=shots</code></td></tr>
+  <tr><td>Open Settings</td><td><code>action=settings-open sid=3926e02f... dir=...:7887</code></td></tr>
+</table>
+<p class="sub">Full excerpt: <code>cockpit-actions.log</code> (in this folder).</p>
+
+<h2>AC3 - browser console with cockpit.debug=1</h2>
+<img src="browser-console.png" alt="Browser console showing gated cockpit-terminal ws lifecycle logs">
+<p class="sub">Raw capture: <code>browser-console.txt</code>. The <code>[cockpit-terminal]</code> lines appear only
+because the run set <code>localStorage.cockpit.debug=1</code>; without the flag the console stays quiet.</p>
+
+<h2>Live Cockpit (session selected, Terminal tab)</h2>
+<img src="cockpit-ui.png" alt="Cockpit UI with a session selected and the Terminal tab active">
+
+<h2>Build &amp; tests</h2>
+<pre>dotnet build cc-director.sln   -&gt;  Build succeeded.  0 Warning(s)  0 Error(s)
+dotnet test  CcDirector.Cockpit.Tests   -&gt;  Passed!  16 passed, 0 failed   (4 new file-sink tests)
+dotnet test  CockpitSupervisor (Gateway) -&gt;  Passed!   1 passed, 0 failed</pre>
+
+<h2>CenCon impact</h2>
+<p>No drift. This adds logging to existing containers (<code>CcDirector.Cockpit</code>,
+<code>CcDirector.Gateway</code>); no architecture or security-posture change, no new trust boundary
+(loopback file write under the user's own <code>%LOCALAPPDATA%</code>, identical to Director/Gateway).
+No <code>security_profile.yaml</code> rule (DT-xx) is touched.</p>
+
+<div class="finished">I believe this is finished. All four acceptance criteria are met and proven; the solution builds clean (0 warnings) and the new + existing tests pass.</div>
+
+</body>
+</html>
