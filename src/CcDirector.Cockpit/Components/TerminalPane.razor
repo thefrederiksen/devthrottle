@@ -5,12 +5,14 @@
 @inject ILogger<TerminalPane> Log
 
 @* Live terminal for one session. The parent keys this component by SessionId, so switching
-   sessions disposes this pane and creates a fresh one - this pane connects exactly once, to
-   one session. Output streams over a WSS to the GATEWAY (issue #268: same-origin, so a remote
-   Cockpit never needs a Director's own address); the Gateway reverse-proxies the stream to the
-   owning Director. Keystrokes (typed into xterm) are forwarded back through the existing
-   raw-input REST path, so the terminal is fully interactive (Esc, Ctrl+C, arrows, slash-command
-   UI) with no Director change. *@
+   sessions disposes this pane and creates a fresh one - this pane serves exactly one session.
+   It connects as soon as SessionId is valid (not only on firstRender): a Gateway restart can
+   mount the pane before the session envelope is ready, and gating the single connect on
+   firstRender left the pane blank forever (issue #198). Output streams over a WSS to the
+   GATEWAY (issue #268: same-origin, so a remote Cockpit never needs a Director's own address);
+   the Gateway reverse-proxies the stream to the owning Director. Keystrokes (typed into xterm)
+   are forwarded back through the existing raw-input REST path, so the terminal is fully
+   interactive (Esc, Ctrl+C, arrows, slash-command UI) with no Director change. *@
 <div class="term-host" @ref="_host"></div>
 
 @code {
@@ -20,15 +22,19 @@
     private ElementReference _host;
     private IJSObjectReference? _module;
     private DotNetObjectReference<TerminalPane>? _selfRef;
+    private string _connectedSid = "";
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!firstRender) return;
-        if (string.IsNullOrEmpty(SessionId) || string.IsNullOrEmpty(DirectorBase))
-        {
-            Log.LogWarning("TerminalPane: missing SessionId/DirectorBase, cannot connect");
-            return;
-        }
+        // Connect as soon as we have a valid SessionId - NOT only on firstRender. The pane is
+        // keyed by SessionId, so a Gateway restart can mount it before the session envelope is
+        // populated; gating the single connect on firstRender (issue #198) left the pane blank
+        // forever because the keyed instance is never recreated to retrigger it. The stream URL
+        // is same-origin (#268) and needs only SessionId - DirectorBase is no longer required to
+        // connect (it is still used for the keystroke leg in OnInput). Guard on _connectedSid so
+        // we connect exactly once per session, with a retry on a later render if the attempt throws.
+        if (string.IsNullOrEmpty(SessionId) || _connectedSid == SessionId) return;
+        _connectedSid = SessionId;
         try
         {
             _selfRef = DotNetObjectReference.Create(this);
@@ -39,6 +45,7 @@
         }
         catch (Exception ex)
         {
+            _connectedSid = "";   // allow a later render to retry the connect
             Log.LogError(ex, "TerminalPane connect failed for sid={Sid}", SessionId);
         }
     }
