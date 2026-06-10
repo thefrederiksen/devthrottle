@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Issue #276 - QA Agent Proof Report</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --ink: #e6e8ec; --muted: #9aa3b2;
+    --accent: #1d76db; --ok: #2ea043; --warn: #d29922; --line: #2a2f3a; --mono: #0b0d11;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; line-height: 1.5; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 16px; margin: 32px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+  .sub { color: var(--muted); font-size: 13px; }
+  .meta { display: flex; flex-wrap: wrap; gap: 8px 20px; margin: 14px 0 0; font-size: 13px; color: var(--muted); }
+  .meta b { color: var(--ink); font-weight: 600; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; margin: 12px 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; vertical-align: top; padding: 9px 10px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .pass { background: rgba(46,160,67,.15); color: #6fd082; border: 1px solid rgba(46,160,67,.4); }
+  code, pre { font-family: "Cascadia Code", Consolas, monospace; }
+  pre { background: var(--mono); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px;
+    overflow-x: auto; font-size: 12.5px; color: #cdd3dc; }
+  .tag { font-family: monospace; background: rgba(29,118,219,.16); color: #76b3ef; padding: 1px 6px; border-radius: 4px; }
+  .done { background: rgba(46,160,67,.12); border: 1px solid rgba(46,160,67,.5); border-radius: 8px;
+    padding: 14px 18px; margin-top: 24px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Issue #276 - product-agent skill appends a ready-for-dev item to a named work list over REST</h1>
+  <div class="sub">CenCon Development Method - QA Agent INDEPENDENT proof report. Child 5 of epic #270.</div>
+  <div class="meta">
+    <span><b>Issue:</b> #276</span>
+    <span><b>PR:</b> #285</span>
+    <span><b>Branch:</b> issue-276-product-append</span>
+    <span><b>Verdict:</b> <span class="pill pass">VERIFIED - all 4 acceptance criteria met</span></span>
+  </div>
+
+  <div class="panel">
+    <b>How QA verified independently.</b> The QA Agent did NOT reuse the Developer Agent's binary,
+    port (7950), or transcript. It built the named-work-list REST surface
+    (<code>WorkListEndpoints</code> + <code>WorkListStore</code>) directly from the PR-branch source
+    and booted ONLY that surface on a fresh loopback port (<code>http://127.0.0.1:7951</code>, no auth,
+    fresh in-memory store) - the exact code production maps via
+    <code>GatewayHost.StartAsync() -> WorkListEndpoints.Map(_app, _workLists)</code>. It then drove the
+    documented skill append path with its own real curl HTTP calls and read every response.
+    <br><br>
+    <b>Contract conformance.</b> The skill (<code>.claude/skills/product-agent/skill.md</code> Step 4)
+    documents ONLY the shipped #273 endpoints - <code>POST /lists/{name}/items</code> and
+    <code>GET /lists/{name}</code> - and explicitly forbids <code>POST /lists</code> auto-create / any
+    default list. This matches <code>src/CcDirector.Gateway/Api/WorkListEndpoints.cs</code> exactly
+    (200 -> { name, appended }; 400 on empty source/id; 404 on missing list, no create;
+    GET -> WorkListDto { name, items[], consumer } with NO status field). No invented endpoint.
+  </div>
+
+  <h2>Acceptance criteria (Expected vs Actual)</h2>
+  <table>
+    <tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (QA observed)</th><th>Result</th></tr>
+    <tr>
+      <td>1</td>
+      <td>After flow:ready-dev, append issue via POST /lists/{name}/items as { source:"github", id, area? }; GET shows it in order, source=github.</td>
+      <td>POST -> 200 { name, appended }; GET lists refs in append order with source=github.</td>
+      <td>POST 276 -> 200 { "appended": { "source":"github","id":"276","area":"CenCon" } }; POST 311 -> 200; GET -> items [276(CenCon), 311(Gateway)] in append order, source=github both.</td>
+      <td><span class="pill pass">PASS</span></td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>Skill never creates/guesses a list; with no list specified, item stays label-only; missing list is not auto-created.</td>
+      <td>Append to non-existent list -> 404, GET /lists stays empty (no auto-create); skill forbids POST /lists.</td>
+      <td>POST /lists/qa-ready-dev/items (no such list) -> 404 { "error":"no such list" }; GET /lists -> { "lists": [] } (nothing created). Skill text bans auto-create / default list (lines 104-111, 182).</td>
+      <td><span class="pill pass">PASS</span></td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td>Append does not change/duplicate status; list stores only the ref/order; flow:ready-dev unchanged.</td>
+      <td>List payload has NO status field; only source/id/area per item; label untouched (labels live in GitHub, not the list).</td>
+      <td>GET payload keys = [consumer, items, name]; each item keys = [area, id, source]; grep "status" -> NONE. Append touches no GitHub label (separate system). area is optional: POST without area -> "area": null.</td>
+      <td><span class="pill pass">PASS</span></td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td>A label-only item (never appended) still flows through the method unchanged (append is opt-in).</td>
+      <td>An un-appended item never appears in any list; nothing forces it in.</td>
+      <td>Label-only id 999 is absent from the list (list ids = [276, 311, 500]); only refs the producer chose to append exist. Append is purely additive.</td>
+      <td><span class="pill pass">PASS</span></td>
+    </tr>
+  </table>
+
+  <h2>Raw QA HTTP transcript (own curl calls against PR-branch surface)</h2>
+  <pre>QA harness: http://127.0.0.1:7951  (real WorkListEndpoints + WorkListStore, PR branch source, no auth)
+
+# CRITERION 2 - append to a list that does NOT exist
+POST /lists/qa-ready-dev/items  {"source":"github","id":"276","area":"CenCon"}
+  -> HTTP 404  {"error":"no such list","name":"qa-ready-dev"}
+GET  /lists
+  -> {"lists":[]}                 (no auto-create)
+
+# Setup (human/Cockpit creates list - NOT the skill's job)
+POST /lists  {"name":"qa-ready-dev"}  -> 200 {"name":"qa-ready-dev"}
+
+# CRITERION 1 - skill append path + order
+POST /lists/qa-ready-dev/items  {"source":"github","id":"276","area":"CenCon"}
+  -> 200 {"name":"qa-ready-dev","appended":{"source":"github","id":"276","area":"CenCon"}}
+POST /lists/qa-ready-dev/items  {"source":"github","id":"311","area":"Gateway"}
+  -> 200 {"name":"qa-ready-dev","appended":{"source":"github","id":"311","area":"Gateway"}}
+GET  /lists/qa-ready-dev
+  -> {"name":"qa-ready-dev","items":[{"source":"github","id":"276","area":"CenCon"},
+        {"source":"github","id":"311","area":"Gateway"}],"consumer":null}
+
+# CRITERION 3 - no status field; area optional
+GET top-level keys = ['consumer', 'items', 'name']
+GET item keys       = ['area', 'id', 'source']   (x2)   grep "status" -> NONE
+POST /lists/qa-ready-dev/items  {"source":"github","id":"500"}   (no area)
+  -> 200 {"appended":{"source":"github","id":"500","area":null}}
+
+# Documented 400 contract (skill says 400 on empty/missing source|id)
+POST {"source":"","id":"276"}    -> HTTP 400
+POST {"source":"github"}         -> HTTP 400
+
+# CRITERION 4 - label-only item never forced into a list
+list ids = ['276','311','500']   ;  label-only id 999 present? False</pre>
+
+  <h2>Regression / method sweep</h2>
+  <div class="panel">
+    <ul>
+      <li>Skill references ONLY shipped endpoints (POST /lists/{name}/items, GET /lists/{name}); no invented endpoint; explicitly bans POST /lists auto-create and any default list.</li>
+      <li>Documented contract (200 { name, appended }; 400 empty source/id; 404 missing list, no create; GET WorkListDto with no status field) matches WorkListEndpoints.cs / WorkListItemRef.cs / WorkListDto.cs on the PR branch exactly.</li>
+      <li>No .NET production code changed by this PR (skill .md + proof docs only); Gateway project still builds clean (Build succeeded, 0 errors, 0 warnings).</li>
+      <li>CenCon: no architecture/security drift - skill-only change, reuses an existing shipped REST surface; no DT rule touched.</li>
+    </ul>
+  </div>
+
+  <div class="done">
+    <b>VERIFIED - all acceptance criteria met.</b> 4 of 4 criteria PASS, independently reproduced by
+    QA against the PR-branch named-work-list surface with QA's own HTTP calls. The documented skill
+    contract matches what #273 actually exposes (no invented endpoint, no auto-create of lists).
+  </div>
+</div>
+</body>
+</html>
