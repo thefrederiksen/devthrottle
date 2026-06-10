@@ -2,7 +2,7 @@
 
 **Schema:** CenCon Method v1.0 (Development Governance)
 **Status:** DRAFT v0.1
-**Last Updated:** 2026-06-09
+**Last Updated:** 2026-06-10
 **Owner:** Support Agent (maintains this document)
 **Adapted from:** mindzieWeb `docs/cencon/DEVELOPMENT_METHOD.md` (same method, GitHub-Issues tracker)
 
@@ -284,6 +284,64 @@ supervisor; one phase runs at a time (DEV then QA), so sub-agents never collide 
 Director.
 
 ---
+
+## 7a. Terminal Signal Contract (machine-readable loop outcome)
+
+The `implementation-loop` skill (the supervisor of the Implementation session, Section 7 / D2)
+reaches exactly one terminal outcome per issue per run. So that an external watcher - specifically
+the autonomous work-item queue runner (epic #270) - can know when one loop run has finished without
+parsing prose, the loop emits a single **machine-readable terminal signal** as the last thing it
+prints to the session transcript on EVERY terminal path. This is a contract, not a feature: child 3
+of #270 (the Gateway queue runner) is built against the spec recorded here.
+
+### The three signal values
+
+There are exactly three terminal-signal values:
+
+| Signal | Meaning | Loop outcomes that map to it |
+|--------|---------|------------------------------|
+| `done` | The issue was verified and squash-merged to main; the run is fully complete. | MERGED (`flow:done`) |
+| `needs-human` | The run stopped cleanly and a human must act; work is committed/parked, nothing is lost. | PARKED (3-strike `flow:needs-human`), ESCALATED (weak-spec `flow:needs-human`), merge conflict / dirty post-merge build (`flow:needs-human`) |
+| `failed` | The run could not complete - it stopped abnormally and produced no usable result. | Pre-flight dirty-tree / leftover-stash stop (Step 0a), wrong-base stop, build-tool failure, crash, or any abnormal exit |
+
+`done` and `needs-human` correspond to the loop's existing clean terminal outcomes (the work is
+preserved either as a merge or as a parked PR). `failed` is the catch-all for any path on which the
+loop cannot reach one of those two - the repository state is whatever it was, and a human should
+look at why the run aborted.
+
+### The sentinel block (transport = session transcript)
+
+The signal travels on the **session transcript** (the surface the Gateway/Wingman already capture -
+no new transport is introduced). The loop prints, as its final transcript output for the issue, a
+single fenced sentinel block in this exact shape:
+
+```
+IMPL-LOOP-TERMINAL
+issue: <N>
+signal: done | needs-human | failed
+pr: <pr number or none>
+merged: yes | no
+reason: <one line - why this terminal state>
+```
+
+- `issue` identifies the work item (so a watcher can correlate the signal with the item it started).
+- `signal` carries exactly one of the three values above.
+- `pr` is the PR number on `done`/`needs-human` paths that have one, or `none`.
+- `merged` is `yes` only on the `done` signal; `no` on `needs-human` and `failed`.
+- `reason` is a single human-readable line explaining the terminal state.
+
+### Rules
+
+- The sentinel block is emitted **in addition to** the loop's existing human-readable one-line
+  report (Step 4 of the `implementation-loop` skill), never instead of it. The two coexist; the
+  human report is unchanged.
+- **Exactly one** sentinel block is emitted per issue per run, as the loop's final action on that
+  issue, so a watcher reading the last sentinel block gets an unambiguous answer.
+- The block is the loop's last transcript output for the issue (in single-issue mode) or for that
+  issue's slot (in `--all` mode, one block per issue as each finishes).
+
+This contract is the keystone of #270: every other child of that epic depends on the three values
+and the block format defined here.
 
 ## 8. Relationship to the Rest of CenCon
 

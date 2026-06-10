@@ -1,0 +1,270 @@
+diff --git a/.claude/skills/implementation-loop/skill.md b/.claude/skills/implementation-loop/skill.md
+index d04a65e..214c063 100644
+--- a/.claude/skills/implementation-loop/skill.md
++++ b/.claude/skills/implementation-loop/skill.md
+@@ -30,6 +30,44 @@ labels.
+ - `/implementation-loop --all` - keep draining the `flow:ready-dev` queue, one issue at a time,
+   until none remain.
+ 
++## The terminal signal you MUST emit (machine-readable, every path)
++
++This loop emits a single **machine-readable terminal signal** as the LAST thing you print for an
++issue, on EVERY terminal path. It is the keystone of the autonomous queue runner (epic #270): an
++external watcher reads this block to know the run finished without parsing prose. The full contract
++lives in `docs/cencon/DEVELOPMENT_METHOD.md` Section 7a - this skill emits against it.
++
++There are exactly three signal values, mapped from the loop's outcomes:
++
++| Signal | Emit it when | merged |
++|--------|--------------|--------|
++| `done` | MERGED - QA passed and squash-merged the PR to main (`flow:done`) | `yes` |
++| `needs-human` | PARKED (3-strike `flow:needs-human`), ESCALATED (weak-spec `flow:needs-human`), or merge conflict / dirty post-merge build (`flow:needs-human`) | `no` |
++| `failed` | The loop could NOT complete - pre-flight dirty-tree / leftover-stash stop (Step 0a), wrong-base stop, a build-tool failure, a crash, or any abnormal exit that reaches no clean outcome | `no` |
++
++The sentinel block has this exact shape (ASCII only):
++
++```
++IMPL-LOOP-TERMINAL
++issue: <N>
++signal: done | needs-human | failed
++pr: <pr number or none>
++merged: yes | no
++reason: <one line - why this terminal state>
++```
++
++**Emission rules (mandatory):**
++
++- Emit the block **in addition to** the existing human-readable one-line report (Step 4) - never
++  instead of it. Print the one-line report first, then the sentinel block as the final output.
++- Emit **exactly one** sentinel block per issue per run, as your final action for that issue, so a
++  watcher reading the last block gets an unambiguous answer. In `--all` mode that is one block per
++  issue, printed as each issue finishes.
++- The sentinel is the LAST transcript output for the issue. Nothing about the issue follows it.
++- This is non-negotiable on EVERY terminal path below: PASS, PARK, ESCALATE, and abnormal stop. If
++  the loop stops for ANY reason (including a Step 0a pre-flight stop before any issue work), emit the
++  matching sentinel - a `failed` signal when no clean outcome was reached.
++
+ ## The authority this loop carries (and its scope)
+ 
+ Inside this loop, the QA role is authorized to **commit and squash-merge to main on a clean pass**.
+@@ -144,13 +182,20 @@ git rev-parse --abbrev-ref HEAD   # expected: main (the base the Developer role
+ - **Dirty working tree** (any output from `git status --porcelain`): STOP. Do not start. Report the
+   uncommitted files and ask the human to commit or discard them. The loop never auto-stashes or
+   discards - that could silently swallow someone's work, and stashing is never how this loop cleans
+-  up.
++  up. **Emit the terminal signal `failed`** (the run could not complete - it never reached a clean
++  outcome) with `issue: <N or none>`, `pr: none`, `merged: no`, `reason: pre-flight stop - dirty
++  working tree`.
+ - **A non-empty `git stash list`:** STOP and surface it. A leftover stash is parked WIP someone hid;
+   do not start a run on top of it and never silently drop it - ask the human what to do with it.
++  **Emit the terminal signal `failed`** with `reason: pre-flight stop - leftover stash`.
+ - **Not on the base branch** (`main`, unless the issue/PR says otherwise): STOP and confirm with the
+-  human which base to use before continuing.
++  human which base to use before continuing. **Emit the terminal signal `failed`** with `reason:
++  pre-flight stop - wrong base branch`.
+ - Only when the tree is clean and the base is correct does the loop proceed to Step 0.
+ 
++On any of these pre-flight stops the sentinel is the final output. (`issue` is the selected issue
++number if one was given on the command line, else `none` - no issue work has begun.)
++
+ (This guard is independent of the issue-selection guards below; both must pass.)
+ 
+ ### Step 0: Select the issue
+@@ -177,7 +222,8 @@ and labels `flow:ready-qa` - all in its own context. It returns a `RESULT` block
+ - `outcome: ready-qa` -> record the pr/branch from the RESULT, go to Step 2.
+ - `outcome: needs-human` -> the spec failed the Definition of Ready and there is no Product session
+   here to re-sharpen it (the sub-agent already escalated `flow:needs-human`). **You stop this issue**
+-  - report the missing DoR items from `summary` and move on (next issue if `--all`, else end).
++  - report the missing DoR items from `summary`, then go to Step 4 (which emits the `needs-human`
++    terminal signal) before moving on (next issue if `--all`, else end).
+ 
+ ### Step 2: QA phase (spawn a fresh, independent sub-agent)
+ 
+@@ -190,21 +236,26 @@ own proof, runs the regression + CenCon checks, and produces a QA proof report.
+ `RESULT` block; you read only that.
+ 
+ - **PASS** (`outcome: pass`, `merged: yes`): the sub-agent labeled `flow:done`, squash-merged the PR
+-  to main with the clean-build gate (QA Step 3a), and closed the issue. Go to Step 4.
++  to main with the clean-build gate (QA Step 3a), and closed the issue. Go to Step 4 (which emits the
++  `done` terminal signal).
+ - **FAIL** (`outcome: fail`): the sub-agent labeled `flow:qa-failed` with a specific, reproducible
+   defect (in its issue comment; the one-liner is in `defect`). **bounce counter += 1.**
+   - If **bounce counter >= 3**: stop the autonomous loop. Label `flow:needs-human`, comment a
+     summary of the unresolved defect(s), and stop this issue (mirrors the 3-strike ping-pong guard
+-    in DEVELOPMENT_METHOD.md Section 5a).
++    in DEVELOPMENT_METHOD.md Section 5a). Go to Step 4 (which emits the `needs-human` terminal
++    signal).
+     ```bash
+     gh issue edit <ID> --repo thefrederiksen/cc-director --add-label flow:needs-human --remove-label flow:qa-failed
+     ```
+   - Else: go back to **Step 1** and spawn a **fresh Developer sub-agent**. It reads the issue
+     (including the QA defect comment - that is how the defect crosses contexts, not via shared
+-    memory), fixes via its Step 6, and re-labels `flow:ready-qa`.
++    memory), fixes via its Step 6, and re-labels `flow:ready-qa`. (A FAIL bounce is NOT a terminal
++    outcome - no sentinel is emitted on a bounce; the sentinel is emitted only once the issue reaches
++    a terminal state.)
+ - **NEEDS-HUMAN** (`outcome: needs-human`): the QA sub-agent hit a merge conflict or a dirty
+   post-merge build and escalated `flow:needs-human` without forcing it. **You stop this issue** -
+-  record the `defect`/`summary` line and move on (next issue if `--all`, else end).
++  record the `defect`/`summary` line, go to Step 4 (which emits the `needs-human` terminal signal),
++  then move on (next issue if `--all`, else end).
+ 
+ ### Step 3: Merge guard (inside QA's pass path, enforced here)
+ 
+@@ -214,9 +265,9 @@ The squash-merge happens in QA Step 3a, but the loop owns the guard:
+ - **Build gate:** the merged result must build clean (`dotnet build cc-director.sln`) before the
+   merge is treated as final.
+ - **Conflict or dirty build -> never force.** Re-label `flow:needs-human`, comment the exact
+-  failure, and stop this issue.
++  failure, and stop this issue. Go to Step 4 (which emits the `needs-human` terminal signal).
+ 
+-### Step 4: Clean-tree gate, then report and (optionally) loop
++### Step 4: Clean-tree gate, then report, emit the terminal signal, and (optionally) loop
+ 
+ **Clean-tree gate (mandatory, before you report or advance).** Whatever the outcome, assert the repo
+ was left clean - and "clean" means BOTH the tree AND the stash list:
+@@ -230,7 +281,8 @@ git stash list           # MUST be empty of any stash the loop created (stashing
+   (the exact mess that prompted this gate). Do **not** advance to the next issue and do **not**
+   auto-stash, auto-discard, or auto-drop a stash (that could swallow real work). STOP, report exactly
+   what is dirty or stashed, and ask the human - this is the failure mode this whole invariant exists
+-  to catch. On a PASS outcome also confirm the PR is gone: `gh pr list --repo
++  to catch. This is an abnormal stop: the terminal signal for this issue is **`failed`** (the run
++  could not leave a clean outcome). On a PASS outcome also confirm the PR is gone: `gh pr list --repo
+   thefrederiksen/cc-director --state open` must not show it; on a needs-human outcome the parked PR
+   may remain (that is the one allowed open PR).
+ 
+@@ -241,6 +293,31 @@ Issue #NNN: PARKED (flow:needs-human) - 3 QA bounces, PR #NN parked, defect: <on
+ Issue #NNN: ESCALATED (flow:needs-human) - spec not ready: <DoR item> | link
+ ```
+ 
++**Then emit the terminal signal as the FINAL output for this issue** (see "The terminal signal you
++MUST emit" above - this is in addition to the one-line report, never instead of it). Map the outcome
++to exactly one signal:
++
++| Outcome reached | signal | pr | merged | reason example |
++|-----------------|--------|----|--------|----------------|
++| MERGED (PASS, `flow:done`) | `done` | the merged PR number | `yes` | `squash-merged to main; N/N criteria verified` |
++| PARKED (3-strike `flow:needs-human`) | `needs-human` | the parked PR number | `no` | `3 QA bounces; parked for human - <defect>` |
++| ESCALATED (weak-spec `flow:needs-human`) | `needs-human` | `none` (or PR number if one exists) | `no` | `spec not ready - <DoR item>` |
++| Merge conflict / dirty post-merge build (`flow:needs-human`) | `needs-human` | the parked PR number | `no` | `merge conflict; parked for human` |
++| Abnormal stop (Step 0a pre-flight, dirty Step 4 gate, build-tool failure, crash) | `failed` | `none` (or PR number if one exists) | `no` | `pre-flight stop - dirty tree` / `clean-tree gate failed - WIP left behind` |
++
++Emit it exactly like this (fill in the values for the outcome reached), as the very last lines:
++```
++IMPL-LOOP-TERMINAL
++issue: NNN
++signal: done
++pr: 124
++merged: yes
++reason: squash-merged to main; 6/6 criteria verified
++```
++
++Exactly one such block per issue per run. In `--all` mode emit one block per issue as each finishes,
++each as that issue's last output before the next issue begins.
++
+ - `--all` mode: clear context between issues (memory reset, DEVELOPMENT_METHOD.md Section 7), then
+   return to Step 0 for the next `flow:ready-dev`. Stop when the queue is empty. The Step 0a pre-flight
+   re-checks the clean tree at the start of each issue too - belt and suspenders.
+@@ -281,6 +358,10 @@ your own ledger has grown large over a very long queue).
+ - You do not advance to the next issue, or finish, leaving the working tree dirty, a branch orphaned,
+   or a PR dangling. The only sanctioned open PR at a stopping point is a PARKED `flow:needs-human`
+   (qa-agent Step 3c). Everything else ends clean.
++- You do not stop an issue WITHOUT emitting its terminal signal. Every terminal path - PASS, PARK,
++  ESCALATE, abnormal stop - ends with exactly one `IMPL-LOOP-TERMINAL` sentinel block as the final
++  output for that issue. A run that stops without a sentinel is a contract violation (#270 depends on
++  it).
+ 
+ ## Reuses
+ 
+@@ -296,10 +377,11 @@ your own ledger has grown large over a very long queue).
+ 
+ ---
+ 
+-**Skill Version:** 0.4 (DRAFT - thin supervisor + fresh sub-agent per phase; realizes issue #259)
+-**Implements:** the Implementation session loop in docs/cencon/DEVELOPMENT_METHOD.md (D2, D5)
++**Skill Version:** 0.5 (DRAFT - thin supervisor + fresh sub-agent per phase; realizes issue #259)
++**Implements:** the Implementation session loop in docs/cencon/DEVELOPMENT_METHOD.md (D2, D5, terminal-signal contract Section 7a)
+ **Builds on:** the `Agent` tool (per-phase sub-agents), developer-agent (DEV role), qa-agent (QA role + merge), DEVELOPMENT_METHOD.md
+ **Created:** 2026-06-10
+ **Changes in 0.2:** DEV and QA phases now run as fresh sub-agents (throwaway context, structured RESULT handback) instead of inline skill invocations - keeps the supervisor thin so it can drive many issues without context pollution. Added Execution model, handback format, concurrency rule.
+ **Changes in 0.3:** Added the leave-clean invariant (no orphaned branches, no uncommitted WIP, no dangling PRs) + the Step 4 clean-tree gate + the Leave-clean guard. One sanctioned open PR at a stopping point: a PARKED flow:needs-human. Hardened after a prior run abandoned a half-built feature as loose working-tree edits.
+ **Changes in 0.4:** Closed the stash loophole. A prior run "parked by cleanup" via `git stash` - the tree looked clean (`git status --porcelain` empty) while WIP sat hidden in the stash list, and the human had to clean it up. Banned `git stash` as a cleanup/park mechanism, extended the Step 0a pre-flight and Step 4 gate to also assert `git stash list` is empty, and updated the Leave-clean guard accordingly.
++**Changes in 0.5 (issue #272):** Added the machine-readable terminal signal. The loop now emits exactly one `IMPL-LOOP-TERMINAL` sentinel block (`signal: done | needs-human | failed`) as its final output on EVERY terminal path - in addition to the human one-line report - so the autonomous queue runner (#270) can detect a finished run without parsing prose. Mapping: MERGED -> `done`; PARKED/ESCALATED/conflict/dirty-build -> `needs-human`; pre-flight stop / abnormal exit -> `failed`. Wired into Step 0a, Step 1, Step 2, Step 3, and Step 4; contract recorded in DEVELOPMENT_METHOD.md Section 7a.
+diff --git a/docs/cencon/DEVELOPMENT_METHOD.md b/docs/cencon/DEVELOPMENT_METHOD.md
+index 032ed44..18fa7d1 100644
+--- a/docs/cencon/DEVELOPMENT_METHOD.md
++++ b/docs/cencon/DEVELOPMENT_METHOD.md
+@@ -2,7 +2,7 @@
+ 
+ **Schema:** CenCon Method v1.0 (Development Governance)
+ **Status:** DRAFT v0.1
+-**Last Updated:** 2026-06-09
++**Last Updated:** 2026-06-10
+ **Owner:** Support Agent (maintains this document)
+ **Adapted from:** mindzieWeb `docs/cencon/DEVELOPMENT_METHOD.md` (same method, GitHub-Issues tracker)
+ 
+@@ -285,6 +285,64 @@ Director.
+ 
+ ---
+ 
++## 7a. Terminal Signal Contract (machine-readable loop outcome)
++
++The `implementation-loop` skill (the supervisor of the Implementation session, Section 7 / D2)
++reaches exactly one terminal outcome per issue per run. So that an external watcher - specifically
++the autonomous work-item queue runner (epic #270) - can know when one loop run has finished without
++parsing prose, the loop emits a single **machine-readable terminal signal** as the last thing it
++prints to the session transcript on EVERY terminal path. This is a contract, not a feature: child 3
++of #270 (the Gateway queue runner) is built against the spec recorded here.
++
++### The three signal values
++
++There are exactly three terminal-signal values:
++
++| Signal | Meaning | Loop outcomes that map to it |
++|--------|---------|------------------------------|
++| `done` | The issue was verified and squash-merged to main; the run is fully complete. | MERGED (`flow:done`) |
++| `needs-human` | The run stopped cleanly and a human must act; work is committed/parked, nothing is lost. | PARKED (3-strike `flow:needs-human`), ESCALATED (weak-spec `flow:needs-human`), merge conflict / dirty post-merge build (`flow:needs-human`) |
++| `failed` | The run could not complete - it stopped abnormally and produced no usable result. | Pre-flight dirty-tree / leftover-stash stop (Step 0a), wrong-base stop, build-tool failure, crash, or any abnormal exit |
++
++`done` and `needs-human` correspond to the loop's existing clean terminal outcomes (the work is
++preserved either as a merge or as a parked PR). `failed` is the catch-all for any path on which the
++loop cannot reach one of those two - the repository state is whatever it was, and a human should
++look at why the run aborted.
++
++### The sentinel block (transport = session transcript)
++
++The signal travels on the **session transcript** (the surface the Gateway/Wingman already capture -
++no new transport is introduced). The loop prints, as its final transcript output for the issue, a
++single fenced sentinel block in this exact shape:
++
++```
++IMPL-LOOP-TERMINAL
++issue: <N>
++signal: done | needs-human | failed
++pr: <pr number or none>
++merged: yes | no
++reason: <one line - why this terminal state>
++```
++
++- `issue` identifies the work item (so a watcher can correlate the signal with the item it started).
++- `signal` carries exactly one of the three values above.
++- `pr` is the PR number on `done`/`needs-human` paths that have one, or `none`.
++- `merged` is `yes` only on the `done` signal; `no` on `needs-human` and `failed`.
++- `reason` is a single human-readable line explaining the terminal state.
++
++### Rules
++
++- The sentinel block is emitted **in addition to** the loop's existing human-readable one-line
++  report (Step 4 of the `implementation-loop` skill), never instead of it. The two coexist; the
++  human report is unchanged.
++- **Exactly one** sentinel block is emitted per issue per run, as the loop's final action on that
++  issue, so a watcher reading the last sentinel block gets an unambiguous answer.
++- The block is the loop's last transcript output for the issue (in single-issue mode) or for that
++  issue's slot (in `--all` mode, one block per issue as each finishes).
++
++This contract is the keystone of #270: every other child of that epic depends on the three values
++and the block format defined here.
++
+ ## 8. Relationship to the Rest of CenCon
+ 
+ - **architecture_manifest.yaml** tells the Product Agent which containers an item will touch
