@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Report - Issue #255 - FAILED</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background:#1E1E1E; color:#CCCCCC; margin:0; padding:32px; line-height:1.5; }
+  h1 { color:#fff; font-size:22px; border-bottom:2px solid #D97706; padding-bottom:10px; }
+  h2 { color:#fff; font-size:17px; margin-top:30px; border-left:4px solid #D97706; padding-left:10px; }
+  h3 { color:#9CDCFE; font-size:14px; margin-bottom:6px; }
+  code, pre { font-family: Cascadia Mono, Consolas, monospace; }
+  pre { background:#252526; border:1px solid #3C3C3C; border-radius:4px; padding:12px; overflow-x:auto; font-size:12px; color:#D4D4D4; }
+  table { border-collapse:collapse; width:100%; margin:12px 0; }
+  th, td { border:1px solid #3C3C3C; padding:8px 10px; text-align:left; vertical-align:top; font-size:13px; }
+  th { background:#252526; color:#fff; }
+  .pass { color:#22C55E; font-weight:600; }
+  .fail { color:#F87171; font-weight:600; }
+  .img { border:1px solid #3C3C3C; border-radius:4px; max-width:820px; display:block; margin:10px 0; }
+  .meta { color:#888; font-size:12px; }
+  .verdict { background:#3A2A1B; border-left:4px solid #D97706; padding:12px 14px; border-radius:3px; color:#FCD9B0; font-weight:600; }
+</style>
+</head>
+<body>
+
+<h1>QA Report - Issue #255 - FAILED</h1>
+<p class="meta">[Terminal] Open in Browser: pick a browser (Edge/Chrome) and a profile &middot; Independently verified on a fresh slot-5 build of PR branch (HEAD bcc6535) &middot; 2026-06-10</p>
+
+<div class="verdict">VERDICT: flow:qa-failed. AC1 passes (the menu renders correctly), but AC2/AC3/AC4 fail: every submenu LEAF click is hijacked by the parent's tunnel handler, so a specific browser+profile can never be selected and a sticky default can never be set through the UI.</div>
+
+<h2>How this was verified</h2>
+<p>Fresh <code>scripts\local-build-avalonia.ps1 -Slot 5</code> from the PR branch HEAD (footer build hash <code>bcc6535</code> matches the commit), launched via the <code>cc-director-launch</code> task. A session was created, a URL parked in the terminal, and the context menu driven with synthetic input. Each result was judged from the screenshot and the Director log - not from the developer's proof.</p>
+
+<h2>Criteria</h2>
+<table>
+<tr><th>AC</th><th>Result</th><th>Evidence</th></tr>
+<tr><td>1 - Submenu lists installed browsers + their real profiles</td><td class="pass">PASS</td><td>Submenu shows System default / Google Chrome / Microsoft Edge; Edge -&gt; 2 profiles by name+account; Chrome -&gt; 7 profiles, account-bearing sorted first then Person 1 / Your Chrome. Matches the issue reference tables.</td></tr>
+<tr><td>2 - Choosing browser+profile opens that exact profile</td><td class="fail">FAIL</td><td>Clicking Edge -&gt; "Profile 2 (mindzie)" does NOT launch that profile. The parent's tunnel handler fires instead (log: "OpenInBrowserDefault: no remembered default, using system default"). No <code>--profile-directory</code> launch occurs.</td></tr>
+<tr><td>3 - Sticky default</td><td class="fail">FAIL</td><td>Because the leaf click is hijacked, the choice is never saved - <code>config.json</code> <code>browser.default</code> is ABSENT after selecting "Profile 2" twice. A sticky default cannot be established through the UI.</td></tr>
+<tr><td>4 - Works for URLs and local HTML</td><td class="fail">FAIL</td><td>Same root cause - profile selection is impossible for any link type.</td></tr>
+<tr><td>5 - No silent fallback on missing target</td><td class="pass">N/A (path works, unreachable via UI)</td><td>The error path is correct in code, but it can only trigger once a default is set, which the UI cannot do (see AC2/AC3).</td></tr>
+</table>
+
+<h2>Root cause</h2>
+<p>The AC3 fix added a tunnel-phase <code>PointerPressed</code> handler to the parent "Open in Browser" <code>MenuItem</code> so a header press launches the remembered default. But a tunnel route travels top-down through ancestors, and the submenu leaf items are descendants of that parent <code>MenuItem</code>. So a press on ANY leaf (System default, a browser, a profile) tunnels through the parent first, where the handler sets <code>e.Handled = true</code>, closes the menu, and runs <code>OpenInBrowserDefault</code> - the leaf's own <code>Click</code> never fires.</p>
+
+<h3>Definitive reproduction (Director log)</h3>
+<p>Clicking the "System default" LEAF (which has its own distinct handler <code>OpenInBrowserSystemDefault</code>) instead logged the PARENT handler:</p>
+<pre>[TerminalControl] OpenInBrowserDefault: no remembered default, using system default: https://dev.azure.com/mindzie/QATest</pre>
+<p>Three leaf clicks (Edge/Profile 2 x2, System default x1) all produced <code>OpenInBrowserDefault</code>; <code>config.json</code> <code>browser.default</code> stayed absent. See <code>fail-evidence.txt</code>.</p>
+
+<h3>Steps to reproduce</h3>
+<ol>
+<li>Left-click a URL in the terminal -&gt; context menu -&gt; hover "Open in Browser" -&gt; hover "Microsoft Edge".</li>
+<li>Click "Profile 2 (soren.frederiksen@mindzie.com)".</li>
+<li>Expected: Edge launches on that profile (<code>--profile-directory=Profile 1</code>) and the choice is saved to <code>config.json</code>.</li>
+<li>Actual: the menu closes and the parent default action runs (system default, since none is set yet); <code>config.json</code> <code>browser.default</code> is never written.</li>
+</ol>
+
+<h2>Suggested fix direction (developer owns it)</h2>
+<p>The parent's press handler must act only when the press is on the parent's OWN header, not on a descendant submenu item. Options: gate on the pointer being within the parent header's bounds; check <code>e.Source</code> is not inside the submenu items presenter/popup; or drop the tunnel handler and re-open the menu's default another way (e.g. a dedicated first item, or only handle when <code>!parent.IsSubMenuOpen</code> AND the source is the header). Whatever the mechanism, re-verify BOTH: (a) plain parent-click launches the remembered default, AND (b) clicking each leaf still runs that leaf's own action - that second case is the regression this fix introduced and the dev pass did not cover.</p>
+
+<img class="img" src="fail-ac2-leaf-not-selectable.png" alt="Edge profiles submenu - leaves cannot be selected">
+
+</body>
+</html>

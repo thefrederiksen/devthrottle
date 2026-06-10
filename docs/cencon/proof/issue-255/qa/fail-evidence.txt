@@ -1,0 +1,13 @@
+QA evidence - issue #255 - leaf clicks hijacked by parent tunnel handler
+
+Each line below is the result of clicking a SUBMENU LEAF in 'Open in Browser':
+  07:36:03 - clicked Edge > 'Profile 2 (mindzie)' leaf
+  07:37:12 - clicked Edge > 'Profile 2 (mindzie)' leaf (retry, confirmed coords)
+  07:38:17 - clicked 'System default' leaf
+
+Actual handler fired (all three) - the PARENT default, not the leaf action:
+2026-06-10 07:36:03.309 [TerminalControl] OpenInBrowserDefault: no remembered default, using system default: https://dev.azure.com/mindzie/QATest
+2026-06-10 07:37:12.121 [TerminalControl] OpenInBrowserDefault: no remembered default, using system default: https://dev.azure.com/mindzie/QATest
+2026-06-10 07:38:17.684 [TerminalControl] OpenInBrowserDefault: no remembered default, using system default: https://dev.azure.com/mindzie/QATest
+
+config.json browser.default after two 'Profile 2' selections: ABSENT (never saved).

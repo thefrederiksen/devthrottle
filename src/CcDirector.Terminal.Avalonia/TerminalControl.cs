@@ -1555,8 +1555,20 @@ public class TerminalControl : Control
         // just expands the submenu. To make a plain click on the parent reopen the remembered
         // default (while HOVER still expands the submenu for AC1), intercept the header press in
         // the tunnel phase, before the submenu-open handling runs.
+        //
+        // The tunnel route also passes through this parent for presses on its OWN submenu leaves
+        // (they are descendants), so we must launch the default ONLY when the press lands on the
+        // parent's own header. The submenu flies out to a popup outside the header's bounds, so a
+        // press whose position is within the header rectangle is a header click; anything outside
+        // is a leaf press that must fall through to that leaf's own Click handler.
         parent.AddHandler(PointerPressedEvent, (_, e) =>
         {
+            var pos = e.GetPosition(parent);
+            bool onHeader = pos.X >= 0 && pos.Y >= 0
+                && pos.X <= parent.Bounds.Width && pos.Y <= parent.Bounds.Height;
+            if (!onHeader)
+                return;
+
             e.Handled = true;
             _linkContextMenu?.Close();
             OpenInBrowserDefault(target);
