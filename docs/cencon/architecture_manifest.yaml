@@ -10,7 +10,7 @@ project:
   framework: ".NET 10"
   platform: "Windows 10/11 (Avalonia primary; WPF archived), Mac/Linux (experimental backend)"
 
-last_updated: "2026-06-09"
+last_updated: "2026-06-10"
 
 # C4 Level 1: System Context
 context:
@@ -648,6 +648,12 @@ containers:
       - name: VaultEndpoints
         description: REST surface over KeyVault (GET/PUT/DELETE /vault/keys/{name}, GET /vault/keys names-only) backing the Cockpit "API Keys" page; values leave the Gateway only via a single-key GET, never the list. Behind the host-wide auth middleware.
         file: Api/VaultEndpoints.cs
+      - name: WorkListStore
+        description: In-memory fleet-wide named work-list store (issue #273, child of #270). A named list is an ordered set of structured item refs { source, id, area? } plus a single-consumer claim; stores order + refs + claim ONLY (never item status). source github is runnable, devops/jira stored-only in v1; persistence across restart is OUT for v1.
+        file: WorkListStore.cs
+      - name: WorkListEndpoints
+        description: REST surface over WorkListStore backing the queue-runner work lists (issue #273). POST/GET /lists, GET /lists/{name}, POST/PATCH /lists/{name}/items, DELETE /lists/{name}/items/{source}/{id}, POST/DELETE /lists/{name}/consumer (single-consumer claim, 409 on double-claim). Behind the host-wide auth middleware.
+        file: Api/WorkListEndpoints.cs
       - name: SettingsEndpoints / GatewaySettingsHooks
         description: GET /gateway/settings snapshot (version, uptime, director count, brain state, Cockpit status, autostart), POST /gateway/brain/restart (warm-brain recovery), PUT /gateway/autostart; GatewaySettingsHooks is the optional IoC bridge the tray process injects so the library can report run-mode/autostart it cannot otherwise know (degrades to "unsupported" when null)
         files:

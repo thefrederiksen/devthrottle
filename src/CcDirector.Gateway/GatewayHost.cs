@@ -54,6 +54,7 @@ public sealed class GatewayHost : IAsyncDisposable
     private readonly TailscaleServeProvisioner _serveProvisioner;
     private readonly GatewayTurnBriefStore _turnBriefStore;
     private readonly KeyVault _keyVault;
+    private readonly WorkListStore _workLists = new();
     private readonly SessionAssessments _assessments = new();
     private GatewayTurnBriefAgent? _briefAgent;
     private TurnEndWatcher? _turnEndWatcher;
@@ -340,6 +341,13 @@ public sealed class GatewayHost : IAsyncDisposable
         // here (via the Cockpit Keys page); Directors pull them on demand. Inherits the
         // host-wide token middleware above.
         VaultEndpoints.Map(_app, _keyVault);
+
+        // Named work lists (issue #273, child of #270): an ordered list of structured item refs
+        // { source, id, area? } + a single-consumer claim, the object the product skill writes to,
+        // the Cockpit views, and the queue runner drains. In-memory for v1 (persistence is OUT per
+        // #270). Inherits the host-wide token middleware above and is reachable cross-machine like
+        // the rest of the Gateway surface.
+        WorkListEndpoints.Map(_app, _workLists);
 
         // The Cockpit Settings page surface (docs/architecture/gateway/SETTINGS_OWNERSHIP.md):
         // one snapshot GET plus brain-restart and autostart actions. Reads this host directly
