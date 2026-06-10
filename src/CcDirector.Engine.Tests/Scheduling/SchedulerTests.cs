@@ -75,7 +75,16 @@ public sealed class SchedulerTests : IDisposable
         scheduler.OnEvent += e => events.Add(e);
 
         scheduler.Start();
-        await Task.Delay(3000);
+
+        // Poll for the start+complete events instead of a fixed sleep: a hard 3s delay flakes
+        // under CI load when the 1s-interval tick + subprocess run + completion take longer.
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        bool Both() =>
+            events.Any(e => e.Type == EngineEventType.JobStarted && e.JobName == "event-job") &&
+            events.Any(e => e.Type == EngineEventType.JobCompleted && e.JobName == "event-job");
+        while (!Both() && sw.Elapsed < TimeSpan.FromSeconds(15))
+            await Task.Delay(100);
+
         await scheduler.StopAsync(5);
 
         Assert.Contains(events, e => e.Type == EngineEventType.JobStarted && e.JobName == "event-job");
