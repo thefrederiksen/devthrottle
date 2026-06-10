@@ -1,0 +1,8 @@
+2026-06-10 19:26:21.273 DEBUG [GatewayClient] GetSessionsAsync: 2 sessions, 0 unreachable directors
+2026-06-10 19:26:23.316 DEBUG [GatewayClient] GetSessionsAsync: 2 sessions, 0 unreachable directors
+2026-06-10 19:26:25.316 DEBUG [GatewayClient] GetSessionsAsync: 2 sessions, 0 unreachable directors
+2026-06-10 19:26:26.021 INFO  [Cockpit] Cockpit action=select-session source=rail sid=i199-real-0001 dir=http://qa-test-box.example.ts.net:7887
+2026-06-10 19:26:27.313 DEBUG [GatewayClient] GetSessionsAsync: 2 sessions, 0 unreachable directors
+2026-06-10 19:26:27.555 INFO  [Cockpit] Cockpit action=select-session source=rail sid=i199-nodir-0002 dir=
+2026-06-10 19:26:27.556 WARN  [Cockpit] Cockpit empty DirectorBase for sid=i199-nodir-0002 source=rail (rowState=WaitingForInput); session has no tailnet endpoint, live terminal cannot connect - blank-terminal failure mode
+2026-06-10 19:26:29.324 DEBUG [GatewayClient] GetSessionsAsync: 2 sessions, 0 unreachable directors

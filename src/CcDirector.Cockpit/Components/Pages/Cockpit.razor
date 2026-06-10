@@ -1236,6 +1236,18 @@
         Log.LogInformation(
             "Cockpit action=select-session source={Source} sid={Sid} dir={Dir}",
             source, sessionId, picked?.TailnetEndpoint ?? "(none)");
+        // Blank-terminal failure mode (issue #199 / #198): a selected session whose Director
+        // advertised no reachable tailnet endpoint cannot be driven over Tailscale - the detail
+        // pane shows the "no tailnet endpoint" guard and the live terminal (TerminalPane) never
+        // mounts, so the user faces the silent ungovernable terminal we could not previously
+        // diagnose. This WARNING is emitted on the selection funnel (which every source - rail,
+        // needs-you nav, deep-link, quick-reply advance - routes through), so the degraded state
+        // is visible in the persisted log the moment the user lands on such a session, rather than
+        // hidden behind a render branch that short-circuits before any terminal logging runs.
+        if (picked is not null && string.IsNullOrWhiteSpace(picked.TailnetEndpoint))
+            Log.LogWarning(
+                "Cockpit empty DirectorBase for sid={Sid} source={Source} (rowState={RowState}); session has no tailnet endpoint, live terminal cannot connect - blank-terminal failure mode",
+                sessionId, source, picked.AssessedState ?? picked.ActivityState);
         _selectedId = sessionId;
         // Keep the address bar deep-linkable (/cockpit/{sid}) without adding history entries.
         // OnParametersSetAsync guards on SidParam != _selectedId, so this never re-enters.
