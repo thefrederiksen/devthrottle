@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EPIC #270 - Autonomous work-item queue runner: how it works</title>
+<style>
+  :root{
+    --bg:#191919; --panel:#1E1E1E; --sidebar:#252526; --card:#202021;
+    --text:#D6D6D6; --text2:#AAAAAA; --text3:#888888; --muted:#666666;
+    --accent:#007ACC; --selected:#094771; --hover:#2A2D2E; --border:#3C3C3C;
+    --queued:#888888; --running:#007ACC; --done:#2ea043; --needs:#d29922; --failed:#f04848;
+    --gh:#6e7681; --do:#1f6feb; --jira:#8957e5;
+    --a-gateway:#4ea6e6; --a-core:#3fb6a8; --a-installer:#e0883a; --a-cockpit:#a877e6; --a-skill:#d29922;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.55}
+  .wrap{max-width:1080px;margin:0 auto;padding:38px 26px 90px}
+  h1{font-size:25px;font-weight:680;margin:0 0 6px;letter-spacing:-.01em}
+  h2{font-size:19px;font-weight:660;margin:46px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+  h3{font-size:15px;font-weight:650;margin:26px 0 8px;color:#e6e6e6}
+  p{margin:10px 0}
+  a{color:#4ea6e6;text-decoration:none}
+  a:hover{text-decoration:underline}
+  code{background:#2a2a2a;border:1px solid #333;border-radius:4px;padding:1px 6px;font-size:12.5px;
+    font-family:"Cascadia Code",Consolas,monospace;color:#d6d6d6}
+  .lead{color:var(--text2);font-size:15px;max-width:760px}
+  .tag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.04em;border-radius:5px;
+    padding:2px 8px;vertical-align:middle}
+  .tag.epic{background:rgba(0,122,204,.16);color:#4ea6e6;border:1px solid rgba(0,122,204,.4)}
+  .pill{display:inline-block;font-size:10.5px;font-weight:750;border-radius:999px;padding:2px 9px;color:#fff}
+  .pill.ready{background:#1f6feb} .pill.blocked{background:#5a4a16;color:#f0c674;border:1px solid #6b5a1e}
+  .pill.done{background:var(--done)}
+  .meta-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:14px 0 4px;color:var(--text3);font-size:12.5px}
+
+  .callout{background:var(--card);border:1px solid var(--border);border-left:3px solid var(--accent);
+    border-radius:8px;padding:14px 16px;margin:18px 0}
+  .callout.warn{border-left-color:var(--needs)}
+  .callout .h{font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);margin-bottom:6px}
+  .callout.warn .h{color:var(--needs)}
+
+  /* flow diagram */
+  .flow{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:20px;margin:18px 0;overflow:auto}
+  .flow pre{margin:0;font-family:"Cascadia Code",Consolas,monospace;font-size:12px;line-height:1.5;color:#bfc7cf;white-space:pre}
+
+  /* steps */
+  .steps{counter-reset:s;margin:16px 0;padding:0;list-style:none}
+  .steps li{position:relative;padding:10px 0 10px 44px;border-bottom:1px solid #2a2a2a}
+  .steps li:last-child{border-bottom:none}
+  .steps li::before{counter-increment:s;content:counter(s);position:absolute;left:0;top:9px;
+    width:28px;height:28px;border-radius:50%;background:var(--selected);color:#fff;
+    display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;border:1px solid var(--accent)}
+  .steps b{color:#fff}
+
+  /* tables */
+  table{width:100%;border-collapse:collapse;background:var(--sidebar);border:1px solid var(--border);
+    border-radius:10px;overflow:hidden;margin:16px 0;font-size:13px}
+  th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);
+    padding:10px 12px;border-bottom:1px solid var(--border);background:var(--card)}
+  td{padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  td b{color:#fff}
+  .num{font-variant-numeric:tabular-nums;color:#4ea6e6;font-weight:700;white-space:nowrap}
+  .dep{color:var(--text3);font-size:12px}
+
+  /* dependency lanes */
+  .lanes{display:grid;grid-template-columns:1fr;gap:10px;margin:16px 0}
+  .lane{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:11px 14px}
+  .lane .lvl{flex:none;width:74px;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);font-weight:700}
+  .lane .body{flex:1}
+  .lane .nm{font-weight:600}
+  .lane .nm .num{margin-right:7px}
+
+  /* embedded mockup */
+  .mock{border:1px solid var(--border);border-radius:12px;overflow:hidden;margin:18px 0;box-shadow:0 8px 30px rgba(0,0,0,.4)}
+  .mock .bar{display:flex;align-items:center;gap:8px;background:#2d2d2d;padding:8px 12px;border-bottom:1px solid var(--border)}
+  .mock .dot{width:11px;height:11px;border-radius:50%}
+  .mock .dot.r{background:#ff5f56}.mock .dot.y{background:#ffbd2e}.mock .dot.g{background:#27c93f}
+  .mock .url{margin-left:10px;font-size:11.5px;color:var(--text3);font-family:Consolas,monospace}
+
+  /* ---- reproduced Cockpit Lists layout (from lists-ui-mockup.html) ---- */
+  .ck{display:flex;height:520px;background:var(--panel);color:var(--text);font-size:13px}
+  .nv{flex:none;width:158px;display:flex;flex-direction:column;background:var(--sidebar);border-right:1px solid var(--border);padding:6px}
+  .nv-head{display:flex;align-items:center;gap:6px;padding:2px 2px 8px}
+  .nv-brand{font-size:12px;font-weight:700;letter-spacing:.08em;color:var(--accent);border:1px solid var(--accent);border-radius:5px;padding:2px 6px}
+  .nv-item{display:flex;align-items:center;gap:8px;color:var(--text2);padding:6px 8px;border-radius:5px;border-left:2px solid transparent;font-size:12.5px}
+  .nv-item.active{color:#fff;background:var(--selected);border-left-color:var(--accent)}
+  .nv-dot{width:6px;height:6px;border-radius:50%;background:currentColor;flex:none;opacity:.6}
+  .ck-page{flex:1;display:flex;flex-direction:column;min-width:0}
+  .ck-head{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border)}
+  .ck-head h4{font-size:15px;margin:0;font-weight:650}
+  .ck-head .s{color:var(--text3);font-size:11.5px}
+  .ck-head .sp{flex:1}
+  .ck-btn{background:var(--accent);color:#fff;border:none;border-radius:6px;padding:5px 11px;font-size:12px;font-weight:600}
+  .ck-cols{flex:1;display:grid;grid-template-columns:200px 1fr;min-height:0}
+  .ck-listcol{border-right:1px solid var(--border);padding:11px;overflow:auto;background:var(--card)}
+  .ck-lbl{font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);margin:2px 4px 8px}
+  .lcard{border:1px solid var(--border);border-radius:8px;padding:9px 10px;margin-bottom:8px;background:var(--sidebar)}
+  .lcard.active{border-color:var(--accent);background:var(--selected)}
+  .lcard .lnm{font-weight:650;display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12.5px}
+  .lcard .lmt{color:var(--text3);font-size:11px;margin-top:4px}
+  .runtag{font-size:9.5px;font-weight:700;padding:2px 7px;border-radius:999px}
+  .runtag.run{background:rgba(0,122,204,.2);color:#4ea6e6}
+  .runtag.idle{background:#333;color:var(--text3)}
+  .ck-items{padding:14px 16px;overflow:auto}
+  .ck-ihead{display:flex;align-items:flex-start;gap:16px;margin-bottom:12px}
+  .ck-ihead h5{margin:0;font-size:15px}
+  .ck-ihead .m{color:var(--text3);font-size:11.5px;margin-top:3px}
+  .ck-ihead .m b{color:var(--text2)}
+  .prog{flex:1;max-width:280px}
+  .prog .r{display:flex;justify-content:space-between;font-size:11px;color:var(--text3)}
+  .barx{height:6px;background:#333;border-radius:999px;overflow:hidden;margin-top:6px}
+  .barx>i{display:block;height:100%;background:var(--done);width:40%}
+  table.lt{margin:0;font-size:12.5px}
+  table.lt th{padding:8px 10px}
+  table.lt td{padding:8px 10px}
+  tr.running td{background:rgba(0,122,204,.08)}
+  .handle{color:#555;font-weight:700;letter-spacing:1px}
+  .prio{display:inline-flex;width:20px;height:20px;align-items:center;justify-content:center;border-radius:5px;background:#333;font-weight:700;font-size:11px;color:var(--text2)}
+  .src{font-size:9px;font-weight:750;color:#fff;border-radius:4px;padding:2px 6px;letter-spacing:.04em}
+  .src.gh{background:var(--gh)}.src.do{background:var(--do)}.src.jira{background:var(--jira)}
+  .idc{font-variant-numeric:tabular-nums;color:var(--text3);font-weight:600}
+  .ttl{font-weight:600;color:var(--text)}
+  .areatag{display:inline-flex;align-items:center;gap:5px;font-size:10px;color:var(--text2);border:1px solid var(--border);border-radius:5px;padding:1px 7px;margin-top:4px}
+  .adot{width:7px;height:7px;border-radius:50%;display:inline-block}
+  .st{font-size:9.5px;font-weight:750;border-radius:999px;padding:3px 9px;color:#fff;white-space:nowrap}
+  .st.queued{background:var(--queued)}.st.running{background:var(--running)}.st.done{background:var(--done)}
+  .st.needs{background:var(--needs);color:#1c1300}.st.failed{background:var(--failed)}
+
+  /* annotation badges that tie UI parts to issues */
+  .ann{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:700;
+    background:rgba(0,122,204,.16);color:#7cc1ef;border:1px solid rgba(0,122,204,.45);border-radius:999px;padding:1px 8px;margin-left:6px}
+  .legend{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0}
+  .legend .it{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text2);
+    background:var(--card);border:1px solid var(--border);border-radius:7px;padding:6px 11px}
+  .footer{margin-top:50px;padding-top:16px;border-top:1px solid var(--border);color:var(--text3);font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <span class="tag epic">EPIC #270</span>
+  <h1 style="margin-top:10px">Autonomous work-item queue runner</h1>
+  <p class="lead">An unattended, fleet-level wrapper around the already-working single-issue
+  <code>/implementation-loop</code>. The Gateway gains <b>named work lists</b> plus a thin <b>queue runner</b>
+  that drains them; the product skill and Cockpit are clients of the same lists; the Director stays dumb.
+  The only genuinely new contract is the loop's <b>terminal signal</b>.</p>
+
+  <div class="meta-row">
+    <span>Sliced 2026-06-10 into 1 epic + 5 children</span><span>&middot;</span>
+    <span>Dependency-ordered</span><span>&middot;</span>
+    <span>Single-repo, GitHub-issue source for v1</span>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>1. The one idea</h2>
+  <p>Today a human opens a session and types <code>/implementation-loop 171</code> by hand, watches it run
+  DEV &rarr; QA &rarr; squash-merge, then starts the next issue manually. This epic automates exactly that loop &mdash;
+  the per-item unit of work is identical to what you run today.</p>
+
+  <div class="callout">
+    <div class="h">What is automated</div>
+    A <b>named work list</b> at the Gateway holds the order, e.g. <code>Today: [#262, #256, #270, &hellip;]</code>.
+    The <b>queue runner</b> does what you do by hand: for each item it starts one implementation session,
+    seeds it with that same <code>/implementation-loop &lt;N&gt;</code> string, watches it to a terminal signal,
+    then advances. One item in flight per list, never starting the next until the current one finishes.
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>2. End-to-end flow</h2>
+  <div class="flow"><pre>
+   PRODUCT AGENT (any repo)              YOU (Cockpit - Lists page)
+        |  REST: append item to list          |  create / reorder / watch
+        v                                      v
+  +-------------------------------------------------------------------+
+  |  GATEWAY / fleet level                                            |
+  |                                                                   |
+  |   NAMED WORK LISTS  (first-class REST objects)   <-- child #273   |
+  |     Today      : [#262, #256, #270, 1203, CCD-44]                 |
+  |     Release 0.7: [ ... ]   (one consumer per list)                |
+  |                                                                   |
+  |   QUEUE RUNNER  (one consumer per list)          <-- child #274   |
+  |     1. claim list  ->  2. start session, seed "/implementation-   |
+  |        loop N"  ->  3. watch for terminal signal  ->  4. advance  |
+  +-------------------------------------------------------------------+
+        |  start / seed session            ^  terminal signal
+        v                                  |  done | needs-human | failed   <-- child #272
+  +-------------------------------------------------------------------+
+  |  DIRECTOR  (dumb host - no list logic, unchanged)                 |
+  |     +---------------------------------------------------------+   |
+  |     |  IMPLEMENTATION SESSION                                  |   |
+  |     |     /implementation-loop  #N                             |   |
+  |     |        DEV -> QA -> (bounce) -> squash-merge to main     |   |
+  |     +---------------------------------------------------------+   |
+  +-------------------------------------------------------------------+
+
+  Multiple lists drain in parallel - one session per list - across
+  separate machines. (Same-machine worktree parallelism is a later phase:
+  the loop's single slot-5 test Director / build output / port would collide.)
+  </pre></div>
+
+  <h3>The runner's loop, step by step</h3>
+  <ol class="steps">
+    <li><b>Claim</b> the list (single-consumer claim &mdash; a second drainer is refused). <span class="dep">#273</span></li>
+    <li><b>Start one session</b> on a Director and seed it with <code>/implementation-loop &lt;N&gt;</code> for the first item. <span class="dep">#274</span></li>
+    <li><b>Watch</b> that session until it emits the machine-readable terminal signal. <span class="dep">#272</span></li>
+    <li><b>Record</b> which of <code>done</code> / <code>needs-human</code> / <code>failed</code> the item ended on. <span class="dep">#274</span></li>
+    <li><b>Advance</b> to the next item &mdash; never overlapping two items within one list. Repeat until the list is drained. <span class="dep">#274</span></li>
+  </ol>
+
+  <!-- ============================================================ -->
+  <h2>3. The target UI &mdash; the Cockpit "Lists" page</h2>
+  <p>This is the screen we are designing toward. A <b>list is just a named priority list</b> &mdash; named whatever you
+  want, holding anything across any area, source, or repo. Any free machine can claim and run it. Each row carries its
+  own per-item metadata (priority, source, id, area, status). The badges below tie each region of the screen back to the
+  child issue that delivers it.</p>
+
+  <div class="legend">
+    <span class="it"><span class="ann">#273</span> the shared list object + REST</span>
+    <span class="it"><span class="ann">#274</span> the runner that fills "RUNNING"</span>
+    <span class="it"><span class="ann">#275</span> this Cockpit page (client)</span>
+    <span class="it"><span class="ann">#276</span> product agent appends items</span>
+    <span class="it"><span class="ann">#272</span> the signal behind each status</span>
+  </div>
+
+  <div class="mock">
+    <div class="bar">
+      <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+      <span class="url">https://&lt;gateway&gt;/cockpit/lists</span>
+    </div>
+    <div class="ck">
+      <!-- nav rail -->
+      <nav class="nv">
+        <div class="nv-head"><span class="nv-brand">CC</span></div>
+        <div class="nv-item"><span class="nv-dot"></span>Home</div>
+        <div class="nv-item"><span class="nv-dot"></span>Cockpit</div>
+        <div class="nv-item active"><span class="nv-dot"></span>Lists</div>
+        <div class="nv-item"><span class="nv-dot"></span>Sessions</div>
+        <div class="nv-item"><span class="nv-dot"></span>Directors</div>
+        <div class="nv-item"><span class="nv-dot"></span>Fleet</div>
+      </nav>
+      <!-- page -->
+      <div class="ck-page">
+        <div class="ck-head">
+          <h4>Lists</h4><span class="s">named priority lists, drained by the loop</span>
+          <span class="sp"></span><button class="ck-btn">New list</button>
+        </div>
+        <div class="ck-cols">
+          <!-- list column -->
+          <div class="ck-listcol">
+            <div class="ck-lbl">Lists <span class="ann" style="margin-left:4px">#275</span></div>
+            <div class="lcard active">
+              <div class="lnm">Today <span class="runtag run">RUNNING</span></div>
+              <div class="lmt">5 items &middot; 2 done &middot; claimed by machine-1</div>
+            </div>
+            <div class="lcard">
+              <div class="lnm">Release 0.7 <span class="runtag idle">IDLE</span></div>
+              <div class="lmt">3 items &middot; unclaimed &middot; run anywhere</div>
+            </div>
+            <div class="lcard">
+              <div class="lnm">Quick wins <span class="runtag idle">IDLE</span></div>
+              <div class="lmt">4 items &middot; unclaimed</div>
+            </div>
+          </div>
+          <!-- items -->
+          <div class="ck-items">
+            <div class="ck-ihead">
+              <div>
+                <h5>Today</h5>
+                <div class="m">claimed by <b>machine-1</b> &middot; session <b>impl-7f3</b> &middot; one item at a time</div>
+              </div>
+              <div class="prog">
+                <div class="r"><span>Progress</span><span>2 done &middot; 1 running &middot; 2 queued</span></div>
+                <div class="barx"><i></i></div>
+              </div>
+            </div>
+            <table class="lt">
+              <thead>
+                <tr><th style="width:24px"></th><th style="width:34px">Pri</th><th style="width:44px">Src</th>
+                  <th style="width:60px">Id</th><th>Title</th><th style="width:96px">Status</th></tr>
+              </thead>
+              <tbody>
+                <tr><td class="handle">::</td><td><span class="prio">1</span></td><td><span class="src gh">GH</span></td>
+                  <td class="idc">#262</td>
+                  <td><div class="ttl">Gateway fleet discovery edge case</div>
+                      <div><span class="areatag"><span class="adot" style="background:var(--a-gateway)"></span>Gateway</span></div></td>
+                  <td><span class="st done">DONE</span></td></tr>
+                <tr><td class="handle">::</td><td><span class="prio">2</span></td><td><span class="src gh">GH</span></td>
+                  <td class="idc">#256</td>
+                  <td><div class="ttl">Wingman terminal-state read</div>
+                      <div><span class="areatag"><span class="adot" style="background:var(--a-core)"></span>Core</span></div></td>
+                  <td><span class="st done">DONE</span></td></tr>
+                <tr class="running"><td class="handle">::</td><td><span class="prio">3</span></td><td><span class="src gh">GH</span></td>
+                  <td class="idc">#270</td>
+                  <td><div class="ttl">Autonomous work-item queue runner</div>
+                      <div><span class="areatag"><span class="adot" style="background:var(--a-gateway)"></span>Gateway</span></div></td>
+                  <td><span class="st running">RUNNING</span></td></tr>
+                <tr><td class="handle">::</td><td><span class="prio">4</span></td><td><span class="src do">DO</span></td>
+                  <td class="idc">1203</td>
+                  <td><div class="ttl">Installer auto-update retry logic</div>
+                      <div><span class="areatag"><span class="adot" style="background:var(--a-installer)"></span>Installer</span></div></td>
+                  <td><span class="st queued">QUEUED</span></td></tr>
+                <tr><td class="handle">::</td><td><span class="prio">5</span></td><td><span class="src jira">JIRA</span></td>
+                  <td class="idc">CCD-44</td>
+                  <td><div class="ttl">Cockpit list filter persistence</div>
+                      <div><span class="areatag"><span class="adot" style="background:var(--a-cockpit)"></span>Cockpit</span></div></td>
+                  <td><span class="st queued">QUEUED</span></td></tr>
+              </tbody>
+            </table>
+            <p style="color:var(--text3);font-size:11.5px;margin-top:12px">
+              One consumer per list. Status during a run comes from the loop signal, not from any tracker.
+              Drag the handle to reprioritize. Items are appended by the product agent over REST
+              <span class="ann">#276</span>, or added here by id + source.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p style="font-size:12.5px;color:var(--text3)">Full-fidelity mockup:
+    <a href="lists-ui-mockup.html">lists-ui-mockup.html</a></p>
+
+  <!-- ============================================================ -->
+  <h2>4. UI region &rarr; issue map</h2>
+  <table>
+    <thead><tr><th style="width:230px">On-screen element</th><th style="width:80px">Delivered by</th><th>What it is</th></tr></thead>
+    <tbody>
+      <tr><td><b>List cards</b> (Today / Release 0.7 / &hellip;), RUNNING / IDLE tag, "claimed by machine-1"</td>
+          <td class="num">#275</td><td>Cockpit reads <code>GET /lists</code> and renders the named lists + their claim state. The list object itself is #273.</td></tr>
+      <tr><td><b>New list</b> button, drag handle, reorder, Add item</td>
+          <td class="num">#275</td><td>Cockpit issues child-#273 calls (<code>POST /lists</code>, <code>PATCH /lists/{name}/items</code>). It never reorders locally only.</td></tr>
+      <tr><td><b>Item rows</b> (pri, id, title, area)</td>
+          <td class="num">#273</td><td>The ordered item refs live in the list object. Cockpit just paints them.</td></tr>
+      <tr><td><b>Status badge</b> (QUEUED / RUNNING / DONE / NEEDS-HUMAN / FAILED)</td>
+          <td class="num">#272 + #274</td><td>Derived from the GitHub <code>flow:*</code> label (source of truth) plus the runner's recorded terminal signal (#272) for the live RUNNING / FAILED state.</td></tr>
+      <tr><td><b>"impl-7f3" session + one-item-at-a-time</b></td>
+          <td class="num">#274</td><td>The queue runner that claimed the list, started the session, and is watching it.</td></tr>
+      <tr><td><b>Rows appearing without you touching the UI</b></td>
+          <td class="num">#276</td><td>The product agent appended the item to the list over REST when it marked it ready-for-dev.</td></tr>
+      <tr><td><b>Src = GH / DO / JIRA, area chips</b> <span class="pill done">Option B - in v1 model</span></td>
+          <td class="num">#273</td><td>The item ref is the structured <code>{ source, id, area? }</code> object, so source badges and area chips are real from day one. The runner (#274) <b>drives only <code>github</code></b> items in v1; <code>devops</code>/<code>jira</code> rows are stored, ordered, and displayed (queued) but not yet drained. See section 6.</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>5. The five children (dependency order)</h2>
+
+  <div class="lanes">
+    <div class="lane">
+      <div class="lvl">Layer 0<br>foundation</div>
+      <div class="body">
+        <div class="nm"><span class="num">#272</span>implementation-loop emits a machine-readable terminal signal <span class="pill ready">flow:ready-dev</span></div>
+        <div class="dep">The keystone contract. No blockers. Every other child reads what this defines.</div>
+      </div>
+    </div>
+    <div class="lane">
+      <div class="lvl">Layer 0<br>foundation</div>
+      <div class="body">
+        <div class="nm"><span class="num">#273</span>Named work lists as a first-class REST resource <span class="pill ready">flow:ready-dev</span></div>
+        <div class="dep">The shared list object (CRUD + ordering + single-consumer claim). No blockers. Buildable in parallel with #272.</div>
+      </div>
+    </div>
+    <div class="lane">
+      <div class="lvl">Layer 1<br>the runner</div>
+      <div class="body">
+        <div class="nm"><span class="num">#274</span>Queue runner drains one list, one session per item <span class="pill blocked">blocked by #272 + #273</span></div>
+        <div class="dep">The heart of the epic. Released to dev only when BOTH foundations hit flow:done.</div>
+      </div>
+    </div>
+    <div class="lane">
+      <div class="lvl">Layer 1<br>clients</div>
+      <div class="body">
+        <div class="nm"><span class="num">#275</span>Cockpit work-list client: create / reorder / watch <span class="pill blocked">blocked by #273</span></div>
+        <div class="dep">The screen above. Pure client of #273; live "RUNNING" appears once #274 exists, but create/reorder/view is testable against #273 alone.</div>
+      </div>
+    </div>
+    <div class="lane">
+      <div class="lvl">Layer 1<br>clients</div>
+      <div class="body">
+        <div class="nm"><span class="num">#276</span>product-agent skill appends a ready-for-dev item to a list <span class="pill blocked">blocked by #273</span></div>
+        <div class="dep">The producer side. Small, deliberately last; opt-in append, flow:ready-dev stays the source of truth for status.</div>
+      </div>
+    </div>
+  </div>
+
+  <table>
+    <thead><tr><th>#</th><th>Title</th><th style="width:130px">Containers touched</th><th style="width:150px">Proof</th></tr></thead>
+    <tbody>
+      <tr><td class="num">#272</td><td>Terminal signal <code>done | needs-human | failed</code></td>
+          <td><code>.claude/skills/implementation-loop</code>, <code>docs/cencon/DEVELOPMENT_METHOD.md</code></td>
+          <td>Captured transcript of the sentinel block for each of the 3 signals (no .NET artifact).</td></tr>
+      <tr><td class="num">#273</td><td>Named lists REST (CRUD + order + claim)</td>
+          <td><code>CcDirector.Gateway</code>, ControlApi surface, Gateway.Contracts, Gateway.Tests</td>
+          <td>Control API request/response sequence (create&rarr;append&times;3&rarr;reorder&rarr;delete&rarr;claim&rarr;double-claim-refused).</td></tr>
+      <tr><td class="num">#274</td><td>Queue runner (one session per item, in order)</td>
+          <td><code>CcDirector.Gateway</code>, Core/Wingman (maybe), Gateway.Tests</td>
+          <td>Timeline: item-1 start &rarr; terminal signal &rarr; item-2 start; cross-machine concurrent run; no logic in the Director host.</td></tr>
+      <tr><td class="num">#275</td><td>Cockpit Lists page (client)</td>
+          <td><code>CcDirector.Cockpit/wwwroot</code>, Cockpit Razor</td>
+          <td>Screenshots: create in UI &rarr; same list via <code>GET /lists</code>; reorder reflected in REST; badge follows a <code>flow:*</code> change.</td></tr>
+      <tr><td class="num">#276</td><td>product-agent appends to a named list</td>
+          <td><code>.claude/skills/product-agent</code></td>
+          <td>Captured skill run: label ready-dev &rarr; <code>POST /lists/{name}/items</code> &rarr; <code>GET</code> shows it; no-list run stays label-only.</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>6. Decisions to confirm before/while building</h2>
+
+  <div class="callout">
+    <div class="h">Settled 2026-06-10 &mdash; Option B: item-ref model promoted now</div>
+    <p style="margin:0 0 8px">The board shows three item <b>sources</b> (GH / DevOps / JIRA) and per-item <b>area</b> chips
+    (Gateway / Core / Installer / Cockpit). Rather than hard-code GitHub and defer multi-source, we promoted the model:</p>
+    <ul style="margin:0 0 8px">
+      <li><b>#273</b> stores a structured ref <code>{ source, id, area? }</code> &mdash; <code>id</code> is a string, <code>source</code> is an enum (<code>github</code> runnable; <code>devops</code>/<code>jira</code> accepted + stored). The store never rejects a source and never holds a status field.</li>
+      <li><b>#274</b> (runner) reads <code>item.source</code>/<code>item.id</code> and in v1 <b>drives only <code>github</code></b> items (seeds <code>/implementation-loop &lt;id&gt;</code>). Non-github refs are skipped per a documented rule &mdash; queued and visible, never started, until a per-source adapter exists.</li>
+      <li><b>#275</b> renders source badge + area chip from the ref (real, not hard-coded); <b>#276</b> appends <code>{ source: "github", id, area? }</code>.</li>
+    </ul>
+    <p style="margin:0">So the multi-source board is real on day one; making <code>devops</code>/<code>jira</code> <i>runnable</i> is the only piece deferred to a later phase (source adapters).</p>
+  </div>
+
+  <div class="callout warn">
+    <div class="h">The one genuinely new contract (#272)</div>
+    Assumption A1: the terminal signal rides the <b>session transcript</b> as a fenced sentinel block
+    (<code>IMPL-LOOP-TERMINAL / signal: done|needs-human|failed</code>), matching the diagram's
+    "FINISHED" arrow &mdash; not a new GitHub comment or REST call. If we'd rather the loop POST the signal to the
+    Gateway directly, that overrides A1 and #272 + #274 re-point to that transport.
+  </div>
+
+  <h3>Constraints carried from the epic</h3>
+  <ul>
+    <li><b>Same-machine parallelism is gated by the single slot-5 test Director</b> (one build output, one Control API port, strictly sequential sub-agents). v1 parallelism is <b>across machines only</b>; same-machine worktrees come after slot/build/port isolation exists.</li>
+    <li><b>One consumer per list</b> &mdash; enforced by the claim, so two drainers never race the same items.</li>
+    <li><b>Single source of truth for item state</b> &mdash; status lives in GitHub <code>flow:*</code> labels; the list stores order + assignment only, never a status field.</li>
+    <li><b>Parallel merges to <code>main</code> raise the conflict-escalation rate</b> &mdash; safe because the loop escalates <code>needs-human</code> rather than force-merging.</li>
+  </ul>
+
+  <h3>Roadmap</h3>
+  <ul>
+    <li><b>v1:</b> named lists over REST; GitHub issues as the item source; product agent + Cockpit as clients; cross-machine parallelism (one list per machine); the terminal-signal contract.</li>
+    <li><b>Later:</b> same-machine worktree parallelism; <b>source adapters</b> that make <code>devops</code> / <code>jira</code> refs runnable (the model already carries them); list persistence across a Gateway restart.</li>
+  </ul>
+
+  <div class="footer">
+    EPIC #270 + children #272&ndash;#276 &middot; cc-director &middot; generated 2026-06-10 &middot;
+    source: <code>docs/plans/queue-runner-270/how-it-works.html</code> &middot;
+    mockup: <code>docs/plans/queue-runner-270/lists-ui-mockup.html</code>
+  </div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cockpit - Lists (mockup)</title>
+<style>
+  :root{
+    --panel:#1E1E1E; --sidebar:#252526; --button:#3C3C3C; --button-hover:#505050;
+    --text:#CCCCCC; --text2:#AAAAAA; --text3:#888888; --muted:#666666;
+    --accent:#007ACC; --selected:#094771; --hover:#2A2D2E; --border:#3C3C3C;
+    --queued:#888888; --running:#007ACC; --done:#2ea043; --needs:#d29922; --failed:#f04848;
+    --gh:#6e7681; --do:#1f6feb; --jira:#8957e5;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--panel);color:var(--text);
+    font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:13.5px;line-height:1.45}
+  .shell{display:flex;height:100vh}
+
+  /* cockpit nav rail (reproduced from NavMenu.razor / app.css) */
+  .nv{flex:none;width:172px;display:flex;flex-direction:column;background:var(--sidebar);
+    border-right:1px solid var(--border);padding:6px 6px 8px}
+  .nv-head{display:flex;align-items:center;gap:6px;padding:2px 2px 8px}
+  .nv-brand{font-size:13px;font-weight:700;letter-spacing:.08em;color:var(--accent);
+    border:1px solid var(--accent);border-radius:5px;padding:2px 6px}
+  .nv-toggle{margin-left:auto;width:24px;height:24px;font-size:13px;color:var(--text2);
+    background:transparent;border:1px solid var(--border);border-radius:5px;cursor:pointer}
+  .nv-item{display:flex;align-items:center;gap:9px;color:var(--text2);text-decoration:none;
+    padding:7px 8px;border-radius:5px;border-left:2px solid transparent;font-size:13px}
+  .nv-item:hover{color:var(--text);background:var(--hover)}
+  .nv-item.active{color:#fff;background:var(--selected);border-left-color:var(--accent)}
+  .nv-ico{flex:none;width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.3;
+    stroke-linecap:round;stroke-linejoin:round}
+  .nv-sep{height:1px;background:var(--border);margin:7px 4px}
+  .nv-spacer{flex:1}
+  .nv-foot{font-size:10px;color:var(--text3);text-align:center;padding:4px 0 2px}
+
+  /* page */
+  .page{flex:1;display:flex;flex-direction:column;min-width:0}
+  .page-head{display:flex;align-items:center;gap:12px;padding:14px 20px;border-bottom:1px solid var(--border)}
+  .page-head h1{font-size:16px;margin:0;font-weight:650}
+  .page-head .sub{color:var(--text3);font-size:12px}
+  .page-head .spacer{flex:1}
+  .btn{background:var(--button);color:var(--text);border:1px solid var(--border);border-radius:6px;
+    padding:6px 11px;font-size:12.5px;font-weight:600;cursor:pointer}
+  .btn:hover{border-color:var(--accent);color:#fff}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+
+  .cols{flex:1;display:grid;grid-template-columns:236px 1fr;min-height:0}
+
+  /* lists column (freely named priority lists, NOT sliced by area) */
+  .listcol{border-right:1px solid var(--border);padding:12px;overflow:auto;background:#202021}
+  .listcol .lbl{font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);margin:4px 4px 9px}
+  .lcard{border:1px solid var(--border);border-radius:8px;padding:10px 11px;margin-bottom:9px;cursor:pointer;background:var(--sidebar)}
+  .lcard:hover{border-color:#505050}
+  .lcard.active{border-color:var(--accent);background:var(--selected)}
+  .lcard .nm{font-weight:650;display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .lcard .mt{color:var(--text3);font-size:11.5px;margin-top:4px}
+  .runtag{font-size:10px;font-weight:700;letter-spacing:.02em;padding:2px 7px;border-radius:999px}
+  .runtag.run{background:rgba(0,122,204,.18);color:#4ea6e6}
+  .runtag.idle{background:#333;color:var(--text3)}
+  .newlist{width:100%;margin-top:4px;border:1px dashed var(--border);background:transparent;color:var(--text3);
+    border-radius:8px;padding:8px;font-size:12px;cursor:pointer}
+
+  /* items column */
+  .items{padding:16px 20px;overflow:auto}
+  .ihead{display:flex;align-items:flex-start;gap:18px;margin-bottom:14px}
+  .ihead h2{margin:0;font-size:17px}
+  .ihead .meta{color:var(--text3);font-size:12px;margin-top:3px}
+  .ihead .meta b{color:var(--text2);font-weight:600}
+  .prog{flex:1;max-width:330px}
+  .prog .row{display:flex;justify-content:space-between;font-size:11.5px;color:var(--text3)}
+  .bar{height:7px;background:#333;border-radius:999px;overflow:hidden;margin-top:7px}
+  .bar > i{display:block;height:100%;background:var(--done);width:40%}
+  .filters{display:flex;gap:7px;margin-bottom:12px;flex-wrap:wrap}
+  .chip{border:1px solid var(--border);background:transparent;border-radius:999px;padding:3px 11px;
+    font-size:11.5px;color:var(--text3);cursor:pointer}
+  .chip.on{border-color:var(--accent);color:#fff;background:var(--selected)}
+  table{width:100%;border-collapse:collapse;background:var(--sidebar);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+  th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);
+    padding:9px 11px;border-bottom:1px solid var(--border);background:#202021}
+  td{padding:10px 11px;border-bottom:1px solid var(--border);vertical-align:middle}
+  tr:last-child td{border-bottom:none}
+  tr.running td{background:rgba(0,122,204,.08)}
+  .handle{color:#555;cursor:grab;font-weight:700;letter-spacing:1px}
+  .prio{display:inline-flex;width:21px;height:21px;align-items:center;justify-content:center;border-radius:5px;
+    background:#333;font-weight:700;font-size:11px;color:var(--text2)}
+  .src{font-size:9.5px;font-weight:750;color:#fff;border-radius:4px;padding:2px 6px;letter-spacing:.04em}
+  .src.gh{background:var(--gh)} .src.do{background:var(--do)} .src.jira{background:var(--jira)}
+  .idc{font-variant-numeric:tabular-nums;color:var(--text3);font-weight:600}
+  .ttl{font-weight:600;color:var(--text)}
+  .subline{margin-top:4px}
+  .areatag{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;color:var(--text2);
+    border:1px solid var(--border);border-radius:5px;padding:2px 7px 2px 6px}
+  .adot{width:7px;height:7px;border-radius:50%;display:inline-block}
+  .a-gateway{background:#4ea6e6} .a-core{background:#3fb6a8} .a-installer{background:#e0883a} .a-cockpit{background:#a877e6}
+  .st{font-size:10px;font-weight:750;border-radius:999px;padding:3px 9px;color:#fff;white-space:nowrap}
+  .st.queued{background:var(--queued)} .st.running{background:var(--running)}
+  .st.done{background:var(--done)} .st.needs{background:var(--needs);color:#1c1300} .st.failed{background:var(--failed)}
+  .open{color:#4ea6e6;font-weight:600;text-decoration:none;font-size:12px}
+  .addrow td{background:#202021;color:var(--text3);font-size:12px}
+  .note{margin:16px 2px 0;color:var(--text3);font-size:11.5px}
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- COCKPIT NAV RAIL -->
+  <nav class="nv">
+    <div class="nv-head"><span class="nv-brand">CC</span><button class="nv-toggle">&lt;</button></div>
+    <a class="nv-item"><svg class="nv-ico" viewBox="0 0 16 16"><path d="M2 8.5 8 3l6 5.5M4 8v5h8V8"/></svg><span>Home</span></a>
+    <a class="nv-item"><svg class="nv-ico" viewBox="0 0 16 16"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M4 6l2.5 2L4 10M8 10.5h4"/></svg><span>Cockpit</span></a>
+    <a class="nv-item active"><svg class="nv-ico" viewBox="0 0 16 16"><path d="M5 4h9M5 8h9M5 12h6"/><path d="M2.4 4h.01M2.4 8h.01M2.4 12h.01"/></svg><span>Lists</span></a>
+    <a class="nv-item"><svg class="nv-ico" viewBox="0 0 16 16"><path d="M2 4h12M2 8h12M2 12h8"/></svg><span>Sessions</span></a>
+    <a class="nv-item"><svg class="nv-ico" viewBox="0 0 16 16"><rect x="2" y="2.5" width="12" height="4.5" rx="1"/><rect x="2" y="9" width="12" height="4.5" rx="1"/></svg><span>Directors</span></a>
+    <a class="nv-item"><svg class="nv-ico" viewBox="0 0 16 16"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg><span>Fleet</span></a>
+    <a class="nv-item"><svg class="nv-ico" viewBox="0 0 16 16"><path d="M2.5 3.5h11v7h-6L4 13.5v-3h-1.5z"/></svg><span>Feedback</span></a>
+    <a class="nv-item"><svg class="nv-ico" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5"/><path d="M8 7.25v3.75M8 5h.01"/></svg><span>About</span></a>
+    <div class="nv-sep"></div>
+    <a class="nv-item"><svg class="nv-ico" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.25"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2"/></svg><span>Settings</span></a>
+    <a class="nv-item"><svg class="nv-ico" viewBox="0 0 16 16"><path d="M8 1.5 14 5v6l-6 3.5L2 11V5z"/></svg><span>Builds</span></a>
+    <a class="nv-item"><svg class="nv-ico" viewBox="0 0 16 16"><rect x="6" y="1.5" width="4" height="8" rx="2"/><path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5"/></svg><span>Voice</span></a>
+    <a class="nv-item"><svg class="nv-ico" viewBox="0 0 16 16"><path d="M3 2.5h8.5A1.5 1.5 0 0 1 13 4v9.5H4.5A1.5 1.5 0 0 1 3 12z"/></svg><span>Dictionary</span></a>
+    <a class="nv-item"><svg class="nv-ico" viewBox="0 0 16 16"><circle cx="5" cy="8" r="2.5"/><path d="M7.5 8H14M12 8v2.5"/></svg><span>API Keys</span></a>
+    <div class="nv-spacer"></div>
+    <div class="nv-foot">v0.6.22</div>
+  </nav>
+
+  <!-- LISTS PAGE -->
+  <div class="page">
+    <div class="page-head">
+      <h1>Lists</h1>
+      <span class="sub">named priority lists, drained by the loop</span>
+      <div class="spacer"></div>
+      <button class="btn primary">New list</button>
+    </div>
+
+    <div class="cols">
+      <!-- lists: freely named priority queues, not sliced by anything -->
+      <div class="listcol">
+        <div class="lbl">Lists</div>
+
+        <div class="lcard active">
+          <div class="nm">Today <span class="runtag run">RUNNING</span></div>
+          <div class="mt">5 items . 2 done . claimed by machine-1</div>
+        </div>
+        <div class="lcard">
+          <div class="nm">Release 0.7 <span class="runtag idle">IDLE</span></div>
+          <div class="mt">3 items . unclaimed . run anywhere</div>
+        </div>
+        <div class="lcard">
+          <div class="nm">Quick wins <span class="runtag idle">IDLE</span></div>
+          <div class="mt">4 items . unclaimed</div>
+        </div>
+        <div class="lcard">
+          <div class="nm">Backlog <span class="runtag idle">IDLE</span></div>
+          <div class="mt">9 items . holding area</div>
+        </div>
+
+        <button class="newlist">+ New list</button>
+        <div class="note">A list is just a named priority list. I name it whatever I want; it can hold anything across any area, source, or repo. Any free machine can claim and run it.</div>
+      </div>
+
+      <!-- selected list items -->
+      <div class="items">
+        <div class="ihead">
+          <div>
+            <h2>Today</h2>
+            <div class="meta">claimed by <b>machine-1</b> . session <b>impl-7f3</b> . one item at a time</div>
+          </div>
+          <div class="prog">
+            <div class="row"><span>Progress</span><span>2 done . 1 running . 2 queued</span></div>
+            <div class="bar"><i></i></div>
+          </div>
+        </div>
+
+        <div class="filters">
+          <span class="chip on">All</span><span class="chip">GitHub</span><span class="chip">DevOps</span>
+          <span class="chip">JIRA</span><span class="chip" style="margin-left:8px">Queued only</span>
+        </div>
+
+        <table>
+          <thead>
+            <tr><th style="width:28px"></th><th style="width:40px">Pri</th><th style="width:50px">Src</th>
+              <th style="width:66px">Id</th><th>Title</th><th style="width:120px">Status</th><th style="width:50px"></th></tr>
+          </thead>
+          <tbody>
+            <tr><td class="handle">::</td><td><span class="prio">1</span></td><td><span class="src gh">GH</span></td>
+              <td class="idc">#262</td>
+              <td><div class="ttl">Gateway fleet discovery edge case</div>
+                  <div class="subline"><span class="areatag"><span class="adot a-gateway"></span>Gateway</span></div></td>
+              <td><span class="st done">DONE</span></td><td><a class="open">open</a></td></tr>
+            <tr><td class="handle">::</td><td><span class="prio">2</span></td><td><span class="src gh">GH</span></td>
+              <td class="idc">#256</td>
+              <td><div class="ttl">Wingman terminal-state read</div>
+                  <div class="subline"><span class="areatag"><span class="adot a-core"></span>Core</span></div></td>
+              <td><span class="st done">DONE</span></td><td><a class="open">open</a></td></tr>
+            <tr class="running"><td class="handle">::</td><td><span class="prio">3</span></td><td><span class="src gh">GH</span></td>
+              <td class="idc">#270</td>
+              <td><div class="ttl">Autonomous work-item queue runner</div>
+                  <div class="subline"><span class="areatag"><span class="adot a-gateway"></span>Gateway</span></div></td>
+              <td><span class="st running">RUNNING</span></td><td><a class="open">open</a></td></tr>
+            <tr><td class="handle">::</td><td><span class="prio">4</span></td><td><span class="src do">DO</span></td>
+              <td class="idc">1203</td>
+              <td><div class="ttl">Installer auto-update retry logic</div>
+                  <div class="subline"><span class="areatag"><span class="adot a-installer"></span>Installer</span></div></td>
+              <td><span class="st queued">QUEUED</span></td><td><a class="open">open</a></td></tr>
+            <tr><td class="handle">::</td><td><span class="prio">5</span></td><td><span class="src jira">JIRA</span></td>
+              <td class="idc">CCD-44</td>
+              <td><div class="ttl">Cockpit list filter persistence</div>
+                  <div class="subline"><span class="areatag"><span class="adot a-cockpit"></span>Cockpit</span></div></td>
+              <td><span class="st queued">QUEUED</span></td><td><a class="open">open</a></td></tr>
+            <tr class="addrow"><td></td><td></td><td colspan="3">Items appended by the product agent over REST, or added here by id + source.</td>
+              <td colspan="2"><button class="btn" style="padding:4px 9px;font-size:11.5px">Add item</button></td></tr>
+          </tbody>
+        </table>
+
+        <div class="note">This one list mixes Gateway, Core, Installer, and Cockpit items: a list is not sliced by area. Area, source, status, and id are all per-item metadata shown on the row. Drag the handle to reprioritize. One consumer per list. Status during a run comes from the loop signal, not from any tracker.</div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
