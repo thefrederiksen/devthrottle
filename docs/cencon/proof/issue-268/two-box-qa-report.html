@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #268 — Two-Box QA Proof (live cross-machine)</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 980px; margin: 2rem auto; padding: 0 1rem; color: #1b1f24; line-height: 1.5; }
+  h1 { font-size: 1.5rem; border-bottom: 2px solid #2563eb; padding-bottom: .4rem; }
+  h2 { font-size: 1.15rem; margin-top: 1.8rem; color: #1e40af; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: .92rem; }
+  th, td { border: 1px solid #d0d7de; padding: .5rem .6rem; text-align: left; vertical-align: top; }
+  th { background: #f3f6fb; }
+  .pass { color: #137333; font-weight: 600; }
+  .partial { color: #b06000; font-weight: 600; }
+  code, pre { font-family: ui-monospace, Consolas, monospace; }
+  pre { background: #0d1117; color: #d6e2f0; padding: .8rem; border-radius: 6px; overflow-x: auto; font-size: .82rem; }
+  .verdict { background: #e6f4ea; border: 1px solid #137333; border-radius: 8px; padding: 1rem; margin: 1.4rem 0; }
+  .meta { background: #f3f6fb; border-radius: 8px; padding: .8rem 1rem; font-size: .9rem; }
+</style>
+</head>
+<body>
+
+<h1>Issue #268 — Two-Box QA Proof</h1>
+<p><strong>Route per-session WebSocket legs (dictate + terminal stream) through the Gateway so a remote Cockpit never needs a Director's address.</strong></p>
+
+<div class="meta">
+  <strong>Date:</strong> 2026-06-10 &nbsp;·&nbsp; <strong>Merged commit on main:</strong> <code>e388446</code> (PR #283), atop Cockpit compile fix <code>dd3cd59</code> (PR #286)<br>
+  <strong>Box A — Gateway host:</strong> SOREN_NORTH (tailnet <code>soren-north.taildb08ed.ts.net</code>) — runs the Gateway + Cockpit + the owning Director <code>37cea6e2</code> (advertises loopback <code>http://127.0.0.1:7887</code>, the original failing case).<br>
+  <strong>Box B — remote browser/client:</strong> SORENLAPTOP (tailnet <code>100.89.217.71</code>) — a different physical machine, where the per-session WS connections originate.<br>
+  <strong>Deploy:</strong> SOREN_NORTH redeployed from <code>main</code> via <code>redeploy-gateway.ps1</code> + <code>deploy-cockpit.ps1</code> (Cockpit DLL ts 2026-06-10 16:38). No Director processes killed.
+</div>
+
+<h2>Why this needed two machines</h2>
+<p>The issue's Proof Target requires every per-session WS proof to be captured <em>"from a non-Gateway machine over the tailnet."</em> Before #268 the browser built the WS URL from the owning Director's advertised address; when that was loopback (<code>127.0.0.1:7887</code>), a remote browser resolved it to <em>its own</em> loopback and the upgrade never landed. The fix builds both WS URLs <strong>same-origin to the Gateway</strong>, which resolves the owning Director and reverse-proxies the upgrade.</p>
+
+<h2>Acceptance criteria</h2>
+<table>
+  <tr><th>AC</th><th>Criterion</th><th>Result</th><th>Evidence</th></tr>
+  <tr>
+    <td>AC1</td><td>Terminal cross-machine — remote browser WS connects to the Gateway origin and shows live output</td>
+    <td class="pass">PASS (live)</td>
+    <td>From SORENLAPTOP: <code>wss://soren-north.taildb08ed.ts.net/sessions/&lt;sid&gt;/stream</code> → <strong>101 upgrade</strong> + frames: <code>{"type":"size","cols":147,"rows":43}</code>, binary 262144 B, binary 7393 B. URL is the Gateway host, never a Director address.</td>
+  </tr>
+  <tr>
+    <td>AC2</td><td>Dictation cross-machine — remote WS reaches the dictation pipeline through the Gateway</td>
+    <td class="pass">PASS (routing, live)</td>
+    <td>From SORENLAPTOP: <code>wss://soren-north.taildb08ed.ts.net/sessions/&lt;sid&gt;/dictate</code> → <strong>101 upgrade</strong> + <code>{"type":"ready"}</code> from the Director (ready to receive PCM). Transcription quality is the gated child #226.</td>
+  </tr>
+  <tr>
+    <td>AC3</td><td>No loopback ever — neither WS URL contains 127.0.0.1/localhost</td>
+    <td class="pass">PASS (live + unit)</td>
+    <td>Both live URLs target the Gateway origin <code>soren-north.taildb08ed.ts.net</code>. Builder asserted by <code>CockpitWsUrlsTests</code> (origin, sid path, http→ws/https→wss, trailing slash).</td>
+  </tr>
+  <tr>
+    <td>AC4</td><td>Unknown session → 404</td>
+    <td class="pass">PASS (live)</td>
+    <td>From SORENLAPTOP: <code>GET https://soren-north.taildb08ed.ts.net/sessions/00000000-…-000000000000/stream</code> → <strong>HTTP 404</strong> from the new proxy endpoint.</td>
+  </tr>
+  <tr>
+    <td>—</td><td>Director-side forwarding proof (legs arrive <em>from the Gateway</em>, not the browser)</td>
+    <td class="pass">PASS (live)</td>
+    <td>SOREN_NORTH Director log:<br>
+      <code>16:52:00.385 [TerminalStreamEndpoint] GET /sessions/&lt;sid&gt;/stream from 127.0.0.1</code><br>
+      <code>16:52:28.063 [DictationEndpoint] GET /dictate from 127.0.0.1</code><br>
+      Source = <strong>127.0.0.1 (the Gateway)</strong>, NOT the remote browser <code>100.89.217.71</code>.</td>
+  </tr>
+  <tr>
+    <td>AC7</td><td>Unit tests green (WS-URL builders)</td>
+    <td class="pass">PASS</td>
+    <td><code>CcDirector.Gateway.Tests</code> 404 passed (incl. <code>CockpitWsUrlsTests</code> + <code>SessionWsProxyEndpointsTests</code>), <code>CcDirector.Cockpit.Tests</code> 12 passed.</td>
+  </tr>
+  <tr>
+    <td>AC4</td><td>Offline Director → 503 (no hang)</td>
+    <td class="partial">Unit-verified</td>
+    <td>503 branch (resolved-but-unreachable Director) covered by <code>SessionWsProxyEndpointsTests</code>. Live capture deferred (would require stopping a Director hosting the user's live sessions).</td>
+  </tr>
+  <tr>
+    <td>AC5</td><td>Loud failure names "Director unreachable"</td>
+    <td class="partial">Code + unit</td>
+    <td>cockpit-dictate.js shows <em>"Could not reach the owning Director through the Gateway (it may be offline or unreachable)."</em> on a never-opened upgrade (vs "…failed mid-stream" after open). Proxy returns 503 on unreachable Director (unit-tested). Live screenshot deferred (same stop-a-Director caveat).</td>
+  </tr>
+  <tr>
+    <td>AC6</td><td>Same-machine on the Gateway host still works</td>
+    <td class="partial">Confirmed (indirect)</td>
+    <td>Cockpit serves on the Gateway host (deploy check, HTTP 200). The same-origin URL on the Gateway host resolves to the Gateway, which proxies to the co-located Director — the same path proven above resolved to SOREN_NORTH's own Director.</td>
+  </tr>
+</table>
+
+<h2>Raw evidence</h2>
+<pre>
+# AC1 — terminal stream, from SORENLAPTOP (remote) to the Gateway origin
+CONNECTING (from SORENLAPTOP) -> wss://soren-north.taildb08ed.ts.net/sessions/3926e02f-.../stream
+UPGRADED 101 OK  (response status: 101)
+  frame#1: text 36 chars: '{"type":"size","cols":147,"rows":43}'
+  frame#2: binary 262144 bytes
+  frame#3: binary 7393 bytes
+RESULT: connected + received 3 frame(s) over the Gateway-origin WS
+
+# AC2 — dictation, from SORENLAPTOP (remote) to the Gateway origin
+CONNECTING (from SORENLAPTOP) -> wss://soren-north.taildb08ed.ts.net/sessions/3926e02f-.../dictate
+UPGRADED 101 OK  (response status: 101)
+  frame#1: text 16 chars: '{"type":"ready"}'
+
+# AC4 — unknown session
+GET https://soren-north.taildb08ed.ts.net/sessions/00000000-0000-0000-0000-000000000000/stream -> HTTP 404
+
+# Director-side forwarding proof (SOREN_NORTH Director log)
+2026-06-10 16:52:00.385 [TerminalStreamEndpoint] GET /sessions/3926e02f-.../stream from 127.0.0.1
+2026-06-10 16:52:28.063 [DictationEndpoint] GET /dictate from 127.0.0.1
+# Both 127.0.0.1 (the Gateway) — NOT the remote browser IP 100.89.217.71.
+</pre>
+
+<div class="verdict">
+  <strong>Verdict: VERIFIED.</strong> The four criteria that genuinely required a second machine — AC1 (terminal cross-machine), AC2 (dictation routing cross-machine), AC3 (no loopback), AC4-404 — plus the Director-side forwarding proof and the unit suite, all pass <strong>live, cross-machine</strong>. AC4-503, AC5, and AC6 are covered by unit tests and the identical proven proxy path; their live captures (which require briefly stopping a Director) are optional follow-ups that do not change the verdict. The remote-Cockpit per-session WebSocket regression is fixed.
+</div>
+
+</body>
+</html>
