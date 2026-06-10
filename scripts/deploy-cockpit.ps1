@@ -9,12 +9,46 @@
 # Everything is per-user: NO elevation, NO Windows service (docs/plans/gateway-tray-app.md).
 # The PRODUCTION no-admin update path is the tray app updating its own + the Cockpit's binaries -
 # not this script.
+#
+# -DefineOnly: dot-source this script to load Sync-CockpitWwwroot (and the path vars) WITHOUT
+# running the deploy. The issue #232 proof test uses this so it can exercise the real mirror
+# function against temp dirs - one source of truth, no copied logic - and never touches the live
+# fleet.
+param([switch] $DefineOnly)
 
 $ErrorActionPreference = 'Stop'
 $stage      = 'D:\ReposFred\cc-director\local_builds\cockpit-publish'
 $root       = "$env:LOCALAPPDATA\cc-director"
 $target     = "$root\cockpit"
 $gatewayExe = "$root\gateway\cc-director-gateway.exe"
+
+# Mirror the whole published wwwroot into the live install (issue #232).
+#
+# The old script cherry-picked wwwroot\app.css + wwwroot\js\* and left everything else stale.
+# That silently dropped wwwroot\cc-director-cockpit.styles.css - the bundle Blazor compiles every
+# component's SCOPED *.razor.css into (App.razor links it) - plus its .br/.gz siblings, wwwroot\lib
+# (xterm.css) and wwwroot\pages. Result: any deploy that changed a .razor.css shipped with the
+# markup updated but its styling stale (hit for real during the #212 W3 deploy). Mirroring the
+# entire wwwroot is the standing "cockpit = whole-folder swap" guidance and is future-proof: new
+# static assets are picked up automatically, no copy list to maintain.
+#
+# robocopy /MIR makes the target wwwroot byte-identical to the staged wwwroot (copies new/changed,
+# prunes removed). It is deterministic - no fallback. Robocopy exit codes 0-7 are SUCCESS (8+ are
+# failures); we translate that explicitly so $LASTEXITCODE does not trip $ErrorActionPreference.
+function Sync-CockpitWwwroot {
+  param(
+    [Parameter(Mandatory)] [string] $StageWwwroot,
+    [Parameter(Mandatory)] [string] $TargetWwwroot
+  )
+  if (-not (Test-Path $StageWwwroot)) { throw "Staged wwwroot not found: $StageWwwroot" }
+  New-Item -ItemType Directory -Force $TargetWwwroot | Out-Null
+  robocopy $StageWwwroot $TargetWwwroot /MIR /NJH /NJS /NP /NFL /NDL | Out-Null
+  $rc = $LASTEXITCODE
+  if ($rc -ge 8) { throw "robocopy mirror of wwwroot FAILED with exit code $rc ($StageWwwroot -> $TargetWwwroot)" }
+  return $rc
+}
+
+if ($DefineOnly) { return }
 
 if (-not (Test-Path "$stage\cc-director-cockpit.dll")) { Write-Host "ERROR: cockpit build not staged at $stage." ; exit 1 }
 if (-not (Test-Path $gatewayExe)) { Write-Host "ERROR: Gateway tray app not installed at $gatewayExe." ; exit 1 }
@@ -40,8 +74,9 @@ foreach ($dll in Get-ChildItem "$stage\*.dll","$stage\*.pdb") {
 foreach ($f in @('cc-director-cockpit.deps.json','cc-director-cockpit.runtimeconfig.json','cc-director-cockpit.staticwebassets.endpoints.json')) {
   if (Test-Path "$stage\$f") { Copy-Item "$stage\$f" "$target\$f" -Force }
 }
-Copy-Item "$stage\wwwroot\app.css" "$target\wwwroot\app.css" -Force
-Copy-Item "$stage\wwwroot\js\*"    "$target\wwwroot\js\" -Force -Recurse
+# Mirror the ENTIRE published wwwroot (scoped *.styles.css bundle + .br/.gz, app.css, js, lib,
+# pages, _framework) so a .razor.css change deploys fresh instead of stale (issue #232).
+Sync-CockpitWwwroot -StageWwwroot "$stage\wwwroot" -TargetWwwroot "$target\wwwroot"
 
 Write-Host "Relaunching the Gateway tray app..."
 Start-Process -FilePath $gatewayExe -ArgumentList '--managed' -WorkingDirectory "$root\gateway"

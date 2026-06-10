@@ -1,0 +1,19 @@
+  PASS: deployed: cc-director-cockpit.styles.css
+  PASS: hash matches publish: cc-director-cockpit.styles.css
+  PASS: deployed: cc-director-cockpit.styles.css.br
+  PASS: hash matches publish: cc-director-cockpit.styles.css.br
+  PASS: deployed: cc-director-cockpit.styles.css.gz
+  PASS: hash matches publish: cc-director-cockpit.styles.css.gz
+  PASS: deployed: app.css
+  PASS: hash matches publish: app.css
+  PASS: deployed: js\app.js
+  PASS: hash matches publish: js\app.js
+  PASS: deployed: lib\xterm.css
+  PASS: hash matches publish: lib\xterm.css
+  PASS: deployed: _framework\blazor.web.js
+  PASS: hash matches publish: _framework\blazor.web.js
+  PASS: scoped bundle changed in live target (stale -> fresh)
+  PASS: live bundle now equals the new .razor.css output
+  PASS: regression: stale scoped bundle no longer served
+
+RESULT: PASS - all assertions green; scoped-CSS bundle now deploys fresh (issue #232).
