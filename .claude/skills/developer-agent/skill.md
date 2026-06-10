@@ -123,7 +123,7 @@ If, while planning, you discover the spec is underspecified after all, go back t
 ### Step 4: Implement
 
 1. **Invoke `review-code` first** and read `docs/CodingStyle.md` + `docs/VisualStyle.md` (mandatory).
-2. Work on a branch (the `implement-issue` skill provides the branch + PR mechanics). Make the
+2. Work on a feature branch off `main` (`git checkout -b issue-<n>-short-desc`). Make the
    changes with the Edit/Write tools, obeying the UI surface's style guide.
 3. **Full-solution build** (per CLAUDE.md - build the solution, not individual projects):
    ```bash
@@ -155,14 +155,14 @@ Only when every acceptance criterion is met, the build is clean, and you have pr
 
 1. **Commit the IMPLEMENTATION first** - every source/test file you changed goes onto the PR branch.
    The handoff artifact is committed code, NEVER uncommitted working-tree edits. Open the PR if one
-   does not exist yet (the `implement-issue` skill provides the branch + PR mechanics).
+   does not exist yet (`git push -u origin HEAD` then `gh pr create`).
 2. **Build the HTML report** - what was implemented, each acceptance criterion with its proof, the
    screenshots, the CenCon-impact statement, and an explicit "I believe this is finished."
 3. **Commit proof to the PR branch** under `docs/cencon/proof/issue-<n>/` (e.g. `report.html`,
    `before.png`, `after.png`). Committing to the PR branch is authorized; **do NOT merge to main**
    (only the human / the QA role inside the loop merges).
-4. **Post an issue comment** linking the proof repo-relative and the PR (reuse the bug-fixer HTML
-   comment format: Release Notes, Changes, How to Test, Expected Result, Before/After):
+4. **Post an issue comment** linking the proof repo-relative and the PR, using this comment format:
+   Release Notes, Changes, How to Test, Expected Result, Before/After:
    ```
    Proof: docs/cencon/proof/issue-<n>/report.html  (PR #<pr>)
    ```
@@ -232,6 +232,6 @@ match it (standing rule: write code that reads like the surrounding code).
 
 **Skill Version:** 0.2 (DRAFT - second of the four CenCon agents, cc-director)
 **Implements:** Developer Agent role in docs/cencon/DEVELOPMENT_METHOD.md
-**Builds on:** implement-issue (branch + PR mechanics), bug-fixer (HTML comment format), review-code (mandatory)
+**Builds on:** review-code (mandatory)
 **Created:** 2026-06-09
 **Changes in 0.2:** Step 5 now commits the IMPLEMENTATION first (not just proof) and adds a mandatory clean-tree gate (git status --porcelain MUST be empty + branch pushed) before the flow:ready-qa hand-off. Added the no-orphan rule: never stop for any reason leaving uncommitted WIP or an unpushed branch.

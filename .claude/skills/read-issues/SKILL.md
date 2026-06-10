@@ -108,7 +108,7 @@ Provide a comprehensive summary including:
 ### Step 6: Offer Next Steps
 
 After presenting the issue, ask the user:
-- Would you like to implement this issue? (suggest using `/implement-issue NUMBER`)
+- Would you like to implement this issue? (suggest using `/developer-agent NUMBER`, or `/implementation-loop NUMBER` to drive it through Dev+QA to merged)
 - Would you like to assign it to yourself?
 - Would you like to add a comment?
 

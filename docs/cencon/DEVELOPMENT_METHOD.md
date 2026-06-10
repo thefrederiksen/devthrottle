@@ -241,8 +241,8 @@ A missing proof report is itself a Definition-of-Done failure - the issue does n
 GitHub's `gh` CLI cannot attach arbitrary files/images to an issue the way Azure DevOps work items
 can. Therefore proof travels on the **pull request branch**:
 
-1. The Developer Agent works on a branch and opens a PR (the `implement-issue` skill already does
-   this). Commits to the **PR branch** are authorized by adoption of this method.
+1. The Developer Agent works on a branch and opens a PR. Commits to the **PR branch** are authorized
+   by adoption of this method.
 2. The screenshot(s) and the HTML report are committed under `docs/cencon/proof/issue-<n>/`
    (e.g. `report.html`, `before.png`, `after.png`).
 3. The Developer Agent links them **repo-relative** in an issue comment, alongside the PR link:
