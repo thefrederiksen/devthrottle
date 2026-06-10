@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Issue #272 - Proof Report (implementation-loop terminal signal)</title>
+<style>
+  :root {
+    --bg: #0f1419; --panel: #1a212b; --border: #2b3744;
+    --fg: #e6edf3; --muted: #9fb0c0; --accent: #58a6ff;
+    --ok: #3fb950; --warn: #d29922; --code-bg: #11161c;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 32px; background: var(--bg); color: var(--fg);
+         font-family: "Segoe UI", Arial, sans-serif; line-height: 1.55; }
+  .wrap { max-width: 1000px; margin: 0 auto; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  h2 { font-size: 18px; margin: 32px 0 12px; border-bottom: 1px solid var(--border);
+       padding-bottom: 6px; }
+  .sub { color: var(--muted); margin: 0 0 24px; }
+  .panel { background: var(--panel); border: 1px solid var(--border);
+           border-radius: 8px; padding: 16px 20px; margin: 16px 0; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border);
+           vertical-align: top; }
+  th { color: var(--accent); font-weight: 600; }
+  code, pre { font-family: Consolas, "Courier New", monospace; }
+  pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px;
+        padding: 12px 14px; overflow-x: auto; font-size: 13px; color: #cdd9e5; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px;
+          font-weight: 600; }
+  .pill.ok { background: rgba(63,185,80,.15); color: var(--ok); border: 1px solid var(--ok); }
+  .muted { color: var(--muted); }
+  .met { color: var(--ok); font-weight: 600; }
+  .final { background: rgba(63,185,80,.08); border: 1px solid var(--ok);
+           border-radius: 8px; padding: 16px 20px; margin-top: 28px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Issue #272 - implementation-loop emits a machine-readable terminal signal</h1>
+  <p class="sub">Developer Agent proof report &middot; branch <code>issue-272-terminal-signal</code>
+     &middot; signal vocabulary <code>done | needs-human | failed</code></p>
+
+  <div class="panel">
+    <strong>What was implemented</strong>
+    <p>The <code>implementation-loop</code> skill now emits a single machine-readable terminal
+       sentinel block (<code>IMPL-LOOP-TERMINAL</code>) as its final output on every terminal path,
+       in addition to the unchanged human one-line report. The three-value contract
+       (<code>done | needs-human | failed</code>), the outcome mapping, and the block format are
+       recorded in <code>docs/cencon/DEVELOPMENT_METHOD.md</code> Section 7a so the Gateway queue
+       runner (epic #270, child 3) can be built against a stable spec.</p>
+    <p class="muted">This child has no compiled output (it is a skill/contract change). Per the
+       issue's proof target it is proven by exercising the loop and capturing the emitted sentinel
+       for each signal - NOT by <code>dotnet build</code> / slot-5 screenshot.</p>
+  </div>
+
+  <h2>Files changed</h2>
+  <table>
+    <tr><th>File</th><th>Change</th></tr>
+    <tr>
+      <td><code>.claude/skills/implementation-loop/skill.md</code></td>
+      <td>Added "The terminal signal you MUST emit" section (three values, mapping, block shape,
+          emission rules). Wired the sentinel into Step 0a (pre-flight stops), Step 1 (weak-spec
+          escalate), Step 2 (PASS / 3-strike PARK / conflict needs-human), Step 3 (merge guard),
+          and Step 4 (outcome-to-signal mapping table + exact emission). Added a "do NOT" rule and
+          a 0.5 change note.</td>
+    </tr>
+    <tr>
+      <td><code>docs/cencon/DEVELOPMENT_METHOD.md</code></td>
+      <td>Added Section 7a "Terminal Signal Contract" - the three signal values, their mapping to
+          loop outcomes, the transcript transport, the sentinel block shape, and the rules
+          (in-addition-to the human report; exactly one per issue per run). Bumped Last Updated.</td>
+    </tr>
+  </table>
+  <p class="muted">Full unified diff committed alongside this report:
+     <code>docs/cencon/proof/issue-272/changes.diff</code>. Captured sentinel transcripts:
+     <code>docs/cencon/proof/issue-272/sentinel-transcripts.txt</code>.</p>
+
+  <h2>Acceptance criteria - Expected vs Actual</h2>
+
+  <table>
+    <tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (proof)</th><th>Status</th></tr>
+
+    <tr>
+      <td>1</td>
+      <td>MERGED -> sentinel <code>signal: done</code>, merged PR number, <code>merged: yes</code>.</td>
+      <td>On a PASS/merge, the loop's final block carries <code>signal: done</code>,
+          <code>merged: yes</code>, and the PR number.</td>
+      <td>Step 4 mapping table routes MERGED to <code>done</code>/<code>yes</code>. Captured block:
+        <pre>IMPL-LOOP-TERMINAL
+issue: 998
+signal: done
+pr: 1000
+merged: yes
+reason: squash-merged to main; 6/6 criteria verified</pre></td>
+      <td><span class="met">MET</span></td>
+    </tr>
+
+    <tr>
+      <td>2</td>
+      <td>PARKED or ESCALATED -> sentinel <code>signal: needs-human</code>, <code>merged: no</code>,
+          one-line <code>reason</code>.</td>
+      <td>On a 3-strike park or weak-spec escalation the block carries
+          <code>signal: needs-human</code>, <code>merged: no</code>, and a reason.</td>
+      <td>Step 4 maps PARKED/ESCALATED/conflict/dirty-build to <code>needs-human</code>. Captured
+          block (3-strike park):
+        <pre>IMPL-LOOP-TERMINAL
+issue: 999
+signal: needs-human
+pr: 1001
+merged: no
+reason: 3 QA bounces; parked for human - dialog still crashes on empty input</pre></td>
+      <td><span class="met">MET</span></td>
+    </tr>
+
+    <tr>
+      <td>3</td>
+      <td>Abnormal stop (pre-flight dirty-tree per Step 0a, or any path the loop cannot complete) ->
+          sentinel <code>signal: failed</code>, <code>merged: no</code>, a <code>reason</code>.</td>
+      <td>On a forced pre-flight dirty-tree stop the block carries <code>signal: failed</code>,
+          <code>merged: no</code>, and a reason.</td>
+      <td>Reproduced GENUINELY: a probe file made <code>git status --porcelain</code> non-empty,
+          Step 0a halted before any issue work. Step 0a + the Step 4 abnormal-stop row both emit:
+        <pre>IMPL-LOOP-TERMINAL
+issue: none
+signal: failed
+pr: none
+merged: no
+reason: pre-flight stop - dirty working tree</pre></td>
+      <td><span class="met">MET</span></td>
+    </tr>
+
+    <tr>
+      <td>4</td>
+      <td>Sentinel is emitted IN ADDITION to the existing human-readable one-line report (report
+          unchanged; the two do not conflict).</td>
+      <td>Both outputs present; the one-line report text is untouched.</td>
+      <td>Step 4 keeps the original one-line report block verbatim and adds the sentinel "in addition
+          to the one-line report, never instead of it" as the FINAL lines. The "MUST emit" section
+          states the same rule. Each captured transcript shows the report line followed by the
+          sentinel block.</td>
+      <td><span class="met">MET</span></td>
+    </tr>
+
+    <tr>
+      <td>5</td>
+      <td>Exactly one sentinel block per issue per run (a watcher reading the last block gets an
+          unambiguous answer).</td>
+      <td>Single block per terminal path; a FAIL/QA bounce (non-terminal) emits none.</td>
+      <td>The "MUST emit" section and Step 4 both state "exactly one sentinel block per issue per
+          run, as your final action for that issue." Step 2 explicitly notes a QA-bounce is NOT a
+          terminal outcome and emits no sentinel - only the eventual terminal state does. In
+          <code>--all</code> mode: one block per issue as each finishes.</td>
+      <td><span class="met">MET</span></td>
+    </tr>
+
+    <tr>
+      <td>6</td>
+      <td>The contract (three values, mapping, block format) is written into
+          <code>DEVELOPMENT_METHOD.md</code> or a linked contract doc.</td>
+      <td>A stable spec child 3 can build against.</td>
+      <td>Added Section 7a "Terminal Signal Contract" to
+          <code>docs/cencon/DEVELOPMENT_METHOD.md</code>: the three-value table, the outcome
+          mapping, the transcript transport, the exact block shape, and the rules. The skill's
+          footer and "MUST emit" section reference Section 7a as the contract home.</td>
+      <td><span class="met">MET</span></td>
+    </tr>
+  </table>
+
+  <h2>CenCon impact</h2>
+  <div class="panel">
+    <p>This change updates <code>docs/cencon/DEVELOPMENT_METHOD.md</code> (the method document) -
+       which is exactly where criterion 6 requires the contract to live, so this is intended, not
+       drift. No change to <code>architecture_manifest.yaml</code> or <code>security_profile.yaml</code>:
+       no container is added/removed and no security posture changes (the signal rides the existing
+       session transcript, introducing no new transport, endpoint, or data exposure). No blocking
+       security rule (DT-01..DT-NN) is touched. The method doc's Last Updated was bumped to
+       2026-06-10.</p>
+  </div>
+
+  <h2>Assumptions (from the issue, honored)</h2>
+  <div class="panel">
+    <p>A1 (transport = session transcript) and A2 (block format) were adopted as written. The #270
+       design doc (<code>docs/plans/queue-runner-270/how-it-works.html</code>) confirms the same
+       sentinel shape and the transcript transport, so the assumptions are consistent with the
+       parent epic. No design intent was invented; the three-value vocabulary is taken directly from
+       #270.</p>
+  </div>
+
+  <div class="final">
+    <span class="pill ok">FINISHED</span>
+    <p style="margin:10px 0 0">All 6 acceptance criteria are met. The <code>failed</code> signal was
+       reproduced genuinely against the live repo (Step 0a halted on a real dirty tree); the
+       <code>needs-human</code> and <code>done</code> signals are demonstrated from stubbed
+       park/merge paths, which the issue's proof target explicitly permits. <strong>I believe this
+       is finished.</strong></p>
+  </div>
+
+</div>
+</body>
+</html>

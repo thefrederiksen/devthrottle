@@ -1,0 +1,78 @@
+Issue #272 - implementation-loop terminal signal: captured sentinel blocks
+==========================================================================
+
+These are the exact IMPL-LOOP-TERMINAL sentinel blocks the updated
+implementation-loop skill emits on each of the three terminal paths,
+produced by exercising the loop's terminal logic. Each block is the loop's
+FINAL transcript output for the issue, printed AFTER the unchanged
+human-readable one-line report.
+
+
+CASE 1 - "failed" (GENUINE: forced pre-flight dirty-tree stop, Step 0a)
+-----------------------------------------------------------------------
+Reproduction (run on branch issue-272-terminal-signal):
+  $ printf 'temp dirty file ...\n' > preflight-dirty-probe.txt
+  $ git status --porcelain
+   M .claude/skills/implementation-loop/skill.md
+   M docs/cencon/DEVELOPMENT_METHOD.md
+  ?? preflight-dirty-probe.txt
+
+Step 0a sees a non-empty `git status --porcelain` -> STOP before any issue
+work. Per the updated skill, the loop's final output is:
+
+One-line report (unchanged human report):
+  Pre-flight STOP - dirty working tree; loop did not start. Asking the human to commit or discard.
+
+Terminal signal (final output):
+IMPL-LOOP-TERMINAL
+issue: none
+signal: failed
+pr: none
+merged: no
+reason: pre-flight stop - dirty working tree
+
+
+CASE 2 - "needs-human" (PARKED / ESCALATED path)
+------------------------------------------------
+Reached when QA bounces 3x (3-strike PARK), a weak spec is escalated, or a
+merge conflict / dirty post-merge build parks the PR. Example for a 3-strike
+park of issue #999 with PR #1001:
+
+One-line report (unchanged human report):
+  Issue #999: PARKED (flow:needs-human) - 3 QA bounces, PR #1001 parked, defect: dialog still crashes on empty input | https://github.com/thefrederiksen/cc-director/pull/1001
+
+Terminal signal (final output):
+IMPL-LOOP-TERMINAL
+issue: 999
+signal: needs-human
+pr: 1001
+merged: no
+reason: 3 QA bounces; parked for human - dialog still crashes on empty input
+
+
+CASE 3 - "done" (MERGED path)
+-----------------------------
+Reached when QA passes and squash-merges the PR to main (flow:done). Example
+for issue #998 merged via PR #1000, all 6 criteria verified:
+
+One-line report (unchanged human report):
+  Issue #998: MERGED (flow:done) - 6/6 criteria verified, squash-merged to main, branch deleted | https://github.com/thefrederiksen/cc-director/pull/1000
+
+Terminal signal (final output):
+IMPL-LOOP-TERMINAL
+issue: 998
+signal: done
+pr: 1000
+merged: yes
+reason: squash-merged to main; 6/6 criteria verified
+
+
+Notes
+-----
+- The "failed" case is reproduced genuinely against the live repo (Step 0a
+  halted on a real dirty tree). The "needs-human" and "done" cases are stubbed
+  merge/park paths, which the issue's proof target explicitly permits
+  ("the done case from a real or stubbed merge path").
+- In all three cases the sentinel is emitted IN ADDITION TO the one-line
+  report (criterion 4) and is the single final block for the issue
+  (criterion 5).
