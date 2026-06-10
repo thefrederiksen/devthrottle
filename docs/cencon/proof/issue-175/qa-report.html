@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #175 (PR #302)</title>
+<style>
+body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1a1a1a; }
+h1 { border-bottom: 3px solid #2563eb; padding-bottom: .4rem; }
+table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+th, td { border: 1px solid #ccc; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+th { background: #f1f5f9; }
+.pass { color: #15803d; font-weight: bold; }
+.mono { font-family: Consolas, monospace; font-size: .9em; }
+.verdict { background: #dcfce7; border: 1px solid #15803d; padding: 1rem; font-weight: bold; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #175</h1>
+<p><strong>Issue:</strong> [Installer] GatewayTrayInstaller inherits stdio - piped CLI callers hang forever<br>
+<strong>PR:</strong> #302 (branch loop/175-installer-stdio)<br>
+<strong>QA identity:</strong> independent QA Agent (CenCon implementation loop) - did NOT see the Developer's reasoning<br>
+<strong>Date:</strong> 2026-06-10</p>
+
+<h2>Independent verification</h2>
+<p>The PR branch was checked out fresh in worktree cc-director-wt-175 and verified without
+reusing the Developer's binaries or screenshots.</p>
+
+<table>
+<tr><th>Acceptance Criterion</th><th>Expected</th><th>Actual (my own proof)</th><th>Result</th></tr>
+<tr>
+<td>1. Piping the setup CLI's gateway-install output returns to the prompt instead of hanging.</td>
+<td>A piped reader of the launch reaches EOF promptly while the child is still alive.</td>
+<td>Ran <span class="mono">PipedCaller_ReturnsWithFix_AndWouldHangWithoutIt</span> myself. The test reproduces the hang at the OS-handle level using an inheritable anonymous pipe: OLD config (UseShellExecute=false) inherits the write handle, reader never reaches EOF within 3s (oldReachedEof==false); NEW config (BuildTrayLaunchInfo) does not inherit it, reader reaches EOF within window while child still alive (newReachedEof==true). Both halves asserted in one pass. Test PASSED.</td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>2. The tray Gateway still launches and registers after install.</td>
+<td>Exe, args, working dir and health-wait unchanged; Gateway healthy.</td>
+<td>Diff confirms only the UseShellExecute flag changed inside InstallAsync (same FileName=InstalledArguments, WorkingDirectory, health-wait). Live fleet Gateway GET /healthz on 7878 -> 200. Asserted by BuildTrayLaunchInfo_UsesShellExecute_NoRedirection (FileName/Arguments/WorkingDir intact).</td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>3. The tray-launch ProcessStartInfo sets UseShellExecute=true.</td>
+<td>UseShellExecute=true, no RedirectStandard*.</td>
+<td>GatewayTrayInstaller.cs line 152 sets UseShellExecute=true; grep confirms no RedirectStandard* in the seam. Asserted by BuildTrayLaunchInfo_UsesShellExecute_NoRedirection.</td>
+<td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Precedent claim verified</h2>
+<p>The fix claims to mirror GatewayApp self-update relaunch. Independently confirmed:
+<span class="mono">src/CcDirector.GatewayApp/Program.cs</span> startGateway uses
+<span class="mono">UseShellExecute=true</span> with the identical documented rationale (inherited stdout
+pipe keeps caller's pipe open -> hang). The new code comment correctly cites #175 and that precedent.</p>
+
+<h2>Regression and method checks</h2>
+<ul>
+<li>Targeted tests: 4/4 GatewayTrayInstaller tests PASS.</li>
+<li>Full setup-engine suite: 147/147 PASS, 0 failed.</li>
+<li>Solution build (dotnet build cc-director.sln): Build succeeded, 0 Warning(s), 0 Error(s).</li>
+<li>Change surface: a single ProcessStartInfo flag flip extracted into a tested static seam. No adjacent behavior altered (OUT items - WPF wizard log-file tailing, other installer steps - untouched).</li>
+<li>CenCon: no security/architecture change; no DT rule affected. No docs drift introduced.</li>
+<li>Live fleet (Gateway 7878, Cockpit 7470, Director 7887) confirmed healthy and untouched throughout.</li>
+</ul>
+
+<div class="verdict">VERIFIED - all acceptance criteria met. Clean pass.</div>
+</body>
+</html>

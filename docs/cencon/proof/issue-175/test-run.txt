@@ -1,0 +1,8 @@
+A total of 1 test files matched the specified pattern.
+  Passed CcDirector.Setup.Engine.Tests.GatewayTrayInstallerTests.PipedCaller_ReturnsWithFix_AndWouldHangWithoutIt [3 s]
+  Passed CcDirector.Setup.Engine.Tests.GatewayTrayInstallerTests.BuildTrayLaunchInfo_UsesShellExecute_NoRedirection [< 1 ms]
+  Passed CcDirector.Setup.Engine.Tests.GatewayTrayInstallerTests.DefaultPorts_AreCanonical [2 ms]
+  Passed CcDirector.Setup.Engine.Tests.GatewayTrayInstallerTests.InstalledArguments_IsManaged [< 1 ms]
+Total tests: 4
+     Passed: 4
+ Total time: 3.5433 Seconds
