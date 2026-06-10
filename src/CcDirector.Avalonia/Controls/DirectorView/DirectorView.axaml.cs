@@ -18,6 +18,10 @@ public partial class DirectorView : UserControl
     private readonly ObservableCollection<SessionRowViewModel> _rows = new();
     private readonly HttpClient _http;
     private DispatcherTimer? _refreshTimer;
+    // TODO #267-followup: _gatewayUrl defaults to the loopback DefaultGatewayUrl and is never
+    // reassigned from GatewayConfig, so this sessions list talks only to localhost even when a
+    // remote gateway is configured. Centralizing gateway-URL resolution here is out of scope for
+    // #267 (which only fixes the Cockpit toolbar button) and tracked as a separate follow-up.
     private string _gatewayUrl = DefaultGatewayUrl;
     private string? _gatewayToken;
 

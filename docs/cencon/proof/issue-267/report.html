@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Proof - Issue #267: Cockpit button uses the configured gateway URL</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; background:#1e1e1e; color:#d4d4d4; margin:0; padding:32px; line-height:1.5; }
+  h1 { color:#fff; font-size:22px; border-bottom:2px solid #007ACC; padding-bottom:8px; }
+  h2 { color:#4ec9b0; font-size:17px; margin-top:32px; }
+  code, pre { font-family: Cascadia Code, Consolas, monospace; background:#252526; color:#ce9178; padding:2px 6px; border-radius:4px; }
+  pre { display:block; padding:12px; overflow-x:auto; color:#d4d4d4; }
+  table { border-collapse:collapse; width:100%; margin:12px 0; }
+  th,td { border:1px solid #3c3c3c; padding:8px 10px; text-align:left; vertical-align:top; font-size:14px; }
+  th { background:#2d2d30; color:#fff; }
+  .pass { color:#4ec9b0; font-weight:bold; }
+  img { max-width:100%; border:1px solid #3c3c3c; border-radius:6px; margin:8px 0; }
+  .belief { background:#1b3a2a; border:1px solid #22C55E; color:#cfead9; padding:14px 18px; border-radius:6px; margin-top:32px; font-size:15px; }
+  .meta { color:#9cdcfe; }
+</style>
+</head>
+<body>
+
+<h1>Proof - Issue #267</h1>
+<p class="meta">[Cockpit] Open-in-Cockpit toolbar button must use the configured gateway URL, not hardcoded 127.0.0.1:7878<br>
+Branch: <code>issue-267-cockpit-configured-gateway</code> &middot; Verified live on slot-5 test Director (PID 92460, Control API on http://127.0.0.1:7879), launched via the <code>cc-director-launch</code> scheduled task.</p>
+
+<h2>What was implemented</h2>
+<ul>
+  <li><b>New</b> <code>src/CcDirector.Avalonia/CockpitUrlResolver.cs</code> - a UI-free static helper.
+    <code>ResolveCockpitBase(GatewayConfig)</code> returns the configured <code>gateway.url</code> (trailing slashes stripped)
+    when a gateway is configured, or the loopback default <code>http://127.0.0.1:7878</code> when none is.
+    <code>IsLocalhostDefault(baseUrl)</code> tells the dialog which reachability hint to show.</li>
+  <li><b>Changed</b> <code>MainWindow.axaml.cs &middot; BtnCockpit_Click</code> - resolves the base URL from
+    <code>GatewayConfig.Load()</code> (re-read each click) instead of the hardcoded
+    <code>DirectorView.DefaultGatewayUrl</code>; builds <code>{base}/cockpit</code>; logs <code>baseUrl=</code> on every path;
+    both error dialogs now name the URL actually probed; the "Is the Gateway tray app running on this machine?"
+    hint shows only for the loopback default, a tailnet-reachability hint shows for a remote gateway. Leading comment block updated.</li>
+  <li><b>Note (out of scope)</b> <code>DirectorView.axaml.cs</code> - added a <code>// TODO #267-followup</code> by
+    <code>_gatewayUrl</code> documenting that the sessions list still talks only to localhost (explicitly OUT per the issue; behavior unchanged).</li>
+  <li><b>Tests</b> <code>CcDirector.Avalonia.Tests/CockpitUrlResolverTests.cs</code> - three tests, all green.</li>
+</ul>
+<p>Selection by a single configured source of truth (<code>gateway.url</code>), not a fallback chain. No gateway-side, <code>/cockpit</code> endpoint, or auth change.</p>
+
+<h2>Acceptance criteria - proof</h2>
+<table>
+  <tr><th>Criterion</th><th>Expected</th><th>Actual (live)</th><th></th></tr>
+  <tr>
+    <td>Remote gateway configured</td>
+    <td><code>GET http://&lt;remote&gt;:7878/cockpit</code>; browser opens the remote front-door URL</td>
+    <td>Log: <code>baseUrl=http://soren-north.taildb08ed.ts.net:7878</code> then <code>opening https://soren-north.taildb08ed.ts.net/ (up=True)</code></td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>No gateway configured</td>
+    <td>Probes loopback default <code>http://127.0.0.1:7878/cockpit</code></td>
+    <td>Log: <code>baseUrl=http://127.0.0.1:7878</code></td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>Trailing slash</td>
+    <td><code>http://host:7878/</code> -&gt; request URL <code>http://host:7878/cockpit</code></td>
+    <td>Unit test <code>ResolveCockpitBase_TrailingSlash_StripsSlashSoCockpitPathIsClean</code> green</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>Error dialog accuracy</td>
+    <td>Names the probed URL; local-machine hint only for loopback</td>
+    <td>Loopback: "Could not reach the gateway at <b>http://127.0.0.1:7878</b> ... Is the Gateway tray app ... running on <b>this machine</b>?"<br>
+        Remote down: "Could not reach the gateway at <b>http://gateway-down...:7878</b> ... reachable over your <b>tailnet</b>?" (local hint absent)</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>No localhost ever opened in the browser</td>
+    <td>Never navigates to a 127.0.0.1/localhost Cockpit URL when a remote gateway is configured</td>
+    <td>Remote case opened <code>https://soren-north.taildb08ed.ts.net/</code> (the gateway's own front door), never a loopback URL</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>Unit tests pass</td>
+    <td>Three <code>ResolveCockpitBase</code> tests present and green</td>
+    <td><code>Passed! - Failed: 0, Passed: 3</code> (full project: 38 passed)</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Evidence 1 - Remote gateway configured (AC1, no-localhost invariant)</h2>
+<pre>[MainWindow] BtnCockpit_Click: asking gateway for Cockpit URL, baseUrl=http://soren-north.taildb08ed.ts.net:7878
+[MainWindow] BtnCockpit_Click: opening https://soren-north.taildb08ed.ts.net/ (up=True, baseUrl=http://soren-north.taildb08ed.ts.net:7878)</pre>
+<img src="ac1-remote-baseurl.png" alt="Director after remote Cockpit click">
+
+<h2>Evidence 2 - No gateway configured + loopback error dialog (AC2, AC4 local)</h2>
+<pre>[MainWindow] BtnCockpit_Click: asking gateway for Cockpit URL, baseUrl=http://127.0.0.1:7878
+[MainWindow] BtnCockpit_Click FAILED (baseUrl=http://127.0.0.1:7878): No connection could be made because the target machine actively refused it. (127.0.0.1:7878)</pre>
+<p>Dialog text (read via UI Automation): <i>"Could not reach the gateway at http://127.0.0.1:7878: ... Is the Gateway tray app (cc-director-gateway) running on this machine?"</i></p>
+<img src="ac2-ac4-localhost-error-dialog.png" alt="Loopback error dialog with local-machine hint">
+
+<h2>Evidence 3 - Remote gateway down (AC4 remote: remote URL named, local hint absent)</h2>
+<pre>[MainWindow] BtnCockpit_Click: asking gateway for Cockpit URL, baseUrl=http://gateway-down.taildb08ed.ts.net:7878
+[MainWindow] BtnCockpit_Click FAILED (baseUrl=http://gateway-down.taildb08ed.ts.net:7878): No such host is known. (gateway-down.taildb08ed.ts.net:7878)</pre>
+<p>Dialog text (read via UI Automation): <i>"Could not reach the gateway at http://gateway-down.taildb08ed.ts.net:7878: ... Is the Gateway running on that machine and reachable over your tailnet?"</i> - the local-machine hint is absent.</p>
+<img src="ac4-remote-down-error-dialog.png" alt="Remote-down error dialog with tailnet hint">
+
+<h2>Evidence 4 - Unit tests (AC3, AC6)</h2>
+<pre>dotnet test ... --filter CockpitUrlResolverTests
+Passed!  - Failed: 0, Passed: 3, Skipped: 0, Total: 3
+(full CcDirector.Avalonia.Tests project: Passed: 38, Failed: 0)</pre>
+<p>Tests: <code>ResolveCockpitBase_UrlConfigured_ReturnsConfiguredUrl</code>,
+<code>ResolveCockpitBase_NoUrl_ReturnsLocalhostDefault</code>,
+<code>ResolveCockpitBase_TrailingSlash_StripsSlashSoCockpitPathIsClean</code>.</p>
+
+<h2>CenCon impact</h2>
+<p>No drift. No architecture or security-posture change: reuses the existing <code>GatewayConfig.Load()</code> and the
+existing anonymous <code>/cockpit</code> endpoint. No DT-rule in <code>security_profile.yaml</code> is touched.
+Full solution build: <code>Build succeeded. 0 Warning(s) 0 Error(s)</code>.</p>
+
+<div class="belief">I believe this is finished. Every acceptance criterion was proven against the running app
+(slot-5 test Director, launched via the scheduled task and exercised through the real toolbar button via UI Automation),
+the solution builds clean with zero warnings, and the three required unit tests pass. The live config was restored
+and the slot-5 Director was stopped after verification.</div>
+
+</body>
+</html>
