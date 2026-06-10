@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Issue #228 - Developer Agent proof report</title>
+<style>
+  :root{--panel:#1E1E1E;--sidebar:#252526;--text:#CCCCCC;--text2:#AAAAAA;--text3:#888888;
+        --muted:#666666;--border:#3C3C3C;--green:#22C55E;--red:#F14C4C;--accent:#007ACC;}
+  body{background:var(--panel);color:var(--text);font-family:"Segoe UI",system-ui,sans-serif;
+       font-size:14px;line-height:1.55;margin:0;padding:32px 40px 80px;max-width:1080px}
+  h1{font-size:22px;margin:0 0 4px}
+  h2{font-size:16px;margin:30px 0 8px;border-bottom:1px solid var(--border);padding-bottom:5px}
+  .sub{color:var(--text3);margin:0 0 18px}
+  code{font-family:"Cascadia Mono",Consolas,monospace;font-size:12.5px;background:#252526;
+       border:1px solid var(--border);border-radius:4px;padding:1px 5px}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:13px}
+  th,td{border:1px solid var(--border);padding:7px 9px;text-align:left;vertical-align:top}
+  th{background:var(--sidebar);color:var(--text2)}
+  .ok{color:var(--green);font-weight:700}
+  .pill{display:inline-block;border:1px solid var(--green);color:var(--green);border-radius:10px;
+        padding:1px 9px;font-size:12px}
+  img{max-width:100%;border:1px solid var(--border);border-radius:6px;margin:8px 0}
+  ul{margin:6px 0 6px 0}
+  .verdict{margin-top:26px;padding:14px 16px;border:1px solid var(--green);border-radius:8px;
+           background:#11251a;color:var(--green);font-weight:700;font-size:15px}
+  .muted{color:var(--muted)}
+</style>
+</head>
+<body>
+
+<h1>Issue #228 - Rail kebab actions show no in-progress feedback (Close/Hold/Wingman/New-Issue)</h1>
+<p class="sub">Developer Agent proof report &middot; branch <code>issue-228-rail-action-feedback</code> &middot; CenCon Development Method</p>
+
+<h2>What was implemented</h2>
+<p>The four rail kebab actions in <code>Cockpit.razor &rarr; OnRailMenuAction</code> closed the menu
+instantly but then gave no feedback until <em>both</em> the Director round-trip and the follow-up
+<code>RefreshAsync</code> completed. This change shows the existing <code>ShowRailNotice</code> line
+optimistically <strong>before</strong> the awaits, then lets the existing result notice replace it -
+the same optimistic-UI pattern as the #217 explain-button fix (commit 137b289). For Close it also
+dims the row optimistically, reconciled by the next poll.</p>
+
+<table>
+  <tr><th>File</th><th>Change</th></tr>
+  <tr><td><code>src/CcDirector.Cockpit/Components/Pages/Cockpit.razor</code></td>
+      <td><code>OnRailMenuAction</code>: in-progress <code>ShowRailNotice(...)</code> +
+      <code>InvokeAsync(StateHasChanged)</code> before the await for <code>github-issue</code>,
+      <code>hold</code>, <code>wingman</code>, <code>close</code>. New <code>_closingSids</code>
+      dictionary + <code>StampClosing</code> / <code>ClosingSessionIds</code> for the optimistic
+      Close-row dim; reconciled in <code>RefreshAsync</code> (sid drops when its session leaves the
+      roster, 15s stale-cap); un-stamped on a close failure in the catch block.</td></tr>
+  <tr><td><code>src/CcDirector.Cockpit/Components/SessionRail.razor</code></td>
+      <td>New <code>ClosingSessionIds</code> parameter; rows in that set get the
+      <code>sess-closing</code> class.</td></tr>
+  <tr><td><code>src/CcDirector.Cockpit/wwwroot/app.css</code></td>
+      <td>New <code>.sess-closing</code> rule (<code>opacity:.45;pointer-events:none</code>),
+      using existing Cockpit tokens - no hard-coded colors added.</td></tr>
+</table>
+
+<h2>Acceptance criteria &rarr; how each is met (Expected vs Actual)</h2>
+<table>
+  <tr><th>#</th><th>Criterion</th><th>How the code satisfies it</th><th>Result</th></tr>
+  <tr><td>1</td><td>Close shows <code>Closing &lt;title&gt;...</code> + dimmed row in the same render,
+      then <code>Closed &lt;title&gt;</code> and the row is gone.</td>
+      <td><code>StampClosing</code> + <code>ShowRailNotice("Closing ...")</code> +
+      <code>StateHasChanged</code> run before <code>DeleteSessionAsync</code>; row gets
+      <code>sess-closing</code> (.45 opacity); poll reconcile removes the sid when the session
+      leaves the roster; existing <code>Closed</code> notice unchanged.</td><td class="ok">PASS</td></tr>
+  <tr><td>2</td><td>Hold/un-hold shows <code>Putting/Taking ... hold...</code> immediately, then the
+      existing result; pill ends correct.</td>
+      <td>In-progress notice + <code>StateHasChanged</code> before <code>SetHoldAsync</code>; existing
+      result notice + <code>RefreshAsync</code> unchanged.</td><td class="ok">PASS</td></tr>
+  <tr><td>3</td><td>Wingman shows <code>Updating Wingman for ...</code> immediately, then the existing
+      result.</td>
+      <td>In-progress notice + <code>StateHasChanged</code> before
+      <code>SetWingmanEnabledAsync</code>.</td><td class="ok">PASS</td></tr>
+  <tr><td>4</td><td>New GitHub Issue shows <code>Resolving GitHub repo...</code> immediately, then
+      opens the issue tab as today.</td>
+      <td>In-progress notice + <code>StateHasChanged</code> before
+      <code>GetGitHubNewIssueUrlAsync</code> + <code>window.open</code>.</td><td class="ok">PASS</td></tr>
+  <tr><td>5</td><td>No regression: every action's end state matches today's after the reconcile
+      poll.</td>
+      <td>All Director calls, existing result notices and <code>RefreshAsync</code> are unchanged;
+      only optimistic feedback was added ahead of them. Close-dim clears on poll or 15s
+      stale-cap.</td><td class="ok">PASS</td></tr>
+</table>
+
+<h2>Proof (rendered states)</h2>
+<p>The Cockpit is served by the user's live Gateway, so driving real Close/Hold against the user's
+running fleet was not safe (CLAUDE.md rule 0). Following the established Cockpit-rail proof pattern
+(sibling issue #227), the during/after states are rendered with the <strong>real</strong>
+<code>app.css</code> (copied at build time) and the <strong>same markup classes</strong>
+<code>SessionRail.razor</code> emits (<code>.rail-notice</code>, <code>.sess</code>,
+<code>.sess-closing</code>, <code>.tag-hold</code>). The build was verified clean and the slot-5 test
+Director launched via the <code>cc-director-launch</code> scheduled task and registered with the
+Gateway (then cleaned up).</p>
+<p><code>states.html</code> screenshotted via Playwright:</p>
+<img src="states.png" alt="During/after rendered states for all four rail kebab actions" />
+<ul>
+  <li><strong>BEFORE</strong> (left): row full opacity, no notice while the round-trip runs.</li>
+  <li><strong>AC1 Close DURING</strong>: <code>Closing api-refactor...</code> notice + the row dimmed
+      to .45 opacity (the new <code>.sess-closing</code>).</li>
+  <li><strong>AC1 Close AFTER</strong>: existing <code>Closed api-refactor</code> notice; row gone
+      after the reconcile poll.</li>
+  <li><strong>AC2 Hold</strong>: <code>Putting api-refactor on hold...</code> notice; hold pill in the
+      after state.</li>
+  <li><strong>AC3 Wingman</strong>: <code>Updating Wingman for api-refactor...</code> notice.</li>
+  <li><strong>AC4 New GitHub Issue</strong>: <code>Resolving GitHub repo...</code> notice.</li>
+</ul>
+
+<h2>Build</h2>
+<ul>
+  <li><code>dotnet build cc-director.sln</code> &rarr; <span class="ok">Build succeeded. 0 Warning(s) 0 Error(s)</span></li>
+  <li><code>scripts\local-build-avalonia.ps1 -Slot 5</code> &rarr; <span class="ok">Build succeeded. 0 Warning(s) 0 Error(s)</span>; launched via <code>cc-director-launch</code>, registered with the Gateway, then the slot-5 process was stopped (only <code>cc-director5.exe</code> killed).</li>
+</ul>
+
+<h2>CenCon impact</h2>
+<p>No drift. UI-only optimistic feedback in the <code>CcDirector.Cockpit</code> container; no
+architecture change and no security-posture change. No <code>docs/cencon/</code> file needs updating;
+no DT-rule in <code>security_profile.yaml</code> is touched.</p>
+
+<div class="verdict">I believe this is finished. <span class="pill">ready-qa</span></div>
+
+</body>
+</html>

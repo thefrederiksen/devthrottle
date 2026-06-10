@@ -31,7 +31,7 @@
         // The row is a div (not a button) so the kebab menu button can nest inside it.
         RenderFragment<SessionDto> SessionRow = s =>
         @<div role="button" tabindex="0"
-              class="@($"sess{(s.SessionId == SelectedSessionId ? " sess-selected" : "")}")"
+              class="@($"sess{(s.SessionId == SelectedSessionId ? " sess-selected" : "")}{(ClosingSessionIds.Contains(s.SessionId) ? " sess-closing" : "")}")"
               style="border-left-color:@DotColor(SessionOrdering.EffectiveColor(s))"
               title="@($"{SessionOrdering.EffectiveColor(s)}: {(SessionOrdering.IsExplaining(s) ? "wingman explaining the session" : SessionOrdering.IsBriefing(s) ? "wingman reading the turn" : s.LastStatusReason)}")"
               @onclick="() => OnSelect.InvokeAsync(s.SessionId)">
@@ -233,6 +233,12 @@
     /// the meta span (e.g. registry fetch not landed yet).</summary>
     [Parameter] public List<DirectorDto> Directors { get; set; } = new();
     [Parameter] public string? SelectedSessionId { get; set; }
+
+    /// <summary>Sessions the user just confirmed Close for. Their rows are dimmed
+    /// (<c>sess-closing</c>) optimistically while the Director tears them down, until the next
+    /// poll drops the session from the roster (issue #228). Empty = nothing is closing.</summary>
+    [Parameter] public HashSet<string> ClosingSessionIds { get; set; } = new();
+
     [Parameter] public EventCallback<string> OnSelect { get; set; }
 
     /// <summary>"tree" (Machine -> Director -> Sessions, desktop order) or "triage"
