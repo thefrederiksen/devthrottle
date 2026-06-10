@@ -1,0 +1,22 @@
+﻿A total of 1 test files matched the specified pattern.
+  Passed CcDirector.Gateway.Tests.SessionWsProxyEndpointsTests.Unknown_session_returns_404_not_the_cockpit_interstitial(path: "sessions/00000000-0000-0000-0000-000000000000/dict"···) [368 ms]
+  Passed CcDirector.Gateway.Tests.SessionWsProxyEndpointsTests.Unknown_session_returns_404_not_the_cockpit_interstitial(path: "sessions/00000000-0000-0000-0000-000000000000/stre"···) [121 ms]
+  Passed CcDirector.Gateway.Tests.SessionWsProxyEndpointsTests.Per_session_ws_routes_are_explicit_endpoints_not_the_fallback_proxy(path: "sessions/00000000-0000-0000-0000-000000000000/stre"···) [119 ms]
+  Passed CcDirector.Gateway.Tests.SessionWsProxyEndpointsTests.Per_session_ws_routes_are_explicit_endpoints_not_the_fallback_proxy(path: "sessions/00000000-0000-0000-0000-000000000000/dict"···) [117 ms]
+  Passed CcDirector.Gateway.Tests.CockpitWsUrlsTests.Deep_link_path_on_origin_is_dropped_url_hangs_off_bare_origin [1 ms]
+  Passed CcDirector.Gateway.Tests.CockpitWsUrlsTests.Stream_http_origin_becomes_ws [< 1 ms]
+  Passed CcDirector.Gateway.Tests.CockpitWsUrlsTests.Invalid_origin_throws(origin: "") [< 1 ms]
+  Passed CcDirector.Gateway.Tests.CockpitWsUrlsTests.Invalid_origin_throws(origin: "   ") [< 1 ms]
+  Passed CcDirector.Gateway.Tests.CockpitWsUrlsTests.Invalid_origin_throws(origin: "not-a-url") [< 1 ms]
+  Passed CcDirector.Gateway.Tests.CockpitWsUrlsTests.Invalid_origin_throws(origin: "ftp://gw.example.ts.net/") [< 1 ms]
+  Passed CcDirector.Gateway.Tests.CockpitWsUrlsTests.Origin_without_trailing_slash_is_accepted [< 1 ms]
+  Passed CcDirector.Gateway.Tests.CockpitWsUrlsTests.Dictate_https_origin_becomes_wss_same_origin_sid_path [< 1 ms]
+  Passed CcDirector.Gateway.Tests.CockpitWsUrlsTests.Stream_https_origin_becomes_wss_same_origin_sid_path [< 1 ms]
+  Passed CcDirector.Gateway.Tests.CockpitWsUrlsTests.Never_targets_loopback_when_origin_is_the_gateway [< 1 ms]
+  Passed CcDirector.Gateway.Tests.CockpitWsUrlsTests.Empty_session_id_throws(sid: "") [< 1 ms]
+  Passed CcDirector.Gateway.Tests.CockpitWsUrlsTests.Empty_session_id_throws(sid: "   ") [< 1 ms]
+  Passed CcDirector.Gateway.Tests.CockpitWsUrlsTests.Port_in_origin_is_preserved [< 1 ms]
+  Passed CcDirector.Gateway.Tests.CockpitWsUrlsTests.Dictate_http_origin_becomes_ws [< 1 ms]
+Total tests: 18
+     Passed: 18
+ Total time: 2.0461 Seconds

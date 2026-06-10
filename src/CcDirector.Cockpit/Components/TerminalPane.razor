@@ -1,13 +1,16 @@
 @implements IAsyncDisposable
 @inject IJSRuntime JS
 @inject DirectorClient Director
+@inject NavigationManager Nav
 @inject ILogger<TerminalPane> Log
 
 @* Live terminal for one session. The parent keys this component by SessionId, so switching
    sessions disposes this pane and creates a fresh one - this pane connects exactly once, to
-   one session. Output streams over a direct WSS to the owning Director; keystrokes (typed into
-   xterm) are forwarded back through the existing raw-input REST path, so the terminal is fully
-   interactive (Esc, Ctrl+C, arrows, slash-command UI) with no Director change. *@
+   one session. Output streams over a WSS to the GATEWAY (issue #268: same-origin, so a remote
+   Cockpit never needs a Director's own address); the Gateway reverse-proxies the stream to the
+   owning Director. Keystrokes (typed into xterm) are forwarded back through the existing
+   raw-input REST path, so the terminal is fully interactive (Esc, Ctrl+C, arrows, slash-command
+   UI) with no Director change. *@
 <div class="term-host" @ref="_host"></div>
 
 @code {
@@ -30,7 +33,7 @@
         {
             _selfRef = DotNetObjectReference.Create(this);
             _module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/cockpit-terminal.js");
-            var wsUrl = BuildWsUrl(DirectorBase, SessionId);
+            var wsUrl = CockpitWsUrls.Stream(Nav.BaseUri, SessionId);
             Log.LogInformation("TerminalPane connecting sid={Sid} to {WsUrl}", SessionId, wsUrl);
             await _module.InvokeVoidAsync("connect", SessionId, _host, wsUrl, _selfRef);
         }
@@ -58,17 +61,6 @@
         {
             Log.LogDebug(ex, "terminal input send failed for sid={Sid}", SessionId);
         }
-    }
-
-    // https://host:port -> wss://host:port/sessions/{sid}/stream  (Tailscale Serve fronts the
-    // Director's loopback port as HTTPS, so the WebSocket upgrade rides wss over the tailnet).
-    private static string BuildWsUrl(string directorBase, string sid)
-    {
-        var b = directorBase.TrimEnd('/');
-        string ws = b.StartsWith("https://") ? "wss://" + b["https://".Length..]
-                  : b.StartsWith("http://") ? "ws://" + b["http://".Length..]
-                  : b;
-        return $"{ws}/sessions/{sid}/stream";
     }
 
     public async ValueTask DisposeAsync()

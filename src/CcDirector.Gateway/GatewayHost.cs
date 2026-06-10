@@ -338,6 +338,12 @@ public sealed class GatewayHost : IAsyncDisposable
             // sessions whose owner is gone.
             briefHistoryFor: sid => _turnBriefStore.List(sid));
 
+        // Issue #268: the two raw per-session WebSocket legs (live Terminal stream + dictation)
+        // proxied through the Gateway so a remote Cockpit talks same-origin to the Gateway and
+        // never needs a Director's own (possibly loopback) address. Mapped endpoints win over the
+        // fallback Cockpit proxy below.
+        SessionWsProxyEndpoints.Map(_app, Registry, _client);
+
         // Central key vault (docs/architecture/gateway/GATEWAY_KEY_VAULT.md): set keys once
         // here (via the Cockpit Keys page); Directors pull them on demand. Inherits the
         // host-wide token middleware above.

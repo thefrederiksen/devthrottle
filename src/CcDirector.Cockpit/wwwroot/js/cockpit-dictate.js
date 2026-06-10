@@ -339,14 +339,35 @@ window.cockpitDictate = (function () {
           case 'error': showError('Server error: ' + (m.message || 'unknown')); break;
         }
       };
-      ws.onerror = () => { if (stage !== 'transcribing') showError('WebSocket connection failed.'); };
-      // Include 'starting': a socket that opens then closes before 'ready'/'started' (e.g. the
-      // Director rejects/closes the /dictate upgrade) would otherwise leave the dialog stuck on
-      // STARTING with no error and no callback - keeping the C# Speak button disabled forever.
-      ws.onclose = () => {
-        if (!done && (stage === 'starting' || stage === 'recording' || stage === 'transcribing'))
-          showError(stage === 'starting' ? 'Dictation stream closed before it was ready.' : 'Connection closed.');
+      // Issue #268: the dictate socket is SAME-ORIGIN to the Gateway, which reverse-proxies to
+      // the owning Director. So a failure to open it almost always means the Gateway could not
+      // reach the owning Director (offline / unreachable) - not a bare "WebSocket failed". The
+      // browser cannot read the proxy's 503 body off a failed upgrade, so we name the most likely
+      // cause (Director unreachable via the Gateway) instead of a generic error. 'wasReady' tells
+      // a never-opened upgrade (proxy/Director could not be reached) apart from a mid-stream drop.
+      let wasReady = false;
+      ws.onerror = () => {
+        if (stage === 'transcribing') return;
+        showError(wasReady
+          ? 'Dictation connection failed mid-stream.'
+          : 'Could not reach the owning Director through the Gateway (it may be offline or unreachable).');
       };
+      // Include 'starting': a socket that opens then closes before 'ready'/'started' (e.g. the
+      // Gateway proxy returns 503 because the owning Director is offline, or the Director rejects
+      // the /dictate upgrade) would otherwise leave the dialog stuck on STARTING with no error and
+      // no callback - keeping the C# Speak button disabled forever.
+      ws.onclose = () => {
+        if (done || stage === 'paused') return;
+        if (stage === 'starting')
+          showError(wasReady
+            ? 'Dictation stream closed before it was ready.'
+            : 'Could not reach the owning Director through the Gateway (it may be offline or unreachable).');
+        else if (stage === 'recording' || stage === 'transcribing')
+          showError('Connection closed.');
+      };
+      // Mark the upgrade as having actually completed (101 + server 'ready'): from here a failure
+      // is a mid-stream drop, before here it is a could-not-reach.
+      ws.addEventListener('open', () => { wasReady = true; });
     }
 
     async function startSegment() {

@@ -1,0 +1,15 @@
+﻿=== Issue #268 Gateway WS-proxy live proof ===
+Gateway listening on http://127.0.0.1:53585  (no Directors registered)
+
+GET /sessions/00000000-0000-0000-0000-000000000000/stream
+  -> HTTP 404 NotFound
+  -> body: {"error":"session not found across any director"}
+  -> is-cockpit-interstitial: False
+
+GET /sessions/00000000-0000-0000-0000-000000000000/dictate
+  -> HTTP 404 NotFound
+  -> body: {"error":"session not found across any director"}
+  -> is-cockpit-interstitial: False
+
+Director log: C:\Users\soren\AppData\Local\cc-director\logs\director\director-2026-06-10-73336.log
+Gateway stopped cleanly.

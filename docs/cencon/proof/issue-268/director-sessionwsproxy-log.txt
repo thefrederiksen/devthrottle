@@ -1,0 +1,4 @@
+﻿2026-06-10 14:42:13.944 [SessionWsProxy] open leg=stream sid=00000000-0000-0000-0000-000000000000 client=127.0.0.1
+2026-06-10 14:42:13.946 [SessionWsProxy] leg=stream sid=00000000-0000-0000-0000-000000000000 -> 404 (no owning director across the fleet)
+2026-06-10 14:42:13.969 [SessionWsProxy] open leg=dictate sid=00000000-0000-0000-0000-000000000000 client=127.0.0.1
+2026-06-10 14:42:13.969 [SessionWsProxy] leg=dictate sid=00000000-0000-0000-0000-000000000000 -> 404 (no owning director across the fleet)

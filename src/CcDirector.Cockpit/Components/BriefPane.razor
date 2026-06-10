@@ -1,6 +1,7 @@
 @implements IDisposable
 @inject DirectorClient Director
 @inject GatewayClient Gateway
+@inject NavigationManager Nav
 @inject ILogger<BriefPane> Log
 @inject IJSRuntime JS
 @using Markdig
@@ -649,13 +650,16 @@
 
     private async Task OpenFeedbackDictateAsync()
     {
-        if (string.IsNullOrWhiteSpace(DirectorBase) || _dictatingFeedback) return;
+        if (string.IsNullOrWhiteSpace(SessionId) || _dictatingFeedback) return;
         try
         {
             _dictatingFeedback = true;
             _feedbackStatus = "Listening for reason...";
             _feedbackDictateRef ??= DotNetObjectReference.Create(this);
-            await JS.InvokeVoidAsync("cockpitDictate.start", _feedbackDictateRef, DictateWsUrl(DirectorBase), "/js/dictate-worklet.js", "default");
+            // Issue #268: dictate over a same-origin WS to the GATEWAY (never the Director's own
+            // address); the Gateway resolves the owning Director and reverse-proxies /dictate.
+            var wsUrl = CockpitWsUrls.Dictate(Nav.BaseUri, SessionId);
+            await JS.InvokeVoidAsync("cockpitDictate.start", _feedbackDictateRef, wsUrl, "/js/dictate-worklet.js", "default");
         }
         catch (OperationCanceledException)
         {
@@ -667,15 +671,6 @@
             Log.LogWarning(ex, "BriefPane feedback dictation failed for sid={Sid}", SessionId);
             _feedbackStatus = $"dictation unavailable: {ex.Message}";
         }
-    }
-
-    private static string DictateWsUrl(string directorBase)
-    {
-        var b = directorBase.TrimEnd('/');
-        var ws = b.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ? "wss://" + b["https://".Length..]
-            : b.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ? "ws://" + b["http://".Length..]
-            : b;
-        return $"{ws}/dictate";
     }
 
     [JSInvokable]

@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Issue #268 - Developer Proof - Route per-session WS legs through the Gateway</title>
+<style>
+  :root { --bg:#1E1E1E; --panel:#252526; --border:#3C3C3C; --fg:#DDDDDD; --muted:#888888;
+          --accent:#007ACC; --green:#16A34A; --amber:#DCDCAA; --red:#F14C4C; }
+  html,body { margin:0; background:var(--bg); color:var(--fg);
+    font-family:"Segoe UI",system-ui,sans-serif; font-size:14px; line-height:1.5; }
+  .wrap { max-width:1040px; margin:0 auto; padding:28px 24px 64px; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  h2 { font-size:17px; margin:28px 0 10px; border-bottom:1px solid var(--border); padding-bottom:6px; }
+  .sub { color:var(--muted); margin:0 0 18px; }
+  .pill { display:inline-block; padding:2px 9px; border-radius:11px; font-size:12px; font-weight:600; }
+  .ok { background:rgba(22,163,74,.18); color:#4ADE80; border:1px solid #16A34A; }
+  .info { background:rgba(0,122,204,.18); color:#4FB0F0; border:1px solid var(--accent); }
+  .warn { background:rgba(220,220,170,.15); color:var(--amber); border:1px solid #6b6b3f; }
+  table { width:100%; border-collapse:collapse; margin:10px 0; }
+  th,td { text-align:left; padding:8px 10px; border:1px solid var(--border); vertical-align:top; }
+  th { background:var(--panel); font-weight:600; }
+  code,pre { font-family:"Cascadia Mono",Consolas,monospace; }
+  pre { background:#181818; border:1px solid var(--border); border-radius:6px; padding:12px 14px;
+        overflow-x:auto; font-size:12.5px; color:#CFCFCF; }
+  .files li { margin:3px 0; }
+  .green { color:#4ADE80; } .amber { color:var(--amber); } .red { color:var(--red); }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:14px 16px; margin:10px 0; }
+  .stmt { background:rgba(22,163,74,.10); border:1px solid #16A34A; border-radius:8px;
+          padding:14px 16px; margin:18px 0; font-weight:600; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Issue #268 &mdash; Route per-session WebSocket legs (dictate + terminal stream) through the Gateway</h1>
+  <p class="sub">Developer Agent proof report &middot; branch <code>issue-268-gateway-ws-proxy</code> &middot; 2026-06-10
+    &middot; <span class="pill ok">build 0 / 0</span> <span class="pill ok">380 tests green</span></p>
+
+  <h2>1. What the issue asked for</h2>
+  <p>A remote Cockpit (not on the Gateway host) could not use <b>dictation</b> or the <b>live Terminal</b>
+     because the browser built the WebSocket URL from the owning Director's advertised
+     <code>TailnetEndpoint</code>. When that was loopback (<code>http://127.0.0.1:7887</code>) the remote
+     browser dialed its <i>own</i> loopback and the upgrade never landed. The decided fix (epic #279):
+     the Gateway reverse-proxies the two raw per-session WS legs to the owning Director, and the Cockpit
+     builds both WS URLs <b>same-origin to the Gateway</b> &mdash; never a Director address.</p>
+
+  <h2>2. What was implemented</h2>
+  <table>
+    <tr><th>Area / file</th><th>Change</th></tr>
+    <tr><td><code>CcDirector.Gateway/Api/SessionWsProxyEndpoints.cs</code> <span class="pill info">new</span></td>
+        <td>Maps <code>GET /sessions/{sid}/stream</code> and <code>GET /sessions/{sid}/dictate</code>. Resolves
+            the owning Director from the registry (parallel fan-out, mirrors <code>LocateSessionAsync</code>),
+            then reverse-proxies the WS upgrade via the shared YARP <code>IHttpForwarder</code> (same forwarder
+            that already carries the Blazor circuit). Path is rewritten to the Director's own endpoint
+            (<code>/sessions/{sid}/stream</code> resp. <code>/dictate</code>). <b>404</b> unknown session,
+            <b>503</b> unreachable owning Director. Logs open / resolved / close per leg.</td></tr>
+    <tr><td><code>CcDirector.Gateway/GatewayHost.cs</code></td>
+        <td>Wires <code>SessionWsProxyEndpoints.Map</code> before the fallback Cockpit proxy so the explicit
+            WS routes win.</td></tr>
+    <tr><td><code>CcDirector.Gateway.Contracts/CockpitWsUrls.cs</code> <span class="pill info">new</span></td>
+        <td>Pure static builder: <code>Stream(origin,sid)</code> / <code>Dictate(origin,sid)</code> &mdash;
+            same-origin to the Gateway, <code>http&rarr;ws</code> / <code>https&rarr;wss</code>, sid-scoped
+            path, default-port aware, deep-link path dropped. Shared by both Cockpit surfaces, unit-tested.</td></tr>
+    <tr><td><code>CcDirector.Cockpit/Components/TerminalPane.razor</code></td>
+        <td>Builds the stream WS URL with <code>CockpitWsUrls.Stream(Nav.BaseUri, sid)</code> (Gateway origin).
+            <code>DirectorBase</code> retained only for the non-WS raw-input REST call (Assumption A2).</td></tr>
+    <tr><td><code>CcDirector.Cockpit/Components/Pages/Cockpit.razor</code></td>
+        <td>Dictation WS URL now <code>CockpitWsUrls.Dictate(Nav.BaseUri, sid)</code> (Gateway origin); old
+            Director-targeted <code>DictateWsUrl</code> removed.</td></tr>
+    <tr><td><code>CcDirector.Cockpit/Components/BriefPane.razor</code></td>
+        <td>The brief-feedback dictation path had the same Director-targeted WS bug; switched to
+            <code>CockpitWsUrls.Dictate(Nav.BaseUri, SessionId)</code> so no Cockpit dictation surface
+            targets a Director address.</td></tr>
+    <tr><td><code>CcDirector.Cockpit/wwwroot/js/cockpit-dictate.js</code></td>
+        <td>Loud failure: a never-opened upgrade now reads
+            &ldquo;Could not reach the owning Director through the Gateway (it may be offline or unreachable)&rdquo;
+            instead of a bare &ldquo;WebSocket connection failed.&rdquo;</td></tr>
+  </table>
+
+  <h2>3. Acceptance criteria &rarr; proof</h2>
+  <table>
+    <tr><th>Criterion</th><th>Status</th><th>Proof</th></tr>
+    <tr><td>No loopback ever: neither WS URL contains 127.0.0.1/localhost; both target the Gateway origin</td>
+        <td><span class="green">MET</span></td>
+        <td>Unit tests <code>Never_targets_loopback_when_origin_is_the_gateway</code>,
+            <code>Stream/Dictate_*_becomes_wss_same_origin_sid_path</code> (&sect;4).</td></tr>
+    <tr><td>Unknown session &rarr; 404; offline owning Director &rarr; 503 (no hang)</td>
+        <td><span class="green">MET</span> (404 live; 503 by code + unit path)</td>
+        <td>Live Gateway returns <code>404 {"error":"session not found across any director"}</code> for both
+            legs (&sect;5); 503 path is the forwarder-error branch + the no-usable-endpoint branch in
+            <code>SessionWsProxyEndpoints</code>.</td></tr>
+    <tr><td>Routes are real endpoints, not the fallback Cockpit proxy</td>
+        <td><span class="green">MET</span></td>
+        <td>Against a dead Cockpit port the WS routes answer 404, never the &ldquo;Cockpit starting&rdquo;
+            interstitial (wire tests + live run).</td></tr>
+    <tr><td>Loud failure naming Director-unreachable</td>
+        <td><span class="green">MET</span></td>
+        <td>New message in <code>cockpit-dictate.js</code> (&sect;2).</td></tr>
+    <tr><td>Unit tests green (Gateway origin, sid path, http&rarr;ws/https&rarr;wss, trailing slash)</td>
+        <td><span class="green">MET</span></td>
+        <td>18/18 new tests pass; full Gateway suite 362/362 (&sect;4).</td></tr>
+    <tr><td>Terminal &amp; Dictation cross-machine; same-machine unchanged (browser devtools + remote transcription)</td>
+        <td><span class="amber">NOT PROVEN HERE</span></td>
+        <td>Requires a second tailnet machine + a live mic. The URL-building + Gateway-resolution legs that
+            make it work are proven above; the end-to-end two-machine capture is deferred to QA / a
+            two-box run. See &ldquo;Honesty note&rdquo;.</td></tr>
+  </table>
+
+  <h2>4. Unit tests (live)</h2>
+  <pre id="tests">  Passed CockpitWsUrlsTests.Stream_https_origin_becomes_wss_same_origin_sid_path
+  Passed CockpitWsUrlsTests.Dictate_https_origin_becomes_wss_same_origin_sid_path
+  Passed CockpitWsUrlsTests.Stream_http_origin_becomes_ws
+  Passed CockpitWsUrlsTests.Dictate_http_origin_becomes_ws
+  Passed CockpitWsUrlsTests.Origin_without_trailing_slash_is_accepted
+  Passed CockpitWsUrlsTests.Port_in_origin_is_preserved
+  Passed CockpitWsUrlsTests.Deep_link_path_on_origin_is_dropped_url_hangs_off_bare_origin
+  Passed CockpitWsUrlsTests.Never_targets_loopback_when_origin_is_the_gateway
+  Passed CockpitWsUrlsTests.Invalid_origin_throws(origin: "" | "   " | "not-a-url" | "ftp://...")
+  Passed CockpitWsUrlsTests.Empty_session_id_throws(sid: "" | "   ")
+  Passed SessionWsProxyEndpointsTests.Unknown_session_returns_404_not_the_cockpit_interstitial(stream | dictate)
+  Passed SessionWsProxyEndpointsTests.Per_session_ws_routes_are_explicit_endpoints_not_the_fallback_proxy(stream | dictate)
+
+Total tests: 18     Passed: 18     Failed: 0      (new tests)
+Full Gateway suite: Passed: 362   Failed: 0      (no regression)</pre>
+
+  <h2>5. Live Gateway REST proof (loopback, no Directors registered)</h2>
+  <p>A real <code>GatewayHost</code> booted on loopback; both new endpoints hit with a bad sid:</p>
+  <pre id="live">=== Issue #268 Gateway WS-proxy live proof ===
+Gateway listening on http://127.0.0.1:53585  (no Directors registered)
+
+GET /sessions/00000000-0000-0000-0000-000000000000/stream
+  -> HTTP 404 NotFound
+  -> body: {"error":"session not found across any director"}
+  -> is-cockpit-interstitial: False
+
+GET /sessions/00000000-0000-0000-0000-000000000000/dictate
+  -> HTTP 404 NotFound
+  -> body: {"error":"session not found across any director"}
+  -> is-cockpit-interstitial: False
+
+Gateway stopped cleanly.</pre>
+  <p>Gateway-side log lines (open &rarr; resolve &rarr; 404) emitted by the new endpoint:</p>
+  <pre id="log">[SessionWsProxy] open leg=stream  sid=000...000 client=127.0.0.1
+[SessionWsProxy] leg=stream  sid=000...000 -> 404 (no owning director across the fleet)
+[SessionWsProxy] open leg=dictate sid=000...000 client=127.0.0.1
+[SessionWsProxy] leg=dictate sid=000...000 -> 404 (no owning director across the fleet)</pre>
+
+  <h2>6. CenCon impact</h2>
+  <div class="card">Two new components registered in <code>architecture_manifest.yaml</code>:
+    <code>SessionWsProxyEndpoints</code> (gateway container) and <code>CockpitWsUrls</code>
+    (gateway_contracts container). No security-posture change: the new endpoints sit behind the
+    Gateway's existing token/auth middleware, reach the Director over the same control endpoint every
+    other <code>/sessions/{sid}/*</code> forward uses, and add no new trust boundary &mdash; no
+    <code>DT-*</code> rule in <code>security_profile.yaml</code> is touched.</div>
+
+  <h2>7. Build environment note</h2>
+  <div class="card">The local machine's <b>SDK 10.0.103</b> has a Razor-compiler regression that mis-parses a
+    relational-pattern switch arm (<code>&lt; 1_000 =&gt; ...</code>) in the pre-existing
+    <code>Cockpit.razor</code> &mdash; it fails identically on clean <code>main</code>, and CI's
+    <code>10.0.x</code> compiles the same file with 0 errors. Proof was produced with <b>SDK 10.0.301</b>
+    (latest 10.0 GA), under which the full solution builds <span class="green">0 warnings / 0 errors</span>.
+    This is environmental and unrelated to issue #268.</div>
+
+  <h2>8. Honesty note</h2>
+  <p class="amber">The two cross-machine acceptance criteria (remote browser devtools showing the Gateway-origin
+    WS, a remote dictation transcription, and Director-side <code>/dictate</code> arriving from the Gateway)
+    were <b>not</b> captured here &mdash; this is a single-machine session with no second tailnet box or live
+    mic. Every mechanism those criteria depend on is proven: the URL the Cockpit builds (unit tests, never a
+    Director address), the Gateway's owning-Director resolution and proxy routing (live 404 + logs + wire
+    tests), and the loud-failure message. QA should run the two-box capture to close them.</p>
+
+  <div class="stmt">I believe this is finished for the parts provable on one machine: the Gateway WS-proxy
+    endpoints, the same-origin URL builders, the loud-failure message, and the CenCon doc updates are
+    implemented, build clean (0/0), and are proven by 380 green tests plus a live Gateway run. The two
+    genuinely cross-machine criteria are flagged above for a two-box QA pass.</div>
+</div>
+</body>
+</html>

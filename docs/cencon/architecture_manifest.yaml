@@ -690,6 +690,9 @@ containers:
       - name: CockpitProxy
         description: The one-URL front door (docs/plans/one-url-cockpit.md) - content-negotiated fallback proxy that forwards browser (text/html) requests to the loopback Cockpit and keeps /sessions|/directors|/cockpit dual-use (HTML page vs JSON API); serves an auto-refresh "Cockpit starting..." page during boot/crash/update
         file: Cockpit/CockpitProxy.cs
+      - name: SessionWsProxyEndpoints
+        description: Issue #268 - reverse-proxies the two raw per-session WebSocket legs (live Terminal stream GET /sessions/{sid}/stream and dictation GET /sessions/{sid}/dictate) to the owning Director via the shared YARP IHttpForwarder, so a remote Cockpit talks same-origin to the Gateway and never needs a Director's (possibly loopback) address; resolves the owning Director from the registry (404 unknown session, 503 unreachable Director)
+        file: Api/SessionWsProxyEndpoints.cs
 
   - id: gateway_app
     name: Gateway Tray App
@@ -778,6 +781,9 @@ containers:
       - name: About / diagnostics DTO
         description: AboutDto - version, build, URLs and installed-component list surfaced by the Director About dialog and Cockpit /about
         file: AboutDto.cs
+      - name: CockpitWsUrls
+        description: Issue #268 - pure static builder for the Cockpit's per-session WebSocket URLs (live Terminal stream + dictation), built same-origin to the Gateway the page was served from (http->ws / https->wss, sid-scoped path); shared by TerminalPane and Cockpit.razor and unit-tested so a remote Cockpit never targets a Director's address
+        file: CockpitWsUrls.cs
 
   - id: agent_brain
     name: Agent Brain Contract Library
