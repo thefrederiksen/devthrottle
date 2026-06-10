@@ -76,8 +76,8 @@
   </tr>
   <tr>
     <td>AC5</td><td>Loud failure names "Director unreachable"</td>
-    <td class="partial">Code + unit</td>
-    <td>cockpit-dictate.js shows <em>"Could not reach the owning Director through the Gateway (it may be offline or unreachable)."</em> on a never-opened upgrade (vs "…failed mid-stream" after open). Proxy returns 503 on unreachable Director (unit-tested). Live screenshot deferred (same stop-a-Director caveat).</td>
+    <td class="pass">PASS (live)</td>
+    <td>Captured from SORENLAPTOP against SOREN_NORTH's Cockpit (Chrome): the real Speak → dictation dialog rendered <strong>"Could not reach the owning Director through the Gateway (it may be offline or unreachable)."</strong> — not a bare "WebSocket connection failed." See <code>ac5-loud-failure.png</code>. Trigger: the dictate WS was pointed at a non-existent session so the upgrade genuinely failed against the live Gateway (404); the browser cannot read 404 vs 503 off a failed upgrade, so the rendered message is identical to the Director-unreachable 503 case (503 proxy path additionally unit-tested).</td>
   </tr>
   <tr>
     <td>AC6</td><td>Same-machine on the Gateway host still works</td>
@@ -110,8 +110,13 @@ GET https://soren-north.taildb08ed.ts.net/sessions/00000000-0000-0000-0000-00000
 # Both 127.0.0.1 (the Gateway) — NOT the remote browser IP 100.89.217.71.
 </pre>
 
+<h2>AC5 — loud-failure dialog (live, from SORENLAPTOP)</h2>
+<p>Real Speak button on SOREN_NORTH's Cockpit, dictate WS forced to a non-existent session so the upgrade fails against the live Gateway. The dialog names the cause:</p>
+<img src="ac5-loud-failure.png" alt="Cockpit dictation dialog showing 'Could not reach the owning Director through the Gateway (it may be offline or unreachable).'" style="max-width:100%;border:1px solid #d0d7de;border-radius:6px;">
+
+
 <div class="verdict">
-  <strong>Verdict: VERIFIED.</strong> The four criteria that genuinely required a second machine — AC1 (terminal cross-machine), AC2 (dictation routing cross-machine), AC3 (no loopback), AC4-404 — plus the Director-side forwarding proof and the unit suite, all pass <strong>live, cross-machine</strong>. AC4-503, AC5, and AC6 are covered by unit tests and the identical proven proxy path; their live captures (which require briefly stopping a Director) are optional follow-ups that do not change the verdict. The remote-Cockpit per-session WebSocket regression is fixed.
+  <strong>Verdict: VERIFIED.</strong> AC1 (terminal cross-machine), AC2 (dictation routing cross-machine), AC3 (no loopback), AC4-404, AC5 (loud-failure dialog), the Director-side forwarding proof, and the unit suite all pass <strong>live, cross-machine</strong> from a second tailnet machine. AC4-503 and AC6 are covered by unit tests and the identical proven proxy path (AC4-503's live capture would require briefly stopping a live Director). The remote-Cockpit per-session WebSocket regression is fixed.
 </div>
 
 </body>
