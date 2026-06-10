@@ -14,6 +14,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Exposes internal helpers (e.g. GitHubItemStatusClient.MapStatus) to the test project. -->
+    <InternalsVisibleTo Include="CcDirector.Cockpit.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Renders Claude's reply markdown in the Brief's [full reply] expander. Raw HTML in
          the markdown is disabled at the pipeline level (DisableHtml) so a reply can never
          inject markup into the page. -->

@@ -1,0 +1,544 @@
+@page "/lists"
+@inject GatewayClient Gateway
+@inject GitHubItemStatusClient GitHub
+@inject ILogger<Lists> Log
+@implements IDisposable
+
+@* The Lists page (issue #275, child 4 of #270): the human's window into the named work lists.
+   It is a pure CLIENT of the Gateway's #273 /lists object - every create/append/reorder/remove
+   goes through the Gateway, so the Cockpit never owns a copy or its own ordering. Per-item status
+   and title are derived from each github item's flow:* label (the single source of truth); the
+   list object carries no status. Layout follows docs/plans/queue-runner-270/lists-ui-mockup.html. *@
+
+<PageTitle>CC Director - Lists</PageTitle>
+
+<div class="page lists-page">
+    <header class="page-head">
+        <h1>Lists</h1>
+        <span class="page-sub">named priority lists, drained by the loop</span>
+        <span class="page-refreshed">@(_lastRefresh is null ? "connecting..." : $"updated {_lastRefresh:HH:mm:ss}")</span>
+        <button class="btn primary" @onclick="OpenCreateList">New list</button>
+    </header>
+
+    @if (_lastError is not null)
+    {
+        <div class="page-banner-error">Gateway error: @_lastError</div>
+    }
+
+    <div class="lists-cols">
+        @* ---- list-card column: freely named priority lists, not sliced by area ---- *@
+        <div class="listcol">
+            <div class="listcol-lbl">Lists</div>
+
+            @if (_lists.Count == 0 && _lastError is null && _lastRefresh is not null)
+            {
+                <div class="listcol-empty">No lists yet. Create one to start a priority queue.</div>
+            }
+
+            @foreach (var l in _lists)
+            {
+                <button class="lcard @(IsSelected(l) ? "active" : "")" @key="l.Name" @onclick="() => SelectList(l.Name)">
+                    <div class="lcard-nm">
+                        <span class="lcard-name">@l.Name</span>
+                        @if (l.Consumer is { Length: > 0 })
+                        {
+                            <span class="runtag run">RUNNING</span>
+                        }
+                        else
+                        {
+                            <span class="runtag idle">IDLE</span>
+                        }
+                    </div>
+                    <div class="lcard-mt">@CardMeta(l)</div>
+                </button>
+            }
+
+            <button class="newlist" @onclick="OpenCreateList">+ New list</button>
+            <div class="listcol-note">
+                A list is just a named priority list - it can hold anything across any area, source,
+                or repo. Any free machine can claim and run it.
+            </div>
+        </div>
+
+        @* ---- items column: the selected list's ordered items ---- *@
+        <div class="itemscol">
+            @if (_selected is null)
+            {
+                <div class="items-empty">Select a list on the left, or create one, to see its items.</div>
+            }
+            else
+            {
+                <div class="ihead">
+                    <div>
+                        <h2>@_selected.Name</h2>
+                        <div class="ihead-meta">
+                            @if (_selected.Consumer is { Length: > 0 })
+                            {
+                                <text>claimed by <b>@_selected.Consumer</b> &middot; one item at a time</text>
+                            }
+                            else
+                            {
+                                <text>unclaimed &middot; run anywhere</text>
+                            }
+                        </div>
+                    </div>
+                    <div class="prog">
+                        <div class="prog-row"><span>Progress</span><span>@ProgressLine()</span></div>
+                        <div class="bar"><i style="width:@DonePct()%"></i></div>
+                    </div>
+                </div>
+
+                @if (_itemError is not null)
+                {
+                    <div class="page-banner-error">@_itemError</div>
+                }
+
+                @if (_selected.Items.Count == 0)
+                {
+                    <div class="items-empty">This list is empty. Add an item by id + source below.</div>
+                }
+                else
+                {
+                    <table class="itable">
+                        <thead>
+                            <tr>
+                                <th style="width:30px"></th>
+                                <th style="width:42px">Pri</th>
+                                <th style="width:54px">Src</th>
+                                <th style="width:72px">Id</th>
+                                <th>Title</th>
+                                <th style="width:130px">Status</th>
+                                <th style="width:76px"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @{ var prio = 0; }
+                            @foreach (var it in _selected.Items)
+                            {
+                                var item = it;
+                                prio++;
+                                var thisPrio = prio;
+                                var info = InfoFor(item);
+                                <tr @key="Key(item)" class="@(info.Status == WorkItemStatus.Running ? "running" : "")"
+                                    draggable="true"
+                                    @ondragstart="() => OnDragStart(item)"
+                                    @ondragover:preventDefault="true"
+                                    @ondrop="() => OnDrop(item)">
+                                    <td class="ihandle" title="Drag to reprioritize">::</td>
+                                    <td><span class="prio">@thisPrio</span></td>
+                                    <td><span class="src @SrcClass(item.Source)">@SrcLabel(item.Source)</span></td>
+                                    <td class="idc">@DisplayId(item)</td>
+                                    <td>
+                                        <div class="ittl">@(info.Title ?? "(title unavailable)")</div>
+                                        @if (!string.IsNullOrWhiteSpace(item.Area))
+                                        {
+                                            <div class="isubline">
+                                                <span class="areatag"><span class="adot @AreaClass(item.Area)"></span>@item.Area</span>
+                                            </div>
+                                        }
+                                    </td>
+                                    <td>
+                                        <span class="st @StatusClass(info.Status)" title="@(info.Detail ?? StatusTooltip(info.Status))">@StatusLabel(info.Status)</span>
+                                    </td>
+                                    <td class="iactions">
+                                        <button class="iarrow" title="Move up" disabled="@(thisPrio == 1)"
+                                                @onclick="() => MoveAsync(item, -1)">&#8593;</button>
+                                        <button class="iarrow" title="Move down" disabled="@(thisPrio == _selected.Items.Count)"
+                                                @onclick="() => MoveAsync(item, 1)">&#8595;</button>
+                                        <button class="iarrow del" title="Remove from list"
+                                                @onclick="() => RemoveAsync(item)">&times;</button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+
+                @* ---- add item row: id + source + optional area, appended over REST ---- *@
+                <div class="additem">
+                    <span class="additem-lbl">Add item</span>
+                    <select class="additem-src" @bind="_newSource">
+                        <option value="github">GitHub</option>
+                        <option value="devops">DevOps</option>
+                        <option value="jira">JIRA</option>
+                    </select>
+                    <input class="additem-id" placeholder="id (e.g. 262, 1203, CCD-44)" @bind="_newId" @bind:event="oninput" />
+                    <input class="additem-area" placeholder="area (optional)" @bind="_newArea" @bind:event="oninput" />
+                    <button class="btn" disabled="@(_adding || string.IsNullOrWhiteSpace(_newId))" @onclick="AddItemAsync">
+                        @(_adding ? "Adding..." : "Add")
+                    </button>
+                </div>
+
+                <div class="items-note">
+                    This list can mix Gateway, Core, Installer, and Cockpit items across GitHub, DevOps,
+                    and JIRA - a list is not sliced by area or source. Drag the handle (or the arrows) to
+                    reprioritize. Status follows each github item's flow:* label, never a local copy.
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@* ---- create-list modal ---- *@
+@if (_showCreate)
+{
+    <div class="modal-backdrop" @onclick="CloseCreateList">
+        <div class="modal" @onclick:stopPropagation="true">
+            <div class="modal-head">New list</div>
+            <div class="modal-body">
+                <div class="fld">
+                    <label class="fld-label">List name</label>
+                    <input @bind="_createName" @bind:event="oninput" @onkeydown="CreateKeyDown" placeholder="e.g. Today, Release 0.7" />
+                </div>
+                @if (_createError is not null)
+                {
+                    <div class="modal-error">@_createError</div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn" @onclick="CloseCreateList">Cancel</button>
+                <button class="btn primary" disabled="@(_creating || string.IsNullOrWhiteSpace(_createName))" @onclick="CreateListAsync">
+                    @(_creating ? "Creating..." : "Create")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<WorkListDto> _lists = new();
+    private WorkListDto? _selected;
+    private string? _selectedName;
+    private DateTime? _lastRefresh;
+    private string? _lastError;
+    private string? _itemError;
+    private readonly CancellationTokenSource _cts = new();
+
+    // Per-item GitHub-derived info (title + status), keyed by "source/id". Recomputed on each
+    // refresh from GitHub - never stored alongside the list, so the badge always follows the label.
+    private readonly Dictionary<string, WorkItemInfo> _info = new(StringComparer.OrdinalIgnoreCase);
+
+    // create-list modal
+    private bool _showCreate;
+    private bool _creating;
+    private string _createName = "";
+    private string? _createError;
+
+    // add-item form
+    private bool _adding;
+    private string _newSource = "github";
+    private string _newId = "";
+    private string _newArea = "";
+
+    // drag-reorder
+    private WorkListItemRef? _dragItem;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+        _ = PollLoopAsync();
+    }
+
+    private async Task PollLoopAsync()
+    {
+        // Slow poll: lists change on human action, and the per-item status follows GitHub labels
+        // which move on the order of seconds-to-minutes. A 10s cadence keeps badges fresh without
+        // hammering the GitHub API.
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(10));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(_cts.Token))
+                await RefreshAsync();
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private async Task RefreshAsync()
+    {
+        try
+        {
+            var lists = await Gateway.GetWorkListsAsync(_cts.Token);
+            _lists = lists;
+            _lastError = null;
+            _lastRefresh = DateTime.Now;
+
+            // Keep the selection valid; auto-select the first list when nothing is chosen yet.
+            if (_selectedName is null && _lists.Count > 0)
+                _selectedName = _lists[0].Name;
+            _selected = _lists.FirstOrDefault(l => string.Equals(l.Name, _selectedName, StringComparison.OrdinalIgnoreCase));
+
+            await ResolveInfoAsync();
+        }
+        catch (OperationCanceledException) { return; }
+        catch (Exception ex)
+        {
+            _lastError = ex.Message;
+            Log.LogWarning("Lists refresh failed: {Error}", ex.Message);
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    // Resolve title + status for every item across all lists (so the cards' done-counts and the
+    // selected list's rows are both accurate). GitHub calls are bounded by the client's timeout
+    // and never throw (Unknown on failure), so a flaky GitHub never breaks the list view.
+    private async Task ResolveInfoAsync()
+    {
+        var refs = _lists.SelectMany(l => l.Items)
+            .GroupBy(i => Key(i), StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.First())
+            .ToList();
+
+        foreach (var r in refs)
+        {
+            var info = await GitHub.ResolveAsync(r.Source, r.Id, _cts.Token);
+            _info[Key(r)] = info;
+        }
+    }
+
+    private WorkItemInfo InfoFor(WorkListItemRef item) =>
+        _info.TryGetValue(Key(item), out var info)
+            ? info
+            : new WorkItemInfo(Title: null, Status: WorkItemStatus.Unknown, Detail: "resolving...");
+
+    private static string Key(WorkListItemRef item) => $"{item.Source}/{item.Id}";
+
+    private bool IsSelected(WorkListDto l) => string.Equals(l.Name, _selectedName, StringComparison.OrdinalIgnoreCase);
+
+    private void SelectList(string name)
+    {
+        _selectedName = name;
+        _itemError = null;
+        _selected = _lists.FirstOrDefault(l => string.Equals(l.Name, name, StringComparison.OrdinalIgnoreCase));
+    }
+
+    // ---- create list ----
+
+    private void OpenCreateList()
+    {
+        _createName = "";
+        _createError = null;
+        _showCreate = true;
+    }
+
+    private void CloseCreateList() => _showCreate = false;
+
+    private async Task CreateKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(_createName))
+            await CreateListAsync();
+    }
+
+    private async Task CreateListAsync()
+    {
+        var name = _createName.Trim();
+        if (string.IsNullOrWhiteSpace(name)) return;
+        _creating = true;
+        _createError = null;
+        try
+        {
+            await Gateway.CreateWorkListAsync(name, _cts.Token);
+            _showCreate = false;
+            _selectedName = name; // select the just-created list once the refresh brings it in
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            Log.LogWarning("Create list FAILED: {Error}", ex.Message);
+            _createError = ex.Message;
+        }
+        finally
+        {
+            _creating = false;
+        }
+    }
+
+    // ---- add item ----
+
+    private async Task AddItemAsync()
+    {
+        if (_selected is null || string.IsNullOrWhiteSpace(_newId)) return;
+        _adding = true;
+        _itemError = null;
+        var listName = _selected.Name;
+        try
+        {
+            var item = new WorkListItemRef
+            {
+                Source = _newSource,
+                Id = _newId.Trim(),
+                Area = string.IsNullOrWhiteSpace(_newArea) ? null : _newArea.Trim(),
+            };
+            await Gateway.AppendWorkListItemAsync(listName, item, _cts.Token);
+            _newId = "";
+            _newArea = "";
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            Log.LogWarning("Add item FAILED: {Error}", ex.Message);
+            _itemError = $"Add item failed: {ex.Message}";
+        }
+        finally
+        {
+            _adding = false;
+        }
+    }
+
+    // ---- remove item ----
+
+    private async Task RemoveAsync(WorkListItemRef item)
+    {
+        if (_selected is null) return;
+        _itemError = null;
+        var listName = _selected.Name;
+        try
+        {
+            await Gateway.RemoveWorkListItemAsync(listName, item.Source, item.Id, _cts.Token);
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            Log.LogWarning("Remove item FAILED: {Error}", ex.Message);
+            _itemError = $"Remove item failed: {ex.Message}";
+        }
+    }
+
+    // ---- reorder (commit the full ordered array via PATCH - never a local-only reorder) ----
+
+    private void OnDragStart(WorkListItemRef item) => _dragItem = item;
+
+    private async Task OnDrop(WorkListItemRef target)
+    {
+        if (_dragItem is null || _selected is null) return;
+        var dragged = _dragItem;
+        _dragItem = null;
+        if (ReferenceEquals(dragged, target)) return;
+
+        var order = _selected.Items.ToList();
+        var from = order.FindIndex(i => Key(i) == Key(dragged));
+        var to = order.FindIndex(i => Key(i) == Key(target));
+        if (from < 0 || to < 0 || from == to) return;
+
+        order.RemoveAt(from);
+        order.Insert(to, dragged);
+        await CommitOrderAsync(order);
+    }
+
+    private async Task MoveAsync(WorkListItemRef item, int delta)
+    {
+        if (_selected is null) return;
+        var order = _selected.Items.ToList();
+        var i = order.FindIndex(x => Key(x) == Key(item));
+        var j = i + delta;
+        if (i < 0 || j < 0 || j >= order.Count) return;
+        (order[i], order[j]) = (order[j], order[i]);
+        await CommitOrderAsync(order);
+    }
+
+    private async Task CommitOrderAsync(List<WorkListItemRef> order)
+    {
+        if (_selected is null) return;
+        _itemError = null;
+        var listName = _selected.Name;
+        try
+        {
+            await Gateway.ReorderWorkListItemsAsync(listName, order, _cts.Token);
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            Log.LogWarning("Reorder FAILED: {Error}", ex.Message);
+            _itemError = $"Reorder failed: {ex.Message}";
+        }
+    }
+
+    // ---- display helpers ----
+
+    private string CardMeta(WorkListDto l)
+    {
+        var done = l.Items.Count(i => InfoFor(i).Status == WorkItemStatus.Done);
+        var claim = l.Consumer is { Length: > 0 } ? $"claimed by {l.Consumer}" : "unclaimed";
+        var n = l.Items.Count;
+        return $"{n} item{(n == 1 ? "" : "s")} · {done} done · {claim}";
+    }
+
+    private string ProgressLine()
+    {
+        if (_selected is null) return "";
+        var done = _selected.Items.Count(i => InfoFor(i).Status == WorkItemStatus.Done);
+        var running = _selected.Items.Count(i => InfoFor(i).Status == WorkItemStatus.Running);
+        var queued = _selected.Items.Count - done - running;
+        return $"{done} done · {running} running · {Math.Max(0, queued)} queued";
+    }
+
+    private int DonePct()
+    {
+        if (_selected is null || _selected.Items.Count == 0) return 0;
+        var done = _selected.Items.Count(i => InfoFor(i).Status == WorkItemStatus.Done);
+        return (int)Math.Round(100.0 * done / _selected.Items.Count);
+    }
+
+    private static string DisplayId(WorkListItemRef item) =>
+        string.Equals(item.Source, "github", StringComparison.OrdinalIgnoreCase) ? $"#{item.Id}" : item.Id;
+
+    private static string SrcLabel(string source) => source.ToLowerInvariant() switch
+    {
+        "github" => "GH",
+        "devops" => "DO",
+        "jira" => "JIRA",
+        _ => source.ToUpperInvariant(),
+    };
+
+    private static string SrcClass(string source) => source.ToLowerInvariant() switch
+    {
+        "github" => "gh",
+        "devops" => "do",
+        "jira" => "jira",
+        _ => "gh",
+    };
+
+    private static string AreaClass(string? area) => (area ?? "").ToLowerInvariant() switch
+    {
+        "gateway" => "a-gateway",
+        "core" => "a-core",
+        "installer" => "a-installer",
+        "cockpit" => "a-cockpit",
+        _ => "a-other",
+    };
+
+    private static string StatusLabel(WorkItemStatus s) => s switch
+    {
+        WorkItemStatus.Queued => "QUEUED",
+        WorkItemStatus.Running => "RUNNING",
+        WorkItemStatus.Done => "DONE",
+        WorkItemStatus.NeedsHuman => "NEEDS YOU",
+        WorkItemStatus.Failed => "FAILED",
+        _ => "UNKNOWN",
+    };
+
+    private static string StatusClass(WorkItemStatus s) => s switch
+    {
+        WorkItemStatus.Queued => "queued",
+        WorkItemStatus.Running => "running",
+        WorkItemStatus.Done => "done",
+        WorkItemStatus.NeedsHuman => "needs",
+        WorkItemStatus.Failed => "failed",
+        _ => "unknown",
+    };
+
+    private static string StatusTooltip(WorkItemStatus s) => s switch
+    {
+        WorkItemStatus.Queued => "Queued - waiting to be drained",
+        WorkItemStatus.Running => "Running - an implementation loop is on this item",
+        WorkItemStatus.Done => "Done - flow:done",
+        WorkItemStatus.NeedsHuman => "Needs you - flow:needs-human",
+        WorkItemStatus.Failed => "Failed",
+        _ => "Status unavailable",
+    };
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}

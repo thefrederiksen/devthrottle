@@ -309,4 +309,96 @@ public sealed class GatewayClient
         resp.EnsureSuccessStatusCode();
         return await resp.Content.ReadFromJsonAsync<TurnBriefFeedbackListResponse>(cancellationToken: ct);
     }
+
+    // ===== Named work lists (issue #275, client of #273's /lists surface) =====
+    // The Cockpit is a CLIENT of the shared Gateway list object: every create/append/reorder/
+    // remove goes through these calls, so the Cockpit never owns a copy or its own ordering.
+
+    /// <summary>
+    /// Every named work list the Gateway holds (<c>GET /lists</c>). Throws on transport failure
+    /// (the Lists page surfaces it as a banner) so a dead Gateway never looks like an empty fleet.
+    /// </summary>
+    public async Task<List<WorkListDto>> GetWorkListsAsync(CancellationToken ct = default)
+    {
+        _log.LogDebug("GetWorkListsAsync: GET {Base}lists", _http.BaseAddress);
+        var env = await _http.GetFromJsonAsync<WorkListsEnvelope>("lists", ct);
+        return env?.Lists ?? new List<WorkListDto>();
+    }
+
+    /// <summary>One named list by name (<c>GET /lists/{name}</c>); null on 404 (no such list).</summary>
+    public async Task<WorkListDto?> GetWorkListAsync(string name, CancellationToken ct = default)
+    {
+        var resp = await _http.GetAsync($"lists/{Uri.EscapeDataString(name)}", ct);
+        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound) return null;
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadFromJsonAsync<WorkListDto>(cancellationToken: ct);
+    }
+
+    /// <summary>
+    /// Create a named list (<c>POST /lists</c>). User action: throws on failure (incl. 409 when the
+    /// name is taken) so the create dialog can show the server's message.
+    /// </summary>
+    public async Task CreateWorkListAsync(string name, CancellationToken ct = default)
+    {
+        _log.LogInformation("CreateWorkListAsync: \"{Name}\"", name);
+        var resp = await _http.PostAsJsonAsync("lists", new { name }, ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            throw new HttpRequestException($"create list failed ({(int)resp.StatusCode}): {body}");
+        }
+    }
+
+    /// <summary>
+    /// Append one structured item ref to a list (<c>POST /lists/{name}/items</c>). User action:
+    /// throws on failure so the add-item form can show the server's message.
+    /// </summary>
+    public async Task AppendWorkListItemAsync(string name, WorkListItemRef item, CancellationToken ct = default)
+    {
+        _log.LogInformation("AppendWorkListItemAsync: list=\"{Name}\" source={Source} id={Id}", name, item.Source, item.Id);
+        var resp = await _http.PostAsJsonAsync($"lists/{Uri.EscapeDataString(name)}/items", item, ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            throw new HttpRequestException($"append item failed ({(int)resp.StatusCode}): {body}");
+        }
+    }
+
+    /// <summary>
+    /// Replace a list's items with a full ordered array (<c>PATCH /lists/{name}/items</c>) - this is
+    /// how reorder is committed to the shared object (never a local-only reorder). User action:
+    /// throws on failure so the caller can show the server's message.
+    /// </summary>
+    public async Task ReorderWorkListItemsAsync(string name, IReadOnlyList<WorkListItemRef> items, CancellationToken ct = default)
+    {
+        _log.LogInformation("ReorderWorkListItemsAsync: list=\"{Name}\" count={Count}", name, items.Count);
+        var resp = await _http.PatchAsJsonAsync($"lists/{Uri.EscapeDataString(name)}/items", items, ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            throw new HttpRequestException($"reorder failed ({(int)resp.StatusCode}): {body}");
+        }
+    }
+
+    /// <summary>
+    /// Remove the item addressed by source + id (<c>DELETE /lists/{name}/items/{source}/{id}</c>).
+    /// User action: throws on failure so the caller can show the server's message.
+    /// </summary>
+    public async Task RemoveWorkListItemAsync(string name, string source, string id, CancellationToken ct = default)
+    {
+        _log.LogInformation("RemoveWorkListItemAsync: list=\"{Name}\" source={Source} id={Id}", name, source, id);
+        var resp = await _http.DeleteAsync(
+            $"lists/{Uri.EscapeDataString(name)}/items/{Uri.EscapeDataString(source)}/{Uri.EscapeDataString(id)}", ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            throw new HttpRequestException($"remove item failed ({(int)resp.StatusCode}): {body}");
+        }
+    }
+}
+
+/// <summary>The <c>GET /lists</c> envelope: <c>{ "lists": [ WorkListDto, ... ] }</c> (issue #273).</summary>
+public sealed class WorkListsEnvelope
+{
+    public List<WorkListDto> Lists { get; set; } = new();
 }
