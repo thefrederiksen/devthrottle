@@ -33,7 +33,7 @@ internal static class SessionWsProxyEndpoints
     /// <paramref name="registry"/> via <paramref name="client"/>; 404 when the session is
     /// unknown across the fleet, 503 when the owning Director cannot be reached.
     /// </summary>
-    public static void Map(IEndpointRouteBuilder app, DirectorRegistry registry, DirectorEndpointClient client)
+    public static void Map(IEndpointRouteBuilder app, DirectorRegistry registry, DirectorEndpointClient client, SessionOwnerCache owners)
     {
         var forwarder = app.ServiceProvider.GetRequiredService<IHttpForwarder>();
         var proxy = new SessionWsForwarder(forwarder);
@@ -41,33 +41,50 @@ internal static class SessionWsProxyEndpoints
         // Live terminal stream: forward to the owning Director's /sessions/{sid}/stream .
         app.MapGet("/sessions/{sid}/stream", async (string sid, HttpContext ctx) =>
         {
-            await ProxyAsync(ctx, sid, "stream", $"/sessions/{sid}/stream", registry, client, proxy);
+            await ProxyAsync(ctx, sid, "stream", $"/sessions/{sid}/stream", registry, client, proxy, owners);
         });
 
         // Dictation: the Gateway exposes a sid-scoped path; the Director's own endpoint is /dictate .
         app.MapGet("/sessions/{sid}/dictate", async (string sid, HttpContext ctx) =>
         {
-            await ProxyAsync(ctx, sid, "dictate", "/dictate", registry, client, proxy);
+            await ProxyAsync(ctx, sid, "dictate", "/dictate", registry, client, proxy, owners);
         });
     }
 
     /// <summary>
     /// Resolve the owning Director and reverse-proxy the WS upgrade to <paramref name="directorPath"/>
-    /// on that Director. 404 unknown session; 503 unreachable owning Director.
+    /// on that Director. 404 only for a session no Director has ever been seen to own; 503 when the
+    /// owning Director is known (cached) but currently offline/unreachable, or when the forward fails.
     /// </summary>
     private static async Task ProxyAsync(HttpContext ctx, string sid, string leg, string directorPath,
-        DirectorRegistry registry, DirectorEndpointClient client, SessionWsForwarder proxy)
+        DirectorRegistry registry, DirectorEndpointClient client, SessionWsForwarder proxy, SessionOwnerCache owners)
     {
         FileLog.Write($"[SessionWsProxy] open leg={leg} sid={sid} client={ctx.Connection.RemoteIpAddress}");
 
         var director = await LocateOwningDirectorAsync(registry, client, sid);
         if (director is null)
         {
-            FileLog.Write($"[SessionWsProxy] leg={leg} sid={sid} -> 404 (no owning director across the fleet)");
+            // Live resolution could not reach any Director that owns this session. If we have EVER
+            // recorded its owner (the fleet aggregator or a prior successful forward did), the session
+            // is real and its Director is simply offline/unreachable now -> 503, not 404. This is what
+            // distinguishes "unknown session" from "owner went dark" (issue #288; issue #268 AC4).
+            var knownOwner = owners.OwnerOf(sid);
+            if (knownOwner is not null)
+            {
+                FileLog.Write($"[SessionWsProxy] leg={leg} sid={sid} -> 503 (known owner {knownOwner} offline/unreachable)");
+                ctx.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+                await ctx.Response.WriteAsJsonAsync(new { error = "owning director offline" });
+                return;
+            }
+
+            FileLog.Write($"[SessionWsProxy] leg={leg} sid={sid} -> 404 (no owning director across the fleet, none cached)");
             ctx.Response.StatusCode = StatusCodes.Status404NotFound;
             await ctx.Response.WriteAsJsonAsync(new { error = "session not found across any director" });
             return;
         }
+
+        // Record the owner so a later offline state for this session resolves to 503, not 404.
+        owners.Remember(sid, director.DirectorId);
 
         var destination = ForwardDestination(director);
         if (destination is null)

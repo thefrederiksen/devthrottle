@@ -12,11 +12,13 @@ namespace CcDirector.Gateway.Tests;
 /// over loopback HTTP and pin the resolution contract the Cockpit relies on:
 ///   - an unknown session id returns 404 (no owning Director across the fleet);
 ///   - the new sid-scoped routes are explicit endpoints, so they win over the fallback Cockpit
-///     proxy (they never fall through to the "Cockpit starting" interstitial).
+///     proxy (they never fall through to the "Cockpit starting" interstitial);
+///   - a session whose owner is KNOWN (recorded in <see cref="SessionOwnerCache"/>) but whose
+///     Director is offline returns 503 (owner offline), not 404 - issue #288 / #268 AC4.
 ///
-/// A genuine WebSocket upgrade to a live owning Director (and the 503 unreachable-Director path)
-/// is exercised end-to-end in the cross-machine proof run; here, with no Directors registered,
-/// the resolution leg is what is observable, which is the part that decides 404 vs proxy.
+/// A genuine WebSocket upgrade to a live owning Director is exercised end-to-end in the
+/// cross-machine proof run; here, with no Directors registered, the resolution leg is what is
+/// observable, which is the part that decides 404 vs 503 vs proxy.
 /// </summary>
 public sealed class SessionWsProxyEndpointsTests : IAsyncLifetime
 {
@@ -73,6 +75,34 @@ public sealed class SessionWsProxyEndpointsTests : IAsyncLifetime
 
         Assert.NotEqual(HttpStatusCode.ServiceUnavailable, resp.StatusCode);
         Assert.DoesNotContain("Cockpit starting", await resp.Content.ReadAsStringAsync());
+    }
+
+    [Theory]
+    [InlineData("stream")]
+    [InlineData("dictate")]
+    public async Task Known_session_with_offline_owner_returns_503_not_404(string leg)
+    {
+        // The aggregator (or a prior successful forward) recorded this session's owner, but no live
+        // Director answers ownership now (none registered). That is "owner went offline", which must
+        // be 503 - not 404 (unknown session) and not the dead-cockpit 503 interstitial. Issue #288.
+        var sid = "11111111-1111-1111-1111-111111111111";
+        _gateway.SessionOwners.Remember(sid, "dead-director-id");
+
+        var resp = await _http.GetAsync($"sessions/{sid}/{leg}");
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, resp.StatusCode);
+        var body = await resp.Content.ReadAsStringAsync();
+        Assert.Contains("offline", body, StringComparison.OrdinalIgnoreCase);
+        // It is OUR owner-offline 503, not the fallback Cockpit interstitial.
+        Assert.DoesNotContain("Cockpit starting", body);
+    }
+
+    [Fact]
+    public async Task Unknown_uncached_session_still_returns_404()
+    {
+        // Belt-and-suspenders: a session NOT in the owner cache and owned by no live Director stays 404.
+        var resp = await _http.GetAsync("sessions/22222222-2222-2222-2222-222222222222/stream");
+        Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
     }
 
     private static int FreePort()
