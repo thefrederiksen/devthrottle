@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Proof - Nicer uninstall progress UI</title>
+<style>
+  body { margin:0; background:#1e1e1e; color:#ccc; font-family:Segoe UI, system-ui, sans-serif; line-height:1.5; }
+  .wrap { max-width:1000px; margin:0 auto; padding:32px 24px 80px; }
+  h1 { font-size:23px; color:#fff; margin:0 0 4px; }
+  h2 { font-size:17px; margin:30px 0 8px; border-bottom:1px solid #3c3c3c; padding-bottom:6px; }
+  .sub { color:#888; font-size:13px; margin-bottom:20px; }
+  img { max-width:100%; border:1px solid #3c3c3c; border-radius:6px; margin:8px 0; }
+  .fig { color:#888; font-size:12px; margin:0 0 18px; }
+  code { background:#2d2d30; padding:1px 5px; border-radius:4px; font-family:Cascadia Mono, Consolas, monospace; font-size:12px; }
+  ul li { margin:3px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Nicer uninstall progress UI</h1>
+  <div class="sub">Setup wizard (<code>tools/cc-director-setup</code>) - replaces the raw MessageBox pop-ups + frozen window with an in-wizard confirm &rarr; live progress &rarr; completion flow.</div>
+
+  <h2>Before</h2>
+  <ul>
+    <li>A grey Windows <code>MessageBox</code> "Uninstall CC Director? ... Continue?" (the ugly pop-up).</li>
+    <li>The window then sat frozen-looking with NO progress while the app, tools, PATH, skills, tasks, autostart, and Tailscale mapping were removed.</li>
+    <li>A second grey <code>MessageBox</code> for the result.</li>
+  </ul>
+
+  <h2>After (this change)</h2>
+  <ul>
+    <li>Engine: <code>Uninstaller.Apply(role, IProgress&lt;string&gt;? progress)</code> reports a friendly message as each phase begins (back-compat - the param is optional).</li>
+    <li>UI: a themed <code>UninstallStep</code> with three views - confirm, live progress, completion - matching the install flow. No MessageBox.</li>
+  </ul>
+
+  <h2>Fig 1 - Confirm (themed, not a pop-up)</h2>
+  <img src="1-confirm.png" alt="Uninstall confirm view" />
+  <p class="fig">"What gets removed" list + a "your data is kept" note; Cancel + a red Uninstall button.</p>
+
+  <h2>Fig 2 - Live progress</h2>
+  <img src="2-progress.png" alt="Uninstall progress view" />
+  <p class="fig">Current action ("Removing the Start Menu shortcut...") + an indeterminate bar + completed steps accumulating with green dots.</p>
+
+  <h2>Fig 3 - Completion</h2>
+  <img src="3-complete.png" alt="Uninstall complete view" />
+  <p class="fig">Green dot + "Uninstall complete", a one-line summary, the data-kept note, and a Close button. (On a partial failure it instead shows the specific items that could not be removed.)</p>
+
+  <h2>How it was captured</h2>
+  <p>The three views were screenshotted live by driving the wizard with a FAKE runner (no real removal) via a temporary, env-var-gated demo trigger that was removed before commit. The real destructive end-to-end is verified on a disposable machine (same as the rest of #257).</p>
+
+  <p>Setup wizard builds clean (0/0); engine Uninstaller tests pass.</p>
+</div>
+</body>
+</html>
