@@ -52,6 +52,13 @@ public partial class MainWindow : Window
 
         SetupLog.Write($"[MainWindow] Started: isUpdate={_isUpdate}, installedVersion={_installedVersion}");
 
+        // Role is a first-install choice the update wizard does not re-ask. Detect what is already
+        // installed so a Gateway host stays a Gateway host on update (refresh Gateway + Cockpit and
+        // re-assert the managed tray launch), instead of defaulting to a Director-only Workstation refresh.
+        if (_isUpdate)
+            _role = InstalledRoleDetector.Detect(InstallLayout.Default());
+        SetupLog.Write($"[MainWindow] install role: {_role}");
+
         if (_isUpdate)
         {
             Title = "CC Director Update";
@@ -277,9 +284,10 @@ public partial class MainWindow : Window
         VersionText.Text = prep.Version;
         _installStep?.SetItems(prep.Items);
 
-        // A Gateway install adds the tray app + Cockpit (done by the gateway phase below); show that
-        // card up front so the user can see it's part of THIS install, not just a Workstation set.
-        if (_role == InstallRole.Gateway && !_isUpdate)
+        // A Gateway machine has the tray app + Cockpit (installed/refreshed by the gateway phase below);
+        // show that card up front so the user sees it's part of THIS install/update, not just a
+        // Workstation set. On update the role is the one detected from disk, so a Gateway host shows it too.
+        if (_role == InstallRole.Gateway)
             _installStep?.ShowGatewaySection();
 
         if (_isUpdate && prep.IsUpToDate)
@@ -291,6 +299,19 @@ public partial class MainWindow : Window
                 _installStep.OnRepairRequested += OnRepairRequested;
             _installedCount = 0;
             _skippedCount = 0;
+
+            // A Gateway host re-asserts its Gateway + Cockpit even when the Director is already current:
+            // the Cockpit can be version-drifted, or the managed tray launch / autostart can be broken
+            // (the gateway phase re-extracts the Cockpit, relaunches the tray managed, and re-registers
+            // the autostart Run key with --managed). This is what makes re-running the installer reliably
+            // heal a Gateway host whose Cockpit is stuck on "Cockpit starting...".
+            if (_role == InstallRole.Gateway)
+            {
+                NextButton.IsEnabled = false;
+                _installStep?.ShowGatewaySection();
+                await RunGatewayTrayInstallAsync(prep);
+            }
+
             NextButton.Content = "Next";
             NextButton.IsEnabled = true;
             return;
@@ -329,7 +350,7 @@ public partial class MainWindow : Window
         _cachedPrep = prep;
 
         _installStep?.SetItems(prep.Items);
-        if (_role == InstallRole.Gateway && !_isUpdate)
+        if (_role == InstallRole.Gateway)
             _installStep?.ShowGatewaySection();
         _installStep?.SetStatus($"Repairing {prep.Version}...");
         _installStep?.ShowProgress();
@@ -356,10 +377,12 @@ public partial class MainWindow : Window
         _installStep?.SetStatus($"{verb} - {installed} installed, {skipped} skipped");
         SetupLog.Write($"[MainWindow] RunEngineApplyAsync: repair={repair}, installed={installed}, skipped={skipped}");
 
-        // Gateway role: finish with the Gateway tray app + Cockpit by shelling the CLI (decision D2:
-        // the CLI is the single source of truth). Per-user like everything else - no elevation, no
-        // UAC. Updates refresh the per-user layer only; the resident tray app self-updates itself.
-        if (_role == InstallRole.Gateway && !_isUpdate)
+        // Gateway machine: finish with the Gateway tray app + Cockpit by shelling the CLI (decision D2:
+        // the CLI is the single source of truth). Per-user like everything else - no elevation, no UAC.
+        // Runs on update too (role detected from disk): it refreshes the Gateway exe + Cockpit and
+        // re-asserts the managed tray launch + autostart Run key, so a Gateway host never drifts into a
+        // half-updated, unmanaged state where the Cockpit stops coming up.
+        if (_role == InstallRole.Gateway)
             await RunGatewayTrayInstallAsync(prep);
 
         NextButton.Content = "Next";
@@ -432,10 +455,13 @@ public partial class MainWindow : Window
 
         if (_currentStep < StepComplete)
         {
-            // Leaving Welcome: capture the chosen role and rebuild all forward steps fresh.
+            // Leaving Welcome: capture the chosen role and rebuild all forward steps fresh. On update
+            // the role picker is hidden and the role was already detected from disk in the constructor,
+            // so only a fresh install reads the user's pick (the hidden picker reports Workstation).
             if (_currentStep == 1)
             {
-                _role = _welcomeStep?.SelectedRole ?? InstallRole.Workstation;
+                if (!_isUpdate)
+                    _role = _welcomeStep?.SelectedRole ?? InstallRole.Workstation;
                 SetupLog.Write($"[MainWindow] role selected: {_role}");
                 _prerequisitesStep = null;
                 _skillsStep = null;
