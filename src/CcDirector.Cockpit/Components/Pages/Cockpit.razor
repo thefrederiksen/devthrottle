@@ -1413,7 +1413,10 @@
             _dictating = true;
             _actError = null;
             _dictateRef ??= DotNetObjectReference.Create(this);
-            await JS.InvokeVoidAsync("cockpitDictate.start", _dictateRef, DictateWsUrl(DirBase!), "/js/dictate-worklet.js", "default");
+            // Issue #268: dictate over a same-origin WS to the GATEWAY (never the Director's own
+            // address); the Gateway resolves the owning Director and reverse-proxies /dictate.
+            var wsUrl = CockpitWsUrls.Dictate(Nav.BaseUri, Selected.SessionId);
+            await JS.InvokeVoidAsync("cockpitDictate.start", _dictateRef, wsUrl, "/js/dictate-worklet.js", "default");
         }
         catch (OperationCanceledException)
         {
@@ -1427,17 +1430,6 @@
             _dictating = false;
             _actError = $"dictation unavailable: {ex.Message}";
         }
-    }
-
-    // https://host:port -> wss://host:port/dictate (the owning Director's dictation pipeline,
-    // fronted by Tailscale Serve as HTTPS, so the WS upgrade rides wss over the tailnet).
-    private static string DictateWsUrl(string directorBase)
-    {
-        var b = directorBase.TrimEnd('/');
-        string ws = b.StartsWith("https://") ? "wss://" + b["https://".Length..]
-                  : b.StartsWith("http://") ? "ws://" + b["http://".Length..]
-                  : b;
-        return $"{ws}/dictate";
     }
 
     // Insert: the dialog finished and the user chose Insert - append the cleaned text to the
