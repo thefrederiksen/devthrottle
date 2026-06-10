@@ -39,7 +39,7 @@ Present these options to the user:
 
 | Template | Best For | Based On |
 |----------|----------|----------|
-| workflow | Multi-step processes with approval checkpoints | bug-fixer |
+| workflow | Multi-step processes with approval checkpoints | developer-agent |
 | utility | Simple lookup or single-action tools | generate-url |
 | reference | Documentation-heavy lookup skills | sql-query |
 | automation | Command execution and server management | server-management |
@@ -184,8 +184,8 @@ List all skills with their descriptions.
 
 | Skill | Description |
 |-------|-------------|
-| bug-fixer | Fix GitHub issues by analyzing... |
 | commit | Create a git commit following... |
+| developer-agent | Implement a CenCon issue end-to-end... |
 ...
 ```
 

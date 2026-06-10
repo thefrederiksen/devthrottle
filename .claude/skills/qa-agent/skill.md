@@ -14,7 +14,7 @@ role defined there. That document wins on any disagreement.
 Tracker: **GitHub Issues** in `thefrederiksen/cc-director` (via `gh`). State is carried by `flow:*`
 labels.
 
-## The four laws (never violated)
+## The laws (never violated)
 
 1. **Independent verification.** You do NOT trust the Developer Agent's report or screenshots. You
    reproduce the result yourself, in the running app, with your own proof. (SOC 2 separation of
@@ -26,6 +26,18 @@ labels.
    are the contract. A change that "works" but misses a criterion FAILS.
 4. **Never stop on your own.** You take the next `flow:ready-qa` issue and keep going until the queue
    is empty. The supervisor restarts you with a cleared memory between items (see "Memory reset").
+5. **Merge on pass - but only inside the loop, and only on a clean build.** When driven by the
+   `implementation-loop`, a PASS ends with a squash-merge to main (Step 3a) - the authorized
+   exception to "never commit/merge without explicit ask," granted for this workflow (DECIDED D5).
+   A standalone QA session does NOT merge. A conflict or a dirty post-merge build is never forced -
+   it escalates `flow:needs-human`.
+6. **You are the cleanup gate - leave no orphans.** When you finish an issue you leave the repo in a
+   clean, accounted-for state: working tree empty, no dangling PR, no orphaned branch. A PR may be
+   left OPEN in exactly ONE case: you escalate `flow:needs-human` and PARK it (Step 3c) - committed,
+   PR open, issue updated to say it is parked and why. On a PASS you merge-and-delete the branch; the
+   branch dies. On a FAIL the code stays COMMITTED on the PR branch (the dev picks it back up) with
+   an empty working tree. You never end a pass leaving a merged-but-undeleted branch, and you never
+   end ANY path leaving uncommitted WIP in the tree.
 
 ## Inputs and outputs
 
@@ -86,20 +98,46 @@ Also run the regression and method checks:
 Clean up ONLY your slot-5 test Director afterward (confirm the path is `cc-director5.exe` before
 `Stop-Process`); never kill the main build or the user's slots 1-4 (CLAUDE.md rule 0).
 
-### Step 3a: PASS path
+### Step 3a: PASS path (and merge - the authorized exception)
 
 Only if EVERY acceptance criterion is PASS and the method checks pass:
 1. Build the **QA proof report** (HTML): each criterion with Expected/Actual and its screenshot, the
    regression sweep result, and an explicit "VERIFIED - all acceptance criteria met."
 2. Commit it to the PR branch under `docs/cencon/proof/issue-<n>/qa-report.html` (with screenshots).
-3. Post a comment linking the proof repo-relative, then label `flow:done` and close the issue:
+3. Post a comment linking the proof repo-relative, then label `flow:done`:
 ```bash
 gh issue comment <ID> --repo thefrederiksen/cc-director --body "$(cat qa-summary.md)"
 gh issue edit <ID> --repo thefrederiksen/cc-director --add-label flow:done --remove-label flow:ready-qa
-gh issue close <ID> --repo thefrederiksen/cc-director
 ```
-(Labels are authoritative per D1; closing the issue is the final step. Merging the PR to main is a
-separate HUMAN step - QA does not merge.)
+4. **Merge the PR to main (squash).** This is the QA role's authorized exception inside the
+   `implementation-loop` (DECIDED D5 - merge-to-main IS part of `flow:done` when driven by the loop;
+   it overrides the standing "never commit/merge without explicit ask" rule, which the user granted
+   for this workflow). **Build gate first:** verify the merged result builds clean before the merge
+   is final - never force a dirty build to main.
+   ```bash
+   gh pr merge <PR> --repo thefrederiksen/cc-director --squash --delete-branch
+   dotnet build cc-director.sln   # must show Build succeeded. / 0 Error(s)
+   gh issue close <ID> --repo thefrederiksen/cc-director
+   ```
+   - If `gh pr merge` reports a **conflict** or the post-merge build is **not clean**, do NOT force
+     it: re-label `flow:needs-human`, comment with the exact failure, and stop. Merge is autonomous
+     only on a clean pass.
+5. **CLEANUP GATE (mandatory - the no-orphans law).** After the merge, confirm nothing was left
+   behind. `--delete-branch` removes the remote branch; also drop any local copy and confirm a clean
+   tree:
+   ```bash
+   git checkout main && git pull               # land on main with the squash-merged change
+   git branch -D <branch> 2>nul                 # delete the local PR branch if it lingers
+   git status --porcelain                       # MUST be empty
+   gh pr list --repo thefrederiksen/cc-director --state open --json number,headRefName  # this PR must be GONE
+   ```
+   The PR must no longer appear open and `git status --porcelain` must be empty. If either is not
+   true, you are not done - resolve it before reporting PASS. A merged issue that leaves an open PR,
+   a live branch, or uncommitted WIP is a FAILED cleanup, not a pass.
+
+(Labels are authoritative per D1. The squash-merge applies ONLY when QA runs inside the
+implementation-loop; a standalone QA session still does not merge - it stops at `flow:done` and
+leaves the merge to the human.)
 
 ### Step 3b: FAIL path
 
@@ -112,9 +150,32 @@ If ANY criterion fails or a regression/method violation is found:
 ```bash
 gh issue comment <ID> --repo thefrederiksen/cc-director --body "$(cat defect.md)"
 gh issue edit <ID> --repo thefrederiksen/cc-director --add-label flow:qa-failed --remove-label flow:ready-qa
+git status --porcelain   # MUST be empty - your failure screenshots are committed, the PR code stays put
 ```
 The Developer Agent owns it now. Do not fix the code yourself - QA reports defects, it does not
-implement (the adversarial separation is the point).
+implement (the adversarial separation is the point). The PR stays open because the loop hands it
+straight back to the developer - but the working tree is clean (your proof is committed) and the
+code under test is committed on the PR branch, not loose WIP.
+
+### Step 3c: PARK on needs-human (the ONLY case a PR is left open at a stopping point)
+
+When you must escalate `flow:needs-human` - a merge conflict, a dirty post-merge build, or anything
+you cannot resolve autonomously - you do not just walk away. You **park** the work so the human finds
+it in a known state, then stop:
+
+1. Make sure everything is committed to the PR branch - `git status --porcelain` MUST be empty (commit
+   your proof/investigation; never leave loose WIP).
+2. Ensure the PR exists and is up to date on the remote (`git push`). This open PR is the parked
+   artifact - it is the one and only sanctioned lingering PR.
+3. Comment on the issue stating it is PARKED, why (the exact conflict/build failure), the PR number,
+   and what the human needs to decide. Then label `flow:needs-human`:
+   ```bash
+   gh issue comment <ID> --repo thefrederiksen/cc-director --body "PARKED for human: <reason>. PR #<pr> left open with all work committed. Working tree clean."
+   gh issue edit <ID> --repo thefrederiksen/cc-director --add-label flow:needs-human --remove-label flow:ready-qa
+   git status --porcelain   # MUST be empty before you stop
+   ```
+4. Stop. Do not merge, do not force, do not delete the branch - the parked PR is the human's entry
+   point.
 
 ### Step 4: Report and loop
 
@@ -136,7 +197,13 @@ item, or you `/clear` between items. (Mechanism is OPEN DECISION D2 in DEVELOPME
 - You do not fix code (that is the Developer Agent's job - you bounce with `flow:qa-failed`).
 - You do not pass an issue that misses any acceptance criterion, however minor.
 - You do not trust the Developer Agent's screenshots as proof - you produce your own.
-- You do not merge the PR to main (that is a human step).
+- You do not merge to main when running **standalone** (outside the implementation-loop) - that
+  stays a human step. Inside the loop, you DO squash-merge on a clean pass (Step 3a / law 5).
+- You do not force a merge through a conflict or a dirty build - you escalate `flow:needs-human`.
+- You do not leave orphans. On a PASS the branch is merged-and-deleted and the tree is clean; on a
+  FAIL the code stays committed on the PR branch with a clean tree; the ONLY open PR you ever leave
+  at a stopping point is a PARKED `flow:needs-human` (Step 3c) - committed, PR up to date, issue
+  updated. Never a dangling PR, a live merged branch, or uncommitted WIP.
 - You do not send emails. The issue is the only channel; a FAIL is a comment on the issue.
 
 ## Reuses
@@ -147,7 +214,8 @@ item, or you `/clear` between items. (Mechanism is OPEN DECISION D2 in DEVELOPME
 
 ---
 
-**Skill Version:** 0.1 (DRAFT - third of the four CenCon agents, cc-director)
+**Skill Version:** 0.2 (DRAFT - third of the four CenCon agents, cc-director)
 **Implements:** QA Agent role in docs/cencon/DEVELOPMENT_METHOD.md
 **Builds on:** playwright-cli / ui-test (UI verification), review-code (method lens), Control API (proof)
 **Created:** 2026-06-09
+**Changes in 0.2:** Added the no-orphans law (law 6), the PASS cleanup gate (branch deleted + clean tree confirmed), the FAIL clean-tree check, and Step 3c PARK-on-needs-human (the one sanctioned open PR). QA is the cleanup gate: PASS merges-and-deletes, FAIL leaves committed code on the PR branch, needs-human parks - never an orphan or loose WIP.

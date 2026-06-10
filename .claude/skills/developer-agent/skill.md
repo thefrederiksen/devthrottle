@@ -77,8 +77,18 @@ Returned to Product Agent. This issue does not meet the Definition of Ready.
 2. <specific question 2>
 ```
 
-Then STOP - the Product Agent owns it now. (If running interactively with no Product Agent session,
-tell the user and ask for the missing specificity.)
+Then STOP - the Product Agent owns it now.
+
+**When invoked by the `implementation-loop` skill** (no Product Agent session is present to
+re-sharpen), do NOT bounce to a nonexistent Product seat and do NOT guess. Instead escalate the
+issue to the human and halt the loop for this issue:
+
+```bash
+gh issue edit <ID> --repo thefrederiksen/cc-director --add-label flow:needs-human --remove-label flow:ready-dev
+```
+
+Then report the missing DoR items to the user and stop. (If running interactively with no Product
+Agent session, the same applies - tell the user and ask for the missing specificity.)
 
 ### Step 3: Plan before implementing
 
@@ -113,7 +123,7 @@ If, while planning, you discover the spec is underspecified after all, go back t
 ### Step 4: Implement
 
 1. **Invoke `review-code` first** and read `docs/CodingStyle.md` + `docs/VisualStyle.md` (mandatory).
-2. Work on a branch (the `implement-issue` skill provides the branch + PR mechanics). Make the
+2. Work on a feature branch off `main` (`git checkout -b issue-<n>-short-desc`). Make the
    changes with the Edit/Write tools, obeying the UI surface's style guide.
 3. **Full-solution build** (per CLAUDE.md - build the solution, not individual projects):
    ```bash
@@ -143,17 +153,29 @@ If, while planning, you discover the spec is underspecified after all, go back t
 
 Only when every acceptance criterion is met, the build is clean, and you have proof:
 
-1. **Build the HTML report** - what was implemented, each acceptance criterion with its proof, the
+1. **Commit the IMPLEMENTATION first** - every source/test file you changed goes onto the PR branch.
+   The handoff artifact is committed code, NEVER uncommitted working-tree edits. Open the PR if one
+   does not exist yet (`git push -u origin HEAD` then `gh pr create`).
+2. **Build the HTML report** - what was implemented, each acceptance criterion with its proof, the
    screenshots, the CenCon-impact statement, and an explicit "I believe this is finished."
-2. **Commit proof to the PR branch** under `docs/cencon/proof/issue-<n>/` (e.g. `report.html`,
+3. **Commit proof to the PR branch** under `docs/cencon/proof/issue-<n>/` (e.g. `report.html`,
    `before.png`, `after.png`). Committing to the PR branch is authorized; **do NOT merge to main**
-   (only the human merges).
-3. **Post an issue comment** linking the proof repo-relative and the PR (reuse the bug-fixer HTML
-   comment format: Release Notes, Changes, How to Test, Expected Result, Before/After):
+   (only the human / the QA role inside the loop merges).
+4. **Post an issue comment** linking the proof repo-relative and the PR, using this comment format:
+   Release Notes, Changes, How to Test, Expected Result, Before/After:
    ```
    Proof: docs/cencon/proof/issue-<n>/report.html  (PR #<pr>)
    ```
-4. **Swap the label** to `flow:ready-qa`:
+5. **CLEAN-TREE GATE (mandatory, before the label swap).** Verify the working tree is empty and the
+   branch is pushed - you may NOT hand off with uncommitted WIP or unpushed commits:
+   ```bash
+   git status --porcelain   # MUST be empty - if not, commit/clean it before continuing
+   git push                 # the PR branch must be up to date on the remote
+   ```
+   If `git status --porcelain` prints anything, you are not done: commit the remaining files (they
+   are part of your change) or, if they are stray, remove them - but the tree MUST be empty before
+   you proceed. Handing QA a dirty tree is a defect.
+6. **Swap the label** to `flow:ready-qa`:
    ```bash
    gh issue edit <ID> --repo thefrederiksen/cc-director --add-label flow:ready-qa --remove-label flow:ready-dev
    ```
@@ -161,10 +183,27 @@ Only when every acceptance criterion is met, the build is clean, and you have pr
 Commit rule: you may commit to the PR branch (the handoff artifact is the issue + proof on the
 branch). You do NOT merge to main and you do NOT push to main unless the human explicitly asks.
 
+**No-orphan rule (absolute).** You never leave the working tree dirty when you stop for ANY reason -
+on a successful hand-off (clean-tree gate above), on a rejection (Step 2), or on a mid-task halt. If
+you must stop with work unfinished, either commit it to the PR branch and say so on the issue, or
+escalate `flow:needs-human` with the PR parked and the issue updated - never walk away leaving
+uncommitted files or an unpushed branch behind. The bug this prevents: a half-built feature left as
+loose working-tree edits that the next session trips over.
+
 ### Step 6: Handle a QA bounce (flow:qa-failed)
 
 If the QA Agent returns the issue as `flow:qa-failed`, read its comment (the specific defect), fix
 it (re-running Steps 3-5), and re-label `flow:ready-qa`. Same proof bar applies.
+
+### Running inside the implementation-loop
+
+The `implementation-loop` skill drives the Developer and QA roles in one session (issue #259): you
+implement and hand to `flow:ready-qa`, the QA role verifies in place, and on a `flow:qa-failed`
+bounce you fix and re-hand (Step 6). You do NOT merge - the QA role performs the squash-merge to
+main on pass (its authority within the loop). You still do not merge or push to main yourself.
+The loop stops a runaway after 3 `flow:qa-failed` bounces on the same issue by escalating
+`flow:needs-human`; if you cannot satisfy a criterion after a fix, say so plainly so the loop can
+escalate rather than churn.
 
 ## UI surfaces and their style guides
 
@@ -186,10 +225,13 @@ match it (standing rule: write code that reads like the surrounding code).
 - You do not invent missing design intent - you reject and ask.
 - You do not move an issue to `flow:done` or close it (that is the QA Agent's job).
 - You do not merge to main or push to main unless the human explicitly asks.
+- You do not hand off (or stop for any reason) with a dirty working tree or an unpushed branch -
+  `git status --porcelain` MUST be empty first. No uncommitted WIP, ever.
 
 ---
 
-**Skill Version:** 0.1 (DRAFT - second of the four CenCon agents, cc-director)
+**Skill Version:** 0.2 (DRAFT - second of the four CenCon agents, cc-director)
 **Implements:** Developer Agent role in docs/cencon/DEVELOPMENT_METHOD.md
-**Builds on:** implement-issue (branch + PR mechanics), bug-fixer (HTML comment format), review-code (mandatory)
+**Builds on:** review-code (mandatory)
 **Created:** 2026-06-09
+**Changes in 0.2:** Step 5 now commits the IMPLEMENTATION first (not just proof) and adds a mandatory clean-tree gate (git status --porcelain MUST be empty + branch pushed) before the flow:ready-qa hand-off. Added the no-orphan rule: never stop for any reason leaving uncommitted WIP or an unpushed branch.

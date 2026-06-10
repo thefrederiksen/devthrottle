@@ -91,7 +91,9 @@ items, an agent's memory is cleared so no context bleeds from the last ticket in
   independently against what was asked - verify, fix, re-verify - never a rubber-stamp of the code
   just written.)
 - **Fail path:** Labels `flow:qa-failed`, writes WHY, returns to Developer.
-- **Pass path:** Labels `flow:done`, closes the issue, links the QA proof report.
+- **Pass path:** Labels `flow:done`, links the QA proof report, and - when running inside the
+  Implementation session (the `implementation-loop` skill) - **squash-merges the PR to main** on a
+  clean build, then closes the issue (DECIDED D5). Standalone QA does not merge.
 - **Never stops on its own** - it takes the next QA item until the queue is empty.
 - **Input:** An issue labeled `flow:ready-qa`.
 - **Output:** `flow:qa-failed` (back to Developer) or `flow:done`.
@@ -239,8 +241,8 @@ A missing proof report is itself a Definition-of-Done failure - the issue does n
 GitHub's `gh` CLI cannot attach arbitrary files/images to an issue the way Azure DevOps work items
 can. Therefore proof travels on the **pull request branch**:
 
-1. The Developer Agent works on a branch and opens a PR (the `implement-issue` skill already does
-   this). Commits to the **PR branch** are authorized by adoption of this method.
+1. The Developer Agent works on a branch and opens a PR. Commits to the **PR branch** are authorized
+   by adoption of this method.
 2. The screenshot(s) and the HTML report are committed under `docs/cencon/proof/issue-<n>/`
    (e.g. `report.html`, `before.png`, `after.png`).
 3. The Developer Agent links them **repo-relative** in an issue comment, alongside the PR link:
@@ -249,9 +251,12 @@ can. Therefore proof travels on the **pull request branch**:
    Proof: docs/cencon/proof/issue-123/report.html  (PR #124)
    ```
 
-4. **Merging the PR to `main` still requires the human's explicit approval** - branch commits are
-   authorized, a merge is not. The handoff artifact to QA is the issue + the proof on the branch,
-   not a merged change.
+4. **Merging the PR to `main`:** the Developer Agent never merges - branch commits are authorized, a
+   merge is not. Inside the `implementation-loop`, the **QA role** squash-merges to main on a clean
+   pass as part of `flow:done` (DECIDED D5; user-granted authority scoped to the loop; clean-build
+   gate, never forced through a conflict). A **standalone** QA session does not merge - it stops at
+   `flow:done` and leaves the merge to the human. Either way, the Developer Agent's handoff artifact
+   to QA is the issue + the proof on the branch, not a merged change.
 
 The QA Agent's proof report follows the same path: committed under `docs/cencon/proof/issue-<n>/`
 (e.g. `qa-report.html`) and linked from the `flow:done` (or `flow:qa-failed`) comment.
@@ -264,10 +269,19 @@ Each agent processes exactly one issue per fresh context. When an item leaves an
 down or bounced back), that agent's session memory is cleared before it picks up the next item.
 This prevents spec, code, or assumptions from one ticket leaking into another.
 
-OPEN DECISION (D2): mechanism for the reset and the loop. Candidate: cc-director itself (the
-supervisor) restarts or re-seeds the agent session per item, or the agent uses `/clear` between
-items. To be specified when we wire the QA Agent's loop. (cc-director's own session-restart and
-handover machinery is the natural implementation surface.)
+DECIDED (D2): the `implementation-loop` skill is the supervisor of the Implementation session, and
+the memory reset is achieved by **running each phase in a fresh sub-agent**. The supervisor stays
+thin - it holds only the issue number, the current `flow:*` label, the bounce counter, and a
+one-line result ledger. Each DEV phase (following `developer-agent`) and each QA phase (following
+`qa-agent`) is spawned as a separate sub-agent with a throwaway context; the sub-agent does all the
+file reads, builds, and proof work in isolation and returns only a compact structured result. This
+is why no spec, build log, or fixture bleeds between phases or between issues, and why `--all` can
+drive many items without the supervisor's context filling up. The handoff between fresh sub-agents
+relies on the method's existing durable state (the `flow:*` label, issue comments, and the PR
+branch), not on shared memory - so a fresh QA sub-agent is also a more honestly independent verifier.
+The 3-strike `flow:qa-failed` guard and the weak-spec `flow:needs-human` escalation live in the
+supervisor; one phase runs at a time (DEV then QA), so sub-agents never collide on the slot-5 test
+Director.
 
 ---
 
@@ -288,10 +302,10 @@ handover machinery is the natural implementation surface.)
 | ID | Decision | Status |
 |----|----------|--------|
 | D1 | Labels vs GitHub open/closed state as authoritative | DECIDED: labels authoritative |
-| D2 | Memory-reset + loop mechanism (who restarts agents) | OPEN: cc-director supervisor / `/clear` per item (specify when building QA loop) |
+| D2 | Memory-reset + loop mechanism (who restarts agents) | DECIDED: the `implementation-loop` skill is the supervisor; it sequences DEV->QA->DEV until pass and `/clear`s (or re-seeds) between issues in `--all` mode (Section 7) |
 | D3 | Reject round-trip: human pause or fully autonomous | DECIDED: fully autonomous, 3-strike human escalation (Section 5a) |
-| D4 | Proof transport on GitHub | DECIDED: committed to PR branch under docs/cencon/proof/issue-<n>/, linked repo-relative; branch commits authorized, merge to main needs explicit human OK (Section 6a) |
-| D5 | Whether merged-to-main is part of `flow:done` or a separate human step | OPEN: currently a separate human step (merge is never autonomous) |
+| D4 | Proof transport on GitHub | DECIDED: committed to PR branch under docs/cencon/proof/issue-<n>/, linked repo-relative; branch commits authorized (Section 6a) |
+| D5 | Whether merged-to-main is part of `flow:done` or a separate human step | DECIDED: inside the `implementation-loop`, QA squash-merges to main on a clean pass as part of `flow:done` (user-granted authority, scoped to the loop); a standalone QA session still leaves the merge to the human |
 
 ---
 
