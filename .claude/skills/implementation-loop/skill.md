@@ -39,6 +39,25 @@ this loop only** - it does not extend to any other context, and a standalone `/q
 still does not merge. The merge is autonomous only on a clean pass; a conflict or a dirty build
 escalates to the human, never a force.
 
+## The leave-clean invariant (no orphaned branches, no uncommitted WIP, no dangling PRs)
+
+This loop must NEVER leave junk behind. A prior run abandoned a half-built feature as loose
+working-tree edits on a feature branch with no PR, so the next run tripped over a dirty tree at
+pre-flight - that must never happen again. The rule, in full:
+
+- **A PR may be left OPEN at a stopping point in exactly ONE case:** the loop escalates
+  `flow:needs-human` (weak spec, 3-strike, merge conflict, or dirty post-merge build). The QA role
+  PARKS it (qa-agent Step 3c) - all work committed to the PR branch, the PR up to date, and the
+  issue updated to say it is parked and why. The parked PR is the human's entry point.
+- **In EVERY other terminal outcome the repo is left clean:** on a PASS the PR is squash-merged and
+  the branch deleted (the branch dies). The developer never hands off, and QA never finishes, with a
+  dirty working tree. No dangling PRs, no orphaned branches, no uncommitted files - period.
+- **You (the supervisor) enforce this between phases and between issues** with the clean-tree gate in
+  Step 4. `git status --porcelain` is a one-line cleanliness check - it does not pollute your context
+  the way reading source would, so it is allowed and required. A sub-agent that returns leaving a
+  dirty tree has violated its own skill: you do NOT advance to the next issue on a dirty tree - you
+  stop and surface it to the human.
+
 ## Execution model: thin supervisor, sub-agent per phase
 
 This is the design that makes the loop work over many issues without choking on context.
@@ -187,17 +206,31 @@ The squash-merge happens in QA Step 3a, but the loop owns the guard:
 - **Conflict or dirty build -> never force.** Re-label `flow:needs-human`, comment the exact
   failure, and stop this issue.
 
-### Step 4: Report and (optionally) loop
+### Step 4: Clean-tree gate, then report and (optionally) loop
 
-Report a one-line result with the link:
+**Clean-tree gate (mandatory, before you report or advance).** Whatever the outcome, assert the repo
+was left clean:
+```bash
+git status --porcelain   # MUST be empty
 ```
-Issue #NNN: MERGED (flow:done) - N/N criteria verified, squash-merged to main | link
-Issue #NNN: ESCALATED (flow:needs-human) - 3 QA bounces, defect: <one line> | link
+- If empty: good - the phase left no orphan. Proceed to report.
+- If NOT empty: a sub-agent violated its skill and left WIP behind. Do **not** advance to the next
+  issue and do **not** auto-stash or discard (that could swallow real work). STOP, report exactly
+  which files are dirty, and ask the human - this is the failure mode this whole invariant exists to
+  catch. On a PASS outcome also confirm the PR is gone: `gh pr list --repo thefrederiksen/cc-director
+  --state open` must not show it; on a needs-human outcome the parked PR may remain (that is the one
+  allowed open PR).
+
+Then report a one-line result with the link:
+```
+Issue #NNN: MERGED (flow:done) - N/N criteria verified, squash-merged to main, branch deleted | link
+Issue #NNN: PARKED (flow:needs-human) - 3 QA bounces, PR #NN parked, defect: <one line> | link
 Issue #NNN: ESCALATED (flow:needs-human) - spec not ready: <DoR item> | link
 ```
 
 - `--all` mode: clear context between issues (memory reset, DEVELOPMENT_METHOD.md Section 7), then
-  return to Step 0 for the next `flow:ready-dev`. Stop when the queue is empty.
+  return to Step 0 for the next `flow:ready-dev`. Stop when the queue is empty. The Step 0a pre-flight
+  re-checks the clean tree at the start of each issue too - belt and suspenders.
 - Single-issue mode (default): stop after this issue.
 
 ## Memory reset (Section 7) is automatic with sub-agents
@@ -218,6 +251,7 @@ your own ledger has grown large over a very long queue).
 | 3-strike | 3rd `flow:qa-failed` on the same issue | `flow:needs-human`, stop issue |
 | Build gate | post-merge `dotnet build` not clean | `flow:needs-human`, do NOT merge |
 | Conflict | `gh pr merge` reports a conflict | `flow:needs-human`, do NOT force |
+| Leave-clean | `git status --porcelain` not empty after a phase (Step 4) | STOP, surface dirty files, ask human; never auto-stash/discard, never advance |
 
 ## What you do NOT do
 
@@ -231,6 +265,9 @@ your own ledger has grown large over a very long queue).
 - You do not skip the Developer role's proof or the QA role's independent verification to "save a
   loop" - the adversarial verify is the point.
 - You do not extend the merge authority beyond this loop.
+- You do not advance to the next issue, or finish, leaving the working tree dirty, a branch orphaned,
+  or a PR dangling. The only sanctioned open PR at a stopping point is a PARKED `flow:needs-human`
+  (qa-agent Step 3c). Everything else ends clean.
 
 ## Reuses
 
@@ -246,8 +283,9 @@ your own ledger has grown large over a very long queue).
 
 ---
 
-**Skill Version:** 0.2 (DRAFT - thin supervisor + fresh sub-agent per phase; realizes issue #259)
+**Skill Version:** 0.3 (DRAFT - thin supervisor + fresh sub-agent per phase; realizes issue #259)
 **Implements:** the Implementation session loop in docs/cencon/DEVELOPMENT_METHOD.md (D2, D5)
 **Builds on:** the `Agent` tool (per-phase sub-agents), developer-agent (DEV role), qa-agent (QA role + merge), DEVELOPMENT_METHOD.md
 **Created:** 2026-06-10
 **Changes in 0.2:** DEV and QA phases now run as fresh sub-agents (throwaway context, structured RESULT handback) instead of inline skill invocations - keeps the supervisor thin so it can drive many issues without context pollution. Added Execution model, handback format, concurrency rule.
+**Changes in 0.3:** Added the leave-clean invariant (no orphaned branches, no uncommitted WIP, no dangling PRs) + the Step 4 clean-tree gate + the Leave-clean guard. One sanctioned open PR at a stopping point: a PARKED flow:needs-human. Hardened after a prior run abandoned a half-built feature as loose working-tree edits.
