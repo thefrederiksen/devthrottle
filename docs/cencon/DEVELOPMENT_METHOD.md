@@ -269,11 +269,19 @@ Each agent processes exactly one issue per fresh context. When an item leaves an
 down or bounced back), that agent's session memory is cleared before it picks up the next item.
 This prevents spec, code, or assumptions from one ticket leaking into another.
 
-DECIDED (D2): the `implementation-loop` skill is the supervisor of the Implementation session. It
-drives one issue through DEV (`/developer-agent`) -> QA (`/qa-agent`) -> DEV ... until QA passes,
-then has QA squash-merge to main; between issues (`--all` mode) it clears context (`/clear` or
-re-seed) so no spec or fixture bleeds across items. The 3-strike `flow:qa-failed` guard and the
-weak-spec `flow:needs-human` escalation live in that skill.
+DECIDED (D2): the `implementation-loop` skill is the supervisor of the Implementation session, and
+the memory reset is achieved by **running each phase in a fresh sub-agent**. The supervisor stays
+thin - it holds only the issue number, the current `flow:*` label, the bounce counter, and a
+one-line result ledger. Each DEV phase (following `developer-agent`) and each QA phase (following
+`qa-agent`) is spawned as a separate sub-agent with a throwaway context; the sub-agent does all the
+file reads, builds, and proof work in isolation and returns only a compact structured result. This
+is why no spec, build log, or fixture bleeds between phases or between issues, and why `--all` can
+drive many items without the supervisor's context filling up. The handoff between fresh sub-agents
+relies on the method's existing durable state (the `flow:*` label, issue comments, and the PR
+branch), not on shared memory - so a fresh QA sub-agent is also a more honestly independent verifier.
+The 3-strike `flow:qa-failed` guard and the weak-spec `flow:needs-human` escalation live in the
+supervisor; one phase runs at a time (DEV then QA), so sub-agents never collide on the slot-5 test
+Director.
 
 ---
 
