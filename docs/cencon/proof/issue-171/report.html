@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Issue #171 - FileLog midnight rollover - Developer Proof</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 980px; margin: 24px auto; padding: 0 18px;
+         color: #1f2328; line-height: 1.5; }
+  h1 { font-size: 22px; border-bottom: 2px solid #1d76db; padding-bottom: 6px; }
+  h2 { font-size: 17px; margin-top: 28px; color: #1d76db; }
+  code, pre { font-family: Consolas, monospace; }
+  pre { background: #0d1117; color: #d1d5da; padding: 12px 14px; border-radius: 6px; overflow-x: auto;
+        font-size: 12.5px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 14px; }
+  th, td { border: 1px solid #d0d7de; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #f3f4f6; }
+  .pass { color: #1a7f37; font-weight: bold; }
+  .file { background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px; padding: 2px 6px; font-size: 13px; }
+  .belief { background: #ddf4ff; border-left: 4px solid #1d76db; padding: 12px 14px; border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<h1>Issue #171 - FileLog midnight rollover loses all writes</h1>
+<p><strong>Developer Agent proof report</strong> (CenCon Development Method). Branch
+<span class="file">issue-171-filelog-rollover</span>. Area: <span class="file">CcDirector.Core</span>.</p>
+
+<h2>Confirmed root cause</h2>
+<p>Both suspects in the issue were confirmed by reading
+<span class="file">src/CcDirector.Core/Utilities/FileLog.cs</span>:</p>
+<ul>
+  <li><strong>(a) Writer thread dies on any exception.</strong> The entire consuming
+  <code>foreach</code> sat inside a single <code>try</code>. After the midnight rollover, any
+  exception (or any transient write failure) escaped the loop and <em>permanently terminated</em>
+  the background writer thread, so all logging stopped - the new day's file stayed at 0 bytes.</li>
+  <li><strong>(b) Busy queue never flushes.</strong> The writer used
+  <code>AutoFlush=false</code> and flushed only when <code>_queue.Count == 0</code>. A busy
+  long-running Director keeps the queue non-empty, so buffered lines were never flushed to disk.</li>
+</ul>
+
+<h2>What was implemented</h2>
+<table>
+  <tr><th>File</th><th>Change</th></tr>
+  <tr>
+    <td><span class="file">src/CcDirector.Core/Utilities/FileLogWriter.cs</span> (new, internal)</td>
+    <td>Extracted the dequeue/rollover/flush engine with an <strong>injectable clock</strong>
+    (<code>Func&lt;DateTime&gt;</code>) so the rollover is unit-testable. Per-line
+    <code>try/catch</code> inside the loop logs and continues (the thread outlives any single bad
+    write). Bounded flush: flush when the queue drains <em>or</em> when more than
+    <code>FlushInterval</code> (1s) has elapsed since the last flush. Opens the file with
+    <code>FileShare.Read</code> so live log viewers can read it.</td>
+  </tr>
+  <tr>
+    <td><span class="file">src/CcDirector.Core/Utilities/FileLog.cs</span></td>
+    <td>Now a thin static facade over <code>FileLogWriter</code> wired to <code>DateTime.Now</code>
+    and the real log directory. Public API (<code>Start/Write/Stop/CurrentLogPath</code>) unchanged -
+    no consumer changes required.</td>
+  </tr>
+  <tr>
+    <td><span class="file">src/CcDirector.Core.Tests/Utilities/FileLogWriterTests.cs</span> (new)</td>
+    <td>Four regression tests pinning the three acceptance criteria plus path computation.</td>
+  </tr>
+</table>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+  <tr><th>Criterion</th><th>Proof test</th><th>Expected</th><th>Actual</th></tr>
+  <tr>
+    <td>Write after a date rollover lands in the new day's file (non-zero, contains the line)</td>
+    <td><code>Write_AfterDateRollover_LandsInNewDaysFile</code></td>
+    <td>New day's file exists, &gt; 0 bytes, contains the post-rollover line</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>A transient exception in the write path does not terminate the writer thread; logging continues</td>
+    <td><code>Write_WhenWritePathThrowsOnce_WriterSurvivesAndKeepsLogging</code></td>
+    <td>After one forced throw, the next line still lands</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>Writes flush within a bounded interval even while the queue stays non-empty</td>
+    <td><code>Write_WhileQueueStaysBusy_FlushesWithinBoundedInterval</code></td>
+    <td>Content reaches disk via the periodic flush before Stop() is called</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>(supporting) Dated path derivation is correct</td>
+    <td><code>ComputeLogPath_UsesDateAndProcessId</code></td>
+    <td><code>director-yyyy-MM-dd-{pid}.log</code></td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Test output</h2>
+<pre>  Passed FileLogWriterTests.Write_WhileQueueStaysBusy_FlushesWithinBoundedInterval [28 ms]
+  Passed FileLogWriterTests.Write_WhenWritePathThrowsOnce_WriterSurvivesAndKeepsLogging [33 ms]
+  Passed FileLogWriterTests.ComputeLogPath_UsesDateAndProcessId [&lt; 1 ms]
+  Passed FileLogWriterTests.Write_AfterDateRollover_LandsInNewDaysFile [58 ms]
+Total tests: 4    Passed: 4    Failed: 0</pre>
+<p>Full capture: <span class="file">docs/cencon/proof/issue-171/test-output.txt</span></p>
+
+<h2>Live-app proof (slot 5)</h2>
+<p>Built <span class="file">cc-director5.exe</span> via
+<code>scripts\local-build-avalonia.ps1 -Slot 5</code> and launched it via the
+<code>cc-director-launch</code> scheduled task (never from the agent's own process tree).
+The Director (PID 17332) wrote through the refactored <code>FileLog -&gt; FileLogWriter</code>
+engine: its live log went from <strong>0 bytes</strong> to <strong>16,684 bytes</strong> and
+flushed under continuous startup load - the exact "0-byte stays 0" symptom no longer occurs - and
+the file was readable with shared access while the writer held it open. The slot-5 Director was
+then stopped (path-verified) and the task removed. (The raw live log is not committed because it
+contains machine-local user paths - PII for this public repo.)</p>
+
+<h2>Build</h2>
+<pre>dotnet build cc-director.sln
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)</pre>
+
+<h2>CenCon impact</h2>
+<p>No drift. Internal refactor of one <code>CcDirector.Core</code> utility - no architecture
+container added or removed, no security posture change, no blocking security rule (DT-xx) touched.</p>
+
+<div class="belief">
+<p><strong>I believe this is finished.</strong> The midnight-rollover bug is fixed at both
+confirmed root causes, all three acceptance criteria are proven by green regression tests, the
+full solution builds with zero warnings/errors, and the change was exercised in a running slot-5
+Director.</p>
+</div>
+
+</body>
+</html>
