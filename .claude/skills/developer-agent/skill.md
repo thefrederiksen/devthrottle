@@ -170,11 +170,14 @@ Only when every acceptance criterion is met, the build is clean, and you have pr
    branch is pushed - you may NOT hand off with uncommitted WIP or unpushed commits:
    ```bash
    git status --porcelain   # MUST be empty - if not, commit/clean it before continuing
+   git stash list           # MUST show no stash you created - stashing is NOT a clean tree
    git push                 # the PR branch must be up to date on the remote
    ```
    If `git status --porcelain` prints anything, you are not done: commit the remaining files (they
    are part of your change) or, if they are stray, remove them - but the tree MUST be empty before
-   you proceed. Handing QA a dirty tree is a defect.
+   you proceed. **Never `git stash` to make the tree look empty** - a stash hides your WIP and hands
+   QA (and the human) a mess; commit it to the PR branch instead. Handing QA a dirty tree or a stash
+   is a defect.
 6. **Swap the label** to `flow:ready-qa`:
    ```bash
    gh issue edit <ID> --repo thefrederiksen/cc-director --add-label flow:ready-qa --remove-label flow:ready-dev
@@ -183,12 +186,13 @@ Only when every acceptance criterion is met, the build is clean, and you have pr
 Commit rule: you may commit to the PR branch (the handoff artifact is the issue + proof on the
 branch). You do NOT merge to main and you do NOT push to main unless the human explicitly asks.
 
-**No-orphan rule (absolute).** You never leave the working tree dirty when you stop for ANY reason -
-on a successful hand-off (clean-tree gate above), on a rejection (Step 2), or on a mid-task halt. If
-you must stop with work unfinished, either commit it to the PR branch and say so on the issue, or
-escalate `flow:needs-human` with the PR parked and the issue updated - never walk away leaving
-uncommitted files or an unpushed branch behind. The bug this prevents: a half-built feature left as
-loose working-tree edits that the next session trips over.
+**No-orphan rule (absolute).** You never leave the working tree dirty - and never use `git stash` to
+fake a clean one - when you stop for ANY reason: on a successful hand-off (clean-tree gate above), on
+a rejection (Step 2), or on a mid-task halt. If you must stop with work unfinished, either commit it
+to the PR branch and say so on the issue, or escalate `flow:needs-human` with the PR parked and the
+issue updated - never walk away leaving uncommitted files, a stash, or an unpushed branch behind. The
+bug this prevents: a half-built feature left as loose working-tree edits (or hidden in a stash) that
+the next session - and the human - trips over.
 
 ### Step 6: Handle a QA bounce (flow:qa-failed)
 
@@ -230,8 +234,9 @@ match it (standing rule: write code that reads like the surrounding code).
 
 ---
 
-**Skill Version:** 0.2 (DRAFT - second of the four CenCon agents, cc-director)
+**Skill Version:** 0.3 (DRAFT - second of the four CenCon agents, cc-director)
 **Implements:** Developer Agent role in docs/cencon/DEVELOPMENT_METHOD.md
 **Builds on:** review-code (mandatory)
 **Created:** 2026-06-09
 **Changes in 0.2:** Step 5 now commits the IMPLEMENTATION first (not just proof) and adds a mandatory clean-tree gate (git status --porcelain MUST be empty + branch pushed) before the flow:ready-qa hand-off. Added the no-orphan rule: never stop for any reason leaving uncommitted WIP or an unpushed branch.
+**Changes in 0.3:** Banned `git stash` as a way to fake a clean tree (a prior run hid WIP in a stash, which the human had to clean up). The clean-tree gate now also asserts `git stash list` is empty, and the no-orphan rule forbids leaving a stash behind. Also inlined the branch/PR mechanics and issue-comment format previously cited from the deleted implement-issue/bug-fixer skills.

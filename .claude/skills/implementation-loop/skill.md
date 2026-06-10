@@ -57,6 +57,12 @@ pre-flight - that must never happen again. The rule, in full:
   the way reading source would, so it is allowed and required. A sub-agent that returns leaving a
   dirty tree has violated its own skill: you do NOT advance to the next issue on a dirty tree - you
   stop and surface it to the human.
+- **A clean working tree is NOT enough - also check `git stash list`.** `git stash` empties the
+  working tree while hiding WIP in the stash list, so `git status --porcelain` passes while a mess
+  lingers. A prior run "parked by cleanup" exactly this way, and the human had to clean it up. NO
+  sub-agent may stash to fake a clean tree, and your Step 4 gate asserts `git stash list` carries no
+  stash the loop created. WIP is committed to the PR branch (FAIL/PARK) or merged (PASS) - never
+  stashed, never discarded.
 
 ## Execution model: thin supervisor, sub-agent per phase
 
@@ -131,12 +137,16 @@ changes or branches off the wrong point. Check this FIRST, every run:
 
 ```bash
 git status --porcelain   # must be EMPTY
+git stash list           # must show NO stash (a leftover stash is dangling WIP - treat as not-clean)
 git rev-parse --abbrev-ref HEAD   # expected: main (the base the Developer role branches from)
 ```
 
 - **Dirty working tree** (any output from `git status --porcelain`): STOP. Do not start. Report the
-  uncommitted files and ask the human to commit, stash, or discard them. The loop never auto-stashes
-  or discards - that could silently swallow someone's work.
+  uncommitted files and ask the human to commit or discard them. The loop never auto-stashes or
+  discards - that could silently swallow someone's work, and stashing is never how this loop cleans
+  up.
+- **A non-empty `git stash list`:** STOP and surface it. A leftover stash is parked WIP someone hid;
+  do not start a run on top of it and never silently drop it - ask the human what to do with it.
 - **Not on the base branch** (`main`, unless the issue/PR says otherwise): STOP and confirm with the
   human which base to use before continuing.
 - Only when the tree is clean and the base is correct does the loop proceed to Step 0.
@@ -209,17 +219,20 @@ The squash-merge happens in QA Step 3a, but the loop owns the guard:
 ### Step 4: Clean-tree gate, then report and (optionally) loop
 
 **Clean-tree gate (mandatory, before you report or advance).** Whatever the outcome, assert the repo
-was left clean:
+was left clean - and "clean" means BOTH the tree AND the stash list:
 ```bash
 git status --porcelain   # MUST be empty
+git stash list           # MUST be empty of any stash the loop created (stashing is NOT cleanup)
 ```
-- If empty: good - the phase left no orphan. Proceed to report.
-- If NOT empty: a sub-agent violated its skill and left WIP behind. Do **not** advance to the next
-  issue and do **not** auto-stash or discard (that could swallow real work). STOP, report exactly
-  which files are dirty, and ask the human - this is the failure mode this whole invariant exists to
-  catch. On a PASS outcome also confirm the PR is gone: `gh pr list --repo thefrederiksen/cc-director
-  --state open` must not show it; on a needs-human outcome the parked PR may remain (that is the one
-  allowed open PR).
+- If both are empty: good - the phase left no orphan and hid nothing in a stash. Proceed to report.
+- If `git status --porcelain` is NOT empty, OR `git stash list` shows a stash this run created: a
+  sub-agent violated its skill - it left WIP behind, or it tried to fake a clean tree by stashing
+  (the exact mess that prompted this gate). Do **not** advance to the next issue and do **not**
+  auto-stash, auto-discard, or auto-drop a stash (that could swallow real work). STOP, report exactly
+  what is dirty or stashed, and ask the human - this is the failure mode this whole invariant exists
+  to catch. On a PASS outcome also confirm the PR is gone: `gh pr list --repo
+  thefrederiksen/cc-director --state open` must not show it; on a needs-human outcome the parked PR
+  may remain (that is the one allowed open PR).
 
 Then report a one-line result with the link:
 ```
@@ -251,7 +264,7 @@ your own ledger has grown large over a very long queue).
 | 3-strike | 3rd `flow:qa-failed` on the same issue | `flow:needs-human`, stop issue |
 | Build gate | post-merge `dotnet build` not clean | `flow:needs-human`, do NOT merge |
 | Conflict | `gh pr merge` reports a conflict | `flow:needs-human`, do NOT force |
-| Leave-clean | `git status --porcelain` not empty after a phase (Step 4) | STOP, surface dirty files, ask human; never auto-stash/discard, never advance |
+| Leave-clean | `git status --porcelain` not empty OR `git stash list` has a run-created stash after a phase (Step 4) | STOP, surface dirty files / stashes, ask human; never auto-stash/discard/drop, never advance |
 
 ## What you do NOT do
 
@@ -283,9 +296,10 @@ your own ledger has grown large over a very long queue).
 
 ---
 
-**Skill Version:** 0.3 (DRAFT - thin supervisor + fresh sub-agent per phase; realizes issue #259)
+**Skill Version:** 0.4 (DRAFT - thin supervisor + fresh sub-agent per phase; realizes issue #259)
 **Implements:** the Implementation session loop in docs/cencon/DEVELOPMENT_METHOD.md (D2, D5)
 **Builds on:** the `Agent` tool (per-phase sub-agents), developer-agent (DEV role), qa-agent (QA role + merge), DEVELOPMENT_METHOD.md
 **Created:** 2026-06-10
 **Changes in 0.2:** DEV and QA phases now run as fresh sub-agents (throwaway context, structured RESULT handback) instead of inline skill invocations - keeps the supervisor thin so it can drive many issues without context pollution. Added Execution model, handback format, concurrency rule.
 **Changes in 0.3:** Added the leave-clean invariant (no orphaned branches, no uncommitted WIP, no dangling PRs) + the Step 4 clean-tree gate + the Leave-clean guard. One sanctioned open PR at a stopping point: a PARKED flow:needs-human. Hardened after a prior run abandoned a half-built feature as loose working-tree edits.
+**Changes in 0.4:** Closed the stash loophole. A prior run "parked by cleanup" via `git stash` - the tree looked clean (`git status --porcelain` empty) while WIP sat hidden in the stash list, and the human had to clean it up. Banned `git stash` as a cleanup/park mechanism, extended the Step 0a pre-flight and Step 4 gate to also assert `git stash list` is empty, and updated the Leave-clean guard accordingly.

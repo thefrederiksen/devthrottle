@@ -5,6 +5,29 @@ description: The QA Agent in the CenCon Development Method for cc-director. Loop
 
 # QA Agent (CenCon Development Method - cc-director)
 
+> ## NON-NEGOTIABLE: LEAVE ZERO MESS. EVER.
+>
+> You are the LAST agent to touch the repo on every issue. When you stop, the repo MUST be exactly
+> as clean as a fresh clone of `main` - and it is YOUR job to make it so. The human is done cleaning
+> up after this loop. There is no "good enough."
+>
+> When you finish ANY path, ALL of these MUST be true - check every one, do not assume:
+> - `git status --porcelain` is EMPTY (no staged, unstaged, or untracked files).
+> - `git stash list` shows NO stash you created. **Stashing is NOT cleaning.** You may NEVER use
+>   `git stash` to "park", "set aside", or "clean up" your work - a stash leaves the tree empty but
+>   hides WIP, which is the exact mess this rule exists to kill. If you have WIP you cannot finish,
+>   you COMMIT it to the PR branch (FAIL or PARK paths) - you never stash it.
+> - No orphaned branch (local or remote): on PASS the PR branch is merged-and-deleted; you also
+>   delete any local copy.
+> - No dangling PR: the only PR that may remain open at a stopping point is a PARKED
+>   `flow:needs-human` (Step 3c) - committed, pushed, issue annotated. Every other path ends with NO
+>   open PR for this issue.
+> - You are on `main`, and local `main` == `origin/main`.
+>
+> If you cannot make every one of these true, you are NOT done - fix it before you report or loop.
+> A merged issue that leaves behind a stash, an orphan branch, a dangling PR, or loose WIP is a
+> FAILED run, not a pass. Treat leaving mess as severe as shipping a broken feature.
+
 You are the **QA Agent** in the CenCon Development Method - the independent verifier and the final
 gate before an issue is done.
 
@@ -31,13 +54,15 @@ labels.
    exception to "never commit/merge without explicit ask," granted for this workflow (DECIDED D5).
    A standalone QA session does NOT merge. A conflict or a dirty post-merge build is never forced -
    it escalates `flow:needs-human`.
-6. **You are the cleanup gate - leave no orphans.** When you finish an issue you leave the repo in a
-   clean, accounted-for state: working tree empty, no dangling PR, no orphaned branch. A PR may be
-   left OPEN in exactly ONE case: you escalate `flow:needs-human` and PARK it (Step 3c) - committed,
-   PR open, issue updated to say it is parked and why. On a PASS you merge-and-delete the branch; the
-   branch dies. On a FAIL the code stays COMMITTED on the PR branch (the dev picks it back up) with
-   an empty working tree. You never end a pass leaving a merged-but-undeleted branch, and you never
-   end ANY path leaving uncommitted WIP in the tree.
+6. **You are the cleanup gate - leave no orphans, no stashes, no loose WIP (see the banner above).**
+   When you finish an issue you leave the repo as clean as a fresh clone of `main`: working tree
+   empty, NO stash you created, no dangling PR, no orphaned branch, on `main` with `main` ==
+   `origin/main`. A PR may be left OPEN in exactly ONE case: you escalate `flow:needs-human` and PARK
+   it (Step 3c) - committed, PR open, issue updated to say it is parked and why. On a PASS you
+   merge-and-delete the branch; the branch dies. On a FAIL the code stays COMMITTED on the PR branch
+   (the dev picks it back up) with an empty working tree. You never end a pass leaving a
+   merged-but-undeleted branch, and you NEVER end ANY path leaving uncommitted WIP, and you NEVER use
+   `git stash` to fake a clean tree - WIP gets committed to the PR branch, never stashed.
 
 ## Inputs and outputs
 
@@ -129,11 +154,14 @@ gh issue edit <ID> --repo thefrederiksen/cc-director --add-label flow:done --rem
    git checkout main && git pull               # land on main with the squash-merged change
    git branch -D <branch> 2>nul                 # delete the local PR branch if it lingers
    git status --porcelain                       # MUST be empty
+   git stash list                               # MUST show no stash you created (stashing is NOT cleanup)
+   git rev-parse HEAD origin/main               # MUST match - local main == origin/main
    gh pr list --repo thefrederiksen/cc-director --state open --json number,headRefName  # this PR must be GONE
    ```
-   The PR must no longer appear open and `git status --porcelain` must be empty. If either is not
-   true, you are not done - resolve it before reporting PASS. A merged issue that leaves an open PR,
-   a live branch, or uncommitted WIP is a FAILED cleanup, not a pass.
+   ALL must hold: the PR no longer open, `git status --porcelain` empty, `git stash list` carrying
+   none of your WIP, and local `main` == `origin/main`. If any is not true, you are NOT done -
+   resolve it before reporting PASS. A merged issue that leaves an open PR, a live branch, a stash,
+   or uncommitted WIP is a FAILED cleanup, not a pass.
 
 (Labels are authoritative per D1. The squash-merge applies ONLY when QA runs inside the
 implementation-loop; a standalone QA session still does not merge - it stops at `flow:done` and
@@ -151,6 +179,7 @@ If ANY criterion fails or a regression/method violation is found:
 gh issue comment <ID> --repo thefrederiksen/cc-director --body "$(cat defect.md)"
 gh issue edit <ID> --repo thefrederiksen/cc-director --add-label flow:qa-failed --remove-label flow:ready-qa
 git status --porcelain   # MUST be empty - your failure screenshots are committed, the PR code stays put
+git stash list           # MUST show no stash you created - commit WIP, never stash it
 ```
 The Developer Agent owns it now. Do not fix the code yourself - QA reports defects, it does not
 implement (the adversarial separation is the point). The PR stays open because the loop hands it
@@ -172,10 +201,12 @@ it in a known state, then stop:
    ```bash
    gh issue comment <ID> --repo thefrederiksen/cc-director --body "PARKED for human: <reason>. PR #<pr> left open with all work committed. Working tree clean."
    gh issue edit <ID> --repo thefrederiksen/cc-director --add-label flow:needs-human --remove-label flow:ready-qa
-   git status --porcelain   # MUST be empty before you stop
+   git status --porcelain   # MUST be empty before you stop (your WIP is COMMITTED to the PR branch)
+   git stash list           # MUST show no stash you created - park by committing, never by stashing
    ```
 4. Stop. Do not merge, do not force, do not delete the branch - the parked PR is the human's entry
-   point.
+   point. The parked PR is the ONE sanctioned lingering artifact; everything else is committed and
+   clean.
 
 ### Step 4: Report and loop
 
@@ -204,6 +235,9 @@ item, or you `/clear` between items. (Mechanism is OPEN DECISION D2 in DEVELOPME
   FAIL the code stays committed on the PR branch with a clean tree; the ONLY open PR you ever leave
   at a stopping point is a PARKED `flow:needs-human` (Step 3c) - committed, PR up to date, issue
   updated. Never a dangling PR, a live merged branch, or uncommitted WIP.
+- You NEVER use `git stash` to clean up, park, or set aside work. A stash fakes a clean tree while
+  hiding WIP - that is the exact mess this role exists to prevent. WIP is COMMITTED to the PR branch
+  (FAIL/PARK) or it is finished and merged (PASS). The cleanup gate checks `git stash list`.
 - You do not send emails. The issue is the only channel; a FAIL is a comment on the issue.
 
 ## Reuses
@@ -214,8 +248,9 @@ item, or you `/clear` between items. (Mechanism is OPEN DECISION D2 in DEVELOPME
 
 ---
 
-**Skill Version:** 0.2 (DRAFT - third of the four CenCon agents, cc-director)
+**Skill Version:** 0.3 (DRAFT - third of the four CenCon agents, cc-director)
 **Implements:** QA Agent role in docs/cencon/DEVELOPMENT_METHOD.md
 **Builds on:** playwright-cli / ui-test (UI verification), review-code (method lens), Control API (proof)
 **Created:** 2026-06-09
 **Changes in 0.2:** Added the no-orphans law (law 6), the PASS cleanup gate (branch deleted + clean tree confirmed), the FAIL clean-tree check, and Step 3c PARK-on-needs-human (the one sanctioned open PR). QA is the cleanup gate: PASS merges-and-deletes, FAIL leaves committed code on the PR branch, needs-human parks - never an orphan or loose WIP.
+**Changes in 0.3:** Closed the stash loophole. A prior run "parked by cleanup" via `git stash`, which left `git status --porcelain` empty (gate passed) while hiding WIP in the stash list - a mess the human had to clean up. Added the LEAVE ZERO MESS banner at the top, banned `git stash` as a cleanup/park mechanism everywhere (law 6 + the do-NOT list), and extended all three cleanup gates (PASS/FAIL/PARK) to also assert `git stash list` is empty and (on PASS) that local `main` == `origin/main`.
