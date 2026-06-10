@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Proof - Issue #273: Named work lists (Gateway REST resource)</title>
+<style>
+  :root {
+    --bg: #1e1e1e; --panel: #252526; --border: #3c3c3c; --text: #d4d4d4;
+    --accent: #007acc; --green: #4ec9b0; --amber: #d7ba7d; --red: #f48771;
+    --code: #1b1b1b; --muted: #858585;
+  }
+  * { box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: "Segoe UI", system-ui, sans-serif;
+         margin: 0; padding: 32px; line-height: 1.5; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 17px; margin: 28px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+  .sub { color: var(--muted); margin-bottom: 20px; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+           padding: 16px 18px; margin: 12px 0; }
+  table { width: 100%; border-collapse: collapse; margin: 8px 0; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--accent); font-weight: 600; }
+  code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 12.5px; }
+  pre { background: var(--code); border: 1px solid var(--border); border-radius: 5px;
+        padding: 12px 14px; overflow-x: auto; color: #cdcdcd; }
+  .pass { color: var(--green); font-weight: 600; }
+  .badge { display: inline-block; background: var(--green); color: #08231d; font-weight: 700;
+           padding: 2px 10px; border-radius: 12px; font-size: 12px; }
+  .kv { color: var(--amber); }
+  img { max-width: 100%; border: 1px solid var(--border); border-radius: 5px; }
+  .small { font-size: 12.5px; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<h1>Proof &mdash; Issue #273</h1>
+<div class="sub">[Gateway] Named work lists as a first-class REST resource (CRUD + ordering + single-consumer claim)
+&mdash; child 2 of 5 for epic #270. PR #278, branch <code>issue-273-work-lists</code>.</div>
+
+<div class="panel">
+  <span class="badge">ALL 8 ACCEPTANCE CRITERIA PASS</span>
+  <p><b>I believe this is finished.</b> Every acceptance criterion 1&ndash;8 is proven below against a
+  <b>real <code>GatewayHost</code></b> (the same host the Gateway tray runs) with auth ON and Tailscale OFF,
+  driven over real HTTP. Criterion 8 is proven by a <b>separate OS process</b> (powershell.exe) reaching the
+  Gateway from outside the Gateway process. Unit tests (19) are green. The full solution builds with 0 warnings, 0 errors.</p>
+</div>
+
+<h2>What was implemented</h2>
+<table>
+  <tr><th>Area / container</th><th>Change</th></tr>
+  <tr><td><code>src/CcDirector.Gateway.Contracts/WorkListItemRef.cs</code></td>
+      <td>New DTO: the structured item ref <code>{ source, id, area? }</code>. <code>id</code> is a string (holds <code>"CCD-44"</code>), <code>area</code> optional.</td></tr>
+  <tr><td><code>src/CcDirector.Gateway.Contracts/WorkListDto.cs</code></td>
+      <td>New DTO: a named list = <code>Name</code> + ordered <code>Items</code> + single <code>Consumer</code> claim token. <b>No status/flow field.</b></td></tr>
+  <tr><td><code>src/CcDirector.Gateway/WorkListStore.cs</code></td>
+      <td>New in-memory fleet store (lock-guarded): Create / ListAll / Get / AppendItem / Reorder / RemoveItem(by source+id) / Claim / Release. Stores order + refs + claim ONLY; never item status; never rejects a source. Defensive copies on read. FileLog on every public method.</td></tr>
+  <tr><td><code>src/CcDirector.Gateway/Api/WorkListEndpoints.cs</code></td>
+      <td>New minimal-API surface mapping the 8 routes in the issue table onto the Gateway HTTP host.</td></tr>
+  <tr><td><code>src/CcDirector.Gateway/GatewayHost.cs</code></td>
+      <td>Wires <code>WorkListEndpoints.Map(_app, _workLists)</code> <b>after the host-wide auth middleware</b>, alongside <code>VaultEndpoints</code> &mdash; so <code>/lists</code> inherits the Bearer-token auth and is reachable cross-machine via Tailscale Serve, not bound to a single Director.</td></tr>
+  <tr><td><code>src/CcDirector.Gateway.Tests/WorkListStoreTests.cs</code> (10) + <code>WorkListEndpointsTests.cs</code> (9)</td>
+      <td>Unit + HTTP-wire tests: create/append/round-trip, mixed-source order, reorder, remove-by-source+id, claim refusal, and the no-status-field assertion.</td></tr>
+  <tr><td><code>docs/cencon/architecture_manifest.yaml</code></td>
+      <td>Added <code>WorkListStore</code> and <code>WorkListEndpoints</code> to the Gateway container; bumped <code>last_updated</code>.</td></tr>
+</table>
+
+<h2>Build &amp; tests</h2>
+<pre>$ dotnet build cc-director.sln
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+$ dotnet test (filter WorkList)
+Passed!  - Failed: 0, Passed: 19, Skipped: 0, Total: 19</pre>
+
+<h2>Slot-5 test Director (CLAUDE.md rule 0b)</h2>
+<p>Built to slot 5 (<code>scripts\local-build-avalonia.ps1 -Slot 5</code> &rarr; <code>local_builds\cc-director5.exe</code>, v0.6.22) and
+launched via the <code>cc-director-launch</code> Windows scheduled task (svchost parentage, never spawned from the agent's process tree).
+Health check confirms the freshly-built binary boots:</p>
+<pre>GET http://127.0.0.1:7886/healthz
+{"status":"ok","directors":1,"sessions":0,"version":"0.6.22",
+ "machineName":"SOREN_NORTH","directorId":"ce7e7143-..."}</pre>
+<p class="small">The <code>/lists</code> endpoints live on the <b>Gateway</b> host (GatewayHost), not the Director Control API.
+The substantive proof below boots a real GatewayHost from the freshly-built assemblies and drives the contract over HTTP.
+The slot-5 Director then registered against the local Gateway, confirming the slot-5 build runs end to end.</p>
+<img src="slot5-director.png" alt="slot-5 Director and proof harness running on the desktop">
+
+<h2>Acceptance criteria &mdash; Expected vs Actual</h2>
+<table>
+  <tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+  <tr><td>1</td><td>POST /lists creates; GET /lists returns it</td>
+      <td>200 then list appears</td><td>POST&rarr;200 <code>{"name":"backlog"}</code>; GET shows backlog</td><td class="pass">PASS</td></tr>
+  <tr><td>2</td><td>POST item appends; GET round-trips source/id/area in append order</td>
+      <td>262,263,264 with source+area preserved</td><td>ids 262,263,264; item0 source=github, area=Gateway; missing area &rarr; null</td><td class="pass">PASS</td></tr>
+  <tr><td>3</td><td>Mixed-source refs coexist, in order, none rejected</td>
+      <td>github/devops/jira all stored in order</td><td>sources github,devops,jira; ids 262,1203,CCD-44</td><td class="pass">PASS</td></tr>
+  <tr><td>4</td><td>PATCH reorders; GET reflects new order</td>
+      <td>order becomes 264,262,263</td><td>GET returns 264,262,263</td><td class="pass">PASS</td></tr>
+  <tr><td>5</td><td>DELETE by source+id removes one, keeps rest in order</td>
+      <td>devops/1203 gone, others keep order</td><td>removed=true; remaining 262 (github), CCD-44 (jira)</td><td class="pass">PASS</td></tr>
+  <tr><td>6</td><td>Claim; double-claim refused (409); release; re-claim</td>
+      <td>200 / 409 / 200 / 200</td><td>claim 200, second 409 Conflict, release 200, re-claim 200</td><td class="pass">PASS</td></tr>
+  <tr><td>7</td><td>Payload has no status/flow field (list or item)</td>
+      <td>only name/items/consumer; items only source/id/area</td><td>list fields {name,items,consumer}; no per-item status/flow</td><td class="pass">PASS</td></tr>
+  <tr><td>8</td><td>Reachable from outside the Gateway process</td>
+      <td>separate process gets 200 with the list</td><td>powershell.exe (pid 9080, &ne; gateway pid 34512) &rarr; STATUS=200 + list body</td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>Full REST transcript</h2>
+<p class="small">Captured against the real GatewayHost (auth ON). Raw file: <code>rest-transcript.txt</code>. Harness source: <code>proof-harness.cs</code>.</p>
+<pre>=== CRITERION 1 ===
+POST /lists  {"name":"backlog"}            -> 200 {"name":"backlog"}
+GET  /lists                                -> 200 {"lists":[{"name":"backlog","items":[],"consumer":null}]}
+
+=== CRITERION 2 ===
+POST /lists/backlog/items {"source":"github","id":"262","area":"Gateway"} -> 200
+POST /lists/backlog/items {"source":"github","id":"263","area":"Core"}    -> 200
+POST /lists/backlog/items {"source":"github","id":"264"}                  -> 200
+GET  /lists/backlog -> 200 items=[262(Gateway),263(Core),264(null)]
+
+=== CRITERION 3 ===
+POST /lists {"name":"mixed"} ; append github/262, devops/1203, jira/CCD-44
+GET  /lists/mixed -> 200 sources=[github,devops,jira] ids=[262,1203,CCD-44]
+
+=== CRITERION 4 ===
+PATCH /lists/backlog/items [264,262,263] -> 200
+GET   /lists/backlog -> 200 ids=[264,262,263]
+
+=== CRITERION 5 ===
+DELETE /lists/mixed/items/devops/1203 -> 200 {removed:true}
+GET    /lists/mixed -> 200 ids=[262,CCD-44]
+
+=== CRITERION 6 ===
+POST   /lists/backlog/consumer -> 200 {consumer:...}
+POST   /lists/backlog/consumer -> 409 Conflict {error:"list already has an active consumer"}
+DELETE /lists/backlog/consumer -> 200 {released:true}
+POST   /lists/backlog/consumer -> 200 {consumer:...}
+
+=== CRITERION 7 ===
+GET /lists/mixed -> list fields {name,items,consumer}; NO status/flow (list or item)
+
+=== CRITERION 8 ===
+EXTERNAL powershell.exe (pid 9080, != gateway pid 34512)
+GET /lists with Bearer token -> STATUS=200 + full list body
+
+ALL CRITERIA PASSED (1-8).</pre>
+
+<h2>CenCon impact</h2>
+<p>Adds two components to the existing Gateway container (no new container, no new trust boundary): an in-memory store
+and a REST surface, both <b>behind the host-wide auth middleware</b> like the rest of the Gateway. <code>architecture_manifest.yaml</code>
+updated in the same change (WorkListStore + WorkListEndpoints entries, <code>last_updated: 2026-06-10</code>). No security-profile
+rule is altered: the new endpoints inherit Bearer-token auth, do not log secrets or PII, and store no credentials. No architecture drift left unrecorded.</p>
+
+<h2>Out of scope (per issue)</h2>
+<p class="small">No draining / queue runner (#274), no session start or Wingman read, no Cockpit UI (#275), no product-skill producer (#276),
+no GitHub-label status echo, no devops/jira <i>resolution</i>, no persistence across Gateway restart. This child delivers ONLY the object and its REST surface.</p>
+
+</body>
+</html>
