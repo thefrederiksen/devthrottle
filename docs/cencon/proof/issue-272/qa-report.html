@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #272 - implementation-loop terminal signal</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 1000px; margin: 24px auto; color: #1a1a2e; line-height: 1.5; padding: 0 16px; }
+  h1 { font-size: 22px; border-bottom: 3px solid #5319e7; padding-bottom: 8px; }
+  h2 { font-size: 17px; margin-top: 28px; color: #2a2a4a; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 13px; }
+  th, td { border: 1px solid #ccc; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #efeafc; }
+  code, pre { font-family: Consolas, monospace; background: #f4f4f8; }
+  pre { padding: 10px; border-radius: 4px; overflow-x: auto; font-size: 12px; }
+  .pass { color: #0a7d23; font-weight: bold; }
+  .fail { color: #c0142b; font-weight: bold; }
+  .verdict { background: #e7f7ec; border: 1px solid #0a7d23; padding: 14px; border-radius: 6px; margin-top: 24px; }
+  .meta { font-size: 13px; color: #555; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #272</h1>
+<p class="meta">
+  Issue: <a href="https://github.com/thefrederiksen/cc-director/issues/272">#272 - [CenCon] implementation-loop emits a machine-readable terminal signal (done | needs-human | failed)</a><br>
+  PR: <a href="https://github.com/thefrederiksen/cc-director/pull/281">#281</a> &middot; branch <code>issue-272-terminal-signal</code><br>
+  Verified by: QA Agent (independent verification, CenCon Development Method)<br>
+  Date: 2026-06-10
+</p>
+
+<h2>Nature of this change &amp; verification method</h2>
+<p>
+  This is a <strong>skill/contract change with no .NET build artifact</strong>. The issue's own Proof
+  Target states it must be proven "by exercising the loop, not by <code>dotnet build</code>/slot-5
+  screenshot." The deliverable is text in two files:
+  <code>.claude/skills/implementation-loop/skill.md</code> (emits the sentinel) and
+  <code>docs/cencon/DEVELOPMENT_METHOD.md</code> Section 7a (records the contract). I therefore
+  verified independently by reading the actual committed source on the PR branch and confirming the
+  sentinel appears, with the correct values, on EVERY terminal path the issue enumerates, and that it
+  matches the documented contract verbatim. No code changed, so the clean-build gate is N/A
+  (diff touches only the skill, the contract doc, and proof files - confirmed via
+  <code>git diff --stat main...HEAD</code>).
+</p>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+  <tr><th>#</th><th>Criterion (from issue)</th><th>Expected</th><th>Actual (source on PR branch)</th><th>Status</th></tr>
+
+  <tr>
+    <td>1</td>
+    <td>MERGED outcome -&gt; final block <code>signal: done</code>, merged PR number, <code>merged: yes</code>.</td>
+    <td>Step 4 mapping and example block carry <code>done</code> / merged PR / <code>yes</code>.</td>
+    <td>skill.md L300-302 mapping row: <code>MERGED (PASS, flow:done) | done | the merged PR number | yes</code>. Example block L310-316: <code>signal: done / pr: 124 / merged: yes</code>. Quick-Reference table L44 agrees.</td>
+    <td class="pass">PASS</td>
+  </tr>
+
+  <tr>
+    <td>2</td>
+    <td>PARKED or ESCALATED -&gt; <code>signal: needs-human</code>, <code>merged: no</code>, one-line <code>reason</code>.</td>
+    <td>All park/escalate/conflict outcomes map to <code>needs-human</code> / <code>no</code> with a reason.</td>
+    <td>skill.md L303-305 mapping rows: PARKED (3-strike), ESCALATED (weak-spec), and merge-conflict/dirty-build all -&gt; <code>needs-human</code>, <code>no</code>, with reason examples. Table at L45 agrees.</td>
+    <td class="pass">PASS</td>
+  </tr>
+
+  <tr>
+    <td>3</td>
+    <td>Abnormal stop (Step 0a dirty-tree, or any path that cannot complete) -&gt; <code>signal: failed</code>, <code>merged: no</code>, <code>reason</code>.</td>
+    <td>Step 0a pre-flight and the Step 4 catch-all emit <code>failed</code> / <code>no</code> with a reason.</td>
+    <td>skill.md Step 0a L185-193 emits <code>failed</code> for dirty tree, leftover stash, and wrong base (all <code>pr: none, merged: no</code> with distinct reasons). Step 4 mapping L306 covers dirty Step-4 gate / build-tool failure / crash -&gt; <code>failed</code>, <code>no</code>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+
+  <tr>
+    <td>4</td>
+    <td>Sentinel emitted IN ADDITION to the unchanged human one-line report; the two do not conflict.</td>
+    <td>Skill prints the one-line report first, then the sentinel; report text unchanged.</td>
+    <td>skill.md L60-62 ("in addition to ... never instead of it. Print the one-line report first, then the sentinel block"), Step 4 L296-297, and contract L335-337. The Step 4 one-line report formats (L290-294) are unchanged from prior versions.</td>
+    <td class="pass">PASS</td>
+  </tr>
+
+  <tr>
+    <td>5</td>
+    <td>Exactly one sentinel block per issue per run.</td>
+    <td>One block as the final output; a FAIL/QA bounce (non-terminal) emits none.</td>
+    <td>skill.md L63-65 and L318 ("Exactly one such block per issue per run"); contract L338-339. A FAIL bounce is explicitly non-terminal and emits no sentinel (L253). The block is asserted to be the LAST transcript output (L66).</td>
+    <td class="pass">PASS</td>
+  </tr>
+
+  <tr>
+    <td>6</td>
+    <td>Contract (three values, mapping, block format) written into DEVELOPMENT_METHOD.md or a linked doc.</td>
+    <td>A contract section defines the vocabulary, mapping, and block shape.</td>
+    <td>DEVELOPMENT_METHOD.md Section 7a L288-344: the three values + meaning + outcome mapping (L301-305), transport=session transcript, the exact block shape (L318-325), field semantics, and the rules. Matches the skill block byte-for-byte.</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Contract / skill consistency check</h2>
+<p>
+  The sentinel block shape in <code>skill.md</code> (L50-57) is identical to the one in
+  <code>DEVELOPMENT_METHOD.md</code> Section 7a (L318-325): same six lines
+  (<code>IMPL-LOOP-TERMINAL / issue / signal / pr / merged / reason</code>), same three signal values.
+  Both define <code>merged: yes</code> only on <code>done</code>. The skill's per-path mapping table
+  (Step 4, L300-306) and the contract's mapping table (L301-305) agree on every outcome.
+</p>
+
+<h2>Regression / method sweep</h2>
+<table>
+  <tr><th>Check</th><th>Result</th></tr>
+  <tr><td>Scope: only skill.md + DEVELOPMENT_METHOD.md + proof files changed (no .NET source)</td><td class="pass">PASS - git diff --stat main...HEAD confirms</td></tr>
+  <tr><td>No-unicode rule: sentinel block and both edited docs are ASCII-only</td><td class="pass">PASS - scanned both files, zero non-ASCII code points</td></tr>
+  <tr><td>No-fallback: change adds an emission, removes no guard; pre-flight/3-strike/conflict guards intact</td><td class="pass">PASS</td></tr>
+  <tr><td>CenCon docs drift: DEVELOPMENT_METHOD.md updated where criterion 6 requires; no architecture_manifest / security_profile change needed (signal rides existing transcript transport)</td><td class="pass">PASS</td></tr>
+  <tr><td>Clean build gate</td><td>N/A - no code changed</td></tr>
+</table>
+
+<div class="verdict">
+  <strong>VERIFIED - all 6 acceptance criteria met.</strong> The implementation-loop skill emits a
+  single <code>IMPL-LOOP-TERMINAL</code> sentinel on every terminal path (done / needs-human / failed),
+  in addition to the unchanged human one-line report, exactly once per issue per run, matching the
+  contract recorded in DEVELOPMENT_METHOD.md Section 7a. Independently verified against the committed
+  source on branch <code>issue-272-terminal-signal</code>, not the Developer Agent's report.
+</div>
+</body>
+</html>
