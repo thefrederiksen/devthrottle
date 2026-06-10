@@ -801,3 +801,87 @@ body{background:var(--panel);color:var(--text);
   padding:10px;font-size:12px;line-height:1.5;white-space:pre-wrap;max-height:200px;overflow:auto;
   font-family:"Cascadia Code",Consolas,monospace}
 .ho-check{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text2)}
+
+/* ===== Lists page (issue #275) - matches docs/plans/queue-runner-270/lists-ui-mockup.html =====
+   Per-item source/area/status colors from the mockup; everything else reuses the shared tokens. */
+.lists-page{padding:0;overflow:hidden}
+.lists-page .page-head{padding:14px 20px;margin:0;border-bottom:1px solid var(--border);align-items:center}
+.lists-page .page-head .btn.primary{margin-left:auto}
+.btn.primary{background:var(--accent);color:#fff;border-color:var(--accent);
+  border-radius:6px;padding:6px 11px;font-size:12.5px;font-weight:600}
+.btn.primary:hover{color:#fff;filter:brightness(1.1);border-color:var(--accent)}
+.btn.primary:disabled{opacity:.5;cursor:default;filter:none}
+
+.lists-cols{flex:1;display:grid;grid-template-columns:240px 1fr;min-height:0}
+@media (max-width:760px){ .lists-cols{grid-template-columns:1fr} }
+
+/* list-card column */
+.listcol{border-right:1px solid var(--border);padding:12px;overflow:auto;background:#202021}
+.listcol-lbl{font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);margin:4px 4px 9px}
+.listcol-empty{color:var(--text3);font-style:italic;font-size:12px;padding:6px 4px}
+.lcard{display:block;width:100%;text-align:left;border:1px solid var(--border);border-radius:8px;
+  padding:10px 11px;margin-bottom:9px;cursor:pointer;background:var(--sidebar);color:var(--text);font:inherit}
+.lcard:hover{border-color:var(--button-hover)}
+.lcard.active{border-color:var(--accent);background:var(--selected)}
+.lcard-nm{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.lcard-name{font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lcard-mt{color:var(--text3);font-size:11.5px;margin-top:4px}
+.runtag{font-size:10px;font-weight:700;letter-spacing:.02em;padding:2px 7px;border-radius:999px;flex:none}
+.runtag.run{background:rgba(0,122,204,.18);color:#4ea6e6}
+.runtag.idle{background:#333;color:var(--text3)}
+.newlist{width:100%;margin-top:4px;border:1px dashed var(--border);background:transparent;color:var(--text3);
+  border-radius:8px;padding:8px;font-size:12px;cursor:pointer}
+.newlist:hover{color:var(--text);border-color:var(--button-hover)}
+.listcol-note{margin-top:14px;color:var(--text3);font-size:11.5px;line-height:1.5}
+
+/* items column */
+.itemscol{padding:16px 20px;overflow:auto}
+.items-empty{color:var(--text3);font-style:italic;font-size:12.5px;padding:18px 4px}
+.ihead{display:flex;align-items:flex-start;gap:18px;margin-bottom:14px;flex-wrap:wrap}
+.ihead h2{margin:0;font-size:17px}
+.ihead-meta{color:var(--text3);font-size:12px;margin-top:3px}
+.ihead-meta b{color:var(--text2);font-weight:600}
+.prog{flex:1;max-width:330px;min-width:220px}
+.prog-row{display:flex;justify-content:space-between;font-size:11.5px;color:var(--text3)}
+.bar{height:7px;background:#333;border-radius:999px;overflow:hidden;margin-top:7px}
+.bar > i{display:block;height:100%;background:var(--green);transition:width .2s ease}
+
+.itable{width:100%;border-collapse:collapse;background:var(--sidebar);border:1px solid var(--border);
+  border-radius:10px;overflow:hidden}
+.itable th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);
+  padding:9px 11px;border-bottom:1px solid var(--border);background:#202021;white-space:nowrap}
+.itable td{padding:10px 11px;border-bottom:1px solid var(--border);vertical-align:middle}
+.itable tr:last-child td{border-bottom:none}
+.itable tr.running td{background:rgba(0,122,204,.08)}
+.ihandle{color:#555;cursor:grab;font-weight:700;letter-spacing:1px;user-select:none}
+.prio{display:inline-flex;width:21px;height:21px;align-items:center;justify-content:center;border-radius:5px;
+  background:#333;font-weight:700;font-size:11px;color:var(--text2)}
+.src{font-size:9.5px;font-weight:750;color:#fff;border-radius:4px;padding:2px 6px;letter-spacing:.04em}
+.src.gh{background:#6e7681} .src.do{background:#1f6feb} .src.jira{background:#8957e5}
+.idc{font-variant-numeric:tabular-nums;color:var(--text3);font-weight:600}
+.ittl{font-weight:600;color:var(--text)}
+.isubline{margin-top:4px}
+.areatag{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;color:var(--text2);
+  border:1px solid var(--border);border-radius:5px;padding:2px 7px 2px 6px}
+.adot{width:7px;height:7px;border-radius:50%;display:inline-block}
+.a-gateway{background:#4ea6e6} .a-core{background:#3fb6a8} .a-installer{background:#e0883a}
+.a-cockpit{background:#a877e6} .a-other{background:#888}
+.st{font-size:10px;font-weight:750;border-radius:999px;padding:3px 9px;color:#fff;white-space:nowrap;display:inline-block}
+.st.queued{background:#888888} .st.running{background:var(--accent)}
+.st.done{background:var(--green)} .st.needs{background:var(--amber);color:#1c1300} .st.failed{background:var(--red)}
+.st.unknown{background:transparent;color:var(--text3);border:1px solid var(--border)}
+.iactions{white-space:nowrap;text-align:right}
+.iarrow{width:24px;height:24px;line-height:1;font-size:13px;border:1px solid var(--border);
+  background:var(--panel);color:var(--text2);border-radius:5px;cursor:pointer;padding:0;margin-left:3px}
+.iarrow:hover:enabled{color:var(--text);border-color:var(--accent)}
+.iarrow:disabled{opacity:.35;cursor:default}
+.iarrow.del{color:var(--red)}
+.iarrow.del:hover:enabled{border-color:var(--red)}
+
+.additem{display:flex;align-items:center;gap:8px;margin-top:14px;flex-wrap:wrap}
+.additem-lbl{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text3)}
+.additem-src,.additem-id,.additem-area{background:var(--panel);color:var(--text);border:1px solid var(--border);
+  border-radius:6px;padding:6px 9px;font-size:12.5px}
+.additem-id{width:200px} .additem-area{width:150px}
+.additem-src:focus,.additem-id:focus,.additem-area:focus{outline:none;border-color:var(--accent)}
+.items-note{margin:16px 2px 0;color:var(--text3);font-size:11.5px;line-height:1.5}

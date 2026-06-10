@@ -19,6 +19,15 @@ builder.Services.AddHttpClient<GatewayClient>(c =>
     c.Timeout = TimeSpan.FromSeconds(30);
 });
 
+// Per-item status/title resolver for the Lists view (issue #275): reads each github item's
+// title + flow:* label straight from GitHub, so the badge always follows the label (the work-list
+// object carries no status). Points at the GitHub REST API; the bearer token is read per call.
+builder.Services.AddHttpClient<GitHubItemStatusClient>(c =>
+{
+    c.BaseAddress = new Uri("https://api.github.com/");
+    c.Timeout = TimeSpan.FromSeconds(15);
+});
+
 // Direct-to-Director write/act client. No fixed base address (each call targets the owning
 // Director's TailnetEndpoint). The Tailscale Serve front door uses a valid public cert, so
 // the default handler trusts it - no cert bypass needed.

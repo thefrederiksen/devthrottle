@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Issue #275 - Developer Agent proof</title>
+<style>
+  :root{
+    --panel:#1E1E1E; --sidebar:#252526; --button:#3C3C3C; --border:#3C3C3C;
+    --text:#CCCCCC; --text2:#AAAAAA; --text3:#888888; --muted:#666666;
+    --accent:#007ACC; --green:#22C55E; --red:#F14C4C; --amber:#F59E0B;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--panel);color:var(--text);
+    font-family:"Segoe UI",system-ui,sans-serif;font-size:14px;line-height:1.55;padding:32px 40px 60px;max-width:1180px}
+  h1{font-size:22px;margin:0 0 4px}
+  h2{font-size:16px;margin:28px 0 10px;border-bottom:1px solid var(--border);padding-bottom:6px}
+  .sub{color:var(--text3);font-size:13px;margin-bottom:18px}
+  .verdict{background:#11251a;border:1px solid var(--green);border-radius:8px;padding:12px 16px;color:#cfe8d8;margin:18px 0}
+  table{width:100%;border-collapse:collapse;margin:8px 0 18px;font-size:13px}
+  th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);
+    padding:8px 10px;border-bottom:1px solid var(--border);background:var(--sidebar)}
+  td{padding:9px 10px;border-bottom:1px solid #2a2a2a;vertical-align:top}
+  td.crit{white-space:nowrap;font-weight:600;color:var(--text)}
+  .pass{color:var(--green);font-weight:700;white-space:nowrap}
+  code{font-family:"Cascadia Mono",Consolas,monospace;font-size:12.5px;background:#15161a;
+    padding:1px 6px;border-radius:3px;color:var(--text2)}
+  pre{background:#15161a;border:1px solid var(--border);border-radius:6px;padding:12px 14px;overflow:auto;
+    font-family:"Cascadia Mono",Consolas,monospace;font-size:12px;color:var(--text2)}
+  img{max-width:100%;border:1px solid var(--border);border-radius:8px;margin:8px 0;display:block}
+  .imgrow{display:flex;gap:14px;flex-wrap:wrap}
+  .imgrow figure{flex:1;min-width:380px;margin:0}
+  figcaption{font-size:12px;color:var(--text3);margin-bottom:4px}
+  ul{margin:6px 0 14px;padding-left:22px}
+  li{margin-bottom:4px}
+</style>
+</head>
+<body>
+
+<h1>Issue #275 - [Cockpit] Work-list client: create/reorder a named list and watch per-item status</h1>
+<div class="sub">Developer Agent proof report &middot; child 4 of epic #270 &middot; branch <code>issue-275-cockpit-worklist</code></div>
+
+<div class="verdict"><b>I believe this is finished.</b> All 7 acceptance criteria are met and proven against a
+running Gateway + Cockpit. The Cockpit Lists page is a pure client of the shipped #273 <code>/lists</code>
+REST object - it never keeps its own copy or ordering, and per-item status is derived live from each
+github item's <code>flow:*</code> label (never cached). Full solution builds clean (0 warnings, 0 errors)
+and 12 new unit tests pass.</div>
+
+<h2>What was implemented</h2>
+<ul>
+  <li><b>New Lists page</b> (<code>src/CcDirector.Cockpit/Components/Pages/Lists.razor</code>) routed at
+      <code>/lists</code>, plus a "Lists" nav-rail entry. Two-column layout matching the canonical mockup:
+      list-card column (name + RUNNING/IDLE tag + "N items / N done / claimed by") and an items table
+      (drag handle, priority, source badge, id, title, area chip, status badge, reorder/remove actions).</li>
+  <li><b>GatewayClient work-list methods</b> (<code>src/CcDirector.Cockpit/Services/GatewayClient.cs</code>):
+      <code>GetWorkLists / GetWorkList / CreateWorkList / AppendWorkListItem / ReorderWorkListItems /
+      RemoveWorkListItem</code> - thin calls onto the #273 REST surface. The Cockpit is a CLIENT; every
+      create/append/reorder/remove goes to the Gateway.</li>
+  <li><b>GitHubItemStatusClient</b> (<code>src/CcDirector.Cockpit/Services/GitHubItemStatusClient.cs</code>):
+      resolves each github item's title + status from the GitHub REST API and maps the <code>flow:*</code>
+      label to a status badge (ASSUMPTION D1). Non-github sources resolve to <i>Queued</i> with no network
+      call; an unreachable GitHub / missing token yields an explicit <i>Unknown</i> (no silent fallback).</li>
+  <li><b>Status enum + info record</b> (<code>WorkItemStatus.cs</code>) and the CSS for the page
+      (<code>wwwroot/app.css</code>), reusing the existing cockpit tokens + the mockup's source/area/status
+      colors.</li>
+  <li><b>12 unit tests</b> (<code>src/CcDirector.Cockpit.Tests</code>) pinning the flow-label mapping and the
+      "non-github = queued, no network call" behaviour.</li>
+</ul>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+  <thead><tr><th>#</th><th class="crit">Criterion</th><th>Expected</th><th>Actual (proof)</th><th>Result</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td class="crit">Create a named list in the UI; it appears via <code>GET /lists</code></td>
+      <td>UI create writes to the shared Gateway object</td>
+      <td>Created "Quick wins" in the UI (modal, screenshot 03/04); <code>GET /lists</code> then returned
+        <code>Quick wins, Release 0.7, Today</code>.</td><td class="pass">PASS</td></tr>
+    <tr><td>2</td><td class="crit">Append + reorder; new order reflected in <code>GET /lists/{name}</code></td>
+      <td>Reorder issues the child-2 PATCH, not a local-only reorder</td>
+      <td>Clicked the row "up" arrow on #273; <code>GET /lists/Today</code> changed from
+        <code>275,273,270,1203,CCD-44</code> to <code>273,275,270,1203,CCD-44</code> (screenshot 02).</td><td class="pass">PASS</td></tr>
+    <tr><td>3</td><td class="crit">A list created via raw REST appears in the Cockpit identically</td>
+      <td>Same name, order, per-item source/id/area</td>
+      <td>"Today" and "Release 0.7" + all 5 items of "Today" were seeded via raw REST and render identically
+        in the Cockpit (screenshots 01-02).</td><td class="pass">PASS</td></tr>
+    <tr><td>4</td><td class="crit">Row renders source badge + id + area chip + status badge; mixed list; badge follows label change</td>
+      <td>GH/DO/JIRA badges, area chips, status from <code>flow:*</code></td>
+      <td>"Today" mixes github (#275/#273/#270), devops (1203), jira (CCD-44): GH (gray) / DO (blue) /
+        JIRA (purple) badges, Cockpit/Gateway/Installer area chips, real github titles. Adding
+        <code>flow:done</code> to #270 flipped its badge QUEUED -&gt; DONE on refresh (screenshots 01 vs 05),
+        then reverted.</td><td class="pass">PASS</td></tr>
+    <tr><td>5</td><td class="crit">No separate cached status that conflicts with the label</td>
+      <td>Status is always derived, never stored</td>
+      <td>The list object carries no status field; <code>WorkItemInfo</code> is recomputed from GitHub on
+        every refresh (<code>ResolveInfoAsync</code>), never persisted. Criterion 4 proved the badge follows
+        the live label.</td><td class="pass">PASS</td></tr>
+    <tr><td>6</td><td class="crit">Renders with no active runner; does not error when child 3 absent</td>
+      <td>queued/done-only lists render cleanly</td>
+      <td>No runner was running for these tests; empty lists ("Quick wins", "Release 0.7") and the
+        queued/done-only "Today" render without error (screenshots 01, 04).</td><td class="pass">PASS</td></tr>
+    <tr><td>7</td><td class="crit">Visually matches the canonical mockup + VisualStyle.md</td>
+      <td>Side-by-side parity</td>
+      <td>Built page (05) vs mockup (06): same nav rail, list-card column, items table columns, source/area/
+        status colors, progress strip. Uses the shared cockpit tokens (VS Code dark theme).</td><td class="pass">PASS</td></tr>
+  </tbody>
+</table>
+
+<h2>Screenshot 1 - mixed-source list "Today" (criterion 3, 4, 6)</h2>
+<p class="sub">github #275/#273/#270 with real titles + GH badges, devops 1203 (DO), jira CCD-44 (JIRA); area chips
+Cockpit/Gateway/Installer; status QUEUED/DONE derived from flow:* labels; progress "1 done / 0 running / 4 queued".</p>
+<img src="01-today-mixed-list.png" alt="Today mixed list">
+
+<h2>Screenshot 2 - reorder reflected in REST (criterion 2)</h2>
+<p class="sub">#273 moved to priority 1 via the UI; <code>GET /lists/Today</code> confirmed the new order in the shared object.</p>
+<img src="02-after-reorder-ui.png" alt="After reorder">
+
+<h2>Screenshot 3 + 4 - create a list in the UI (criterion 1)</h2>
+<div class="imgrow">
+  <figure><figcaption>Create-list modal</figcaption><img src="03-create-list-modal.png" alt="Create modal"></figure>
+  <figure><figcaption>"Quick wins" created and selected (also in GET /lists)</figcaption><img src="04-after-create-list.png" alt="After create"></figure>
+</div>
+
+<h2>Screenshot 5 - per-item status follows a flow:* label change (criterion 4, 5)</h2>
+<p class="sub">After <code>gh issue edit 270 --add-label flow:done</code>, #270's badge flipped QUEUED -&gt; DONE on the next
+refresh; progress updated to "2 done / 0 running / 3 queued". The label was reverted afterward.</p>
+<img src="05-label-change-after.png" alt="After label change">
+
+<h2>Screenshot 6 - canonical mockup reference (criterion 7)</h2>
+<img src="06-mockup-reference.png" alt="Mockup reference">
+
+<h2>Build + tests</h2>
+<pre>dotnet build cc-director.sln
+  Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+dotnet test src/CcDirector.Cockpit.Tests
+  Passed!  - Failed: 0, Passed: 12, Skipped: 0, Total: 12</pre>
+
+<h2>CenCon impact</h2>
+<p>No architecture or security drift. This is a pure client UI: it adds a Cockpit page that consumes the
+existing Gateway <code>/lists</code> REST surface (#273, already in <code>architecture_manifest.yaml</code>) and
+reads public GitHub issue metadata. No new container, no new trust boundary, no new secret handling beyond
+reading <code>GITHUB_TOKEN</code> from the existing <code>credentials.env</code> at point of use (same pattern as
+the implementation backend). No <code>docs/cencon/</code> file needs updating.</p>
+
+</body>
+</html>
