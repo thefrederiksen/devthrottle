@@ -1754,12 +1754,16 @@
         return match?.NewTokens;
     }
 
-    private static string FmtTokens(long n) => n switch
+    // NOTE: written as an if-ladder, NOT a `switch` with relational patterns. Inside a Razor
+    // @code block the parser reads a line-leading `<` (as in `< 1_000 => ...`) as the start of an
+    // HTML tag, which throws the tokenizer out of code mode and cascades into dozens of bogus
+    // RZ9980/RZ1006 errors across the whole file. Keep leading `<` out of @code expressions.
+    private static string FmtTokens(long n)
     {
-        < 1_000 => n.ToString(),
-        < 1_000_000 => (n / 1_000.0).ToString("0.#") + "k",
-        _ => (n / 1_000_000.0).ToString("0.##") + "M",
-    };
+        if (n < 1_000) return n.ToString();
+        if (n < 1_000_000) return (n / 1_000.0).ToString("0.#") + "k";
+        return (n / 1_000_000.0).ToString("0.##") + "M";
+    }
 
     // ----- D7 brief feedback ("this brief is wrong" -> labeled example on the Director) -----
     private List<TurnBriefDto>? _turnTimeline;
