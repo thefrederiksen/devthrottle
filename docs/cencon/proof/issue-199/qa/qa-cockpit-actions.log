@@ -1,0 +1,11 @@
+﻿2026-06-10 19:12:59.333 INFO  [cc-director-cockpit] Cockpit starting (pid=264472) on (pending); log file: C:\Temp\qa199-root2\logs\cockpit\cockpit-2026-06-10-264472.log
+2026-06-10 19:13:24.452 INFO  [Cockpit] Cockpit action=select-session source=rail sid=qa199-fake-session-0001 dir=http://qa-test-box.example.ts.net:7887
+2026-06-10 19:13:24.772 WARN  [BriefPane] BriefPane load failed for sid=qa199-fake-session-0001
+2026-06-10 19:13:24.785 WARN  [Cockpit] LoadScreenshots failed
+2026-06-10 19:13:24.799 WARN  [Cockpit] LoadWingman failed
+2026-06-10 19:13:26.537 INFO  [Cockpit] Cockpit action=center-tab sid=qa199-fake-session-0001 dir=http://qa-test-box.example.ts.net:7887 tab=term
+2026-06-10 19:13:26.560 INFO  [TerminalPane] TerminalPane connect attempt sid=qa199-fake-session-0001 dir=http://qa-test-box.example.ts.net:7887 wsUrl=ws://127.0.0.1:7470/sessions/qa199-fake-session-0001/stream
+2026-06-10 19:13:26.582 INFO  [TerminalPane] TerminalPane connect dispatched sid=qa199-fake-session-0001 wsUrl=ws://127.0.0.1:7470/sessions/qa199-fake-session-0001/stream
+2026-06-10 19:13:29.619 INFO  [Cockpit] Cockpit action=select-session source=rail sid=qa199-fake-nodir-0002 dir=
+2026-06-10 19:13:39.721 INFO  [Cockpit] Cockpit action=new-session-open sid=qa199-fake-nodir-0002 dir=
+2026-06-10 19:14:22.923 INFO  [Cockpit] Cockpit action=select-session source=rail sid=qa199-fake-nodir-0002 dir=
