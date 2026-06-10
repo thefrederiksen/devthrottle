@@ -16,6 +16,7 @@ using CcDirector.Core.Agents;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Claude;
 using CcDirector.Core.Configuration;
+using CcDirector.Core.Network;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Skills;
 using CcDirector.Core.Utilities;
@@ -1122,8 +1123,11 @@ public partial class MainWindow : Window
     /// <summary>
     /// Copies a full handover block to the clipboard: the session's display name and
     /// stable ID plus the identity of the Director hosting it (Director ID, machine,
-    /// version) and its loopback Control API endpoint. This is everything another agent
-    /// needs to locate the session in memory and talk to it over the Control API.
+    /// version) and the Control API endpoint another machine can reach it at. When this
+    /// node is on a tailnet the endpoint is the Tailscale Serve front door
+    /// (https://&lt;magicdns&gt;:&lt;port&gt;) - the same address the Director advertises to
+    /// the Gateway - so the block is usable from any tailnet machine, not just this one.
+    /// This is everything another agent needs to locate the session and talk to it.
     /// </summary>
     private async Task CopySessionNameAndId(SessionViewModel vm)
     {
@@ -1141,7 +1145,13 @@ public partial class MainWindow : Window
         };
         var port = app?.ControlApiHost?.Port;
         if (port is > 0)
-            lines.Add($"Control API: http://127.0.0.1:{port}");
+        {
+            // Resolving the tailnet front door shells the tailscale CLI (up to ~5s); keep
+            // it off the UI thread so the copy action stays responsive.
+            var endpoint = await Task.Run(() =>
+                TailscaleIdentity.ResolveAdvertisedControlApiEndpoint(port.Value));
+            lines.Add($"Control API: {endpoint}");
+        }
 
         var text = string.Join("\n", lines);
         FileLog.Write($"[MainWindow] CopySessionNameAndId: session={vm.Session.Id}, director={app?.ControlApiHost?.DirectorId}, version={version}");

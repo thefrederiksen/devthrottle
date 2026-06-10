@@ -157,4 +157,31 @@ public class TailscaleIdentityTests
         Assert.Throws<ArgumentOutOfRangeException>(
             () => TailscaleIdentity.BuildFrontDoorUrlForPort("host.tailnet.ts.net", port));
     }
+
+    [Fact]
+    public void FormatAdvertisedControlApiEndpoint_WithFrontDoor_ReturnsFrontDoorUnchanged()
+    {
+        var endpoint = TailscaleIdentity.FormatAdvertisedControlApiEndpoint(
+            "https://machine-a.tail0123.ts.net:7887", 7887);
+
+        Assert.Equal("https://machine-a.tail0123.ts.net:7887", endpoint);
+    }
+
+    [Fact]
+    public void FormatAdvertisedControlApiEndpoint_NullFrontDoor_ReturnsLabelledLoopback()
+    {
+        var endpoint = TailscaleIdentity.FormatAdvertisedControlApiEndpoint(null, 7887);
+
+        Assert.Equal("http://127.0.0.1:7887 (local only - Tailscale unavailable)", endpoint);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void FormatAdvertisedControlApiEndpoint_BlankFrontDoor_ReturnsLabelledLoopback(string frontDoor)
+    {
+        var endpoint = TailscaleIdentity.FormatAdvertisedControlApiEndpoint(frontDoor, 7330);
+
+        Assert.Equal("http://127.0.0.1:7330 (local only - Tailscale unavailable)", endpoint);
+    }
 }
