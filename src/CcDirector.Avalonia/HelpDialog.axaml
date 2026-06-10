@@ -33,7 +33,7 @@
                            FontWeight="SemiBold"
                            Margin="0,0,0,8" />
 
-                <!-- Rows are populated from code-behind (HelpDialog.PopulateAboutSection) so the
+                <!-- Rows are populated from code-behind (HelpDialog.RenderRows) so the
                      displayed values and the "Copy info" text are built from one source. -->
                 <StackPanel x:Name="AboutPanel" Margin="0,0,0,4" />
 

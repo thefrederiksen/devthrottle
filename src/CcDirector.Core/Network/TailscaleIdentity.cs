@@ -138,6 +138,30 @@ public static class TailscaleIdentity
     }
 
     /// <summary>
+    /// The Control API endpoint string to advertise to a REMOTE consumer (the session
+    /// "Copy Handover Info" clipboard block, the Help/About dialog's "Control endpoint" row)
+    /// for this Director's local Control API <paramref name="port"/>. Prefers the Tailscale
+    /// Serve front door (<c>https://&lt;magicdns&gt;:&lt;port&gt;</c>) so the value is reachable
+    /// from any tailnet node; only when Tailscale is genuinely unavailable does it return a
+    /// loopback URL, which is then clearly labelled local-only so a reader never mistakes it
+    /// for a remotely-reachable address. Shelling the tailscale CLI can take up to ~5s, so
+    /// callers MUST invoke this off the UI thread.
+    /// </summary>
+    public static string ResolveAdvertisedControlApiEndpoint(int port)
+        => FormatAdvertisedControlApiEndpoint(TryGetFrontDoorUrlForPort(port), port);
+
+    /// <summary>
+    /// Combine an already-resolved front-door URL with the loopback fallback policy: the
+    /// front-door URL when present, otherwise a clearly-labelled local-only loopback string.
+    /// Pure - unit-tested. <paramref name="frontDoorUrl"/> is the value from
+    /// <see cref="TryGetFrontDoorUrlForPort"/> (null when Tailscale is unavailable).
+    /// </summary>
+    public static string FormatAdvertisedControlApiEndpoint(string? frontDoorUrl, int port)
+        => string.IsNullOrWhiteSpace(frontDoorUrl)
+            ? $"http://127.0.0.1:{port} (local only - Tailscale unavailable)"
+            : frontDoorUrl;
+
+    /// <summary>
     /// Extract <c>Self.DNSName</c> from <c>tailscale status --json</c> output, stripped of its
     /// trailing dot. Returns null when the field is absent or empty. Pure - unit-tested.
     /// </summary>

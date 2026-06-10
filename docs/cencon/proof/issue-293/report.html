@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Issue #293 - Developer Agent Proof Report</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; background:#1b1b1f; color:#d4d4d8; margin:0; padding:32px; line-height:1.55; }
+  h1 { color:#fff; font-size:22px; border-bottom:1px solid #333; padding-bottom:10px; }
+  h2 { color:#8ec6ff; font-size:16px; margin-top:30px; }
+  code, pre { font-family: Consolas, "Cascadia Mono", monospace; }
+  pre { background:#111; border:1px solid #2a2a2e; border-radius:6px; padding:12px 14px; overflow-x:auto; color:#cfcfd3; }
+  .ok { color:#7ee07e; font-weight:600; }
+  .ep { color:#7ee07e; }
+  table { border-collapse:collapse; width:100%; margin-top:8px; }
+  th, td { border:1px solid #333; padding:8px 10px; text-align:left; vertical-align:top; font-size:14px; }
+  th { background:#26262b; color:#fff; }
+  img { max-width:100%; border:1px solid #333; border-radius:6px; margin-top:10px; }
+  .file { color:#e0c060; }
+  .note { color:#9a9aa2; font-size:13px; }
+</style>
+</head>
+<body>
+<h1>Issue #293 &mdash; Copy Handover Info &amp; Help dialog advertise the tailnet front door (not loopback)</h1>
+<p class="note">Developer Agent proof &middot; branch <code>issue-293-advertise-tailnet-control-endpoint</code> &middot; verified live on SOREN_NORTH (Tailscale up, MagicDNS <code>soren-north.taildb08ed.ts.net</code>).</p>
+
+<h2>What was implemented</h2>
+<p>Two UI surfaces that produce text handed to a <em>remote</em> consumer hardcoded <code>http://127.0.0.1:&lt;port&gt;</code> for the Control API address &mdash; useless from any other machine. They now advertise the Tailscale Serve front door <code class="ep">https://&lt;magicdns&gt;:&lt;port&gt;</code> when this node is on a tailnet, and only a clearly-labelled loopback value when Tailscale is genuinely unavailable.</p>
+<ul>
+  <li><span class="file">src/CcDirector.Core/Network/TailscaleIdentity.cs</span> &mdash; added <code>ResolveAdvertisedControlApiEndpoint(int port)</code> (the single policy) and the pure, unit-tested <code>FormatAdvertisedControlApiEndpoint(string?, int)</code> combiner.</li>
+  <li><span class="file">src/CcDirector.Avalonia/MainWindow.axaml.cs</span> &mdash; <code>CopySessionNameAndId</code> ("Copy Handover Info") now resolves the endpoint off the UI thread and emits it.</li>
+  <li><span class="file">src/CcDirector.Avalonia/HelpDialog.axaml.cs</span> &mdash; the About dialog shows the dialog immediately with a <code>(resolving...)</code> placeholder and fills the "Control endpoint" row + Copy text in an <code>Opened</code> handler (Responsive-UI).</li>
+  <li><span class="file">src/CcDirector.Core.Tests/TailscaleIdentityTests.cs</span> &mdash; 4 new test cases.</li>
+</ul>
+
+<h2>Design decision (deviation from the issue's literal plan, with rationale)</h2>
+<p>The issue proposed adding <code>TailscaleIdentity.TryGetControlApiEndpointForPort(port)</code>. That helper already effectively exists: <code>TryGetFrontDoorUrlForPort(int)</code> already returns exactly <code>https://&lt;magicdns&gt;:&lt;port&gt;</code> or <code>null</code>, backed by the pure, already-unit-tested <code>BuildFrontDoorUrlForPort</code>. Adding the proposed method would <strong>duplicate the front-door policy &mdash; the opposite of the issue's own stated goal</strong> ("the policy lives in ONE place"). So this change reuses <code>TryGetFrontDoorUrlForPort</code> and centralises only the <em>advertised-endpoint formatting</em> (front-door-or-labelled-loopback) in one place, which the literal plan would have duplicated across both call sites. Every behavioral acceptance criterion is met.</p>
+
+<h2>Acceptance criteria &mdash; Expected vs Actual</h2>
+<table>
+  <tr><th>Criterion</th><th>Expected</th><th>Actual (live)</th></tr>
+  <tr>
+    <td>Tailnet up: both surfaces read the front door</td>
+    <td><code>https://&lt;magicdns&gt;:&lt;port&gt;</code></td>
+    <td class="ok"><code>https://soren-north.taildb08ed.ts.net:7886</code> &mdash; PASS (live in-process run of the exact shipping method against the running Director's port)</td>
+  </tr>
+  <tr>
+    <td>Tailscale down: clearly-labelled loopback</td>
+    <td><code>http://127.0.0.1:&lt;port&gt; (local only - Tailscale unavailable)</code></td>
+    <td class="ok"><code>http://127.0.0.1:7886 (local only - Tailscale unavailable)</code> &mdash; PASS (formatter + unit test)</td>
+  </tr>
+  <tr>
+    <td>Pasted tailnet value reachable from the front door</td>
+    <td><code>GET &lt;endpoint&gt;/healthz</code> answers 2xx</td>
+    <td class="ok"><code>https://soren-north.taildb08ed.ts.net:7886/healthz</code> &rarr; <strong>200</strong> &mdash; PASS (reachable over the tailnet Serve front door)</td>
+  </tr>
+  <tr>
+    <td>No duplicate loopback policy; "Confirmed CORRECT" loopback uses untouched</td>
+    <td>Only the 2 named sites change</td>
+    <td class="ok">PASS &mdash; diff touches only the 2 surfaces + the shared resolver + tests</td>
+  </tr>
+</table>
+
+<h2>Live verification output</h2>
+<img src="live-verification.png" alt="Live verification: resolver output, healthz 200, tests passed" />
+<p class="note">The verifier ran <code>TailscaleIdentity.ResolveAdvertisedControlApiEndpoint(7886)</code> &mdash; the exact method both UI surfaces call &mdash; in-process on this tailnet machine against the live slot-5 Director (PID 32040, Control API port 7886, Kestrel bound to 127.0.0.1 loopback only; remote reach via Tailscale Serve).</p>
+
+<h2>Build &amp; tests</h2>
+<pre>dotnet build cc-director.sln
+  Build succeeded.  0 Warning(s)  0 Error(s)
+
+dotnet test --filter TailscaleIdentityTests
+  <span class="ok">Passed!  Failed: 0, Passed: 24, Skipped: 0, Total: 24</span></pre>
+
+<h2>Slot-5 test Director (live build)</h2>
+<img src="slot5-window-live.png" alt="slot-5 CC Director running the issue-293 build" />
+<p class="note">slot-5 <code>cc-director5.exe</code> running the issue-293 build, launched via the <code>cc-director-launch</code> scheduled task (clean svchost parentage per CLAUDE.md rule 0b). Stopped after verification.</p>
+
+<h2>CenCon impact</h2>
+<p>No drift. No new container, no architecture change, no new network listener (Kestrel still binds loopback only). No security rule (DT-01..) affected &mdash; this corrects an info-correctness leak, it does not widen exposure.</p>
+
+<h2>Conclusion</h2>
+<p class="ok">I believe this is finished. The two remote-facing surfaces now advertise the tailnet front door when Tailscale is up and a clearly-labelled local-only value otherwise; the value is proven reachable (healthz 200) from the front door; the policy lives in one shared, unit-tested place; the build is clean with zero warnings.</p>
+</body>
+</html>
