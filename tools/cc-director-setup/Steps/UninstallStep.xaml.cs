@@ -21,6 +21,16 @@ public partial class UninstallStep : UserControl
     private readonly ObservableCollection<string> _completed = new();
     private string? _currentPhase;
 
+    /// <summary>When true (the "Also delete my data" opt-in, issue #261), the uninstall ALSO wipes
+    /// the entire per-user data root. Default false keeps data exactly as the old behavior.</summary>
+    private bool _deleteData;
+
+    /// <summary>The "your data is kept" message shown when the opt-in is unchecked.</summary>
+    private readonly string _dataKeptText;
+
+    /// <summary>The amber warning shown in place of <see cref="_dataKeptText"/> when the opt-in is checked.</summary>
+    private readonly string _dataWipeText;
+
     /// <summary>Raised when the user clicks Cancel on the confirm view (no changes made).</summary>
     public event EventHandler? Cancelled;
 
@@ -36,7 +46,9 @@ public partial class UninstallStep : UserControl
         InitializeComponent();
         _layout = layout;
         _role = role;
-        _runner = runner ?? (p => new Uninstaller(layout).Apply(role, p));
+        // The default runner reads _deleteData at call time, so the checkbox state at the moment
+        // the user clicks Uninstall is what flows through to the engine.
+        _runner = runner ?? (p => new Uninstaller(layout).Apply(role, p, _deleteData));
 
         ConfirmSubtitle.Text = role == InstallRole.Gateway
             ? "This removes CC Director, its tools, and the Gateway from this PC."
@@ -45,10 +57,13 @@ public partial class UninstallStep : UserControl
         RemoveList.ItemsSource = BuildRemovalList(role);
         StepList.ItemsSource = _completed;
 
-        var dataKept = $"Your data is kept - config, vault, sign-ins, and recordings are preserved at "
-                       + $"{_layout.LocalRoot}";
-        DataKeptText.Text = dataKept;
-        CompleteDataKept.Text = dataKept;
+        _dataKeptText = $"Your data is kept - config, vault, sign-ins, and recordings are preserved at "
+                        + $"{_layout.LocalRoot}";
+        _dataWipeText = $"Your data will be permanently removed - config, vault secrets, signed-in "
+                        + $"browser sessions, and recordings under {_layout.LocalRoot} will be deleted. "
+                        + $"This cannot be undone.";
+        DataKeptText.Text = _dataKeptText;
+        CompleteDataKept.Text = _dataKeptText;
 
         SetupLog.Write($"[UninstallStep] created role={role}");
     }
@@ -70,6 +85,28 @@ public partial class UninstallStep : UserControl
             items.Add("The Gateway autostart entry and the Tailscale mapping");
         }
         return items;
+    }
+
+    /// <summary>The "Also delete my data" opt-in toggled (issue #261). Track the state and swap the
+    /// data card between the reassuring "kept" message and the amber full-wipe warning, so the confirm
+    /// view never says data is preserved while the box that deletes it is checked.</summary>
+    private void DeleteDataCheckbox_Changed(object sender, RoutedEventArgs e)
+    {
+        _deleteData = DeleteDataCheckbox.IsChecked == true;
+        SetupLog.Write($"[UninstallStep] deleteData opt-in={_deleteData}");
+
+        if (_deleteData)
+        {
+            DataKeptCard.Background = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#3A2A1B")!;
+            DataKeptText.Foreground = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#E5A100")!;
+            DataKeptText.Text = _dataWipeText;
+        }
+        else
+        {
+            DataKeptCard.Background = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#1B2A3A")!;
+            DataKeptText.Foreground = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#AACCEE")!;
+            DataKeptText.Text = _dataKeptText;
+        }
     }
 
     private void ConfirmCancelButton_Click(object sender, RoutedEventArgs e)
@@ -120,6 +157,11 @@ public partial class UninstallStep : UserControl
     {
         ProgressView.Visibility = Visibility.Collapsed;
         CompleteView.Visibility = Visibility.Visible;
+
+        // Reflect what actually happened to the data on the completion card.
+        CompleteDataKept.Text = _deleteData
+            ? $"Your data was removed - config, vault, sign-ins, and recordings under {_layout.LocalRoot} were deleted."
+            : _dataKeptText;
 
         if (success)
         {

@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Proof - "Also delete my data" uninstall opt-in (issue #261 slice)</title>
+<style>
+  body { margin:0; background:#1e1e1e; color:#ccc; font-family:Segoe UI, system-ui, sans-serif; line-height:1.5; }
+  .wrap { max-width:1000px; margin:0 auto; padding:32px 24px 80px; }
+  h1 { font-size:23px; color:#fff; margin:0 0 4px; }
+  h2 { font-size:17px; margin:30px 0 8px; border-bottom:1px solid #3c3c3c; padding-bottom:6px; }
+  .sub { color:#888; font-size:13px; margin-bottom:20px; }
+  img { max-width:100%; border:1px solid #3c3c3c; border-radius:6px; margin:8px 0; }
+  .fig { color:#888; font-size:12px; margin:0 0 18px; }
+  code { background:#2d2d30; padding:1px 5px; border-radius:4px; font-family:Cascadia Mono, Consolas, monospace; font-size:12px; }
+  ul li { margin:3px 0; }
+  .amber { color:#E5A100; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>"Also delete my data" uninstall opt-in</h1>
+  <div class="sub">Setup wizard (<code>tools/cc-director-setup</code>) + engine (<code>tools/cc-director-setup-engine</code>) - a clean, opt-in full wipe of the entire per-user CC Director data root, layered on top of the in-wizard uninstall flow from #265. First fully-provable slice of issue #261 (Phase 2 uninstall).</div>
+
+  <h2>What this adds</h2>
+  <ul>
+    <li>Engine: <code>Uninstaller.Apply(role, progress, bool deleteData = false)</code> - when <code>deleteData</code> is true, a new final step <code>WipeUserData(...)</code> runs AFTER all install-owned removals, reporting "Removing your data". Default <code>false</code> is byte-for-byte the old behavior.</li>
+    <li>Engine safety guard: <code>WipeUserData</code> refuses to delete unless the root's leaf folder is exactly <code>cc-director</code> (case-insensitive), so a mis-set <code>LocalRoot</code> can never wipe an arbitrary directory.</li>
+    <li>UI: an "Also delete my data" checkbox on the confirm view (amber label + warning sub-line). When checked, the blue "your data is kept" card is replaced with an <span class="amber">amber "your data will be permanently removed"</span> warning, so the confirm view never says data is preserved while the box that deletes it is checked.</li>
+    <li>The checkbox state flows through to <code>Uninstaller.Apply(..., deleteData: _deleteData)</code>; the completion view then reports either "data was removed" or the normal "data is kept" note.</li>
+  </ul>
+
+  <h2>Fig 1 - Confirm, opt-in unchecked (default)</h2>
+  <img src="1-confirm-unchecked.png" alt="Uninstall confirm view, delete-data unchecked" />
+  <p class="fig">Blue "Your data is kept" card. The amber "Also delete my data" checkbox is present but unchecked - identical removal behavior to before.</p>
+
+  <h2>Fig 2 - Confirm, opt-in checked</h2>
+  <img src="2-confirm-checked.png" alt="Uninstall confirm view, delete-data checked" />
+  <p class="fig">Checking the box swaps the card to an <span class="amber">amber warning</span>: "Your data will be permanently removed ... This cannot be undone."</p>
+
+  <h2>Fig 3 - Live progress (data wipe included)</h2>
+  <img src="3-progress.png" alt="Uninstall progress view, removing your data" />
+  <p class="fig">Current action "Removing your data..." + indeterminate bar + completed steps with green dots. The wipe runs LAST, after the install-owned removals.</p>
+
+  <h2>Fig 4 - Completion (data removed)</h2>
+  <img src="4-complete.png" alt="Uninstall complete view, data removed" />
+  <p class="fig">Green dot + "Uninstall complete"; the data card now reads "Your data was removed ... were deleted." (When the box is left unchecked it instead reads "Your data is kept".)</p>
+
+  <h2>How it was captured</h2>
+  <p>The four views were screenshotted live by driving the wizard with a FAKE runner (no real deletion) via a temporary, env-var-gated demo trigger (<code>CC_UNINSTALL_DEMO=1</code>) that was removed before commit. No real destructive uninstall was run on this machine.</p>
+
+  <h2>Tests</h2>
+  <ul>
+    <li><code>WipeUserData_DeletesEntireRoot_WhenLeafIsCcDirector</code> - happy path against a TEMP root whose leaf is <code>cc-director</code>.</li>
+    <li><code>WipeUserData_RefusesRoot_NotNamedCcDirector</code> - the safety guard refuses a non-<code>cc-director</code> root and leaves its contents intact.</li>
+    <li><code>WipeUserData_RootAbsent_ReportsSkipped_NotError</code> - an absent root is reported as skipped, never an error.</li>
+  </ul>
+  <p>Setup wizard builds clean (0/0); all 22 engine Uninstaller tests pass (19 existing + 3 new), so the default <code>deleteData=false</code> path is unchanged.</p>
+</div>
+</body>
+</html>

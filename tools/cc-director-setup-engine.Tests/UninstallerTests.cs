@@ -104,6 +104,59 @@ public class UninstallerTests : IDisposable
         Assert.Equal(expected, Uninstaller.ComputePathWithout(input, dir));
     }
 
+    // ===== Full data wipe (issue #261) - the "Also delete my data" opt-in =====
+
+    [Fact]
+    public void WipeUserData_DeletesEntireRoot_WhenLeafIsCcDirector()
+    {
+        // A root whose leaf folder IS "cc-director" - the only shape the guard allows.
+        var root = Path.Combine(_dir, "cc-director");
+        var layout = new InstallLayout(root);
+        Directory.CreateDirectory(Path.Combine(root, "vault"));
+        File.WriteAllText(Path.Combine(root, "vault", "contacts.db"), "secrets");
+        Directory.CreateDirectory(Path.Combine(root, "connections", "linkedin"));
+        File.WriteAllText(Path.Combine(root, "config.json"), "{}");
+
+        var steps = new List<string>();
+        var errors = new List<string>();
+        new Uninstaller(layout).WipeUserData(steps, errors);
+
+        Assert.Empty(errors);
+        Assert.False(Directory.Exists(root));
+        Assert.Contains(steps, s => s.Contains("removed all data"));
+    }
+
+    [Fact]
+    public void WipeUserData_RefusesRoot_NotNamedCcDirector()
+    {
+        // The default layout's root leaf is "local", not "cc-director" - the guard must refuse.
+        Directory.CreateDirectory(_layout.LocalRoot);
+        File.WriteAllText(Path.Combine(_layout.LocalRoot, "precious.txt"), "do not delete");
+
+        var steps = new List<string>();
+        var errors = new List<string>();
+        new Uninstaller(_layout).WipeUserData(steps, errors);
+
+        Assert.Contains(errors, e => e.Contains("not a cc-director root"));
+        // The directory and its contents survive the refusal.
+        Assert.True(Directory.Exists(_layout.LocalRoot));
+        Assert.Equal("do not delete", File.ReadAllText(Path.Combine(_layout.LocalRoot, "precious.txt")));
+    }
+
+    [Fact]
+    public void WipeUserData_RootAbsent_ReportsSkipped_NotError()
+    {
+        var root = Path.Combine(_dir, "cc-director"); // never created
+        var layout = new InstallLayout(root);
+
+        var steps = new List<string>();
+        var errors = new List<string>();
+        new Uninstaller(layout).WipeUserData(steps, errors);
+
+        Assert.Empty(errors);
+        Assert.Contains(steps, s => s.Contains("not present"));
+    }
+
     // ===== Skill removal (issue #257) - AC8: only OUR skills, never the user's own =====
 
     [Fact]

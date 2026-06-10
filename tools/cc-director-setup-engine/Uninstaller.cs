@@ -98,12 +98,15 @@ public sealed class Uninstaller
     /// Remove everything in scope for the role. Best-effort: collects per-step errors.
     /// <paramref name="progress"/> (optional) reports a friendly, present-tense message as each
     /// phase begins, so a UI can show live progress instead of a frozen window.
+    /// <paramref name="deleteData"/> (issue #261, default FALSE) ALSO removes the entire per-user
+    /// data root (config, vault secrets, signed-in browser sessions, recordings, logs) as a final
+    /// step - an explicit, opt-in full wipe. Default keeps the data exactly as before.
     /// </summary>
-    public UninstallReport Apply(InstallRole role, IProgress<string>? progress = null)
+    public UninstallReport Apply(InstallRole role, IProgress<string>? progress = null, bool deleteData = false)
     {
         var steps = new List<string>();
         var errors = new List<string>();
-        EngineLog.Write($"[Uninstaller] Apply role={role}");
+        EngineLog.Write($"[Uninstaller] Apply role={role}, deleteData={deleteData}");
 
         if (role == InstallRole.Gateway && OperatingSystem.IsWindows())
         {
@@ -145,9 +148,45 @@ public sealed class Uninstaller
             RemoveArpEntry(steps, errors);
         }
 
+        // Opt-in full wipe (issue #261): LAST, after the install-owned removals above, nuke the
+        // whole per-user data root. Deliberately destructive, so it only runs when asked.
+        if (deleteData)
+        {
+            progress?.Report("Removing your data");
+            WipeUserData(steps, errors);
+        }
+
         var ok = errors.Count == 0;
         EngineLog.Write($"[Uninstaller] Apply done: success={ok}, errors={errors.Count}");
         return new UninstallReport(ok, steps, errors);
+    }
+
+    /// <summary>
+    /// Delete the ENTIRE per-user root (config, vault secrets, signed-in browser sessions,
+    /// recordings, logs) - the opt-in full wipe (issue #261). Guarded: only proceeds when the root
+    /// actually ends in "cc-director", so a mis-set <see cref="InstallLayout.LocalRoot"/> can never
+    /// wipe an arbitrary directory. Injectable nothing - it operates on the layout's own root.
+    /// </summary>
+    public void WipeUserData(List<string> steps, List<string> errors)
+    {
+        var root = System.IO.Path.GetFullPath(_layout.LocalRoot);
+        // Safety: refuse anything that is not a per-user CC Director root.
+        var leaf = System.IO.Path.GetFileName(System.IO.Path.TrimEndingDirectorySeparator(root));
+        if (!string.Equals(leaf, "cc-director", StringComparison.OrdinalIgnoreCase))
+        {
+            errors.Add($"refused to wipe data: '{root}' is not a cc-director root");
+            return;
+        }
+        if (!Directory.Exists(root)) { steps.Add($"data: not present ({root})"); return; }
+        try
+        {
+            Directory.Delete(root, recursive: true);
+            steps.Add($"removed all data: {root}");
+        }
+        catch (Exception ex)
+        {
+            errors.Add($"data ({root}): {ex.Message}");
+        }
     }
 
     /// <summary>
