@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Proof - Issue #255 - Open in Browser: pick a browser + profile</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background:#1E1E1E; color:#CCCCCC; margin:0; padding:32px; line-height:1.5; }
+  h1 { color:#fff; font-size:22px; border-bottom:2px solid #007ACC; padding-bottom:10px; }
+  h2 { color:#fff; font-size:17px; margin-top:32px; border-left:4px solid #007ACC; padding-left:10px; }
+  h3 { color:#9CDCFE; font-size:14px; margin-bottom:6px; }
+  code, pre { font-family: Cascadia Mono, Consolas, monospace; }
+  pre { background:#252526; border:1px solid #3C3C3C; border-radius:4px; padding:12px; overflow-x:auto; font-size:12px; color:#D4D4D4; }
+  table { border-collapse:collapse; width:100%; margin:12px 0; }
+  th, td { border:1px solid #3C3C3C; padding:8px 10px; text-align:left; vertical-align:top; font-size:13px; }
+  th { background:#252526; color:#fff; }
+  .pass { color:#22C55E; font-weight:600; }
+  .img { border:1px solid #3C3C3C; border-radius:4px; max-width:820px; display:block; margin:10px 0; }
+  .meta { color:#888; font-size:12px; }
+  .note { background:#2A2D2E; border-left:3px solid #D97706; padding:10px 12px; border-radius:3px; }
+  .done { background:#1B3A2A; border-left:4px solid #22C55E; padding:12px 14px; border-radius:3px; color:#D6F5E0; font-weight:600; }
+  ul { margin:6px 0; }
+</style>
+</head>
+<body>
+
+<h1>Developer Agent Proof - Issue #255</h1>
+<p class="meta">[Terminal] Open in Browser: pick a browser (Edge/Chrome) and a profile &middot; Branch <code>issue-255-open-in-browser-profile</code> &middot; 2026-06-10</p>
+
+<h2>What was implemented</h2>
+<p>The desktop terminal's single "Open in Browser" right-click action (which only opened the OS default browser) is replaced with a parent menu item that expands to <b>System default</b> plus each installed Chromium browser (Chrome, Edge). Each browser expands to its real profiles, read live from that browser's <code>Local State</code> <code>profile.info_cache</code> and labeled by friendly name (with account). Choosing a browser+profile launches that exact profile via the documented <code>--profile-directory</code> flag and remembers the choice; a plain click on the parent reopens the remembered default. The default persists in <code>config.json</code> under <code>browser.default</code>. Both <code>http(s)</code> URLs and local <code>.html</code>/<code>.htm</code> paths use the same chosen browser. A missing remembered/selected exe or profile folder surfaces a clear error and never silently falls back.</p>
+
+<h3>Files changed</h3>
+<ul>
+  <li><code>src/CcDirector.Core/Browsers/BrowserLauncher.cs</code> (new) - detect browsers, parse <code>info_cache</code> profiles (account/named-first sort), launch with <code>--profile-directory</code>, throw on missing exe/profile.</li>
+  <li><code>src/CcDirector.Core/Browsers/BrowserDefaultStore.cs</code> (new) - load/save the remembered default in <code>config.json</code>; resolve a stored exe back to an installed browser.</li>
+  <li><code>src/CcDirector.Terminal.Avalonia/TerminalControl.cs</code> - build the submenu for URL and html paths; launch helpers; <code>BrowserLaunchFailed</code> event.</li>
+  <li><code>src/CcDirector.Avalonia/MainWindow.axaml.cs</code> - surface <code>BrowserLaunchFailed</code> via the dark-theme <code>MessageBox</code>.</li>
+  <li><code>src/CcDirector.Core.Tests/Browsers/BrowserLauncherTests.cs</code> (new) - 10 unit tests for parsing, sorting, account fallback, and missing-target throws.</li>
+</ul>
+
+<h2>Build &amp; tests (clean)</h2>
+<pre>dotnet build src/CcDirector.Core/...            Build succeeded.  0 Warning(s)  0 Error(s)
+dotnet build src/CcDirector.Terminal.Avalonia   Build succeeded.  0 Warning(s)  0 Error(s)
+dotnet build src/CcDirector.Avalonia            Build succeeded.  0 Warning(s)  0 Error(s)
+dotnet build src/CcDirector.Core.Tests          Build succeeded.  0 Warning(s)  0 Error(s)
+
+dotnet test --filter BrowserLauncherTests
+  Passed!  - Failed: 0, Passed: 10, Skipped: 0, Total: 10</pre>
+<p class="note">The full-solution build's only 2 errors were file-lock copy failures in <code>CcDirector.Cockpit</code> (the user's running <code>cc-director-cockpit</code> process locks <code>CcDirector.Gateway.Contracts.dll</code>) - an environment lock, not a compile error, and Cockpit is not touched by this change. Per CLAUDE.md rule 0 the running process was not killed. Every project this change actually touches builds clean (0/0).</p>
+
+<h2>Verification method</h2>
+<p>Two layers: (1) a runnable slot-5 test Director launched via the <code>cc-director-launch</code> scheduled task and driven with the Control API + synthetic mouse input for live screenshots; (2) deterministic exercise of the exact production code paths (<code>BrowserLauncher</code>/<code>BrowserDefaultStore</code>) against the real machine, capturing the actual <code>ProcessStartInfo</code> handed to the OS.</p>
+
+<h2>Acceptance criteria</h2>
+
+<h3>AC1 - Submenu lists installed browsers + their real profiles <span class="pass">PASS</span></h3>
+<p>Live: right-clicking... left-clicking the URL opens "Open in Browser", which expands to System default + Google Chrome + Microsoft Edge; Edge expands to its two profiles labeled by display name + account.</p>
+<img class="img" src="ac1-browsers-submenu.png" alt="submenu: System default, Google Chrome, Microsoft Edge">
+<img class="img" src="ac1-edge-profiles.png" alt="Edge profiles: Profile 1 (duksrevo), Profile 2 (mindzie)">
+<p>Deterministic enumeration on the dev machine matches the issue's reference tables exactly (account/named profiles sorted first):</p>
+<pre>[Edge] Microsoft Edge  exe: C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe
+    folder='Default'    name='Profile 1'  account='soren@duksrevo.com'
+    folder='Profile 1'  name='Profile 2'  account='soren.frederiksen@mindzie.com'
+[Chrome] Google Chrome  (7 profiles: 5 account-bearing sorted first, then Person 1, chrome-work)</pre>
+
+<h3>AC2 - Choosing browser+profile opens that exact profile <span class="pass">PASS</span></h3>
+<p>Clicking Edge -&gt; "Profile 2 (soren.frederiksen@mindzie.com)" (folder <code>Profile 1</code>) launches Edge on the clicked URL in that profile. The actual arguments the production <code>OpenWithProfile</code> handed to the OS:</p>
+<pre>exe : C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe
+args: --profile-directory=Profile 1  |  https://dev.azure.com</pre>
+<p>Director log of the same action driven live in the app:</p>
+<pre>[BrowserLauncher] OpenWithProfile: browser=Microsoft Edge, profile=Profile 1, target=https://dev.azure.com/mindzie/Test
+[BrowserLauncher] OpenWithProfile: started pid=64020</pre>
+
+<h3>AC3 - Sticky default <span class="pass">PASS</span></h3>
+<p>Selecting a profile saves the choice to <code>config.json</code>:</p>
+<pre>config browser.default: exe=...\msedge.exe  folder=Profile 1</pre>
+<p>A plain left-click on the parent "Open in Browser" item then reopens that remembered default (live, from the Director log):</p>
+<pre>[TerminalControl] OpenInBrowserDefault: opened https://dev.azure.com/mindzie/Test in Microsoft Edge/Profile 1</pre>
+<p class="note"><b>Design fix found during verification:</b> Avalonia does not raise <code>Click</code> on a submenu parent (a header press just expands the submenu). The first build's <code>parent.Click</code> never fired, so AC3 failed. Fixed by intercepting the parent header press in the <b>tunnel</b> phase (which runs before the submenu-open), launching the default and closing the menu; hover still expands the submenu for AC1. Re-verified after the fix - the parent plain-click now launches the remembered default. The persisted default survives an app restart (it is read fresh from <code>config.json</code> on every click).</p>
+
+<h3>AC4 - Works for URLs and local HTML <span class="pass">PASS</span></h3>
+<p>The html-path branch calls the identical <code>BuildOpenInBrowserMenuItem(target)</code> as the URL branch; only the target string differs (resolved file path vs URL). The production launch path treats a local <code>.html</code> the same way:</p>
+<pre>exe : C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe
+args: --profile-directory=Profile 1  |  D:\ReposFred\cc-director\bl-ac4-test.html</pre>
+
+<h3>AC5 - No silent fallback on a missing target <span class="pass">PASS</span></h3>
+<p>With the remembered default pointed at a non-existent profile folder ("Profile 99"), a plain click on the parent surfaces a clear error dialog naming the missing profile and does NOT open the system default:</p>
+<img class="img" src="ac5-error-dialog.png" alt="error dialog naming the missing Profile 99">
+<pre>[TerminalControl] OpenInBrowserDefault FAILED: Microsoft Edge profile folder "Profile 99"
+  was not found at C:\Users\soren\AppData\Local\Microsoft\Edge\User Data\Profile 99.</pre>
+<p>Deterministic confirmation that the launch throws (rather than falling back):</p>
+<pre>THREW DirectoryNotFoundException: Microsoft Edge profile folder "Profile 99" was not found at ...</pre>
+
+<h3>Menu structure (reference)</h3>
+<img class="img" src="ac0-menu-parent.png" alt="Copy URL + Open in Browser parent with submenu arrow">
+
+<h2>CenCon impact</h2>
+<p>No drift. <code>BrowserLauncher</code> only launches local browsers with validated argument arrays (consistent with DT-02/DT-03 in <code>security_profile.yaml</code>) and reads a user-readable JSON file; no new network path, secret, or external surface. Affected containers (<code>core_services</code>, <code>terminal_avalonia</code>) match the issue. No <code>docs/cencon/</code> update required.</p>
+
+<div class="done">I believe this is finished. All five acceptance criteria are met, the build is clean (0 warnings, 0 errors) for every project this change touches, 10 new unit tests pass, and each criterion is proven by live screenshots and/or deterministic exercise of the production code paths.</div>
+
+</body>
+</html>
