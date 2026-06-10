@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Report (round 2) - Issue #255 - PASSED</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background:#1E1E1E; color:#CCCCCC; margin:0; padding:32px; line-height:1.5; }
+  h1 { color:#fff; font-size:22px; border-bottom:2px solid #22C55E; padding-bottom:10px; }
+  h2 { color:#fff; font-size:17px; margin-top:28px; border-left:4px solid #22C55E; padding-left:10px; }
+  code, pre { font-family: Cascadia Mono, Consolas, monospace; }
+  pre { background:#252526; border:1px solid #3C3C3C; border-radius:4px; padding:12px; overflow-x:auto; font-size:12px; color:#D4D4D4; }
+  table { border-collapse:collapse; width:100%; margin:12px 0; }
+  th, td { border:1px solid #3C3C3C; padding:8px 10px; text-align:left; vertical-align:top; font-size:13px; }
+  th { background:#252526; color:#fff; }
+  .pass { color:#22C55E; font-weight:600; }
+  .img { border:1px solid #3C3C3C; border-radius:4px; max-width:760px; display:block; margin:10px 0; }
+  .meta { color:#888; font-size:12px; }
+  .verdict { background:#1B3A2A; border-left:4px solid #22C55E; padding:12px 14px; border-radius:3px; color:#D6F5E0; font-weight:600; }
+</style>
+</head>
+<body>
+
+<h1>QA Report (round 2) - Issue #255 - PASSED</h1>
+<p class="meta">Independently re-verified on a fresh slot-5 build of PR branch HEAD <code>486d58a</code> (footer hash confirmed) after the flow:qa-failed fix &middot; 2026-06-10</p>
+
+<div class="verdict">VERIFIED - all 5 acceptance criteria met. The regression that failed round 1 (submenu leaf clicks hijacked by the parent handler) is fixed: leaf clicks now run their own action, while the parent plain-click still reopens the remembered default.</div>
+
+<h2>How verified</h2>
+<p>Fresh <code>scripts\local-build-avalonia.ps1 -Slot 5</code> from PR HEAD, launched via the <code>cc-director-launch</code> task. A session with a parked URL (and a second with a parked local <code>.html</code> path) was driven with synthetic input; each result judged from the screenshot and the Director log - not from the developer's proof.</p>
+
+<h2>Criteria</h2>
+<table>
+<tr><th>AC</th><th>Result</th><th>Evidence</th></tr>
+<tr><td>1 - Submenu lists browsers + real profiles</td><td class="pass">PASS</td><td>System default / Google Chrome / Microsoft Edge; Edge -&gt; Profile 1 (duksrevo) + Profile 2 (mindzie) by name+account (round 1 also confirmed Chrome's 7 profiles, account-first sort). <code>ac1-menu.png</code></td></tr>
+<tr><td>2 - Choosing browser+profile opens that profile</td><td class="pass">PASS</td><td>Clicking Edge -&gt; "Profile 2 (mindzie)" leaf logged <code>OpenInBrowserProfile</code> -&gt; <code>OpenWithProfile profile=Profile 1</code> (pid 53216) and saved <code>config.json browser.default = Profile 1</code>. This is the exact click that failed in round 1.</td></tr>
+<tr><td>3 - Sticky default</td><td class="pass">PASS</td><td>After the selection, a plain parent-click logged <code>OpenInBrowserDefault: opened ... in Microsoft Edge/Profile 1</code>; the default persists in <code>config.json</code> (read fresh each click).</td></tr>
+<tr><td>4 - Works for URLs and local HTML</td><td class="pass">PASS</td><td>A local <code>.html</code> link shows the same "Open in Browser" submenu (<code>ac4-html-menu.png</code>); launching it logged <code>OpenWithProfile ... target=D:\ReposFred\cc-director\qa-ac4-test.html ... Microsoft Edge/Profile 1</code>.</td></tr>
+<tr><td>5 - No silent fallback on missing target</td><td class="pass">PASS</td><td>With the default set to a bogus folder, a parent-click showed a clear error dialog "Microsoft Edge profile folder \"Profile 99\" was not found at ...\Profile 99" and did NOT open the system default. <code>ac5-error.png</code></td></tr>
+</table>
+
+<h2>Key log evidence</h2>
+<pre>[BrowserLauncher] OpenWithProfile: browser=Microsoft Edge, profile=Profile 1, target=https://dev.azure.com/mindzie/ReQA   (AC2 leaf)
+[BrowserDefaultStore] Save: ... profile=Profile 1                                                                          (AC2/AC3 sticky)
+[TerminalControl] OpenInBrowserProfile: opened ... in Microsoft Edge/Profile 1                                            (AC2 leaf handler)
+[TerminalControl] OpenInBrowserDefault: opened ... in Microsoft Edge/Profile 1                                            (AC3 parent reopen)
+[BrowserLauncher] OpenWithProfile: ... target=D:\ReposFred\cc-director\qa-ac4-test.html ... Microsoft Edge/Profile 1      (AC4 html)</pre>
+
+<h2>Screens</h2>
+<img class="img" src="ac1-menu.png" alt="AC1 submenu with Edge profiles">
+<img class="img" src="ac4-html-menu.png" alt="AC4 local html link shows the Open in Browser submenu">
+<img class="img" src="ac5-error.png" alt="AC5 clear error for missing profile">
+
+<h2>Regression / method checks</h2>
+<p>The round-1 defect is fixed (the same Profile-2 leaf click now selects the profile). No adjacent breakage observed. CenCon: no architecture/security drift (local browser launch with validated argument arrays, consistent with DT-02/DT-03; reads a user-readable JSON file). 10 Core unit tests for the parsing/launch logic remain green; the fix was UI-only in <code>TerminalControl</code>.</p>
+
+<div class="verdict">VERIFIED - flow:done. (Merging PR #269 to main remains a separate human step.)</div>
+
+</body>
+</html>
