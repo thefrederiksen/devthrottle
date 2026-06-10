@@ -20,6 +20,25 @@
 
 const terms = new Map(); // id -> state
 
+// Bounded reconnect (issue #198): a hung/failing WebSocket used to retry every 1200ms FOREVER
+// with no on-screen feedback, indistinguishable from a healthy idle stream (blank pane). We now
+// show a visible status line on every connect attempt and stop after a run of consecutive
+// failures, telling the user how to retry. The attempt counter resets the moment real stream
+// data arrives, so a long-lived session that drops occasionally is unaffected - only a genuinely
+// dead leg (this many failures in a row) gives up.
+const RECONNECT_DELAY_MS = 1200;
+const MAX_RECONNECT_ATTEMPTS = 30; // ~36s of dead-leg retries before announcing failure
+
+// Write a dim status line into the terminal. It is wiped by the next t.reset() (on the first
+// byte of a live stream, or on the next reconnect), so it never lingers over real PTY content.
+function statusLine(state, text) {
+  try { state.term.write("\r\n\x1b[2m[" + text + "]\x1b[0m\r\n"); } catch (e) {}
+}
+
+function wsHostOf(wsUrl) {
+  try { return new URL(wsUrl).host; } catch (e) { return wsUrl; }
+}
+
 // Directors built before the 2026-05-31 registration fix advertise their endpoint as
 // http://127.0.0.1:{port}. That host only resolves on the Director's own machine - from a
 // laptop on the tailnet it points at the LAPTOP and the terminal stays blank. Those old
@@ -60,7 +79,7 @@ export function connect(id, hostEl, wsUrl, dotNetRef) {
     term.onData((data) => { try { dotNetRef.invokeMethodAsync("OnInput", data); } catch (e) {} });
   }
 
-  const state = { term, ws: null, wantOpen: true, host: hostEl, wsUrl, reconnectTimer: null, lastCols: 0, lastRows: 0 };
+  const state = { term, ws: null, wantOpen: true, host: hostEl, wsUrl, reconnectTimer: null, lastCols: 0, lastRows: 0, attempts: 0, gotFirstByte: false };
   terms.set(id, state);
 
   openWs(state);
@@ -82,13 +101,29 @@ function openWs(state) {
   if (!state.wantOpen) return;
   const t = state.term;
   t.reset(); // each connection replays full history from byte 0
+  state.gotFirstByte = false;
+  const wsHost = wsHostOf(state.wsUrl);
+  statusLine(state, state.attempts > 0
+    ? "stream lost, reconnecting to " + wsHost + " (attempt " + (state.attempts + 1) + ")..."
+    : "connecting to " + wsHost + "...");
   let ws;
   try { ws = new WebSocket(state.wsUrl); }
-  catch (e) { t.write("\r\n[cannot open stream: " + e.message + "]\r\n"); return; }
+  catch (e) { statusLine(state, "cannot open stream: " + e.message); return; }
   ws.binaryType = "arraybuffer";
   state.ws = ws;
 
+  ws.onopen = () => { console.info("[cockpit-terminal] ws open", state.wsUrl); };
+  ws.onerror = () => { console.warn("[cockpit-terminal] ws error", state.wsUrl); };
+
   ws.onmessage = (ev) => {
+    if (!state.gotFirstByte) {
+      // First frame of a live stream: wipe the "connecting..." status and clear the failure
+      // streak. Any server frame (size header or PTY bytes) proves the full browser->Gateway->
+      // Director path is up. Replay starts at byte 0, so resetting here loses nothing.
+      state.gotFirstByte = true;
+      state.attempts = 0;
+      try { t.reset(); } catch (e) {}
+    }
     if (typeof ev.data === "string") {
       let m; try { m = JSON.parse(ev.data); } catch { return; }
       if (m.type === "size" && m.cols > 0 && m.rows > 0) {
@@ -99,13 +134,20 @@ function openWs(state) {
     }
     t.write(new Uint8Array(ev.data));
   };
-  ws.onclose = () => {
+  ws.onclose = (ev) => {
     if (state.ws === ws) state.ws = null;
-    if (state.wantOpen && !state.reconnectTimer)
-      state.reconnectTimer = setTimeout(() => {
-        state.reconnectTimer = null;
-        if (state.wantOpen) openWs(state);
-      }, 1200);
+    console.warn("[cockpit-terminal] ws close", ev && ev.code, (ev && ev.reason) || "");
+    if (!state.wantOpen || state.reconnectTimer) return;
+    state.attempts += 1;
+    if (state.attempts > MAX_RECONNECT_ATTEMPTS) {
+      statusLine(state, "stream to " + wsHost + " is down - gave up after " + MAX_RECONNECT_ATTEMPTS +
+        " attempts (last close code " + (ev && ev.code) + "). Re-select the session to retry.");
+      return;
+    }
+    state.reconnectTimer = setTimeout(() => {
+      state.reconnectTimer = null;
+      if (state.wantOpen) openWs(state);
+    }, RECONNECT_DELAY_MS);
   };
 }
 
