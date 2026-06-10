@@ -1,0 +1,23 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<title>Issue #274 - Queue Runner - Proof</title>
+<style>body{font-family:Segoe UI,Arial,sans-serif;background:#1e1e1e;color:#ddd;margin:0;padding:32px;}
+h1{color:#4ec9b0;} table{border-collapse:collapse;width:100%;margin-top:16px;}
+th,td{border:1px solid #3c3c3c;padding:10px 12px;text-align:left;vertical-align:top;font-size:14px;}
+th{background:#252526;color:#9cdcfe;} .pass{color:#6a9955;font-weight:bold;} .fail{color:#f44747;font-weight:bold;}
+code{color:#ce9178;} .meta{color:#858585;font-size:13px;}</style></head><body>
+<h1>Issue #274 - Gateway queue runner drains one named list, one implementation session per item</h1>
+<p class="meta">Generated 2026-06-10 18:28:40 UTC by WorkListRunnerEndpointProofTests - end-to-end over real HTTP against the production GatewayHost, with a stub Director answering POST /sessions and GET /sessions/{sid}/buffer.</p>
+<p class="pass">Overall: ALL CRITERIA PASS</p>
+<table><tr><th>#</th><th>Acceptance criterion (Expected)</th><th>Actual (observed over HTTP)</th><th>Result</th></tr>
+<tr><td>1</td><td>Two github items: session-1 starts, terminal signal, THEN session-2 - never overlapping.</td><td><code>start order=262,263; seeds=/implementation-loop 262 | /implementation-loop 263; overlap=False</code></td><td class="pass">PASS</td></tr>
+<tr><td>2</td><td>Runner records per item which of done/needs-human/failed it ended on (parsed from IMPL-LOOP-TERMINAL).</td><td><code>item[262].signal=Done; item[263].signal=NeedsHuman</code></td><td class="pass">PASS</td></tr>
+<tr><td>3</td><td>A devops/jira item is NEVER started (no /implementation-loop seeded); skipped and left in the list.</td><td><code>start order=262 (only 262); outcomes=SkippedNonGithub,Ran,SkippedNonGithub; list still=1203,262,CCD-44</code></td><td class="pass">PASS</td></tr>
+<tr><td>4</td><td>After the last item, the runner releases the consumer claim; GET shows it cleared.</td><td><code>consumerReleased=True; GET consumer=null</code></td><td class="pass">PASS</td></tr>
+<tr><td>5</td><td>A second drain attempt while the claim is held is refused with HTTP 409.</td><td><code>second POST /lists/locked/consumer -&gt; 409</code></td><td class="pass">PASS</td></tr>
+<tr><td>6</td><td>Two lists on two different machines drain at the same time, one session each, no interference.</td><td><code>machine-1 ran 100-&gt;Done; machine-2 ran 200-&gt;Done; both OK=True</code></td><td class="pass">PASS</td></tr>
+<tr><td>7</td><td>All runner logic lives under src/CcDirector.Gateway; none in the Director/Avalonia host.</td><td><code>runner files under Gateway/Running=6; runner-named files under Avalonia/ControlApi host=0</code></td><td class="pass">PASS</td></tr>
+<tr><td>8</td><td>A second drain on a machine already draining one list is refused (v1 same-machine guard), not run concurrently.</td><td><code>second concurrent run on MACHINE-1 -&gt; 409 (Conflict expected)</code></td><td class="pass">PASS</td></tr>
+</table>
+<p class="meta">CenCon impact: no architecture or security drift. New code is additive under src/CcDirector.Gateway/Running and src/CcDirector.Gateway/Api (queue-runner container); the Director host gains nothing (criterion 7). architecture_manifest.yaml updated to record the runner under the Gateway container.</p>
+<p class="pass">I believe this is finished.</p>
+</body></html>

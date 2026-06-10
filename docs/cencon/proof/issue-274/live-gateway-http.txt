@@ -1,0 +1,35 @@
+Issue #274 - Live REST proof against the REAL production GatewayHost (CcDirector.Gateway.exe dev console host, port 7891)
+Captured 2026-06-10. Tailscale disabled (CC_GATEWAY_NO_TAILSCALE=1), turn-briefs disabled (CC_TURNBRIEFS=0).
+
+This proves the new queue-runner route is WIRED INTO and SERVED BY the running production Gateway process
+(not just an in-test WebApplication). The full ordered-drain timeline is proven deterministically by the
+end-to-end test report.html (a real implementation-loop drain runs for hours, so the live process here
+exercises the route's contract responses).
+
+Gateway log line confirming the route is mapped at startup:
+  2026-06-10 14:30:31.826 [WorkListRunnerEndpoints] mapped /lists/{name}/run route
+
+Live HTTP exchanges (real process, real sockets):
+
+  POST /lists                       body {"name":"live-274"}
+    -> 200 {"name":"live-274"}
+
+  POST /lists/live-274/items        body {"source":"github","id":"262","area":"Gateway"}
+    -> 200 {"name":"live-274","appended":{"source":"github","id":"262","area":"Gateway"}}
+
+  POST /lists/live-274/run          body {"directorId":"no-such-dir","repoPath":"C:\\temp"}
+    -> 404 {"error":"no such director (or it has no control endpoint)","directorId":"no-such-dir"}
+       (the runner route is live and reached; it correctly refuses an unknown target Director)
+
+  POST /lists/ghost/run             body {"directorId":"x","repoPath":"C:\\temp"}
+    -> 404   (no such list)
+
+  POST /lists/live-274/consumer
+    -> 200 {"name":"live-274","consumer":"4c7783aa32c743c4939e4087bde1fea8"}
+
+  POST /lists/live-274/consumer     (second claim while held)
+    -> 409 Conflict   (criterion 5: single-consumer claim refuses a second drainer)
+
+The process listening on 7891 was the dev console host
+  path=D:\ReposFred\cc-director\src\CcDirector.Gateway\bin\Debug\net10.0\CcDirector.Gateway.exe
+and was stopped after the proof. The user's installed app and slots 1-4 were never touched.
