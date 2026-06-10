@@ -64,11 +64,14 @@ public sealed class SchedulerStatePersistenceTests : IDisposable
         var result = first.RunNow("a");
         Assert.True(result.Started);
 
-        // Wait for the background fire to complete and write state to disk.
+        // Wait for the background fire to complete AND the state file to land on disk. The
+        // in-memory snapshot (IsFiring=false, LastFiredAt set) flips a beat before the file is
+        // flushed, so waiting on it alone races the File.Exists assert below - wait for the file
+        // itself, which is what this test actually asserts on.
         Assert.True(WaitFor(() =>
         {
             var snap = first.GetSnapshot();
-            return !snap[0].IsFiring && snap[0].LastFiredAtUtc != DateTime.MinValue;
+            return !snap[0].IsFiring && snap[0].LastFiredAtUtc != DateTime.MinValue && File.Exists(_statePath);
         }, TimeSpan.FromSeconds(5)), "First scheduler should finish fire and persist state");
 
         Assert.True(File.Exists(_statePath));
