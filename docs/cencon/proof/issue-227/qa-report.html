@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>QA Report - Issue #227 (answer option button feedback)</title>
+<style>
+  body{font-family:system-ui,Segoe UI,sans-serif;max-width:980px;margin:24px auto;padding:0 18px;color:#1b1b1b;line-height:1.5}
+  h1{font-size:22px;margin:0 0 4px} .sub{color:#666;margin:0 0 18px}
+  table{border-collapse:collapse;width:100%;margin:14px 0;font-size:14px}
+  th,td{border:1px solid #d0d0d0;padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:#f3f3f3}
+  .pass{color:#137333;font-weight:700}
+  code{background:#f0f0f0;padding:1px 5px;border-radius:4px;font-size:13px}
+  .verdict{background:#e6f4ea;border:1px solid #137333;border-radius:8px;padding:12px 16px;margin:18px 0;font-weight:600;color:#0b5}
+  img{max-width:100%;border:1px solid #ccc;border-radius:6px;margin:10px 0}
+</style>
+</head>
+<body>
+<h1>QA Report - Issue #227</h1>
+<p class="sub">[Cockpit] Answer option buttons give zero feedback on click (reply path). PR #303, branch <code>issue-227-answer-feedback</code>. Independent verification by the QA Agent.</p>
+
+<p><b>Method.</b> Synced the PR branch, built the solution clean (<code>dotnet build cc-director.sln</code> -> Build succeeded, 0 Warning(s), 0 Error(s)), ran the Cockpit test project (16/16 passed), and verified each acceptance criterion by reading the actual <code>BriefPane.razor</code> / <code>Cockpit.razor</code> source on the PR branch and independently rendering the exact markup the components emit against the real shipped <code>wwwroot/app.css</code>. The screenshot below is the QA Agent's own render (built from the component source, not copied from the developer's mockup) captured with headless Chrome.</p>
+
+<table>
+<tr><th>#</th><th>Acceptance criterion</th><th>Expected</th><th>Actual (verified)</th><th>Result</th></tr>
+<tr><td>1</td><td>Reply-path option click shows <code>answering...</code> and disables the group within the same render, before the POST returns.</td><td>Clicked option green "answering...", both buttons disabled, set before the await.</td><td><code>AnswerSingleAsync</code> reply branch sets <code>_answering=true; _answeringSend=o.Send</code> then <code>await InvokeAsync(StateHasChanged)</code> BEFORE <code>OnQuickReply.InvokeAsync</code> (lines 734-740). Markup: clicked button gets <code>answering</code> class + "answering..." note; group <code>disabled="@(_answering || Replying)"</code>. Render: green busy option + disabled sibling.</td><td class="pass">PASS</td></tr>
+<tr><td>2</td><td>Conveyor advance states a visible message before/at the jump - no silent teleport.</td><td>Blue notice "answered - moving to the next session that needs you" above the next brief.</td><td><code>QuickReplyAsync</code> awaits <code>OnSelect(others[0])</code> (which clears stale notice) THEN stamps <code>_quickReplyNotice="answered - moving to the next session that needs you"</code> (lines 1045-1046). Notice div lives in the parent above <code>@key</code>'d BriefPane (Cockpit.razor 204-211), so it survives the session switch. Render confirms.</td><td class="pass">PASS</td></tr>
+<tr><td>3</td><td>Only needs-you session: immediate acknowledged state (not after 2s poll).</td><td>Blue notice "answered - waiting for Claude to pick it up" immediately.</td><td>Else-branch sets <code>_quickReplyNotice="answered - waiting for Claude to pick it up"</code> (line 1050); rendered immediately via the event-handler auto-render. Render confirms.</td><td class="pass">PASS</td></tr>
+<tr><td>4</td><td>Failed reply rolls back optimistic state and shows an error; buttons re-enable.</td><td>Group re-enabled, "answering..." gone, error in foot.</td><td>Reply-branch catch sets <code>_answering=false; _answeringSend=null; _answerStatus="answer failed: {ex.Message}"</code> (lines 742-748); Blazor auto-renders after the handler. Render: enabled buttons + "answer failed: ..." in foot.</td><td class="pass">PASS</td></tr>
+<tr><td>5</td><td>The <code>Replying</code> parameter is used or removed - no dead wire.</td><td>Used with a visible effect.</td><td>By inspection/grep: <code>[Parameter] public bool Replying</code> (line 433) is now consumed in <code>disabled="@(_answering || Replying)"</code> (line 234) and passed from the parent as <code>Replying="@_quickReplying"</code> (Cockpit.razor 220). No dead parameter remains.</td><td class="pass">PASS</td></tr>
+<tr><td>6</td><td>KEYS path shows a <code>sending...</code> status during the round-trip.</td><td>"sending..." visible while the PTY write is in flight.</td><td>KEYS branch sets <code>_answerStatus="sending..."</code> (line 753) before <code>await InvokeAsync(StateHasChanged)</code> and the round-trip; rendered in the brief-foot (lines 413-415). Render: "sending..." in the foot + busy clicked button.</td><td class="pass">PASS</td></tr>
+<tr><td>7</td><td>Before/after HTML mockup with real data committed under <code>docs/cencon/proof/issue-227/</code>; built UI matches it (VisualStyle compliant).</td><td>Mockup present; states match; palette tokens used.</td><td><code>before-after-mockup.html</code> present (links the real app.css, uses the real component classes). QA's independent render against the same shipped CSS matches all states. VisualStyle: blue notice uses <code>--blue</code> token, busy state uses the green accent, no off-palette hard-coded colors.</td><td class="pass">PASS</td></tr>
+</table>
+
+<div class="verdict">VERIFIED - all 7 acceptance criteria met. Build clean (0 errors / 0 warnings), Cockpit tests 16/16 pass, no adjacent regression (multi-select submit path never sets <code>_answeringSend</code>, so no stale busy label; both <code>AnswerSingleAsync</code> branches clear the optimistic state).</div>
+
+<h2>QA-captured proof (independent render of the component states)</h2>
+<img src="qa-states.png" alt="QA independent render of the #227 states" />
+
+</body>
+</html>
