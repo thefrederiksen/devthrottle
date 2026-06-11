@@ -77,6 +77,9 @@ public sealed class InstallLayout
     /// <summary>The Cockpit web app's binaries (unpacked from the Cockpit zip, supervised by the Gateway).</summary>
     public string CockpitDir => Path.Combine(LocalRoot, "cockpit");
 
+    /// <summary>The CC Launcher tray app's binaries (issue #250).</summary>
+    public string LauncherDir => Path.Combine(LocalRoot, "launcher");
+
     /// <summary>Setup/update scratch state (e.g. the staged Gateway exe during a self-update).</summary>
     public string StateDir => Path.Combine(LocalRoot, "state");
 
@@ -89,8 +92,8 @@ public sealed class InstallLayout
         ArgumentNullException.ThrowIfNull(component);
 
         // macOS is Workstation-only: the Director is a .app in ~/Applications (matching the manual
-        // install + UpdateInstaller.SwapMac); tools carry no .exe extension. Gateway/Cockpit are
-        // Windows-only roles and are never placed on mac.
+        // install + UpdateInstaller.SwapMac); tools carry no .exe extension. Gateway/Cockpit/Launcher
+        // are Windows-only roles and are never placed on mac.
         if (!OperatingSystem.IsWindows())
         {
             return component.Kind switch
@@ -99,6 +102,7 @@ public sealed class InstallLayout
                 ComponentKind.Tool => Path.Combine(BinDir, component.Id),
                 ComponentKind.Gateway => Path.Combine(GatewayDir, "cc-director-gateway"),
                 ComponentKind.Cockpit => Path.Combine(CockpitDir, "cc-director-cockpit"),
+                ComponentKind.Launcher => Path.Combine(LauncherDir, "cc-launcher"),
                 _ => throw new ArgumentOutOfRangeException(nameof(component), component.Kind, "Unknown component kind."),
             };
         }
@@ -109,6 +113,7 @@ public sealed class InstallLayout
             ComponentKind.Gateway => Path.Combine(GatewayDir, "cc-director-gateway.exe"),
             ComponentKind.Cockpit => Path.Combine(CockpitDir, "cc-director-cockpit.exe"),
             ComponentKind.Tool => Path.Combine(BinDir, $"{component.Id}.exe"),
+            ComponentKind.Launcher => Path.Combine(LauncherDir, "cc-launcher.exe"),
             _ => throw new ArgumentOutOfRangeException(nameof(component), component.Kind, "Unknown component kind."),
         };
     }
