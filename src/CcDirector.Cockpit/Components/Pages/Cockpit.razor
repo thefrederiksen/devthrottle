@@ -462,9 +462,10 @@
                                         else
                                         {
                                             @* Only the newest _shotsShown thumbnails render; each <img> is the
-                                               full-size file fetched from the Director, so rendering all 1000+
-                                               folder entries at once would melt the tab. Show more grows the
-                                               list from the already-fetched metadata - no network call. *@
+                                               full-size file fetched same-origin through the Gateway's proxy
+                                               (#317), so rendering all 1000+ folder entries at once would melt
+                                               the tab. Show more grows the list from the already-fetched
+                                               metadata - no network call. *@
                                             @foreach (var s in _shots.Take(_shotsShown))
                                             {
                                                 <div class="shot-card" @key="s.FileName">
@@ -1612,8 +1613,16 @@
     }
 
     // ===== Screenshots gallery =====
+    // Same-origin to the Gateway (issue #317): the Gateway resolves the owning Director by sid
+    // and proxies the image bytes, so a remote browser never needs the Director's (possibly
+    // loopback) address - the same fix #268 made for the WS legs. All three byte sinks
+    // (thumbnail <img>, View, Copy) flow through this one builder.
     private string ShotUrl(string fileName)
-        => string.IsNullOrWhiteSpace(DirBase) ? "" : DirectorClient.ScreenshotUrl(DirBase!, fileName);
+    {
+        var sid = Selected?.SessionId;
+        if (string.IsNullOrWhiteSpace(sid)) return "";
+        return CockpitShotUrls.Screenshot(Nav.BaseUri, sid, fileName);
+    }
 
     private async Task LoadScreenshotsAsync()
     {
@@ -1663,7 +1672,7 @@
     // Reveal the next batch of already-fetched thumbnails (no network call).
     private void ShowMoreShots() => _shotsShown += ShotsShowMoreStep;
 
-    // View: open the image full-size in a new browser tab, served browser-direct by the Director.
+    // View: open the image full-size in a new browser tab at the same-origin Gateway URL.
     private async Task ViewScreenshot(string fileName)
     {
         var url = ShotUrl(fileName);

@@ -8,8 +8,10 @@ namespace CcDirector.Gateway.Tests;
 
 /// <summary>
 /// Issue #268: the Gateway proxies the two raw per-session WebSocket legs (live Terminal stream
-/// and dictation) to the owning Director. These wire tests drive a real <see cref="GatewayHost"/>
-/// over loopback HTTP and pin the resolution contract the Cockpit relies on:
+/// and dictation) to the owning Director; issue #317 adds the per-session screenshot-bytes leg
+/// (<c>GET /sessions/{sid}/screenshots/file</c>) through the SAME resolution. These wire tests
+/// drive a real <see cref="GatewayHost"/> over loopback HTTP and pin the resolution contract the
+/// Cockpit relies on:
 ///   - an unknown session id returns 404 (no owning Director across the fleet);
 ///   - the new sid-scoped routes are explicit endpoints, so they win over the fallback Cockpit
 ///     proxy (they never fall through to the "Cockpit starting" interstitial);
@@ -51,6 +53,7 @@ public sealed class SessionWsProxyEndpointsTests : IAsyncLifetime
     [Theory]
     [InlineData("sessions/00000000-0000-0000-0000-000000000000/stream")]
     [InlineData("sessions/00000000-0000-0000-0000-000000000000/dictate")]
+    [InlineData("sessions/00000000-0000-0000-0000-000000000000/screenshots/file?name=a.png")]
     public async Task Unknown_session_returns_404_not_the_cockpit_interstitial(string path)
     {
         // No Directors registered -> no owner -> 404. (Plain GET, no WS upgrade header: the
@@ -67,6 +70,7 @@ public sealed class SessionWsProxyEndpointsTests : IAsyncLifetime
     [Theory]
     [InlineData("sessions/00000000-0000-0000-0000-000000000000/stream")]
     [InlineData("sessions/00000000-0000-0000-0000-000000000000/dictate")]
+    [InlineData("sessions/00000000-0000-0000-0000-000000000000/screenshots/file?name=a.png")]
     public async Task Per_session_ws_routes_are_explicit_endpoints_not_the_fallback_proxy(string path)
     {
         // The explicit WS route owns this path; the fallback Cockpit proxy (dead port) would have
@@ -80,6 +84,7 @@ public sealed class SessionWsProxyEndpointsTests : IAsyncLifetime
     [Theory]
     [InlineData("stream")]
     [InlineData("dictate")]
+    [InlineData("screenshots/file?name=a.png")]
     public async Task Known_session_with_offline_owner_returns_503_not_404(string leg)
     {
         // The aggregator (or a prior successful forward) recorded this session's owner, but no live

@@ -159,8 +159,9 @@ public sealed class DirectorClient
     /// <summary>
     /// List the screenshots in the Director's screenshots folder, newest first
     /// (<c>GET /screenshots</c>). The folder is per-machine, not per-session, so this takes only
-    /// the Director base. The image bytes themselves are loaded browser-direct via
-    /// <see cref="ScreenshotUrl"/>; this call returns just the metadata + time labels.
+    /// the Director base. The image bytes themselves are loaded by the browser SAME-ORIGIN via
+    /// the Gateway's per-session proxy (<c>CockpitShotUrls.Screenshot</c>, issue #317); this call
+    /// returns just the metadata + time labels.
     /// <paramref name="count"/> caps the items (the folder can hold thousands); &lt;=0 fetches
     /// everything. Old Directors ignore the param and return all items with Total=0.
     /// </summary>
@@ -179,14 +180,10 @@ public sealed class DirectorClient
         resp.EnsureSuccessStatusCode();
     }
 
-    /// <summary>
-    /// The browser-facing URL for one screenshot's bytes (<c>GET /screenshots/file</c>), used as
-    /// an <c>&lt;img src&gt;</c> and by the Copy action. Points STRAIGHT at the owning Director's
-    /// tailnet endpoint - the same browser-direct path the live terminal's WebSocket uses - not
-    /// through the Cockpit, so thumbnails never round-trip the Blazor circuit.
-    /// </summary>
-    public static string ScreenshotUrl(string directorBase, string fileName)
-        => $"{directorBase.TrimEnd('/')}/screenshots/file?name={Uri.EscapeDataString(fileName)}";
+    // Issue #317: the Director-direct ScreenshotUrl builder was removed. A Director can advertise
+    // a loopback-only endpoint, which a remote browser resolves to its OWN machine - every
+    // thumbnail broke. The browser-facing screenshot URL is now built same-origin to the Gateway
+    // by CockpitShotUrls.Screenshot (CcDirector.Gateway.Contracts).
 
     /// <summary>Kill a session (<c>DELETE /sessions/{sid}</c>) on its owning Director.</summary>
     public async Task DeleteSessionAsync(string directorBase, string sid, CancellationToken ct = default)
