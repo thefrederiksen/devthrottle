@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #291 - Developer Proof - Prune SessionOwnerCache on observed exit</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin: 2rem auto; max-width: 980px; color: #1b1f23; line-height: 1.5; }
+  h1 { font-size: 1.5rem; border-bottom: 2px solid #1d76db; padding-bottom: .4rem; }
+  h2 { font-size: 1.15rem; margin-top: 2rem; color: #1d76db; }
+  code, pre { font-family: Consolas, monospace; }
+  pre { background: #0d1117; color: #c9d1d9; padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: .85rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #d0d7de; padding: .5rem .7rem; text-align: left; vertical-align: top; font-size: .9rem; }
+  th { background: #f6f8fa; }
+  .pass { color: #1a7f37; font-weight: 600; }
+  .verdict { background: #dafbe1; border: 1px solid #1a7f37; border-radius: 6px; padding: 1rem; margin-top: 2rem; }
+  .meta { color: #57606a; font-size: .85rem; }
+</style>
+</head>
+<body>
+<h1>Issue #291 - Per-session WS proxy: EXITED session returns 503 where 404 is correct</h1>
+<p class="meta">Developer Agent proof &middot; PR #312 &middot; branch <code>issue-291-prune-owner-cache-on-exit</code> &middot; decided approach: option 1 (prune the owner cache on observed exit)</p>
+
+<h2>What was implemented</h2>
+<p>
+After #289 the per-session WebSocket proxy (<code>/sessions/{sid}/stream</code> and <code>/dictate</code>)
+answered <strong>503 "owning director offline"</strong> for any session present in
+<code>SessionOwnerCache</code> &mdash; including a session that had simply <strong>EXITED</strong> while its
+owning Director was still online, because the cache entry persisted. That is a stale 503 where 404 is
+correct.
+</p>
+<p>The fix prunes the owner cache when the fleet aggregator observes a session is no longer live on a reachable Director:</p>
+<ul>
+  <li><code>SessionOwnerCache.Forget(sessionId)</code> &mdash; drop one cached owner.</li>
+  <li><code>SessionOwnerCache.RetainForDirector(directorId, liveSessionIds)</code> &mdash; drop every cached
+      entry that points at <em>directorId</em> but whose session id is no longer in that Director's live set.
+      Only ever called for a Director that just answered (reachable), so entries owned by a <em>different</em>
+      (offline) Director are never touched.</li>
+  <li><code>GET /sessions</code> aggregator &mdash; after a Director responds successfully, computes its live
+      (non-Exited) session ids from the raw returned list and calls <code>RetainForDirector</code>. An exited
+      or disappeared session is reconciled out, so the WS proxy reverts to 404.</li>
+</ul>
+
+<h2>Acceptance criteria &rarr; proof</h2>
+<table>
+  <tr><th>Acceptance criterion</th><th>Expected</th><th>Actual (test)</th><th>Result</th></tr>
+  <tr>
+    <td>Aggregator observes a session as Exited / disappeared on a <strong>reachable</strong> Director &rarr; removed from <code>SessionOwnerCache</code>.</td>
+    <td>Cache entry pruned after one aggregation.</td>
+    <td><code>SessionsAggregationTests.Aggregator_prunes_owner_cache_for_session_no_longer_live_on_reachable_director_then_ws_proxy_is_404</code> asserts <code>OwnerOf("gone")</code> is null after <code>GET /sessions</code>. Unit: <code>SessionOwnerCacheTests.RetainForDirector_drops_sessions_no_longer_live_on_that_director</code>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>WS request for an <strong>exited</strong> session whose owner is <strong>online</strong> &rarr; <strong>404</strong> (not 503).</td>
+    <td>HTTP 404.</td>
+    <td>Same test: <code>GET sessions/gone/stream</code> &rarr; <code>404 NotFound</code> after the prune.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td><strong>Offline-owner</strong> session (cached owner, Director unreachable) still &rarr; <strong>503</strong> (#288 must not regress).</td>
+    <td>HTTP 503.</td>
+    <td><code>SessionsAggregationTests.Aggregator_prune_does_not_touch_a_session_owned_by_a_different_offline_director</code> (&rarr; 503 after a reconcile of a different reachable Director) and the existing <code>SessionWsProxyEndpointsTests.Known_session_with_offline_owner_returns_503_not_404</code>. Unit: <code>SessionOwnerCacheTests.RetainForDirector_never_touches_entries_owned_by_a_different_director</code>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>Unit tests cover (a) exited-then-pruned &rarr; 404; (b) offline owner &rarr; still 503. Existing <code>SessionWsProxyEndpointsTests</code> still pass.</td>
+    <td>Both covered; existing suite green.</td>
+    <td>6 new <code>SessionOwnerCacheTests</code> + 2 new <code>SessionsAggregationTests</code>; all 7 existing <code>SessionWsProxyEndpointsTests</code> pass.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>Build clean (0/0).</td>
+    <td>0 warnings, 0 errors.</td>
+    <td><code>dotnet build cc-director.sln</code> &rarr; Build succeeded, 0 Warning(s), 0 Error(s).</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Test run output</h2>
+<pre>
+Passed  SessionOwnerCacheTests.Forget_removes_only_the_named_session
+Passed  SessionOwnerCacheTests.Forget_is_a_noop_for_unknown_or_empty_id
+Passed  SessionOwnerCacheTests.RetainForDirector_drops_sessions_no_longer_live_on_that_director
+Passed  SessionOwnerCacheTests.RetainForDirector_drops_all_when_director_reports_no_live_sessions
+Passed  SessionOwnerCacheTests.RetainForDirector_never_touches_entries_owned_by_a_different_director
+Passed  SessionOwnerCacheTests.RetainForDirector_is_a_noop_for_empty_director_id
+Passed  SessionsAggregationTests.Aggregator_prunes_owner_cache_for_session_no_longer_live_on_reachable_director_then_ws_proxy_is_404
+Passed  SessionsAggregationTests.Aggregator_prune_does_not_touch_a_session_owned_by_a_different_offline_director
+Passed  SessionWsProxyEndpointsTests.Known_session_with_offline_owner_returns_503_not_404(leg: "stream")
+Passed  SessionWsProxyEndpointsTests.Known_session_with_offline_owner_returns_503_not_404(leg: "dictate")
+Passed  SessionWsProxyEndpointsTests.Unknown_session_returns_404_not_the_cockpit_interstitial(stream/dictate)
+Passed  SessionWsProxyEndpointsTests.Unknown_uncached_session_still_returns_404
+Passed  SessionWsProxyEndpointsTests.Per_session_ws_routes_are_explicit_endpoints_not_the_fallback_proxy(stream/dictate)
+...
+Passed!  - Failed: 0, Passed: 28, Skipped: 0, Total: 28  (CcDirector.Gateway.Tests.dll)
+</pre>
+
+<h2>CenCon impact</h2>
+<p>
+<strong>No drift.</strong> This is internal cache hygiene in <code>CcDirector.Gateway</code> (Discovery /
+Api). No architecture container changes; no security rule (DT-xx) is affected. No <code>docs/cencon/</code>
+manifest or security-profile update required.
+</p>
+
+<div class="verdict">
+  <strong>I believe this is finished.</strong> The exited-session-on-online-owner path now returns 404,
+  the offline-owner path still returns 503 (#288 preserved), every acceptance criterion has a passing
+  test, and the full solution builds 0/0.
+</div>
+</body>
+</html>
