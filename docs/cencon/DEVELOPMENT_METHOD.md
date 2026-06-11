@@ -463,6 +463,72 @@ reason: <one line - why this terminal state>
 This contract is the keystone of #270: every other child of that epic depends on the three values
 and the block format defined here.
 
+## 7b. Per-Source Adapter Contract (multi-source work lists)
+
+A work-list item is a structured `{ source, id, area? }` ref (epic #270, Option B), so the board
+can hold items from more than one tracker. Issue #300 made runnability **per-source adapter
+dispatch** instead of a hard-coded github gate. The contract has two halves, deliberately split
+(decision D-2 on #300) so the Gateway stays thin and the seeded Claude session keeps doing the
+tracker operations (the same shape as the original github path, where `gh` runs inside the session,
+not inside the Gateway):
+
+### The Gateway half: `ISourceAdapter` (C#, `CcDirector.Gateway.Running`)
+
+One adapter per RUNNABLE source, registered in the `SourceAdapters` registry. Dispatch IS
+runnability: a source with a registered adapter is runnable; a source without one is **skipped with
+a note and left in the list** (the runner never writes status into the list - #273). The adapter
+owns exactly the three per-source concerns the queue runner has:
+
+| Member | Concern |
+|--------|---------|
+| `Source` | The source name it serves (matches `WorkListItemRef.Source`, case-insensitive). |
+| `BuildSeedPrompt(item)` | The seed prompt that starts the `implementation-loop` in that source's mode (github: `/implementation-loop <id>`; devops: `/implementation-loop --source devops <id>`). |
+| `TryGetCorrelationKey(item, out key)` | The integer the `IMPL-LOOP-TERMINAL` block's `issue:` field must carry for this item (Section 7a is source-agnostic; for github it is the issue number, for devops the work item id). |
+
+v1 registry: `github` and `devops` are runnable; `jira` has no adapter and skips with the existing
+note. Status write-back (claim / done / needs-human / failed) is NOT an adapter member - it is the
+seeded session's job, driven by the source mode of the `implementation-loop` skill (the second
+half, below).
+
+### The skill half: a source mode in `implementation-loop`
+
+Each runnable source has a mode in the `implementation-loop` skill defining who carries the claim
+and where terminal status is written back. Everything code-side (branch, PR, squash-merge, proof
+under `docs/cencon/proof/`) stays GitHub PR-based in the code repo the work item names (default
+`thefrederiksen/cc-director`).
+
+- **github mode** (the original): claim and write-back are the `flow:*` labels (Section 4/4a).
+- **devops mode** (issue #300): claim and write-back are the Azure DevOps work item State plus
+  discussion comments, via the `az boards` CLI (host prerequisite: az CLI + `azure-devops`
+  extension, authenticated; no PAT handling in v1). The status mapping (decision D-3):
+
+  | Loop outcome | Work item State | Plus |
+  |--------------|-----------------|------|
+  | CLAIM (selection) | the template's in-progress state | discussion comment `CLAIM by <director>/<session> at <utc>`; verify-after-claim re-read - oldest CLAIM comment wins, loser backs off (same shape as #298) |
+  | `done` | the template's done state | discussion comment with the merged PR URL |
+  | `needs-human` | STAYS in-progress | tag `needs-human` + discussion comment saying what a human must do |
+  | `failed` | back to the initial/proposed state | discussion comment with the failure reason |
+
+  State names are pinned static for the common process templates, chosen by probing the work item
+  TYPE's allowed state list (`az devops invoke --area wit --resource workitemtypestates` - one
+  static lookup, no dynamic state-graph discovery; the current state name alone is ambiguous,
+  `To Do` opens both Basic and Scrum). An unrecognized state set escalates `needs-human` (never
+  guess a transition):
+
+  | Template | initial / proposed | in-progress | done |
+  |----------|--------------------|-------------|------|
+  | Basic    | `To Do`            | `Doing`     | `Done` |
+  | Scrum    | `To Do`            | `In Progress` | `Done` |
+  | Agile    | `New`              | `Active`    | `Closed` |
+
+### Adding a future source (e.g. jira)
+
+Adding a source = (1) register its `ISourceAdapter` (seed prompt + correlation key), (2) add its
+mode to the `implementation-loop` skill (claim + write-back mapping against that tracker's CLI),
+(3) document the host prerequisite. The sentinel contract (Section 7a) needs no change - `issue:
+<id>` already carries any numeric item id. Until then, refs for that source are accepted, stored,
+ordered, and displayed, and the runner skips them with a note.
+
 ## 8. Relationship to the Rest of CenCon
 
 - **architecture_manifest.yaml** tells the Product Agent which containers an item will touch

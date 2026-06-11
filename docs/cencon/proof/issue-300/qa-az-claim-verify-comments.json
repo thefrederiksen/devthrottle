@@ -1,0 +1,45 @@
+{
+  "comments": [
+    {
+      "createdBy": {
+        "_links": {
+          "avatar": {
+            "href": "https://dev.azure.com/mindzie/_apis/GraphProfile/MemberAvatars/aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk"
+          }
+        },
+        "descriptor": "aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk",
+        "displayName": "Soren Frederiksen",
+        "id": "cfb1ae32-63d2-6512-9a07-fac159c57a0d",
+        "imageUrl": "https://dev.azure.com/mindzie/_apis/GraphProfile/MemberAvatars/aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk",
+        "uniqueName": "soren.frederiksen@mindzie.com",
+        "url": "https://spsprodcca1.vssps.visualstudio.com/A3c2242d7-a70a-4e5f-95fd-3f49198e4785/_apis/Identities/cfb1ae32-63d2-6512-9a07-fac159c57a0d"
+      },
+      "createdDate": "2026-06-11T09:39:14.677Z",
+      "format": "html",
+      "id": 20214732,
+      "mentions": [],
+      "modifiedBy": {
+        "_links": {
+          "avatar": {
+            "href": "https://dev.azure.com/mindzie/_apis/GraphProfile/MemberAvatars/aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk"
+          }
+        },
+        "descriptor": "aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk",
+        "displayName": "Soren Frederiksen",
+        "id": "cfb1ae32-63d2-6512-9a07-fac159c57a0d",
+        "imageUrl": "https://dev.azure.com/mindzie/_apis/GraphProfile/MemberAvatars/aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk",
+        "uniqueName": "soren.frederiksen@mindzie.com",
+        "url": "https://spsprodcca1.vssps.visualstudio.com/A3c2242d7-a70a-4e5f-95fd-3f49198e4785/_apis/Identities/cfb1ae32-63d2-6512-9a07-fac159c57a0d"
+      },
+      "modifiedDate": "2026-06-11T09:39:14.677Z",
+      "renderedText": "",
+      "text": "CLAIM by SOREN_NORTH/qa-agent-issue-300 at 2026-06-11T09:39:12Z",
+      "url": "https://dev.azure.com/mindzie/92590636-26d4-4584-9f7c-4be0270cbd1c/_apis/wit/workItems/7660/comments/20214732",
+      "version": 1,
+      "workItemId": 7660
+    }
+  ],
+  "continuation_token": null,
+  "count": 1,
+  "totalCount": 1
+}

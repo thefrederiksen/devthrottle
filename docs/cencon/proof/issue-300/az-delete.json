@@ -1,0 +1,42 @@
+Deleted work item 7659
+{
+  "code": 200,
+  "deletedBy": "Soren Frederiksen <soren.frederiksen@mindzie.com>",
+  "deletedDate": "6/11/2026 9:33:20 AM",
+  "id": 7659,
+  "message": null,
+  "name": "[TEST cc-director #300] write-back demo",
+  "project": "Z_Archive_DataWarehouse",
+  "resource": {
+    "fields": {
+      "Microsoft.VSTS.Common.ActivatedBy": "Soren Frederiksen <soren.frederiksen@mindzie.com>",
+      "Microsoft.VSTS.Common.ActivatedDate": "2026-06-11T09:30:03.377Z",
+      "Microsoft.VSTS.Common.ClosedBy": "Soren Frederiksen <soren.frederiksen@mindzie.com>",
+      "Microsoft.VSTS.Common.ClosedDate": "2026-06-11T09:32:36.717Z",
+      "Microsoft.VSTS.Common.Priority": 2,
+      "Microsoft.VSTS.Common.StateChangeDate": "2026-06-11T09:32:36.717Z",
+      "System.AreaPath": "Z_Archive_DataWarehouse",
+      "System.ChangedBy": "Soren Frederiksen <soren.frederiksen@mindzie.com>",
+      "System.ChangedDate": "2026-06-11T09:33:20.017Z",
+      "System.CommentCount": 2,
+      "System.CreatedBy": "Soren Frederiksen <soren.frederiksen@mindzie.com>",
+      "System.CreatedDate": "2026-06-11T09:27:37.993Z",
+      "System.Description": "Scratch item for the issue #300 devops adapter write-back demonstration (claim -&gt; done transitions via az boards, as the implementation-loop devops mode documents). Target code repo: thefrederiksen/cc-director. This item is deleted after proof capture.",
+      "System.IterationPath": "Z_Archive_DataWarehouse",
+      "System.Reason": "Work finished",
+      "System.State": "Done",
+      "System.TeamProject": "Z_Archive_DataWarehouse",
+      "System.Title": "[TEST cc-director #300] write-back demo",
+      "System.WorkItemType": "Task"
+    },
+    "id": 7659,
+    "multilineFieldsFormat": {
+      "System.Description": "html"
+    },
+    "relations": null,
+    "rev": 4,
+    "url": "https://dev.azure.com/mindzie/92590636-26d4-4584-9f7c-4be0270cbd1c/_apis/wit/recyclebin/7659"
+  },
+  "type": "Task",
+  "url": "https://dev.azure.com/mindzie/92590636-26d4-4584-9f7c-4be0270cbd1c/_apis/wit/recyclebin/7659"
+}

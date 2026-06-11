@@ -1,0 +1,8 @@
+FLEET BEFORE - issue #300 dev proof - 2026-06-11 05:05:05
+PID 42928 : cc-director-gateway started 2026-06-10 21:32:30 RUNNING
+PID 65232 : cc-director-cockpit started 2026-06-10 21:32:32 RUNNING
+PID 21128 : cc-director started 2026-06-10 13:34:24 RUNNING
+PORT 7878 : LISTEN by PID 42928
+PORT 7470 : LISTEN by PID 65232
+PORT 7887 : LISTEN by PID 8640
+

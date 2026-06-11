@@ -1,0 +1,85 @@
+{
+  "commentVersionRef": {
+    "commentId": 20214724,
+    "url": "https://dev.azure.com/mindzie/92590636-26d4-4584-9f7c-4be0270cbd1c/_apis/wit/workItems/7659/comments/20214724/versions/1",
+    "version": 1
+  },
+  "fields": {
+    "Microsoft.VSTS.Common.ActivatedBy": {
+      "_links": {
+        "avatar": {
+          "href": "https://dev.azure.com/mindzie/_apis/GraphProfile/MemberAvatars/aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk"
+        }
+      },
+      "descriptor": "aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk",
+      "displayName": "Soren Frederiksen",
+      "id": "cfb1ae32-63d2-6512-9a07-fac159c57a0d",
+      "imageUrl": "https://dev.azure.com/mindzie/_apis/GraphProfile/MemberAvatars/aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk",
+      "uniqueName": "soren.frederiksen@mindzie.com",
+      "url": "https://spsprodcca1.vssps.visualstudio.com/A3c2242d7-a70a-4e5f-95fd-3f49198e4785/_apis/Identities/cfb1ae32-63d2-6512-9a07-fac159c57a0d"
+    },
+    "Microsoft.VSTS.Common.ActivatedDate": "2026-06-11T09:30:03.377Z",
+    "Microsoft.VSTS.Common.ClosedBy": {
+      "_links": {
+        "avatar": {
+          "href": "https://dev.azure.com/mindzie/_apis/GraphProfile/MemberAvatars/aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk"
+        }
+      },
+      "descriptor": "aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk",
+      "displayName": "Soren Frederiksen",
+      "id": "cfb1ae32-63d2-6512-9a07-fac159c57a0d",
+      "imageUrl": "https://dev.azure.com/mindzie/_apis/GraphProfile/MemberAvatars/aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk",
+      "uniqueName": "soren.frederiksen@mindzie.com",
+      "url": "https://spsprodcca1.vssps.visualstudio.com/A3c2242d7-a70a-4e5f-95fd-3f49198e4785/_apis/Identities/cfb1ae32-63d2-6512-9a07-fac159c57a0d"
+    },
+    "Microsoft.VSTS.Common.ClosedDate": "2026-06-11T09:32:36.717Z",
+    "Microsoft.VSTS.Common.Priority": 2,
+    "Microsoft.VSTS.Common.StateChangeDate": "2026-06-11T09:32:36.717Z",
+    "System.AreaPath": "Z_Archive_DataWarehouse",
+    "System.ChangedBy": {
+      "_links": {
+        "avatar": {
+          "href": "https://dev.azure.com/mindzie/_apis/GraphProfile/MemberAvatars/aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk"
+        }
+      },
+      "descriptor": "aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk",
+      "displayName": "Soren Frederiksen",
+      "id": "cfb1ae32-63d2-6512-9a07-fac159c57a0d",
+      "imageUrl": "https://dev.azure.com/mindzie/_apis/GraphProfile/MemberAvatars/aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk",
+      "uniqueName": "soren.frederiksen@mindzie.com",
+      "url": "https://spsprodcca1.vssps.visualstudio.com/A3c2242d7-a70a-4e5f-95fd-3f49198e4785/_apis/Identities/cfb1ae32-63d2-6512-9a07-fac159c57a0d"
+    },
+    "System.ChangedDate": "2026-06-11T09:32:36.717Z",
+    "System.CommentCount": 2,
+    "System.CreatedBy": {
+      "_links": {
+        "avatar": {
+          "href": "https://dev.azure.com/mindzie/_apis/GraphProfile/MemberAvatars/aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk"
+        }
+      },
+      "descriptor": "aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk",
+      "displayName": "Soren Frederiksen",
+      "id": "cfb1ae32-63d2-6512-9a07-fac159c57a0d",
+      "imageUrl": "https://dev.azure.com/mindzie/_apis/GraphProfile/MemberAvatars/aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk",
+      "uniqueName": "soren.frederiksen@mindzie.com",
+      "url": "https://spsprodcca1.vssps.visualstudio.com/A3c2242d7-a70a-4e5f-95fd-3f49198e4785/_apis/Identities/cfb1ae32-63d2-6512-9a07-fac159c57a0d"
+    },
+    "System.CreatedDate": "2026-06-11T09:27:37.993Z",
+    "System.Description": "Scratch item for the issue #300 devops adapter write-back demonstration (claim -&gt; done transitions via az boards, as the implementation-loop devops mode documents). Target code repo: thefrederiksen/cc-director. This item is deleted after proof capture.",
+    "System.History": "done: merged https://github.com/thefrederiksen/cc-director/pull/320",
+    "System.IterationPath": "Z_Archive_DataWarehouse",
+    "System.Reason": "Work finished",
+    "System.State": "Done",
+    "System.TeamProject": "Z_Archive_DataWarehouse",
+    "System.Title": "[TEST cc-director #300] write-back demo",
+    "System.WorkItemType": "Task"
+  },
+  "id": 7659,
+  "multilineFieldsFormat": {
+    "System.Description": "html",
+    "System.History": "html"
+  },
+  "relations": null,
+  "rev": 3,
+  "url": "https://dev.azure.com/mindzie/92590636-26d4-4584-9f7c-4be0270cbd1c/_apis/wit/workItems/7659"
+}

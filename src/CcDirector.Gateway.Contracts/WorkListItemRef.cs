@@ -10,10 +10,10 @@ namespace CcDirector.Gateway.Contracts;
 public sealed class WorkListItemRef
 {
     /// <summary>
-    /// The source system the item lives in. v1 enum: <c>github</c> (the only RUNNABLE source -
-    /// the queue runner in #274 drives only github items), plus <c>devops</c> and <c>jira</c>
-    /// which are accepted, stored, ordered, and displayed but not yet drained. The store does not
-    /// reject any source; runnability is the queue runner's concern, not the store's.
+    /// The source system the item lives in. Enum: <c>github</c> and <c>devops</c> (RUNNABLE - the
+    /// queue runner drives them via per-source adapters since issue #300), plus <c>jira</c> which is
+    /// accepted, stored, ordered, and displayed but not yet drained (no adapter in v1). The store
+    /// does not reject any source; runnability is the queue runner's concern, not the store's.
     /// </summary>
     public string Source { get; set; } = "";
 

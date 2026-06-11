@@ -1,0 +1,2 @@
+Failed CcDirector.Gateway.Tests.DictationEndpointTests.FullPipeline_transcribes_phase0_clip2_with_realtime_provider [2 s]
+Failed!  - Failed:     1, Passed:     4, Skipped:     0, Total:     5, Duration: 12 s - CcDirector.Gateway.Tests.dll (net10.0)

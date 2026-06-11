@@ -32,28 +32,32 @@ public sealed class DirectorImplSessionDriver : IImplSessionDriver
     }
 
     public async Task<(string? sessionId, string? error)> StartImplementationSessionAsync(
-        string issueId, CancellationToken ct)
+        string itemId, string seedPrompt, CancellationToken ct)
     {
-        FileLog.Write($"[DirectorImplSessionDriver] start: endpoint={_endpoint}, issue={issueId}");
+        if (string.IsNullOrWhiteSpace(seedPrompt))
+            throw new ArgumentException("seed prompt is required", nameof(seedPrompt));
+
+        FileLog.Write($"[DirectorImplSessionDriver] start: endpoint={_endpoint}, item={itemId}, seed={seedPrompt}");
 
         var req = new NewSessionRequest
         {
             RepoPath = _repoPath,
             Agent = "ClaudeCode",
             Type = "Implement",
-            // The seed: the implementation-loop skill drives the whole DEV->QA loop for this issue
-            // and prints the IMPL-LOOP-TERMINAL sentinel when it terminates.
-            PrePrompt = $"/implementation-loop {issueId}",
+            // The seed: built per source by the item's ISourceAdapter (issue #300). The
+            // implementation-loop skill drives the whole DEV->QA loop for this item in its source
+            // mode and prints the IMPL-LOOP-TERMINAL sentinel when it terminates.
+            PrePrompt = seedPrompt,
         };
 
         var (ok, body, error) = await _client.CreateSessionAsync(_endpoint, req, ct);
         if (!ok || body is null || string.IsNullOrEmpty(body.SessionId))
         {
-            FileLog.Write($"[DirectorImplSessionDriver] start FAILED: issue={issueId}, error={error}");
+            FileLog.Write($"[DirectorImplSessionDriver] start FAILED: item={itemId}, error={error}");
             return (null, error ?? "director did not return a session id");
         }
 
-        FileLog.Write($"[DirectorImplSessionDriver] started: issue={issueId}, sid={body.SessionId}");
+        FileLog.Write($"[DirectorImplSessionDriver] started: item={itemId}, sid={body.SessionId}");
         return (body.SessionId, null);
     }
 

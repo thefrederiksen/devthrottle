@@ -6,10 +6,11 @@ using Xunit;
 namespace CcDirector.Gateway.Tests;
 
 /// <summary>
-/// Unit tests for <see cref="WorkListRunner"/> (issue #274): ordered single-in-flight draining,
-/// terminal-signal recording per item, source gating (github-only), consumer-claim release, and the
-/// double-claim refusal. A fake <see cref="IImplSessionDriver"/> stands in for a live Director so
-/// the sequencing logic is provable without a running app.
+/// Unit tests for <see cref="WorkListRunner"/> (issue #274, adapter dispatch since #300): ordered
+/// single-in-flight draining, terminal-signal recording per item, per-source adapter dispatch
+/// (github + devops runnable, jira skip-with-note), consumer-claim release, and the double-claim
+/// refusal. A fake <see cref="IImplSessionDriver"/> stands in for a live Director so the sequencing
+/// logic is provable without a running app.
 /// </summary>
 public sealed class WorkListRunnerTests
 {
@@ -19,10 +20,10 @@ public sealed class WorkListRunnerTests
     private static readonly TimeSpan FastPoll = TimeSpan.FromMilliseconds(5);
 
     /// <summary>
-    /// Records the exact order of start calls and serves a canned IMPL-LOOP-TERMINAL block per issue
-    /// the moment its session is read - so the runner observes a terminal signal on the first poll.
-    /// Crucially it asserts SINGLE-IN-FLIGHT: a start while another session is still "open" trips a
-    /// flag the test checks (criterion 1).
+    /// Records the exact order of start calls (and each seed prompt, #300) and serves a canned
+    /// IMPL-LOOP-TERMINAL block per issue the moment its session is read - so the runner observes a
+    /// terminal signal on the first poll. Crucially it asserts SINGLE-IN-FLIGHT: a start while
+    /// another session is still "open" trips a flag the test checks (criterion 1).
     /// </summary>
     private sealed class FakeDriver : IImplSessionDriver
     {
@@ -30,17 +31,19 @@ public sealed class WorkListRunnerTests
         private int _openSessions;
 
         public List<string> StartOrder { get; } = new();
+        public List<string> Seeds { get; } = new();
         public bool EverOverlapped { get; private set; }
 
         public FakeDriver(Dictionary<string, ImplLoopSignal> signalByIssue) => _signalByIssue = signalByIssue;
 
-        public Task<(string? sessionId, string? error)> StartImplementationSessionAsync(string issueId, CancellationToken ct)
+        public Task<(string? sessionId, string? error)> StartImplementationSessionAsync(string itemId, string seedPrompt, CancellationToken ct)
         {
-            StartOrder.Add(issueId);
+            StartOrder.Add(itemId);
+            Seeds.Add(seedPrompt);
             // If a session is still open when a new one starts, the runner overlapped two items.
             if (Interlocked.Increment(ref _openSessions) > 1)
                 EverOverlapped = true;
-            return Task.FromResult<(string?, string?)>(($"sid-{issueId}", null));
+            return Task.FromResult<(string?, string?)>(($"sid-{itemId}", null));
         }
 
         public Task<string?> ReadTranscriptAsync(string sessionId, CancellationToken ct)
@@ -93,7 +96,7 @@ public sealed class WorkListRunnerTests
     }
 
     [Fact]
-    public async Task DrainAsync_DevopsAndJiraItems_NeverStarted_LeftInList()
+    public async Task DrainAsync_MixedSources_DispatchPerAdapter_DevopsRuns_JiraSkipped()
     {
         var store = new WorkListStore();
         store.Create("mixed");
@@ -101,22 +104,95 @@ public sealed class WorkListRunnerTests
         store.AppendItem("mixed", Ref("github", "262"));
         store.AppendItem("mixed", Ref("jira", "CCD-44"));
 
-        var driver = new FakeDriver(new() { ["262"] = ImplLoopSignal.Done });
+        var driver = new FakeDriver(new()
+        {
+            ["1203"] = ImplLoopSignal.Done,
+            ["262"] = ImplLoopSignal.Done,
+        });
         var runner = new WorkListRunner(store, driver, FastPoll);
 
         var result = await runner.DrainAsync("mixed", "consumer-a");
 
-        // Criterion 3: only the github item was ever started; no /implementation-loop for non-github.
-        Assert.Equal(new[] { "262" }, driver.StartOrder.ToArray());
+        // #300 dispatch: devops AND github items are started, in list order; jira never is.
+        Assert.Equal(new[] { "1203", "262" }, driver.StartOrder.ToArray());
+        Assert.False(driver.EverOverlapped);
 
-        Assert.Equal(WorkListItemOutcome.SkippedNonGithub, result.Items[0].Outcome);
+        // Per-source seed prompts (D-2): devops mode for the devops item, plain for github.
+        Assert.Equal("/implementation-loop --source devops 1203", driver.Seeds[0]);
+        Assert.Equal("/implementation-loop 262", driver.Seeds[1]);
+
+        // Devops sentinel correlated by work item id; jira skipped with the note, left in list.
+        Assert.Equal(WorkListItemOutcome.Ran, result.Items[0].Outcome);
+        Assert.Equal(ImplLoopSignal.Done, result.Items[0].Signal);
         Assert.Equal(WorkListItemOutcome.Ran, result.Items[1].Outcome);
         Assert.Equal(WorkListItemOutcome.SkippedNonGithub, result.Items[2].Outcome);
+        Assert.Contains("source 'jira' is not runnable", result.Items[2].Note, StringComparison.Ordinal);
 
-        // The non-github items are untouched in the list (the runner never writes status back).
+        // The skipped jira item is untouched in the list (the runner never writes status back).
         var list = store.Get("mixed");
         Assert.NotNull(list);
         Assert.Equal(new[] { "1203", "262", "CCD-44" }, list.Items.Select(i => i.Id).ToArray());
+    }
+
+    [Fact]
+    public async Task DrainAsync_DevopsItem_SeededWithDevopsMode_SignalRecorded()
+    {
+        var store = new WorkListStore();
+        store.Create("devops-only");
+        store.AppendItem("devops-only", Ref("devops", "4711", "Gateway"));
+
+        var driver = new FakeDriver(new() { ["4711"] = ImplLoopSignal.NeedsHuman });
+        var runner = new WorkListRunner(store, driver, FastPoll);
+
+        var result = await runner.DrainAsync("devops-only", "consumer-a");
+
+        // The devops ref is dispatched: seed emitted in devops mode, sentinel correlated by the
+        // work item id, terminal signal recorded (issue #300 acceptance criterion 1).
+        Assert.Equal(new[] { "4711" }, driver.StartOrder.ToArray());
+        Assert.Equal(new[] { "/implementation-loop --source devops 4711" }, driver.Seeds.ToArray());
+        Assert.Equal(WorkListItemOutcome.Ran, result.Items[0].Outcome);
+        Assert.Equal(ImplLoopSignal.NeedsHuman, result.Items[0].Signal);
+        Assert.True(result.ConsumerReleased);
+    }
+
+    [Fact]
+    public async Task DrainAsync_JiraItem_NeverStarted_LeftInList()
+    {
+        var store = new WorkListStore();
+        store.Create("jira-only");
+        store.AppendItem("jira-only", Ref("jira", "CCD-44"));
+
+        var driver = new FakeDriver(new());
+        var runner = new WorkListRunner(store, driver, FastPoll);
+
+        var result = await runner.DrainAsync("jira-only", "consumer-a");
+
+        // jira still has no adapter: never started, skipped with the note, left in the list.
+        Assert.Empty(driver.StartOrder);
+        Assert.Equal(WorkListItemOutcome.SkippedNonGithub, result.Items[0].Outcome);
+        Assert.Contains("source 'jira' is not runnable", result.Items[0].Note, StringComparison.Ordinal);
+        var list = store.Get("jira-only");
+        Assert.NotNull(list);
+        Assert.Equal(new[] { "CCD-44" }, list.Items.Select(i => i.Id).ToArray());
+    }
+
+    [Fact]
+    public async Task DrainAsync_DevopsNonNumericId_StartFailed_CannotCorrelate()
+    {
+        var store = new WorkListStore();
+        store.Create("bad-devops");
+        store.AppendItem("bad-devops", Ref("devops", "not-a-number"));
+
+        var driver = new FakeDriver(new());
+        var runner = new WorkListRunner(store, driver, FastPoll);
+
+        var result = await runner.DrainAsync("bad-devops", "consumer-a");
+
+        // Same shape as the github non-numeric guard: the session starts but the runner cannot
+        // correlate a sentinel for it, so it records StartFailed and advances.
+        Assert.Equal(WorkListItemOutcome.StartFailed, result.Items[0].Outcome);
+        Assert.Contains("cannot correlate", result.Items[0].Note, StringComparison.Ordinal);
+        Assert.True(result.ConsumerReleased);
     }
 
     [Fact]
@@ -171,12 +247,12 @@ public sealed class WorkListRunnerTests
     {
         private int _calls;
 
-        public Task<(string? sessionId, string? error)> StartImplementationSessionAsync(string issueId, CancellationToken ct)
+        public Task<(string? sessionId, string? error)> StartImplementationSessionAsync(string itemId, string seedPrompt, CancellationToken ct)
         {
             _calls++;
             return _calls == 1
                 ? Task.FromResult<(string?, string?)>((null, "director unreachable"))
-                : Task.FromResult<(string?, string?)>(($"sid-{issueId}", null));
+                : Task.FromResult<(string?, string?)>(($"sid-{itemId}", null));
         }
 
         public Task<string?> ReadTranscriptAsync(string sessionId, CancellationToken ct)

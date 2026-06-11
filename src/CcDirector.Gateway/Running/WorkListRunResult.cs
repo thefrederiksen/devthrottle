@@ -5,13 +5,17 @@ namespace CcDirector.Gateway.Running;
 /// <summary>How the runner handled one item while draining a list (issue #274).</summary>
 public enum WorkListItemOutcome
 {
-    /// <summary>A github item: a session was started and reached a terminal signal.</summary>
+    /// <summary>A runnable item (github/devops): a session was started and reached a terminal signal.</summary>
     Ran,
 
-    /// <summary>A non-github item (devops/jira): skipped per the source-gating rule, never started.</summary>
+    /// <summary>
+    /// An item whose source has no registered <see cref="ISourceAdapter"/> (jira in v1): skipped per
+    /// the source-gating rule, never started. (Name kept from the pre-#300 github-only gate so the
+    /// REST projection string stays stable for existing consumers.)
+    /// </summary>
     SkippedNonGithub,
 
-    /// <summary>A github item whose session could not be started (start error); recorded and skipped.</summary>
+    /// <summary>A runnable item whose session could not be started (start error) or whose id yields no sentinel correlation key; recorded and skipped.</summary>
     StartFailed,
 }
 

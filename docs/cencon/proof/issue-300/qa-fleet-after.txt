@@ -1,0 +1,34 @@
+Fleet AFTER QA verification (2026-06-11):
+
+   Id ProcessName         Path                                                                    
+   -- -----------         ----                                                                    
+21128 cc-director         C:\Users\soren\AppData\Local\cc-director\app\cc-director.exe            
+19488 cc-director-cockpit C:\Users\soren\AppData\Local\cc-director\cockpit\cc-director-cockpit.exe
+26640 cc-director-gateway C:\Users\soren\AppData\Local\cc-director\gateway\cc-director-gateway.exe
+
+
+
+
+LocalPort OwningProcess
+--------- -------------
+     7887          8640
+     7887         21128
+     7887          8640
+     7878         26640
+     7470         19488
+
+
+
+Scheduled tasks cc-director*:
+
+TaskName                                     State
+--------                                     -----
+cc-director-continue-claude-sessions-after-1 Ready
+cc-director-gateway-launch                   Ready
+cc-director-launch                           Ready
+cc-director-probe                            Ready
+cc-director-voicetest-slot5                  Ready
+cc-director2-launch                          Ready
+
+
+

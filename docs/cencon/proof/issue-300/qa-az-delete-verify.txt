@@ -1,0 +1,4 @@
+az boards work-item delete --id 7660 --destroy --yes => output: Deleted work item 7660
+
+verify show after destroy:
+ERROR: TF401232: Work item 7660 does not exist, or you do not have permissions to read it.

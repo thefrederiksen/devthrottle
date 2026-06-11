@@ -1,0 +1,26 @@
+{
+  "continuation_token": null,
+  "count": 4,
+  "value": [
+    {
+      "category": "Proposed",
+      "color": "b2b2b2",
+      "name": "To Do"
+    },
+    {
+      "category": "InProgress",
+      "color": "007acc",
+      "name": "In Progress"
+    },
+    {
+      "category": "Completed",
+      "color": "339933",
+      "name": "Done"
+    },
+    {
+      "category": "Removed",
+      "color": "ffffff",
+      "name": "Removed"
+    }
+  ]
+}

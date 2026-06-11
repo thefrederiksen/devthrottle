@@ -1,0 +1,25 @@
+Test run for D:\ReposFred\wt-issue-300-qa\src\CcDirector.Gateway.Tests\bin\Debug\net10.0\CcDirector.Gateway.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+dotnet : [xUnit.net 00:01:55.81]     
+CcDirector.Gateway.Tests.DictationEndpointTests.ClientCloseWithoutStop_recovers_transcript_instead_of_discarding [FAIL]
+At line:1 char:1
++ dotnet test D:\ReposFred\wt-issue-300-qa\src\CcDirector.Gateway.Tests ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([xUnit.net 00:0...scarding [FAIL]:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  Failed CcDirector.Gateway.Tests.DictationEndpointTests.ClientCloseWithoutStop_recovers_transcript_instead_of_discarding [1 m 37 s]
+  Error Message:
+   Assert.NotNull() Failure: Value of type 'Nullable<JsonElement>' does not have a value
+  Stack Trace:
+     at CcDirector.Gateway.Tests.DictationEndpointTests.ClientCloseWithoutStop_recovers_transcript_instead_of_discarding() in D:\ReposFred\wt-issue-300-qa\src\CcDirector.Gateway.Tests\DictationEndpointTests.cs:line 279
+--- End of stack trace from previous location ---
+[xUnit.net 00:02:06.88]     CcDirector.Gateway.Tests.DictationEndpointTests.FullPipeline_transcribes_phase0_clip2_with_realtime_provider [FAIL]
+  Failed CcDirector.Gateway.Tests.DictationEndpointTests.FullPipeline_transcribes_phase0_clip2_with_realtime_provider [11 s]
+  Error Message:
+   expected at least 1 partial transcript, got 0
+  Stack Trace:
+     at CcDirector.Gateway.Tests.DictationEndpointTests.FullPipeline_transcribes_phase0_clip2_with_realtime_provider() in D:\ReposFred\wt-issue-300-qa\src\CcDirector.Gateway.Tests\DictationEndpointTests.cs:line 194
+--- End of stack trace from previous location ---
+
+Failed!  - Failed:     2, Passed:   432, Skipped:     0, Total:   434, Duration: 2 m 39 s - CcDirector.Gateway.Tests.dll (net10.0)

@@ -1,0 +1,7 @@
+<!-- generated 2026-06-11 09:27:25 UTC by DevopsAdapterDispatchProofTests -->
+<table><tr><th>#</th><th>Expected</th><th>Actual (observed over HTTP)</th><th>Result</th></tr>
+<tr><td>1</td><td>source=devops ref is dispatched: session-seed request emitted with the devops-mode seed prompt '/implementation-loop --source devops 9001'.</td><td><code>seeds observed at the stub Director (real HTTP POST /sessions): /implementation-loop --source devops 9001 | /implementation-loop 262</code></td><td class="pass">PASS</td></tr>
+<tr><td>2</td><td>Terminal sentinel correlated by work item id (issue: 9001) and the terminal signal recorded on the devops item (outcome=Ran, signal=Done) - the runner-side write-back record.</td><td><code>devops item result: outcome=Ran, signal=Done, sessionId=present</code></td><td class="pass">PASS</td></tr>
+<tr><td>3</td><td>jira ref still skips with the existing skip-note (no adapter), never started, left in the list.</td><td><code>jira item result: outcome=SkippedNonGithub, note=source 'jira' is not runnable (runnable: github, devops); skipped, left in list; list still=9001,262,CCD-44</code></td><td class="pass">PASS</td></tr>
+<tr><td>4</td><td>github path unchanged: plain seed '/implementation-loop 262', item drained to Done exactly as pre-#300.</td><td><code>github seed=/implementation-loop 262; github item result: outcome=Ran, signal=Done</code></td><td class="pass">PASS</td></tr>
+</table>
