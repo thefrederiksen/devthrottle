@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #291 - QA Proof - Prune SessionOwnerCache on observed exit</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin: 2rem auto; max-width: 980px; color: #1b1f23; line-height: 1.5; }
+  h1 { font-size: 1.5rem; border-bottom: 2px solid #1d76db; padding-bottom: .4rem; }
+  h2 { font-size: 1.15rem; margin-top: 2rem; color: #1d76db; }
+  code, pre { font-family: Consolas, monospace; }
+  pre { background: #0d1117; color: #c9d1d9; padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: .85rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #d0d7de; padding: .5rem .7rem; text-align: left; vertical-align: top; font-size: .9rem; }
+  th { background: #f6f8fa; }
+  .pass { color: #1a7f37; font-weight: 600; }
+  .verdict { background: #dafbe1; border: 1px solid #1a7f37; border-radius: 6px; padding: 1rem; margin-top: 2rem; }
+  .meta { color: #57606a; font-size: .85rem; }
+</style>
+</head>
+<body>
+<h1>Issue #291 - QA Proof - Per-session WS proxy returns 404 (not 503) for an EXITED session on a reachable Director</h1>
+<p class="meta">QA Agent (independent verification) &middot; PR #312 &middot; branch <code>issue-291-prune-owner-cache-on-exit</code> &middot; decided approach: option 1 (prune the owner cache on observed exit)</p>
+
+<h2>How QA verified (independent of the Developer's report)</h2>
+<p>
+This is a Gateway-side resolution-logic change with no UI surface, so the correct proof artifact is a
+self-hosted <code>GatewayHost</code> driven over real HTTP &mdash; not a screenshot. QA built the change
+into the test binary itself (full solution build, 0/0) and ran the Gateway test suite, which stands up a
+real <code>GatewayHost</code> + a fake reachable Director, drives the <code>GET /sessions</code> aggregator,
+then hits the actual per-session WS proxy endpoints (<code>/sessions/{sid}/stream</code>) over HTTP and reads
+the status code. QA also code-read the resolution path (<code>SessionWsProxyEndpoints.ProxyAsync</code> -&gt;
+<code>SessionOwnerCache.OwnerOf</code>) and the prune wiring (<code>GatewayEndpoints</code> aggregator -&gt;
+<code>RetainForDirector</code>, sharing the same <code>SessionOwners</code> instance in <code>GatewayHost</code>).
+</p>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (QA-observed)</th><th>Result</th></tr>
+<tr>
+  <td>1</td>
+  <td>Aggregator (<code>GET /sessions</code>) removes a session from <code>SessionOwnerCache</code> when it is Exited / disappeared on a reachable Director.</td>
+  <td>Cache entry for the gone session is dropped after one aggregation.</td>
+  <td><code>RetainForDirector</code> computes the live (non-Exited) id set per reachable Director and removes any cached entry owned by that Director not in the set. After driving <code>GET /sessions</code>, <code>SessionOwners.OwnerOf("gone")</code> is null.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td>WS request for an EXITED session whose owning Director is ONLINE returns 404 (not 503).</td>
+  <td>HTTP 404 on <code>/sessions/gone/stream</code>.</td>
+  <td>Integration test drives the real endpoint over HTTP after aggregation: <code>HttpStatusCode.NotFound</code> (404).</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>3</td>
+  <td>Offline-owner session (cached owner, Director unreachable) still returns 503 - #288 must not regress.</td>
+  <td>HTTP 503 on <code>/sessions/offline-owned/stream</code>; cache entry preserved.</td>
+  <td>Reconcile triggered by a DIFFERENT reachable Director never touches the offline owner's entry; real endpoint returns <code>HttpStatusCode.ServiceUnavailable</code> (503).</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>4</td>
+  <td>Unit tests cover both (exited-then-pruned -&gt; 404; offline owner -&gt; 503). Existing <code>SessionWsProxyEndpointsTests</code> still pass.</td>
+  <td>New tests present; SessionWsProxyEndpointsTests green.</td>
+  <td>6 <code>SessionOwnerCacheTests</code> + 2 <code>SessionsAggregationTests</code> (#291) pass. <code>SessionWsProxyEndpointsTests</code> 7/7 pass. Full Gateway project 415/415.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>5</td>
+  <td>Build clean (0/0).</td>
+  <td>0 warnings, 0 errors.</td>
+  <td>Full <code>cc-director.sln</code> build: Build succeeded, 0 Warning(s), 0 Error(s).</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>QA commands &amp; observed output</h2>
+<pre>
+$ dotnet build cc-director.sln -c Debug
+  Build succeeded.  0 Warning(s)  0 Error(s)
+
+$ dotnet test ...Gateway.Tests --filter "SessionsAggregationTests|SessionOwnerCacheTests|SessionWsProxyEndpointsTests"
+  Passed!  - Failed: 0, Passed: 28, Total: 28
+
+  Passed  Aggregator_prunes_owner_cache_for_session_no_longer_live_on_reachable_director_then_ws_proxy_is_404
+  Passed  Aggregator_prune_does_not_touch_a_session_owned_by_a_different_offline_director
+
+$ dotnet test ...Gateway.Tests --filter "SessionWsProxyEndpointsTests"
+  Passed!  - Failed: 0, Passed: 7, Total: 7      (no #288 regression)
+
+$ dotnet test ...Gateway.Tests   (full project)
+  Passed!  - Failed: 0, Passed: 415, Total: 415
+</pre>
+
+<h2>Regression sweep</h2>
+<p>
+Full Gateway test project green (415/415); full solution build clean. The prune is scoped to the
+caller's own reachable Director (<code>RetainForDirector</code> only removes entries whose value equals
+<code>directorId</code>), so no adjacent owner-cache behaviour is affected. CenCon: no security DT rule
+touched; in-memory resolution-logic change only.
+</p>
+
+<div class="verdict">
+<strong>VERIFIED - all acceptance criteria met.</strong> Exited session on a reachable Director -&gt; 404
+(cache pruned); offline owner -&gt; still 503 (#288 preserved); existing SessionWsProxyEndpointsTests pass;
+build clean (0/0). Authorized squash-merge to main inside the implementation-loop.
+</div>
+</body>
+</html>

@@ -356,6 +356,21 @@ internal static class GatewayEndpoints
                 }
                 if (sessions is null) continue;
 
+                // Issue #291: this Director just answered (reachable), so its returned list is the
+                // authoritative live set for it. Prune any session the cache still attributes to this
+                // Director that is no longer live here - it exited or disappeared - so the per-session
+                // WS proxy reverts to 404 instead of #288's 503 "owner offline". Computed from the raw
+                // returned list (before the per-session view filters below) and excluding Exited rows
+                // (a Director may include them when includeExited=true). Owners on OTHER Directors are
+                // untouched, so an offline owner's sessions stay cached -> still 503 (#288 unchanged).
+                var liveIds = new HashSet<string>(
+                    sessions
+                        .Where(x => !string.IsNullOrEmpty(x.SessionId)
+                                 && !string.Equals(x.ActivityState, "Exited", StringComparison.OrdinalIgnoreCase))
+                        .Select(x => x.SessionId),
+                    StringComparer.Ordinal);
+                owners?.RetainForDirector(d.DirectorId, liveIds);
+
                 var baseUrl = DeriveDirectorBaseUrl(ctx, d);
                 var gatewayBaseUrl = DeriveGatewayBaseUrl(ctx);
                 foreach (var s in sessions)

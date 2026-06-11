@@ -227,6 +227,47 @@ public sealed class SessionsAggregationTests : IAsyncLifetime
         Assert.Equal("b", s.SessionId);
     }
 
+    // ---------- owner-cache pruning on observed exit (issue #291) ----------
+
+    [Fact]
+    public async Task Aggregator_prunes_owner_cache_for_session_no_longer_live_on_reachable_director_then_ws_proxy_is_404()
+    {
+        // A reachable Director that reports only "live". The cache still holds an OLD session "gone"
+        // attributed to this Director (it was seen on a prior poll, then exited). After the aggregator
+        // observes the Director's current live set, "gone" must be pruned, so the per-session WS proxy
+        // answers 404 (session gone) instead of #288's 503 (owner offline).
+        var fake = await StartFake("M", "u", new[] { Sample("live", "ClaudeCode", "r", "Idle", "green") });
+        await Register(fake);
+        _gateway.SessionOwners.Remember("gone", fake.DirectorId);
+        Assert.Equal(fake.DirectorId, _gateway.SessionOwners.OwnerOf("gone"));
+
+        // Drive one aggregation: the reachable Director reports "live" only -> "gone" is reconciled out.
+        await GetSessions();
+
+        Assert.Null(_gateway.SessionOwners.OwnerOf("gone"));
+
+        // The WS proxy now sees no cached owner and no live owner -> 404, not 503.
+        var resp = await _http.GetAsync("sessions/gone/stream");
+        Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task Aggregator_prune_does_not_touch_a_session_owned_by_a_different_offline_director()
+    {
+        // #288 must not regress: a session cached against an OFFLINE Director (id never registered, so
+        // unreachable) must survive a reconcile triggered by a DIFFERENT reachable Director, and the
+        // WS proxy must still answer 503 for it.
+        var reachable = await StartFake("M", "u", new[] { Sample("live", "ClaudeCode", "r", "Idle", "green") });
+        await Register(reachable);
+        _gateway.SessionOwners.Remember("offline-owned", "dead-director-id");
+
+        await GetSessions();
+
+        Assert.Equal("dead-director-id", _gateway.SessionOwners.OwnerOf("offline-owned"));
+        var resp = await _http.GetAsync("sessions/offline-owned/stream");
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, resp.StatusCode);
+    }
+
     // ---------- view-url shape ----------
 
     [Fact]
