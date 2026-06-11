@@ -18,6 +18,7 @@
   <ItemGroup>
     <ProjectReference Include="..\CcDirector.Core\CcDirector.Core.csproj" />
     <ProjectReference Include="..\CcDirector.ControlApi\CcDirector.ControlApi.csproj" />
+    <ProjectReference Include="..\CcDirector.Engine\CcDirector.Engine.csproj" />
     <ProjectReference Include="..\CcDirector.Gateway.Contracts\CcDirector.Gateway.Contracts.csproj" />
     <ProjectReference Include="..\CcDirector.Gateway\CcDirector.Gateway.csproj" />
   </ItemGroup>

@@ -511,7 +511,7 @@ containers:
         description: Executes a single job, records results, updates next_run
         file: Scheduling/JobExecutor.cs
       - name: CommunicationDispatcher
-        description: Polls approved communications and dispatches via cc-outlook or cc-gmail
+        description: Dispatches approved communications via cc-outlook or cc-gmail - poll loop (auto-dispatch currently disabled) plus the invocable by-id primitive (DispatchByIdAsync) behind the Control API POST /dispatch verb, with a hard approved-state gate
         file: Dispatcher/CommunicationDispatcher.cs
       - name: EngineDatabase
         description: SQLite wrapper for jobs and runs tables
@@ -545,6 +545,7 @@ containers:
     project: CcDirector.ControlApi
     dependencies:
       - CcDirector.Core
+      - CcDirector.Engine
       - CcDirector.Gateway.Contracts
     components:
       - name: ControlApiHost
@@ -562,6 +563,9 @@ containers:
       - name: DictationEndpoint
         description: WebSocket handler for /dictate streaming speech-to-text via the OpenAI Realtime API
         file: DictationEndpoint.cs
+      - name: DispatchEndpoint
+        description: POST /dispatch verb (issue 329) - mechanical dispatch of ONE already-approved communication-queue item by id through the Engine's CommunicationDispatcher; unapproved items are refused and nothing sends
+        file: DispatchEndpoint.cs
       - name: ProactiveExplainService
         description: Background Opus briefing generator that caches a session explanation on turn-end for instant mobile/voice retrieval
         file: ProactiveExplainService.cs

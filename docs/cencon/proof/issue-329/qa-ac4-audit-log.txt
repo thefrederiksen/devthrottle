@@ -1,0 +1,33 @@
+﻿2026-06-11 12:02:09.080 [ControlApiHost] Kestrel listening on http://127.0.0.1:7880 (loopback only; remote access via Tailscale Serve)
+2026-06-11 12:02:11.504 [GatewayClient] Registered: status=201, endpoint=https://soren-north.taildb08ed.ts.net:7880
+2026-06-11 12:02:40.775 [DispatchEndpoint] POST /dispatch: item=qa329-approved, caller=127.0.0.1
+2026-06-11 12:02:40.776 [CommunicationDispatcher] DispatchById: id=qa329-approved
+2026-06-11 12:02:40.786 [CommunicationDispatcher] Sending ticket #91001 to qa329-test@example.invalid via cc-mockmail (send_from=mock-sender@example.invalid, account=mock)
+2026-06-11 12:02:40.831 [CommunicationDispatcher] Ticket #91001 sent OK via cc-mockmail
+2026-06-11 12:02:40.833 [CommunicationDispatcher] DispatchById result: id=qa329-approved ticket=#91001 outcome=Dispatched channel=cc-mockmail
+2026-06-11 12:02:40.833 [DispatchEndpoint] POST /dispatch result: item=qa329-approved, ticket=#91001, outcome=Dispatched, channel=cc-mockmail
+2026-06-11 12:03:11.101 [DispatchEndpoint] POST /dispatch: item=qa329-pending, caller=127.0.0.1
+2026-06-11 12:03:11.101 [CommunicationDispatcher] DispatchById: id=qa329-pending
+2026-06-11 12:03:11.101 [CommunicationDispatcher] DispatchById REFUSED (approval gate): id=qa329-pending ticket=#91002 status=pending_review - nothing sent
+2026-06-11 12:03:11.101 [DispatchEndpoint] POST /dispatch result: item=qa329-pending, ticket=#91002, outcome=NotApproved, channel=(none)
+2026-06-11 12:03:11.133 [DispatchEndpoint] POST /dispatch: item=qa329-rejected, caller=127.0.0.1
+2026-06-11 12:03:11.133 [CommunicationDispatcher] DispatchById: id=qa329-rejected
+2026-06-11 12:03:11.134 [CommunicationDispatcher] DispatchById REFUSED (approval gate): id=qa329-rejected ticket=#91003 status=rejected - nothing sent
+2026-06-11 12:03:11.134 [DispatchEndpoint] POST /dispatch result: item=qa329-rejected, ticket=#91003, outcome=NotApproved, channel=(none)
+2026-06-11 12:03:11.167 [DispatchEndpoint] POST /dispatch: item=qa329-approved, caller=127.0.0.1
+2026-06-11 12:03:11.167 [CommunicationDispatcher] DispatchById: id=qa329-approved
+2026-06-11 12:03:11.167 [CommunicationDispatcher] DispatchById REFUSED (approval gate): id=qa329-approved ticket=#91001 status=posted - nothing sent
+2026-06-11 12:03:11.167 [DispatchEndpoint] POST /dispatch result: item=qa329-approved, ticket=#91001, outcome=NotApproved, channel=(none)
+2026-06-11 12:03:11.200 [DispatchEndpoint] POST /dispatch: item=qa329-linkedin, caller=127.0.0.1
+2026-06-11 12:03:11.200 [CommunicationDispatcher] DispatchById: id=qa329-linkedin
+2026-06-11 12:03:11.201 [CommunicationDispatcher] DispatchById REFUSED (platform): id=qa329-linkedin ticket=#91005 platform=linkedin - no machine-bound sender
+2026-06-11 12:03:11.201 [DispatchEndpoint] POST /dispatch result: item=qa329-linkedin, ticket=#91005, outcome=UnsupportedPlatform, channel=(none)
+2026-06-11 12:03:11.237 [DispatchEndpoint] POST /dispatch: item=qa329-badjson, caller=127.0.0.1
+2026-06-11 12:03:11.237 [CommunicationDispatcher] DispatchById: id=qa329-badjson
+2026-06-11 12:03:11.237 [CommunicationDispatcher] DispatchById REFUSED (invalid item): id=qa329-badjson ticket=#91004 - email_specific missing/unparseable or no recipients
+2026-06-11 12:03:11.237 [DispatchEndpoint] POST /dispatch result: item=qa329-badjson, ticket=#91004, outcome=InvalidItem, channel=(none)
+2026-06-11 12:03:24.977 [DispatchEndpoint] POST /dispatch: item=qa-no-such-id, caller=127.0.0.1
+2026-06-11 12:03:24.977 [CommunicationDispatcher] DispatchById: id=qa-no-such-id
+2026-06-11 12:03:24.977 [CommunicationDispatcher] DispatchById NOT FOUND: id=qa-no-such-id
+2026-06-11 12:03:24.977 [DispatchEndpoint] POST /dispatch result: item=qa-no-such-id, ticket=#0, outcome=NotFound, channel=(none)
+2026-06-11 12:03:25.043 [DispatchEndpoint] POST /dispatch: invalid JSON body ('n' is an invalid start of a property name. Expected a '"'. Path: $ | LineNumber: 0 | BytePositionInLine: 1.)

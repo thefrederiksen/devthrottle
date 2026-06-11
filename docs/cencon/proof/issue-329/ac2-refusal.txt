@@ -1,0 +1,23 @@
+=== AC2: dispatch PENDING item test-329-pending -> must be REFUSED, nothing sends ===
+HTTP/1.1 409 Conflict
+Content-Type: application/json; charset=utf-8
+Date: Thu, 11 Jun 2026 15:47:56 GMT
+Server: Kestrel
+Transfer-Encoding: chunked
+
+{"queueItemId":"test-329-pending","dispatched":false,"outcome":"notApproved","ticketNumber":90002,"channel":null,"itemStatus":"pending_review","error":"item is 'pending_review', not 'approved' - only approved items dispatch; nothing was sent"}
+
+=== AC2: re-dispatch the already-POSTED item -> also refused (double-send guard) ===
+HTTP/1.1 409 Conflict
+Content-Type: application/json; charset=utf-8
+Date: Thu, 11 Jun 2026 15:47:56 GMT
+Server: Kestrel
+Transfer-Encoding: chunked
+
+{"queueItemId":"test-329-approved","dispatched":false,"outcome":"notApproved","ticketNumber":90001,"channel":null,"itemStatus":"posted","error":"item is 'posted', not 'approved' - only approved items dispatch; nothing was sent"}
+
+=== AC2 state proof: pending item unchanged, sent.log still has exactly ONE line ===
+('test-329-approved', 'posted', None)
+('test-329-pending', 'pending_review', None)
+--- sent.log line count:
+1

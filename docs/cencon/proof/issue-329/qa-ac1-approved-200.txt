@@ -1,0 +1,7 @@
+HTTP/1.1 200 OK
+Content-Type: application/json; charset=utf-8
+Date: Thu, 11 Jun 2026 16:02:40 GMT
+Server: Kestrel
+Transfer-Encoding: chunked
+
+{"queueItemId":"qa329-approved","dispatched":true,"outcome":"dispatched","ticketNumber":91001,"channel":"cc-mockmail","itemStatus":"posted","error":null}

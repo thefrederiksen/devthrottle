@@ -1,0 +1,20 @@
+=== pending_review -> expect 409 ===
+HTTP/1.1 409 Conflict
+Content-Type: application/json; charset=utf-8
+Date: Thu, 11 Jun 2026 16:03:10 GMT
+Server: Kestrel
+Transfer-Encoding: chunked
+
+{"queueItemId":"qa329-pending","dispatched":false,"outcome":"notApproved","ticketNumber":91002,"channel":null,"itemStatus":"pending_review","error":"item is 'pending_review', not 'approved' - only approved items dispatch; nothing was sent"}
+=== rejected -> expect 409 ===
+{"queueItemId":"qa329-rejected","dispatched":false,"outcome":"notApproved","ticketNumber":91003,"channel":null,"itemStatus":"rejected","error":"item is 'rejected', not 'approved' - only approved items dispatch; nothing was sent"}
+HTTP 409
+=== already-posted re-dispatch -> expect 409 (no double-send) ===
+{"queueItemId":"qa329-approved","dispatched":false,"outcome":"notApproved","ticketNumber":91001,"channel":null,"itemStatus":"posted","error":"item is 'posted', not 'approved' - only approved items dispatch; nothing was sent"}
+HTTP 409
+=== approved non-email platform -> expect 409 unsupportedPlatform ===
+{"queueItemId":"qa329-linkedin","dispatched":false,"outcome":"unsupportedPlatform","ticketNumber":91005,"channel":null,"itemStatus":"approved","error":"platform 'linkedin' has no machine-bound dispatch path on this Director (only email)"}
+HTTP 409
+=== approved unparseable email_specific -> expect 422 ===
+{"queueItemId":"qa329-badjson","dispatched":false,"outcome":"invalidItem","ticketNumber":91004,"channel":null,"itemStatus":"approved","error":"item is approved but not sendable: email_specific is missing/unparseable or has no recipients"}
+HTTP 422

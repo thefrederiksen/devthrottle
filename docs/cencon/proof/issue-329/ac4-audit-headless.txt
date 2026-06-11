@@ -1,0 +1,22 @@
+=== AC4/audit: FileLog audit trail in the test Director's own log (PID 66492) ===
+No UI was touched at any point: every dispatch above was pure REST -> ControlApi -> Engine.
+The Communication Manager window was never opened; the CommManagerViewModel code path is not involved.
+
+2026-06-11 11:47:26.058 [DispatchEndpoint] POST /dispatch: item=test-329-approved, caller=127.0.0.1
+2026-06-11 11:47:26.059 [CommunicationDispatcher] DispatchById: id=test-329-approved
+2026-06-11 11:47:26.066 [CommunicationDispatcher] Sending ticket #90001 to dispatch-329-test@example.invalid via cc-mockmail (send_from=mock-sender@example.invalid, account=mock)
+2026-06-11 11:47:26.121 [CommunicationDispatcher] Ticket #90001 sent OK via cc-mockmail
+2026-06-11 11:47:26.122 [CommunicationDispatcher] DispatchById result: id=test-329-approved ticket=#90001 outcome=Dispatched channel=cc-mockmail
+2026-06-11 11:47:26.123 [DispatchEndpoint] POST /dispatch result: item=test-329-approved, ticket=#90001, outcome=Dispatched, channel=cc-mockmail
+2026-06-11 11:47:56.662 [DispatchEndpoint] POST /dispatch: item=test-329-pending, caller=127.0.0.1
+2026-06-11 11:47:56.662 [CommunicationDispatcher] DispatchById: id=test-329-pending
+2026-06-11 11:47:56.662 [CommunicationDispatcher] DispatchById REFUSED (approval gate): id=test-329-pending ticket=#90002 status=pending_review - nothing sent
+2026-06-11 11:47:56.662 [DispatchEndpoint] POST /dispatch result: item=test-329-pending, ticket=#90002, outcome=NotApproved, channel=(none)
+2026-06-11 11:47:56.702 [DispatchEndpoint] POST /dispatch: item=test-329-approved, caller=127.0.0.1
+2026-06-11 11:47:56.702 [CommunicationDispatcher] DispatchById: id=test-329-approved
+2026-06-11 11:47:56.702 [CommunicationDispatcher] DispatchById REFUSED (approval gate): id=test-329-approved ticket=#90001 status=posted - nothing sent
+2026-06-11 11:47:56.702 [DispatchEndpoint] POST /dispatch result: item=test-329-approved, ticket=#90001, outcome=NotApproved, channel=(none)
+2026-06-11 11:48:15.984 [DispatchEndpoint] POST /dispatch: item=no-such-item-xyz, caller=127.0.0.1
+2026-06-11 11:48:15.984 [CommunicationDispatcher] DispatchById: id=no-such-item-xyz
+2026-06-11 11:48:15.984 [CommunicationDispatcher] DispatchById NOT FOUND: id=no-such-item-xyz
+2026-06-11 11:48:15.984 [DispatchEndpoint] POST /dispatch result: item=no-such-item-xyz, ticket=#0, outcome=NotFound, channel=(none)

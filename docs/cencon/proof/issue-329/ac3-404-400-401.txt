@@ -1,0 +1,24 @@
+=== AC3a: unknown item id -> 404 ===
+HTTP/1.1 404 Not Found
+Content-Type: application/json; charset=utf-8
+Date: Thu, 11 Jun 2026 15:48:15 GMT
+Server: Kestrel
+Transfer-Encoding: chunked
+
+{"queueItemId":"no-such-item-xyz","dispatched":false,"outcome":"notFound","ticketNumber":null,"channel":null,"itemStatus":null,"error":"no queue item with id 'no-such-item-xyz'"}
+
+=== AC3b: missing queueItemId -> 400 ===
+HTTP/1.1 400 Bad Request
+Content-Type: application/json; charset=utf-8
+Date: Thu, 11 Jun 2026 15:48:15 GMT
+Server: Kestrel
+Transfer-Encoding: chunked
+
+{"error":"request body is required: { queueItemId } - the id of an APPROVED communication queue item"}
+
+=== AC3c: 401 wrong/missing token - NOTE: live slot Directors run auth-DISABLED on loopback
+(tailnet trust boundary, same as issues #327/#328); the 401 path is proven by
+DispatchEndpointTests.Dispatch_WithoutBearerToken_Returns401AndNothingSent against an
+auth-ENABLED ControlApiHost. Unit test run:
+
+Passed!  - Failed:     0, Passed:     1, Skipped:     0, Total:     1, Duration: 53 ms - CcDirector.Gateway.Tests.dll (net10.0)

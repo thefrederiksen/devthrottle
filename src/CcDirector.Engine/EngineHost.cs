@@ -169,6 +169,13 @@ public sealed class EngineHost : IDisposable
 
     public EngineDatabase? Database => _db;
 
+    /// <summary>
+    /// The communication dispatcher once its deferred init (email tool discovery) has
+    /// finished, else null. The Control API's POST /dispatch verb (issue #329) resolves
+    /// it through this property per request and answers 503 while it is still null.
+    /// </summary>
+    public CommunicationDispatcher? Dispatcher => _dispatcher;
+
     private void RaiseEvent(EngineEvent e)
     {
         try { OnEvent?.Invoke(e); }

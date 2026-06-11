@@ -1,0 +1,9 @@
+=== Gateway-side view: this test Director's advertised endpoint (from Director log: Registered status=201, endpoint=https://soren-north.taildb08ed.ts.net:7880) ===
+=== POST /dispatch via the advertised tailnet HTTPS endpoint (SAFE refusal case only) ===
+HTTP/1.1 409 Conflict
+Content-Type: application/json; charset=utf-8
+Date: Thu, 11 Jun 2026 16:04:20 GMT
+Server: Kestrel
+Transfer-Encoding: chunked
+
+{"queueItemId":"qa329-pending","dispatched":false,"outcome":"notApproved","ticketNumber":91002,"channel":null,"itemStatus":"pending_review","error":"item is 'pending_review', not 'approved' - only approved items dispatch; nothing was sent"}
