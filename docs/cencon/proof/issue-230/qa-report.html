@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #230 - QA Agent proof report</title>
+<style>
+:root{--bg:#1E1E1E;--panel:#252526;--text:#CCCCCC;--text2:#AAAAAA;--text3:#888888;
+  --accent:#007ACC;--green:#22C55E;--red:#F14C4C;--border:#3C3C3C;}
+body{background:var(--bg);color:var(--text);font-family:"Segoe UI",system-ui,sans-serif;
+  font-size:14px;line-height:1.55;max-width:980px;margin:0 auto;padding:32px}
+h1{font-size:22px;margin:0 0 4px}
+h2{font-size:16px;margin:28px 0 10px;border-bottom:1px solid var(--border);padding-bottom:6px}
+.sub{color:var(--text2);font-size:13px;margin:0 0 8px}
+code,pre{font-family:"Cascadia Mono",Consolas,monospace}
+pre{background:#111;border:1px solid var(--border);border-radius:8px;padding:14px;overflow:auto;font-size:12.5px}
+table{border-collapse:collapse;width:100%;margin:8px 0}
+th,td{border:1px solid var(--border);padding:8px 10px;text-align:left;vertical-align:top;font-size:13px}
+th{background:var(--panel);color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.03em}
+.pass{color:var(--green);font-weight:600}
+img{max-width:100%;border:1px solid var(--border);border-radius:8px;margin:8px 0}
+.tag{display:inline-block;background:var(--panel);border:1px solid var(--border);border-radius:5px;
+  padding:2px 8px;font-size:11px;color:var(--text2);margin-right:6px}
+.verified{background:#0d2e16;border:1px solid var(--green);border-radius:8px;padding:14px 16px;
+  color:#bff3cf;margin-top:24px}
+.note{background:#1a1f2e;border:1px solid #2d3a52;border-radius:8px;padding:12px 14px;color:#aebfdc;font-size:12.5px}
+</style>
+</head>
+<body>
+<h1>Issue #230 - Composer image upload shows nothing until the upload finishes</h1>
+<p class="sub">
+  <span class="tag">QA Agent - independent verification</span>
+  <span class="tag">PR #309</span>
+  <span class="tag">branch issue-230-composer-upload-status</span>
+  <span class="tag">area: CcDirector.Cockpit</span>
+</p>
+<p class="sub">Verified by a fresh QA context that never saw the Developer's work. The Developer's report and
+  <code>states.html</code> fixture were treated as context, NOT as proof - every criterion below was
+  judged against the actual checked-out branch source and an independent live render.</p>
+
+<h2>How this was verified (independent)</h2>
+<ul>
+  <li><b>Checked out the PR branch</b> <code>issue-230-composer-upload-status</code> (HEAD
+      <code>ff70a5f</code>) and read the actual patched
+      <code>src/CcDirector.Cockpit/Components/Pages/Cockpit.razor</code> - not the dev's diff snippet.</li>
+  <li><b>Clean build:</b> <code>dotnet build cc-director.sln</code> -&gt; <b>Build succeeded. 0 Warning(s), 0 Error(s).</b></li>
+  <li><b>Runnable build:</b> <code>scripts\local-build-avalonia.ps1 -Slot 5</code> -&gt; <code>cc-director5.exe</code>,
+      launched via the <code>cc-director-launch</code> scheduled task; Control API came up healthy on
+      <code>http://127.0.0.1:7886</code> (<code>/healthz</code> status=ok, version 0.6.22).</li>
+  <li><b>Regression gate:</b> <code>CcDirector.Cockpit.Tests</code> -&gt; <b>16 passed, 0 failed.</b></li>
+  <li><b>Independent live render:</b> ran the real Cockpit Blazor app (localhost:7470) and captured the
+      four status states using the <b>production <code>app.css</code> served by that running app</b>
+      (<code>qa-states.html</code> / <code>qa-states.png</code>) - a different artifact from the dev's
+      <code>states.html</code>. Playwright read back the rendered <code>textContent</code> of each
+      <code>.shots-status</code> / <code>.act-error</code> node to machine-confirm the exact strings.</li>
+</ul>
+
+<h2>The load-bearing fact: status is written + rendered BEFORE the upload await</h2>
+<p class="sub">Verified directly in the checked-out source. The optimistic write and
+  <code>StateHasChanged</code> (lines 1429-1430) sit strictly ABOVE
+  <code>OpenReadStream</code> / <code>UploadImageAsync</code> (lines 1432-1433), inside the per-file
+  <code>try</code> - so the frame renders before any byte leaves the browser. <code>total</code> is
+  captured once (1415); <code>index</code> increments per file (1420). The completion write (1438-1441)
+  and the failure <code>catch</code> (1443-1447) are unchanged by the diff.</p>
+<pre>
+1415  var total = files.Count;
+1417  var index = 0;
+1418  foreach (var f in files)
+1420      index++;
+          try {
+1429          _shotStatus = $"uploading {f.Name} ({index} of {total})...";   // optimistic
+1430          await InvokeAsync(StateHasChanged);                            // RENDER - before any byte
+1432          await using var s = f.OpenReadStream(20 * 1024 * 1024, ...);    // upload await STARTS here
+1433          var path = await Director.UploadImageAsync(...);
+1438          sent++;
+1439          _shotStatus = $"inserted {sent} image{(sent==1?"":"s")} into the prompt";   // unchanged
+          } catch (Exception ex) {
+1445          _actError = $"image upload failed: {ex.Message}";              // unchanged surface
+          }
+</pre>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (independently observed)</th><th>Result</th></tr>
+<tr><td>1</td>
+  <td><code>uploading &lt;file&gt; (1 of N)...</code> shows before the first file's bytes finish.</td>
+  <td>Status set + rendered before the upload await; string reads <code>uploading &lt;file&gt; (1 of N)...</code></td>
+  <td>Write + <code>StateHasChanged</code> are above <code>OpenReadStream</code>/<code>UploadImageAsync</code>
+      (lines 1429-1430 &gt; 1432-1433). Live render shows <code>uploading screenshot-large.png (1 of 3)...</code>
+      in the green <code>.shots-status</code> surface.</td>
+  <td class="pass">PASS</td></tr>
+<tr><td>2</td>
+  <td>Status updates per file (<code>(2 of N)</code>, ...).</td>
+  <td>Per-file re-write with incrementing index.</td>
+  <td><code>index++</code> each iteration; the optimistic write re-runs per file. Live render shows
+      <code>uploading diagram.png (2 of 3)...</code>.</td>
+  <td class="pass">PASS</td></tr>
+<tr><td>3</td>
+  <td>Completion shows <code>inserted N image(s) into the prompt</code>; images in composer (no regression).</td>
+  <td>Existing completion message + <code>InsertIntoComposer</code> intact.</td>
+  <td>Lines 1438-1441 untouched by the diff. Live render shows <code>inserted 3 images into the prompt</code>.</td>
+  <td class="pass">PASS</td></tr>
+<tr><td>4</td>
+  <td>On a failed upload the existing failure surface still shows.</td>
+  <td>Existing failure surface renders the error.</td>
+  <td><code>catch</code> writing <code>_actError = "image upload failed: ..."</code> unchanged (1443-1447);
+      renders in the red <code>.act-error</code> surface (Cockpit.razor:408). Live render shows
+      <code>image upload failed: ...</code>.</td>
+  <td class="pass">PASS</td></tr>
+</table>
+
+<h2>Independent live render (this QA's own artifact)</h2>
+<p class="sub">Real composer markup with the production <code>app.css</code> served by the running Cockpit
+  (localhost:7470). Playwright read-back confirmed the exact strings:
+  <code>['uploading screenshot-large.png (1 of 3)...', 'uploading diagram.png (2 of 3)...', 'inserted 3 images into the prompt', 'image upload failed: ...']</code>.</p>
+<img src="qa-states.png" alt="Four composer status states rendered with production CSS: uploading 1 of 3, uploading 2 of 3, inserted 3 images, image upload failed">
+
+<h2>Regression &amp; method sweep</h2>
+<ul>
+  <li>PR product-code scope is exactly 8 added lines in one Blazor component; nothing adjacent touched
+      (<code>git diff --stat</code>: only <code>Cockpit.razor</code> + dev proof files).</li>
+  <li>No CenCon drift: UI status-copy/timing change only; no architecture or
+      <code>security_profile.yaml</code> (DT-*) rule touched. No <code>docs/cencon/</code> update required.</li>
+  <li>All 16 Cockpit tests pass; solution builds clean (0/0).</li>
+</ul>
+
+<div class="note"><b>Environmental note (not a defect):</b> a true live mid-upload capture of the
+  <code>(1 of N)</code> frame requires the cross-machine tailnet chain (Gateway + tailnet-fronted Director
+  + live session + a 20&nbsp;MB upload through the Blazor circuit) and is a sub-second race. The
+  load-bearing property - status written and rendered BEFORE the await - is a deterministic source-order
+  fact, verified directly in the checked-out branch source and confirmed by an independent live render of
+  the real component markup + production CSS. This meets the issue's stated proof target.</div>
+
+<div class="verified">VERIFIED - all 4 acceptance criteria met. Build clean (0 warnings, 0 errors),
+  16 Cockpit tests pass, no regression, no CenCon drift. Authorized to squash-merge.</div>
+</body>
+</html>

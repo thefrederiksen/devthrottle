@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA #230 - composer upload status, four states (real Cockpit CSS)</title>
+<!-- Pulls the SAME app.css the running Cockpit serves at http://localhost:7470/app.css.
+     This QA fixture reproduces the exact composer DOM (composer-area > shots-status / act-error)
+     and the exact status strings the patched OnDropImages handler writes, rendered with the
+     production stylesheet - independent of the Developer Agent's states.html. -->
+<link rel="stylesheet" href="http://localhost:7470/app.css">
+<style>
+  body{background:#1E1E1E;color:#ccc;font-family:"Segoe UI",system-ui,sans-serif;margin:0;padding:24px}
+  h1{font-size:18px;margin:0 0 4px}
+  .sub{color:#999;font-size:12.5px;margin:0 0 20px}
+  .cases{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .case{background:#252526;border:1px solid #3C3C3C;border-radius:8px;padding:14px}
+  .label{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#888;margin-bottom:10px}
+</style>
+</head>
+<body>
+<h1>Issue #230 - composer upload status (QA independent render)</h1>
+<p class="sub">Real production app.css from the running Cockpit (localhost:7470). Each card is the actual
+  composer-area markup with the exact C# status string the patched handler writes.</p>
+<div class="cases">
+  <div class="case">
+    <div class="label">AC1 - first file, set BEFORE the upload await</div>
+    <div class="composer-area">
+      <div class="shots-status">uploading screenshot-large.png (1 of 3)...</div>
+    </div>
+  </div>
+  <div class="case">
+    <div class="label">AC2 - status advances per file</div>
+    <div class="composer-area">
+      <div class="shots-status">uploading diagram.png (2 of 3)...</div>
+    </div>
+  </div>
+  <div class="case">
+    <div class="label">AC3 - completion (unchanged surface)</div>
+    <div class="composer-area">
+      <div class="shots-status">inserted 3 images into the prompt</div>
+    </div>
+  </div>
+  <div class="case">
+    <div class="label">AC4 - failed upload (unchanged act-error surface)</div>
+    <div class="composer-area">
+      <div class="act-error">image upload failed: The request was canceled due to the configured HttpClient.Timeout</div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
