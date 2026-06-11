@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Verification Report - Issue #329 (PR #343) - POST /dispatch</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background: #14171c; color: #d8dde4; margin: 2rem auto; max-width: 1000px; padding: 0 1rem; }
+  h1 { color: #6fc3ff; border-bottom: 2px solid #2a3340; padding-bottom: .4rem; }
+  h2 { color: #9ad17e; margin-top: 2rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #2a3340; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #1d232c; color: #6fc3ff; }
+  .pass { color: #9ad17e; font-weight: bold; }
+  code, pre { background: #0e1116; color: #c9d4e0; border-radius: 4px; }
+  pre { padding: .8rem; overflow-x: auto; font-size: .85rem; border: 1px solid #2a3340; }
+  .verdict { background: #14301a; border: 2px solid #2f7d3f; padding: 1rem; border-radius: 6px; font-size: 1.1rem; margin: 1.5rem 0; }
+  .note { background: #1d232c; border-left: 4px solid #c9a44a; padding: .6rem 1rem; margin: 1rem 0; }
+  a { color: #6fc3ff; }
+  img { max-width: 100%; border: 1px solid #2a3340; }
+</style>
+</head>
+<body>
+<h1>QA Verification Report - Issue #329 / PR #343</h1>
+<p><strong>Issue:</strong> [ControlApi] New verb POST /dispatch - mechanical comm-dispatch of an already-approved queue item<br>
+<strong>Verified by:</strong> QA Agent (independent context - own worktree, own slot, own mock rig; developer artifacts used as context only, never as proof)<br>
+<strong>Date:</strong> 2026-06-11<br>
+<strong>Rig:</strong> PR branch <code>issue-329-dispatch-verb</code> @ 8b1fc55, own worktree build, slot-6 Director (PID 66488, Control API 127.0.0.1:7880) launched via <code>cc-director6-launch</code> scheduled task; Engine pointed at a QA-owned test DB and a QA-built mock channel exe (<code>cc-mockmail.exe</code>) via per-install <code>appsettings.json</code>.</p>
+
+<div class="note"><strong>Communication safety (supervisor mandate):</strong> NO real email or outbound communication was sent at any point. The only channel tool the Engine could discover was the QA mock exe, which records its argument list to <code>sends.log</code> and exits 0; all recipients use the reserved <code>.invalid</code> TLD. Exactly ONE mock invocation occurred across the entire run (the AC1 approved dispatch); every refusal case produced zero invocations. Vault archive was a no-op (no contact matches the .invalid recipient).</div>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (own evidence)</th><th>Verdict</th></tr>
+<tr>
+<td>AC1</td>
+<td>POST /dispatch for an APPROVED item dispatches via the channel sender; response reports success; item observably in sent state (queue state change + audit log)</td>
+<td>HTTP 200, dispatched=true, item -&gt; posted with posted_at/posted_by, channel tool invoked with the send args</td>
+<td>HTTP 200 <code>{"queueItemId":"qa329-approved","dispatched":true,"outcome":"dispatched","ticketNumber":91001,"channel":"cc-mockmail","itemStatus":"posted"}</code> (<a href="qa-ac1-approved-200.txt">qa-ac1-approved-200.txt</a>); DB row advanced to <code>posted</code> with <code>posted_at=2026-06-11T16:02:40Z, posted_by=cc-director</code> (<a href="qa-ac1-db-state.txt">qa-ac1-db-state.txt</a>); mock channel captured the exact send args incl. --account/-t/-s/-b/--html (<a href="qa-ac1-mock-capture.txt">qa-ac1-mock-capture.txt</a>); full audit trail in Director log (<a href="qa-ac4-audit-log.txt">qa-ac4-audit-log.txt</a>)</td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>AC2</td>
+<td>POST /dispatch for a pending_review item -&gt; refused 409 (or 403), clear error body, audit log line, NO send</td>
+<td>409, error body naming the state, "REFUSED (approval gate)" log line, zero channel invocations</td>
+<td>HTTP 409 <code>outcome=notApproved, itemStatus=pending_review, error="item is 'pending_review', not 'approved' - only approved items dispatch; nothing was sent"</code>; also verified rejected -&gt; 409, already-posted re-dispatch -&gt; 409 (no double-send), approved non-email platform -&gt; 409 unsupportedPlatform, approved-but-unparseable item -&gt; 422 (<a href="qa-ac2-refusals.txt">qa-ac2-refusals.txt</a>). Audit lines "REFUSED (approval gate) ... nothing sent" present for each (<a href="qa-ac4-audit-log.txt">qa-ac4-audit-log.txt</a>). sends.log invocation count stayed at exactly 1 (the AC1 send); all refused rows kept their original status (<a href="qa-ac1-db-state.txt">qa-ac1-db-state.txt</a>)</td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>AC3</td>
+<td>Unknown item id -&gt; 404. Missing/wrong token -&gt; 401</td>
+<td>404 with notFound body; 401 from the host auth middleware</td>
+<td>HTTP 404 <code>outcome=notFound</code> for unknown id; HTTP 400 for missing queueItemId and malformed JSON (<a href="qa-ac3-404-400.txt">qa-ac3-404-400.txt</a>). 401: live slot Directors run auth-disabled on loopback (tailnet trust boundary - same accepted convention as issues #327/#328); the 401 path verified by QA running <code>DispatchEndpointTests.Dispatch_WithoutBearerToken_Returns401AndNothingSent</code> against a REAL auth-enabled ControlApiHost (asserts 401 AND zero sends AND item stays approved) - all 8 DispatchEndpointTests green in QA's own run</td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>AC4</td>
+<td>Dispatch works with no Avalonia UI involvement (Engine execution headless under the Control API host); every dispatch FileLog-audited</td>
+<td>Pure REST -&gt; ControlApi -&gt; Engine path; no UI window involved; audit lines for every attempt</td>
+<td>True headless proven by QA's run of <code>DispatchEndpointTests</code> (real Kestrel ControlApiHost + real CommunicationDispatcher, NO Avalonia process at all, 8/8 green). On the live slot-6 Director every dispatch was pure REST; no session existed and the Communication Manager window was never opened (<a href="qa-live-slot6-director.png">qa-live-slot6-director.png</a> - empty session list, build 8b1fc55). Every attempt (success, each refusal, 404, bad JSON) has DispatchEndpoint + CommunicationDispatcher audit lines with item id, caller, outcome, channel (<a href="qa-ac4-audit-log.txt">qa-ac4-audit-log.txt</a>)</td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>AC5</td>
+<td>Contract change called out explicitly in the PR description (plan 1.2.5)</td>
+<td>PR body names the new DTOs and HTTP mapping</td>
+<td>PR #343 description carries a dedicated "CONTRACT ADDITION (plan 1.2.5)" section naming <code>DispatchRequest</code> and <code>DispatchResultDto</code> + full HTTP status mapping; DTOs confirmed present in <code>src/CcDirector.Gateway.Contracts/DispatchContracts.cs</code>; <code>CONTRACT_AUDIT.md</code> row 93 added (Verb, section 4.4) with inventory 113 -&gt; 114 and changelog entry</td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>AC6</td>
+<td>Cross-machine smoke: dispatch exercised from outside the Director, refusal case shown</td>
+<td>Per the #324-#328 convention (SORENLAPTOP still v0.6.22, pre-verb): gateway-leg / tailnet-endpoint equivalence proven locally, stated honestly</td>
+<td>Slot-6 Director registered with the real Gateway (status=201) advertising <code>https://soren-north.taildb08ed.ts.net:7880</code>; QA exercised POST /dispatch THROUGH that advertised tailnet HTTPS endpoint (Tailscale Serve -&gt; loopback) using the SAFE refusal case: HTTP 409 notApproved, nothing sent (<a href="qa-ac6-tailnet-leg.txt">qa-ac6-tailnet-leg.txt</a>). Honest limitation: a true remote-machine call of the NEW verb is structurally impossible until SORENLAPTOP updates past v0.6.22; the issue's self-addressed real email was deliberately replaced by the mock-channel proof per the supervisor's mock-only mandate</td>
+<td class="pass">PASS (accepted bar)</td>
+</tr>
+</table>
+
+<h2>Regression and method sweep</h2>
+<ul>
+<li>Full solution build on PR branch: <strong>Build succeeded, 0 warnings, 0 errors</strong> (QA's own build).</li>
+<li>Engine.Tests: <strong>62/62 passed</strong> (QA's own run). CommunicationDispatcherDispatchByIdTests 11/11.</li>
+<li>Gateway.Tests: 509/510 - the single failure is the known pre-existing live-OpenAI dictation flake (supervisor-acknowledged, not a regression of this PR). DispatchEndpointTests 8/8.</li>
+<li>Adjacent endpoints on the live slot-6 Director unaffected: /healthz 200, /sessions 200, /tools 200 (<a href="qa-regression-sweep.txt">qa-regression-sweep.txt</a>).</li>
+<li>Method: architecture_manifest.yaml updated for the new ControlApi -&gt; Engine reference; CONTRACT_AUDIT.md updated; docs/public/api/01-control-api.md endpoint count bumped. The approval gate is structural (by-id addressing, status must be exactly 'approved'), preserving the standing human-approval rule for outgoing communications - no DT/security rule violated.</li>
+<li>Per-instance dispatch lock prevents concurrent double-dispatch; verified the already-posted re-dispatch refusal live.</li>
+</ul>
+
+<div class="verdict"><strong>VERIFIED - all acceptance criteria met.</strong> 6/6 criteria PASS with independent QA evidence (own worktree build, own slot-6 Director, own mock channel and test DB). Nothing real was sent. Recommended action: merge (squash) per implementation-loop authority.</div>
+
+<p>Evidence files (this directory, <code>qa-*</code> prefixed = QA's own captures): qa-ac1-approved-200.txt, qa-ac1-db-state.txt, qa-ac1-mock-capture.txt, qa-ac2-refusals.txt, qa-ac3-404-400.txt, qa-ac4-audit-log.txt, qa-ac6-tailnet-leg.txt, qa-regression-sweep.txt, qa-live-slot6-director.png</p>
+</body>
+</html>

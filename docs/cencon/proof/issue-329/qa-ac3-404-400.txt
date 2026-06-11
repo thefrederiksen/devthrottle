@@ -1,0 +1,14 @@
+=== unknown id -> expect 404 ===
+HTTP/1.1 404 Not Found
+Content-Type: application/json; charset=utf-8
+Date: Thu, 11 Jun 2026 16:03:24 GMT
+Server: Kestrel
+Transfer-Encoding: chunked
+
+{"queueItemId":"qa-no-such-id","dispatched":false,"outcome":"notFound","ticketNumber":null,"channel":null,"itemStatus":null,"error":"no queue item with id 'qa-no-such-id'"}
+=== missing body field -> expect 400 ===
+{"error":"request body is required: { queueItemId } - the id of an APPROVED communication queue item"}
+HTTP 400
+=== malformed JSON -> expect 400 ===
+{"error":"invalid JSON request body"}
+HTTP 400

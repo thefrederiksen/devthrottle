@@ -1,0 +1,2 @@
+2026-06-11T16:02:40.8111904Z ARGS: --account | mock | send | -t | qa329-test@example.invalid | -s | QA329 TEST item - mock channel, never sent | -b | <p>QA 329 mock body line1<br>
+line2</p> | --html

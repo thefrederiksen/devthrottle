@@ -1,0 +1,6 @@
+=== regression sweep: adjacent endpoints on slot 6 ===
+{"status":"ok","directors":1,"sessions":0,"version":"0.6.22","serverTime":"2026-06-11T16:04:39.7775313Z","directorId":"4e431594-7b2e-4ea1-9d11-5b365dcc6f7e","machineName":"SOREN_NORTH"}
+HTTP 200
+[]
+HTTP 200
+HTTP 200
