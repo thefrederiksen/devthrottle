@@ -1,0 +1,6 @@
+=== AC1 state proof: item advanced to posted in the queue DB ===
+('test-329-approved', 90001, 'posted', '2026-06-11T15:47:26.1086489Z', 'cc-director')
+('test-329-pending', 90002, 'pending_review', None, None)
+
+=== AC1 channel proof: mock tool sent.log (the args the Engine passed; NOTHING really sent) ===
+2026-06-11T15:47:26.0979397Z ARGS: --account | mock | send | -t | dispatch-329-test@example.invalid | -s | TEST issue 329 dispatch (mock channel) | -b | <p>Live proof body for issue 329. Mock channel only.</p> | --html

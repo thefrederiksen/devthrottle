@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #329 - POST /dispatch - Developer Agent Proof</title>
+<style>
+  body { font-family: "Segoe UI", Arial, sans-serif; background: #14181d; color: #d8dee6; margin: 0; padding: 32px; line-height: 1.5; }
+  .wrap { max-width: 1000px; margin: 0 auto; }
+  h1 { color: #6fc3ff; font-size: 1.5em; border-bottom: 2px solid #2a3340; padding-bottom: 8px; }
+  h2 { color: #8fd0a0; font-size: 1.15em; margin-top: 32px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #2a3340; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #1c232b; color: #9fb3c8; }
+  code, pre { font-family: Consolas, monospace; background: #1c232b; color: #c9e3a6; border-radius: 4px; }
+  code { padding: 1px 5px; }
+  pre { padding: 12px; overflow-x: auto; border: 1px solid #2a3340; }
+  .pass { color: #7ce38b; font-weight: bold; }
+  .note { background: #20262e; border-left: 4px solid #c9a227; padding: 10px 14px; margin: 14px 0; }
+  .safety { background: #20262e; border-left: 4px solid #e06c75; padding: 10px 14px; margin: 14px 0; }
+  a { color: #6fc3ff; }
+  img { max-width: 100%; border: 1px solid #2a3340; margin: 8px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Issue #329 - [ControlApi] New verb POST /dispatch - mechanical comm-dispatch of an already-approved queue item</h1>
+
+<p><strong>Role:</strong> Developer Agent (CenCon Development Method) &nbsp;|&nbsp;
+<strong>Branch:</strong> <code>issue-329-dispatch-verb</code> &nbsp;|&nbsp;
+<strong>Date:</strong> 2026-06-11 &nbsp;|&nbsp;
+<strong>Live rig:</strong> isolated slot-6 Director (own worktree build <code>cc-director6.exe</code>, PID 66492, Control API 127.0.0.1:7879, launched via the per-slot scheduled task, torn down after)</p>
+
+<div class="safety">
+<strong>COMMUNICATION SAFETY (supervisor mandate, honored):</strong> NO real email or outbound
+communication was sent at any point - not in unit tests, not in the live proof. The live rig's
+Engine was pointed (via its own per-install <code>appsettings.json</code>) at a TEST communications
+DB and a MOCK channel tool (<code>cc-mockmail.exe</code>) that records its arguments to
+<code>sent.log</code> and exits 0; all recipients use the reserved <code>.invalid</code> TLD.
+The issue text's "self-addressed test email" was deliberately replaced by this mock-channel
+state-transition proof per the implementation-loop supervisor's mock-only instruction.
+</div>
+
+<h2>What was implemented</h2>
+<ul>
+  <li><code>POST /dispatch { queueItemId }</code> on the Director Control API
+      (<code>src/CcDirector.ControlApi/DispatchEndpoint.cs</code>), registered in
+      <code>ControlApiHost</code> behind the same auth middleware as every route.</li>
+  <li>Invocable Engine dispatch primitive
+      <code>CommunicationDispatcher.DispatchByIdAsync(queueItemId)</code> - the existing send
+      path (route lookup, channel tool via argument-list <code>Process.Start</code>, item
+      advanced to <code>posted</code> with <code>posted_by='cc-director'</code>, vault-archive
+      attempt, <code>CommunicationDispatched</code> event) made callable for ONE item by id,
+      with a HARD approval gate and a per-instance lock against concurrent double-dispatch.
+      The channel boundary is an injectable <code>ToolProcessRunner</code> delegate (production
+      default = the real process runner) so tests use a mock channel.</li>
+  <li><strong>CONTRACT ADDITION (plan 1.2.5):</strong> <code>DispatchRequest</code> +
+      <code>DispatchResultDto</code> in <code>CcDirector.Gateway.Contracts</code>
+      (<code>DispatchContracts.cs</code>).</li>
+  <li>HTTP mapping: 200 dispatched, 404 unknown id, 409 not-approved / already-posted /
+      unsupported platform, 422 approved-but-malformed item, 502 provider send failure,
+      400 bad body, 401 unauthenticated (host middleware), 503 dispatcher not yet ready
+      (engine discovery still running).</li>
+  <li>Every call FileLog-audited: item id + caller on entry, ticket/outcome/channel on exit,
+      explicit REFUSED lines for the gate.</li>
+  <li>Headless-test enablement: per-install <code>appsettings.json</code> <code>Engine</code>
+      section now also accepts <code>BinDirectory</code> and <code>EmailToolNames</code> and
+      WINS over the shared per-machine <code>config.json</code>, so an isolated test Director
+      can run a mock channel without touching shared config.</li>
+  <li>Docs kept consistent: <code>CONTRACT_AUDIT.md</code> (new Verb row 93, inventory
+      113 -&gt; 114, Verbs 53 -&gt; 54, sections/rows renumbered),
+      <code>docs/cencon/architecture_manifest.yaml</code> (control_api now depends on
+      CcDirector.Engine; DispatchEndpoint component added; CommunicationDispatcher description
+      updated), <code>docs/public/api/01-control-api.md</code>.</li>
+</ul>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (live, slot-6 Director)</th><th>Proof</th></tr>
+<tr>
+  <td>1</td>
+  <td>Approved item dispatches via the existing channel sender; response reports success; item observably in sent state (queue state change + audit log)</td>
+  <td>200, <code>dispatched:true</code>, DB row -&gt; <code>posted</code>/<code>posted_by=cc-director</code>, channel invoked once</td>
+  <td class="pass">PASS - 200 with <code>outcome=dispatched, channel=cc-mockmail, itemStatus=posted</code>; DB row posted at 15:47:26Z by cc-director; mock channel received the full send arg list (to/subject/html body) exactly once</td>
+  <td><a href="ac1-approved-dispatch.txt">ac1-approved-dispatch.txt</a>, <a href="ac1-state-proof.txt">ac1-state-proof.txt</a></td>
+</tr>
+<tr>
+  <td>2</td>
+  <td>pending_review item -&gt; refused 409 (or 403), clear error body, audit log line, NO send</td>
+  <td>409, explanatory body, sent.log unchanged, status unchanged</td>
+  <td class="pass">PASS - 409 <code>notApproved</code> with "item is 'pending_review', not 'approved' ... nothing was sent"; re-dispatch of the already-posted item also 409; sent.log still exactly 1 line; statuses unchanged; REFUSED audit lines in the Director log</td>
+  <td><a href="ac2-refusal.txt">ac2-refusal.txt</a>, <a href="ac4-audit-headless.txt">ac4-audit-headless.txt</a></td>
+</tr>
+<tr>
+  <td>3</td>
+  <td>Unknown item id -&gt; 404. Missing/wrong token -&gt; 401</td>
+  <td>404 for unknown id; 401 without bearer</td>
+  <td class="pass">PASS - 404 <code>notFound</code> live (and 400 for missing queueItemId). 401 proven by <code>Dispatch_WithoutBearerToken_Returns401AndNothingSent</code> against an auth-ENABLED ControlApiHost (live slot Directors run auth-off on loopback by design - same convention as #327/#328)</td>
+  <td><a href="ac3-404-400-401.txt">ac3-404-400-401.txt</a></td>
+</tr>
+<tr>
+  <td>4</td>
+  <td>Dispatch works with no Avalonia UI involvement (Engine execution headless under the Control API host)</td>
+  <td>Pure REST -&gt; ControlApi -&gt; Engine; Communication Manager never opened</td>
+  <td class="pass">PASS - every call above was REST-only; the path is DispatchEndpoint -&gt; EngineHost.Dispatcher -&gt; CommunicationDispatcher (CcDirector.Engine); CommManagerViewModel is not in the path and no UI was touched. Honest note: the Director process is the Avalonia app, so a main window exists - but it was never interacted with and the dispatch path has zero UI dependency</td>
+  <td><a href="ac4-audit-headless.txt">ac4-audit-headless.txt</a>, <a href="live-slot6-director.png">live-slot6-director.png</a></td>
+</tr>
+<tr>
+  <td>5</td>
+  <td>Contract change called out explicitly in the PR description</td>
+  <td>DispatchRequest/DispatchResultDto flagged</td>
+  <td class="pass">PASS - PR description carries a "CONTRACT ADDITION (plan 1.2.5)" section</td>
+  <td>PR #see issue comment</td>
+</tr>
+<tr>
+  <td>6</td>
+  <td>Cross-machine smoke (plan 1B: dispatch hosted on the SORENLAPTOP test Director)</td>
+  <td>See note below</td>
+  <td class="pass">PASS (gateway-leg equivalent) - SORENLAPTOP runs v0.6.22 which PREDATES this verb, so a true remote proof is structurally impossible until it updates (established #324-#328 convention). Proven instead: the slot-6 Director registered with the real Gateway (201, advertised MagicDNS endpoint) and the verb was exercised THROUGH the advertised tailnet HTTPS endpoint <code>https://soren-north.taildb08ed.ts.net:7879/dispatch</code> using the safe refusal case (409). Additionally the supervisor's mock-only mandate replaces the issue's real self-addressed email</td>
+  <td><a href="ac6-gateway-leg.txt">ac6-gateway-leg.txt</a></td>
+</tr>
+</table>
+
+<h2>Live rig screenshot</h2>
+<p>The slot-6 test Director's own manager UI (Director id <code>44b1b044</code> on SOREN_NORTH,
+0 sessions - the rig existed only to host the Control API + Engine for this proof):</p>
+<img src="live-slot6-director.png" alt="Slot-6 test Director manager UI, 0 sessions">
+
+<h2>Tests</h2>
+<ul>
+  <li><code>CommunicationDispatcherDispatchByIdTests</code> (Engine.Tests, 11 tests) - approved
+      path marks posted + exact channel args; approval gate refuses pending_review / rejected /
+      posted with nothing sent; 404; unsupported platform; invalid item; no-route and tool-failure
+      leave the item approved with notes; argument validation; missing DB. All against a real temp
+      SQLite DB + mock channel.</li>
+  <li><code>DispatchEndpointTests</code> (Gateway.Tests, 8 tests) - full HTTP path against a real
+      auth-enabled ControlApiHost wired to a real CommunicationDispatcher: 200+posted, 409 pending,
+      409 already-posted, 404, 401 without bearer, 400 missing id, 400 malformed JSON, 503
+      dispatcher-not-ready.</li>
+  <li>Full suites: Engine.Tests 62/62 pass; Gateway.Tests 509/510 - the single failure is
+      <code>DictationEndpointTests.FullPipeline_transcribes_phase0_clip2_with_realtime_provider</code>,
+      the known pre-existing live-OpenAI flake, reproduced failing identically on the base commit
+      <code>e6d70a9</code> in a clean worktree (NOT a regression from this change).</li>
+  <li><code>dotnet build cc-director.sln</code>: Build succeeded, 0 Warning(s), 0 Error(s).</li>
+</ul>
+
+<h2>CenCon impact</h2>
+<p>Architecture: <code>control_api</code> gains a dependency on <code>CcDirector.Engine</code> and a
+<code>DispatchEndpoint</code> component - <code>architecture_manifest.yaml</code> updated in this
+change. Security: no drift - the human-approval rule is preserved STRUCTURALLY (the verb can only
+execute items already approved in the workflow; refusals are audited), process execution stays
+argument-array (DT-03), the route sits behind the standard loopback-only + optional bearer surface
+(DT-07), no secrets logged (DT-05). <code>CONTRACT_AUDIT.md</code> gains Verb row 93 (inventory 114).</p>
+
+<div class="note"><strong>Statement:</strong> I believe this is finished. Every acceptance
+criterion is met with live proof or an explicitly stated, convention-backed equivalent, the build
+is clean, and the only failing test is the documented pre-existing flake reproduced on base.</div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,8 @@
+=== AC1: dispatch APPROVED item test-329-approved (mock channel) ===
+HTTP/1.1 200 OK
+Content-Type: application/json; charset=utf-8
+Date: Thu, 11 Jun 2026 15:47:25 GMT
+Server: Kestrel
+Transfer-Encoding: chunked
+
+{"queueItemId":"test-329-approved","dispatched":true,"outcome":"dispatched","ticketNumber":90001,"channel":"cc-mockmail","itemStatus":"posted","error":null}

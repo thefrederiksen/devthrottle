@@ -1,0 +1,24 @@
+=== AC6: cross-machine / gateway-leg proof (the #324-#328 convention) ===
+
+The remote test seat SORENLAPTOP runs Director v0.6.22, which PREDATES this verb, so a
+true remote proof of the NEW endpoint is structurally impossible until that machine
+updates (established convention from issues #324-#328). Additionally, the supervisor's
+communication-safety mandate for #329 is MOCK-ONLY: no real self-addressed email is sent
+even though the issue text suggested one - the approved-item round-trip is proven against
+the mock channel above instead.
+
+Gateway-leg equivalent, proven locally: the slot-6 test Director registered with the real
+Gateway and advertises its MagicDNS tailnet endpoint; the verb is exercised THROUGH that
+advertised HTTPS endpoint (Tailscale Serve -> loopback), using the SAFE refusal case:
+
+--- Director registration (from its log):
+2026-06-11 11:46:57.271 [GatewayClient] Registered: status=201, endpoint=https://soren-north.taildb08ed.ts.net:7879
+
+--- POST /dispatch via https://soren-north.taildb08ed.ts.net:7879 (tailnet endpoint, refusal case):
+HTTP/1.1 409 Conflict
+Content-Type: application/json; charset=utf-8
+Date: Thu, 11 Jun 2026 15:49:04 GMT
+Server: Kestrel
+Transfer-Encoding: chunked
+
+{"queueItemId":"test-329-pending","dispatched":false,"outcome":"notApproved","ticketNumber":90002,"channel":null,"itemStatus":"pending_review","error":"item is 'pending_review', not 'approved' - only approved items dispatch; nothing was sent"}
