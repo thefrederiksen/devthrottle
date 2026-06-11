@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="CcDirector.Core.Tests" />
+    <InternalsVisibleTo Include="CcDirector.Gateway.Tests" />
     <InternalsVisibleTo Include="TerminalTest" />
   </ItemGroup>
 
