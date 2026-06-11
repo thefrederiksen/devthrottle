@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #330 - QA Agent Verification Report</title>
+<style>
+  body { font-family: "Segoe UI", Arial, sans-serif; background: #14181d; color: #d8dee6; margin: 0; padding: 32px; line-height: 1.5; }
+  .wrap { max-width: 1000px; margin: 0 auto; }
+  h1 { color: #6fc3ff; font-size: 1.5em; border-bottom: 2px solid #2a3340; padding-bottom: 8px; }
+  h2 { color: #8fd0a0; font-size: 1.15em; margin-top: 32px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #2a3340; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #1c232b; color: #9fb3c8; }
+  code, pre { font-family: Consolas, monospace; background: #1c232b; color: #c9e3a6; border-radius: 4px; }
+  code { padding: 1px 5px; }
+  pre { padding: 12px; overflow-x: auto; border: 1px solid #2a3340; }
+  .pass { color: #7ce38b; font-weight: bold; }
+  .note { background: #20262e; border-left: 4px solid #c9a227; padding: 10px 14px; margin: 14px 0; }
+  .verdict { background: #16321c; border: 2px solid #7ce38b; padding: 14px 18px; margin: 20px 0; font-size: 1.1em; }
+  a { color: #6fc3ff; }
+  img { max-width: 100%; border: 1px solid #2a3340; margin: 8px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Issue #330 - QA Agent Independent Verification</h1>
+
+<p><strong>Role:</strong> QA Agent (CenCon Development Method) - independent context, separate from the Developer Agent.<br>
+<strong>PR:</strong> #345, branch <code>issue-330-director-events-and-facts</code> @ <code>ae540f8</code><br>
+<strong>Date:</strong> 2026-06-11<br>
+<strong>Rig (built and driven by QA, nothing reused from the Developer):</strong> own git worktree
+<code>D:\ReposFred\wt-qa-330</code>; own slot-6 build <code>cc-director6.exe</code> (PID 55684, Control API
+127.0.0.1:7879) launched via the per-slot scheduled task with an ISOLATED <code>CC_DIRECTOR_ROOT</code>
+(env-injecting cmd wrapper); registered ONLY with QA's own isolated NEW-code test Gateway
+(console host of <code>GatewayHost</code>, 127.0.0.1:7981, isolated root,
+<code>CC_GATEWAY_NO_TAILSCALE=1</code>, <code>CC_TURNBRIEFS=0</code>). The user's production fleet,
+slots 1-5, and the production Gateway were never touched.</p>
+
+<div class="note">
+<strong>Cross-machine caveat (convention from #324-#329, stated honestly):</strong> AC4 names the
+SORENLAPTOP Director as the facts source. SORENLAPTOP runs v0.6.22, which predates
+<code>GET /facts</code> - a true remote proof of the NEW surface is structurally impossible until that
+machine updates. QA proved the Gateway-leg equivalent locally: the NEW-code test Gateway pulled
+<code>GET /directors/{id}/facts</code> through the registered proxy leg over the Director's REAL
+advertised tailnet endpoint (<code>https://soren-north.taildb08ed.ts.net:7879</code> - an actual
+HTTPS hop through Tailscale Serve, the exact code path a remote Director exercises). QA also
+OBSERVED the clean degradation live: while the endpoint was unreachable the proxy answered 502
+(same shape an old 404-answering Director produces).
+</div>
+
+<h2>Acceptance criteria - independently reproduced, Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (QA's own proof)</th><th>Verdict</th></tr>
+<tr>
+  <td>1</td>
+  <td>session-created / session-exited observable at the Gateway within 5 s</td>
+  <td>Events land in the Gateway's per-director ring + structured log shortly after the moment</td>
+  <td>POST /sessions completed 17:56:57.132Z -&gt; <code>session-created</code> received
+      17:56:57.211Z (<strong>79 ms</strong>); second session 18:05:12.620Z -&gt; received
+      18:05:12.670Z (<strong>50 ms</strong>). <code>session-exited</code> observed for all three QA
+      sessions, count = 1 each. Dedupe proven BOTH ways: session 1 died by process exit
+      (state-&gt;Exited, event at 17:57:51) and its LATER roster removal (DELETE of the dead row)
+      produced NO second event (count stayed 1); sessions 2/3 were active-killed (roster removal
+      first) and produced exactly one event each.
+      Evidence: <a href="qa-gateway-structured-log.txt">qa-gateway-structured-log.txt</a>,
+      <a href="qa-events-ring-after-restart.json">qa-events-ring-after-restart.json</a></td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td>prompt-detected on the detector's transition into an input-prompt state</td>
+  <td>Session goes Working, detector flips to WaitingForInput, event lands at the Gateway</td>
+  <td>Prompt sent 18:05:57.162Z -&gt; session observed in <code>Working</code> -&gt; claude finished
+      -&gt; detector transitioned to WaitingForInput -&gt; <code>prompt-detected</code> received
+      18:06:11.378Z (state=WaitingForInput). Sourced from the existing detector signal exactly as
+      the issue's flagged assumption states - no prompt understanding.
+      Evidence: structured log line at 14:06:11.378 local in
+      <a href="qa-gateway-structured-log.txt">qa-gateway-structured-log.txt</a></td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>3</td>
+  <td>Doorbell stays fire-and-forget; Gateway killed mid-stream does not wedge the Director</td>
+  <td>Director keeps creating/serving sessions while the Gateway is dead; failures logged and dropped; heartbeat reconciles after restart</td>
+  <td>QA killed its test Gateway at 18:08:54Z. POST /sessions WHILE DEAD -&gt; <strong>201</strong>
+      (session c7a5fabf created), GET /healthz ok, both sessions listed. Director log shows
+      <code>Heartbeat FAILED ... (127.0.0.1:7981)</code> and
+      <code>doorbell c7a5fabf... FAILED (dropped; heartbeat reconciles)</code> - logged and dropped,
+      no wedge, no retry storm. Gateway restarted 18:09 -&gt; Director re-registered within ~25 s via
+      the heartbeat loop and subsequent session-exited events flowed normally.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>4</td>
+  <td>Tool inventory (names + versions) retrievable through the Gateway</td>
+  <td>GET /directors/{id}/facts returns the inventory via the proxy leg</td>
+  <td><strong>32 tools</strong> (name, category, version, isBuilt) + launcher fact pulled through the
+      NEW-code test Gateway over the Director's real tailnet HTTPS endpoint; <strong>25 tools carried
+      versions</strong> (0.6.22, resolved from installed.json / binary version resources -
+      deterministic, no process launched; dev-only tools honestly null).
+      Evidence: <a href="qa-facts-via-gateway.json">qa-facts-via-gateway.json</a>.
+      Unreachable-endpoint degradation observed live as 502 (never a hang). Cross-machine caveat above.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>5</td>
+  <td>Launcher fact: absent = not installed; launcher.json fixture present = reports the port</td>
+  <td>Absent file is a valid 200 fact (installed=false); fixture reports its port; read at request time</td>
+  <td>On the SAME running Director, no restart: no file -&gt;
+      <code>installed=false, port=null, error=null</code>
+      (<a href="qa-facts-direct-launcher-absent.json">qa-facts-direct-launcher-absent.json</a>);
+      hand-placed fixture <code>{"port": 7900, ...}</code> -&gt; <code>installed=true, port=7900</code>
+      (<a href="qa-facts-direct-launcher-present.json">qa-facts-direct-launcher-present.json</a>);
+      fixture deleted -&gt; <code>installed=false</code> again. The launcher-absent fact also rode the
+      via-Gateway pull in AC4. Request-time read proven by the flip with zero restarts.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>6</td>
+  <td>Contract changes called out explicitly in the PR description</td>
+  <td>DoorbellRequest vocabulary + fact DTOs named (plan 1.2.5)</td>
+  <td>PR #345 description carries a dedicated "CONTRACT CHANGES" section naming
+      <code>DoorbellRequest.Event</code> + <code>DoorbellEvents</code> constants,
+      <code>DirectorEventDto</code>, and <code>DirectorFactsDto</code>/<code>ToolInventoryItemDto</code>/
+      <code>LauncherFactDto</code>, with the both-directions compatibility statement (verified against
+      the code: null/absent Event = pre-#330 wire shape).</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<p>Live QA rig screenshot (slot-6 Director, own build):
+<a href="qa-live-slot6-director.png">qa-live-slot6-director.png</a>. The Gateway-connection
+troubleshooter visible in it reflects a RIG artifact, not a product defect: the isolated test
+Director is invisible to the machine's production Gateway, whose 5-minute orphan sweep repeatedly
+removed the test Director's self-provisioned serve mapping (the #179 sweep working as designed).
+The two-way handshake passed at registration and the facts pull succeeded over that same endpoint
+whenever the mapping was present.</p>
+<img src="qa-live-slot6-director.png" alt="QA live slot-6 Director">
+
+<h2>Tests and regression sweep (QA's own runs, QA's own build)</h2>
+<ul>
+  <li>Full solution build of the PR branch: <code>Build succeeded. 0 Warning(s) 0 Error(s)</code>.</li>
+  <li>New tests green: ToolInventoryTests + LauncherDiscoveryTests = 12 passed;
+      DirectorEventsAndFactsTests = 6 passed.</li>
+  <li>Full CcDirector.Core.Tests: <strong>1782 passed, 0 failed</strong> (2 skipped).</li>
+  <li>Full CcDirector.Gateway.Tests: <strong>515 passed, 1 failed</strong> -
+      <code>DictationEndpointTests.FullPipeline_transcribes_phase0_clip2_with_realtime_provider</code>.
+      <strong>Non-regression verified by QA independently:</strong> the same test fails with the
+      identical assertion ("expected at least 1 partial transcript, got 0") on base
+      <code>main @ 43f1831</code> with zero #330 changes - the known pre-existing live-OpenAI flake.</li>
+  <li>Negative sweep: pre-#330 behavior intact - tag-less doorbell pings record nothing in the ring
+      (covered by DirectorEventsAndFactsTests legacy test); the Director created/listed/closed
+      sessions normally throughout; GET /directors/{id}/events answers 404 for unknown directors
+      (test-covered); the event ring is in-memory by design and was observed empty after the Gateway
+      restart, with post-restart events recording normally.</li>
+  <li>CenCon: <code>docs/architecture/gateway/CONTRACT_AUDIT.md</code> updated in the PR (row 94
+      <code>GET /facts</code>, inventory 114 -&gt; 115, section 5 doorbell vocabulary + ring sink).
+      No DT-* blocking rule touched; <code>GET /facts</code> sits behind the same host auth middleware
+      as every Control API route.</li>
+</ul>
+
+<div class="verdict">VERIFIED - all acceptance criteria met. 6/6 PASS. QA approves PR #345 for merge.</div>
+
+</div>
+</body>
+</html>

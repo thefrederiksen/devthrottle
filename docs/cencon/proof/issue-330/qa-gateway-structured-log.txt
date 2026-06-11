@@ -1,0 +1,4 @@
+﻿2026-06-11 13:56:57.211 [DirectorEvents] director=7a2cfbcf-e2ff-49fc-af31-957e32e79f3a session=0112e128-9b45-4541-a0a2-aec6565f82a3 event=session-created state=WaitingForInput
+2026-06-11 13:57:51.479 [DirectorEvents] director=7a2cfbcf-e2ff-49fc-af31-957e32e79f3a session=0112e128-9b45-4541-a0a2-aec6565f82a3 event=session-exited state=Exited
+2026-06-11 14:05:12.670 [DirectorEvents] director=7a2cfbcf-e2ff-49fc-af31-957e32e79f3a session=0ab888e6-d5ce-4340-acbd-51cc8c806968 event=session-created state=WaitingForInput
+2026-06-11 14:06:11.378 [DirectorEvents] director=7a2cfbcf-e2ff-49fc-af31-957e32e79f3a session=0ab888e6-d5ce-4340-acbd-51cc8c806968 event=prompt-detected state=WaitingForInput
