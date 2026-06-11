@@ -94,6 +94,9 @@ public sealed class ControlApiHost : IAsyncDisposable
     // Resolved lazily at request time: the scheduler is created AFTER the Control API host
     // (StartControlApi runs before StartScheduler), so we capture an accessor, not the instance.
     private readonly Func<Core.Scheduler.SchedulerService?>? _schedulerAccessor;
+    // Resolved lazily too (issue #329): the Engine starts after this host AND its dispatcher
+    // only exists once the deferred email-tool discovery completes.
+    private readonly Func<Engine.Dispatcher.CommunicationDispatcher?>? _commDispatcherAccessor;
     private readonly string? _instancesDirectory;
     private bool _stopped;
 
@@ -108,7 +111,7 @@ public sealed class ControlApiHost : IAsyncDisposable
     /// If true, bearer-token or cookie auth is required for all routes except /healthz/login/logout.
     /// If false (default), the Director is completely open. The Tailscale tailnet is the trust boundary.
     /// </param>
-    public ControlApiHost(SessionManager sessionManager, string version, Func<Task> requestShutdownAsync, bool useEphemeralPort = false, bool authEnabled = false, RepositoryRegistry? repositoryRegistry = null, string? directorId = null, Func<Core.Scheduler.SchedulerService?>? schedulerAccessor = null, string? instancesDirectory = null)
+    public ControlApiHost(SessionManager sessionManager, string version, Func<Task> requestShutdownAsync, bool useEphemeralPort = false, bool authEnabled = false, RepositoryRegistry? repositoryRegistry = null, string? directorId = null, Func<Core.Scheduler.SchedulerService?>? schedulerAccessor = null, string? instancesDirectory = null, Func<Engine.Dispatcher.CommunicationDispatcher?>? commDispatcherAccessor = null)
     {
         _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));
         _version = version ?? "0.0.0";
@@ -117,6 +120,7 @@ public sealed class ControlApiHost : IAsyncDisposable
         _authEnabled = authEnabled;
         _repositoryRegistry = repositoryRegistry;
         _schedulerAccessor = schedulerAccessor;
+        _commDispatcherAccessor = commDispatcherAccessor;
         // Tests pass an isolated instances directory so test Directors never appear in a real
         // Gateway's discovery (and a real Director never appears in a test Gateway's).
         _instancesDirectory = instancesDirectory;
@@ -288,6 +292,9 @@ public sealed class ControlApiHost : IAsyncDisposable
         ToolsEndpoint.Map(_app);
         WorkspacesEndpoint.Map(_app);
         SchedulerEndpoint.Map(_app, _schedulerAccessor);
+        // POST /dispatch (issue #329): null accessor means "no Engine hosted here" (tests
+        // that don't care, embedded hosts) - the endpoint then answers 503, never throws.
+        DispatchEndpoint.Map(_app, _commDispatcherAccessor ?? (() => null));
 
         await _app.StartAsync();
 

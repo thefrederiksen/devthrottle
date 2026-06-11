@@ -13,6 +13,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\CcDirector.Core\CcDirector.Core.csproj" />
+    <ProjectReference Include="..\CcDirector.Engine\CcDirector.Engine.csproj" />
     <ProjectReference Include="..\CcDirector.Gateway.Contracts\CcDirector.Gateway.Contracts.csproj" />
   </ItemGroup>
 

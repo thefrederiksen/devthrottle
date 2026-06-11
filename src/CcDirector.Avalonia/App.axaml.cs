@@ -342,7 +342,9 @@ public partial class App : Application
                 return Task.CompletedTask;
             };
 
-            ControlApiHost = new ControlApiHost(SessionManager, version, requestShutdown, repositoryRegistry: RepositoryRegistry, schedulerAccessor: () => Scheduler);
+            // commDispatcherAccessor (issue #329): resolved per request because the Engine
+            // starts after this host and its dispatcher appears only after tool discovery.
+            ControlApiHost = new ControlApiHost(SessionManager, version, requestShutdown, repositoryRegistry: RepositoryRegistry, schedulerAccessor: () => Scheduler, commDispatcherAccessor: () => EngineHost?.Dispatcher);
 
             _ = Task.Run(async () =>
             {
@@ -573,21 +575,8 @@ public partial class App : Application
         try
         {
             var engineOptions = new EngineOptions();
-            var configPath = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
-            if (File.Exists(configPath))
-            {
-                var json = File.ReadAllText(configPath);
-                using var doc = JsonDocument.Parse(json);
 
-                if (doc.RootElement.TryGetProperty("Engine", out var engineSection))
-                {
-                    if (engineSection.TryGetProperty("CommunicationsDbPath", out var dbPath))
-                        engineOptions.CommunicationsDbPath = dbPath.GetString() ?? engineOptions.CommunicationsDbPath;
-                    if (engineSection.TryGetProperty("DispatcherPollIntervalSeconds", out var poll))
-                        engineOptions.DispatcherPollIntervalSeconds = poll.GetInt32();
-                }
-            }
-
+            // Shared per-machine config first (config.json: comm_manager.email_tools)...
             var ccConfigPath = CcStorage.ConfigJson();
             if (File.Exists(ccConfigPath))
             {
@@ -605,6 +594,38 @@ public partial class App : Application
                     }
                     if (tools.Count > 0) engineOptions.EmailToolNames = tools;
                     FileLog.Write($"[App] EmailToolNames from config: [{string.Join(", ", tools)}]");
+                }
+            }
+
+            // ...then the per-install appsettings.json next to the exe, which WINS over the
+            // shared config: an isolated test Director (issue #329) points its own appsettings
+            // at a test communications DB and a mock channel tool without ever touching the
+            // shared per-machine config.json other Directors on this box read.
+            var configPath = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+            if (File.Exists(configPath))
+            {
+                var json = File.ReadAllText(configPath);
+                using var doc = JsonDocument.Parse(json);
+
+                if (doc.RootElement.TryGetProperty("Engine", out var engineSection))
+                {
+                    if (engineSection.TryGetProperty("CommunicationsDbPath", out var dbPath))
+                        engineOptions.CommunicationsDbPath = dbPath.GetString() ?? engineOptions.CommunicationsDbPath;
+                    if (engineSection.TryGetProperty("DispatcherPollIntervalSeconds", out var poll))
+                        engineOptions.DispatcherPollIntervalSeconds = poll.GetInt32();
+                    if (engineSection.TryGetProperty("BinDirectory", out var binDir))
+                        engineOptions.BinDirectory = binDir.GetString() ?? engineOptions.BinDirectory;
+                    if (engineSection.TryGetProperty("EmailToolNames", out var toolNames))
+                    {
+                        var tools = new List<string>();
+                        foreach (var tool in toolNames.EnumerateArray())
+                        {
+                            var val = tool.GetString();
+                            if (val != null) tools.Add(val);
+                        }
+                        if (tools.Count > 0) engineOptions.EmailToolNames = tools;
+                        FileLog.Write($"[App] EmailToolNames from appsettings (overrides config.json): [{string.Join(", ", tools)}]");
+                    }
                 }
             }
 

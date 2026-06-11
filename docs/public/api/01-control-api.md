@@ -68,7 +68,7 @@ The Director keeps a registry of repositories you have worked in (this backs the
 
 ### Other groups
 
-Settings (GET/PUT /settings), tools catalog and invocation (/tools, POST /tools/run - run a catalog cc-* tool with args and stream its output as NDJSON), scheduler (/scheduler), workspaces (/workspaces, /history), screenshots (/screenshots), dictation and TTS (/dictate, /tts), wingman (/sessions/{sid}/wingman/...), and a WebSocket terminal stream (/sessions/{sid}/stream). Explore `GET /healthz` for the Director id and version.
+Settings (GET/PUT /settings), tools catalog and invocation (/tools, POST /tools/run - run a catalog cc-* tool with args and stream its output as NDJSON), comm dispatch (POST /dispatch - send ONE already-approved communication-queue item by id; unapproved items are refused with 409 and nothing sends), scheduler (/scheduler), workspaces (/workspaces, /history), screenshots (/screenshots), dictation and TTS (/dictate, /tts), wingman (/sessions/{sid}/wingman/...), and a WebSocket terminal stream (/sessions/{sid}/stream). Explore `GET /healthz` for the Director id and version.
 
 ## Finding a Director's port
 

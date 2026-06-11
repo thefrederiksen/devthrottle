@@ -15,6 +15,10 @@ public sealed class CommunicationDispatcher : IDisposable
     private readonly EmailRoutingTable _routingTable;
     private readonly int _pollIntervalSeconds;
     private readonly VaultArchiver _archiver = new();
+    private readonly ToolProcessRunner _processRunner;
+    // Serializes on-demand by-id dispatches (issue #329) so two concurrent POST /dispatch
+    // calls for the same item cannot both observe 'approved' and double-send it.
+    private readonly SemaphoreSlim _dispatchLock = new(1, 1);
 #pragma warning disable CS0649 // Timer field not assigned until auto-dispatch is re-enabled
     private Timer? _timer;
 #pragma warning restore CS0649
@@ -25,11 +29,15 @@ public sealed class CommunicationDispatcher : IDisposable
     public CommunicationDispatcher(
         string communicationsDbPath,
         EmailRoutingTable routingTable,
-        int pollIntervalSeconds = 5)
+        int pollIntervalSeconds = 5,
+        ToolProcessRunner? processRunner = null)
     {
         _communicationsDbPath = communicationsDbPath;
         _routingTable = routingTable;
         _pollIntervalSeconds = pollIntervalSeconds;
+        // Default = the real channel (argument-list Process.Start). Tests inject a mock
+        // channel here so no test can ever produce a real outbound send.
+        _processRunner = processRunner ?? RunToolProcessAsync;
 
         FileLog.Write($"[CommunicationDispatcher] Initialized with {routingTable.Count} email routes");
     }
@@ -102,37 +110,157 @@ public sealed class CommunicationDispatcher : IDisposable
             var persona = reader.IsDBNull(4) ? "personal" : reader.GetString(4);
             var sendFrom = reader.IsDBNull(5) ? null : reader.GetString(5);
 
-            try
-            {
-                var spec = JsonSerializer.Deserialize<EmailSpecific>(emailSpecific, JsonOptions);
-
-                if (spec?.To != null && spec.To.Count > 0)
-                {
-                    emails.Add(new ApprovedEmail
-                    {
-                        Id = id,
-                        TicketNumber = ticket,
-                        Body = body,
-                        To = string.Join(",", spec.To),
-                        Cc = spec.Cc != null && spec.Cc.Count > 0 ? string.Join(",", spec.Cc) : null,
-                        Bcc = spec.Bcc != null && spec.Bcc.Count > 0 ? string.Join(",", spec.Bcc) : null,
-                        Subject = spec.Subject ?? "(no subject)",
-                        Attachments = spec.Attachments ?? new List<string>(),
-                        Persona = persona,
-                        SendFrom = sendFrom
-                    });
-                }
-            }
-            catch (JsonException ex)
-            {
-                FileLog.Write($"[CommunicationDispatcher] Failed to parse email_specific for ticket #{ticket}: {ex.Message}");
-            }
+            var email = TryBuildEmail(id, ticket, body, emailSpecific, persona, sendFrom);
+            if (email != null)
+                emails.Add(email);
         }
 
         return emails;
     }
 
-    private async Task DispatchEmailAsync(ApprovedEmail email)
+    /// <summary>
+    /// Builds the sendable email from a communications row, or null when the row is not
+    /// sendable (unparseable email_specific or no recipients). Shared by the poll path
+    /// and the by-id verb so both interpret a row identically.
+    /// </summary>
+    private static ApprovedEmail? TryBuildEmail(
+        string id, int ticket, string body, string emailSpecific, string persona, string? sendFrom)
+    {
+        try
+        {
+            var spec = JsonSerializer.Deserialize<EmailSpecific>(emailSpecific, JsonOptions);
+
+            if (spec?.To == null || spec.To.Count == 0)
+            {
+                FileLog.Write($"[CommunicationDispatcher] Ticket #{ticket} has no recipients in email_specific");
+                return null;
+            }
+
+            return new ApprovedEmail
+            {
+                Id = id,
+                TicketNumber = ticket,
+                Body = body,
+                To = string.Join(",", spec.To),
+                Cc = spec.Cc != null && spec.Cc.Count > 0 ? string.Join(",", spec.Cc) : null,
+                Bcc = spec.Bcc != null && spec.Bcc.Count > 0 ? string.Join(",", spec.Bcc) : null,
+                Subject = spec.Subject ?? "(no subject)",
+                Attachments = spec.Attachments ?? new List<string>(),
+                Persona = persona,
+                SendFrom = sendFrom
+            };
+        }
+        catch (JsonException ex)
+        {
+            FileLog.Write($"[CommunicationDispatcher] Failed to parse email_specific for ticket #{ticket}: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Dispatch ONE queue item by id, on demand (issue #329, the <c>POST /dispatch</c> verb).
+    /// Mechanical execution of an already-made approval decision: the HARD GATE is that the
+    /// item must currently be in the 'approved' state of the approval workflow - anything
+    /// else (pending_review, rejected, already posted, unknown) is refused and NOTHING is
+    /// sent. A dispatched item advances to 'posted' exactly as the poll path does
+    /// (status + posted_at/posted_by, vault archive attempt, CommunicationDispatched event).
+    /// </summary>
+    public async Task<QueueDispatchResult> DispatchByIdAsync(string queueItemId)
+    {
+        if (string.IsNullOrWhiteSpace(queueItemId))
+            throw new ArgumentException("queueItemId is required", nameof(queueItemId));
+
+        FileLog.Write($"[CommunicationDispatcher] DispatchById: id={queueItemId}");
+
+        if (!File.Exists(_communicationsDbPath))
+        {
+            FileLog.Write($"[CommunicationDispatcher] DispatchById REFUSED: communications DB not found: {_communicationsDbPath}");
+            return new QueueDispatchResult(QueueDispatchOutcome.NotFound, queueItemId,
+                Error: "communications database not found on this Director");
+        }
+
+        await _dispatchLock.WaitAsync();
+        try
+        {
+            var row = LoadItemById(queueItemId);
+            if (row == null)
+            {
+                FileLog.Write($"[CommunicationDispatcher] DispatchById NOT FOUND: id={queueItemId}");
+                return new QueueDispatchResult(QueueDispatchOutcome.NotFound, queueItemId,
+                    Error: $"no queue item with id '{queueItemId}'");
+            }
+
+            // THE approval gate. The verb never decides; it only executes a decision the
+            // human already made in the approval workflow. Audit the refusal explicitly.
+            if (!string.Equals(row.Status, "approved", StringComparison.OrdinalIgnoreCase))
+            {
+                FileLog.Write($"[CommunicationDispatcher] DispatchById REFUSED (approval gate): id={queueItemId} ticket=#{row.TicketNumber} status={row.Status} - nothing sent");
+                return new QueueDispatchResult(QueueDispatchOutcome.NotApproved, queueItemId,
+                    row.TicketNumber, ItemStatus: row.Status,
+                    Error: $"item is '{row.Status}', not 'approved' - only approved items dispatch; nothing was sent");
+            }
+
+            if (!string.Equals(row.Platform, "email", StringComparison.OrdinalIgnoreCase))
+            {
+                FileLog.Write($"[CommunicationDispatcher] DispatchById REFUSED (platform): id={queueItemId} ticket=#{row.TicketNumber} platform={row.Platform} - no machine-bound sender");
+                return new QueueDispatchResult(QueueDispatchOutcome.UnsupportedPlatform, queueItemId,
+                    row.TicketNumber, ItemStatus: row.Status,
+                    Error: $"platform '{row.Platform}' has no machine-bound dispatch path on this Director (only email)");
+            }
+
+            var email = TryBuildEmail(row.Id, row.TicketNumber, row.Body, row.EmailSpecific, row.Persona, row.SendFrom);
+            if (email == null)
+            {
+                FileLog.Write($"[CommunicationDispatcher] DispatchById REFUSED (invalid item): id={queueItemId} ticket=#{row.TicketNumber} - email_specific missing/unparseable or no recipients");
+                return new QueueDispatchResult(QueueDispatchOutcome.InvalidItem, queueItemId,
+                    row.TicketNumber, ItemStatus: row.Status,
+                    Error: "item is approved but not sendable: email_specific is missing/unparseable or has no recipients");
+            }
+
+            var result = await DispatchEmailAsync(email);
+            FileLog.Write($"[CommunicationDispatcher] DispatchById result: id={queueItemId} ticket=#{row.TicketNumber} outcome={result.Outcome} channel={result.Channel ?? "(none)"}");
+            return result;
+        }
+        finally
+        {
+            _dispatchLock.Release();
+        }
+    }
+
+    private QueueItemRow? LoadItemById(string queueItemId)
+    {
+        using var conn = new SqliteConnection($"Data Source={_communicationsDbPath};Mode=ReadWrite");
+        conn.Open();
+
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, ticket_number, content, email_specific, persona, send_from, status, platform
+            FROM communications
+            WHERE id = @id
+            """;
+        cmd.Parameters.AddWithValue("@id", queueItemId);
+
+        using var reader = cmd.ExecuteReader();
+        if (!reader.Read())
+            return null;
+
+        return new QueueItemRow(
+            Id: reader.GetString(0),
+            TicketNumber: reader.IsDBNull(1) ? 0 : reader.GetInt32(1),
+            Body: reader.IsDBNull(2) ? "" : reader.GetString(2),
+            EmailSpecific: reader.IsDBNull(3) ? "" : reader.GetString(3),
+            Persona: reader.IsDBNull(4) ? "personal" : reader.GetString(4),
+            SendFrom: reader.IsDBNull(5) ? null : reader.GetString(5),
+            Status: reader.IsDBNull(6) ? "" : reader.GetString(6),
+            Platform: reader.IsDBNull(7) ? "" : reader.GetString(7));
+    }
+
+    /// <summary>
+    /// Sends one approved email through its routed channel tool, marking the item
+    /// posted/failed and raising events exactly as before. Returns the outcome so the
+    /// by-id verb can report it; the poll path ignores the return value.
+    /// </summary>
+    private async Task<QueueDispatchResult> DispatchEmailAsync(ApprovedEmail email)
     {
         var sendFrom = email.SendFrom ?? email.Persona;
         var route = _routingTable.FindRoute(sendFrom);
@@ -145,7 +273,8 @@ public sealed class CommunicationDispatcher : IDisposable
             FileLog.Write($"[CommunicationDispatcher] Ticket #{email.TicketNumber} FAILED: {error}");
             RaiseEvent(new EngineEvent(EngineEventType.Error,
                 Message: $"Email ticket #{email.TicketNumber} failed: {error}"));
-            return;
+            return new QueueDispatchResult(QueueDispatchOutcome.SendFailed, email.Id,
+                email.TicketNumber, ItemStatus: "approved", Error: error);
         }
 
         FileLog.Write($"[CommunicationDispatcher] Sending ticket #{email.TicketNumber} to {email.To} via {route.ToolName} (send_from={sendFrom}, account={route.AccountName})");
@@ -153,25 +282,29 @@ public sealed class CommunicationDispatcher : IDisposable
         try
         {
             var args = BuildSendArgs(email, route);
-            var result = await RunToolProcessAsync(route.ToolPath, args);
+            var result = await _processRunner(route.ToolPath, args);
 
             if (result.ExitCode == 0)
             {
                 HandleSendSuccess(email, route.ToolName);
+                return new QueueDispatchResult(QueueDispatchOutcome.Dispatched, email.Id,
+                    email.TicketNumber, ItemStatus: "posted", Channel: route.ToolName);
             }
-            else
-            {
-                var error = string.IsNullOrEmpty(result.Stderr) ? result.Stdout : result.Stderr;
-                MarkFailed(email.Id, error);
-                FileLog.Write($"[CommunicationDispatcher] Ticket #{email.TicketNumber} FAILED via {route.ToolName}: {error}");
-                RaiseEvent(new EngineEvent(EngineEventType.Error,
-                    Message: $"Email ticket #{email.TicketNumber} failed via {route.ToolName}: {error}"));
-            }
+
+            var error = string.IsNullOrEmpty(result.Stderr) ? result.Stdout : result.Stderr;
+            MarkFailed(email.Id, error);
+            FileLog.Write($"[CommunicationDispatcher] Ticket #{email.TicketNumber} FAILED via {route.ToolName}: {error}");
+            RaiseEvent(new EngineEvent(EngineEventType.Error,
+                Message: $"Email ticket #{email.TicketNumber} failed via {route.ToolName}: {error}"));
+            return new QueueDispatchResult(QueueDispatchOutcome.SendFailed, email.Id,
+                email.TicketNumber, ItemStatus: "approved", Channel: route.ToolName, Error: error);
         }
         catch (Exception ex)
         {
             MarkFailed(email.Id, ex.Message);
             FileLog.Write($"[CommunicationDispatcher] Ticket #{email.TicketNumber} exception: {ex.Message}");
+            return new QueueDispatchResult(QueueDispatchOutcome.SendFailed, email.Id,
+                email.TicketNumber, ItemStatus: "approved", Channel: route.ToolName, Error: ex.Message);
         }
     }
 
@@ -219,7 +352,7 @@ public sealed class CommunicationDispatcher : IDisposable
         return args;
     }
 
-    private static async Task<ToolProcessResult> RunToolProcessAsync(string toolPath, List<string> args)
+    private static async Task<ToolProcessResult> RunToolProcessAsync(string toolPath, IReadOnlyList<string> args)
     {
         var psi = new ProcessStartInfo
         {
@@ -301,7 +434,19 @@ public sealed class CommunicationDispatcher : IDisposable
     public void Dispose()
     {
         _timer?.Dispose();
+        _dispatchLock.Dispose();
     }
+
+    /// <summary>One communications row as loaded for the by-id verb (pre-gate, any status).</summary>
+    private sealed record QueueItemRow(
+        string Id,
+        int TicketNumber,
+        string Body,
+        string EmailSpecific,
+        string Persona,
+        string? SendFrom,
+        string Status,
+        string Platform);
 
     private class ApprovedEmail
     {
@@ -326,5 +471,4 @@ public sealed class CommunicationDispatcher : IDisposable
         public List<string>? Attachments { get; set; }
     }
 
-    private record ToolProcessResult(int ExitCode, string Stdout, string Stderr);
 }
