@@ -91,6 +91,11 @@ If none, report "QA queue empty" and stop. Otherwise take that one.
 ```bash
 gh issue view <ID> --repo thefrederiksen/cc-director --json number,title,body,labels,comments
 ```
+
+(By the time you pick it up the issue is `flow:ready-qa`: the Developer hand-off already released the
+loop's `flow:in-progress` claim, issue #298. You will not normally see `flow:in-progress` on a QA
+item; if you ever do, the Developer failed to release it - bounce `flow:qa-failed` noting the stuck
+claim. Your own transitions below act on `flow:ready-qa` and are unchanged by the claim mechanism.)
 Extract: the acceptance criteria (the contract you verify against), the affected containers, the
 proof target, the linked PR, and the Developer Agent's "How to Test" and proof (context, NOT proof).
 
@@ -248,9 +253,10 @@ item, or you `/clear` between items. (Mechanism is OPEN DECISION D2 in DEVELOPME
 
 ---
 
-**Skill Version:** 0.3 (DRAFT - third of the four CenCon agents, cc-director)
+**Skill Version:** 0.4 (DRAFT - third of the four CenCon agents, cc-director)
 **Implements:** QA Agent role in docs/cencon/DEVELOPMENT_METHOD.md
 **Builds on:** playwright-cli / ui-test (UI verification), review-code (method lens), Control API (proof)
 **Created:** 2026-06-09
 **Changes in 0.2:** Added the no-orphans law (law 6), the PASS cleanup gate (branch deleted + clean tree confirmed), the FAIL clean-tree check, and Step 3c PARK-on-needs-human (the one sanctioned open PR). QA is the cleanup gate: PASS merges-and-deletes, FAIL leaves committed code on the PR branch, needs-human parks - never an orphan or loose WIP.
 **Changes in 0.3:** Closed the stash loophole. A prior run "parked by cleanup" via `git stash`, which left `git status --porcelain` empty (gate passed) while hiding WIP in the stash list - a mess the human had to clean up. Added the LEAVE ZERO MESS banner at the top, banned `git stash` as a cleanup/park mechanism everywhere (law 6 + the do-NOT list), and extended all three cleanup gates (PASS/FAIL/PARK) to also assert `git stash list` is empty and (on PASS) that local `main` == `origin/main`.
+**Changes in 0.4 (issue #298):** Noted the new `flow:in-progress` claim label (issue-level duplicate-prevention). QA never normally sees it - the Developer hand-off releases the claim to `flow:ready-qa` before QA picks the item up - so QA's own transitions are unchanged; a stuck `flow:in-progress` on a QA item is a Developer defect to bounce.

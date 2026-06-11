@@ -60,7 +60,10 @@ the Product Agent can fix exactly the gap (this is what the 3-strike ping-pong g
 
 ```bash
 gh issue comment <ID> --repo thefrederiksen/cc-director --body "$(cat rejection.md)"
-gh issue edit <ID> --repo thefrederiksen/cc-director --add-label flow:rejected --remove-label flow:ready-dev
+# release whichever working-state label is set (flow:ready-dev standalone, or flow:in-progress
+# when the loop claimed the issue, issue #298) - removing an absent label is a harmless no-op
+gh issue edit <ID> --repo thefrederiksen/cc-director \
+  --add-label flow:rejected --remove-label flow:ready-dev --remove-label flow:in-progress
 ```
 
 Rejection comment shape:
@@ -84,7 +87,9 @@ re-sharpen), do NOT bounce to a nonexistent Product seat and do NOT guess. Inste
 issue to the human and halt the loop for this issue:
 
 ```bash
-gh issue edit <ID> --repo thefrederiksen/cc-director --add-label flow:needs-human --remove-label flow:ready-dev
+# release the working-state label (flow:ready-dev standalone, or flow:in-progress under the loop, #298)
+gh issue edit <ID> --repo thefrederiksen/cc-director \
+  --add-label flow:needs-human --remove-label flow:ready-dev --remove-label flow:in-progress
 ```
 
 Then report the missing DoR items to the user and stop. (If running interactively with no Product
@@ -178,10 +183,17 @@ Only when every acceptance criterion is met, the build is clean, and you have pr
    you proceed. **Never `git stash` to make the tree look empty** - a stash hides your WIP and hands
    QA (and the human) a mess; commit it to the PR branch instead. Handing QA a dirty tree or a stash
    is a defect.
-6. **Swap the label** to `flow:ready-qa`:
+6. **Swap the label** to `flow:ready-qa`, releasing whichever working-state label the issue carried.
+   Inside the `implementation-loop` the issue is `flow:in-progress` (the loop's issue-level claim,
+   issue #298); standalone it may still be `flow:ready-dev`. Remove BOTH so no working-state label
+   lingers (removing a label that is not present is a harmless no-op):
    ```bash
-   gh issue edit <ID> --repo thefrederiksen/cc-director --add-label flow:ready-qa --remove-label flow:ready-dev
+   gh issue edit <ID> --repo thefrederiksen/cc-director \
+     --add-label flow:ready-qa --remove-label flow:in-progress --remove-label flow:ready-dev
    ```
+   `flow:in-progress` must NEVER remain on the issue after your hand-off - it is the loop's claim and
+   leaving it stuck would hide the issue from selection (the loop's Step 4 claim-release gate checks
+   for exactly this).
 
 Commit rule: you may commit to the PR branch (the handoff artifact is the issue + proof on the
 branch). You do NOT merge to main and you do NOT push to main unless the human explicitly asks.
@@ -203,7 +215,11 @@ it (re-running Steps 3-5), and re-label `flow:ready-qa`. Same proof bar applies.
 
 The `implementation-loop` skill drives the Developer and QA roles in one session (issue #259): you
 implement and hand to `flow:ready-qa`, the QA role verifies in place, and on a `flow:qa-failed`
-bounce you fix and re-hand (Step 6). You do NOT merge - the QA role performs the squash-merge to
+bounce you fix and re-hand (Step 6). When the loop hands you an issue it has already **claimed** it
+(`flow:ready-dev` -> `flow:in-progress`, issue #298) so no other loop touches it - so under the loop
+your input issue carries `flow:in-progress`, not `flow:ready-dev`. Treat it as yours to implement
+and release the `flow:in-progress` claim on your hand-off / reject / escalate (Step 5.6 / Step 2),
+never leaving it stuck. You do NOT merge - the QA role performs the squash-merge to
 main on pass (its authority within the loop). You still do not merge or push to main yourself.
 The loop stops a runaway after 3 `flow:qa-failed` bounces on the same issue by escalating
 `flow:needs-human`; if you cannot satisfy a criterion after a fix, say so plainly so the loop can
@@ -234,9 +250,10 @@ match it (standing rule: write code that reads like the surrounding code).
 
 ---
 
-**Skill Version:** 0.3 (DRAFT - second of the four CenCon agents, cc-director)
+**Skill Version:** 0.4 (DRAFT - second of the four CenCon agents, cc-director)
 **Implements:** Developer Agent role in docs/cencon/DEVELOPMENT_METHOD.md
 **Builds on:** review-code (mandatory)
 **Created:** 2026-06-09
 **Changes in 0.2:** Step 5 now commits the IMPLEMENTATION first (not just proof) and adds a mandatory clean-tree gate (git status --porcelain MUST be empty + branch pushed) before the flow:ready-qa hand-off. Added the no-orphan rule: never stop for any reason leaving uncommitted WIP or an unpushed branch.
 **Changes in 0.3:** Banned `git stash` as a way to fake a clean tree (a prior run hid WIP in a stash, which the human had to clean up). The clean-tree gate now also asserts `git stash list` is empty, and the no-orphan rule forbids leaving a stash behind. Also inlined the branch/PR mechanics and issue-comment format previously cited from the deleted implement-issue/bug-fixer skills.
+**Changes in 0.4 (issue #298):** Under the `implementation-loop` the input issue is now `flow:in-progress` (the loop's issue-level claim), not `flow:ready-dev`. The hand-off (Step 5.6), reject (Step 2), and weak-spec escalation now remove BOTH `flow:in-progress` and `flow:ready-dev` so the loop's claim is always released and never left stuck (the loop's Step 4 claim-release gate enforces this).

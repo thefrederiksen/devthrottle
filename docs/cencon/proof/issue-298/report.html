@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Issue #298 - Issue-level claim (duplicate-prevention) - Proof</title>
+<style>
+  body { font-family: "Segoe UI", system-ui, sans-serif; background: #1E1E1E; color: #DDD; margin: 0; padding: 24px; }
+  h1 { color: #fff; font-size: 22px; }
+  h2 { color: #DCDCAA; border-bottom: 1px solid #3C3C3C; padding-bottom: 6px; margin-top: 32px; }
+  code, pre { font-family: "Cascadia Mono", Consolas, monospace; }
+  pre { background: #252526; border: 1px solid #3C3C3C; border-radius: 6px; padding: 10px; overflow-x: auto; font-size: 13px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #3C3C3C; padding: 8px 10px; text-align: left; vertical-align: top; font-size: 14px; }
+  th { background: #252526; color: #DCDCAA; }
+  .pass { color: #16A34A; font-weight: 700; }
+  .fail { color: #F44747; font-weight: 700; }
+  .muted { color: #888; }
+</style>
+</head>
+<body>
+<h1>Issue #298 - [Loop] Issue-level claim to prevent two loops implementing the same issue (duplicate-prevention)</h1>
+<p class="muted">Developer Agent proof. Branch <code>loop/298-issue-claim</code>. This is a PROCESS / SKILL-DOC change (no C# touched), so the proof is a DETERMINISTIC demonstration of the claim mechanism against a THROWAWAY test issue, not a slot-5 running-app launch. The live fleet (Gateway 7878, Cockpit 7470, Director 7887) was never touched.</p>
+
+<h2>The problem</h2>
+<p>On 2026-06-10 two concurrent implementation-loops both selected the oldest <code>flow:ready-dev</code> issue (#199) and both implemented it - duplicate PRs #294 / #296 and a near-collision pushing the same branch. The loop's "one consumer per LIST" guard (epic #270 AC4) does not guard at the ISSUE level. There was no lock on issue selection.</p>
+
+<h2>What was implemented (the mechanism)</h2>
+<ul>
+  <li><b>New repo label <code>flow:in-progress</code></b> - the claim marker. Created on the repo (<code>gh label create</code>).</li>
+  <li><b>Claim at selection</b> (implementation-loop Step 0.2): the instant a loop selects an issue it transitions <code>flow:ready-dev</code> -&gt; <code>flow:in-progress</code> in one <code>gh issue edit</code> and records a timestamped <code>CLAIM ...</code> comment naming the claimant.</li>
+  <li><b>Selection reads <code>flow:ready-dev</code> only</b> - a claimed (in-progress) issue is invisible to every other loop's selection set.</li>
+  <li><b>Verify-after-claim</b>: GitHub labels are NOT an atomic compare-and-swap, so after claiming, the loop re-reads the issue's <code>CLAIM</code> comments and confirms its own is the OLDEST. The loser of a race (a later <code>CLAIM</code> comment) backs off and selects a different issue. Comment <code>createdAt</code> order is the deterministic arbiter. This is honest best-effort with a deterministic loser-back-off - the residual sub-second window is documented, no false claim of lock-free atomicity (DEVELOPMENT_METHOD.md Section 4a).</li>
+  <li><b>Release on every terminal path</b>: the Developer hand-off swaps <code>flow:in-progress</code> -&gt; <code>flow:ready-qa</code> (and reject / escalate remove it too); PASS ends <code>flow:done</code>, escalations end <code>flow:needs-human</code>. <code>flow:in-progress</code> is never a terminal state - the loop's Step 4 claim-release gate enforces it.</li>
+  <li><b>Stale-claim sweep</b> (Step 0.0): a <code>flow:in-progress</code> issue whose newest <code>CLAIM</code> comment is older than 60 min (a crashed claim) is reclaimed <code>flow:in-progress</code> -&gt; <code>flow:ready-dev</code>, so an issue is never stranded invisible forever. A fresh claim is protected from the sweep.</li>
+</ul>
+
+<h2>Files changed</h2>
+<ul>
+  <li><code>.claude/skills/implementation-loop/skill.md</code> - Step 0.0 stale-sweep, Step 0.2 claim + verify-after-claim, Step 1 claimed-issue note, Step 4 claim-release gate, 3 new guards, v0.6.</li>
+  <li><code>.claude/skills/developer-agent/skill.md</code> - hand-off / reject / escalate now remove <code>flow:in-progress</code> (and <code>flow:ready-dev</code>) so the claim is always released, v0.4.</li>
+  <li><code>.claude/skills/qa-agent/skill.md</code> - awareness note (QA never normally sees <code>flow:in-progress</code>; a stuck one is a Developer defect), v0.4.</li>
+  <li><code>docs/cencon/DEVELOPMENT_METHOD.md</code> - new <code>flow:in-progress</code> row + DECIDED D6, updated state-machine diagram, new Section 4a (full claim mechanism + honest residual-window note).</li>
+  <li>new repo label <code>flow:in-progress</code>.</li>
+  <li><code>docs/cencon/proof/issue-298/</code> - this report, the proof harness, and machine-readable results.</li>
+</ul>
+
+<h2>How it was proven (deterministic, throwaway issue, cleaned up)</h2>
+<p><code>docs/cencon/proof/issue-298/claim_mechanism_proof.sh</code> drives the EXACT claim recipe the skill docs specify against a single throwaway fixture issue (tagged <code>test-fixture-298</code>, created and auto-CLOSED by the harness so it never sits in a real <code>flow:*</code> queue). No real production issue is touched. It exercises every acceptance criterion and writes <code>results.json</code>.</p>
+<p class="muted">Index-lag note: <code>gh issue list --label</code> is backed by GitHub's eventually-consistent search index, so the harness (like the real loop) uses a bounded settle-wait before asserting selection-set membership rather than reading once.</p>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+  <tr><th>#</th><th>Issue acceptance criterion</th><th>Expected</th><th>Actual (observed, results.json)</th><th>Result</th></tr>
+  <tr>
+    <td>AC1</td>
+    <td>Two loops started against the same <code>flow:ready-dev</code> issue: exactly one claims it; the other selects a different issue or reports none.</td>
+    <td>Of two concurrent claims, exactly one wins; the loser backs off.</td>
+    <td>loopA=won, loopB=lost; <code>wins=1</code> (winner = oldest CLAIM comment). The loser deterministically backed off.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>AC2</td>
+    <td>A claimed (in-progress) issue is excluded from the no-arg / <code>--all</code> selection query.</td>
+    <td>Before claim: issue IS in the <code>flow:ready-dev</code> selection set. After claim: issue is ABSENT.</td>
+    <td>AC2a: <code>#NNN in selection set</code> while ready-dev. AC2b: <code>#NNN absent from flow:ready-dev selection</code> while claimed. AC2c: labels = exactly <code>flow:in-progress</code> (no <code>flow:ready-dev</code> left).</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>AC3</td>
+    <td>Every terminal path leaves the label in a correct, non-stuck state; a claim never strands an issue invisible forever (stale-claim recovery demonstrated).</td>
+    <td>in-progress -&gt; done (PASS) and -&gt; needs-human release the claim; a fresh claim is protected; an aged claim is reclaimed to ready-dev and becomes reselectable.</td>
+    <td>AC3a: <code>flow:done</code>, no <code>flow:in-progress</code>. AC3b: <code>flow:needs-human</code>, no <code>flow:in-progress</code>. AC3c: fresh claim (age 0 min &lt; 60) NOT swept. AC3d: aged-claim predicate reclaimed in-progress -&gt; ready-dev; issue back in selection set.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>AC4</td>
+    <td>New label(s) added to the repo and documented in the DEVELOPMENT_METHOD.md flow state machine.</td>
+    <td><code>flow:in-progress</code> exists in the repo; documented in the label table + state machine.</td>
+    <td>AC4: <code>flow:in-progress</code> label present in repo. Documented: label-vocabulary row, DECIDED D6, state-machine diagram, and full Section 4a.</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Harness run output</h2>
+<pre>
+[proof] AC4 flow:in-progress label exists in repo -&gt; pass (label present)
+[proof] SETUP create throwaway fixture issue -&gt; pass (issue #314 created)
+[proof] AC2a ready-dev issue is selectable -&gt; pass (#314 in selection set)
+[proof] AC1: two loops claim #314 concurrently
+[proof] loopA result=won  loopB result=lost
+[proof] AC1 exactly one loop claims the issue (other backs off) -&gt; pass (winner=loopA, wins=1)
+[proof] AC2b in-progress issue excluded from selection -&gt; pass (#314 absent from flow:ready-dev selection)
+[proof] AC2c claim leaves exactly flow:in-progress -&gt; pass (labels=flow:in-progress,test-fixture-298)
+[proof] AC3a PASS path releases claim (in-progress -&gt; done) -&gt; pass
+[proof] AC3b needs-human path releases claim (no stuck in-progress) -&gt; pass
+[proof] AC3c fresh claim is protected from the stale sweep -&gt; pass (age=0min &lt; 60min, not reclaimed)
+[proof] AC3d stale claim reclaimed (in-progress -&gt; ready-dev, reselectable) -&gt; pass (#314 back in selection set)
+[proof] ALL PASS
+[proof] cleanup: closing throwaway test issue #314
+</pre>
+<p class="muted">Full machine-readable results: <code>docs/cencon/proof/issue-298/results.json</code> (<code>allPass: true</code>). The throwaway fixture issues (#313, #314) were CLOSED with all <code>flow:*</code> labels stripped - the real queues are untouched.</p>
+
+<h2>CenCon impact</h2>
+<p>This change is itself a CenCon governance-document change: it extends the label state machine in <code>docs/cencon/DEVELOPMENT_METHOD.md</code> (new <code>flow:in-progress</code> state, Section 4a, DECIDED D6). No <code>architecture_manifest.yaml</code> container or <code>security_profile.yaml</code> rule (DT-01..DT-NN) is affected - no product code changed, so no DT rule is in play. The Support Agent (owner of the CenCon docs) keeps the method current; this edit is consistent with that ownership.</p>
+
+<h2>Design honesty (the subtlety called out in the issue)</h2>
+<p>GitHub label operations are not an atomic compare-and-swap. The mechanism does NOT claim perfect atomicity. It uses a best-effort single-edit claim (which closes the WIDE window we hit on #199 - the label flips the instant work starts) PLUS a verify-after-claim re-read that resolves the remaining narrow window by claim-comment order (oldest wins, loser backs off). The residual exposure is only the sub-second window between two loops selecting at the same instant, and the re-read resolves even that deterministically. True mutual exclusion would require an external lease (e.g. Gateway-held) - explicitly out of scope and documented as such in Section 4a.</p>
+
+<h2>Conclusion</h2>
+<p class="pass">I believe this is finished.</p>
+<p>All four acceptance criteria are demonstrated PASS by a deterministic, repeatable harness against a throwaway issue that is cleaned up. The new label exists and is documented; the claim, the selection exclusion, the verify-after-claim race resolution, the terminal-path release, and stale-claim recovery all work. The design's non-atomicity is handled honestly rather than papered over.</p>
+</body>
+</html>

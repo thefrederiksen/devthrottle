@@ -122,6 +122,11 @@ State lives as a `flow:*` **label** on the GitHub issue. One agent watches for o
             v
       flow:ready-dev ----------------------------+
             |                                     |
+            |  a loop SELECTS it (claim, 4a)      |
+            v                                     |
+      flow:in-progress                            |
+            |   (invisible to other loops)        |
+            |   stale-claim sweep --> back to flow:ready-dev
             v                                     |
       [ Developer Agent ]                         |
             |                                     |
@@ -155,7 +160,8 @@ Label vocabulary (single source of truth - these labels exist in the repo):
 
 | Label | Meaning | Owner who sets it | Next agent |
 |-------|---------|-------------------|------------|
-| `flow:ready-dev` | Spec is ready to implement | Product Agent | Developer Agent |
+| `flow:ready-dev` | Spec is ready to implement (and unclaimed) | Product Agent | Developer Agent |
+| `flow:in-progress` | Claimed by ONE implementation-loop run; excluded from selection | Implementation loop (claim) | the same loop |
 | `flow:rejected` | Spec too weak; see comment | Developer Agent | Product Agent |
 | `flow:ready-qa` | Implemented + proof linked | Developer Agent | QA Agent |
 | `flow:qa-failed` | Defect found; see comment | QA Agent | Developer Agent |
@@ -171,9 +177,113 @@ gh issue edit <N> --repo thefrederiksen/cc-director --add-label flow:ready-qa --
 DECIDED (D1): the `flow:*` labels are authoritative. GitHub's open/closed state is cosmetic and is
 not required to track these states; an issue is only closed when it reaches `flow:done`.
 
+DECIDED (D6): an issue is **claimed at the moment a loop selects it** by transitioning
+`flow:ready-dev` -> `flow:in-progress` (Section 4a), so two concurrent loops cannot both implement
+it. The selection query reads `flow:ready-dev` ONLY, so a claimed (`flow:in-progress`) issue is
+invisible to every other loop. The claim is released on every terminal path (it becomes
+`flow:ready-qa` once the Developer hands off, and from there `flow:done` / `flow:qa-failed` /
+`flow:needs-human` as usual), and a crashed claim is reclaimable by a stale-claim sweep so an issue
+is never stranded invisible forever.
+
 DECIDED (D3): the reject round-trip is fully autonomous. When the Developer Agent labels
 `flow:rejected`, the Product Agent re-sharpens and re-submits with no human in the loop. (Guard
 against ping-pong: see Section 5a.)
+
+---
+
+## 4a. Issue-Level Claim (duplicate-prevention)
+
+The selection guard at the LIST level (one consumer per list, epic #270 AC4) does not guard at the
+ISSUE level. On 2026-06-10 two concurrent implementation-loops both selected the oldest
+`flow:ready-dev` issue (#199) and both implemented it, producing duplicate PRs (#294, #296) and a
+near-collision pushing the same branch. The claim mechanism (issue #298) closes that gap.
+
+### The claim, in one move
+
+The instant a loop **selects** an issue (implementation-loop Step 0), it claims it by transitioning
+the label so it leaves every other loop's selection set:
+
+```bash
+# claim: ready-dev -> in-progress, in a single edit, then record WHO claimed it
+gh issue edit <N> --repo thefrederiksen/cc-director \
+   --add-label flow:in-progress --remove-label flow:ready-dev
+gh issue comment <N> --repo thefrederiksen/cc-director \
+   --body "CLAIM flow:in-progress by <director-id>/<session-id> at <UTC-ISO8601>"
+```
+
+The selection query reads `flow:ready-dev` **only**, so a `flow:in-progress` issue is invisible to
+every other loop:
+
+```bash
+gh issue list --repo thefrederiksen/cc-director --label flow:ready-dev --state open \
+  --json number,title,updatedAt --jq 'sort_by(.updatedAt) | .[0]'
+```
+
+The GitHub **label set is the lock** - the single source of truth that already carries flow state.
+No new store is introduced.
+
+### Honest about atomicity (the residual race window)
+
+GitHub label operations are NOT an atomic compare-and-swap. Two loops can both read
+`flow:ready-dev` and both run the claim edit in a small window. The mechanism handles this with a
+**verify-after-claim re-read**, not a false promise of atomicity:
+
+1. **Best-effort claim** (the single `gh issue edit` above) removes `flow:ready-dev` and adds
+   `flow:in-progress` in one call, and the loop records a timestamped `CLAIM ...` comment. This
+   alone shrinks the wide window we hit on #199: the label flips the instant work starts, so any
+   loop that selects *after* this edit indexes simply never sees the issue.
+2. **Verify-after-claim** (closes the remaining narrow window): immediately after claiming, the loop
+   re-reads the issue's `CLAIM ...` comments and confirms its OWN claim comment is the **oldest**
+   one. If another loop's claim comment is older, this loop **LOST the race and backs off** -
+   it relabels `flow:in-progress` -> `flow:ready-dev` only if it was the sole claimant (otherwise it
+   leaves the winner's claim intact) and selects a different issue (or reports none). The winner
+   (oldest claim comment) keeps the issue. Comment `createdAt` ordering is the tie-break.
+
+   The comment ordering is the deterministic arbiter even when both label edits "succeed", because
+   GitHub serializes comment creation and exposes a stable `createdAt`. This is **best-effort with a
+   deterministic loser-back-off**, not lock-free atomicity - stated plainly so no one over-trusts it.
+   The residual exposure is only the sub-second window between two loops selecting the same issue at
+   the same instant, and the verify-after-claim re-read resolves even that by comment order. If a
+   future need demands true mutual exclusion, an external lock (e.g. a Gateway-held lease) would be
+   required - out of scope here.
+
+   Note on index lag: `gh issue list --label` is backed by GitHub's eventually-consistent search
+   index, so a freshly relabeled issue may take a few seconds to enter/leave the selection set. Both
+   the loop and the proof harness tolerate this with a bounded settle-wait rather than asserting on
+   the first read.
+
+### Release (every terminal path frees the claim)
+
+`flow:in-progress` is a transient working state, never a terminal one. It is released the moment the
+issue advances:
+
+- **Developer hands off:** `flow:in-progress` -> `flow:ready-qa` (the Developer's normal hand-off
+  edit also removes `flow:in-progress`). From there the issue rides the existing QA cycle
+  (`flow:ready-qa` <-> `flow:qa-failed`) - those states are themselves "claimed" by the running loop
+  and likewise excluded from a fresh `flow:ready-dev` selection.
+- **PASS:** ends `flow:done` (claim already gone).
+- **Weak spec / 3-strike / merge conflict / dirty build:** ends `flow:needs-human` (claim removed).
+- A bounce (`flow:qa-failed`) is handled in-loop by the same run that holds the claim; it does not
+  return to the `flow:ready-dev` pool, so no other loop can grab it mid-flight.
+
+### Stale-claim recovery (never stranded invisible forever)
+
+A loop that crashes after claiming would leave an issue `flow:in-progress` with no live owner -
+invisible to selection forever. To prevent a permanent strand, a **stale-claim sweep** reclaims it:
+
+- An issue is **stale** if it is `flow:in-progress` AND its most-recent `CLAIM ...` comment is older
+  than the stale threshold (default **60 minutes** - longer than any healthy DEV+QA cycle) AND it is
+  not the issue the current run itself just claimed.
+- A stale issue is reclaimed `flow:in-progress` -> `flow:ready-dev` with a `STALE-CLAIM SWEEP ...`
+  comment, returning it to the selection set so the next loop picks it up cleanly.
+- The sweep runs at the top of issue selection (implementation-loop Step 0) and may also be invoked
+  manually. A **fresh** claim (age < threshold) is protected and never swept - that is what keeps the
+  sweep from stealing an issue out from under a healthy run.
+
+DECIDED (D6): the `flow:in-progress` claim + verify-after-claim + stale-claim sweep is the
+duplicate-prevention mechanism. It is best-effort (honest about the sub-second residual window),
+deterministically resolves a race by claim-comment order, releases on every terminal path, and is
+self-healing on a crashed claim.
 
 ---
 
@@ -364,6 +474,7 @@ and the block format defined here.
 | D3 | Reject round-trip: human pause or fully autonomous | DECIDED: fully autonomous, 3-strike human escalation (Section 5a) |
 | D4 | Proof transport on GitHub | DECIDED: committed to PR branch under docs/cencon/proof/issue-<n>/, linked repo-relative; branch commits authorized (Section 6a) |
 | D5 | Whether merged-to-main is part of `flow:done` or a separate human step | DECIDED: inside the `implementation-loop`, QA squash-merges to main on a clean pass as part of `flow:done` (user-granted authority, scoped to the loop); a standalone QA session still leaves the merge to the human |
+| D6 | Issue-level claim to stop two loops implementing the same issue | DECIDED: claim `flow:ready-dev` -> `flow:in-progress` at selection (Section 4a) + verify-after-claim re-read (oldest claim comment wins, loser backs off) + stale-claim sweep (>60min) for crash recovery; label set is the lock, best-effort with an honest residual sub-second window |
 
 ---
 
