@@ -79,6 +79,7 @@
                              Errors="_errors"
                              Directors="_directors"
                              SelectedSessionId="@_selectedId"
+                             ClosingSessionIds="ClosingSessionIds"
                              ViewMode="@_viewMode"
                              OnSelect="@(sid => OnSelect(sid, "rail"))"
                              OnNewSession="OpenNewSessionFor"
@@ -1186,6 +1187,20 @@
                 }
             }
 
+            // Optimistic close-dim reconcile (issue #228): a row stays dimmed only until the
+            // Gateway drops the torn-down session from the roster. Clear any sid that has left
+            // the roster (teardown confirmed) or whose stamp is older than 15s (teardown never
+            // landed - stop dimming a live row).
+            if (_closingSids.Count > 0)
+            {
+                var live = _sessions.Select(s => s.SessionId).ToHashSet();
+                var stale = _closingSids
+                    .Where(kv => !live.Contains(kv.Key) || DateTime.UtcNow - kv.Value > TimeSpan.FromSeconds(15))
+                    .Select(kv => kv.Key)
+                    .ToList();
+                foreach (var sid in stale) _closingSids.Remove(sid);
+            }
+
             // Rail group headers show per-Director version + uptime from the registry.
             // The registry is near-static (start/stop events only), so refresh it at most
             // every 30s instead of on every roster tick; minute-resolution uptime stays honest.
@@ -1949,6 +1964,17 @@
     private string? _railNotice;
     private CancellationTokenSource? _railNoticeCts;
 
+    /// <summary>Sessions the user just confirmed Close for, dimmed optimistically in the rail
+    /// while the Director tears them down (#228). The next poll reconciles: a sid drops out the
+    /// moment its session leaves the roster, and a stale-cap timestamp clears any sid whose
+    /// teardown never lands so a row can't sit dimmed forever.</summary>
+    private readonly Dictionary<string, DateTime> _closingSids = new();
+
+    /// <summary>HashSet view passed to <see cref="SessionRail"/> so it can dim closing rows.</summary>
+    private HashSet<string> ClosingSessionIds => _closingSids.Keys.ToHashSet();
+
+    private void StampClosing(string sid) => _closingSids[sid] = DateTime.UtcNow;
+
     private void ShowRailNotice(string text)
     {
         _railNotice = text;
@@ -2008,18 +2034,28 @@
 
                 case "github-issue":
                     // The Director resolves the repo's origin remote (the repo lives on ITS
-                    // machine); the browser just opens the new-issue form.
+                    // machine); the browser just opens the new-issue form. Resolving the remote
+                    // is a Director round-trip, so say so optimistically before the await (#228).
+                    ShowRailNotice("Resolving GitHub repo...");
+                    await InvokeAsync(StateHasChanged);
                     var url = await Director.GetGitHubNewIssueUrlAsync(dir, s.SessionId, _cts.Token);
                     await JS.InvokeVoidAsync("window.open", url, "_blank");
                     break;
 
                 case "hold":
+                    // In-progress notice BEFORE the Director round-trip + refresh, replaced by
+                    // the existing result notice when they complete (#228).
+                    ShowRailNotice(s.OnHold ? $"Taking {SessionTitle(s)} off hold..." : $"Putting {SessionTitle(s)} on hold...");
+                    await InvokeAsync(StateHasChanged);
                     await Director.SetHoldAsync(dir, s.SessionId, !s.OnHold, _cts.Token);
                     ShowRailNotice(s.OnHold ? $"Took {SessionTitle(s)} off hold" : $"Put {SessionTitle(s)} on hold");
                     await RefreshAsync();
                     break;
 
                 case "wingman":
+                    // In-progress notice BEFORE the Director round-trip + refresh (#228).
+                    ShowRailNotice($"Updating Wingman for {SessionTitle(s)}...");
+                    await InvokeAsync(StateHasChanged);
                     await Director.SetWingmanEnabledAsync(dir, s.SessionId, !s.WingmanEnabled, _cts.Token);
                     ShowRailNotice(s.WingmanEnabled ? $"Removed wingman from {SessionTitle(s)}" : $"Added wingman to {SessionTitle(s)}");
                     await RefreshAsync();
@@ -2027,6 +2063,12 @@
 
                 case "close":
                     // The rail already two-stepped the confirm; this is the committed click.
+                    // Optimistic feedback BEFORE the teardown round-trip (#228): the in-progress
+                    // notice plus a dimmed row (the #217 stamp-the-roster pattern), reconciled by
+                    // the next poll - the row vanishes once the Gateway drops the session.
+                    StampClosing(s.SessionId);
+                    ShowRailNotice($"Closing {SessionTitle(s)}...");
+                    await InvokeAsync(StateHasChanged);
                     await Director.DeleteSessionAsync(dir, s.SessionId, _cts.Token);
                     if (_selectedId == s.SessionId) _selectedId = null;
                     ShowRailNotice($"Closed {SessionTitle(s)}");
@@ -2063,6 +2105,9 @@
         catch (OperationCanceledException) { }
         catch (Exception ex)
         {
+            // A close that threw never tore down: un-dim the row so the rail doesn't lie about
+            // a session that is still alive (#228). Other actions leave no optimistic stamp.
+            _closingSids.Remove(s.SessionId);
             Log.LogWarning(ex, "rail menu action {Action} failed for sid={Sid}", a.Action, s.SessionId);
             ShowRailNotice(ex.Message);
         }

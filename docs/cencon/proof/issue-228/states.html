@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Issue #228 - Rail kebab actions: in-progress feedback (during / after)</title>
+<!-- Pixel-accurate: links the REAL Cockpit stylesheet copied from
+     src/CcDirector.Cockpit/wwwroot/app.css at build time, and uses the SAME markup
+     classes SessionRail.razor / Cockpit.razor emit (.rail-notice, .sess, .sess-closing,
+     .sess-dot, .sess-body, .sess-name, .sess-state, .tag-hold, .sess-kebab). What renders
+     here is what the app renders. The .sess-closing dim class is the change added in this issue. -->
+<link rel="stylesheet" href="app.css" />
+<style>
+  body{padding:24px 18px 60px}
+  .mk-wrap{max-width:1320px;margin:0 auto}
+  .mk-h1{font-size:20px;font-weight:700;color:var(--text);margin:0 0 4px}
+  .mk-sub{color:var(--text3);font-size:13px;margin:0 0 22px}
+  .mk-cols{display:flex;gap:22px;align-items:flex-start;flex-wrap:wrap}
+  .mk-col{flex:1;min-width:430px;border:1px solid var(--border);border-radius:8px;background:var(--panel);overflow:hidden}
+  .mk-col-head{padding:10px 16px;font-size:12px;font-weight:700;letter-spacing:.08em;border-bottom:1px solid var(--border)}
+  .mk-before .mk-col-head{color:#F14C4C;background:#2a1d1f}
+  .mk-after  .mk-col-head{color:#22C55E;background:#11251a}
+  .mk-case{border-bottom:1px solid var(--border);padding:4px 0 12px}
+  .mk-case:last-child{border-bottom:none}
+  .mk-case-label{padding:8px 16px 2px;font-size:11px;color:var(--text3);font-weight:600;letter-spacing:.05em}
+  .mk-note{padding:0 16px 8px;color:var(--muted);font-size:11.5px;font-style:italic}
+  /* a slice of the left panel exactly as Cockpit.razor lays it out: notice above the rail */
+  .mk-rail-host{margin:0 12px;background:var(--sidebar);border:1px solid var(--border);
+    border-radius:8px;padding:8px 4px;width:300px}
+  /* kebab visible in the mockup (it is hover-only live) so the menu/row read clearly */
+  .mk-rail-host .sess-kebab{visibility:visible}
+</style>
+</head>
+<body>
+<div class="mk-wrap">
+  <div class="mk-h1">Issue #228 - Rail kebab actions show in-progress feedback (Close / Hold / Wingman / New-Issue)</div>
+  <p class="mk-sub">During-state (optimistic notice shown BEFORE the Director round-trip + RefreshAsync) vs after-state (existing result notice). Real Cockpit CSS, real markup classes. Scenario session: "api-refactor".</p>
+
+  <div class="mk-cols">
+
+    <!-- ============================ BEFORE ============================ -->
+    <div class="mk-col mk-before">
+      <div class="mk-col-head">BEFORE - the defect</div>
+
+      <div class="mk-case">
+        <div class="mk-case-label">Any kebab action, mid-flight (after the click, during the round-trip)</div>
+        <div class="mk-note">No notice and no row change until the Director round-trip AND the follow-up RefreshAsync both complete - the row sits looking untouched for a second or more. (No .rail-notice element rendered; row unchanged.)</div>
+        <div class="mk-rail-host">
+          <div class="rail tree">
+            <div role="button" tabindex="0" class="sess" style="border-left-color:#22C55E">
+              <span class="sess-dot" style="background:#22C55E"></span>
+              <span class="sess-body">
+                <span class="sess-name">api-refactor</span>
+                <span class="sess-state">Working<span class="sess-dir">4be9c4c1</span></span>
+              </span>
+              <button type="button" class="sess-kebab">&#8942;</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================ AFTER ============================ -->
+    <div class="mk-col mk-after">
+      <div class="mk-col-head">AFTER - issue #228 fix</div>
+
+      <div class="mk-case">
+        <div class="mk-case-label">AC1 - Confirm Close, DURING (notice + dimmed row, before teardown returns)</div>
+        <div class="mk-note">ShowRailNotice("Closing ...") fires before the DeleteSession await, and StampClosing() adds .sess-closing so the row dims at .45 opacity. The next poll drops the row once the Gateway tears it down.</div>
+        <div class="mk-rail-host">
+          <div class="rail-notice">Closing api-refactor...</div>
+          <div class="rail tree">
+            <div role="button" tabindex="0" class="sess sess-closing" style="border-left-color:#22C55E">
+              <span class="sess-dot" style="background:#22C55E"></span>
+              <span class="sess-body">
+                <span class="sess-name">api-refactor</span>
+                <span class="sess-state">Working<span class="sess-dir">4be9c4c1</span></span>
+              </span>
+              <button type="button" class="sess-kebab">&#8942;</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mk-case">
+        <div class="mk-case-label">AC1 - Confirm Close, AFTER (existing result notice, row gone)</div>
+        <div class="mk-note">After teardown the existing "Closed ..." notice shows and the reconcile poll has dropped the row from the roster - unchanged end state.</div>
+        <div class="mk-rail-host">
+          <div class="rail-notice">Closed api-refactor</div>
+          <div class="rail tree">
+            <div class="rail-empty">No sessions. The Gateway returned an empty roster.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mk-case">
+        <div class="mk-case-label">AC2 - Hold, DURING then AFTER</div>
+        <div class="mk-note">"Putting api-refactor on hold..." shows immediately, replaced by the existing "Put api-refactor on hold" result; the hold pill ends in the correct state.</div>
+        <div class="mk-rail-host">
+          <div class="rail-notice">Putting api-refactor on hold...</div>
+          <div class="rail tree">
+            <div role="button" tabindex="0" class="sess" style="border-left-color:#22C55E">
+              <span class="sess-dot" style="background:#22C55E"></span>
+              <span class="sess-body">
+                <span class="sess-name">api-refactor</span>
+                <span class="sess-state">Working<span class="tag tag-hold">hold</span><span class="sess-dir">4be9c4c1</span></span>
+              </span>
+              <button type="button" class="sess-kebab">&#8942;</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mk-case">
+        <div class="mk-case-label">AC3 - Add/Remove Wingman, DURING</div>
+        <div class="mk-note">"Updating Wingman for api-refactor..." shows immediately, replaced by the existing "Added wingman to api-refactor" / "Removed wingman from api-refactor" result.</div>
+        <div class="mk-rail-host">
+          <div class="rail-notice">Updating Wingman for api-refactor...</div>
+          <div class="rail tree">
+            <div role="button" tabindex="0" class="sess" style="border-left-color:#22C55E">
+              <span class="sess-dot" style="background:#22C55E"></span>
+              <span class="sess-body">
+                <span class="sess-name">api-refactor</span>
+                <span class="sess-state">Working<span class="sess-dir">4be9c4c1</span></span>
+              </span>
+              <button type="button" class="sess-kebab">&#8942;</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mk-case">
+        <div class="mk-case-label">AC4 - New GitHub Issue, DURING (before the origin-remote resolution + tab open)</div>
+        <div class="mk-note">"Resolving GitHub repo..." shows immediately while the Director resolves the origin remote; the new-issue tab then opens as today.</div>
+        <div class="mk-rail-host">
+          <div class="rail-notice">Resolving GitHub repo...</div>
+          <div class="rail tree">
+            <div role="button" tabindex="0" class="sess" style="border-left-color:#22C55E">
+              <span class="sess-dot" style="background:#22C55E"></span>
+              <span class="sess-body">
+                <span class="sess-name">api-refactor</span>
+                <span class="sess-state">Working<span class="sess-dir">4be9c4c1</span></span>
+              </span>
+              <button type="button" class="sess-kebab">&#8942;</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+</div>
+</body>
+</html>
