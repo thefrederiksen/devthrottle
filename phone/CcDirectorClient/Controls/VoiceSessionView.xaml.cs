@@ -34,6 +34,7 @@ public partial class VoiceSessionView : ContentView
     private IUtteranceRecorder? _recorder;
     private IReplySpeaker? _tts;
     private IVoiceForeground? _foreground;
+    private IAudioCue? _audioCue;
     // The gateway token is read fresh from Preferences on every operation that needs
     // it, so the control does not need to be re-configured when the user changes it.
     private Func<string> _tokenProvider = () => "";
@@ -106,17 +107,19 @@ public partial class VoiceSessionView : ContentView
 
     /// <summary>
     /// Hand the control the services it needs (recorder, TTS, voice foreground service,
-    /// and a way to read the current gateway token). The MAUI XAML loader builds the
-    /// control with a parameterless constructor, so the host calls this once after
-    /// instantiation; everything else flows through it.
+    /// a way to read the current gateway token, and optional audio cues). The MAUI XAML
+    /// loader builds the control with a parameterless constructor, so the host calls this
+    /// once after instantiation; everything else flows through it.
     /// </summary>
     public void Configure(IUtteranceRecorder recorder, IReplySpeaker tts,
-                          IVoiceForeground foreground, Func<string> tokenProvider)
+                          IVoiceForeground foreground, Func<string> tokenProvider,
+                          IAudioCue? audioCue = null)
     {
         _recorder = recorder;
         _tts = tts;
         _foreground = foreground;
         _tokenProvider = tokenProvider ?? (() => "");
+        _audioCue = audioCue;
     }
 
     /// <summary>
@@ -304,6 +307,9 @@ public partial class VoiceSessionView : ContentView
 
             _recordingForWingman = wingman;
             _foreground.Start();
+            // Cue: mic is now open - fire before prompting so the user hears it the moment
+            // the dialog appears and the foreground service is live.
+            _audioCue?.PlayStart();
             SetStatus(wingman ? "Recording for wingman" : "Recording your answer", StatusRed);
 
             // Navigation on a ContentView only resolves once the control is attached
@@ -328,6 +334,8 @@ public partial class VoiceSessionView : ContentView
                 return;
             }
 
+            // Cue: user hit SUBMIT and the clip was captured successfully.
+            _audioCue?.PlayStop();
             SetStatus(_recordingForWingman ? "Asking wingman" : "Sending", StatusYellow);
             await RunTurnAsync(_current, audio);
         }
@@ -380,6 +388,8 @@ public partial class VoiceSessionView : ContentView
         }
         catch (Exception ex)
         {
+            // Cue: the turn failed (transcription, network, or send error).
+            _audioCue?.PlayError();
             SetStatus("Something went wrong", StatusRed);
             SetBusy(false);
             await ShowAlert("Voice error", ex.Message);

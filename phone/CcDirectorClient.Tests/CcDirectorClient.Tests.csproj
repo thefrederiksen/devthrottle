@@ -36,6 +36,8 @@
     <Compile Include="..\CcDirectorClient\Voice\OfflineGuard.cs" Link="Voice\OfflineGuard.cs" />
     <Compile Include="..\CcDirectorClient\Voice\PlaybackSignal.cs" Link="Voice\PlaybackSignal.cs" />
     <Compile Include="..\CcDirectorClient\Voice\LastClipCache.cs" Link="Voice\LastClipCache.cs" />
+    <Compile Include="..\CcDirectorClient\Voice\IAudioCue.cs" Link="Voice\IAudioCue.cs" />
+    <Compile Include="..\CcDirectorClient\Voice\NullAudioCue.cs" Link="Voice\NullAudioCue.cs" />
   </ItemGroup>
 
 </Project>

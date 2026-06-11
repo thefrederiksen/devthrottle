@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>QA Report - Issue #349: Voice Audio Cues</title>
+<style>
+  body { font-family: 'Segoe UI', sans-serif; max-width: 900px; margin: 40px auto; padding: 0 20px; background: #f8f9fa; color: #212529; }
+  h1 { color: #1a1a2e; border-bottom: 3px solid #4a90e2; padding-bottom: 10px; }
+  h2 { color: #2c3e50; margin-top: 30px; }
+  .verdict { background: #d4edda; border: 2px solid #28a745; border-radius: 8px; padding: 20px; margin: 20px 0; font-size: 1.2em; font-weight: bold; color: #155724; }
+  .criterion { background: #fff; border: 1px solid #dee2e6; border-radius: 6px; padding: 16px; margin: 12px 0; }
+  .criterion h3 { margin: 0 0 10px 0; color: #343a40; }
+  .pass { border-left: 5px solid #28a745; }
+  .label-pass { background: #28a745; color: white; padding: 2px 10px; border-radius: 4px; font-size: 0.85em; font-weight: bold; }
+  .detail { margin: 6px 0; font-size: 0.95em; }
+  .expected { color: #155724; }
+  .actual { color: #004085; }
+  .evidence { background: #f1f3f5; border-radius: 4px; padding: 8px 12px; font-family: monospace; font-size: 0.88em; margin-top: 8px; }
+  .meta { color: #6c757d; font-size: 0.9em; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; }
+  th, td { border: 1px solid #dee2e6; padding: 8px 12px; text-align: left; }
+  th { background: #e9ecef; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<h1>QA Report - Issue #349: Voice Audio Cues</h1>
+
+<p class="meta">
+  <strong>Issue:</strong> <a href="https://github.com/thefrederiksen/cc-director/issues/349">#349 Voice recording: audio cues (start / stop / error beeps)</a><br>
+  <strong>PR:</strong> <a href="https://github.com/thefrederiksen/cc-director/pull/354">#354 feat(#349): voice audio cues - start/stop/error beeps for eyes-free driving</a><br>
+  <strong>Branch:</strong> issue-349-voice-audio-cues<br>
+  <strong>QA Method:</strong> Independent code review + test execution + build verification<br>
+  <strong>Date:</strong> 2026-06-11
+</p>
+
+<div class="verdict">
+  VERIFIED - All 5 acceptance criteria met. PASS.
+</div>
+
+<h2>Acceptance Criteria Verification</h2>
+
+<div class="criterion pass">
+  <h3><span class="label-pass">PASS</span> AC-1: Distinct beep heard on Android when recording starts</h3>
+  <div class="detail expected"><strong>Expected:</strong> When recording starts, AndroidAudioCue.PlayStart() is called, firing ToneType.PropBeep at 150ms via Task.Run (fire-and-forget)</div>
+  <div class="detail actual"><strong>Actual:</strong> AndroidAudioCue.PlayStart() calls Task.Run(() => PlayTone(Tone.PropBeep, StartMs)) where StartMs=150. Called in VoiceSessionView.HandleRecordAsync at line 312, after _foreground.Start() and before VoiceDictationDialog.PromptAsync</div>
+  <div class="evidence">
+    phone/CcDirectorClient/Platforms/Android/AndroidAudioCue.cs:25-29<br>
+    phone/CcDirectorClient/Controls/VoiceSessionView.xaml.cs:309-312<br>
+    Tone: PropBeep, Duration: 150ms, Volume: 80 (of 100)
+  </div>
+</div>
+
+<div class="criterion pass">
+  <h3><span class="label-pass">PASS</span> AC-2: Different tone heard on successful SUBMIT</h3>
+  <div class="detail expected"><strong>Expected:</strong> On successful submit, PlayStop() fires a higher-pitch tone (PropBeep2) after PromptAsync returns non-null audio</div>
+  <div class="detail actual"><strong>Actual:</strong> _audioCue?.PlayStop() at line 338, positioned after the null-check guard (if audio is null -> return) and before RunTurnAsync. AndroidAudioCue fires Tone.PropBeep2 at 100ms via Task.Run</div>
+  <div class="evidence">
+    phone/CcDirectorClient/Controls/VoiceSessionView.xaml.cs:329-338<br>
+    phone/CcDirectorClient/Platforms/Android/AndroidAudioCue.cs:31-35<br>
+    Tone: PropBeep2, Duration: 100ms, higher pitch than PropBeep
+  </div>
+</div>
+
+<div class="criterion pass">
+  <h3><span class="label-pass">PASS</span> AC-3: Error tone heard when a turn fails</h3>
+  <div class="detail expected"><strong>Expected:</strong> When a turn fails (transcription / network / send error), PlayError() fires the NACK tone</div>
+  <div class="detail actual"><strong>Actual:</strong> _audioCue?.PlayError() at line 392 in RunTurnAsync catch(Exception ex) block. AndroidAudioCue fires Tone.PropNack at 300ms via Task.Run. The OperationCanceledException path (user cancel) correctly does NOT fire PlayError</div>
+  <div class="evidence">
+    phone/CcDirectorClient/Controls/VoiceSessionView.xaml.cs:385-396<br>
+    phone/CcDirectorClient/Platforms/Android/AndroidAudioCue.cs:37-41<br>
+    Tone: PropNack, Duration: 300ms, distinctly longer than start/stop tones
+  </div>
+</div>
+
+<div class="criterion pass">
+  <h3><span class="label-pass">PASS</span> AC-4: No audio from NullAudioCue on non-Android / in tests</h3>
+  <div class="detail expected"><strong>Expected:</strong> NullAudioCue has empty method bodies and is registered for non-Android targets; 5 unit tests confirm no exceptions are thrown</div>
+  <div class="detail actual"><strong>Actual:</strong> NullAudioCue.PlayStart/PlayStop/PlayError all have empty bodies {}. Registered via #if ANDROID / #else / #endif in MauiProgram.cs (line 43-46). 5 AudioCueTests all passed (0 failures)</div>
+  <div class="evidence">
+    phone/CcDirectorClient/Voice/NullAudioCue.cs - all three methods: empty body<br>
+    phone/CcDirectorClient/MauiProgram.cs:43-46 - conditional DI registration<br>
+    dotnet test --filter AudioCue: Passed 5, Failed 0, Duration 10ms
+  </div>
+</div>
+
+<div class="criterion pass">
+  <h3><span class="label-pass">PASS</span> AC-5: Does not block the UI thread</h3>
+  <div class="detail expected"><strong>Expected:</strong> All AndroidAudioCue methods fire-and-forget (Task.Run), never block the UI thread</div>
+  <div class="detail actual"><strong>Actual:</strong> All three methods in AndroidAudioCue use the pattern: _ = Task.Run(() => PlayTone(tone, durationMs)). The background thread itself does Thread.Sleep(durationMs+50) to hold the ToneGenerator alive, but the calling thread (UI) returns immediately. NullAudioCue methods return void synchronously with empty bodies</div>
+  <div class="evidence">
+    phone/CcDirectorClient/Platforms/Android/AndroidAudioCue.cs:26-41<br>
+    Pattern: _ = Task.Run(() => PlayTone(...)) in all three public methods
+  </div>
+</div>
+
+<h2>Build and Test Summary</h2>
+<table>
+  <tr><th>Check</th><th>Result</th><th>Detail</th></tr>
+  <tr><td>dotnet build CcDirectorClient.csproj</td><td>PASS</td><td>0 errors, 92 pre-existing warnings (none new)</td></tr>
+  <tr><td>dotnet build cc-director.sln</td><td>PASS</td><td>Build succeeded, 0 errors, 0 warnings</td></tr>
+  <tr><td>dotnet test --filter AudioCue</td><td>PASS</td><td>5 passed, 0 failed</td></tr>
+</table>
+
+<h2>Regression Sweep</h2>
+<p>The change is additive: new interface + two new implementations + DI wiring only. The Configure() signature added an optional parameter with default null, so all existing call sites without the parameter continue to compile and run (NullAudioCue semantics). No existing logic was modified. No adjacent functionality affected.</p>
+
+<h2>Method Checks</h2>
+<ul>
+  <li>CenCon: no architectural or security rules violated</li>
+  <li>Interface + implementation + DI registration = correct MAUI pattern</li>
+  <li>No blocking calls on the UI thread (fire-and-forget Task.Run)</li>
+  <li>Error handling in AndroidAudioCue catches exceptions internally and logs them (never propagates)</li>
+</ul>
+
+</body>
+</html>
