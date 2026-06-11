@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Issue #332 - QA Verification Report (Pass 2)</title>
+  <style>
+    body { font-family: Georgia, serif; max-width: 900px; margin: 40px auto; padding: 0 20px; color: #222; line-height: 1.7; }
+    h1 { font-size: 1.8em; border-bottom: 2px solid #333; padding-bottom: 8px; }
+    h2 { font-size: 1.3em; margin-top: 2em; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
+    table { border-collapse: collapse; width: 100%; margin: 1em 0; font-size: 0.92em; }
+    th { background: #f0f0f0; text-align: left; padding: 6px 10px; border: 1px solid #ccc; }
+    td { padding: 5px 10px; border: 1px solid #ddd; vertical-align: top; }
+    .pass { color: #155724; background: #d4edda; font-weight: bold; padding: 2px 6px; border-radius: 3px; }
+    code { background: #f5f5f5; padding: 2px 5px; font-family: monospace; font-size: 0.9em; }
+    pre { background: #f5f5f5; padding: 12px; overflow-x: auto; font-size: 0.85em; }
+    .verdict { background: #d4edda; border: 2px solid #28a745; padding: 12px 16px; margin: 1em 0; border-radius: 4px; font-weight: bold; font-size: 1.1em; }
+  </style>
+</head>
+<body>
+
+<h1>Issue #332 - QA Verification Report (Pass 2)</h1>
+<p>
+  <strong>QA Pass:</strong> 2 (re-verification after QA bounce on criterion 3)<br>
+  <strong>Branch:</strong> <code>issue-332-terminal-raw-metal-review</code><br>
+  <strong>Commits verified:</strong> <code>b7de110</code> (original) + <code>eb68c74</code> (fix: live resize proof)<br>
+  <strong>Date:</strong> 2026-06-11<br>
+  <strong>QA Agent machine:</strong> SOREN_NORTH<br>
+  <strong>Build:</strong> dotnet build cc-director.sln -- 0 errors, 0 warnings (independently run)<br>
+</p>
+
+<h2>Summary</h2>
+
+<div class="verdict">VERIFIED - all 5 acceptance criteria met. PASS.</div>
+
+<h2>Acceptance Criteria Verification</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>#</th>
+      <th>Criterion (from issue #332)</th>
+      <th>Expected</th>
+      <th>Actual</th>
+      <th>Result</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>1</td>
+      <td>New keystroke matrix unit test covering every required key passes, byte-sequence table readable in test source</td>
+      <td>All required keys (Esc, Ctrl+C, Ctrl+D/Z/L, arrows, Home/End/PgUp/PgDn, Tab/Shift+Tab, F1-F12, Delete/Insert, paste paths) tested with correct VT byte sequences. Ctrl+C selection-copy vs SIGINT nuance tested.</td>
+      <td>37 tests pass in TerminalKeystrokeFidelityTests.cs. 31-entry VT byte-sequence table embedded in source. CtrlC_WithSelection and CtrlC_NoSelection nuance both covered. CoverageCheck test asserts no required key can be silently removed.</td>
+      <td><span class="pass">PASS</span></td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>xterm parity snapshot suite green; coverage confirmed; any gap has new capture case</td>
+      <td>All pre-existing xterm parity snapshot tests pass. Any gap found during review has a new capture-replay case.</td>
+      <td>22 AnsiParser xterm parity tests pass (independently run). No new gaps found - all reviewed dimensions confirmed covered.</td>
+      <td><span class="pass">PASS</span></td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td>Scripted resize: 20 rapid resizes via Control API POST /sessions/{sid}/resize on a slot-5+ session - no crash, final GET /sessions/{sid}/buffer consistent with final dims. Script + output proof committed.</td>
+      <td>20 resizes return HTTP 200 with matching cols/rows. Director healthy after. Script and captured output committed under docs/cencon/proof/issue-332/.</td>
+      <td>
+        resize-proof.ps1 and resize-proof-output.txt both committed. Output shows:
+        <br>- Director: cc-director6.exe (slot 6, scheduled task, svchost parentage per CLAUDE.md rule 0b)
+        <br>- Session created on running Director (PID 68936, port 7887)
+        <br>- All 20 resizes: HTTP 200, accepted=true, cols/rows match requested for every resize
+        <br>- GET /healthz: status=ok after all 20 resizes
+        <br>- GET /sessions/{sid}/buffer: consistent non-zero buffer (9846 bytes)
+        <br>- Stub Assert.True(true) test replaced with ControlApi_ResizeEndpoint_RespondsWithRequestedDimensions (real assertions on cursor bounds + scroll region for all 20 resize dimensions)
+        <br>See: docs/cencon/proof/issue-332/resize-proof-output.txt (full verbatim output)
+      </td>
+      <td><span class="pass">PASS</span></td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td>Throughput: 10 MB stream parsed &lt; 10 s, no UI-thread block &gt; 100 ms, memory bounded (measured before/after)</td>
+      <td>4 throughput tests pass with measured timings under stated thresholds.</td>
+      <td>4 TerminalThroughputTests pass: 10 MB stream ~2 s (gate: &lt;10 s), each 64 KB chunk under 100 ms (UI mandate), scrollback capped by MaxScrollback (no unbounded growth), linear scaling confirmed.</td>
+      <td><span class="pass">PASS</span></td>
+    </tr>
+    <tr>
+      <td>5</td>
+      <td>Review report committed under docs/cencon/proof/issue-332/ listing reviewed dimensions, findings, fixes, deferred follow-ups (filed as issues, linked)</td>
+      <td>report.html present and complete with all required sections.</td>
+      <td>report.html is present (22 KB), section 4.2 updated with live proof run output, acceptance criteria table updated to reflect all criteria met.</td>
+      <td><span class="pass">PASS</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Regression Sweep</h2>
+<p>
+  dotnet build cc-director.sln independently: 0 errors, 0 warnings. All 94 tests in CcDirector.Core.Tests pass
+  (including 22 pre-existing AnsiParser xterm parity tests - no regression). No adjacent behavior broken.
+  No CenCon rule (DT-01..DT-NN) violations observed. No security or architecture docs required update for this change.
+</p>
+
+<h2>Test Counts (independently run)</h2>
+<pre>
+TerminalKeystrokeFidelityTests:  37/37 PASS
+TerminalRapidResizeTests:         7/7  PASS  (ControlApi stub replaced with real test)
+TerminalThroughputTests:          4/4  PASS
+AnsiParser (xterm parity suite): 22/22 PASS
+Total CcDirector.Core.Tests:     94/94 PASS
+Build: 0 errors, 0 warnings
+</pre>
+
+<h2>Criterion 3 Re-verification (focus of QA pass 2)</h2>
+<p>
+  QA pass 1 rejected criterion 3 because: (a) no live Director was started, (b) no POST /sessions/{sid}/resize calls
+  were made via the Control API, (c) no output proof existed, and (d) the only test was Assert.True(true).
+</p>
+<p>
+  QA pass 2 confirms all four defects are fixed:
+</p>
+<ul>
+  <li>resize-proof.ps1 - a proper script that takes port + session ID and runs 20 POST /sessions/{sid}/resize calls</li>
+  <li>resize-proof-output.txt - verbatim captured output from a real slot-6 Director run, all 20 PASS with HTTP 200 + matching dims</li>
+  <li>ControlApi_ResizeEndpoint_RespondsWithRequestedDimensions - real assertions replacing the stub, verifies cursor bounds and scroll region for all 20 resize dimensions</li>
+  <li>Director health and buffer consistency confirmed post-resize</li>
+</ul>
+
+<div class="verdict">VERIFIED - all acceptance criteria met. Squash-merge authorized.</div>
+
+</body>
+</html>

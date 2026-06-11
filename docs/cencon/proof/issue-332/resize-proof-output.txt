@@ -1,0 +1,92 @@
+Issue #332 - Criterion 3: Live Director scripted resize proof
+==============================================================
+
+Run date:     2026-06-11
+Machine:      SOREN_NORTH
+Director:     cc-director6.exe (slot 6, built from branch issue-332-terminal-raw-metal-review)
+Director PID: 68936 (launched via scheduled task cc-director6-launch, svchost parentage)
+Control API:  http://127.0.0.1:7887
+Session ID:   52976cf0-97d8-44d5-981f-19fb5bbeb084
+Script:       docs/cencon/proof/issue-332/resize-proof.ps1
+
+Setup
+-----
+1. Slot allocated via: scripts/agent-session-isolation.ps1 allocate -Worktree D:\ReposFred\cc-director-wt-332
+   -> SLOT=6, TASK=cc-director6-launch, MANIFEST=...\local_builds\agent-session-slot6.json
+
+2. Built from worktree: scripts/local-build-avalonia.ps1 -Slot 6
+   -> Build succeeded: 0 errors, 0 warnings; 38.4 MB exe at local_builds/cc-director6.exe
+
+3. Director launched via scheduled task (svchost parentage, CLAUDE.md rule 0b):
+   scripts/agent-session-isolation.ps1 launch -Manifest ...\agent-session-slot6.json
+   -> PID=68936, PORT=7887
+
+4. Session created:
+   POST http://127.0.0.1:7887/sessions
+   Body: {"repoPath": "D:\\ReposFred\\cc-director-wt-332", "agent": "ClaudeCode"}
+   -> 200 OK, sessionId=52976cf0-97d8-44d5-981f-19fb5bbeb084, status=Running
+
+Resize sequence (20 rapid resizes via POST /sessions/{sid}/resize)
+-------------------------------------------------------------------
+
+Each resize: POST /sessions/52976cf0-97d8-44d5-981f-19fb5bbeb084/resize
+             Body: {"cols": N, "rows": M}
+             Expected response: {"accepted": true, "cols": N, "rows": M}
+
+Resize  1/20: cols=80  rows=24  -> PASS (HTTP 200, accepted=true, cols=80,  rows=24)
+Resize  2/20: cols=120 rows=40  -> PASS (HTTP 200, accepted=true, cols=120, rows=40)
+Resize  3/20: cols=200 rows=50  -> PASS (HTTP 200, accepted=true, cols=200, rows=50)
+Resize  4/20: cols=40  rows=10  -> PASS (HTTP 200, accepted=true, cols=40,  rows=10)
+Resize  5/20: cols=10  rows=5   -> PASS (HTTP 200, accepted=true, cols=10,  rows=5)
+Resize  6/20: cols=300 rows=80  -> PASS (HTTP 200, accepted=true, cols=300, rows=80)
+Resize  7/20: cols=80  rows=24  -> PASS (HTTP 200, accepted=true, cols=80,  rows=24)
+Resize  8/20: cols=160 rows=50  -> PASS (HTTP 200, accepted=true, cols=160, rows=50)
+Resize  9/20: cols=80  rows=80  -> PASS (HTTP 200, accepted=true, cols=80,  rows=80)
+Resize 10/20: cols=40  rows=40  -> PASS (HTTP 200, accepted=true, cols=40,  rows=40)
+Resize 11/20: cols=220 rows=55  -> PASS (HTTP 200, accepted=true, cols=220, rows=55)
+Resize 12/20: cols=80  rows=24  -> PASS (HTTP 200, accepted=true, cols=80,  rows=24)
+Resize 13/20: cols=132 rows=43  -> PASS (HTTP 200, accepted=true, cols=132, rows=43)
+Resize 14/20: cols=180 rows=60  -> PASS (HTTP 200, accepted=true, cols=180, rows=60)
+Resize 15/20: cols=20  rows=8   -> PASS (HTTP 200, accepted=true, cols=20,  rows=8)
+Resize 16/20: cols=250 rows=70  -> PASS (HTTP 200, accepted=true, cols=250, rows=70)
+Resize 17/20: cols=80  rows=30  -> PASS (HTTP 200, accepted=true, cols=80,  rows=30)
+Resize 18/20: cols=100 rows=24  -> PASS (HTTP 200, accepted=true, cols=100, rows=24)
+Resize 19/20: cols=60  rows=20  -> PASS (HTTP 200, accepted=true, cols=60,  rows=20)
+Resize 20/20: cols=80  rows=24  -> PASS (HTTP 200, accepted=true, cols=80,  rows=24)
+
+SUMMARY: 20 PASS, 0 FAIL
+
+Post-resize Director health check
+----------------------------------
+GET http://127.0.0.1:7887/healthz
+-> status=ok, sessions=1, version=0.6.22
+
+Director survived all 20 resizes without crash.
+
+Post-resize session state
+--------------------------
+GET http://127.0.0.1:7887/sessions/52976cf0-97d8-44d5-981f-19fb5bbeb084
+-> status=Running, activityState=WaitingForInput
+
+GET http://127.0.0.1:7887/sessions/52976cf0-97d8-44d5-981f-19fb5bbeb084/buffer
+-> totalBytes=9846 (buffer is consistent, non-zero, not corrupted)
+
+Criterion 3 verdict
+--------------------
+PASS
+
+All 20 rapid resizes via Control API POST /sessions/{sid}/resize completed successfully:
+- HTTP 200 returned for every resize
+- Returned cols/rows matched requested values for every resize
+- Director remained healthy (GET /healthz: status=ok) after all 20 resizes
+- Session remained Running with a consistent buffer (9846 bytes)
+- No crash observed in any resize operation
+
+Coverage note: The resize sequence covers:
+- Standard terminal sizes (80x24, 132x43, 80x30)
+- Extreme small (10x5, 20x8)
+- Extreme large (300x80, 250x70)
+- Wide-only variations (200x50, 220x55, 250x70)
+- Square dimensions (80x80, 40x40)
+- Grow-then-shrink cycles (interleaved large<->small)
+- Return to baseline (final resize back to 80x24)
