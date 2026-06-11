@@ -125,6 +125,7 @@ public sealed class DirectorRegistry : IDisposable
         // A fresh registration may carry a corrected endpoint - give it a clean reachability slate so a
         // previously-broken Director that restarted on a good build is probed again immediately.
         _reach.TryRemove(req.DirectorId, out _);
+        _endpointProbeFailures.TryRemove(req.DirectorId, out _);
         FileLog.Write(dto.EndpointUnreachableReason is null
             ? $"[DirectorRegistry] Upsert (http): id={dto.DirectorId}, endpoint={dto.TailnetEndpoint}, existed={existed}"
             : $"[DirectorRegistry] Upsert (http, FLAGGED no reachable endpoint): id={dto.DirectorId}, existed={existed}, reason={dto.EndpointUnreachableReason}");
@@ -175,6 +176,7 @@ public sealed class DirectorRegistry : IDisposable
         if (_directors.TryRemove(directorId, out _))
         {
             _reach.TryRemove(directorId, out _);
+            _endpointProbeFailures.TryRemove(directorId, out _);
             _everReachable.TryRemove(directorId, out _); // graceful goodbye: next process starts blank
             FileLog.Write($"[DirectorRegistry] Remove (http): id={directorId}");
             OnDirectorRemoved?.Invoke(directorId);
@@ -260,6 +262,57 @@ public sealed class DirectorRegistry : IDisposable
         if (string.IsNullOrEmpty(directorId)) return;
         if (_directors.TryGetValue(directorId, out var d))
             d.TwoWayVerifiedAt = DateTime.UtcNow;
+    }
+
+    // ===== Advertised-endpoint re-verification state machine (issue #325) =====
+
+    /// <summary>Consecutive advertised-endpoint probe failures per Director, for log throttling only
+    /// (the wire state lives on the dto). The #197 lesson: a structurally-dead endpoint fails forever,
+    /// so we log the transition and every 10th repeat, never every probe.</summary>
+    private readonly ConcurrentDictionary<string, int> _endpointProbeFailures = new();
+
+    /// <summary>
+    /// Record one advertised-endpoint probe result (issue #325) and stamp the named state on
+    /// the registration: healthy -> fail -> flagged <see cref="DirectorDto.EndpointStateUnreachableByName"/>;
+    /// flagged -> succeed -> cleared back to <see cref="DirectorDto.EndpointStateOk"/>. The stamp lives
+    /// on the in-memory dto, so a re-register (which replaces the dto) naturally resets it.
+    /// </summary>
+    /// <param name="directorId">The probed Director.</param>
+    /// <param name="ok">True when the probe answered /healthz AS this Director.</param>
+    /// <param name="error">Why the probe failed (required when <paramref name="ok"/> is false).</param>
+    public void RecordEndpointProbeResult(string directorId, bool ok, string? error = null)
+    {
+        if (string.IsNullOrEmpty(directorId))
+            throw new ArgumentException("directorId is required", nameof(directorId));
+        if (!ok && string.IsNullOrWhiteSpace(error))
+            throw new ArgumentException("a failed probe must carry its reason", nameof(error));
+        if (!_directors.TryGetValue(directorId, out var d)) return; // evicted between probe and record
+
+        var now = DateTime.UtcNow;
+        var endpoint = d.TailnetEndpoint ?? d.ControlEndpoint;
+        d.AdvertisedEndpointCheckedAt = now;
+
+        if (ok)
+        {
+            var wasFlagged = d.AdvertisedEndpointState == DirectorDto.EndpointStateUnreachableByName;
+            d.AdvertisedEndpointState = DirectorDto.EndpointStateOk;
+            d.AdvertisedEndpointUnreachableSince = null;
+            d.AdvertisedEndpointError = null;
+            _endpointProbeFailures.TryRemove(directorId, out _);
+            if (wasFlagged)
+                FileLog.Write($"[DirectorRegistry] {directorId} advertised endpoint REACHABLE again: endpoint={endpoint}");
+            return;
+        }
+
+        var failures = _endpointProbeFailures.AddOrUpdate(directorId, 1, (_, n) => n + 1);
+        var firstFlag = d.AdvertisedEndpointState != DirectorDto.EndpointStateUnreachableByName;
+        if (firstFlag)
+            d.AdvertisedEndpointUnreachableSince = now;
+        d.AdvertisedEndpointState = DirectorDto.EndpointStateUnreachableByName;
+        d.AdvertisedEndpointError = error;
+        // Transition + every 10th repeat - each line carries endpoint and reason (issue #325 AC).
+        if (firstFlag || failures % 10 == 0)
+            FileLog.Write($"[DirectorRegistry] {directorId} advertised endpoint UNREACHABLE-BY-NAME (still heartbeating): endpoint={endpoint}, failures={failures}, reason={error}");
     }
 
     /// <summary>A fleet probe to the Director failed: increment the breaker and open it after the threshold.</summary>
@@ -394,6 +447,7 @@ public sealed class DirectorRegistry : IDisposable
                         if (_directors.TryRemove(kv.Key, out _))
                         {
                             _reach.TryRemove(kv.Key, out _);
+                            _endpointProbeFailures.TryRemove(kv.Key, out _);
                             FileLog.Write($"[DirectorRegistry] Sweeper evicted unreachable http entry: {kv.Key} (control endpoint dead {(now - reach.FirstUnreachableAt).TotalSeconds:F0}s, still heartbeating)");
                             OnDirectorRemoved?.Invoke(kv.Key);
                         }
@@ -407,6 +461,7 @@ public sealed class DirectorRegistry : IDisposable
                         if (_directors.TryRemove(kv.Key, out _))
                         {
                             _reach.TryRemove(kv.Key, out _);
+                            _endpointProbeFailures.TryRemove(kv.Key, out _);
                             // The process is gone (no heartbeat) - unlike the unreachable-evict
                             // above (still heartbeating), a future registration under this id is
                             // a NEW process and deserves a blank ever-reachable slate.

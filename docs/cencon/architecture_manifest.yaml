@@ -631,6 +631,9 @@ containers:
       - name: DirectorEndpointClient
         description: HttpClient wrapper for each Director's Control API (prompts, sessions, kills, wingman asks, image upload, recap)
         file: Discovery/DirectorEndpointClient.cs
+      - name: AdvertisedEndpointMonitor
+        description: Re-verifies each HTTP-registered Director's advertised endpoint every heartbeat cycle (15s GET /healthz + directorId match); a failed probe flags the registration unreachable-by-name (distinct from heartbeat loss) and a later success auto-clears it (issue #325)
+        file: Discovery/AdvertisedEndpointMonitor.cs
       - name: TailscaleServeProvisioner
         description: Keeps `tailscale serve` HTTPS mappings in sync with the live LOCAL fixed-range (7879-7898) Director set (443 -> gateway, per-Director ports); remote-machine and ephemeral-port (hosted-agent) Directors never get a mapping, and a 5-minute self-healing reconcile re-asserts the front door + missing live mappings and sweeps provisioner-shaped orphans on any port (issue #179)
         file: Tailscale/TailscaleServeProvisioner.cs

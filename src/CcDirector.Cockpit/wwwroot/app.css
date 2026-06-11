@@ -83,6 +83,7 @@ body{background:var(--panel);color:var(--text);
 .tbl .cell-ellipsis{max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tbl .warn{color:var(--amber)}
 .tbl .ok{color:var(--green)}
+.tbl .err{color:var(--red);font-weight:600;white-space:nowrap} /* unreachable-by-name (issue #325) */
 .tbl-empty{color:var(--text3);font-style:italic;font-size:12.5px;padding:18px 4px}
 
 /* pager */
