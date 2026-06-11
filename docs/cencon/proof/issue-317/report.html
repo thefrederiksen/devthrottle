@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Proof - Issue #317: Cockpit screenshot bytes routed same-origin through the Gateway</title>
+<style>
+  body { font-family: 'Segoe UI', sans-serif; background:#1e1e1e; color:#cccccc; margin:2rem auto; max-width:1100px; padding:0 1rem; }
+  h1,h2 { color:#ffffff; } h1 { font-size:1.5rem; } h2 { font-size:1.15rem; border-bottom:1px solid #3c3c3c; padding-bottom:.3rem; margin-top:2rem; }
+  code, pre { background:#252526; color:#d7ba7d; border-radius:4px; }
+  code { padding:.1rem .35rem; } pre { padding: .8rem 1rem; overflow-x:auto; font-size:.85rem; }
+  table { border-collapse:collapse; width:100%; margin:1rem 0; }
+  th,td { border:1px solid #3c3c3c; padding:.5rem .7rem; text-align:left; vertical-align:top; font-size:.92rem; }
+  th { background:#252526; color:#ffffff; }
+  .pass { color:#22c55e; font-weight:600; }
+  .pill { display:inline-block; padding:.05rem .5rem; border-radius:9px; font-size:.78rem; }
+  .info { background:#1b2a3a; color:#3b82f6; }
+  img.proof { max-width:100%; border:1px solid #3c3c3c; border-radius:6px; margin:.5rem 0 1.5rem; }
+  .verdict { background:#1b3a2a; color:#22c55e; padding:1rem; border-radius:6px; font-weight:600; margin-top:2rem; }
+</style>
+</head>
+<body>
+
+<h1>Issue #317 - Screenshot thumbnails/View/Copy were browser-direct to the Director's address</h1>
+<p><strong>PR:</strong> #319 &nbsp;|&nbsp; <strong>Branch:</strong> <code>issue-317-gateway-screenshot-proxy</code> &nbsp;|&nbsp; <strong>Date:</strong> 2026-06-11 &nbsp;|&nbsp; <strong>Role:</strong> Developer Agent (CenCon)</p>
+
+<h2>What was implemented</h2>
+<table>
+  <tr><th>File</th><th>Change</th></tr>
+  <tr><td><code>CcDirector.Gateway/Api/SessionWsProxyEndpoints.cs</code></td>
+      <td>Third per-session leg: <code>GET /sessions/{sid}/screenshots/file?name=...</code> mapped through the
+          existing <code>ProxyAsync</code> (leg <code>shot</code>, Director path <code>/screenshots/file</code>) -
+          the SAME #268 resolution, not a fork. Plain HTTP forward via the shared YARP
+          <code>IHttpForwarder</code>; query carries through; open/resolved/close log lines per image
+          (open now also logs the query, i.e. the file name).</td></tr>
+  <tr><td><code>CcDirector.Gateway.Contracts/CockpitShotUrls.cs</code> <span class="pill info">new</span></td>
+      <td>Pure static builder: <code>Screenshot(gatewayOrigin, sid, fileName)</code> &rarr;
+          <code>{scheme}://{authority}/sessions/{sid}/screenshots/file?name={escaped}</code>.
+          Scheme preserved (http&rarr;http, https&rarr;https), origin path/trailing slash dropped,
+          file name URL-escaped. Mirrors <code>CockpitWsUrls</code>.</td></tr>
+  <tr><td><code>CcDirector.Cockpit/Components/Pages/Cockpit.razor</code></td>
+      <td><code>ShotUrl</code> now builds same-origin from <code>Nav.BaseUri</code> + the selected session's id.
+          All three byte sinks (thumbnail <code>&lt;img&gt;</code>, View, Copy) flow through it - one change covers them.</td></tr>
+  <tr><td><code>CcDirector.Cockpit/Services/DirectorClient.cs</code></td>
+      <td>The Director-direct <code>ScreenshotUrl</code> builder is REMOVED (so the broken browser-direct
+          pattern cannot be reused); <code>GetScreenshotsAsync</code> doc updated. List/Insert/Del paths unchanged
+          (server-side, already working).</td></tr>
+  <tr><td><code>CcDirector.Cockpit/wwwroot/js/cockpit-shots.js</code></td>
+      <td>Header comment only - the fetch/clipboard logic is untouched (AC5: no JS protocol change).</td></tr>
+  <tr><td><code>docs/cencon/architecture_manifest.yaml</code></td>
+      <td><code>SessionWsProxyEndpoints</code> description now covers the third leg; <code>CockpitShotUrls</code> added to gateway_contracts.</td></tr>
+</table>
+<p>The Director's own <code>/screenshots</code> endpoints are <strong>unchanged</strong> (scope OUT respected).</p>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+  <tr><th>Criterion</th><th>Expected</th><th>Actual / proof</th><th></th></tr>
+  <tr>
+    <td>1. <code>ShotUrl</code> same-origin, never a Director address; unit-tested builder</td>
+    <td>URL is <code>{gateway-origin}/sessions/{sid}/screenshots/file?name=...</code></td>
+    <td>Live DOM read of the rendered gallery: every <code>img.shot-thumb</code> src =
+        <code>http://127.0.0.1:7991/sessions/2c4f42c5.../screenshots/file?name=Screenshot%202026-06-11%20041835.png</code>
+        (7991 = the Gateway; the owning Director was 127.0.0.1:7880 and appears nowhere).
+        <code>CockpitShotUrlsTests</code> pin origin, sid path, escaped name, https&rarr;https, trailing-slash and
+        deep-link safety, port preservation, invalid input throws.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>2. Gateway route returns bytes + correct content type; round-trip equals source</td>
+    <td>200, <code>image/png</code>, byte-identical</td>
+    <td>Live: <code>GET /sessions/063e7a1a.../screenshots/file?name=Screenshot%20(4).png</code> on the dev Gateway
+        returned <code>200 image/png</code>, 303,363 bytes; <code>cmp</code> against the Director-direct fetch:
+        <strong>BYTES IDENTICAL</strong>. Unit: <code>ScreenshotProxyRoundTripTests</code> (self-hosted GatewayHost +
+        stub Director) asserts 200 + <code>image/png</code> + byte equality + the escaped name arriving decoded.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>3. Unknown sid &rarr; 404; cached-owner-offline &rarr; 503 (reuse #268/#288/#291 resolution)</td>
+    <td>Same semantics as the WS legs, not forked</td>
+    <td>The route calls the SAME <code>ProxyAsync</code>/<code>SessionOwnerCache</code> path as stream/dictate.
+        Live: unknown sid returned 404. Unit: the screenshots leg was added to the existing
+        <code>SessionWsProxyEndpointsTests</code> theories - 404 unknown, 503 cached-owner-offline,
+        route precedence over the Cockpit fallback proxy. All pass.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>4. Thumbnails render live; View opens full-size at the same-origin URL</td>
+    <td>Gallery shows actual images, not broken icons</td>
+    <td>Screenshot below: the gallery renders real thumbnails. Playwright DOM check: first five thumbs all
+        <code>complete &amp;&amp; naturalWidth &gt; 0</code> (e.g. 1898x962). Clicking a thumbnail opened a new tab at
+        <code>http://127.0.0.1:7991/sessions/.../screenshots/file?name=...</code> titled <em>file (1898x962)</em>
+        (second screenshot).</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>5. Copy still works (same-origin fetch, no JS protocol change)</td>
+    <td>Copy puts the image on the clipboard</td>
+    <td>Live with clipboard permission granted: clicking <strong>Copy</strong> showed
+        <code>"copied image to clipboard"</code>. A page-context <code>fetch</code> of the thumb src returned
+        <code>{ok:true, status:200, type:"image/png", size:182527}</code>. <code>cockpit-shots.js</code> logic unchanged.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>6. Build clean; existing Gateway + Cockpit tests green</td>
+    <td>0 warnings / 0 errors; suites pass</td>
+    <td><code>dotnet build cc-director.sln</code>: <strong>Build succeeded, 0 Warning(s), 0 Error(s)</strong>.
+        <code>CcDirector.Gateway.Tests</code>: <strong>435 passed, 0 failed</strong> (includes the new tests).
+        <code>CcDirector.Cockpit.Tests</code>: <strong>16 passed, 0 failed</strong>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Live proof setup (single machine, per the issue's proof target)</h2>
+<pre>
+1. Dev Gateway from this branch:  dotnet run --project src/CcDirector.Gateway -- --port 7991
+   (CC_GATEWAY_NO_TAILSCALE=1, CC_TURNBRIEFS=0, CC_COCKPIT_PORT=7470 - isolated from the
+    production Gateway and from Tailscale Serve; FSW-discovered the real local Director on
+    http://127.0.0.1:7880 with 3 live sessions and the machine's real screenshots folder)
+2. Dev Cockpit from this branch:  dotnet run --project src/CcDirector.Cockpit  (port 7470,
+   Cockpit__GatewayUrl=http://127.0.0.1:7991/)
+3. Playwright (headless Chromium) at http://127.0.0.1:7991/ -> Cockpit -> session ->
+   SCREENSHOTS tab. This reproduces the one-URL topology: browser only ever talks to 7991.
+</pre>
+
+<h2>Gateway log lines (per proxied image - open / resolved / close)</h2>
+<pre>
+04:43:42.036 [SessionWsProxy] open leg=shot sid=063e7a1a-... query=?name=Screenshot%20(4).png client=127.0.0.1
+04:43:42.044 [SessionWsProxy] leg=shot sid=063e7a1a-... resolved director=a0d9f4a3-... -> http://127.0.0.1:7880/screenshots/file
+04:43:42.0xx [SessionWsProxy] close leg=shot sid=063e7a1a-... director=a0d9f4a3-...
+04:43:54.534 [SessionWsProxy] open leg=shot sid=00000000-0000-0000-0000-000000000000 query=?name=a.png -> 404
+</pre>
+
+<h2>Screenshot 1 - gallery renders real thumbnails through the Gateway origin</h2>
+<p>Note the address pill top-right: <code>http://127.0.0.1:7991/</code> (the Gateway). The SCREENSHOTS panel on the
+right shows actual decoded images - the exact surface that rendered broken/black in the issue's report.</p>
+<img class="proof" src="cockpit-gallery-thumbnails.png" alt="Cockpit gallery with rendered thumbnails">
+
+<h2>Screenshot 2 - View opens the full-size image at the same-origin URL</h2>
+<img class="proof" src="view-fullsize-same-origin.png" alt="Full-size screenshot opened in a new tab at the Gateway origin">
+
+<h2>CenCon impact</h2>
+<p>Architecture manifest updated in the same change (<code>SessionWsProxyEndpoints</code> now documents the third leg;
+<code>CockpitShotUrls</code> added under gateway_contracts). No security-posture change: the new route sits behind the
+same Gateway bearer/cookie auth middleware as every other route, and the same-origin <code>&lt;img&gt;</code> fetch now
+carries the auth cookie automatically (the old Director-direct fetch relied on the Director's open CORS). No blocking
+security rule touched.</p>
+
+<h2>Out of scope - respected</h2>
+<p>No change to the Director's screenshots endpoints, no gallery UX change, no change to the Insert/Del/list paths.
+Cross-machine confirmation from a second tailnet box is post-merge deployment verification (supervisor-owned).</p>
+
+<div class="verdict">All six acceptance criteria verified with live + unit proof. I believe this is finished.</div>
+
+</body>
+</html>
