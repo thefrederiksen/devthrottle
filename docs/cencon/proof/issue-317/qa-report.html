@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof - Issue #317: Cockpit screenshot bytes same-origin through the Gateway</title>
+<style>
+  body { font-family: 'Segoe UI', sans-serif; background:#1e1e1e; color:#cccccc; margin:2rem auto; max-width:1100px; padding:0 1rem; }
+  h1,h2 { color:#ffffff; } h1 { font-size:1.5rem; } h2 { font-size:1.15rem; border-bottom:1px solid #3c3c3c; padding-bottom:.3rem; margin-top:2rem; }
+  code, pre { background:#252526; color:#d7ba7d; border-radius:4px; }
+  code { padding:.1rem .35rem; } pre { padding:.8rem 1rem; overflow-x:auto; font-size:.85rem; }
+  table { border-collapse:collapse; width:100%; margin:1rem 0; }
+  th,td { border:1px solid #3c3c3c; padding:.5rem .7rem; text-align:left; vertical-align:top; font-size:.92rem; }
+  th { background:#252526; color:#ffffff; }
+  .pass { color:#22c55e; font-weight:600; }
+  img.proof { max-width:100%; border:1px solid #3c3c3c; border-radius:6px; margin:.5rem 0 1.5rem; }
+  .verdict { background:#1b3a2a; color:#22c55e; padding:1rem; border-radius:6px; font-weight:600; margin-top:2rem; }
+</style>
+</head>
+<body>
+
+<h1>QA Proof - Issue #317 (independent verification)</h1>
+<p><strong>PR:</strong> #319 &nbsp;|&nbsp; <strong>Branch:</strong> <code>issue-317-gateway-screenshot-proxy</code> (HEAD <code>a29647d</code>) &nbsp;|&nbsp; <strong>Date:</strong> 2026-06-11 &nbsp;|&nbsp; <strong>Role:</strong> QA Agent (CenCon) - fresh context, no developer artifacts reused</p>
+
+<h2>Independent test rig (built and run by QA, single machine per the issue's proof target)</h2>
+<pre>
+1. Checked out the PR branch; dotnet build cc-director.sln: Build succeeded, 0 Warning(s) 0 Error(s).
+2. Built slot-5 test Director (scripts\local-build-avalonia.ps1 -Slot 5) and launched it via the
+   cc-director-launch scheduled task -> Control API http://127.0.0.1:7887; created a real session
+   sid=2461cac4-d6ef-4d05-9807-e9872c0492a2 (POST /sessions, 201). Director listed 214 screenshots
+   in C:\Users\soren\Pictures\Screenshots.
+3. Dev Gateway from the branch on port 7993 (CC_GATEWAY_NO_TAILSCALE=1, CC_TURNBRIEFS=0,
+   CC_COCKPIT_PORT=7472) + dev Cockpit on 7472 (Cockpit__GatewayUrl=http://127.0.0.1:7993/).
+   Gateway discovered the slot-5 Director via FSW. Browser (headless Chromium, Playwright) only
+   ever talked to http://127.0.0.1:7993/ - the one-URL topology.
+</pre>
+
+<h2>Acceptance criteria - Expected vs Actual (QA's own evidence)</h2>
+<table>
+  <tr><th>Criterion</th><th>Expected</th><th>Actual (QA-measured)</th><th></th></tr>
+  <tr>
+    <td>1. ShotUrl same-origin to the Gateway, never a Director address; unit-tested builder</td>
+    <td><code>{gateway-origin}/sessions/{sid}/screenshots/file?name=...</code>, escaped name, scheme/port/trailing-slash safety</td>
+    <td>Live DOM eval: all 12 rendered <code>img.shot-thumb</code> srcs =
+        <code>http://127.0.0.1:7993/sessions/2461cac4-.../screenshots/file?name=Screenshot%20...png</code>;
+        sweep found <strong>0</strong> img referencing the Director ports 7887/7880.
+        <code>CockpitShotUrlsTests</code> (11 tests, run by QA, green) pin origin, sid path, escaping
+        (<code>%20 %2B %26</code>), https&rarr;https, http&rarr;http, port kept, trailing-slash and deep-link path dropped,
+        invalid inputs throw.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>2. Gateway route returns the bytes with correct content type; round-trip equals source</td>
+    <td>200, image content type, byte-identical</td>
+    <td>Live: <code>GET /sessions/2461cac4-.../screenshots/file?name=Screenshot%202026-06-11%20041835.png</code>
+        on the dev Gateway (7993) returned <strong>200 image/png, 182,527 bytes</strong>;
+        <code>SequenceEqual</code> against the Director-direct fetch (7887): <strong>BYTES IDENTICAL: True</strong>.
+        Unit: <code>ScreenshotProxyRoundTripTests</code> (self-hosted GatewayHost + stub Director Kestrel) - 200 +
+        image/png + byte equality + escaped name arriving decoded + Director 404 pass-through; green in QA's run.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>3. Unknown sid &rarr; 404; cached-owner-offline &rarr; 503 (same #268/#288/#291 resolution, not forked)</td>
+    <td>404 / 503 with the WS-leg semantics</td>
+    <td>Live: unknown sid &rarr; <strong>404</strong> <code>{"error":"session not found across any director"}</code>.
+        Live: after a successful fetch cached the owner, QA stopped the slot-5 Director and re-fetched &rarr;
+        <strong>503</strong> <code>{"error":"owning director offline"}</code>.
+        Code review: the screenshots leg is mapped through the SAME <code>ProxyAsync</code>/<code>SessionOwnerCache</code>
+        used by stream/dictate (no fork). Unit: the leg is an added InlineData in the existing
+        <code>SessionWsProxyEndpointsTests</code> 404/503/route-precedence theories; green.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>4. Thumbnails render live; View opens full-size at the same-origin URL</td>
+    <td>Actual images, not broken icons</td>
+    <td>Screenshot 1 below: the SCREENSHOTS panel shows real decoded images. DOM check: 12/12 thumbs
+        <code>complete &amp;&amp; naturalWidth &gt; 0</code> (first: 1898x962). Clicking a thumbnail opened a new tab at
+        <code>http://127.0.0.1:7993/sessions/2461cac4-.../screenshots/file?name=...</code> titled
+        <em>file (1898x962)</em>, image rendered (Screenshot 2).</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>5. Copy still works (same-origin fetch, no JS protocol change)</td>
+    <td>Image lands on the clipboard</td>
+    <td>With clipboard permission granted, clicking <strong>Copy</strong> on the first card showed
+        <code>"copied image to clipboard"</code> in the gallery status line. Diff review: <code>cockpit-shots.js</code>
+        change is comment-only - fetch/clipboard logic untouched.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>6. Build clean; existing Gateway + Cockpit tests green</td>
+    <td>0/0; suites pass</td>
+    <td>QA's own runs: <code>dotnet build cc-director.sln</code> &rarr; <strong>0 Warning(s), 0 Error(s)</strong>.
+        <code>CcDirector.Gateway.Tests</code>: <strong>435 passed, 0 failed</strong>.
+        <code>CcDirector.Cockpit.Tests</code>: <strong>16 passed, 0 failed</strong>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Gateway log lines observed by QA (open / resolved / close per image, plus the 404)</h2>
+<pre>
+05:01:45.269 [SessionWsProxy] open leg=shot sid=2461cac4-... query=?name=Screenshot%202026-06-11%20041835.png client=127.0.0.1
+05:01:45.276 [SessionWsProxy] leg=shot sid=2461cac4-... resolved director=4be9c4c1-... -> http://127.0.0.1:7887/screenshots/file
+05:01:45.342 [SessionWsProxy] close leg=shot sid=2461cac4-... director=4be9c4c1-...
+05:01:54.984 [SessionWsProxy] leg=shot sid=00000000-... -> 404 (no owning director across the fleet, none cached)
+</pre>
+
+<h2>Screenshot 1 - QA's running Cockpit: gallery renders real thumbnails through the Gateway origin (address pill: http://127.0.0.1:7993/)</h2>
+<img class="proof" src="qa-gallery-thumbnails.png" alt="QA: Cockpit gallery with rendered thumbnails through the Gateway">
+
+<h2>Screenshot 2 - View opened the full-size image in a new tab at the same-origin URL</h2>
+<img class="proof" src="qa-view-fullsize.png" alt="QA: full-size screenshot in a new tab at the Gateway origin">
+
+<h2>Regression / method sweep</h2>
+<ul>
+  <li>Dashboard, session tree, terminal pane, and tabs all rendered normally in the live run (negative sweep of every screenshot).</li>
+  <li>Director's own <code>/screenshots</code> endpoints untouched (diff contains no ControlApi changes) - scope OUT respected.</li>
+  <li><code>docs/cencon/architecture_manifest.yaml</code> updated in the PR (SessionWsProxyEndpoints third leg + CockpitShotUrls). No DT security rule touched; the new route sits behind the same Gateway auth middleware as the existing legs.</li>
+  <li>Director-direct <code>DirectorClient.ScreenshotUrl</code> removed, so the broken pattern cannot silently return.</li>
+</ul>
+
+<div class="verdict">VERIFIED - all acceptance criteria met. 6/6 PASS with QA's own live + unit proof.</div>
+
+</body>
+</html>
