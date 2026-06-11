@@ -7,6 +7,7 @@
 ## Related documents
 
 - [TARGET_IMPLEMENTATION_PLAN.md](TARGET_IMPLEMENTATION_PLAN.md) - **the executable version of this doc**: phased plan (desktop-Director-first), execution topology, autonomy grants, phase exit criteria
+- [gateway/CONTRACT_AUDIT.md](gateway/CONTRACT_AUDIT.md) - the section-5 taxonomy applied to the CURRENT Director Control API: every mapped route classified Fact / Event / Verb / Violation, with migration phases (Plan 1B deliverable, issue #326)
 - `hands-brain-face-target.d2` / `.png` - the target topology diagram
 - [gateway/GATEWAY_DIRECTOR_ARCHITECTURE.md](gateway/GATEWAY_DIRECTOR_ARCHITECTURE.md) - CURRENT state of the Gateway/Director split
 - [gateway/GATEWAY_DIRECTOR_TARGET.md](gateway/GATEWAY_DIRECTOR_TARGET.md) - Phase 1 thin-receptionist target (superseded in spirit by this doc: the Gateway has since grown the brain, the proxy legs, and work lists, and this doc embraces that)

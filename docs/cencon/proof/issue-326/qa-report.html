@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Verification Report - Issue #326 (Contract Audit)</title>
+<style>
+  body { font-family: Georgia, 'Times New Roman', serif; max-width: 1000px; margin: 2rem auto; padding: 0 1.5rem; color: #1a1a1a; line-height: 1.5; }
+  h1 { border-bottom: 3px solid #1a3a5c; padding-bottom: .4rem; }
+  h2 { color: #1a3a5c; margin-top: 2rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: .92rem; }
+  th, td { border: 1px solid #b8b8b8; padding: .45rem .6rem; text-align: left; vertical-align: top; }
+  th { background: #1a3a5c; color: #fff; }
+  tr:nth-child(even) { background: #f4f6f8; }
+  code, pre { font-family: Consolas, monospace; background: #f0f0f0; padding: .1rem .3rem; font-size: .88rem; }
+  pre { padding: .8rem; overflow-x: auto; border-left: 4px solid #1a3a5c; }
+  .pass { color: #0a6e0a; font-weight: bold; }
+  .verdict { background: #e8f5e8; border: 2px solid #0a6e0a; padding: 1rem 1.2rem; margin: 1.5rem 0; font-size: 1.05rem; }
+  .meta td:first-child { font-weight: bold; width: 220px; }
+</style>
+</head>
+<body>
+
+<h1>QA Verification Report - Issue #326</h1>
+
+<table class="meta">
+  <tr><td>Issue</td><td>#326 - [CenCon] Contract audit: classify every Director Control API endpoint as Fact, Event, or Verb in CONTRACT_AUDIT.md</td></tr>
+  <tr><td>PR</td><td>#339 (branch <code>issue-326-contract-audit</code>, head <code>48900f5</code>)</td></tr>
+  <tr><td>QA Agent</td><td>Independent QA session (CenCon Development Method), own checkout at <code>cc-director-qa-326</code> on the PR branch - the Developer's worktree and report were NOT reused.</td></tr>
+  <tr><td>Date</td><td>2026-06-11</td></tr>
+  <tr><td>Type</td><td>Documentation-only (no test Director required; deterministic proof is the route inventory)</td></tr>
+  <tr><td>Verdict</td><td class="pass">PASS - all 4 acceptance criteria verified</td></tr>
+</table>
+
+<h2>Acceptance Criterion 1: Doc exists; table row count == scripted inventory count; zero unclassified</h2>
+<table>
+  <tr><th>Check</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+  <tr><td>docs/architecture/gateway/CONTRACT_AUDIT.md exists on the PR branch</td><td>File present</td><td>Present (read in full)</td><td class="pass">PASS</td></tr>
+  <tr><td>Table row count</td><td>== inventory count</td><td>111 rows, numbered contiguously 1..111 (parsed programmatically)</td><td class="pass">PASS</td></tr>
+  <tr><td>Inventory count (QA re-run, bash command from the doc)</td><td>111</td><td>111</td><td class="pass">PASS</td></tr>
+  <tr><td>Inventory count (QA re-run, PowerShell command from the doc)</td><td>111</td><td>111</td><td class="pass">PASS</td></tr>
+  <tr><td>Rows classified unknown/unclassified</td><td>0</td><td>0 (every row is Fact, Verb, or VIOLATION; tally 50 Fact / 0 Event / 51 Verb / 10 VIOLATION = 111, matching the doc's section 3 tally)</td><td class="pass">PASS</td></tr>
+</table>
+
+<p><strong>Stronger-than-required check:</strong> QA also diffed the SET of routes (method + path), not just the counts. The 111 grep-extracted routes from <code>src/CcDirector.ControlApi</code> and the 111 table rows match exactly - zero routes in source missing from the table, zero table rows without a source route. QA additionally grepped for alternative registration mechanisms (<code>MapMethods</code>, <code>MapFallback</code>, <code>MapHub</code>, <code>MapWhen</code>, <code>MapGroup</code>, <code>UseRouter</code>) in <code>src/CcDirector.ControlApi</code>: zero matches, confirming the doc's completeness claim that the grep pattern captures the entire route surface.</p>
+
+<pre># QA re-run (Git Bash), from the PR-branch checkout root:
+$ grep -rnE '\.Map(Get|Post|Put|Patch|Delete)\("' src/CcDirector.ControlApi \
+    --include='*.cs' --exclude-dir=obj --exclude-dir=bin | wc -l
+111
+
+# QA re-run (PowerShell):
+&gt; (Get-ChildItem src\CcDirector.ControlApi -Recurse -Filter *.cs |
+    Where-Object { $_.FullName -notmatch '\\(obj|bin)\\' } |
+    Select-String -Pattern '\.Map(Get|Post|Put|Patch|Delete)\("').Count
+111
+
+# Route-set diff (QA script): src 111 vs table 111
+in source not in table: []
+in table not in source: []</pre>
+
+<h2>Acceptance Criterion 2: Every row has method, path, classification, rationale; every Violation names a migration phase</h2>
+<table>
+  <tr><th>Check</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+  <tr><td>Row completeness</td><td>All 111 rows have method + path + classification + non-empty rationale</td><td>Confirmed by programmatic parse: 111/111 rows matched the 5-column pattern with non-empty rationale</td><td class="pass">PASS</td></tr>
+  <tr><td>Violations name a migration phase</td><td>10/10</td><td>10/10 - rows 10, 11, 27, 30, 36, 37, 48 name Phase 3; rows 31, 35, 91 name Phase 5. Section 7 violation summary table agrees.</td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>Acceptance Criterion 3: Inventory command included in the doc; QA re-run gets the same count</h2>
+<p>Both the bash and PowerShell commands are recorded in the doc's section 1. QA executed both verbatim from its own checkout of the PR branch; both returned <strong>111</strong>, equal to the doc's stated count and the table row count. <span class="pass">PASS</span> (command output shown above).</p>
+
+<h2>Acceptance Criterion 4: Linked from DIRECTOR_DUMB_WRAPPER_TARGET.md and docs/architecture/README.md</h2>
+<table>
+  <tr><th>File</th><th>Evidence</th><th>Result</th></tr>
+  <tr><td>docs/architecture/DIRECTOR_DUMB_WRAPPER_TARGET.md</td><td>Line 10 (related-documents list): link to <code>gateway/CONTRACT_AUDIT.md</code> with description</td><td class="pass">PASS</td></tr>
+  <tr><td>docs/architecture/README.md</td><td>Line 16 (document table): row "Director Control API contract audit" linking <code>gateway/CONTRACT_AUDIT.md</code>, status CURRENT</td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>Honesty spot-check: 14 routes verified against handler source</h2>
+<p>QA read the actual handler code in <code>src/CcDirector.ControlApi</code> for 14 routes spanning all four classifications, judging whether the classification is honest per the taxonomy (VIOLATION = a request can run LLM interpretation below the line).</p>
+<table>
+  <tr><th>Row</th><th>Route</th><th>Doc class</th><th>Source evidence (QA-read)</th><th>Honest?</th></tr>
+  <tr><td>10</td><td>POST /sessions/{sid}/wingman/ask</td><td>VIOLATION</td><td>Calls <code>WingmanService.AskAboutSessionAsync</code> / <code>AnswerViaSessionAsync</code> (claude side-call)</td><td class="pass">YES</td></tr>
+  <tr><td>11</td><td>POST /sessions/{sid}/wingman/act</td><td>VIOLATION</td><td>Calls <code>WingmanService.DecideSessionActionAsync</code> (LLM decision)</td><td class="pass">YES</td></tr>
+  <tr><td>22</td><td>GET /sessions/{sid}/buffer</td><td>Fact</td><td><code>buffer.DumpAll()</code> / <code>GetWrittenSince()</code> - deterministic buffer read, no LLM</td><td class="pass">YES</td></tr>
+  <tr><td>26</td><td>GET /sessions/{sid}/summary</td><td>Fact</td><td>Deterministic DTO build over session state/transcript, no LLM call</td><td class="pass">YES</td></tr>
+  <tr><td>27</td><td>GET /sessions/{sid}/brief</td><td>VIOLATION</td><td><code>condenser.CondenseAsync(...)</code> runs on cache miss (OpenAI condensation) - confirms the "can run interpretation" rule</td><td class="pass">YES</td></tr>
+  <tr><td>29</td><td>GET /sessions/{sid}/recap</td><td>Fact</td><td><code>RecapCache.TryGet</code> only; returns not_cached rather than generating</td><td class="pass">YES</td></tr>
+  <tr><td>30</td><td>POST /sessions/{sid}/recap</td><td>VIOLATION</td><td>Invokes <code>RecapGenerator</code> (claude --print recap)</td><td class="pass">YES</td></tr>
+  <tr><td>35</td><td>POST /voice/utterance/{id}/complete</td><td>VIOLATION</td><td><code>VoiceUtteranceService.CompleteAsync</code> -&gt; <code>TranscribeAndCleanAsync</code> (OpenAI transcription)</td><td class="pass">YES</td></tr>
+  <tr><td>36</td><td>POST /chat</td><td>VIOLATION</td><td><code>ChatService</code> uses <code>ClaudeSummarizer</code> (<code>SummarizeProgressAsync</code> et al.) - LLM rewrite below the line</td><td class="pass">YES</td></tr>
+  <tr><td>37</td><td>POST /sessions/{sid}/rule-violations</td><td>VIOLATION</td><td><code>WingmanService.CheckRulesAsync</code> (claude side-call)</td><td class="pass">YES</td></tr>
+  <tr><td>38</td><td>GET /sessions/{sid}/git</td><td>Fact</td><td><code>WingmanService.GitSnapshotAsync</code> - deterministic git status read</td><td class="pass">YES</td></tr>
+  <tr><td>51</td><td>POST /sessions/{sid}/prompt</td><td>Verb</td><td><code>session.SendTextAsync</code> / <code>SendInput</code> - mechanical PTY write</td><td class="pass">YES</td></tr>
+  <tr><td>56</td><td>POST /sessions/{sid}/interrupt</td><td>Verb</td><td><code>session.InterruptAsync()</code> - mechanical Ctrl+C</td><td class="pass">YES</td></tr>
+  <tr><td>91</td><td>GET /dictate (WS)</td><td>VIOLATION</td><td><code>OpenAiRealtimeProvider</code> transcription + dictionary cleanup inside the socket handler</td><td class="pass">YES</td></tr>
+</table>
+<p>The issue's named examples all hold: wingman decide endpoints are Violations, buffer/git reads are Facts, send-input/interrupt are Verbs.</p>
+
+<h2>Regression / method sweep</h2>
+<ul>
+  <li>PR touches only 4 documentation files (CONTRACT_AUDIT.md, the two link edits, the developer proof report) - <strong>zero code changes</strong>, matching the issue's "documentation only" scope. No endpoint behavior changed.</li>
+  <li>The issue's flagged ASSUMPTION (UI-convenience pages classified as Facts) is honored and documented in the doc's section 2.</li>
+  <li>No CenCon security rule (DT-*) is implicated by a docs-only change.</li>
+  <li>Bonus coverage beyond the criteria: route-less below-the-line LLM producers (section 6) and the outbound Events surface (section 5) are documented, so the "Event: 0" tally is justified by design rather than omission.</li>
+</ul>
+
+<div class="verdict">
+<strong>VERIFIED - all acceptance criteria met.</strong> Inventory re-derived independently (111 = 111, both commands), zero unclassified rows, all 10 violations carry a migration phase, both required links present, and a 14-route source-level spot-check found every classification honest. Issue #326 PASSES QA.
+</div>
+
+<p style="color:#666;font-size:.85rem">Generated by the QA Agent (CenCon Development Method) in its own checkout of PR #339. Independent of the Developer Agent's report at docs/cencon/proof/issue-326/report.html.</p>
+
+</body>
+</html>
