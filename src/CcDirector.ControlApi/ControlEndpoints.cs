@@ -2327,10 +2327,10 @@ internal static class ControlEndpoints
             // for substantial output followed by a full quiet poll. If the deadline
             // passes without that, dispatch anyway; the backend's @-reference submit
             // watchdog is the last line of defense.
-            // The type's playbook (issue #211) rides the SAME readiness gate, ahead of any
-            // caller-supplied PrePrompt: one composed dispatch, so the agent reads its
-            // ground rules before the seeded task (the #236 bug-session flow needs both).
-            var seedText = SessionTypePlaybooks.ComposeSeed(sessionType, req.PrePrompt);
+            // Session-type playbooks are intentionally NOT seeded into the terminal -
+            // the type drives the badge and wingman mission clause only. Only the
+            // caller-supplied PrePrompt (e.g. the #236 bug-session task) is dispatched.
+            var seedText = req.PrePrompt;
 
             if (!string.IsNullOrWhiteSpace(seedText))
             {

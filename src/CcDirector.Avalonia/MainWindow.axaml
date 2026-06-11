@@ -183,17 +183,33 @@
             </DockPanel>
         </Border>
 
-    <Grid ColumnDefinitions="264,Auto,*" RowDefinitions="Auto,*">
+    <Grid x:Name="MainLayoutGrid" ColumnDefinitions="264,Auto,*" RowDefinitions="Auto,*">
 
         <!-- ==================== SIDEBAR (spans both rows) ==================== -->
         <Border Grid.Column="0" Grid.RowSpan="2"
                 Background="{DynamicResource SidebarBackground}"
                 BorderBrush="#3C3C3C" BorderThickness="0,0,1,0">
-            <DockPanel>
-                <!-- Sidebar header: title + needs-you count. The application menu
-                     moved to the window menu bar; New Session moved to the toolbar. -->
+            <Grid>
+            <DockPanel x:Name="SidebarFullPanel">
+                <!-- Sidebar header: title + needs-you count + collapse toggle. The
+                     application menu moved to the window menu bar; New Session moved
+                     to the toolbar. -->
                 <Border DockPanel.Dock="Top" Padding="8,6">
                     <DockPanel>
+                        <!-- Collapse the sidebar to the slim status strip. -->
+                        <Button DockPanel.Dock="Right"
+                                Content="&lt;&lt;"
+                                Click="SidebarCollapse_Click"
+                                Focusable="False"
+                                Padding="6,1"
+                                Background="Transparent"
+                                Foreground="#AAAAAA"
+                                BorderThickness="0"
+                                Cursor="Hand"
+                                FontSize="11" FontWeight="Bold"
+                                VerticalAlignment="Center"
+                                ToolTip.Tip="Collapse the session panel"
+                                Classes="sessionMenuBtn" />
                         <TextBlock Text="SESSIONS"
                                    Foreground="{DynamicResource TextForeground}"
                                    FontSize="12" FontWeight="Bold"
@@ -327,112 +343,49 @@
                                     <Border Grid.Column="0" Width="3"
                                             Background="{Binding GroupAccent}"
                                             IsVisible="{Binding IsGroupMember}" />
-                                <Grid Grid.Column="1" ColumnDefinitions="*,Auto" Margin="8,6">
-                                    <!-- Session content -->
-                                    <StackPanel Grid.Column="0">
-                                        <StackPanel Orientation="Horizontal">
-                                            <!-- Live wingman status indicator. Reads
-                                                 Session.StatusColor (written by the
-                                                 SessionStatusWingman) so the same
-                                                 session shows the same color on Desktop
-                                                 and Gateway. Doubles as the drag handle
-                                                 for reordering the session list. -->
-                                            <Border Width="14" Height="14"
-                                                    CornerRadius="3"
-                                                    Background="{Binding StatusColorBrush}"
-                                                    ToolTip.Tip="{Binding StatusReason}"
-                                                    Margin="0,0,6,0"
-                                                    VerticalAlignment="Center"
-                                                    Cursor="SizeAll"
-                                                    PointerPressed="ColorSquare_PointerPressed" />
-                                            <TextBlock Text="{Binding DisplayName}"
-                                                       Foreground="{DynamicResource TextForeground}"
-                                                       FontSize="13"
-                                                       FontWeight="Medium"
-                                                       TextTrimming="CharacterEllipsis" />
-                                        </StackPanel>
-                                        <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
-                                            <!-- Agent badge: shows which CLI this session is running -->
-                                            <Border Background="{Binding AgentBadgeBrush}"
-                                                    CornerRadius="6"
-                                                    Padding="6,1"
-                                                    VerticalAlignment="Center"
-                                                    Margin="0,0,6,0"
-                                                    ToolTip.Tip="Agent running in this session">
-                                                <TextBlock Text="{Binding AgentLabel}"
-                                                           Foreground="White"
-                                                           FontSize="9"
-                                                           FontWeight="SemiBold" />
-                                            </Border>
-                                            <!-- Session-type badge (issue #211): OUTLINED chip
-                                                 (transparent fill + colored border) so type-as-
-                                                 identity never reads as a status color. Hidden
-                                                 for the default Implement type. -->
-                                            <Border Background="Transparent"
-                                                    BorderBrush="{Binding SessionTypeBadgeBrush}"
-                                                    BorderThickness="1"
-                                                    CornerRadius="6"
-                                                    Padding="6,0"
-                                                    VerticalAlignment="Center"
-                                                    Margin="0,0,6,0"
-                                                    IsVisible="{Binding ShowSessionTypeBadge}"
-                                                    ToolTip.Tip="{Binding SessionTypeTooltip}">
-                                                <TextBlock Text="{Binding SessionTypeLabel}"
-                                                           Foreground="{Binding SessionTypeBadgeBrush}"
-                                                           FontSize="9"
-                                                           FontWeight="SemiBold" />
-                                            </Border>
-                                            <TextBlock Text="{Binding ActivityLabel}"
-                                                       Foreground="#888888"
-                                                       FontSize="11"
-                                                       VerticalAlignment="Center" />
-                                            <!-- How long a needs-you session has been waiting,
-                                                 so you can triage the most stale one first.
-                                                 Only shown when red. -->
-                                            <TextBlock Text="{Binding WaitingDurationLabel}"
-                                                       IsVisible="{Binding HasWaitingDuration}"
-                                                       Foreground="#E0883C"
-                                                       FontSize="11"
-                                                       Margin="6,0,0,0"
-                                                       VerticalAlignment="Center" />
-                                            <Border IsVisible="{Binding HasUncommittedChanges}"
-                                                    Background="#6B4C00"
-                                                    CornerRadius="6"
-                                                    Padding="4,0"
-                                                    Margin="6,0,0,0"
-                                                    VerticalAlignment="Center">
-                                                <TextBlock Foreground="#F5D060" FontSize="9"
-                                                           FontWeight="SemiBold">
-                                                    <TextBlock.Text>
-                                                        <MultiBinding StringFormat="{}{0} chg">
-                                                            <Binding Path="UncommittedCount" />
-                                                        </MultiBinding>
-                                                    </TextBlock.Text>
-                                                </TextBlock>
-                                            </Border>
-                                        </StackPanel>
-                                        <!-- Wingman headline: at-a-glance "what this session
-                                             is about / needs" so the list is scannable without
-                                             opening the Wingman tab. Hidden until a briefing
-                                             exists. One line, ellipsized. -->
-                                        <TextBlock Text="{Binding WingmanHeadline}"
-                                                   IsVisible="{Binding HasWingmanHeadline}"
-                                                   Foreground="{Binding WingmanHeadlineBrush}"
-                                                   FontSize="11"
-                                                   TextWrapping="NoWrap"
-                                                   TextTrimming="CharacterEllipsis"
-                                                   Margin="0,3,0,0" />
-                                    </StackPanel>
-                                    <!-- Queue count badge + Three-dot menu -->
-                                    <StackPanel Grid.Column="1" Orientation="Horizontal"
-                                                VerticalAlignment="Top">
+                                <!-- Session row content: up to four stacked lines, each
+                                     element with a guaranteed slot so nothing is ever
+                                     pushed out of the panel by something else growing:
+                                       1. status dot | title (trims) | queue | kebab
+                                       2. agent badge + type badge
+                                       3. activity + waiting | changes (right-anchored)
+                                       4. wingman headline (only when present) -->
+                                <StackPanel Grid.Column="1" Margin="8,6">
+                                    <!-- LINE 1: the title sits in the star column, so
+                                         TextTrimming actually engages and a long name
+                                         can never run under the kebab menu. -->
+                                    <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                                        <!-- Live wingman status indicator. Reads
+                                             Session.StatusColor (written by the
+                                             SessionStatusWingman) so the same
+                                             session shows the same color on Desktop
+                                             and Gateway. Doubles as the drag handle
+                                             for reordering the session list. -->
+                                        <Border Grid.Column="0"
+                                                Width="14" Height="14"
+                                                CornerRadius="3"
+                                                Background="{Binding StatusColorBrush}"
+                                                ToolTip.Tip="{Binding StatusReason}"
+                                                Margin="0,0,6,0"
+                                                VerticalAlignment="Center"
+                                                Cursor="SizeAll"
+                                                PointerPressed="ColorSquare_PointerPressed" />
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{Binding DisplayName}"
+                                                   ToolTip.Tip="{Binding DisplayName}"
+                                                   Foreground="{DynamicResource TextForeground}"
+                                                   FontSize="13"
+                                                   FontWeight="Medium"
+                                                   VerticalAlignment="Center"
+                                                   TextTrimming="CharacterEllipsis" />
                                         <!-- Queue count badge (click to preview queued prompts) -->
-                                        <Button IsVisible="{Binding HasQueuedItems}"
+                                        <Button Grid.Column="2"
+                                                IsVisible="{Binding HasQueuedItems}"
                                                 Click="QueuePreview_Click"
                                                 Background="Transparent"
                                                 BorderThickness="0"
                                                 Padding="0"
-                                                Margin="0,0,2,0"
+                                                Margin="4,0,2,0"
                                                 VerticalAlignment="Center"
                                                 Cursor="Hand"
                                                 ToolTip.Tip="Preview queued prompts (text + images)">
@@ -449,7 +402,8 @@
                                                            VerticalAlignment="Center" />
                                             </Border>
                                         </Button>
-                                        <Button Content="..."
+                                        <Button Grid.Column="3"
+                                                Content="..."
                                                 Click="SessionMenuButton_Click"
                                                 Focusable="False"
                                                 VerticalAlignment="Center"
@@ -464,8 +418,89 @@
                                                 FontSize="12"
                                                 ToolTip.Tip="Session options"
                                                 Classes="sessionMenuBtn" />
+                                    </Grid>
+                                    <!-- LINE 2: identity badges only - the wide items.
+                                         Alone on their own line they always fit. -->
+                                    <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
+                                        <!-- Agent badge: shows which CLI this session is running -->
+                                        <Border Background="{Binding AgentBadgeBrush}"
+                                                CornerRadius="6"
+                                                Padding="6,1"
+                                                VerticalAlignment="Center"
+                                                Margin="0,0,6,0"
+                                                ToolTip.Tip="Agent running in this session">
+                                            <TextBlock Text="{Binding AgentLabel}"
+                                                       Foreground="White"
+                                                       FontSize="9"
+                                                       FontWeight="SemiBold" />
+                                        </Border>
+                                        <!-- Session-type badge (issue #211): OUTLINED chip
+                                             (transparent fill + colored border) so type-as-
+                                             identity never reads as a status color. Hidden
+                                             for the default Developer type. -->
+                                        <Border Background="Transparent"
+                                                BorderBrush="{Binding SessionTypeBadgeBrush}"
+                                                BorderThickness="1"
+                                                CornerRadius="6"
+                                                Padding="6,0"
+                                                VerticalAlignment="Center"
+                                                Margin="0,0,6,0"
+                                                IsVisible="{Binding ShowSessionTypeBadge}"
+                                                ToolTip.Tip="{Binding SessionTypeTooltip}">
+                                            <TextBlock Text="{Binding SessionTypeLabel}"
+                                                       Foreground="{Binding SessionTypeBadgeBrush}"
+                                                       FontSize="9"
+                                                       FontWeight="SemiBold" />
+                                        </Border>
                                     </StackPanel>
-                                </Grid>
+                                    <!-- LINE 3: live state. The changes badge is anchored
+                                         to the RIGHT edge so it is always visible even if
+                                         activity/waiting text grows. -->
+                                    <Grid ColumnDefinitions="*,Auto" Margin="0,2,0,0">
+                                        <StackPanel Grid.Column="0" Orientation="Horizontal">
+                                            <TextBlock Text="{Binding ActivityLabel}"
+                                                       Foreground="#888888"
+                                                       FontSize="11"
+                                                       VerticalAlignment="Center" />
+                                            <!-- How long a needs-you session has been waiting,
+                                                 so you can triage the most stale one first.
+                                                 Only shown when red. -->
+                                            <TextBlock Text="{Binding WaitingDurationLabel}"
+                                                       IsVisible="{Binding HasWaitingDuration}"
+                                                       Foreground="#E0883C"
+                                                       FontSize="11"
+                                                       Margin="6,0,0,0"
+                                                       VerticalAlignment="Center" />
+                                        </StackPanel>
+                                        <Border Grid.Column="1"
+                                                IsVisible="{Binding HasUncommittedChanges}"
+                                                Background="#6B4C00"
+                                                CornerRadius="6"
+                                                Padding="4,0"
+                                                Margin="6,0,0,0"
+                                                VerticalAlignment="Center">
+                                            <TextBlock Foreground="#F5D060" FontSize="9"
+                                                       FontWeight="SemiBold">
+                                                <TextBlock.Text>
+                                                    <MultiBinding StringFormat="{}{0} chg">
+                                                        <Binding Path="UncommittedCount" />
+                                                    </MultiBinding>
+                                                </TextBlock.Text>
+                                            </TextBlock>
+                                        </Border>
+                                    </Grid>
+                                    <!-- LINE 4: wingman headline - at-a-glance "what this
+                                         session is about / needs" so the list is scannable
+                                         without opening the Wingman tab. Hidden until a
+                                         briefing exists. One line, ellipsized. -->
+                                    <TextBlock Text="{Binding WingmanHeadline}"
+                                               IsVisible="{Binding HasWingmanHeadline}"
+                                               Foreground="{Binding WingmanHeadlineBrush}"
+                                               FontSize="11"
+                                               TextWrapping="NoWrap"
+                                               TextTrimming="CharacterEllipsis"
+                                               Margin="0,3,0,0" />
+                                </StackPanel>
                                 </Grid>
                                 </Border>
                             </StackPanel>
@@ -473,10 +508,54 @@
                     </ListBox.ItemTemplate>
                 </ListBox>
             </DockPanel>
+
+            <!-- Collapsed sidebar: a slim strip that keeps the at-a-glance status
+                 dots (clickable, tooltip = session name) and the expand button.
+                 Toggled with SidebarFullPanel from code-behind. -->
+            <DockPanel x:Name="SidebarSlimPanel" IsVisible="False">
+                <Button DockPanel.Dock="Top"
+                        Content="&gt;&gt;"
+                        Click="SidebarExpand_Click"
+                        Focusable="False"
+                        Padding="0,4"
+                        Margin="2,6,2,4"
+                        HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Center"
+                        Background="Transparent"
+                        Foreground="#AAAAAA"
+                        BorderThickness="0"
+                        Cursor="Hand"
+                        FontSize="11" FontWeight="Bold"
+                        ToolTip.Tip="Expand the session panel"
+                        Classes="sessionMenuBtn" />
+                <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                              VerticalScrollBarVisibility="Auto">
+                    <ItemsControl x:Name="SlimSessionList" Margin="0,2">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Button Click="SlimSessionDot_Click"
+                                        Background="Transparent"
+                                        BorderThickness="0"
+                                        Padding="0"
+                                        Margin="0,2"
+                                        HorizontalAlignment="Center"
+                                        Cursor="Hand"
+                                        ToolTip.Tip="{Binding DisplayName}">
+                                    <Border Width="16" Height="16"
+                                            CornerRadius="4"
+                                            Background="{Binding StatusColorBrush}" />
+                                </Button>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </DockPanel>
+            </Grid>
         </Border>
 
-        <!-- Grid splitter -->
-        <GridSplitter Grid.Column="1" Grid.RowSpan="2"
+        <!-- Grid splitter (disabled while the sidebar is collapsed) -->
+        <GridSplitter x:Name="SidebarSplitter"
+                      Grid.Column="1" Grid.RowSpan="2"
                       Width="3"
                       Background="#3C3C3C"
                       ResizeDirection="Columns" />

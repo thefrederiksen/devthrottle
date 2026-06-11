@@ -128,16 +128,16 @@ public sealed class SessionTypeJsonConverter : JsonConverter<SessionType>
 }
 
 /// <summary>
-/// The per-type playbook prompts (issue #211), seeded into the agent when a typed
-/// session starts via the EXISTING pre-prompt readiness gate - no new delivery
-/// machinery. Enforcement is deliberately SOFT: the playbook instructs the agent, the
-/// badge reminds the human, and drift is visible in the wingman brief. No hard blocking
-/// of commits in v1 - that would fight the agent for little gain.
+/// The per-type playbook prompts (issue #211). NO LONGER auto-seeded into the agent at
+/// session start - typed sessions now begin with a clean composer; the type drives only
+/// the UI badge/tooltip and the wingman per-type mission clause. The text is kept so a
+/// future opt-in (setting or explicit caller request) can bring seeding back without
+/// rewriting the playbooks.
 /// </summary>
 public static class SessionTypePlaybooks
 {
-    /// <summary>The playbook text seeded at session start, or null for types that run
-    /// with today's default behavior (Developer).</summary>
+    /// <summary>The playbook text for a type, or null for types that run with default
+    /// behavior (Developer). Not dispatched anywhere today (see class summary).</summary>
     public static string? For(SessionType type) => type switch
     {
         SessionType.Discuss =>

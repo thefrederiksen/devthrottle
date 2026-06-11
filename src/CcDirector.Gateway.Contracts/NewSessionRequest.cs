@@ -17,11 +17,11 @@ public sealed class NewSessionRequest
     public string? Args { get; set; }
 
     /// <summary>
-    /// The session's declared purpose (issue #211). Valid values: "Implement" (default),
-    /// "Discuss", "BugReport". Type is identity, not status - chosen once here, immutable
-    /// afterwards. Non-Implement types seed a per-type playbook prompt into the agent at
-    /// startup (ahead of <see cref="PrePrompt"/> when both are present). Null/empty means
-    /// Implement, so old clients keep today's behavior.
+    /// The session's declared purpose (issue #211). Valid values: "Developer" (default),
+    /// "Implementation", "Discuss", "Product", "QA", "Support". Type is identity, not
+    /// status - chosen once here, immutable afterwards. The type drives the UI badge and
+    /// the wingman mission clause; no playbook prompt is injected into the agent (only
+    /// <see cref="PrePrompt"/> is dispatched). Null/empty means Developer.
     /// </summary>
     public string? Type { get; set; }
 

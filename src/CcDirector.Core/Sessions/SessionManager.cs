@@ -162,8 +162,8 @@ public sealed class SessionManager : IDisposable
     /// step; Director still tracks the session via its own GUID and backend lifecycle.
     /// </summary>
     /// <param name="sessionType">The session's declared purpose (issue #211), stamped once
-    /// here and immutable afterwards. Callers that seed prompts are responsible for putting
-    /// the type's playbook (<see cref="SessionTypePlaybooks.For"/>) ahead of their seed.</param>
+    /// here and immutable afterwards. Drives the UI badge and the wingman mission clause;
+    /// playbook text (<see cref="SessionTypePlaybooks.For"/>) is no longer auto-seeded.</param>
     /// <param name="groupId">Group identity (issue #225) when this session is a group member;
     /// null for a solo session.</param>
     /// <param name="groupRole">The member's descriptive role within its group (issue #225).</param>

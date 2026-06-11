@@ -193,8 +193,13 @@ public partial class MainWindow : Window
         _sessionManager = app.SessionManager;
 
         SessionList.ItemsSource = _sessions;
+        SlimSessionList.ItemsSource = _sessions;
         QueueItemsList.ItemsSource = _queueItems;
         ScreenshotList.ItemsSource = _screenshots;
+
+        // Restore the persisted sidebar collapsed state (no re-persist on restore).
+        if (SidebarConfig.Collapsed)
+            SetSidebarCollapsed(true, persist: false);
 
         // Keep group brackets/headers (issue #225) correct after any add/remove/restore.
         // Cheap flag recompute; the drop handler also calls it explicitly after a reorder.
@@ -687,11 +692,9 @@ public partial class MainWindow : Window
             SessionList.SelectedItem = vm;
             FileLog.Write($"[MainWindow] CreateSession: added to UI");
 
-            // Seed the type's playbook (issue #211) once the agent is up - same delayed
-            // inject the handover flow uses. Implement has no playbook, so this is a no-op
-            // for the common case.
-            if (SessionTypePlaybooks.For(sessionType) is { } playbook)
-                _ = InjectPlaybookPromptAsync(session, playbook);
+            // Session-type playbooks are intentionally NOT injected into the terminal:
+            // the type still drives the badge, tooltip, and wingman mission clause, but
+            // the session starts with a clean composer.
 
             return vm;
         }
@@ -992,6 +995,90 @@ public partial class MainWindow : Window
         PromptBarBorder.IsVisible = false;
 
         FileLog.Write($"[MainWindow] CloseAllSessionsAsync: removed {snapshots.Count} session(s)");
+    }
+
+    // ==================== SIDEBAR COLLAPSE ====================
+
+    /// <summary>Width of the collapsed sidebar strip: room for the status dots.</summary>
+    private const double SidebarCollapsedWidth = 36;
+
+    /// <summary>
+    /// The sidebar column width before the last collapse, so expand restores the
+    /// user's splitter-chosen width rather than snapping back to the default.
+    /// </summary>
+    private GridLength _sidebarExpandedWidth = new(264);
+
+    private void SidebarCollapse_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            SetSidebarCollapsed(true, persist: true);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] SidebarCollapse_Click FAILED: {ex}");
+        }
+    }
+
+    private void SidebarExpand_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            SetSidebarCollapsed(false, persist: true);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] SidebarExpand_Click FAILED: {ex}");
+        }
+    }
+
+    /// <summary>
+    /// Collapse the session sidebar to a slim status-dot strip, or expand it back.
+    /// Swaps the full/slim panels, resizes the grid column, and disables the
+    /// splitter while collapsed.
+    /// </summary>
+    private void SetSidebarCollapsed(bool collapsed, bool persist)
+    {
+        FileLog.Write($"[MainWindow] SetSidebarCollapsed: collapsed={collapsed}, persist={persist}");
+
+        var column = MainLayoutGrid.ColumnDefinitions[0];
+        if (collapsed)
+        {
+            // Remember the current (possibly splitter-resized) width for expand.
+            if (column.Width.IsAbsolute && column.Width.Value > SidebarCollapsedWidth)
+                _sidebarExpandedWidth = column.Width;
+            column.Width = new GridLength(SidebarCollapsedWidth);
+        }
+        else
+        {
+            column.Width = _sidebarExpandedWidth;
+        }
+
+        SidebarFullPanel.IsVisible = !collapsed;
+        SidebarSlimPanel.IsVisible = collapsed;
+        SidebarSplitter.IsEnabled = !collapsed;
+
+        if (persist)
+            SidebarConfig.SetCollapsed(collapsed);
+    }
+
+    /// <summary>
+    /// A status dot in the collapsed sidebar strip was clicked: select that session
+    /// (same effect as clicking its row in the expanded list).
+    /// </summary>
+    private void SlimSessionDot_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (sender is not Control { DataContext: SessionViewModel vm })
+                return;
+            FileLog.Write($"[MainWindow] SlimSessionDot_Click: {vm.Session.Id}");
+            SessionList.SelectedItem = vm;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] SlimSessionDot_Click FAILED: {ex}");
+        }
     }
 
     // ==================== SESSION CONTEXT MENU ====================
@@ -4824,27 +4911,6 @@ public partial class MainWindow : Window
 
         await session.SendTextAsync(prompt);
         FileLog.Write($"[MainWindow] InjectHandoverPromptAsync: sent handover prompt for session {session.Id}");
-    }
-
-    /// <summary>
-    /// Seed a session-type playbook (issue #211) into a freshly created session once the
-    /// agent has had time to boot. Mirrors <see cref="InjectHandoverPromptAsync"/>: the
-    /// desktop creates sessions in-process (not via POST /sessions), so the Control API's
-    /// readiness-gated seed never fires here - this is its desktop equivalent.
-    /// </summary>
-    private async Task InjectPlaybookPromptAsync(Session session, string playbook)
-    {
-        FileLog.Write($"[MainWindow] InjectPlaybookPromptAsync: waiting for session {session.Id}");
-        await Task.Delay(TimeSpan.FromSeconds(5));
-        try
-        {
-            await session.SendTextAsync(playbook);
-            FileLog.Write($"[MainWindow] InjectPlaybookPromptAsync: seeded playbook for session {session.Id}");
-        }
-        catch (Exception ex)
-        {
-            FileLog.Write($"[MainWindow] InjectPlaybookPromptAsync FAILED: {ex.Message}");
-        }
     }
 
     // ==================== STARTUP TEXT CAPTURE ====================
