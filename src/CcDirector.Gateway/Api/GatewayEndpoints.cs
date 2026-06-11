@@ -426,9 +426,17 @@ internal static class GatewayEndpoints
                     }
 
                     s.DirectorId = d.DirectorId;
-                    s.MachineName = d.MachineName;
-                    s.User = d.User;
-                    s.TailnetEndpoint = baseUrl;
+                    // Issue #335: Director-supplied identity fields win over Gateway-derived ones.
+                    // A NEW Director (issue #335+) populates MachineName, User, TailnetEndpoint,
+                    // and ViewUrl itself; the Gateway must not overwrite them (they carry the
+                    // Director's own resolved tailnet identity). An OLD Director sends empty fields;
+                    // the Gateway enriches them as before (back-compat for mixed-version fleets).
+                    if (string.IsNullOrEmpty(s.MachineName))
+                        s.MachineName = d.MachineName;
+                    if (string.IsNullOrEmpty(s.User))
+                        s.User = d.User;
+                    if (string.IsNullOrEmpty(s.TailnetEndpoint))
+                        s.TailnetEndpoint = baseUrl;
                     // Issue #288: remember who owns this session so the WS proxy answers 503 (owner
                     // offline) instead of 404 once this Director goes dark.
                     owners?.Remember(s.SessionId, d.DirectorId);
@@ -448,11 +456,12 @@ internal static class GatewayEndpoints
                         s.BriefingState = briefingState;
                         s.RailLine = railLine;
                     }
-                    // Stamp the deep link with the Gateway's own address (as this caller
-                    // reached it) so the session view can offer a "back to Gateway" menu
-                    // item. The session view is served by the Director on a different
-                    // origin/port, so it cannot otherwise know where the Gateway lives.
-                    s.ViewUrl = $"{baseUrl}/sessions/{s.SessionId}/view?gw={Uri.EscapeDataString(gatewayBaseUrl)}";
+                    // Issue #335: ViewUrl - use the Director-supplied value when present (it carries
+                    // the correct tailnet endpoint and sessionId); for OLD Directors (empty ViewUrl)
+                    // fall back to the Gateway-derived deep link, preserving the gw= parameter so
+                    // the session view can link back to the Gateway it came from.
+                    if (string.IsNullOrEmpty(s.ViewUrl))
+                        s.ViewUrl = $"{baseUrl}/sessions/{s.SessionId}/view?gw={Uri.EscapeDataString(gatewayBaseUrl)}";
                     all.Add(s);
                 }
             }
