@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Issue #228 - QA Agent proof report</title>
+<style>
+  :root{--panel:#1E1E1E;--sidebar:#252526;--text:#CCCCCC;--text2:#AAAAAA;--text3:#888888;
+        --muted:#666666;--border:#3C3C3C;--green:#22C55E;--red:#F14C4C;--accent:#007ACC;}
+  body{background:var(--panel);color:var(--text);font-family:"Segoe UI",system-ui,sans-serif;
+       font-size:14px;line-height:1.55;margin:0;padding:32px 40px 80px;max-width:1100px}
+  h1{font-size:22px;margin:0 0 4px}
+  h2{font-size:16px;margin:30px 0 8px;border-bottom:1px solid var(--border);padding-bottom:5px}
+  .sub{color:var(--text3);margin:0 0 18px}
+  code{font-family:"Cascadia Mono",Consolas,monospace;font-size:12.5px;background:#252526;
+       border:1px solid var(--border);border-radius:4px;padding:1px 5px}
+  pre{background:#252526;border:1px solid var(--border);border-radius:6px;padding:10px 12px;
+      overflow:auto;font-size:12.5px}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:13px}
+  th,td{border:1px solid var(--border);padding:7px 9px;text-align:left;vertical-align:top}
+  th{background:var(--sidebar);color:var(--text2)}
+  .ok{color:var(--green);font-weight:700}
+  .pill{display:inline-block;border:1px solid var(--green);color:var(--green);border-radius:10px;
+        padding:1px 9px;font-size:12px}
+  img{max-width:520px;border:1px solid var(--border);border-radius:6px;margin:8px 8px 8px 0}
+  .verdict{margin-top:26px;padding:14px 16px;border:1px solid var(--green);border-radius:8px;
+           background:#11251a;color:var(--green);font-weight:700;font-size:15px}
+  .muted{color:var(--muted)}
+</style>
+</head>
+<body>
+
+<h1>Issue #228 - Rail kebab actions show in-progress feedback (Close/Hold/Wingman/New-Issue)</h1>
+<p class="sub">QA Agent independent verification &middot; branch <code>issue-228-rail-action-feedback</code>
+&middot; PR #305 &middot; CenCon Development Method</p>
+
+<h2>How this was verified (independent reproduction)</h2>
+<p>The QA Agent did NOT reuse the Developer's binary or screenshots. The PR branch was built fresh to
+<strong>slot 5</strong> (<code>scripts\local-build-avalonia.ps1 -Slot 5</code> &rarr; 0 warnings, 0
+errors) and launched via the <code>cc-director-launch</code> scheduled task (PID 54160, Control API
+<code>http://127.0.0.1:7884</code>). A <strong>real</strong> Cockpit instance was run from the PR
+source (<code>dotnet run</code> on <code>CcDirector.Cockpit</code>, listening on
+<code>http://localhost:7470</code>) pointed at the live Gateway, and driven with Playwright
+(Chromium).</p>
+<p>A dedicated test session was created on the slot-5 Director only (directorId prefix
+<code>4be9c4c1</code>, rail label <code>C:\ReposFred\cc-director</code>); every action was performed
+against <strong>that session only</strong> - never the user's other sessions (CLAUDE.md rule 0).</p>
+<p>Because the rail-notice transitions are fast (the Director round-trip is milliseconds for
+hold/wingman/issue), a <code>MutationObserver</code> recorded every <code>.rail-notice</code> text
+change with millisecond timestamps, proving the in-progress notice rendered <em>before</em> the
+result notice rather than after. The Close teardown took ~5s, giving a wide window directly
+screenshotted.</p>
+
+<h2>Acceptance criteria - Expected vs Actual (verified)</h2>
+<table>
+  <tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (observed)</th><th>Result</th></tr>
+  <tr><td>1</td><td>Close shows <code>Closing &lt;title&gt;...</code> + dimmed row in the same render,
+      then <code>Closed &lt;title&gt;</code> and the row is gone.</td>
+      <td>In-progress notice + dimmed row before teardown; result notice + row removed after.</td>
+      <td>Across all 10 capture frames during the ~5s teardown the rail-notice read
+      <code>Closing C:\ReposFred\cc-director...</code> AND my row carried class
+      <code>sess-closing</code> (dimmed to .45, visibly faded vs sibling rows). Timeline:
+      <code>t+741ms Closing...</code> &rarr; <code>t+5841ms Closed C:\ReposFred\cc-director</code>.
+      After reconcile the row was gone (session count 6&rarr;5, the slot-5 director group removed);
+      slot-5 Control API confirmed 0 sessions. </td><td class="ok">PASS</td></tr>
+  <tr><td>2</td><td>Hold/un-hold shows <code>Putting/Taking ... hold...</code> immediately, then the
+      existing result; pill ends correct.</td>
+      <td>In-progress notice first, result second, hold pill set/cleared.</td>
+      <td>Hold on: <code>t+382ms Putting C:\ReposFred\cc-director on hold...</code> &rarr;
+      <code>t+589ms Put ... on hold</code>; orange <code>hold</code> pill appeared on the row.
+      Off hold: <code>t+401ms Taking ... off hold...</code> &rarr; <code>t+428ms Took ... off
+      hold</code>; pill cleared.</td><td class="ok">PASS</td></tr>
+  <tr><td>3</td><td>Wingman shows <code>Updating Wingman for ...</code> immediately, then the existing
+      result.</td>
+      <td>In-progress notice first, result second.</td>
+      <td>Add: <code>t+380ms Updating Wingman for C:\ReposFred\cc-director...</code> &rarr;
+      <code>t+383ms Added wingman to ...</code>. Remove: <code>t+377ms Updating Wingman for ...</code>
+      &rarr; <code>t+386ms Removed wingman from ...</code>.</td><td class="ok">PASS</td></tr>
+  <tr><td>4</td><td>New GitHub Issue shows <code>Resolving GitHub repo...</code> immediately, then
+      opens the issue tab as today.</td>
+      <td>In-progress notice, then new-issue tab for the repo.</td>
+      <td><code>t+376ms Resolving GitHub repo...</code>; a new tab opened to
+      <code>github.com/thefrederiksen/cc-director/issues/new</code> (login redirect because the
+      headless browser is unauthenticated - the resolved URL is the correct repo's new-issue
+      form).</td><td class="ok">PASS</td></tr>
+  <tr><td>5</td><td>No regression: every action's end state matches today's after the reconcile
+      poll.</td>
+      <td>Hold pill toggles, wingman toggles, issue tab opens, session closes and is removed - all
+      unchanged.</td>
+      <td>All end states matched prior behavior: hold pill on then off, wingman added then removed,
+      issue tab opened, session torn down and dropped from the roster. No adjacent row or control was
+      disturbed (negative sweep of every screenshot clean).</td><td class="ok">PASS</td></tr>
+</table>
+
+<h2>Evidence (QA-captured)</h2>
+<p><strong>AC1 Close - during</strong> (notice <code>Closing ...</code> + dimmed slot-5 row) and
+<strong>after</strong> (<code>Closed ...</code>, row gone, count 6&rarr;5):</p>
+<img src="qa/qa-close-during.png" alt="Close during: Closing notice + dimmed row" />
+<img src="qa/qa-close-after.png" alt="Close after: Closed notice, row removed" />
+<p><strong>AC2 Hold - during</strong> (<code>Putting ... on hold...</code>) and <strong>after</strong>
+(<code>Put ... on hold</code> + orange hold pill):</p>
+<img src="qa/qa-hold-during.png" alt="Hold during notice" />
+<img src="qa/qa-hold-after.png" alt="Hold after: hold pill set" />
+<p><strong>AC3 Wingman - during</strong> (<code>Updating Wingman for ...</code>) and
+<strong>AC4 New GitHub Issue - during</strong> (<code>Resolving GitHub repo...</code>):</p>
+<img src="qa/qa-wingman-during.png" alt="Wingman during notice" />
+<img src="qa/qa-issue-during.png" alt="GitHub issue during notice" />
+
+<h2>Regression / method lens</h2>
+<ul>
+  <li><strong>Negative sweep:</strong> every screenshot reviewed - only the slot-5 test row changed;
+      the user's other sessions and all other rail controls were untouched.</li>
+  <li><strong>CenCon:</strong> UI-only optimistic feedback in the <code>CcDirector.Cockpit</code>
+      container. No architecture or security-posture change; no DT-rule in
+      <code>security_profile.yaml</code> touched; no <code>docs/cencon/</code> doc needs updating.</li>
+  <li><strong>CodingStyle:</strong> no fallback programming; the close failure path un-stamps the
+      optimistic dim (catch block) and logs a warning. Reconcile clears the dim when the session
+      leaves the roster or after a 15s stale-cap, so a row can never sit dimmed forever. Consistent
+      with sibling #227's screenshot-proof approach (no Blazor component unit-test harness exists).</li>
+  <li><strong>Build gate:</strong> <code>dotnet build cc-director.sln</code> &rarr; Build succeeded,
+      0 Warning(s), 0 Error(s); slot-5 publish &rarr; 0/0.</li>
+</ul>
+
+<div class="verdict">VERIFIED - all 5 acceptance criteria met, independently reproduced in the
+running Cockpit. <span class="pill">flow:done</span></div>
+
+</body>
+</html>
