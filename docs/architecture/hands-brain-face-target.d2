@@ -1,0 +1,222 @@
+# CC Director - Hands / Brain / Face Target Architecture  (PLANNED)
+#
+# The end-state split described in DIRECTOR_DUMB_WRAPPER_TARGET.md:
+#   Director = hands (custody, raw I/O, machine facts, tools) + permanent desktop fallback
+#   Gateway  = brain (all interpretation, judgment, orchestration)
+#   Cockpit  = face (the primary human UI: briefs, approvals, terminal, voice)
+#   CC Launcher = always-on tray on every machine; starts/stops Director & Gateway
+#                 locally and across the network (remote update/restart primitive)
+#
+# Render with:
+#   d2.exe --theme=0 --layout=elk hands-brain-face-target.d2 hands-brain-face-target.png
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+    pad: 80
+  }
+}
+
+direction: down
+
+# ===== Style classes ============================================================
+
+classes: {
+  user: {
+    style: {
+      fill: "#4472C4"
+      stroke: "#2E5599"
+      stroke-width: 4
+      font-color: white
+      font-size: 22
+      bold: true
+      border-radius: 12
+      shadow: true
+    }
+  }
+  face: {
+    style: {
+      fill: "#7D3C98"
+      stroke: "#512E64"
+      stroke-width: 4
+      font-color: white
+      font-size: 22
+      bold: true
+      border-radius: 12
+      shadow: true
+    }
+  }
+  brain: {
+    style: {
+      fill: "#1A5276"
+      stroke: "#0E3850"
+      stroke-width: 4
+      font-color: white
+      font-size: 22
+      bold: true
+      border-radius: 12
+      shadow: true
+    }
+  }
+  hands: {
+    style: {
+      fill: "#1D7044"
+      stroke: "#0E4527"
+      stroke-width: 4
+      font-color: white
+      font-size: 22
+      bold: true
+      border-radius: 12
+      shadow: true
+    }
+  }
+  fallback: {
+    style: {
+      fill: "#B7950B"
+      stroke: "#7D6608"
+      stroke-width: 4
+      font-color: white
+      font-size: 20
+      bold: true
+      border-radius: 12
+      shadow: true
+    }
+  }
+  launcher: {
+    style: {
+      fill: "#6E6E6E"
+      stroke: "#4A4A4A"
+      stroke-width: 3
+      font-color: white
+      font-size: 18
+      border-radius: 12
+    }
+  }
+  inner: {
+    style: {
+      fill: "#FFFFFF"
+      stroke: "#888888"
+      font-size: 16
+      border-radius: 8
+    }
+  }
+  flow: {
+    style: {
+      stroke-width: 3
+      font-size: 16
+    }
+  }
+  voiceflow: {
+    style: {
+      stroke: "#C0392B"
+      stroke-width: 3
+      font-size: 16
+      stroke-dash: 4
+    }
+  }
+}
+
+# ===== The human ================================================================
+
+human: "Human\n(browser / phone / car)" {
+  class: user
+}
+
+# ===== Face =====================================================================
+
+cockpit: "COCKPIT  (face)\nBlazor, stateless, one URL" {
+  class: face
+  rail: "Triage rail\nneeds-you first" { class: inner }
+  brief: "Briefs + option sets\nrecommendation + reason" { class: inner }
+  term: "Remote terminal\nreconnecting, typeable" { class: inner }
+  approvals: "Approvals\npermissions + comm queue" { class: inner }
+  voice: "Voice\nper-session + fleet (car mode)" { class: inner }
+}
+
+# ===== Brain ====================================================================
+
+gateway: "GATEWAY  (brain)\nalways-on box, port 7878" {
+  class: brain
+  brain: "Warm brain (Opus)\nbriefs / explain / decide" { class: inner }
+  assess: "AssessedState\nthe ONLY interpreted state" { class: inner }
+  wingman: "Wingman decision support\noption sets, cross-session awareness" { class: inner }
+  hub: "Event hub\nDirector-push SSE/WS" { class: inner }
+  lists: "Work lists + queue runner\nclaims, sequencing, escalation" { class: inner }
+  comms: "Comm policy\napproval state, timing, jitter" { class: inner }
+  vault: "Key vault\nDirectors pull on demand" { class: inner }
+  proxy: "Session proxy (YARP)\nstream / dictate / screenshots" { class: inner }
+}
+
+# ===== Hands (one box per machine, two machines shown) ==========================
+
+machine_a: "Machine A  (gateway box)" {
+  style: {
+    stroke-dash: 5
+    font-size: 18
+  }
+
+  launcher_a: "CC Launcher (tray)\nstart/stop Director + Gateway" { class: launcher }
+
+  director_a: "DIRECTOR  (hands)\nagent-agnostic custody" {
+    class: hands
+    pty: "ConPTY sessions\nany CLI agent" { class: inner }
+    exec: "WingmanActionExecutor\nthe one write chokepoint" { class: inner }
+    facts: "Machine facts\ngit, repos, tools, hardware" { class: inner }
+    tools: "30+ cc-* tools\nlocal profiles, dispatch verbs" { class: inner }
+  }
+
+  desktop_a: "Desktop app - PERMANENT FALLBACK\nTerminal tab + Source Control tab\nworks with zero Gateway" { class: fallback }
+
+  desktop_a -> director_a: "raw metal" { class: flow }
+  launcher_a -> director_a: "start / stop / restart" { class: flow }
+}
+
+machine_b: "Machine B  (remote, e.g. SORENLAPTOP)" {
+  style: {
+    stroke-dash: 5
+    font-size: 18
+  }
+
+  launcher_b: "CC Launcher (tray)" { class: launcher }
+
+  director_b: "DIRECTOR  (hands)" {
+    class: hands
+    pty: "ConPTY sessions" { class: inner }
+    exec: "Action executor" { class: inner }
+  }
+
+  desktop_b: "Desktop fallback\nTerminal + Source Control" { class: fallback }
+
+  desktop_b -> director_b: "raw metal" { class: flow }
+  launcher_b -> director_b: "start / stop / restart" { class: flow }
+}
+
+# ===== Flows ====================================================================
+
+human -> cockpit: "one URL\nhttps://tailnet/" { class: flow }
+human -> cockpit.voice: "\"what needs me?\"" { class: voiceflow }
+human -> machine_a.desktop_a: "escape hatch\nwhen smart layers misbehave" {
+  style: {
+    stroke: "#B7950B"
+    stroke-width: 3
+    stroke-dash: 4
+    font-size: 16
+  }
+}
+
+cockpit -> gateway: "reads + writes\nsame-origin, proxied" { class: flow }
+
+gateway -> machine_a.director_a: "Facts / Events / Verbs\n(contract in Gateway.Contracts)" { class: flow }
+gateway -> machine_b.director_b: "Facts / Events / Verbs\nover tailnet (real tailnet endpoints)" { class: flow }
+
+machine_a.director_a -> gateway: "push: doorbells,\nraw activity events" { class: flow }
+machine_b.director_b -> gateway: "push: doorbells,\nraw activity events" { class: flow }
+
+gateway -> machine_b.launcher_b: "remote restart\n(update rollout)" {
+  style: {
+    stroke: "#6E6E6E"
+    stroke-width: 3
+    stroke-dash: 4
+    font-size: 16
+  }
+}

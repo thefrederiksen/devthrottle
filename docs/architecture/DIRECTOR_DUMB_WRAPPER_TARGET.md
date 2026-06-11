@@ -6,6 +6,8 @@
 
 ## Related documents
 
+- [TARGET_IMPLEMENTATION_PLAN.md](TARGET_IMPLEMENTATION_PLAN.md) - **the executable version of this doc**: phased plan (desktop-Director-first), execution topology, autonomy grants, phase exit criteria
+- `hands-brain-face-target.d2` / `.png` - the target topology diagram
 - [gateway/GATEWAY_DIRECTOR_ARCHITECTURE.md](gateway/GATEWAY_DIRECTOR_ARCHITECTURE.md) - CURRENT state of the Gateway/Director split
 - [gateway/GATEWAY_DIRECTOR_TARGET.md](gateway/GATEWAY_DIRECTOR_TARGET.md) - Phase 1 thin-receptionist target (superseded in spirit by this doc: the Gateway has since grown the brain, the proxy legs, and work lists, and this doc embraces that)
 - [gateway/GATEWAY_DIRECTOR_RESPONSIBILITIES.md](gateway/GATEWAY_DIRECTOR_RESPONSIBILITIES.md) - feature-by-feature decision matrix
@@ -199,6 +201,8 @@ Eyes-free requirements that bind earlier work: every NeedsYou must carry a speak
 ## 9. Migration tracks
 
 Ordered by the trust ladder: reliability before intelligence, intelligence before voice. Tracks A-C are sequential in spirit; work within a track is CenCon-issue-sized.
+
+> **Execution note (2026-06-11):** [TARGET_IMPLEMENTATION_PLAN.md](TARGET_IMPLEMENTATION_PLAN.md) is the operational re-cut of these tracks into six gated phases, with **Phase 1 = complete the desktop Director first** (tailnet identity, REST contract completeness, CC Launcher cross-machine, fallback hardening) - the hands are finished before the smart layers grow. That plan is the handoff document for the implementing agents; this section remains the architectural rationale.
 
 ### Track A - Solidify the rungs (reliability)
 
