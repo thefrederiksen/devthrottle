@@ -14,4 +14,10 @@ public enum ComponentKind
 
     /// <summary>One of the cc-* command-line tools installed to bin/.</summary>
     Tool,
+
+    /// <summary>
+    /// The CC Launcher Windows tray app (issue #250): always-on launcher that provides
+    /// clean process parentage and a token-gated loopback REST API. Ships to both roles.
+    /// </summary>
+    Launcher,
 }

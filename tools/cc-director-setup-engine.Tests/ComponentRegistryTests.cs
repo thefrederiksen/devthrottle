@@ -9,10 +9,11 @@ public class ComponentRegistryTests
     public void Build_ProducesAppsPlusTools()
     {
         var all = ComponentRegistry.Build(["cc-pdf", "cc-html"]);
-        Assert.Equal(5, all.Count); // 3 apps + 2 tools
+        Assert.Equal(6, all.Count); // 4 apps (director, gateway, cockpit, launcher) + 2 tools
         Assert.Contains(all, c => c.Id == "director");
         Assert.Contains(all, c => c.Id == "gateway");
         Assert.Contains(all, c => c.Id == "cockpit");
+        Assert.Contains(all, c => c.Id == "cc-launcher");
         Assert.Contains(all, c => c.Id == "cc-pdf");
     }
 

@@ -44,8 +44,19 @@ public static class ComponentRegistry
         WindowsAsset: "cc-director-cockpit-win-x64.zip",
         Roles: GatewayOnly);
 
-    /// <summary>The fixed app components.</summary>
-    public static readonly IReadOnlyList<Component> Apps = [Director, Gateway, Cockpit];
+    /// <summary>
+    /// The CC Launcher tray app (issue #250): always-on Windows launcher with clean process
+    /// parentage and a loopback REST API. Ships to both roles so any machine can use it.
+    /// </summary>
+    public static readonly Component Launcher = new(
+        Id: "cc-launcher",
+        Kind: ComponentKind.Launcher,
+        DisplayName: "CC Launcher",
+        WindowsAsset: "cc-launcher-win-x64.exe",
+        Roles: BothRoles);
+
+    /// <summary>The fixed app components (Director, Gateway, Cockpit, Launcher).</summary>
+    public static readonly IReadOnlyList<Component> Apps = [Director, Gateway, Cockpit, Launcher];
 
     /// <summary>
     /// A conservative default tool set (the tools the release pipeline ships
@@ -108,6 +119,7 @@ public static class ComponentRegistry
             "cc-director-cockpit",  // the Cockpit app (ships as .zip anyway)
             "cc-director-setup",    // the installer wizard itself
             "cc-director-setup-cli",// the installer CLI (downloaded by the wizard for elevated installs)
+            "cc-launcher",          // the Launcher tray app (issue #250): its own Launcher component
         };
 
         var ids = new List<string>();
