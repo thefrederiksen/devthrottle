@@ -94,6 +94,14 @@
     </div>
   </div>
 
+  <!-- Wingman -->
+  <div class="section">
+    <h2>Wingman <span class="pill">turn-brief pipeline</span></h2>
+    <p class="hint">When enabled, the Gateway reads every session turn and stamps a brief for the Cockpit's Wingman tab. Disabled by default. Changes take effect after a Gateway restart.</p>
+    <label class="chk"><input type="checkbox" id="wingman" disabled> Enable the Wingman</label>
+    <div class="msg" id="wingmanmsg"></div>
+  </div>
+
   <!-- Gateway -->
   <div class="section">
     <h2>Gateway</h2>
@@ -263,6 +271,43 @@
     } catch (err){ msg.className = 'msg err'; msg.textContent = 'Failed: ' + err; await loadSnapshot(); }
   }
 
+  // ---- Wingman toggle ----
+  async function loadWingman(){
+    try {
+      const r = await fetch('/gateway/wingman');
+      if (!r.ok) throw new Error(r.status);
+      const d = await r.json();
+      const box = document.getElementById('wingman');
+      box.checked = !!d.enabled;
+      box.disabled = false;
+    } catch (e) {
+      document.getElementById('wingmanmsg').textContent = 'Failed to load wingman state.';
+      document.getElementById('wingmanmsg').className = 'msg err';
+    }
+  }
+
+  async function toggleWingman(e){
+    const enabled = e.target.checked;
+    const msg = document.getElementById('wingmanmsg');
+    msg.className = 'msg ok'; msg.textContent = 'Saving...';
+    try {
+      const r = await fetch('/gateway/wingman', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      });
+      const d = await r.json().catch(()=>({}));
+      if (r.ok){
+        e.target.checked = !!d.enabled;
+        msg.textContent = d.enabled
+          ? 'Wingman enabled. Restart the Gateway to activate the pipeline.'
+          : 'Wingman disabled. Restart the Gateway to stop the pipeline.';
+      } else {
+        msg.className = 'msg err'; msg.textContent = 'Save failed: ' + (d.error || r.status);
+        await loadWingman();
+      }
+    } catch (err){ msg.className = 'msg err'; msg.textContent = 'Failed: ' + err; await loadWingman(); }
+  }
+
   document.getElementById('savebtn').addEventListener('click', saveKey);
   document.getElementById('delbtn').addEventListener('click', removeKey);
   document.getElementById('showbox').addEventListener('change', e => {
@@ -270,9 +315,11 @@
   });
   document.getElementById('restartbtn').addEventListener('click', restartBrain);
   document.getElementById('autostart').addEventListener('change', toggleAutostart);
+  document.getElementById('wingman').addEventListener('change', toggleWingman);
 
   loadKey();
   loadSnapshot();
+  loadWingman();
 </script>
 </body>
 </html>

@@ -257,7 +257,7 @@ body{background:var(--panel);color:var(--text);
   text-overflow:ellipsis}
 .sess-state{font-size:10px;color:var(--text3);display:flex;align-items:center;gap:6px}
 .tag{font-size:9px;border-radius:6px;padding:0 5px;line-height:14px}
-.tag-hold{color:#0a0a0a;background:var(--amber)}
+.tag-hold{color:var(--text3);background:#404040}
 .tag-voice{color:#04101f;background:var(--blue)}
 /* session type (#211): OUTLINED chips in a palette distinct from the state colors
    (red/green/amber/blue), so type-as-identity can never be mistaken for a state. */
@@ -317,7 +317,7 @@ body{background:var(--panel);color:var(--text);
 .triage-head{display:flex;align-items:center;gap:8px;padding:6px 8px 4px;font-size:11px;
   font-weight:600;letter-spacing:.05em;color:var(--text2);text-transform:uppercase}
 .triage-head.needs{color:var(--red)}
-.triage-head.hold{color:var(--amber)}
+.triage-head.hold{color:var(--text3)}
 .triage-head.err{color:var(--amber)}
 .triage-count{font-size:10px;color:var(--text);background:#404040;border-radius:8px;padding:0 6px}
 /* owning-director tag on a session row: hidden in the tree (redundant under a dir-head),
@@ -900,3 +900,4 @@ body{background:var(--panel);color:var(--text);
 .additem-id{width:200px} .additem-area{width:150px}
 .additem-src:focus,.additem-id:focus,.additem-area:focus{outline:none;border-color:var(--accent)}
 .items-note{margin:16px 2px 0;color:var(--text3);font-size:11.5px;line-height:1.5}
+.wingman-off-notice{display:flex;align-items:center;justify-content:center;flex:1;color:var(--text3);font-size:13px;letter-spacing:.02em}

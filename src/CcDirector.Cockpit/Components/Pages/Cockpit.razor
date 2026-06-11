@@ -194,7 +194,7 @@
                                 <TerminalPane @key="Selected.SessionId" SessionId="@Selected.SessionId" DirectorBase="@Selected.TailnetEndpoint" RowState="@(Selected.AssessedState ?? Selected.ActivityState)" />
                             </div>
                         }
-                        else
+                        else if (_wingmanEnabled)
                         {
                             @* The Wingman tab splits: brief on the left, the SESSION STORY as a
                                FIXED right column - headline + tokens + turn cards stay on screen
@@ -369,6 +369,10 @@
                                     </div>
                                 </aside>
                             </div>
+                        }
+                        else
+                        {
+                            <div class="wingman-off-notice">Wingman is turned off</div>
                         }
 
                         <div class="detail-dock">
@@ -933,6 +937,7 @@
     private string? _lastError;
     private DateTime? _lastRefresh;
     private readonly CancellationTokenSource _cts = new();
+    private bool _wingmanEnabled;
 
     // Effective color (issue #196): a session the wingman is still reading is yellow,
     // so it neither counts as "needs you" nor enters the conveyor until the brief lands.
@@ -977,10 +982,10 @@
         }
     }
 
-    // ----- center tab (Brief is the default; choice persists per session for the circuit) -----
+    // ----- center tab (Terminal is the default; choice persists per session for the circuit) -----
     private readonly Dictionary<string, string> _centerTabBySession = new();
     private string CenterTab =>
-        Selected is not null && _centerTabBySession.TryGetValue(Selected.SessionId, out var t) ? t : "brief";
+        Selected is not null && _centerTabBySession.TryGetValue(Selected.SessionId, out var t) ? t : "term";
     private async Task SetCenterTab(string tab)
     {
         if (Selected is null) return;
@@ -1069,6 +1074,8 @@
     protected override async Task OnInitializedAsync()
     {
         Log.LogInformation("Cockpit initializing against Gateway {Base}", Gateway.BaseUrl);
+        try { _wingmanEnabled = await Gateway.GetWingmanEnabledAsync(_cts.Token); }
+        catch (Exception ex) { Log.LogWarning(ex, "Could not read wingman state; defaulting to disabled"); }
         await RefreshAsync();
         _ = PollLoopAsync();
     }

@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using CcDirector.AgentBrain;
+using CcDirector.Core.Configuration;
 using CcDirector.Core.Utilities;
 using CcDirector.Core.Wingman;
 using CcDirector.Gateway.Contracts;
@@ -126,9 +127,11 @@ public sealed class GatewayTurnBriefAgent : IDisposable
         _worker = Task.Run(WorkerLoopAsync);
     }
 
-    /// <summary>True when the pipeline is disabled via CC_TURNBRIEFS=0 (the kill switch).</summary>
+    /// <summary>True when the pipeline is disabled via CC_TURNBRIEFS=0 (the kill switch) or
+    /// wingman_enabled is false/absent in config.json (the default).</summary>
     public static bool Disabled =>
-        Environment.GetEnvironmentVariable("CC_TURNBRIEFS") == "0";
+        Environment.GetEnvironmentVariable("CC_TURNBRIEFS") == "0" ||
+        !WingmanConfig.Get();
 
     /// <summary>Coarse pipeline state for one session, for the read endpoints: "Explaining"
     /// while a user-initiated deep dive is queued or in flight (issue #217 - it outranks

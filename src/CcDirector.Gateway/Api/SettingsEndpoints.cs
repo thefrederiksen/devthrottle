@@ -4,6 +4,7 @@ using System.Text.Json;
 using CcDirector.AgentBrain;
 using CcDirector.Core.Network;
 using CcDirector.Core.Utilities;
+using CcDirector.Gateway.Briefing;
 using CcDirector.Gateway.Cockpit;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -72,6 +73,33 @@ internal static class SettingsEndpoints
             {
                 FileLog.Write($"[SettingsEndpoints] brain restart FAILED: {ex.Message}");
                 return Results.Json(new { ok = false, error = ex.Message }, statusCode: StatusCodes.Status500InternalServerError);
+            }
+        });
+
+        // Read wingman state: is the pipeline enabled on this Gateway?
+        // Wingman is opt-in (wingman_enabled: true in config.json); absent key = disabled by default.
+        app.MapGet("/gateway/wingman", () =>
+            Results.Json(new { enabled = !GatewayTurnBriefAgent.Disabled }));
+
+        // Write wingman state to config.json. The running pipeline is unaffected until restart.
+        app.MapPut("/gateway/wingman", async (HttpContext ctx) =>
+        {
+            try
+            {
+                var body = await JsonSerializer.DeserializeAsync<WingmanBody>(
+                    ctx.Request.Body, JsonOpts, ctx.RequestAborted);
+                if (body is null)
+                    return Results.BadRequest(new { error = "body { \"enabled\": true|false } is required" });
+
+                Core.Configuration.CcDirectorConfigService.MergePatch(
+                    new System.Text.Json.Nodes.JsonObject { ["wingman_enabled"] = body.Enabled });
+                FileLog.Write($"[SettingsEndpoints] wingman_enabled set to {body.Enabled}");
+                return Results.Json(new { enabled = body.Enabled });
+            }
+            catch (JsonException ex)
+            {
+                FileLog.Write($"[SettingsEndpoints] PUT /gateway/wingman bad JSON: {ex.Message}");
+                return Results.BadRequest(new { error = "invalid JSON" });
             }
         });
 
@@ -151,4 +179,5 @@ internal static class SettingsEndpoints
     }
 
     private sealed record AutostartBody(bool Enabled);
+    private sealed record WingmanBody(bool Enabled);
 }

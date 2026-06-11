@@ -60,7 +60,8 @@ public static class SessionOrdering
     /// only appear after the brief or report lands.
     /// </summary>
     public static string EffectiveColor(SessionDto s) =>
-        IsExplaining(s) ? "orange"
+        s.OnHold ? "grey"
+        : IsExplaining(s) ? "orange"
         : IsBriefing(s) ? "yellow"
         : s.StatusColor;
 
