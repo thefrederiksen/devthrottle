@@ -1,0 +1,4 @@
+﻿2026-06-11 07:47:35.653 [GatewayClient] Start: gateway=http://localhost:7878, directorId=1fd9d3c5-f995-4294-9063-cd3354111ea0, port=7896
+2026-06-11 07:47:35.667 [TailnetIdentityResolver] ResolveEndpoint: resolved https://soren-north.taildb08ed.ts.net:7896 via local-api
+2026-06-11 07:47:36.277 [GatewayClient] POST /directors/register: endpoint=https://soren-north.taildb08ed.ts.net:7896
+2026-06-11 07:47:38.317 [GatewayClient] Registered: status=201, endpoint=https://soren-north.taildb08ed.ts.net:7896

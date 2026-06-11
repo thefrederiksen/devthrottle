@@ -1,0 +1,2 @@
+﻿HTTP 200
+{"status":"ok","directors":1,"sessions":0,"version":"0.6.22","serverTime":"2026-06-11T11:48:19.446005Z","directorId":"1fd9d3c5-f995-4294-9063-cd3354111ea0","machineName":"SOREN_NORTH"}
