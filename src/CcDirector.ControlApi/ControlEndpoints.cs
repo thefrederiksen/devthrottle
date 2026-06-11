@@ -344,23 +344,7 @@ internal static class ControlEndpoints
             var wasVoice = session.VoiceMode;
             session.ViewMode = enabled ? MobileViewMode.Voice : MobileViewMode.Text;
 
-            if (enabled && !wasVoice)
-            {
-                // Entering voice mode: capture the prior WingmanEnabled state so we can
-                // restore it when voice mode ends, then force the wingman ON - voice mode
-                // requires it for reply summarization regardless of the gateway default.
-                session.PreVoiceWingmanEnabled = session.WingmanEnabled;
-                session.WingmanEnabled = true;
-                FileLog.Write($"[ControlEndpoints] /voice-mode: session={guid} entering voice mode, wingman forced ON (was {session.PreVoiceWingmanEnabled})");
-            }
-            else if (!enabled && wasVoice && session.PreVoiceWingmanEnabled.HasValue)
-            {
-                // Leaving voice mode: restore the wingman to whatever the user had it set
-                // to before voice mode was entered.
-                session.WingmanEnabled = session.PreVoiceWingmanEnabled.Value;
-                session.PreVoiceWingmanEnabled = null;
-                FileLog.Write($"[ControlEndpoints] /voice-mode: session={guid} leaving voice mode, wingman restored to {session.WingmanEnabled}");
-            }
+            FileLog.Write($"[ControlEndpoints] /voice-mode: session={guid} entering={enabled}, wingmanEnabled unchanged ({session.WingmanEnabled})");
 
             FileLog.Write($"[ControlEndpoints] /voice-mode: session={guid} enabled={enabled} viewMode={session.ViewMode}");
             proactiveExplain?.TriggerBackgroundExplain(session);
