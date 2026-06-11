@@ -1,0 +1,40 @@
+### AC1: POST /tools/run {name: cc-vault, args: [--help]} - timestamped NDJSON capture
+10:30:00.658 {"stream":"start","pid":71728}
+10:30:01.642 {"stream":"stdout","data":"                                                                               "}
+10:30:01.673 {"stream":"stdout","data":" Usage: cc-vault [OPTIONS] COMMAND [ARGS]...                                   "}
+10:30:01.726 {"stream":"stdout","data":"                                                                               "}
+10:30:01.753 {"stream":"stdout","data":" Personal Vault CLI: manage contacts, tasks, goals, ideas, documents, and      "}
+10:30:01.780 {"stream":"stdout","data":" more.                                                                         "}
+10:30:01.806 {"stream":"stdout","data":"                                                                               "}
+10:30:01.833 {"stream":"stdout","data":"\u250C\u2500 Options \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510"}
+10:30:01.859 {"stream":"stdout","data":"\u2502 --version  -v        Show version and exit                                  \u2502"}
+10:30:01.888 {"stream":"stdout","data":"\u2502 --help               Show this message and exit.                            \u2502"}
+10:30:01.915 {"stream":"stdout","data":"\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518"}
+10:30:01.942 {"stream":"stdout","data":"\u250C\u2500 Commands \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510"}
+10:30:01.966 {"stream":"stdout","data":"\u2502 init            Initialize a new vault.                                     \u2502"}
+10:30:01.988 {"stream":"stdout","data":"\u2502 stats           Show vault statistics.                                      \u2502"}
+10:30:02.010 {"stream":"stdout","data":"\u2502 ask             Ask a question using RAG (Retrieval Augmented Generation).  \u2502"}
+10:30:02.043 {"stream":"stdout","data":"\u2502 search          Search the vault using semantic or hybrid search.           \u2502"}
+10:30:02.067 {"stream":"stdout","data":"\u2502 backup          Create a full zip backup of the entire vault directory.     \u2502"}
+10:30:02.097 {"stream":"stdout","data":"\u2502 repair-vectors  Delete and rebuild the vector index from SQLite chunks.     \u2502"}
+10:30:02.125 {"stream":"stdout","data":"\u2502 restore         Restore the vault from a backup zip file.                   \u2502"}
+10:30:02.150 {"stream":"stdout","data":"\u2502 link            Create a link between two entities.                         \u2502"}
+10:30:02.181 {"stream":"stdout","data":"\u2502 unlink          Remove a link between two entities.                         \u2502"}
+10:30:02.215 {"stream":"stdout","data":"\u2502 links           Get all links for an entity.                                \u2502"}
+10:30:02.249 {"stream":"stdout","data":"\u2502 context         Get entity with full linked context (for agents).           \u2502"}
+10:30:02.283 {"stream":"stdout","data":"\u2502 tasks           Task management                                             \u2502"}
+10:30:02.310 {"stream":"stdout","data":"\u2502 goals           Goal tracking                                               \u2502"}
+10:30:02.341 {"stream":"stdout","data":"\u2502 ideas           Idea capture                                                \u2502"}
+10:30:02.364 {"stream":"stdout","data":"\u2502 contacts        Contact management                                          \u2502"}
+10:30:02.390 {"stream":"stdout","data":"\u2502 docs            Document management                                         \u2502"}
+10:30:02.417 {"stream":"stdout","data":"\u2502 config          Configuration                                               \u2502"}
+10:30:02.448 {"stream":"stdout","data":"\u2502 health          Health data                                                 \u2502"}
+10:30:02.479 {"stream":"stdout","data":"\u2502 posts           Social media posts                                          \u2502"}
+10:30:02.508 {"stream":"stdout","data":"\u2502 lists           Contact list management                                     \u2502"}
+10:30:02.541 {"stream":"stdout","data":"\u2502 tags            Contact tag management                                      \u2502"}
+10:30:02.572 {"stream":"stdout","data":"\u2502 library         Document library management                                 \u2502"}
+10:30:02.600 {"stream":"stdout","data":"\u2502 catalog         Document catalog                                            \u2502"}
+10:30:02.628 {"stream":"stdout","data":"\u2502 graph           Graph statistics and traversal                              \u2502"}
+10:30:02.654 {"stream":"stdout","data":"\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518"}
+10:30:02.679 {"stream":"stdout","data":""}
+10:30:02.707 {"stream":"exit","exitCode":0,"timedOut":false,"durationMs":1105}

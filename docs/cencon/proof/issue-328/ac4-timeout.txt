@@ -1,0 +1,6 @@
+### AC4: timeoutS:2 against cc-vault search (a ~56s command) - timestamped capture
+10:34:42.883 {"stream":"start","pid":70752}
+10:34:44.890 {"stream":"stderr","data":"HTTP Request: POST https://api.openai.com/v1/embeddings \u0022HTTP/1.1 200 OK\u0022"}
+10:34:44.936 {"stream":"exit","timedOut":true,"durationMs":2064,"error":"timed out after 2s; process tree killed"}
+--- PID absence check for pid=70752 (immediately after exit chunk):
+INFO: No tasks are running which match the specified criteria.

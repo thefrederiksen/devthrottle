@@ -1,0 +1,19 @@
+### AC2: rejection paths
+--- unknown tool ->
+{"error":"unknown tool: cc-not-a-real-tool (not in the catalog)"}
+HTTP 404
+--- absolute path (backslashes) ->
+{"error":"invalid JSON request body"}
+HTTP 400
+--- traversal (forward slashes) ->
+{"error":"name must be a bare catalog tool name (no path separators)"}
+HTTP 400
+--- absolute path (escaped backslashes, valid JSON) ->
+
+HTTP 000
+--- absolute windows path (valid JSON, escaped backslashes) ->
+{"error":"invalid JSON request body"}
+HTTP 400
+--- absolute windows path {"name":"C:\\Windows\\System32\\cmd.exe"} ->
+{"error":"name must be a bare catalog tool name (no path separators)"}
+HTTP 400

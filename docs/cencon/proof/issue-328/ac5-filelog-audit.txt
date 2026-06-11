@@ -1,0 +1,22 @@
+2026-06-11 10:32:47.988 [ToolsEndpoint] POST /tools/run: invalid JSON body ('W' is an invalid escapable character within a JSON string. The string should be correctly escaped. Path: $.name | LineNumber: 0 | BytePositionInLine: 12.)
+2026-06-11 10:32:48.055 [ToolsEndpoint] POST /tools/run: tool=cc-hardware, exe=C:\Users\soren\AppData\Local\cc-director\pyenv\Scripts\cc-hardware.exe, args=[gpu], cwd=(exe dir), timeoutS=120, caller=127.0.0.1
+2026-06-11 10:32:48.058 [ToolRunner] RunStream: exe=C:\Users\soren\AppData\Local\cc-director\pyenv\Scripts\cc-hardware.exe, args=[gpu], cwd=(exe dir), timeout=120s
+2026-06-11 10:32:48.568 [ToolRunner] RunStream done: exe=C:\Users\soren\AppData\Local\cc-director\pyenv\Scripts\cc-hardware.exe, exitCode=0, durationMs=510
+2026-06-11 10:32:48.627 [ToolsEndpoint] POST /tools/run: tool=cc-hardware, exe=C:\Users\soren\AppData\Local\cc-director\pyenv\Scripts\cc-hardware.exe, args=[disk], cwd=(exe dir), timeoutS=120, caller=127.0.0.1
+2026-06-11 10:32:48.627 [ToolRunner] RunStream: exe=C:\Users\soren\AppData\Local\cc-director\pyenv\Scripts\cc-hardware.exe, args=[disk], cwd=(exe dir), timeout=120s
+2026-06-11 10:32:48.900 [ToolRunner] RunStream done: exe=C:\Users\soren\AppData\Local\cc-director\pyenv\Scripts\cc-hardware.exe, exitCode=0, durationMs=272
+2026-06-11 10:32:48.947 [ToolsEndpoint] POST /tools/run: tool=cc-vault, exe=C:\Users\soren\AppData\Local\cc-director\pyenv\Scripts\cc-vault.exe, args=[stats], cwd=(exe dir), timeoutS=120, caller=127.0.0.1
+2026-06-11 10:32:48.947 [ToolRunner] RunStream: exe=C:\Users\soren\AppData\Local\cc-director\pyenv\Scripts\cc-vault.exe, args=[stats], cwd=(exe dir), timeout=120s
+2026-06-11 10:32:49.388 [ToolRunner] RunStream done: exe=C:\Users\soren\AppData\Local\cc-director\pyenv\Scripts\cc-vault.exe, exitCode=0, durationMs=441
+2026-06-11 10:33:06.912 [ToolsEndpoint] POST /tools/run REJECTED (path-shaped name): C:\Windows\System32\cmd.exe
+2026-06-11 10:33:28.283 [ToolsEndpoint] POST /tools/run: tool=cc-vault, exe=C:\Users\soren\AppData\Local\cc-director\pyenv\Scripts\cc-vault.exe, args=[search streaming tool runner probe], cwd=(exe dir), timeoutS=120, caller=127.0.0.1
+2026-06-11 10:33:28.284 [ToolRunner] RunStream: exe=C:\Users\soren\AppData\Local\cc-director\pyenv\Scripts\cc-vault.exe, args=[search streaming tool runner probe], cwd=(exe dir), timeout=120s
+2026-06-11 10:34:24.286 [ToolRunner] RunStream done: exe=C:\Users\soren\AppData\Local\cc-director\pyenv\Scripts\cc-vault.exe, exitCode=0, durationMs=56002
+2026-06-11 10:34:24.333 [ToolsEndpoint] POST /tools/run: invalid JSON body ('W' is an invalid escapable character within a JSON string. The string should be correctly escaped. Path: $.args[0] | LineNumber: 0 | BytePositionInLine: 29.)
+2026-06-11 10:34:42.839 [ToolsEndpoint] POST /tools/run: tool=cc-vault, exe=C:\Users\soren\AppData\Local\cc-director\pyenv\Scripts\cc-vault.exe, args=[search timeout kill proof], cwd=(exe dir), timeoutS=2, caller=127.0.0.1
+2026-06-11 10:34:42.839 [ToolRunner] RunStream: exe=C:\Users\soren\AppData\Local\cc-director\pyenv\Scripts\cc-vault.exe, args=[search timeout kill proof], cwd=(exe dir), timeout=2s
+2026-06-11 10:34:44.904 [ToolRunner] RunStream TIMEOUT: exe=C:\Users\soren\AppData\Local\cc-director\pyenv\Scripts\cc-vault.exe, after=2s, pid=70752
+2026-06-11 10:35:16.830 [ToolsEndpoint] POST /tools/run: tool=cc-vault, exe=C:\Users\soren\AppData\Local\cc-director\pyenv\Scripts\cc-vault.exe, args=[search agent mesh design], cwd=(exe dir), timeoutS=120, caller=127.0.0.1
+2026-06-11 10:35:16.830 [ToolRunner] RunStream: exe=C:\Users\soren\AppData\Local\cc-director\pyenv\Scripts\cc-vault.exe, args=[search agent mesh design], cwd=(exe dir), timeout=120s
+2026-06-11 10:35:53.288 [ToolRunner] RunStream done: exe=C:\Users\soren\AppData\Local\cc-director\pyenv\Scripts\cc-vault.exe, exitCode=0, durationMs=36457
+

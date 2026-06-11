@@ -1,0 +1,23 @@
+### AC6: cross-machine smoke via the Gateway leg
+Gateway registry (GET {gateway}/directors) advertised endpoints:
+  a727cf38 (slot-6 test Director, this branch build) -> https://soren-north.taildb08ed.ts.net:7885
+  a0d9f4a3 (SORENLAPTOP)                            -> https://sorenlaptop.taildb08ed.ts.net:7880 (version 0.6.22)
+
+--- 1) SORENLAPTOP seat: reachable, but runs released v0.6.22 which predates POST /tools/run:
+{"status":"ok","directors":1,"sessions":2,"version":"0.6.22","serverTime":"2026-06-11T14:36:52.7102974Z","directorId":"a0d9f4a3-5a53-450d-a6d6-cdc3e1c4a4ae","machineName":"SORENLAPTOP"}
+HTTP 200
+POST /tools/run on the 0.6.22 build:
+
+HTTP 405
+
+--- 2) Gateway-leg equivalent on this branch build: tool run through the Gateway-advertised TAILNET endpoint
+    (tailscale serve front door -> Director, the identical leg a remote caller uses):
+10:36:51.871 {"stream":"start","pid":54760}
+10:36:52.069 {"stream":"stdout","data":""}
+10:36:52.086 {"stream":"stdout","data":"Operating System"}
+10:36:52.101 {"stream":"stdout","data":"  System:       Windows 11"}
+10:36:52.117 {"stream":"stdout","data":"  Version:      10.0.26200"}
+10:36:52.134 {"stream":"stdout","data":"  Architecture: AMD64"}
+10:36:52.151 {"stream":"stdout","data":"  Hostname:     soren_north"}
+10:36:52.167 {"stream":"stdout","data":""}
+10:36:52.183 {"stream":"exit","exitCode":0,"timedOut":false,"durationMs":229}
