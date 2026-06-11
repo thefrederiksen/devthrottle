@@ -1,0 +1,13 @@
+FLEET AFTER - issue #300 dev proof - 2026-06-11 05:30:35
+PID 42928 : NOT RUNNING
+PID 65232 : NOT RUNNING
+PID 21128 : cc-director started 2026-06-10 13:34:24 RUNNING
+PORT 7878 : LISTEN by PID 26640
+PORT 7470 : LISTEN by PID 19488
+PORT 7887 : LISTEN by PID 8640
+NOTE: gateway PID 42928 and cockpit PID 65232 were replaced by PIDs 26640/19488 at 05:25:09
+by the Gateway's OWN self-update relaunch (old gateway log 42928 ends with
+'[GatewayTrayController] shutdown requested via /shutdown (self-update)';
+new gateway 26640 is the installed exe, managed=True, version 0.6.22, listening on :7878).
+This session never started, stopped, or bound any fleet process or port; all issue-300 tests
+ran in-process on ephemeral loopback ports. Director PID 21128 (:7887) unchanged.

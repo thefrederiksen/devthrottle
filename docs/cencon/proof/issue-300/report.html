@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #300 - Developer Proof - Per-source adapters: devops work-list refs runnable</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2em auto; max-width: 1100px; color: #222; }
+  h1 { border-bottom: 3px solid #0a6; padding-bottom: 0.3em; }
+  h2 { border-bottom: 1px solid #ccc; padding-bottom: 0.2em; margin-top: 1.6em; }
+  table { border-collapse: collapse; width: 100%; margin: 1em 0; }
+  th, td { border: 1px solid #bbb; padding: 6px 10px; text-align: left; vertical-align: top; font-size: 14px; }
+  th { background: #f0f4f2; }
+  code, pre { background: #f6f6f6; border: 1px solid #ddd; border-radius: 3px; font-family: Consolas, monospace; font-size: 13px; }
+  code { padding: 1px 4px; }
+  pre { padding: 10px; overflow-x: auto; }
+  .pass { color: #0a6; font-weight: bold; }
+  .fail { color: #c33; font-weight: bold; }
+  .note { background: #fffbe6; border: 1px solid #e6d68a; padding: 10px; border-radius: 4px; }
+  .verdict { background: #e8f7ef; border: 2px solid #0a6; padding: 14px; border-radius: 6px; font-size: 16px; margin-top: 1.5em; }
+</style>
+</head>
+<body>
+
+<h1>Issue #300 - Per-source adapters: devops work-list refs runnable</h1>
+
+<p>
+<strong>Issue:</strong> thefrederiksen/cc-director #300 (parent epic #297)<br>
+<strong>PR:</strong> <a href="https://github.com/thefrederiksen/cc-director/pull/320">#320</a> (branch <code>issue-300-devops-adapter</code>)<br>
+<strong>Date:</strong> 2026-06-11<br>
+<strong>Agent:</strong> Developer Agent (CenCon Development Method), inside the implementation-loop
+</p>
+
+<h2>Proof level achieved (decision D-4)</h2>
+<p>
+The sharpened spec (the "Product sharpening (Definition of Ready)" comment) defines the minimum
+acceptable proof as <strong>(a) a runner-level test proving a devops ref is dispatched</strong>
+(session-seed request emitted with the devops seed prompt, sentinel correlated, write-back invoked),
+<strong>PLUS (b) a live az write-back demonstration on the scratch item</strong> (claim and done
+transitions plus comments actually applied in Azure DevOps).
+</p>
+<p>
+<strong>Level achieved: a + b.</strong> A full autonomously-seeded end-to-end run (level above the
+minimum) was not driven; both halves of the minimum bar are proven below with captured evidence.
+</p>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion (restated spec)</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+<tr>
+<td>1</td>
+<td>Gateway adapter dispatch: source=devops items are runnable (seeded, sentinel-correlated, status written back); jira items still skip with the existing note. Unit tests cover dispatch for github/devops/jira.</td>
+<td>A devops ref on a list is started with the devops-mode seed prompt, its IMPL-LOOP-TERMINAL sentinel is correlated by the work item id, and the terminal signal is recorded; a jira ref is never started and keeps the skip note; unit tests cover all three sources.</td>
+<td><code>SourceAdapterTests</code> (registry dispatch github/devops/jira incl. case-insensitivity, per-source seed prompts, correlation keys), <code>WorkListRunnerTests</code> (mixed-source drain: devops Ran/Done with seed <code>/implementation-loop --source devops 1203</code>, jira SkippedNonGithub with note <code>source 'jira' is not runnable</code>, devops-only drain, jira-only drain, non-numeric devops id guard), and <code>DevopsAdapterDispatchProofTests</code> against the REAL <code>GatewayHost</code> over HTTP (table below) - all green.</td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>2</td>
+<td>devops end-to-end proof per D-4 on the scratch work item: claim transition, terminal write-back (done + PR link comment) visible in Azure DevOps.</td>
+<td>Scratch item in Z_Archive_DataWarehouse transitions To Do -&gt; In Progress (with CLAIM comment) -&gt; Done (with merged-PR-URL comment), captured as az CLI JSON, then deleted.</td>
+<td>Work item 7659 "[TEST cc-director #300] write-back demo": rev 1 created at <code>To Do</code>; rev 2 <code>To Do -&gt; In Progress</code> + comment <code>CLAIM by SOREN_NORTH/impl-loop-kgp5jk at 2026-06-11T09:30:01Z</code>; rev 3 <code>In Progress -&gt; Done</code> + comment <code>done: merged https://github.com/thefrederiksen/cc-director/pull/320</code>; deleted (code 200) and residual query empty. Evidence files listed below.</td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>3</td>
+<td>github path unchanged: existing WorkListRunner github tests still green; no behavior change for source=github.</td>
+<td>The github seed prompt is byte-identical to the pre-#300 form and all pre-existing github runner tests pass unchanged in behavior.</td>
+<td><code>Github_BuildSeedPrompt_IsOriginalV1Form</code> asserts the exact v1 seed <code>/implementation-loop 262</code>; the endpoint proof and unit drains show the github item Ran/Done exactly as before; the <code>SkippedNonGithub</code> outcome name (REST projection string) was deliberately kept so existing consumers see no contract change. Filtered adapter/runner suite: 28/28 green.</td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Skills (implementation-loop / developer-agent / qa-agent) + DEVELOPMENT_METHOD.md document the devops mode and the adapter contract.</td>
+<td>devops mode (claim + write-back mapping) in the implementation-loop skill; devops notes in developer-agent and qa-agent skills; a new adapter-contract section in DEVELOPMENT_METHOD.md.</td>
+<td>implementation-loop skill v0.8: devops mode with the pinned Basic/Scrum/Agile state mapping, CLAIM with verify-after-claim (oldest CLAIM comment wins, as #298), and the done / needs-human / failed write-back table. developer-agent skill v0.6 and qa-agent skill v0.6: devops mode notes. DEVELOPMENT_METHOD.md: new Section 7b (the two-half adapter contract: ISourceAdapter at the Gateway + a source mode in the skill, plus how a future jira adapter follows the shape).</td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Live fleet untouched during proof (before/after PID table, as in #299).</td>
+<td>No fleet process or port (7878/7470/7887) bound, started, or stopped by this session; all tests on ephemeral loopback ports.</td>
+<td>This session never started, stopped, or bound any fleet process or port. The before/after tables (below) show the Gateway and Cockpit PIDs changed mid-proof - caused by the Gateway's OWN self-update relaunch, logged in the old gateway's log as <code>shutdown requested via /shutdown (self-update)</code> at 05:24:18, with the managed replacement (installed exe, v0.6.22) up on :7878 at 05:25:10. The Director (PID 21128, :7887) is unchanged.</td>
+<td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Runner-level dispatch proof (D-4 level a)</h2>
+<p>
+From <code>DevopsAdapterDispatchProofTests</code>: the REAL production <code>GatewayHost</code>
+wiring driven over real HTTP, with a stub Director answering <code>POST /sessions</code> (records
+the seed PrePrompt) and <code>GET /sessions/{sid}/buffer</code> (serves the IMPL-LOOP-TERMINAL
+sentinel). Generated fragment (also committed as <code>runner-dispatch-proof.html</code>):
+</p>
+<table><tr><th>#</th><th>Expected</th><th>Actual (observed over HTTP)</th><th>Result</th></tr>
+<tr><td>1</td><td>source=devops ref is dispatched: session-seed request emitted with the devops-mode seed prompt '/implementation-loop --source devops 9001'.</td><td><code>seeds observed at the stub Director (real HTTP POST /sessions): /implementation-loop --source devops 9001 | /implementation-loop 262</code></td><td class="pass">PASS</td></tr>
+<tr><td>2</td><td>Terminal sentinel correlated by work item id (issue: 9001) and the terminal signal recorded on the devops item (outcome=Ran, signal=Done) - the runner-side write-back record.</td><td><code>devops item result: outcome=Ran, signal=Done, sessionId=present</code></td><td class="pass">PASS</td></tr>
+<tr><td>3</td><td>jira ref still skips with the existing skip-note (no adapter), never started, left in the list.</td><td><code>jira item result: outcome=SkippedNonGithub, note=source 'jira' is not runnable (runnable: github, devops); skipped, left in list; list still=9001,262,CCD-44</code></td><td class="pass">PASS</td></tr>
+<tr><td>4</td><td>github path unchanged: plain seed '/implementation-loop 262', item drained to Done exactly as pre-#300.</td><td><code>github seed=/implementation-loop 262; github item result: outcome=Ran, signal=Done</code></td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>Live az write-back demonstration (D-4 level b)</h2>
+<p>
+Scratch work item <strong>7659</strong> "[TEST cc-director #300] write-back demo", created in the
+archived project <code>Z_Archive_DataWarehouse</code> (org <code>https://dev.azure.com/mindzie</code>),
+driven through the exact transitions the implementation-loop devops mode documents, then deleted.
+</p>
+<pre>
+State history (from az-state-history.json, the work item updates API):
+  rev 1:               -&gt; To Do        at 2026-06-11T09:27:37.993Z   (created)
+  rev 2:  To Do        -&gt; In Progress  at 2026-06-11T09:30:03.377Z   (CLAIM)
+  rev 3:  In Progress  -&gt; Done         at 2026-06-11T09:32:36.717Z   (done write-back)
+
+Discussion comments (from az-final-comments.json):
+  2026-06-11T09:30:03Z :: CLAIM by SOREN_NORTH/impl-loop-kgp5jk at 2026-06-11T09:30:01Z
+  2026-06-11T09:32:36Z :: done: merged https://github.com/thefrederiksen/cc-director/pull/320
+
+Verify-after-claim (az-claim-verify-comments.json): the OLDEST comment starting "CLAIM by "
+is this run's - the claim is won, matching the #298 shape.
+
+Deletion (az-delete.json): az boards work-item delete --id 7659 -&gt; code 200,
+deletedDate 6/11/2026 9:33:20 AM. Residual WIQL query for titles containing
+"TEST cc-director" in Z_Archive_DataWarehouse: EMPTY - the archive project is pristine.
+</pre>
+<p>Captured az CLI JSON evidence committed alongside this report:</p>
+<ul>
+<li><code>az-state-probe.json</code> - the work item type's allowed states (the template probe: To Do / In Progress / Done / Removed = Scrum)</li>
+<li><code>az-claim-transition.json</code> - the CLAIM update (state In Progress + CLAIM comment)</li>
+<li><code>az-claim-verify-comments.json</code> - the verify-after-claim comment read</li>
+<li><code>az-done-transition.json</code> - the done update (state Done + merged PR URL comment)</li>
+<li><code>az-state-history.json</code> - the full revision history (all three state transitions)</li>
+<li><code>az-final-comments.json</code> - both discussion comments as stored in DevOps</li>
+<li><code>az-delete.json</code> - the deletion receipt (code 200)</li>
+</ul>
+
+<div class="note">
+<strong>Defect found and fixed during the live demo (mapping table sharpened):</strong> the spec's
+D-3 pinned two templates (Basic: To Do/Doing/Done; Agile: New/Active/Closed) probed by the item's
+CURRENT state name. The live proof project Z_Archive_DataWarehouse turned out to use the
+<strong>Scrum</strong> template (To Do / In Progress / Done) - "To Do" matched Basic's initial
+state, but the Basic in-progress transition ("Doing") was rejected by DevOps. The current-state
+probe is therefore ambiguous between Basic and Scrum. Fix, staying within D-3's
+"static mapping, no dynamic discovery" intent: the table now pins all three common templates
+(Basic / Scrum / Agile) and the probe reads the work item TYPE's allowed state list
+(<code>az devops invoke --area wit --resource workitemtypestates</code>, one static lookup) to pick
+the row; an unrecognized state set still escalates needs-human. Documented in the
+implementation-loop skill and DEVELOPMENT_METHOD.md Section 7b.
+</div>
+
+<h2>Build and test results</h2>
+<table>
+<tr><th>Check</th><th>Result</th></tr>
+<tr><td><code>dotnet build cc-director.sln</code> (in the worktree)</td><td class="pass">Build succeeded - 0 Warning(s), 0 Error(s)</td></tr>
+<tr><td>Adapter/runner test suite (filter SourceAdapter | WorkListRunner | DevopsAdapter)</td><td class="pass">28/28 passed (<code>runner-test-results.txt</code>)</td></tr>
+<tr><td>Full <code>CcDirector.Gateway.Tests</code> project</td><td>433/434 passed. The single failure is <code>DictationEndpointTests.FullPipeline_transcribes_phase0_clip2_with_realtime_provider</code> - a PRE-EXISTING real-network test (it self-skips without <code>OPENAI_API_KEY</code> and calls the live OpenAI realtime API when the key is present; "expected at least 1 partial transcript, got 0"). The dictation code and test are untouched by this change (last commits to that file are the dictation feature commits) and the failure is unrelated to #300.</td></tr>
+</table>
+
+<h2>Fleet before / after</h2>
+<pre>
+FLEET BEFORE - issue #300 dev proof - 2026-06-11 05:05:05
+PID 42928 : cc-director-gateway started 2026-06-10 21:32:30 RUNNING
+PID 65232 : cc-director-cockpit started 2026-06-10 21:32:32 RUNNING
+PID 21128 : cc-director started 2026-06-10 13:34:24 RUNNING
+PORT 7878 : LISTEN by PID 42928
+PORT 7470 : LISTEN by PID 65232
+PORT 7887 : LISTEN by PID 8640
+
+FLEET AFTER - issue #300 dev proof - 2026-06-11 05:30:35
+PID 42928 : NOT RUNNING
+PID 65232 : NOT RUNNING
+PID 21128 : cc-director started 2026-06-10 13:34:24 RUNNING
+PORT 7878 : LISTEN by PID 26640  (cc-director-gateway, installed exe, v0.6.22, managed=True)
+PORT 7470 : LISTEN by PID 19488  (cc-director-cockpit, installed exe)
+PORT 7887 : LISTEN by PID 8640   (tailscaled serve mapping - unchanged)
+</pre>
+<p>
+The gateway/cockpit PID change was the Gateway's OWN self-update relaunch at 05:24-05:25 (old
+gateway log: <code>[GatewayTrayController] shutdown requested via /shutdown (self-update)</code>),
+external to this session. This session never started, stopped, or bound any fleet process or port;
+all issue-300 tests ran in-process on ephemeral loopback ports, and the live az demo touched only
+work item 7659 in the archived DevOps project.
+</p>
+
+<h2>CenCon impact</h2>
+<p>
+Architecture: no container change - the adapter dispatch lives inside the existing
+<code>CcDirector.Gateway</code> queue runner (the same place the github gate lived). Process docs
+updated in the same change: DEVELOPMENT_METHOD.md gained Section 7b (per-source adapter contract +
+devops status mapping); the implementation-loop, developer-agent, and qa-agent skills gained the
+devops mode. Security posture: unchanged - no new secret handling (the az CLI session is the v1
+transport, a documented host prerequisite), no new listening surface.
+</p>
+
+<div class="verdict">
+All five acceptance criteria PASS at proof level a + b (the D-4 minimum bar).
+<strong>I believe this is finished.</strong>
+</div>
+
+</body>
+</html>

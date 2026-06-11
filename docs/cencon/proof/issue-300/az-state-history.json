@@ -1,0 +1,311 @@
+{
+  "continuation_token": null,
+  "count": 3,
+  "value": [
+    {
+      "fields": {
+        "Microsoft.VSTS.Common.Priority": {
+          "newValue": 2
+        },
+        "Microsoft.VSTS.Common.StateChangeDate": {
+          "newValue": "2026-06-11T09:27:37.993Z"
+        },
+        "System.AreaId": {
+          "newValue": 293
+        },
+        "System.AreaLevel1": {
+          "newValue": "Z_Archive_DataWarehouse"
+        },
+        "System.AreaPath": {
+          "newValue": "Z_Archive_DataWarehouse"
+        },
+        "System.AssignedTo": {},
+        "System.AuthorizedAs": {
+          "newValue": {
+            "_links": {
+              "avatar": {
+                "href": "https://dev.azure.com/mindzie/_apis/GraphProfile/MemberAvatars/aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk"
+              }
+            },
+            "descriptor": "aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk",
+            "displayName": "Soren Frederiksen",
+            "id": "cfb1ae32-63d2-6512-9a07-fac159c57a0d",
+            "imageUrl": "https://dev.azure.com/mindzie/_apis/GraphProfile/MemberAvatars/aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk",
+            "uniqueName": "soren.frederiksen@mindzie.com",
+            "url": "https://spsprodcca1.vssps.visualstudio.com/A3c2242d7-a70a-4e5f-95fd-3f49198e4785/_apis/Identities/cfb1ae32-63d2-6512-9a07-fac159c57a0d"
+          }
+        },
+        "System.AuthorizedDate": {
+          "newValue": "2026-06-11T09:27:37.993Z"
+        },
+        "System.ChangedBy": {
+          "newValue": {
+            "_links": {
+              "avatar": {
+                "href": "https://dev.azure.com/mindzie/_apis/GraphProfile/MemberAvatars/aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk"
+              }
+            },
+            "descriptor": "aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk",
+            "displayName": "Soren Frederiksen",
+            "id": "cfb1ae32-63d2-6512-9a07-fac159c57a0d",
+            "imageUrl": "https://dev.azure.com/mindzie/_apis/GraphProfile/MemberAvatars/aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk",
+            "uniqueName": "soren.frederiksen@mindzie.com",
+            "url": "https://spsprodcca1.vssps.visualstudio.com/A3c2242d7-a70a-4e5f-95fd-3f49198e4785/_apis/Identities/cfb1ae32-63d2-6512-9a07-fac159c57a0d"
+          }
+        },
+        "System.ChangedDate": {
+          "newValue": "2026-06-11T09:27:37.993Z"
+        },
+        "System.CommentCount": {
+          "newValue": 0
+        },
+        "System.CreatedBy": {
+          "newValue": {
+            "_links": {
+              "avatar": {
+                "href": "https://dev.azure.com/mindzie/_apis/GraphProfile/MemberAvatars/aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk"
+              }
+            },
+            "descriptor": "aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk",
+            "displayName": "Soren Frederiksen",
+            "id": "cfb1ae32-63d2-6512-9a07-fac159c57a0d",
+            "imageUrl": "https://dev.azure.com/mindzie/_apis/GraphProfile/MemberAvatars/aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk",
+            "uniqueName": "soren.frederiksen@mindzie.com",
+            "url": "https://spsprodcca1.vssps.visualstudio.com/A3c2242d7-a70a-4e5f-95fd-3f49198e4785/_apis/Identities/cfb1ae32-63d2-6512-9a07-fac159c57a0d"
+          }
+        },
+        "System.CreatedDate": {
+          "newValue": "2026-06-11T09:27:37.993Z"
+        },
+        "System.Description": {
+          "newValue": "Scratch item for the issue #300 devops adapter write-back demonstration (claim -&gt; done transitions via az boards, as the implementation-loop devops mode documents). Target code repo: thefrederiksen/cc-director. This item is deleted after proof capture."
+        },
+        "System.Id": {
+          "newValue": 7659
+        },
+        "System.IsDeleted": {
+          "newValue": false
+        },
+        "System.IterationId": {
+          "newValue": 293
+        },
+        "System.IterationLevel1": {
+          "newValue": "Z_Archive_DataWarehouse"
+        },
+        "System.IterationPath": {
+          "newValue": "Z_Archive_DataWarehouse"
+        },
+        "System.NodeName": {
+          "newValue": "Z_Archive_DataWarehouse"
+        },
+        "System.PersonId": {
+          "newValue": 171632494
+        },
+        "System.Reason": {
+          "newValue": "New task"
+        },
+        "System.Rev": {
+          "newValue": 1
+        },
+        "System.RevisedDate": {
+          "newValue": "2026-06-11T09:30:03.377Z"
+        },
+        "System.State": {
+          "newValue": "To Do"
+        },
+        "System.TeamProject": {
+          "newValue": "Z_Archive_DataWarehouse"
+        },
+        "System.Title": {
+          "newValue": "[TEST cc-director #300] write-back demo"
+        },
+        "System.Watermark": {
+          "newValue": 66505
+        },
+        "System.WorkItemType": {
+          "newValue": "Task"
+        }
+      },
+      "id": 1,
+      "rev": 1,
+      "revisedBy": {
+        "_links": {
+          "avatar": {
+            "href": "https://dev.azure.com/mindzie/_apis/GraphProfile/MemberAvatars/aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk"
+          }
+        },
+        "descriptor": "aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk",
+        "displayName": "Soren Frederiksen",
+        "id": "cfb1ae32-63d2-6512-9a07-fac159c57a0d",
+        "imageUrl": "https://dev.azure.com/mindzie/_apis/GraphProfile/MemberAvatars/aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk",
+        "name": "Soren Frederiksen <soren.frederiksen@mindzie.com>",
+        "uniqueName": "soren.frederiksen@mindzie.com",
+        "url": "https://spsprodcca1.vssps.visualstudio.com/A3c2242d7-a70a-4e5f-95fd-3f49198e4785/_apis/Identities/cfb1ae32-63d2-6512-9a07-fac159c57a0d"
+      },
+      "revisedDate": "2026-06-11T09:30:03.377Z",
+      "url": "https://dev.azure.com/mindzie/92590636-26d4-4584-9f7c-4be0270cbd1c/_apis/wit/workItems/7659/updates/1",
+      "workItemId": 7659
+    },
+    {
+      "fields": {
+        "Microsoft.VSTS.Common.ActivatedBy": {
+          "newValue": {
+            "_links": {
+              "avatar": {
+                "href": "https://dev.azure.com/mindzie/_apis/GraphProfile/MemberAvatars/aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk"
+              }
+            },
+            "descriptor": "aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk",
+            "displayName": "Soren Frederiksen",
+            "id": "cfb1ae32-63d2-6512-9a07-fac159c57a0d",
+            "imageUrl": "https://dev.azure.com/mindzie/_apis/GraphProfile/MemberAvatars/aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk",
+            "uniqueName": "soren.frederiksen@mindzie.com",
+            "url": "https://spsprodcca1.vssps.visualstudio.com/A3c2242d7-a70a-4e5f-95fd-3f49198e4785/_apis/Identities/cfb1ae32-63d2-6512-9a07-fac159c57a0d"
+          }
+        },
+        "Microsoft.VSTS.Common.ActivatedDate": {
+          "newValue": "2026-06-11T09:30:03.377Z"
+        },
+        "Microsoft.VSTS.Common.StateChangeDate": {
+          "newValue": "2026-06-11T09:30:03.377Z",
+          "oldValue": "2026-06-11T09:27:37.993Z"
+        },
+        "System.AuthorizedDate": {
+          "newValue": "2026-06-11T09:30:03.377Z",
+          "oldValue": "2026-06-11T09:27:37.993Z"
+        },
+        "System.ChangedDate": {
+          "newValue": "2026-06-11T09:30:03.377Z",
+          "oldValue": "2026-06-11T09:27:37.993Z"
+        },
+        "System.CommentCount": {
+          "newValue": 1,
+          "oldValue": 0
+        },
+        "System.History": {
+          "newValue": "CLAIM by SOREN_NORTH/impl-loop-kgp5jk at 2026-06-11T09:30:01Z"
+        },
+        "System.Reason": {
+          "newValue": "Work started",
+          "oldValue": "New task"
+        },
+        "System.Rev": {
+          "newValue": 2,
+          "oldValue": 1
+        },
+        "System.RevisedDate": {
+          "newValue": "2026-06-11T09:32:36.717Z",
+          "oldValue": "2026-06-11T09:30:03.377Z"
+        },
+        "System.State": {
+          "newValue": "In Progress",
+          "oldValue": "To Do"
+        },
+        "System.Watermark": {
+          "newValue": 66506,
+          "oldValue": 66505
+        }
+      },
+      "id": 2,
+      "rev": 2,
+      "revisedBy": {
+        "_links": {
+          "avatar": {
+            "href": "https://dev.azure.com/mindzie/_apis/GraphProfile/MemberAvatars/aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk"
+          }
+        },
+        "descriptor": "aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk",
+        "displayName": "Soren Frederiksen",
+        "id": "cfb1ae32-63d2-6512-9a07-fac159c57a0d",
+        "imageUrl": "https://dev.azure.com/mindzie/_apis/GraphProfile/MemberAvatars/aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk",
+        "name": "Soren Frederiksen <soren.frederiksen@mindzie.com>",
+        "uniqueName": "soren.frederiksen@mindzie.com",
+        "url": "https://spsprodcca1.vssps.visualstudio.com/A3c2242d7-a70a-4e5f-95fd-3f49198e4785/_apis/Identities/cfb1ae32-63d2-6512-9a07-fac159c57a0d"
+      },
+      "revisedDate": "2026-06-11T09:32:36.717Z",
+      "url": "https://dev.azure.com/mindzie/92590636-26d4-4584-9f7c-4be0270cbd1c/_apis/wit/workItems/7659/updates/2",
+      "workItemId": 7659
+    },
+    {
+      "fields": {
+        "Microsoft.VSTS.Common.ClosedBy": {
+          "newValue": {
+            "_links": {
+              "avatar": {
+                "href": "https://dev.azure.com/mindzie/_apis/GraphProfile/MemberAvatars/aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk"
+              }
+            },
+            "descriptor": "aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk",
+            "displayName": "Soren Frederiksen",
+            "id": "cfb1ae32-63d2-6512-9a07-fac159c57a0d",
+            "imageUrl": "https://dev.azure.com/mindzie/_apis/GraphProfile/MemberAvatars/aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk",
+            "uniqueName": "soren.frederiksen@mindzie.com",
+            "url": "https://spsprodcca1.vssps.visualstudio.com/A3c2242d7-a70a-4e5f-95fd-3f49198e4785/_apis/Identities/cfb1ae32-63d2-6512-9a07-fac159c57a0d"
+          }
+        },
+        "Microsoft.VSTS.Common.ClosedDate": {
+          "newValue": "2026-06-11T09:32:36.717Z"
+        },
+        "Microsoft.VSTS.Common.StateChangeDate": {
+          "newValue": "2026-06-11T09:32:36.717Z",
+          "oldValue": "2026-06-11T09:30:03.377Z"
+        },
+        "System.AuthorizedDate": {
+          "newValue": "2026-06-11T09:32:36.717Z",
+          "oldValue": "2026-06-11T09:30:03.377Z"
+        },
+        "System.ChangedDate": {
+          "newValue": "2026-06-11T09:32:36.717Z",
+          "oldValue": "2026-06-11T09:30:03.377Z"
+        },
+        "System.CommentCount": {
+          "newValue": 2,
+          "oldValue": 1
+        },
+        "System.History": {
+          "newValue": "done: merged https://github.com/thefrederiksen/cc-director/pull/320",
+          "oldValue": "CLAIM by SOREN_NORTH/impl-loop-kgp5jk at 2026-06-11T09:30:01Z"
+        },
+        "System.Reason": {
+          "newValue": "Work finished",
+          "oldValue": "Work started"
+        },
+        "System.Rev": {
+          "newValue": 3,
+          "oldValue": 2
+        },
+        "System.RevisedDate": {
+          "newValue": "9999-01-01T00:00:00Z",
+          "oldValue": "2026-06-11T09:32:36.717Z"
+        },
+        "System.State": {
+          "newValue": "Done",
+          "oldValue": "In Progress"
+        },
+        "System.Watermark": {
+          "newValue": 66507,
+          "oldValue": 66506
+        }
+      },
+      "id": 3,
+      "rev": 3,
+      "revisedBy": {
+        "_links": {
+          "avatar": {
+            "href": "https://dev.azure.com/mindzie/_apis/GraphProfile/MemberAvatars/aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk"
+          }
+        },
+        "descriptor": "aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk",
+        "displayName": "Soren Frederiksen",
+        "id": "cfb1ae32-63d2-6512-9a07-fac159c57a0d",
+        "imageUrl": "https://dev.azure.com/mindzie/_apis/GraphProfile/MemberAvatars/aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk",
+        "name": "Soren Frederiksen <soren.frederiksen@mindzie.com>",
+        "uniqueName": "soren.frederiksen@mindzie.com",
+        "url": "https://spsprodcca1.vssps.visualstudio.com/A3c2242d7-a70a-4e5f-95fd-3f49198e4785/_apis/Identities/cfb1ae32-63d2-6512-9a07-fac159c57a0d"
+      },
+      "revisedDate": "9999-01-01T00:00:00Z",
+      "url": "https://dev.azure.com/mindzie/92590636-26d4-4584-9f7c-4be0270cbd1c/_apis/wit/workItems/7659/updates/3",
+      "workItemId": 7659
+    }
+  ]
+}
