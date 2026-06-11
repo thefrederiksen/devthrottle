@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Issue #229 - New session Create button busy label (before / during / after)</title>
+<!-- Pixel-accurate: links the REAL Cockpit stylesheet copied from
+     src/CcDirector.Cockpit/wwwroot/app.css at build time, and uses the SAME markup
+     classes Cockpit.razor emits for the New session modal footer (.modal, .modal-ns,
+     .modal-head, .modal-body, .modal-foot, .btn, .btn.send, .modal-error). What renders
+     here is what the app renders. The change in this issue is the Create button's text:
+     @(_acting ? "Creating session..." : "Create") - identical pattern to the three in-repo
+     reference impls (Recap/Fan-out/Handover). The disabled accent button dims via the real
+     `.btn:disabled{opacity:.4}` rule (the disabled-readable rule). -->
+<link rel="stylesheet" href="app.css" />
+<style>
+  body{padding:24px 18px 60px}
+  .mk-wrap{max-width:1320px;margin:0 auto}
+  .mk-h1{font-size:20px;font-weight:700;color:var(--text);margin:0 0 4px}
+  .mk-sub{color:var(--text3);font-size:13px;margin:0 0 22px}
+  .mk-cols{display:flex;gap:22px;align-items:flex-start;flex-wrap:wrap}
+  .mk-col{flex:1;min-width:430px;border:1px solid var(--border);border-radius:8px;background:var(--panel);overflow:hidden}
+  .mk-col-head{padding:10px 16px;font-size:12px;font-weight:700;letter-spacing:.08em;border-bottom:1px solid var(--border)}
+  .mk-before .mk-col-head{color:#F14C4C;background:#2a1d1f}
+  .mk-after  .mk-col-head{color:#22C55E;background:#11251a}
+  .mk-case{border-bottom:1px solid var(--border);padding:4px 0 14px}
+  .mk-case:last-child{border-bottom:none}
+  .mk-case-label{padding:8px 16px 2px;font-size:11px;color:var(--text3);font-weight:600;letter-spacing:.05em}
+  .mk-note{padding:0 16px 8px;color:var(--muted);font-size:11.5px;font-style:italic}
+  /* a slice of the modal footer exactly as Cockpit.razor lays it out */
+  .mk-foot-host{margin:0 12px;background:var(--sidebar);border:1px solid var(--border);
+    border-radius:8px;overflow:hidden;width:380px}
+</style>
+</head>
+<body>
+<div class="mk-wrap">
+  <div class="mk-h1">Issue #229 - "+ New session" Create button shows a busy label during the multi-second spawn</div>
+  <p class="mk-sub">The Create button label flips to "Creating session..." the instant it is clicked and stays disabled while Gateway.CreateSessionAsync spawns claude.exe (seconds). Real Cockpit CSS, real .modal-foot markup. Matches the three in-repo reference impls (Recap "generating (~90s)...", Fan-out "sending...", Handover "handing over...").</p>
+
+  <div class="mk-cols">
+
+    <!-- ============================ BEFORE ============================ -->
+    <div class="mk-col mk-before">
+      <div class="mk-col-head">BEFORE - the defect</div>
+
+      <div class="mk-case">
+        <div class="mk-case-label">Create clicked, mid-spawn (during the Gateway round-trip)</div>
+        <div class="mk-note">Button greys out (disabled=@_acting) but the label still reads "Create" - a greyed button with an unchanged label reads as "broken", not "working", for the several seconds claude.exe takes to spawn.</div>
+        <div class="mk-foot-host">
+          <div class="modal-foot">
+            <button class="btn">Cancel</button>
+            <button class="btn send" disabled>Create</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================ AFTER ============================ -->
+    <div class="mk-col mk-after">
+      <div class="mk-col-head">AFTER - issue #229 fix</div>
+
+      <div class="mk-case">
+        <div class="mk-case-label">AC1 - Create clicked, DURING (label flips, button disabled, before the round-trip returns)</div>
+        <div class="mk-note">@(_acting ? "Creating session..." : "Create") - _acting is set true synchronously before the await, so the very next render shows "Creating session..." disabled. (Proof of AC1.)</div>
+        <div class="mk-foot-host">
+          <div class="modal-foot">
+            <button class="btn">Cancel</button>
+            <button class="btn send" disabled>Creating session...</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="mk-case">
+        <div class="mk-case-label">AC2 - On success, modal advances (no regression)</div>
+        <div class="mk-note">finally { _acting = false; } runs after _showNewSession = false; the modal closes and the new session is selected exactly as today - the footer is gone. (Proof of AC2: end state unchanged.)</div>
+        <div class="mk-foot-host" style="opacity:.45">
+          <div class="modal-foot" style="justify-content:center;color:var(--muted);font-size:12px;font-style:italic;display:flex">
+            modal closed - session created and selected
+          </div>
+        </div>
+      </div>
+
+      <div class="mk-case">
+        <div class="mk-case-label">AC3 - On failure, label returns to "Create" and the error surfaces</div>
+        <div class="mk-note">catch sets _nsError = ex.Message and finally sets _acting = false, so the label returns to "Create" (re-enabled once a repo is selected) and the existing .modal-error line shows. (Proof of AC3.)</div>
+        <div class="mk-foot-host">
+          <div class="modal-error" style="padding:8px 14px 4px">Director 'win-tail-01' is not reachable</div>
+          <div class="modal-foot">
+            <button class="btn">Cancel</button>
+            <button class="btn send">Create</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+</div>
+</body>
+</html>

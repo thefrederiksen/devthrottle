@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<title>QA Proof — Issue #229 (PR #307)</title>
+<style>
+  body{font-family:Segoe UI,system-ui,sans-serif;background:#1e1e1e;color:#ccc;max-width:980px;margin:0 auto;padding:28px}
+  h1{color:#fff;border-bottom:2px solid #007ACC;padding-bottom:8px}
+  h2{color:#9cdcfe;margin-top:28px}
+  .verdict{background:#0f7a37;color:#fff;font-weight:700;padding:12px 16px;border-radius:8px;font-size:16px}
+  table{border-collapse:collapse;width:100%;margin:14px 0}
+  th,td{border:1px solid #3c3c3c;padding:9px 12px;text-align:left;vertical-align:top;font-size:14px}
+  th{background:#252526;color:#fff}
+  .pass{color:#22C55E;font-weight:700}
+  code{background:#252526;padding:1px 5px;border-radius:4px;color:#ce9178}
+  img{max-width:560px;border:1px solid #3c3c3c;border-radius:8px;display:block;margin:10px 0}
+  .meta{color:#888;font-size:13px}
+</style></head>
+<body>
+<h1>QA Proof Report — Issue #229</h1>
+<p class="meta">PR #307 · branch <code>issue-229-create-button-busy-label</code> · independently verified by the QA Agent · 2026-06-10</p>
+
+<p class="verdict">VERIFIED — all acceptance criteria met. Build clean (0 warnings / 0 errors). No regressions. Authorized squash-merge to main.</p>
+
+<h2>Change under test</h2>
+<p>Single-line label binding in <code>src/CcDirector.Cockpit/Components/Pages/Cockpit.razor</code> (line 631):</p>
+<p><code>&gt;Create&lt;</code> → <code>&gt;@(_acting ? "Creating session..." : "Create")&lt;</code></p>
+<p>The pre-existing <code>_acting</code> busy flag is set at the top of <code>CreateLocal</code> (line 2280)
+before the <code>await Gateway.CreateSessionAsync</code> round-trip, reset in <code>finally</code> (line 2304),
+and on failure <code>_nsError</code> is set in <code>catch</code> (line 2303). The <code>disabled</code> binding and
+<code>_nsError</code> error surface are unchanged. Matches the in-repo Recap / Fan-out / Handover reference impls.</p>
+
+<h2>Independent verification</h2>
+<p>The QA render below was produced by the QA Agent from the verbatim <code>.modal-foot</code> markup and the
+<strong>real</strong> <code>wwwroot/app.css</code> (byte-identical to the shipping stylesheet), screenshotted with Playwright
+(dark theme). Driving live <code>claude.exe</code> spawns against the user's real Director fleet is unsafe per CLAUDE.md
+rule 0, so the four <code>_acting</code>/<code>_nsError</code> states are rendered directly — the same proof pattern as
+siblings #227/#228.</p>
+<img src="qa-states.png" alt="QA four-state render">
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (observed)</th><th>Result</th></tr>
+<tr><td>1</td><td>Clicking Create flips label to <code>Creating session...</code> within the same render (before the round-trip returns) and button is disabled.</td>
+<td>Label "Creating session...", disabled (opacity .4)</td>
+<td>State 2: label reads "Creating session...", button greyed and disabled. Code: <code>_acting=true</code> set synchronously before first <code>await</code>; Blazor re-renders the handler's sync portion before the network call completes.</td><td class="pass">PASS</td></tr>
+<tr><td>2</td><td>On success the modal closes / advances exactly as today (no regression).</td>
+<td>Modal closes, new session selected</td>
+<td>State 3: <code>_showNewSession=false</code> + <code>RefreshAsync()</code> + <code>OnSelect(created.SessionId)</code> unchanged; flow intact.</td><td class="pass">PASS</td></tr>
+<tr><td>3</td><td>On failure the label returns to <code>Create</code> and <code>_nsError</code> shows.</td>
+<td>Label "Create" restored + red error line</td>
+<td>State 4: <code>finally</code> resets <code>_acting=false</code> → label "Create" + enabled; <code>catch</code> sets <code>_nsError</code> → red <code>.modal-error</code> shown.</td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>Regression / method lens</h2>
+<ul>
+<li>Diff is exactly one source line (verified via <code>git diff main...HEAD -- src/</code>) plus proof files — IN/OUT scope respected; no spawn logic, no <code>Gateway.CreateSessionAsync</code>, no <code>disabled</code> binding, no <code>_nsError</code> change.</li>
+<li>No other <code>btn send</code> labels affected; no adjacent button broken.</li>
+<li><code>dotnet build cc-director.sln</code> → Build succeeded, 0 Warning(s), 0 Error(s).</li>
+<li>No CenCon DT security rule applies (pure presentational label binding); no architecture/security doc update required.</li>
+</ul>
+</body></html>
