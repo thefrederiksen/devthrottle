@@ -241,6 +241,20 @@ The loop stops a runaway after 3 `flow:qa-failed` bounces on the same issue by e
 `flow:needs-human`; if you cannot satisfy a criterion after a fix, say so plainly so the loop can
 escalate rather than churn.
 
+### devops mode (issue #300): when the loop hands you an Azure DevOps work item
+
+The `implementation-loop` skill has a devops mode (`/implementation-loop --source devops
+<workItemId>`). When invoked under it, your TRACKER is the Azure DevOps work item, not a GitHub
+issue: the spec is the work item's description, your reports/defect responses go on the work item
+discussion (`az boards work-item update --id <N> --discussion "..."`), and the working-state the
+loop claimed is the work item State (the Basic/Scrum/Agile mapping table in the implementation-loop
+skill) instead of `flow:*` labels - so the label-swap steps in this skill are carried by the State
++ comments in devops mode, performed by the loop per its mapping. EVERYTHING code-side is
+unchanged and stays in the GitHub code repo the work item description names (default
+`thefrederiksen/cc-director`): branch off main, build, prove, commit proof under
+`docs/cencon/proof/devops-<workItemId>/`, open the PR, clean-tree gate. Host prerequisite: az CLI +
+azure-devops extension, authenticated, default organization configured.
+
 ## UI surfaces and their style guides
 
 | Surface | Where | UI guide to follow |
@@ -266,7 +280,7 @@ match it (standing rule: write code that reads like the surrounding code).
 
 ---
 
-**Skill Version:** 0.5 (DRAFT - second of the four CenCon agents, cc-director)
+**Skill Version:** 0.6 (DRAFT - second of the four CenCon agents, cc-director)
 **Implements:** Developer Agent role in docs/cencon/DEVELOPMENT_METHOD.md
 **Builds on:** review-code (mandatory)
 **Created:** 2026-06-09
@@ -274,3 +288,4 @@ match it (standing rule: write code that reads like the surrounding code).
 **Changes in 0.3:** Banned `git stash` as a way to fake a clean tree (a prior run hid WIP in a stash, which the human had to clean up). The clean-tree gate now also asserts `git stash list` is empty, and the no-orphan rule forbids leaving a stash behind. Also inlined the branch/PR mechanics and issue-comment format previously cited from the deleted implement-issue/bug-fixer skills.
 **Changes in 0.4 (issue #298):** Under the `implementation-loop` the input issue is now `flow:in-progress` (the loop's issue-level claim), not `flow:ready-dev`. The hand-off (Step 5.6), reject (Step 2), and weak-spec escalation now remove BOTH `flow:in-progress` and `flow:ready-dev` so the loop's claim is always released and never left stuck (the loop's Step 4 claim-release gate enforces this).
 **Changes in 0.5 (issue #299):** Replaced the fixed "slot 5 + cc-director-launch" proof instructions with the per-session isolation flow (`scripts/agent-session-isolation.ps1`): each session allocates its own slot (>= 6, reserved atomically via the per-slot scheduled-task registration), builds inside its own worktree, launches via its own `cc-director<N>-launch` task, and discovers the self-allocated Control API port from the Director log - so two implementation sessions can run concurrently on one machine without colliding on slot, build output, or port.
+**Changes in 0.6 (issue #300):** Added the devops mode note: under `/implementation-loop --source devops <workItemId>` the tracker is the Azure DevOps work item (description = spec, reports on the work item discussion via `az boards`, working-state = the work item State per the implementation-loop mapping table / DEVELOPMENT_METHOD.md Section 7b); everything code-side stays GitHub PR-based in the code repo the work item names, with proof under `docs/cencon/proof/devops-<workItemId>/`.

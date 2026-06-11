@@ -239,6 +239,18 @@ Each issue is verified in a fresh context so no result, assumption, or fixture f
 item bleeds into the next. The supervisor (cc-director / a loop) restarts the QA Agent session per
 item, or you `/clear` between items. (Mechanism is OPEN DECISION D2 in DEVELOPMENT_METHOD.md.)
 
+## devops mode (issue #300): when the loop hands you an Azure DevOps work item
+
+Under `/implementation-loop --source devops <workItemId>` the TRACKER is the Azure DevOps work
+item, not a GitHub issue: the acceptance criteria you verify against are the work item's
+description, and your verdict comments (PASS report / FAIL defect) go on the work item discussion
+(`az boards work-item update --id <N> --discussion "..."`). The `flow:*` transitions in this skill
+are carried by the work item State per the pinned Basic/Scrum/Agile mapping table in the
+`implementation-loop` skill (DEVELOPMENT_METHOD.md Section 7b), performed by the loop - a PASS
+still squash-merges the GitHub PR in the code repo exactly as Step 3a says, and the loop then
+writes State -> done with the merged PR URL on the discussion. Everything code-side (the PR, the
+proof under `docs/cencon/proof/devops-<workItemId>/`, the cleanup gates) is unchanged.
+
 ## What you do NOT do
 
 - You do not fix code (that is the Developer Agent's job - you bounce with `flow:qa-failed`).
@@ -264,7 +276,7 @@ item, or you `/clear` between items. (Mechanism is OPEN DECISION D2 in DEVELOPME
 
 ---
 
-**Skill Version:** 0.5 (DRAFT - third of the four CenCon agents, cc-director)
+**Skill Version:** 0.6 (DRAFT - third of the four CenCon agents, cc-director)
 **Implements:** QA Agent role in docs/cencon/DEVELOPMENT_METHOD.md
 **Builds on:** playwright-cli / ui-test (UI verification), review-code (method lens), Control API (proof)
 **Created:** 2026-06-09
@@ -272,3 +284,4 @@ item, or you `/clear` between items. (Mechanism is OPEN DECISION D2 in DEVELOPME
 **Changes in 0.3:** Closed the stash loophole. A prior run "parked by cleanup" via `git stash`, which left `git status --porcelain` empty (gate passed) while hiding WIP in the stash list - a mess the human had to clean up. Added the LEAVE ZERO MESS banner at the top, banned `git stash` as a cleanup/park mechanism everywhere (law 6 + the do-NOT list), and extended all three cleanup gates (PASS/FAIL/PARK) to also assert `git stash list` is empty and (on PASS) that local `main` == `origin/main`.
 **Changes in 0.4 (issue #298):** Noted the new `flow:in-progress` claim label (issue-level duplicate-prevention). QA never normally sees it - the Developer hand-off releases the claim to `flow:ready-qa` before QA picks the item up - so QA's own transitions are unchanged; a stuck `flow:in-progress` on a QA item is a Developer defect to bounce.
 **Changes in 0.5 (issue #299):** Replaced the fixed "slot 5 + cc-director-launch" verification instructions with the per-session isolation flow (`scripts/agent-session-isolation.ps1`): QA allocates its own slot (>= 6), builds the PR branch in its own checkout, launches via its own `cc-director<N>-launch` task with the Control API port discovered from the Director log, and tears down only its own exact-path process - safe to run concurrently with another session on the same machine.
+**Changes in 0.6 (issue #300):** Added the devops mode note: when the loop drives an Azure DevOps work item, the work item description is the spec, verdict comments go on the work item discussion via `az boards`, and the `flow:*` transitions are carried by the work item State per the mapping table in the implementation-loop skill (DEVELOPMENT_METHOD.md Section 7b). Code-side verification (PR, proof dir, cleanup gates) is unchanged.

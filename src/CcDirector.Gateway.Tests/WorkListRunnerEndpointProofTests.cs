@@ -125,9 +125,11 @@ public sealed class WorkListRunnerEndpointProofTests : IAsyncLifetime
         Assert.True(run.ConsumerReleased);
         Assert.Null(afterList.Consumer);
 
-        // ---- Criterion 3: source gating - devops/jira items never started, left in list.
+        // ---- Criterion 3 (updated by issue #300): per-source adapter dispatch - devops items ARE
+        // started (in devops mode) alongside github; a jira item is never started, left in list.
         await CreateList("mixed");
         _machine1.Reset();
+        _machine1.SetSignal("1203", "done", merged: "yes");
         _machine1.SetSignal("262", "done", merged: "yes");
         await AddItem("mixed", "devops", "1203");
         await AddItem("mixed", "github", "262");
@@ -138,13 +140,17 @@ public sealed class WorkListRunnerEndpointProofTests : IAsyncLifetime
         var mixed = await mixedResp.Content.ReadFromJsonAsync<RunDto>(JsonOpts);
         Assert.NotNull(mixed);
         var mixedList = await GetList("mixed");
-        report.Add(3, "A devops/jira item is NEVER started (no /implementation-loop seeded); skipped and left in the list.",
-            $"start order={string.Join(",", _machine1.StartOrder)} (only 262); outcomes={string.Join(",", mixed!.Items.Select(i => i.Outcome))}; list still={string.Join(",", mixedList.Items.Select(i => i.Id))}",
-            _machine1.StartOrder.SequenceEqual(new[] { "262" })
-                && mixed.Items[0].Outcome == "SkippedNonGithub"
+        report.Add(3, "Adapter dispatch (#300): devops item started with the devops-mode seed, github with the plain seed, jira NEVER started (skipped, left in the list).",
+            $"start order={string.Join(",", _machine1.StartOrder)}; seeds={string.Join(" | ", _machine1.Seeds)}; outcomes={string.Join(",", mixed!.Items.Select(i => i.Outcome))}; list still={string.Join(",", mixedList.Items.Select(i => i.Id))}",
+            _machine1.StartOrder.SequenceEqual(new[] { "1203", "262" })
+                && _machine1.Seeds.SequenceEqual(new[] { "/implementation-loop --source devops 1203", "/implementation-loop 262" })
+                && mixed.Items[0].Outcome == "Ran" && mixed.Items[0].Signal == "Done"
+                && mixed.Items[1].Outcome == "Ran"
                 && mixed.Items[2].Outcome == "SkippedNonGithub"
                 && mixedList.Items.Select(i => i.Id).SequenceEqual(new[] { "1203", "262", "CCD-44" }));
-        Assert.Equal(new[] { "262" }, _machine1.StartOrder.ToArray());
+        Assert.Equal(new[] { "1203", "262" }, _machine1.StartOrder.ToArray());
+        Assert.Equal("Ran", mixed.Items[0].Outcome);
+        Assert.Equal("SkippedNonGithub", mixed.Items[2].Outcome);
 
         // ---- Criterion 5: a second claim while held returns HTTP 409.
         await CreateList("locked");
@@ -329,8 +335,11 @@ public sealed class WorkListRunnerEndpointProofTests : IAsyncLifetime
             {
                 var req = await JsonSerializer.DeserializeAsync<NewSessionRequest>(ctx.Request.Body, JsonOpts);
                 var prePrompt = req?.PrePrompt ?? "";
-                // Derive the issue from the seed "/implementation-loop <id>".
-                var id = prePrompt.Replace("/implementation-loop", "").Trim();
+                // Derive the item id from the seed - the LAST token, so both the github form
+                // "/implementation-loop <id>" and the devops form
+                // "/implementation-loop --source devops <id>" (issue #300) parse correctly.
+                var tokens = prePrompt.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                var id = tokens.Length > 0 ? tokens[^1] : "";
                 var sid = $"sid-{id}-{Guid.NewGuid():N}";
                 lock (_gate)
                 {

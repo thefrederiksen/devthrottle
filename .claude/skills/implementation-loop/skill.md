@@ -29,6 +29,10 @@ labels.
 - `/implementation-loop` (no arg) - take the oldest `flow:ready-dev` issue and drive it.
 - `/implementation-loop --all` - keep draining the `flow:ready-dev` queue, one issue at a time,
   until none remain.
+- `/implementation-loop --source devops <workItemId>` - drive ONE Azure DevOps work item (issue
+  #300). The tracker is the work item (claim and write-back via `az boards`, see "devops mode"
+  below); the engineering mechanics (branch, PR, squash-merge, proof) stay GitHub PR-based in the
+  code repo the work item's description names (default `thefrederiksen/cc-director`).
 
 ## The terminal signal you MUST emit (machine-readable, every path)
 
@@ -67,6 +71,86 @@ reason: <one line - why this terminal state>
 - This is non-negotiable on EVERY terminal path below: PASS, PARK, ESCALATE, and abnormal stop. If
   the loop stops for ANY reason (including a Step 0a pre-flight stop before any issue work), emit the
   matching sentinel - a `failed` signal when no clean outcome was reached.
+
+## devops mode (issue #300): CLAIM and WRITE-BACK against an Azure DevOps work item
+
+Invoked as `/implementation-loop --source devops <workItemId>` (the Gateway queue runner's
+`DevopsSourceAdapter` seeds exactly this for a `source = devops` work-list ref). devops mode changes
+ONLY the tracker operations - who carries the claim and where the terminal status is written back.
+Everything else is identical to github mode: the DEV/QA sub-agents, the proof bar, the loop guards,
+the leave-clean invariant, and the engineering mechanics (branch, PR, squash-merge, proof committed
+under `docs/cencon/proof/`) all stay GitHub PR-based in the CODE repo. The work item's description
+names the target code repo; when it names none, the default is `thefrederiksen/cc-director` (v1).
+The proof directory for a devops item is `docs/cencon/proof/devops-<workItemId>/`.
+
+**Host prerequisites (documented, not auto-installed):** the Azure CLI with the `azure-devops`
+extension, already authenticated (`az login`), with the default organization configured
+(`az devops configure --defaults organization=https://dev.azure.com/<org>`). No PAT/secret handling
+in v1 - the az CLI session is the transport. Work item ids are organization-wide, so
+`az boards work-item show --id <id>` locates the item without a project argument; read the item's
+`System.TeamProject` field when a project-scoped call (comments REST) needs it.
+
+**State mapping (the `flow:*` equivalent, pinned static - decision D-3):** v1 pins the common
+process templates in a static table. Probe the work item TYPE's allowed state names (one lookup,
+still no dynamic state-graph discovery):
+
+```bash
+az devops invoke --area wit --resource workitemtypestates \
+  --route-parameters project="<System.TeamProject>" type="<System.WorkItemType>" \
+  --api-version 7.1 --query "value[].name"
+```
+
+and pick the template row whose in-progress/done names appear in that list. (The item's CURRENT
+state name alone is NOT enough: `To Do` is the initial state of both Basic and Scrum, but their
+in-progress states differ - `Doing` vs `In Progress`. Hit live on the issue #300 proof project,
+which is Scrum.) An unrecognized state set is an escalation (`needs-human` - never guess a
+transition).
+
+| Template (recognized by its state names) | initial / proposed | in-progress | done |
+|------------------------------------------|--------------------|-------------|------|
+| Basic (`To Do` / `Doing` / `Done`)       | `To Do`            | `Doing`     | `Done` |
+| Scrum (`To Do` / `In Progress` / `Done`) | `To Do`            | `In Progress` | `Done` |
+| Agile (`New` / `Active` / `Resolved` / `Closed`) | `New`      | `Active`    | `Closed` |
+
+**CLAIM (replaces the Step 0.2 label claim; same verify-after-claim shape as #298):**
+
+```bash
+# (a) best-effort claim: State -> the template's in-progress state, plus a CLAIM discussion comment
+az boards work-item update --id <N> --state "<in-progress state>" \
+  --discussion "CLAIM by <director-id>/<session-id> at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+# (b) verify-after-claim: list the work item's comments; the OLDEST "CLAIM by " comment wins
+az devops invoke --area wit --resource comments \
+  --route-parameters project="<System.TeamProject>" workItemId=<N> \
+  --api-version 7.1-preview --query "comments[?starts_with(text, 'CLAIM by ')]"
+```
+
+If the oldest CLAIM comment is another run's, you LOST the race: back off and leave the winner's
+state intact (do not transition it back - the winner owns it).
+
+**WRITE-BACK (the terminal mapping, decision D-3):**
+
+| Loop terminal signal | Work item State | Plus |
+|----------------------|-----------------|------|
+| `done` | the template's done state | discussion comment with the merged PR URL |
+| `needs-human` | STAYS in-progress | tag `needs-human` (append to `System.Tags`) + discussion comment saying what a human must do |
+| `failed` | back to the initial/proposed state | discussion comment with the failure reason |
+
+```bash
+# done:        az boards work-item update --id <N> --state "Done" --discussion "done: merged <PR URL>"
+# needs-human: az boards work-item update --id <N> --fields "System.Tags=<existing>; needs-human" \
+#                --discussion "needs-human: <reason>"
+# failed:      az boards work-item update --id <N> --state "To Do" --discussion "failed: <reason>"
+```
+
+**Sentinel:** unchanged (Section 7a is source-agnostic). `issue: <workItemId>` is the correlation
+key - the Gateway runner watches for the work item id in the `IMPL-LOOP-TERMINAL` block exactly as
+it watches for a GitHub issue number.
+
+**What the DEV/QA sub-agents see:** the spawn prompt tells them the tracker is an Azure DevOps work
+item (id + org/project + the item's description as the spec) instead of a GitHub issue. The
+`flow:*` label steps in their skills are carried by the work item State + comments per the tables
+above; defect comments and reports go on the work item discussion. Everything code-side (branch
+naming, PR, proof commit, clean-tree gate) is unchanged.
 
 ## The authority this loop carries (and its scope)
 
@@ -451,7 +535,7 @@ your own ledger has grown large over a very long queue).
 
 ---
 
-**Skill Version:** 0.7 (DRAFT - thin supervisor + fresh sub-agent per phase; realizes issue #259)
+**Skill Version:** 0.8 (DRAFT - thin supervisor + fresh sub-agent per phase; realizes issue #259)
 **Implements:** the Implementation session loop in docs/cencon/DEVELOPMENT_METHOD.md (D2, D5, terminal-signal contract Section 7a)
 **Builds on:** the `Agent` tool (per-phase sub-agents), developer-agent (DEV role), qa-agent (QA role + merge), DEVELOPMENT_METHOD.md
 **Created:** 2026-06-10
@@ -461,3 +545,4 @@ your own ledger has grown large over a very long queue).
 **Changes in 0.5 (issue #272):** Added the machine-readable terminal signal. The loop now emits exactly one `IMPL-LOOP-TERMINAL` sentinel block (`signal: done | needs-human | failed`) as its final output on EVERY terminal path - in addition to the human one-line report - so the autonomous queue runner (#270) can detect a finished run without parsing prose. Mapping: MERGED -> `done`; PARKED/ESCALATED/conflict/dirty-build -> `needs-human`; pre-flight stop / abnormal exit -> `failed`. Wired into Step 0a, Step 1, Step 2, Step 3, and Step 4; contract recorded in DEVELOPMENT_METHOD.md Section 7a.
 **Changes in 0.6 (issue #298):** Added the issue-level CLAIM (duplicate-prevention). Step 0 now select-THEN-claims: a stale-claim sweep (Step 0.0) reclaims crashed `flow:in-progress` claims older than 60 min, selection reads `flow:ready-dev` only, and the chosen issue is claimed `flow:ready-dev` -> `flow:in-progress` with a verify-after-claim re-read (oldest `CLAIM` comment wins; the loser backs off). Step 4 adds a claim-release gate (no `flow:in-progress` may linger at a terminal stop). New guards: Issue-claim, Stale-claim, Claim-release. Closes the #199 duplicate-PR race. Mechanism + honest residual-window note in DEVELOPMENT_METHOD.md Section 4a / D6.
 **Changes in 0.7 (issue #299):** Rewrote the concurrency rule: same-machine safety now comes from per-session isolation (own worktree, own slot >= 6 reserved via the per-slot scheduled-task registration in `scripts/agent-session-isolation.ps1`, self-allocated Control API port) instead of the old "single slot-5 so nothing can collide" claim. Two loops on one machine are safe on resources (#299) and on issues (#298).
+**Changes in 0.8 (issue #300):** Added devops mode (`/implementation-loop --source devops <workItemId>`): CLAIM and WRITE-BACK move to the Azure DevOps work item via `az boards` (State transitions per the pinned Basic/Scrum/Agile mapping table + discussion comments, template chosen by the work item type's state list, verify-after-claim by oldest CLAIM comment as in #298); engineering mechanics stay GitHub PR-based in the code repo the work item description names. The sentinel contract is unchanged - `issue: <workItemId>` is the correlation key. Matches the Gateway's per-source adapter dispatch (`ISourceAdapter`, DEVELOPMENT_METHOD.md Section 7b).
