@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Proof Report - Issue #326 - Director Control API Contract Audit</title>
+<style>
+  body { font-family: Georgia, 'Times New Roman', serif; color: #1a1a2e; margin: 0; background: #f4f2ee; }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 32px 40px 64px; background: #fff; box-shadow: 0 0 24px rgba(0,0,0,.08); }
+  h1 { font-size: 26px; border-bottom: 3px solid #1a1a2e; padding-bottom: 10px; }
+  h2 { font-size: 19px; margin-top: 34px; border-bottom: 1px solid #c9c4ba; padding-bottom: 6px; }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 14px; }
+  th, td { border: 1px solid #c9c4ba; padding: 7px 10px; text-align: left; vertical-align: top; }
+  th { background: #1a1a2e; color: #fff; font-weight: 600; }
+  tr:nth-child(even) td { background: #faf8f5; }
+  code, pre { font-family: Consolas, monospace; font-size: 13px; }
+  pre { background: #14141f; color: #d8d8e8; padding: 14px 16px; overflow-x: auto; border-radius: 4px; }
+  .pass { color: #1d6b32; font-weight: 700; }
+  .meta { color: #5a5a6e; font-size: 14px; }
+  .statement { background: #eef3ee; border-left: 5px solid #1d6b32; padding: 12px 16px; margin-top: 28px; font-size: 15px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Proof Report - Issue #326</h1>
+<p class="meta">
+  <strong>Issue:</strong> [CenCon] Contract audit: classify every Director Control API endpoint as Fact, Event, or Verb in CONTRACT_AUDIT.md<br>
+  <strong>PR:</strong> #339 (branch <code>issue-326-contract-audit</code>)<br>
+  <strong>Date:</strong> 2026-06-11 &nbsp;|&nbsp; <strong>Agent:</strong> Developer Agent (CenCon)<br>
+  <strong>Type:</strong> Documentation-only (no code change, no test Director - per the issue's Affected Containers and Proof Target sections)
+</p>
+
+<h2>1. What was implemented</h2>
+<ul>
+  <li><strong>New:</strong> <code>docs/architecture/gateway/CONTRACT_AUDIT.md</code> - every mapped route in <code>src/CcDirector.ControlApi/</code> classified as Fact / Event / Verb / VIOLATION against the taxonomy in DIRECTOR_DUMB_WRAPPER_TARGET.md section 5, one-line rationale per row, migration phase on every Violation.</li>
+  <li><strong>Edited:</strong> <code>docs/architecture/DIRECTOR_DUMB_WRAPPER_TARGET.md</code> - CONTRACT_AUDIT.md added to the related-documents list.</li>
+  <li><strong>Edited:</strong> <code>docs/architecture/README.md</code> - CONTRACT_AUDIT.md row added to the navigation table (status CURRENT).</li>
+</ul>
+
+<h2>2. Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>Criterion</th><th>Expected</th><th>Actual</th><th>Verdict</th></tr>
+<tr>
+  <td>CONTRACT_AUDIT.md exists; table row count equals the scripted route inventory count; zero rows unclassified</td>
+  <td>Doc committed; rows == inventory; 0 unknown</td>
+  <td>Doc committed on PR #339. Inventory commands (bash and PowerShell, section 3 below) both return <strong>111</strong>. Section-4 table rows are numbered and contiguous <strong>1..111</strong> (verified by script, section 4 below). Classification tally: 50 Fact + 0 Event + 51 Verb + 10 VIOLATION = 111; no row is unknown/unclassified.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>Every row has method, path, classification, one-line rationale; every Violation names a migration phase</td>
+  <td>4 columns filled on all 111 rows; phases on violations</td>
+  <td>All 111 rows carry Method / Path / Classification / Rationale. The 10 VIOLATION rows each name their phase (8x Phase 3 brain consolidation, 2x Phase 5 voice); section 7 of the doc repeats them as a migration worklist.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>Inventory command/script included in the doc; QA re-running it gets the same count</td>
+  <td>Command in doc; reproducible output</td>
+  <td>Section 1 of the doc carries both a bash and a PowerShell one-liner. Both were executed against the PR branch tree and printed <strong>111</strong> (verbatim outputs in section 3 below). The two WebSocket endpoints (<code>GET /dictate</code>, <code>GET /sessions/{sid}/stream</code>) are MapGet registrations, so the same pattern captures them - stated in the doc.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>Doc linked from DIRECTOR_DUMB_WRAPPER_TARGET.md and docs/architecture/README.md</td>
+  <td>Two inbound links</td>
+  <td>Related-documents bullet added to DIRECTOR_DUMB_WRAPPER_TARGET.md; navigation-table row added to docs/architecture/README.md (both in the same commit).</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>3. Deterministic inventory proof (command output, verbatim)</h2>
+<pre>
+$ grep -rnE '\.Map(Get|Post|Put|Patch|Delete)\("' src/CcDirector.ControlApi \
+    --include='*.cs' --exclude-dir=obj --exclude-dir=bin | wc -l
+111
+
+PS&gt; (Get-ChildItem src\CcDirector.ControlApi -Recurse -Filter *.cs |
+      Where-Object { $_.FullName -notmatch '\\(obj|bin)\\' } |
+      Select-String -Pattern '\.Map(Get|Post|Put|Patch|Delete)\("').Count
+111
+
+Per-file breakdown (matches the doc's per-file section headers exactly):
+ 84 src/CcDirector.ControlApi/ControlEndpoints.cs
+  6 src/CcDirector.ControlApi/DictationEndpoint.cs
+  6 src/CcDirector.ControlApi/SettingsEndpoint.cs
+  4 src/CcDirector.ControlApi/TerminalStreamEndpoint.cs
+  4 src/CcDirector.ControlApi/ToolsEndpoint.cs
+  3 src/CcDirector.ControlApi/WorkspacesEndpoint.cs
+  2 src/CcDirector.ControlApi/SchedulerEndpoint.cs
+  1 src/CcDirector.ControlApi/ClaudeTranscriptsEndpoint.cs
+  1 src/CcDirector.ControlApi/SessionUsageEndpoint.cs
+---
+111 total
+</pre>
+
+<h2>4. Table-integrity proof (rows == count, zero unclassified)</h2>
+<pre>
+$ sed -n '/^## 4\. The classification table/,/^## 5\./p' docs/architecture/gateway/CONTRACT_AUDIT.md \
+    | grep -oE '^\| [0-9]+ \|' | awk '{print $2}' | wc -l
+111
+
+$ ... | awk 'NR!=$1{print "GAP",NR,$1; bad=1} END{if(!bad)print "CONTIGUOUS 1..111 OK"}'
+CONTIGUOUS 1..111 OK
+
+$ ... | awk -F'|' '{gsub(/ /,"",$5); print $5}' | sort | uniq -c
+     50 Fact
+     10 VIOLATION
+     51 Verb
+</pre>
+<p>50 + 51 + 10 = 111 = the inventory count. The Event count of 0 is by design, documented in the audit's section 5: Events are outbound Director-to-Gateway pushes (register / heartbeat / doorbell in <code>GatewayClient</code>), not inbound routes.</p>
+
+<h2>5. Cross-machine proof</h2>
+<p>N/A per the issue's Proof Target: documentation-only item; the deterministic proof is the route-inventory count matching the table row count, shown above.</p>
+
+<h2>6. CenCon impact</h2>
+<p>No drift. This change does not alter architecture or security posture - it documents the current Control API surface and IS the Plan 1B deliverable named in TARGET_IMPLEMENTATION_PLAN.md section 3 ("the audit doc exists with zero unclassified endpoints"). No blocking security rule touched (no code change).</p>
+
+<div class="statement">
+<strong>Developer Agent statement:</strong> I believe this is finished. All four acceptance criteria are met with deterministic, re-runnable proof; the doc is committed to the PR branch and linked from both required locations.
+</div>
+
+</div>
+</body>
+</html>
