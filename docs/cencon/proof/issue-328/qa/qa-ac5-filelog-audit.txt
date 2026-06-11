@@ -1,0 +1,18 @@
+﻿2026-06-11 10:56:27.597 [ToolsEndpoint] POST /tools/run: tool=cc-vault, exe=C:\Users\soren\AppData\Local\cc-director\pyenv\Scripts\cc-vault.exe, args=[--help], cwd=(exe dir), timeoutS=120, caller=127.0.0.1
+2026-06-11 10:56:27.600 [ToolRunner] RunStream: exe=C:\Users\soren\AppData\Local\cc-director\pyenv\Scripts\cc-vault.exe, args=[--help], cwd=(exe dir), timeout=120s
+2026-06-11 10:56:27.977 [ToolRunner] RunStream done: exe=C:\Users\soren\AppData\Local\cc-director\pyenv\Scripts\cc-vault.exe, exitCode=0, durationMs=377
+2026-06-11 10:56:52.466 [ToolsEndpoint] POST /tools/run: tool=cc-vault, exe=C:\Users\soren\AppData\Local\cc-director\pyenv\Scripts\cc-vault.exe, args=[--help], cwd=(exe dir), timeoutS=120, caller=127.0.0.1
+2026-06-11 10:56:52.466 [ToolRunner] RunStream: exe=C:\Users\soren\AppData\Local\cc-director\pyenv\Scripts\cc-vault.exe, args=[--help], cwd=(exe dir), timeout=120s
+2026-06-11 10:56:52.804 [ToolRunner] RunStream done: exe=C:\Users\soren\AppData\Local\cc-director\pyenv\Scripts\cc-vault.exe, exitCode=0, durationMs=337
+2026-06-11 10:57:08.795 [ToolsEndpoint] POST /tools/run REJECTED (not in catalog): cc-not-a-tool
+2026-06-11 10:57:09.000 [ToolsEndpoint] POST /tools/run: invalid JSON body ('W' is an invalid escapable character within a JSON string. The string should be correctly escaped. Path: $.name | LineNumber: 0 | BytePositionInLine: 12.)
+2026-06-11 10:57:09.206 [ToolsEndpoint] POST /tools/run REJECTED (path-shaped name): ../../bin/cc-vault
+2026-06-11 10:57:09.415 [ToolsEndpoint] POST /tools/run REJECTED (path-shaped name): ..cc-vault..
+2026-06-11 10:57:31.611 [ToolsEndpoint] POST /tools/run REJECTED (path-shaped name): C:\Windows\System32\calc.exe
+2026-06-11 10:57:31.613 [ToolsEndpoint] POST /tools/run REJECTED (path-shaped name): bin\cc-vault
+2026-06-11 10:58:07.883 [ToolsEndpoint] POST /tools/run: tool=cc-vault, exe=C:\Users\soren\AppData\Local\cc-director\pyenv\Scripts\cc-vault.exe, args=[search neural network patent], cwd=(exe dir), timeoutS=110, caller=127.0.0.1
+2026-06-11 10:58:07.883 [ToolRunner] RunStream: exe=C:\Users\soren\AppData\Local\cc-director\pyenv\Scripts\cc-vault.exe, args=[search neural network patent], cwd=(exe dir), timeout=110s
+2026-06-11 10:58:57.267 [ToolRunner] RunStream done: exe=C:\Users\soren\AppData\Local\cc-director\pyenv\Scripts\cc-vault.exe, exitCode=0, durationMs=49383
+2026-06-11 10:59:18.565 [ToolsEndpoint] POST /tools/run: tool=cc-vault, exe=C:\Users\soren\AppData\Local\cc-director\pyenv\Scripts\cc-vault.exe, args=[search neural network patent], cwd=(exe dir), timeoutS=2, caller=127.0.0.1
+2026-06-11 10:59:18.566 [ToolRunner] RunStream: exe=C:\Users\soren\AppData\Local\cc-director\pyenv\Scripts\cc-vault.exe, args=[search neural network patent], cwd=(exe dir), timeout=2s
+2026-06-11 10:59:20.637 [ToolRunner] RunStream TIMEOUT: exe=C:\Users\soren\AppData\Local\cc-director\pyenv\Scripts\cc-vault.exe, after=2s, pid=17052

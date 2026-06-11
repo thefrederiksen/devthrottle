@@ -1,0 +1,16 @@
+### AC3: streaming - cc-vault search (~56s run): chunks arrive ~2s in, exit chunk ~56s. Timestamped client capture.
+10:35:16.873 {"stream":"start","pid":64240}
+10:35:18.763 {"stream":"stderr","data":"HTTP Request: POST https://api.openai.com/v1/embeddings \u0022HTTP/1.1 200 OK\u0022"}
+10:35:53.140 {"stream":"stdout","data":""}
+10:35:53.163 {"stream":"stdout","data":"CHUNKS (10 results):"}
+10:35:53.187 {"stream":"stdout","data":"   Document: HNET Patent - US5515477 | Path: D:\\Personal\\OneDrive\\Center "}
+10:35:53.209 {"stream":"stdout","data":"Consulting\\Machine Learning\\AN..."}
+10:35:53.230 {"stream":"stdout","data":"   Document: HNeT patent - US5515477 | Path: "}
+10:35:53.251 {"stream":"stdout","data":"D:\\Personal\\OneDrive\\Documents\\HNeT\\HNeT patent - US551547..."}
+10:35:53.276 {"stream":"stdout","data":"   Document: Genetic_Process_Mining | Path: D:\\Mindzie\\mindzie, inc\\Development"}
+10:35:53.298 {"stream":"stdout","data":"- Documents\\Z - Archive..."}
+10:35:53.320 {"stream":"stdout","data":"   Document: gauci_gecco07 - (2007) Generating Large-Scale Neural Networks "}
+10:35:53.339 {"stream":"stdout","data":"Through Discovering Geometri..."}
+10:35:53.359 {"stream":"stdout","data":"   Document: lehman_gecco11 - (2011) Evolving a Diversity of Creatures through "}
+10:35:53.380 {"stream":"stdout","data":"Novelty Search and local..."}
+10:35:53.402 {"stream":"exit","exitCode":0,"timedOut":false,"durationMs":36457}

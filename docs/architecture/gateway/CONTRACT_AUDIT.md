@@ -25,7 +25,7 @@ grep -rnE '\.Map(Get|Post|Put|Patch|Delete)\("' src/CcDirector.ControlApi \
   Select-String -Pattern '\.Map(Get|Post|Put|Patch|Delete)\("').Count
 ```
 
-**Both commands return `112`.** The classification table in section 4 has exactly 112 rows (the `#` column runs 1..112).
+**Both commands return `113`.** The classification table in section 4 has exactly 113 rows (the `#` column runs 1..113).
 
 ## 2. Classification rules used
 
@@ -41,10 +41,10 @@ grep -rnE '\.Map(Get|Post|Put|Patch|Delete)\("' src/CcDirector.ControlApi \
 |---|---|
 | Fact | 50 |
 | Event | 0 (event surface is outbound push, section 5) |
-| Verb | 52 |
+| Verb | 53 |
 | VIOLATION | 10 |
 | Unclassified | **0** |
-| **Total (= inventory count)** | **112** |
+| **Total (= inventory count)** | **113** |
 
 ## 4. The classification table
 
@@ -190,7 +190,7 @@ Grouped by source file, in source order. `WS` marks WebSocket upgrade endpoints.
 | 104 | GET | /xterm-addon-canvas.js | Fact | Embedded terminal asset. |
 | 105 | GET (WS) | /sessions/{sid}/stream | Fact | Live terminal buffer streamed to the client (fact-as-stream); inbound frames are the send-input/resize verbs multiplexed on the same socket - all mechanical raw I/O, no interpretation. |
 
-### 4.8 ToolsEndpoint.cs (4 routes)
+### 4.8 ToolsEndpoint.cs (5 routes)
 
 | # | Method | Path | Classification | Rationale |
 |---|---|---|---|---|
@@ -198,14 +198,15 @@ Grouped by source file, in source order. `WS` marks WebSocket upgrade endpoints.
 | 107 | GET | /tools/{name} | Fact | One tool descriptor + linked skills. |
 | 108 | POST | /tools/{name}/test | Verb | Runs the tool's smoke tests locally - mechanical execution. |
 | 109 | POST | /tools/test | Verb | Runs all tool smoke tests (bounded concurrency) - mechanical execution. |
+| 110 | POST | /tools/run | Verb | Invokes ONE catalog tool with caller-supplied args, streamed NDJSON output (#328) - mechanical execution behind the catalog allowlist; the caller decides what runs. |
 
 ### 4.9 WorkspacesEndpoint.cs (3 routes)
 
 | # | Method | Path | Classification | Rationale |
 |---|---|---|---|---|
-| 110 | GET | /workspaces | Fact | Stored workspace definitions. |
-| 111 | GET | /workspaces/{slug} | Fact | One workspace definition. |
-| 112 | GET | /history | Fact | Session history store contents. |
+| 111 | GET | /workspaces | Fact | Stored workspace definitions. |
+| 112 | GET | /workspaces/{slug} | Fact | One workspace definition. |
+| 113 | GET | /history | Fact | Session history store contents. |
 
 ## 5. The Events surface (outbound - why no inbound route is an Event)
 
@@ -256,3 +257,4 @@ The Phase 3 exit criterion makes this list empty: "zero claude.exe spawns below 
 |---|---|---|
 | 2026-06-11 | Claude (Developer Agent, issue #326) | Initial audit: 111 routes inventoried and classified (50 Facts, 0 Events, 51 Verbs, 10 Violations, 0 unclassified); deterministic inventory commands; outbound event surface and route-less below-the-line producers documented. |
 | 2026-06-11 | Claude (Developer Agent, issue #327) | Added row 85 POST /sessions/{sid}/execute-action (Verb - the Phase-1B mechanical WingmanAction executor entry); inventory 111 -> 112, Verbs 51 -> 52; rows after 84 renumbered +1 (cross-references updated: section 7 dictate row 91 -> 92). |
+| 2026-06-11 | Claude (Developer Agent, issue #328) | Added row 110 POST /tools/run (Verb - the Phase-1B catalog-allowlisted tool invocation with streamed NDJSON result); inventory 112 -> 113, Verbs 52 -> 53; WorkspacesEndpoint rows 110-112 renumbered to 111-113 (no section-7 cross-references affected). |

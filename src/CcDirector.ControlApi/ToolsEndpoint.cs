@@ -1,7 +1,11 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using CcDirector.Core.Tools;
 using CcDirector.Core.Utilities;
+using CcDirector.Gateway.Contracts;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Routing;
 
 namespace CcDirector.ControlApi;
@@ -16,6 +20,7 @@ namespace CcDirector.ControlApi;
 ///   GET  /tools/{name}           -> one tool's detail plus its skill links.
 ///   POST /tools/{name}/test      -> run that tool's checks, return results.
 ///   POST /tools/test             -> run every built tool's checks (bounded concurrency).
+///   POST /tools/run              -> invoke ONE catalog tool with args, streamed NDJSON result (#328).
 ///
 /// Loopback-only and subject to the host's auth middleware, exactly like the other routes.
 /// </summary>
@@ -99,7 +104,87 @@ internal static class ToolsEndpoint
                 tools = all,
             });
         });
+
+        // POST /tools/run (issue #328): invoke ONE catalog tool with args where its resources live.
+        // Catalog-allowlisted (the name must resolve through the embedded manifest - no arbitrary
+        // paths, no shell), bounded (timeout kills the process tree), fully audited, and STREAMED:
+        // the response is application/x-ndjson, one ToolRunChunk per line, flushed as produced so
+        // the caller sees output before the process exits.
+        var toolRunner = new ToolRunner();
+        app.MapPost("/tools/run", async (HttpContext ctx) =>
+        {
+            ToolRunRequest? req;
+            try
+            {
+                req = await ctx.Request.ReadFromJsonAsync<ToolRunRequest>(ctx.RequestAborted);
+            }
+            catch (JsonException ex)
+            {
+                FileLog.Write($"[ToolsEndpoint] POST /tools/run: invalid JSON body ({ex.Message})");
+                return Results.BadRequest(new { error = "invalid JSON request body" });
+            }
+
+            if (req is null)
+                return Results.BadRequest(new { error = "request body is required: { name, args?, cwd?, timeoutS? }" });
+            if (string.IsNullOrWhiteSpace(req.Name))
+                return Results.BadRequest(new { error = "name is required (a catalog tool name, e.g. cc-vault)" });
+
+            // Never executed: anything that is not a bare catalog name is rejected before the
+            // catalog is even consulted (no path separators, no traversal, no drive prefixes).
+            if (req.Name.IndexOfAny(new[] { '/', '\\', ':' }) >= 0 || req.Name.Contains(".."))
+            {
+                FileLog.Write($"[ToolsEndpoint] POST /tools/run REJECTED (path-shaped name): {Truncate(req.Name)}");
+                return Results.BadRequest(new { error = "name must be a bare catalog tool name (no path separators)" });
+            }
+
+            var timeoutS = req.TimeoutS ?? ToolRunRequest.DefaultTimeoutS;
+            if (timeoutS is < ToolRunRequest.MinTimeoutS or > ToolRunRequest.MaxTimeoutS)
+                return Results.BadRequest(new { error = $"timeoutS must be {ToolRunRequest.MinTimeoutS}..{ToolRunRequest.MaxTimeoutS} (got {timeoutS})" });
+
+            if (req.Cwd is not null && !Directory.Exists(req.Cwd))
+                return Results.BadRequest(new { error = $"cwd not found: {req.Cwd}" });
+
+            ToolDescriptor tool;
+            try { tool = catalog.GetTool(req.Name); }
+            catch (InvalidOperationException)
+            {
+                FileLog.Write($"[ToolsEndpoint] POST /tools/run REJECTED (not in catalog): {Truncate(req.Name)}");
+                return Results.NotFound(new { error = $"unknown tool: {req.Name} (not in the catalog)" });
+            }
+
+            if (!tool.IsBuilt)
+                return Results.Json(new { error = $"tool is not built on this Director: {tool.Name} ({tool.BinaryPath})" },
+                    statusCode: StatusCodes.Status409Conflict);
+
+            // The audit line: resolved exe path + args + caller, on every invocation (issue #328).
+            FileLog.Write($"[ToolsEndpoint] POST /tools/run: tool={tool.Name}, exe={tool.BinaryPath}, " +
+                          $"args=[{string.Join(" ", req.Args)}], cwd={req.Cwd ?? "(exe dir)"}, timeoutS={timeoutS}, " +
+                          $"caller={ctx.Connection.RemoteIpAddress}");
+
+            ctx.Response.StatusCode = StatusCodes.Status200OK;
+            ctx.Response.ContentType = "application/x-ndjson; charset=utf-8";
+            ctx.Features.Get<IHttpResponseBodyFeature>()?.DisableBuffering();
+
+            await foreach (var chunk in toolRunner.RunStreamAsync(
+                tool.BinaryPath, req.Args, req.Cwd, TimeSpan.FromSeconds(timeoutS), ctx.RequestAborted))
+            {
+                await ctx.Response.WriteAsync(JsonSerializer.Serialize(chunk, NdjsonOptions) + "\n", ctx.RequestAborted);
+                await ctx.Response.Body.FlushAsync(ctx.RequestAborted);
+            }
+
+            return Results.Empty;
+        });
     }
+
+    /// <summary>Wire shape for streamed run chunks: camelCase like every other route, nulls omitted.</summary>
+    private static readonly JsonSerializerOptions NdjsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    };
+
+    /// <summary>Keep rejected caller-supplied names log-safe (never log unbounded input).</summary>
+    private static string Truncate(string value)
+        => value.Length <= 80 ? value : value[..80] + "...";
 
     private static object ToSummary(ToolDescriptor t) => new
     {

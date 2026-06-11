@@ -4,9 +4,11 @@ using CcDirector.Core.Utilities;
 namespace CcDirector.Core.Tools;
 
 /// <summary>
-/// Builds the tool catalog: reads the embedded manifest, resolves each tool's binary against the
-/// bin directory, attaches the universal presence + version checks plus any declared smoke check,
-/// and reports which built binaries are NOT in the manifest so coverage gaps are never silent.
+/// Builds the tool catalog: reads the embedded manifest, resolves each tool's runnable binary
+/// against the installed layout (a native exe in bin, else the python console-script exe in the
+/// sibling pyenv\Scripts directory that the installer's bin\&lt;name&gt;.cmd shims forward to),
+/// attaches the universal presence + version checks plus any declared smoke check, and reports
+/// which built binaries are NOT in the manifest so coverage gaps are never silent.
 ///
 /// This is pure, side-effect-free read logic - it launches no processes (that is the
 /// <see cref="ToolTestRunner"/>'s job). Both the Avalonia UI and the Control API consume it.
@@ -95,8 +97,9 @@ public sealed class ToolCatalogService
 
     private ToolDescriptor BuildDescriptor(ToolManifestEntry entry)
     {
-        var binaryPath = Path.Combine(_binDir, ResolveBinaryFileName(entry.Name));
-        var isBuilt = File.Exists(binaryPath);
+        var resolved = ResolveRunnableBinary(entry.Name);
+        var binaryPath = resolved ?? Path.Combine(_binDir, ResolveBinaryFileName(entry.Name));
+        var isBuilt = resolved is not null;
 
         var tests = new List<ToolTest>
         {
@@ -115,6 +118,35 @@ public sealed class ToolCatalogService
             binaryPath: binaryPath,
             isBuilt: isBuilt,
             tests: tests);
+    }
+
+    /// <summary>
+    /// Resolve the RUNNABLE binary for a tool against the installed layout, in order:
+    /// a native exe in the bin directory (e.g. .NET tools), else - on Windows - the python
+    /// console-script exe in the sibling <c>pyenv\Scripts</c> directory, which is exactly where
+    /// the installer's <c>bin\&lt;name&gt;.cmd</c> shims forward to (PythonToolsInstaller writes
+    /// <c>"%~dp0..\pyenv\Scripts\&lt;name&gt;.exe" %*</c>). Resolving the shim TARGET keeps
+    /// execution direct (no cmd.exe hop, no batch argument re-parsing) and makes IsBuilt truthful
+    /// on shim-based installs. Returns null when the tool is not built in either location.
+    /// </summary>
+    private string? ResolveRunnableBinary(string toolName)
+    {
+        var native = Path.Combine(_binDir, ResolveBinaryFileName(toolName));
+        if (File.Exists(native))
+            return native;
+
+        if (OperatingSystem.IsWindows())
+        {
+            var root = Path.GetDirectoryName(Path.GetFullPath(_binDir));
+            if (root is not null)
+            {
+                var pyenvExe = Path.Combine(root, "pyenv", "Scripts", toolName + ".exe");
+                if (File.Exists(pyenvExe))
+                    return pyenvExe;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>The bin file name for a tool. On Windows tools build to <c>&lt;name&gt;.exe</c>.</summary>

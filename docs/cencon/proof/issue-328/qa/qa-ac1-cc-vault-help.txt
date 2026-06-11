@@ -1,0 +1,44 @@
+# POST http://127.0.0.1:7879/tools/run
+# body: {"name":"cc-vault","args":["--help"]}
+# wall-clock start: 2026-06-11T10:56:52.461106
+# HTTP 200 Content-Type: application/x-ndjson; charset=utf-8
+[t+   0.009s] {"stream":"start","pid":52480}
+[t+   0.303s] {"stream":"stdout","data":"                                                                               "}
+[t+   0.303s] {"stream":"stdout","data":" Usage: cc-vault [OPTIONS] COMMAND [ARGS]...                                   "}
+[t+   0.303s] {"stream":"stdout","data":"                                                                               "}
+[t+   0.305s] {"stream":"stdout","data":" Personal Vault CLI: manage contacts, tasks, goals, ideas, documents, and      "}
+[t+   0.305s] {"stream":"stdout","data":" more.                                                                         "}
+[t+   0.305s] {"stream":"stdout","data":"                                                                               "}
+[t+   0.307s] {"stream":"stdout","data":"\u250C\u2500 Options \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510"}
+[t+   0.307s] {"stream":"stdout","data":"\u2502 --version  -v        Show version and exit                                  \u2502"}
+[t+   0.307s] {"stream":"stdout","data":"\u2502 --help               Show this message and exit.                            \u2502"}
+[t+   0.307s] {"stream":"stdout","data":"\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518"}
+[t+   0.310s] {"stream":"stdout","data":"\u250C\u2500 Commands \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510"}
+[t+   0.310s] {"stream":"stdout","data":"\u2502 init            Initialize a new vault.                                     \u2502"}
+[t+   0.310s] {"stream":"stdout","data":"\u2502 stats           Show vault statistics.                                      \u2502"}
+[t+   0.310s] {"stream":"stdout","data":"\u2502 ask             Ask a question using RAG (Retrieval Augmented Generation).  \u2502"}
+[t+   0.311s] {"stream":"stdout","data":"\u2502 search          Search the vault using semantic or hybrid search.           \u2502"}
+[t+   0.311s] {"stream":"stdout","data":"\u2502 backup          Create a full zip backup of the entire vault directory.     \u2502"}
+[t+   0.311s] {"stream":"stdout","data":"\u2502 repair-vectors  Delete and rebuild the vector index from SQLite chunks.     \u2502"}
+[t+   0.311s] {"stream":"stdout","data":"\u2502 restore         Restore the vault from a backup zip file.                   \u2502"}
+[t+   0.311s] {"stream":"stdout","data":"\u2502 link            Create a link between two entities.                         \u2502"}
+[t+   0.311s] {"stream":"stdout","data":"\u2502 unlink          Remove a link between two entities.                         \u2502"}
+[t+   0.311s] {"stream":"stdout","data":"\u2502 links           Get all links for an entity.                                \u2502"}
+[t+   0.311s] {"stream":"stdout","data":"\u2502 context         Get entity with full linked context (for agents).           \u2502"}
+[t+   0.311s] {"stream":"stdout","data":"\u2502 tasks           Task management                                             \u2502"}
+[t+   0.311s] {"stream":"stdout","data":"\u2502 goals           Goal tracking                                               \u2502"}
+[t+   0.311s] {"stream":"stdout","data":"\u2502 ideas           Idea capture                                                \u2502"}
+[t+   0.311s] {"stream":"stdout","data":"\u2502 contacts        Contact management                                          \u2502"}
+[t+   0.311s] {"stream":"stdout","data":"\u2502 docs            Document management                                         \u2502"}
+[t+   0.311s] {"stream":"stdout","data":"\u2502 config          Configuration                                               \u2502"}
+[t+   0.311s] {"stream":"stdout","data":"\u2502 health          Health data                                                 \u2502"}
+[t+   0.311s] {"stream":"stdout","data":"\u2502 posts           Social media posts                                          \u2502"}
+[t+   0.311s] {"stream":"stdout","data":"\u2502 lists           Contact list management                                     \u2502"}
+[t+   0.311s] {"stream":"stdout","data":"\u2502 tags            Contact tag management                                      \u2502"}
+[t+   0.311s] {"stream":"stdout","data":"\u2502 library         Document library management                                 \u2502"}
+[t+   0.311s] {"stream":"stdout","data":"\u2502 catalog         Document catalog                                            \u2502"}
+[t+   0.311s] {"stream":"stdout","data":"\u2502 graph           Graph statistics and traversal                              \u2502"}
+[t+   0.311s] {"stream":"stdout","data":"\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518"}
+[t+   0.311s] {"stream":"stdout","data":""}
+[t+   0.344s] {"stream":"exit","exitCode":0,"timedOut":false,"durationMs":337}
+# done at t+0.344s

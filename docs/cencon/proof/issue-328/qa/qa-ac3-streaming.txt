@@ -1,0 +1,25 @@
+# POST http://127.0.0.1:7879/tools/run
+# body: {"name":"cc-vault","args":["search","neural network patent"],"timeoutS":110}
+# wall-clock start: 2026-06-11T10:58:07.878006
+# HTTP 200 Content-Type: application/x-ndjson; charset=utf-8
+[t+   0.012s] {"stream":"start","pid":22320}
+[t+   2.658s] {"stream":"stderr","data":"HTTP Request: POST https://api.openai.com/v1/embeddings \u0022HTTP/1.1 200 OK\u0022"}
+[t+  49.007s] {"stream":"stdout","data":""}
+[t+  49.007s] {"stream":"stdout","data":"CHUNKS (10 results):"}
+[t+  49.007s] {"stream":"stdout","data":"   Document: HNeT patent - US5515477 | Path: "}
+[t+  49.007s] {"stream":"stdout","data":"D:\\Personal\\OneDrive\\Documents\\HNeT\\HNeT patent - US551547..."}
+[t+  49.008s] {"stream":"stdout","data":"   Document: HNET Patent - US5515477 | Path: D:\\Personal\\OneDrive\\Center "}
+[t+  49.008s] {"stream":"stdout","data":"Consulting\\Machine Learning\\AN..."}
+[t+  49.008s] {"stream":"stdout","data":"   Document: HNET Patent - US5515477 | Path: "}
+[t+  49.008s] {"stream":"stdout","data":"research\\2026-02-18_hnet_patent_-_us5515477.md"}
+[t+  49.008s] {"stream":"stdout","data":"\u003C!-- Page 1..."}
+[t+  49.009s] {"stream":"stdout","data":"   Document: HNET Patent - US5515477 | Path: "}
+[t+  49.009s] {"stream":"stdout","data":"research\\2026-02-18_hnet_patent_-_us5515477.md"}
+[t+  49.009s] {"stream":"stdout","data":"prising"}
+[t+  49.009s] {"stream":"stdout","data":"str..."}
+[t+  49.010s] {"stream":"stdout","data":"   Document: HNET Patent - US5515477 | Path: "}
+[t+  49.010s] {"stream":"stdout","data":"research\\2026-02-18_hnet_patent_-_us5515477.md"}
+[t+  49.010s] {"stream":"stdout","data":"assumption"}
+[t+  49.010s] {"stream":"stdout","data":"..."}
+[t+  49.390s] {"stream":"exit","exitCode":0,"timedOut":false,"durationMs":49383}
+# done at t+49.390s

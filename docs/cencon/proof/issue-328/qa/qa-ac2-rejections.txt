@@ -1,0 +1,35 @@
+=== AC2a: unknown tool name ===
+# POST http://127.0.0.1:7879/tools/run
+# body: {"name":"cc-not-a-tool","args":["--help"]}
+# wall-clock start: 2026-06-11T10:57:08.790922
+# HTTP 404: {"error":"unknown tool: cc-not-a-tool (not in the catalog)"}
+# done at t+0.005s
+
+=== AC2b: backslash path name ===
+# POST http://127.0.0.1:7879/tools/run
+# body: {"name":"C:\Windows\System32\calc.exe","args":[]}
+# wall-clock start: 2026-06-11T10:57:08.995660
+# HTTP 400: {"error":"invalid JSON request body"}
+# done at t+0.005s
+
+=== AC2c: forward-slash path name ===
+# POST http://127.0.0.1:7879/tools/run
+# body: {"name":"../../bin/cc-vault","args":[]}
+# wall-clock start: 2026-06-11T10:57:09.202316
+# HTTP 400: {"error":"name must be a bare catalog tool name (no path separators)"}
+# done at t+0.004s
+
+=== AC2d: traversal-shaped bare name ===
+# POST http://127.0.0.1:7879/tools/run
+# body: {"name":"..cc-vault..","args":[]}
+# wall-clock start: 2026-06-11T10:57:09.411767
+# HTTP 400: {"error":"name must be a bare catalog tool name (no path separators)"}
+# done at t+0.004s
+
+=== AC2e: calc.exe never executed - process check ===
+no calc process - never executed
+=== AC2b-redo: backslash path name (JSON-encoded properly) ===
+# body: {"name": "C:\\Windows\\System32\\calc.exe", "args": []}
+# HTTP 400: {"error":"name must be a bare catalog tool name (no path separators)"}
+# body: {"name": "bin\\cc-vault", "args": []}
+# HTTP 400: {"error":"name must be a bare catalog tool name (no path separators)"}

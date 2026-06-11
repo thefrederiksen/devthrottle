@@ -1,0 +1,14 @@
+=== AC6a: gateway roster shows QA slot-6 director 6d3c9ac9 advertised at tailnetEndpoint https://soren-north.taildb08ed.ts.net:7879 (captured above) ===
+
+=== AC6b: SORENLAPTOP director a0d9f4a3 runs released v0.6.22 (pre-#328) - POST /tools/run there: ===
+HTTP 405
+
+=== AC6c: streamed tool run through the gateway-advertised TAILNET endpoint (the identical leg a remote caller uses - HTTPS via tailscale serve, not loopback): ===
+# POST https://soren-north.taildb08ed.ts.net:7879/tools/run
+# body: {"name":"cc-vault","args":["--version"]}
+# wall-clock start: 2026-06-11T11:00:56.269261
+# HTTP 200 Content-Type: application/x-ndjson; charset=utf-8
+[t+   0.057s] {"stream":"start","pid":43784}
+[t+   0.269s] {"stream":"stdout","data":"cc-vault version 0.1.0"}
+[t+   0.286s] {"stream":"exit","exitCode":0,"timedOut":false,"durationMs":232}
+# done at t+0.287s

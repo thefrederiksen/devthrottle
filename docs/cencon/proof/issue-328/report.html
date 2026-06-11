@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Proof - Issue #328: POST /tools/run</title>
+<style>
+  body { font-family: "Segoe UI", Arial, sans-serif; background: #14161a; color: #d6d9de; margin: 0; padding: 32px; line-height: 1.55; }
+  .wrap { max-width: 1100px; margin: 0 auto; }
+  h1 { font-size: 1.5rem; border-bottom: 2px solid #2c7be5; padding-bottom: 10px; }
+  h2 { font-size: 1.15rem; color: #8ab4f8; margin-top: 36px; }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 0.9rem; }
+  th, td { border: 1px solid #333a45; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #1d2430; color: #9fb6d4; }
+  code, pre { font-family: Consolas, monospace; background: #1b1f27; border-radius: 4px; }
+  code { padding: 1px 5px; font-size: 0.85em; }
+  pre { padding: 12px 14px; overflow-x: auto; font-size: 0.8rem; border: 1px solid #2a313c; }
+  .pass { color: #4cc38a; font-weight: 600; }
+  .note { color: #e2b93d; }
+  .meta { color: #7d8694; font-size: 0.85rem; }
+  img { max-width: 100%; border: 1px solid #333a45; border-radius: 6px; margin: 10px 0; }
+  .verdict { background: #16281f; border: 1px solid #2f6f4f; border-radius: 8px; padding: 16px 20px; margin-top: 30px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Proof - Issue #328: [ControlApi] POST /tools/run - invoke a catalog cc-* tool with args, streamed result</h1>
+<p class="meta">Developer Agent (CenCon Development Method) &middot; 2026-06-11 &middot; Branch <code>issue-328-tools-run</code> &middot; PR #341 &middot; Machine SOREN_NORTH &middot; Live proof on the isolated slot-6 test Director (branch build, port 7885, own <code>cc-director6-launch</code> scheduled task)</p>
+
+<h2>1. What was implemented</h2>
+<p>
+A new Director Control API <strong>verb</strong>, <code>POST /tools/run</code>
+(<code>src/CcDirector.ControlApi/ToolsEndpoint.cs</code>), the Phase-1B missing verb from
+<code>docs/architecture/TARGET_IMPLEMENTATION_PLAN.md</code> section 3. Body:
+<code>{ name, args?, cwd?, timeoutS? }</code>. The name is validated strictly against the Director's
+embedded tool catalog: any path-shaped name (slash, backslash, drive prefix, <code>..</code>) is
+<strong>400 and never executed</strong>; a name not in the manifest is <strong>404</strong>; a tool not
+built on the machine is <strong>409</strong>. Execution is direct (argument list, no shell), bounded by
+<code>timeoutS</code> (1..3600, default 120) - on expiry the <strong>entire process tree is killed</strong>
+and the result reports a distinct timeout error. Every invocation writes a FileLog audit line with the
+resolved exe path, args, and caller. The response is <strong>streamed</strong>
+<code>application/x-ndjson</code>, flushed per line: one <code>start</code> chunk (pid), then
+<code>stdout</code>/<code>stderr</code> chunks as the tool prints, then exactly one <code>exit</code>
+chunk (exitCode/timedOut/durationMs).
+</p>
+<p>
+New <code>CcDirector.Core</code> helper <code>ToolRunner</code> (channel-backed stream pumps, process-tree
+kill, UTF-8 pinned). <strong>Contract addition (plan 1.2.5):</strong> <code>ToolRunRequest</code> and
+<code>ToolRunChunk</code> in <code>CcDirector.Gateway.Contracts</code>.
+</p>
+<p class="note">
+Root-cause fix surfaced during live proof: <code>ToolCatalogService</code> only probed
+<code>bin\&lt;name&gt;.exe</code>, but the installer ships python tools as <code>bin\&lt;name&gt;.cmd</code>
+shims forwarding to <code>pyenv\Scripts\&lt;name&gt;.exe</code> (PythonToolsInstaller) - so on real installs
+every tool reported NOT BUILT and this verb would have 409'd fleet-wide. The catalog now resolves the
+runnable binary as the native exe, else the shim target. Direct execution of the real exe also keeps
+caller args out of cmd.exe batch re-parsing (no injection surface).
+</p>
+
+<h2>2. Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (proof)</th><th>Verdict</th></tr>
+<tr>
+<td>1</td>
+<td><code>{name:"cc-vault", args:["--help"]}</code> returns exitCode 0 + captured output</td>
+<td>200, streamed output, exit chunk with exitCode 0</td>
+<td>Live on slot-6 (port 7885): full <code>cc-vault --help</code> usage text streamed, terminal chunk
+<code>{"stream":"exit","exitCode":0,"timedOut":false,"durationMs":1105}</code>.
+Capture: <a href="ac1-cc-vault-help.txt">ac1-cc-vault-help.txt</a>. Screenshot (cc-hardware os run): section 3.</td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Unknown tool -&gt; 404; path-shaped name -&gt; 400/404, never executed</td>
+<td>404 / 400 with clear errors, no process launched</td>
+<td><code>cc-not-a-real-tool</code> -&gt; HTTP 404 <code>unknown tool ... (not in the catalog)</code>;
+<code>C:\\Windows\\System32\\cmd.exe</code> and <code>../../evil</code> -&gt; HTTP 400
+<code>name must be a bare catalog tool name (no path separators)</code> - rejected BEFORE the catalog is
+consulted, logged as REJECTED, nothing executed. Capture: <a href="ac2-rejections.txt">ac2-rejections.txt</a>.
+Also unit-tested for 5 path shapes (ToolRunEndpointTests).</td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Streaming: chunks arrive before process exit (timestamped client capture)</td>
+<td>Output chunks observably earlier than the exit chunk</td>
+<td>Timestamped capture of a ~36s <code>cc-vault search</code> run: first chunk at
+<code>10:35:18.763</code> (stderr, 2s in), exit chunk at <code>10:35:53.402</code> - output arrived
+<strong>34.6s before process exit</strong>. <a href="ac3-streaming.txt">ac3-streaming.txt</a>. The fast AC1 run
+also shows line-by-line arrival over ~1s. Unit test asserts a &gt;1s stdout-before-exit lead by timestamp.</td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>timeoutS:2</code> on a long command -&gt; timeout error, child process gone (PID absence)</td>
+<td>Distinct timeout error ~2s in; PID from start chunk absent from the process list</td>
+<td><code>cc-vault search</code> (a ~56s command) with <code>timeoutS:2</code>: start chunk
+<code>pid:70752</code>, exit chunk <code>{"timedOut":true,"durationMs":2064,"error":"timed out after 2s;
+process tree killed"}</code>; <code>tasklist /FI "PID eq 70752"</code> -&gt; "No tasks are running which match".
+<a href="ac4-timeout.txt">ac4-timeout.txt</a>. Unit test additionally proves the cmd.exe+child ping TREE is gone.</td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>5</td>
+<td>No token -&gt; 401; every run produces a FileLog audit line with exe path + args</td>
+<td>401 without Bearer; audit lines in the Director log</td>
+<td>401: proven by <code>ToolRunEndpointTests.ToolsRun_WithoutBearerToken_Returns401</code> against a REAL
+auth-enabled <code>ControlApiHost</code> - the verb sits behind the same <code>DirectorAuth</code> middleware
+as every route (not in PublicPaths). <span class="note">Honest note:</span> the live slot-6 Director runs the
+production default <code>authEnabled=false</code> (host design: "the Tailscale tailnet is the trust boundary",
+ControlApiHost.cs:109), so a live 401 cannot be shown on a default-config Director - this is pre-existing host
+policy, identical for all verbs (same situation as #327). Audit: every live run logged, e.g.
+<code>[ToolsEndpoint] POST /tools/run: tool=cc-vault, exe=C:\Users\soren\AppData\Local\cc-director\pyenv\Scripts\cc-vault.exe,
+args=[--help], cwd=(exe dir), timeoutS=120, caller=127.0.0.1</code>. <a href="ac5-filelog-audit.txt">ac5-filelog-audit.txt</a>.</td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>6</td>
+<td>Cross-machine smoke: from the gateway box, run a tool on the SORENLAPTOP test Director via the Gateway leg</td>
+<td>Remote tool run's streamed output + exit code in the report</td>
+<td><span class="note">Honest statement: proven via the local Gateway-leg equivalent (authorized fallback).</span>
+The SORENLAPTOP seat is UP (healthz 200) but runs <strong>released v0.6.22</strong>, which predates this verb -
+<code>POST /tools/run</code> there returns 405 (captured), and deploying a branch build onto the user's
+production laptop Director is out of bounds for a dev proof. Equivalent leg proven from the gateway box
+(SOREN_NORTH): the Gateway registry advertises the slot-6 branch Director at
+<code>https://soren-north.taildb08ed.ts.net:7885</code>; a tool run THROUGH that gateway-advertised tailnet
+HTTPS endpoint (tailscale serve front door - the identical network leg a remote machine uses) streamed
+<code>cc-hardware os</code> and returned <code>{"stream":"exit","exitCode":0,...}</code>.
+<a href="ac6-gateway-leg.txt">ac6-gateway-leg.txt</a>. The literal SORENLAPTOP run becomes possible once a
+build containing this verb reaches that seat.</td>
+<td class="pass">PASS (equivalent leg)</td>
+</tr>
+</table>
+
+<h2>3. Live screenshot</h2>
+<p>Streamed NDJSON result of <code>POST /tools/run {name:"cc-hardware", args:["os"]}</code> against the live
+slot-6 Director - start chunk with pid, stdout chunks, exit chunk with exitCode 0:</p>
+<img src="live-tools-run-stream.png" alt="Live streamed tools/run output">
+
+<h2>4. Build and tests</h2>
+<ul>
+<li><code>dotnet build cc-director.sln</code>: <strong>Build succeeded, 0 Warning(s), 0 Error(s)</strong>.</li>
+<li>New tests: ToolRunnerTests 9/9, ToolRunEndpointTests 14/14, ToolCatalogServiceTests +2 (all green).</li>
+<li>Full suites: CcDirector.Core.Tests 1769/1772 passed, 2 skipped, 1 failed
+(<code>RecordingIngestServiceTests.Worker_TranscribesQueuedRecording_EndToEnd</code> - recording/transcription
+E2E, unrelated to this change; passes when run alone, i.e. flaky under parallel load).
+CcDirector.Gateway.Tests 501/502 (<code>DictationEndpointTests.FullPipeline_transcribes_phase0_clip2...</code> -
+live-OpenAI realtime dictation E2E requiring key+ffmpeg+network, unrelated; known-flaky family, #214).</li>
+</ul>
+
+<h2>5. CenCon impact</h2>
+<p>
+No architecture or security-posture drift: a new mechanical <strong>Verb</strong> on the existing ControlApi
+container, behind the existing auth middleware. <code>docs/architecture/gateway/CONTRACT_AUDIT.md</code>
+updated in the same change: row 110 added (Verb), inventory 112 -&gt; 113, Verbs 52 -&gt; 53, deterministic
+inventory command re-verified to return 113. The issue's flagged assumption (catalog-allowlist + full audit
+logging as the v1 posture) is implemented exactly as specified; a per-tool allowlist remains a one-line policy
+tightening on top.
+</p>
+
+<div class="verdict">
+<strong class="pass">I believe this is finished.</strong> Every acceptance criterion is met with live,
+timestamped proof on an isolated branch-build Director; the two criteria that could not be exercised literally
+(live 401 on a default-open host; the SORENLAPTOP seat still on v0.6.22) are proven by the auth-enabled
+endpoint test and the gateway-advertised tailnet-endpoint run respectively, and stated honestly above.
+</div>
+
+</div>
+</body>
+</html>
