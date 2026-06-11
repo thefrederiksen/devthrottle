@@ -58,16 +58,30 @@ public sealed class GatewayClient : IDisposable
     private bool _registered;
     private bool _disposed;
 
-    // Cached MagicDNS name (resolving it shells the tailscale CLI). Cached once found; while
-    // null we retry, so a Director that starts before the tailscale daemon still picks it up.
-    private string? _cachedDnsName;
+    // The endpoint the Gateway currently knows for this Director: set on every successful
+    // register POST ("" for a flagged no-endpoint registration), null while never registered.
+    // Issue #324: there is deliberately NO forever-cache of the MagicDNS name anymore - the
+    // identity is re-resolved on every register attempt and every heartbeat tick, so a
+    // Tailscale daemon that comes up (or goes away) after Director start heals/degrades the
+    // advertisement within one heartbeat cycle, no restart.
+    private volatile string? _advertisedEndpoint;
+    private int _reRegistering; // guard: never stack heartbeat-triggered re-registrations
 
     /// <summary>
-    /// Test seam: resolving the MagicDNS name shells the tailscale CLI, which makes the
-    /// result environment-dependent. Tests pin this to simulate a node with or without a
-    /// tailnet identity; production always uses the real resolver.
+    /// The plan-1A detection ladder (LocalAPI -> CLI -> config override). One instance per
+    /// client so its log-dedup state spans the heartbeat re-resolves. Internal so tests can
+    /// pin the environment-dependent probes (<see cref="TailnetIdentityResolver.LocalApiProbe"/>,
+    /// <see cref="TailnetIdentityResolver.CliProbe"/>) while exercising the REAL ladder.
     /// </summary>
-    internal Func<string?> MagicDnsResolver { get; set; } = TailscaleIdentity.TryGetMagicDnsName;
+    internal TailnetIdentityResolver IdentityResolver { get; } = new();
+
+    /// <summary>
+    /// Test seam (issue #324): some tests pin the whole resolution to an exact endpoint
+    /// (e.g. a loopback callback host) that the production ladder would refuse. Production
+    /// always resolves through <see cref="IdentityResolver"/> with this Director's port and
+    /// configured override (wired in the constructor).
+    /// </summary>
+    internal Func<TailnetEndpointResolution> ResolveAdvertisedEndpoint { get; set; }
 
     /// <summary>
     /// Verify-before-advertise (issue #197): called with the advertised endpoint before
@@ -102,6 +116,7 @@ public sealed class GatewayClient : IDisposable
         _version = version ?? "0.0.0";
         _sessionStates = sessionStates;
         _monitor = monitor;
+        ResolveAdvertisedEndpoint = () => IdentityResolver.ResolveEndpoint(_port, _config.TailnetEndpoint);
 
         _http = new HttpClient
         {
@@ -222,7 +237,10 @@ public sealed class GatewayClient : IDisposable
                     // Registration only proves leg 1. Run the two-way handshake right away
                     // (issues #223/#224) so the indicator earns its green - or names the
                     // broken return leg - within seconds of connecting, not at the next tick.
-                    _ = Task.Run(() => VerifyAsync(ct), ct);
+                    // A flagged no-endpoint registration (issue #324) has nothing the Gateway
+                    // could call back, so the handshake is skipped until identity heals.
+                    if (!string.IsNullOrEmpty(_advertisedEndpoint))
+                        _ = Task.Run(() => VerifyAsync(ct), ct);
                     return;
                 }
             }
@@ -235,8 +253,11 @@ public sealed class GatewayClient : IDisposable
             try { await Task.Delay(delay, ct); }
             catch (OperationCanceledException) { return; }
 
-            // Exponential backoff, capped at MaxBackoff.
-            var nextMs = Math.Min(delay.TotalMilliseconds * 2, MaxBackoff.TotalMilliseconds);
+            // Exponential backoff, capped at MaxBackoff - except while the tailnet identity
+            // itself is unresolved (issue #324): then the retry stays at heartbeat cadence so
+            // a Tailscale daemon that comes up is picked up within ~15s, not after a minute.
+            var capMs = _lastResolutionFailed ? HeartbeatInterval.TotalMilliseconds : MaxBackoff.TotalMilliseconds;
+            var nextMs = Math.Min(delay.TotalMilliseconds * 2, capMs);
             delay = TimeSpan.FromMilliseconds(nextMs);
         }
     }
@@ -246,10 +267,27 @@ public sealed class GatewayClient : IDisposable
         var req = BuildRegistrationRequest();
         if (string.IsNullOrWhiteSpace(req.TailnetEndpoint))
         {
-            // No tailnet-reachable address to advertise (see ResolveTailnetEndpoint). Registering
-            // an empty endpoint would put an undialable entry in the Gateway. Skip and stay local.
-            FileLog.Write("[GatewayClient] TryRegisterAsync: no tailnet endpoint to advertise; staying local-only");
-            _monitor?.ReportRegistrationFailure("No tailnet endpoint to advertise - is Tailscale running and logged in on this machine?");
+            // No tailnet identity resolved (issue #324). FAIL LOUDLY - an explicit monitor
+            // state (painted by the desktop indicator) plus a log line naming the fix - and
+            // still register, flagged unreachable, so the fleet can see this machine exists
+            // (an invisible Director is harder to diagnose remotely than a flagged one).
+            var reason = req.EndpointUnreachableReason
+                ?? "No tailnet identity resolved and no gateway.tailnetEndpoint override configured - start Tailscale on this machine or set the override.";
+            FileLog.Write($"[GatewayClient] TryRegisterAsync: NO TAILNET IDENTITY - {reason}");
+            _monitor?.ReportTailnetIdentityFailure(reason);
+
+            var flaggedResp = await _http.PostAsJsonAsync("directors/register", req, ct);
+            if (flaggedResp.IsSuccessStatusCode)
+            {
+                _advertisedEndpoint = "";
+                FileLog.Write($"[GatewayClient] Registered FLAGGED (no reachable endpoint): status={(int)flaggedResp.StatusCode}; heartbeat re-resolves identity every {HeartbeatInterval.TotalSeconds:F0}s");
+                return true;
+            }
+
+            // An old Gateway rejects the flagged shape (400 tailnetEndpoint required) - which
+            // truthfully preserves its old behavior. Keep the identity-failure state (the
+            // actionable, LOCAL truth) and let RegisterLoop retry at heartbeat cadence.
+            FileLog.Write($"[GatewayClient] Flagged register returned {(int)flaggedResp.StatusCode} {flaggedResp.ReasonPhrase} (Gateway predates issue #324 or refused); will retry");
             return false;
         }
 
@@ -275,7 +313,8 @@ public sealed class GatewayClient : IDisposable
         var resp = await _http.PostAsJsonAsync("directors/register", req, ct);
         if (resp.IsSuccessStatusCode)
         {
-            FileLog.Write($"[GatewayClient] Registered: status={(int)resp.StatusCode}");
+            _advertisedEndpoint = req.TailnetEndpoint;
+            FileLog.Write($"[GatewayClient] Registered: status={(int)resp.StatusCode}, endpoint={req.TailnetEndpoint}");
             return true;
         }
 
@@ -296,6 +335,13 @@ public sealed class GatewayClient : IDisposable
                     // Still trying to do the initial registration. Let RegisterLoop handle it.
                     return;
                 }
+
+                // Issue #324: re-resolve the tailnet identity every cycle (no forever-cache).
+                // If the resolvable endpoint differs from what the Gateway knows - Tailscale
+                // came up after Director start, went away, or the MagicDNS name changed -
+                // re-register so the advertisement heals (or truthfully degrades) within one
+                // heartbeat, no restart.
+                MaybeReRegisterOnIdentityChange();
 
                 // Issues #223/#224: keep the two-way proof fresh. Re-verifies every
                 // ReverifyInterval while green, every tick while failed/unverified - so
@@ -357,10 +403,49 @@ public sealed class GatewayClient : IDisposable
         });
     }
 
+    /// <summary>
+    /// Heartbeat-cycle identity re-resolution (issue #324): compare the freshly-resolved
+    /// endpoint against what the Gateway currently knows and re-register on any difference.
+    /// Runs the actual re-registration on a background task with a re-entrancy guard so a
+    /// slow verify-before-advertise never stacks registrations across ticks.
+    /// </summary>
+    private void MaybeReRegisterOnIdentityChange()
+    {
+        var resolution = ResolveAdvertisedEndpoint();
+        var current = resolution.IsResolved ? resolution.Endpoint : "";
+        if (string.Equals(current, _advertisedEndpoint, StringComparison.Ordinal)) return;
+
+        var cts = _cts;
+        if (cts is null || cts.IsCancellationRequested) return;
+        if (Interlocked.CompareExchange(ref _reRegistering, 1, 0) != 0) return;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                FileLog.Write($"[GatewayClient] Tailnet identity changed: advertised='{_advertisedEndpoint}' resolved='{current}' - re-registering");
+                await TryRegisterAsync(cts.Token);
+            }
+            catch (OperationCanceledException) { /* shutdown */ }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[GatewayClient] Identity-change re-register FAILED: {ex.Message}");
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _reRegistering, 0);
+            }
+        });
+    }
+
     /// <summary>Kick a background handshake when one is due (see <see cref="ReverifyInterval"/>).</summary>
     private void MaybeKickVerify()
     {
         if (_monitor is null) return;
+        // A flagged no-endpoint registration (issue #324) has nothing the Gateway could call
+        // back; a handshake would only overwrite the precise identity-failure message with a
+        // generic callback error. The heartbeat identity re-resolve restores verification
+        // the moment a real endpoint registers.
+        if (string.IsNullOrEmpty(_advertisedEndpoint)) return;
         if (_monitor.Status == GatewayConnectionStatus.Verified
             && _lastVerifyStartedUtc + ReverifyInterval > DateTime.UtcNow)
             return;
@@ -452,51 +537,37 @@ public sealed class GatewayClient : IDisposable
         }
     }
 
-    private DirectorRegistrationRequest BuildRegistrationRequest()
+    // Stamped by BuildRegistrationRequest: true while the last resolution found no tailnet
+    // identity. RegisterLoop reads it to keep identity retries at heartbeat cadence (#324).
+    private volatile bool _lastResolutionFailed;
+
+    /// <summary>
+    /// Build the registration body from a FRESH identity resolution (issue #324 - the
+    /// detection ladder runs every time, never a forever-cache).
+    ///
+    /// The Director binds Kestrel to LOOPBACK only; the address advertised here is the
+    /// Tailscale Serve front door (HTTPS, this node's MagicDNS name, THIS Director's own
+    /// port, e.g. https://&lt;machine&gt;.&lt;tailnet&gt;.ts.net:7879). It is NEVER loopback - a remote
+    /// Gateway or the Cockpit could never reach loopback - and never empty-but-claimed-
+    /// reachable: when nothing resolves, <see cref="DirectorRegistrationRequest.TailnetEndpoint"/>
+    /// is empty AND <see cref="DirectorRegistrationRequest.EndpointUnreachableReason"/> carries
+    /// the reason (the regression the issue-#324 acceptance criteria pin).
+    /// </summary>
+    internal DirectorRegistrationRequest BuildRegistrationRequest()
     {
+        var resolution = ResolveAdvertisedEndpoint();
+        _lastResolutionFailed = !resolution.IsResolved;
         return new DirectorRegistrationRequest
         {
             DirectorId = _directorId,
-            TailnetEndpoint = ResolveTailnetEndpoint(),
+            TailnetEndpoint = resolution.Endpoint,
+            EndpointUnreachableReason = resolution.FailureReason,
             Pid = Environment.ProcessId,
             MachineName = Environment.MachineName,
             User = Environment.UserName,
             Version = _version,
             StartedAt = System.Diagnostics.Process.GetCurrentProcess().StartTime.ToUniversalTime(),
         };
-    }
-
-    private string ResolveTailnetEndpoint()
-    {
-        // The Director binds Kestrel to LOOPBACK only. Remote reachability is provided by the
-        // Gateway's TailscaleServeProvisioner, which runs `tailscale serve --https=<port>
-        // http://localhost:<port>` per Director. So the address we advertise MUST be that
-        // Serve front door: HTTPS, this node's MagicDNS name, and THIS Director's OWN allocated
-        // port (e.g. https://<machine>.<tailnet>.ts.net:7879). It is per-Director, tailnet-
-        // routable from any node, and is NEVER a localhost URL (a remote Gateway or the Cockpit
-        // could never reach loopback). This single value drives both Gateway fan-out reads and
-        // the Cockpit's direct terminal WebSocket (wss://<magicdns>:<port>/sessions/{sid}/stream).
-        if (_cachedDnsName is null)
-            _cachedDnsName = MagicDnsResolver();
-        if (!string.IsNullOrWhiteSpace(_cachedDnsName))
-            return $"https://{_cachedDnsName}:{_port}";
-
-        // No Tailscale identity on this node. An explicit gateway.tailnetEndpoint override is the
-        // only remaining way to be remotely reachable (a hand-run `tailscale serve`, a reverse
-        // proxy, etc.). Honored ONLY as this fallback - never ahead of the auto-derived MagicDNS
-        // value, so a stale shared override cannot poison a multi-Director box.
-        if (!string.IsNullOrWhiteSpace(_config.TailnetEndpoint))
-        {
-            FileLog.Write("[GatewayClient] ResolveTailnetEndpoint: no Tailscale identity; using configured gateway.tailnetEndpoint override");
-            return _config.TailnetEndpoint!;
-        }
-
-        // Neither Tailscale nor an override: remote reachability is genuinely unavailable. We do
-        // NOT advertise a loopback address (policy is tailnet-or-nothing - a localhost URL would
-        // be a lie to any remote caller). Empty endpoint -> TryRegisterAsync skips registration
-        // and the Director runs local-only, which is the truthful state.
-        FileLog.Write("[GatewayClient] ResolveTailnetEndpoint: no Tailscale identity and no override; cannot advertise a tailnet endpoint, staying local-only");
-        return "";
     }
 
     /// <summary>

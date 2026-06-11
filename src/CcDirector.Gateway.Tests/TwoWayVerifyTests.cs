@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Net.Sockets;
 using CcDirector.ControlApi;
 using CcDirector.Core.Configuration;
+using CcDirector.Core.Network;
 using CcDirector.Gateway.Contracts;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -146,7 +147,10 @@ public sealed class TwoWayVerifyTests : IAsyncLifetime
         };
         using var client = new GatewayClient(cfg, id, port: 65510, version: "9.9.9-test", monitor: monitor)
         {
-            MagicDnsResolver = () => null,
+            // Pin the resolution to the loopback callback host: the production ladder would
+            // refuse loopback (issue #324), but the TRANSPORT under test here is the verify
+            // handshake, which needs an endpoint this test can actually answer.
+            ResolveAdvertisedEndpoint = () => new TailnetEndpointResolution { Endpoint = callback.BaseUrl, Source = "config-override" },
         };
         client.Start();
 
@@ -172,7 +176,8 @@ public sealed class TwoWayVerifyTests : IAsyncLifetime
         var cfg = new GatewayConfig { Url = liar.BaseUrl, Token = "", TailnetEndpoint = "http://127.0.0.1:1" };
         using var client = new GatewayClient(cfg, id, port: 65511, version: "9.9.9-test", monitor: monitor)
         {
-            MagicDnsResolver = () => null,
+            // Pinned resolution (see above): the impostor gateway never dials this endpoint.
+            ResolveAdvertisedEndpoint = () => new TailnetEndpointResolution { Endpoint = "http://127.0.0.1:1", Source = "config-override" },
         };
         client.Start();
 

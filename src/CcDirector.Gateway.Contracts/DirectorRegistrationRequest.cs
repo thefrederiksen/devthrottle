@@ -16,6 +16,17 @@ public sealed class DirectorRegistrationRequest
     /// <summary>Cross-machine URL that the Gateway should deeplink browser users to.</summary>
     public string TailnetEndpoint { get; set; } = "";
 
+    /// <summary>
+    /// Issue #324 (additive, optional): when the Director could not resolve any tailnet
+    /// identity (LocalAPI + CLI failed, no usable override), it still registers - so the
+    /// fleet can see the machine exists - but with <see cref="TailnetEndpoint"/> EMPTY and
+    /// this field carrying the human-readable reason (which names the fix). Null means the
+    /// endpoint is claimed reachable. A registration must never claim reachability while
+    /// the endpoint is empty or loopback. Old Gateways reject the flagged shape with 400
+    /// (tailnetEndpoint required), which truthfully preserves their old behavior.
+    /// </summary>
+    public string? EndpointUnreachableReason { get; set; }
+
     /// <summary>OS process id of the Director (informational, used for diagnostics).</summary>
     public int Pid { get; set; }
 

@@ -353,6 +353,13 @@ public partial class MainWindow : Window
                 label = "GATEWAY UNREACHABLE";
                 sub = (m.FailureSummary ?? "verification failed") + " - click to troubleshoot";
                 break;
+            case GatewayConnectionStatus.NoTailnetIdentity:
+                // Issue #324: explicit identity-failure state - the problem is LOCAL (no
+                // Tailscale identity to advertise), not the Gateway. Name the fix on screen.
+                (icon, accent, bg, border) = (GatewayIconCross, "#EF4444", "#3A1B1B", "#DC2626");
+                label = "NO TAILNET IDENTITY";
+                sub = (m.FailureSummary ?? "start Tailscale on this machine or set gateway.tailnetEndpoint") + " - click to troubleshoot";
+                break;
             default:
                 (icon, accent, bg, border) = (GatewayIconRing, "#777777", "#2A2A2A", "#3C3C3C");
                 label = "NO GATEWAY";
@@ -377,7 +384,8 @@ public partial class MainWindow : Window
 
         // #223: auto-pop the troubleshooter ONCE per distinct failure. A failure that
         // repeats (same summary on every re-verify) never re-pops; a NEW failure does.
-        if (m.Status == GatewayConnectionStatus.Failed
+        // #324: the identity-failure state is a failure too - same once-per-summary rule.
+        if (m.Status is GatewayConnectionStatus.Failed or GatewayConnectionStatus.NoTailnetIdentity
             && m.FailureSummary is { } failure
             && failure != _lastAutoPoppedFailure
             && !_troubleshooterOpen)

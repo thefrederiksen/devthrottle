@@ -17,6 +17,16 @@ public enum GatewayConnectionStatus
 
     /// <summary>The last handshake failed; <see cref="GatewayConnectionMonitor.FailureSummary"/> names the failing leg (red).</summary>
     Failed,
+
+    /// <summary>
+    /// This machine has no resolvable tailnet identity to advertise (issue #324): the
+    /// Tailscale LocalAPI and CLI both failed and no usable config override is set. An
+    /// explicit state - not a generic <see cref="Failed"/> - so the indicator and the
+    /// troubleshooter can name the exact fix (start Tailscale / set gateway.tailnetEndpoint).
+    /// Self-healing: the Director re-resolves every heartbeat cycle, so this clears within
+    /// ~15s of Tailscale coming up - no restart.
+    /// </summary>
+    NoTailnetIdentity,
 }
 
 /// <summary>
@@ -95,6 +105,28 @@ public sealed class GatewayConnectionMonitor
             FailureSummary = summary;
         }
         FileLog.Write($"[GatewayConnectionMonitor] Registration failure: {summary}");
+        Changed?.Invoke();
+    }
+
+    /// <summary>
+    /// No tailnet identity resolved on this machine (issue #324): LocalAPI and CLI both
+    /// failed and no usable override exists. Distinct from <see cref="ReportRegistrationFailure"/>
+    /// because the remediation is LOCAL (start Tailscale / set the override), not a Gateway
+    /// problem - the indicator paints it as its own state so the fix is named on screen.
+    /// </summary>
+    public void ReportTailnetIdentityFailure(string summary)
+    {
+        if (string.IsNullOrWhiteSpace(summary))
+            throw new ArgumentException("A failure summary naming the fix is required", nameof(summary));
+        lock (_lock)
+        {
+            // NotConfigured is sticky until Reset(true): a local-only Director never goes red.
+            if (Status == GatewayConnectionStatus.NotConfigured) return;
+            if (Status == GatewayConnectionStatus.NoTailnetIdentity && FailureSummary == summary) return; // no churn
+            Status = GatewayConnectionStatus.NoTailnetIdentity;
+            FailureSummary = summary;
+        }
+        FileLog.Write($"[GatewayConnectionMonitor] Tailnet identity failure: {summary}");
         Changed?.Invoke();
     }
 

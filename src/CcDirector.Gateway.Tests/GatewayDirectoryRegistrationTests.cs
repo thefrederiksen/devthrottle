@@ -127,6 +127,34 @@ public sealed class GatewayDirectoryRegistrationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Register_accepts_flagged_no_endpoint_registration_and_surfaces_reason()
+    {
+        // Issue #324: a Director with no resolvable tailnet identity registers FLAGGED -
+        // empty endpoint plus its own reason - so the fleet can see the machine exists.
+        var id = Guid.NewGuid().ToString();
+        var req = new DirectorRegistrationRequest
+        {
+            DirectorId = id,
+            TailnetEndpoint = "",
+            EndpointUnreachableReason = "No tailnet identity: start Tailscale on machine-f or set gateway.tailnetEndpoint.",
+            MachineName = "machine-f",
+        };
+        var resp = await _http.PostAsJsonAsync("directors/register", req);
+        Assert.Equal(HttpStatusCode.Created, resp.StatusCode);
+
+        var dto = _gateway.Registry.Get(id);
+        Assert.NotNull(dto);
+        Assert.True(string.IsNullOrEmpty(dto.TailnetEndpoint));
+        Assert.Equal(req.EndpointUnreachableReason, dto.EndpointUnreachableReason);
+
+        // GET /directors surfaces the declared reason for the fleet view.
+        var directors = await _http.GetFromJsonAsync<List<DirectorDto>>("directors");
+        Assert.NotNull(directors);
+        var listed = directors.Single(d => d.DirectorId == id);
+        Assert.Equal(req.EndpointUnreachableReason, listed.EndpointUnreachableReason);
+    }
+
+    [Fact]
     public async Task Heartbeat_updates_last_seen()
     {
         var id = Guid.NewGuid().ToString();

@@ -41,7 +41,7 @@ public sealed class GatewayClientVerifyTests : IAsyncLifetime
         var cfg = new GatewayConfig { Url = $"http://127.0.0.1:{_gateway.Port}", Token = "" };
         using var client = new GatewayClient(cfg, id, port: 65501, version: "9.9.9-test")
         {
-            MagicDnsResolver = () => "test-node.test-tailnet.ts.net",
+            IdentityResolver = { LocalApiProbe = () => null, CliProbe = () => "test-node.test-tailnet.ts.net" },
             EndpointVerifier = (_, _) => Task.FromResult<string?>("healthz probe timed out after 5s (serve mapping: tailscale CLI not found)"),
         };
         client.Start();
@@ -64,7 +64,7 @@ public sealed class GatewayClientVerifyTests : IAsyncLifetime
         var cfg = new GatewayConfig { Url = $"http://127.0.0.1:{_gateway.Port}", Token = "" };
         using var client = new GatewayClient(cfg, id, port: 65502, version: "9.9.9-test")
         {
-            MagicDnsResolver = () => "test-node.test-tailnet.ts.net",
+            IdentityResolver = { LocalApiProbe = () => null, CliProbe = () => "test-node.test-tailnet.ts.net" },
             EndpointVerifier = (endpoint, _) =>
             {
                 Interlocked.Increment(ref verifierCalls);
@@ -92,7 +92,7 @@ public sealed class GatewayClientVerifyTests : IAsyncLifetime
         var cfg = new GatewayConfig { Url = $"http://127.0.0.1:{_gateway.Port}", Token = "" };
         using var client = new GatewayClient(cfg, id, port: 65503, version: "9.9.9-test")
         {
-            MagicDnsResolver = () => "test-node.test-tailnet.ts.net",
+            IdentityResolver = { LocalApiProbe = () => null, CliProbe = () => "test-node.test-tailnet.ts.net" },
             EndpointVerifier = (_, _) => Task.FromResult(
                 Interlocked.Increment(ref calls) == 1 ? "healthz probe timed out after 5s" : null),
         };
