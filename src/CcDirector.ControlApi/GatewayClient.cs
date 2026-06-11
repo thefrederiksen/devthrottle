@@ -376,11 +376,15 @@ public sealed class GatewayClient : IDisposable
 
     /// <summary>
     /// The turn-end doorbell (issue #186): announce THAT a session's mechanical state
-    /// changed - {sessionId, newState}, nothing else. Fire-and-forget: failures are logged
-    /// and dropped (the heartbeat snapshot reconciles within 15s); not sent while
+    /// changed - {sessionId, newState}, nothing else. Issue #330 extends the same channel
+    /// with an optional event-vocabulary tag (<see cref="DoorbellEvents"/>): session-created,
+    /// session-exited, prompt-detected ride the very same fire-and-forget ping. Failures are
+    /// logged and dropped (the heartbeat snapshot reconciles within 15s); not sent while
     /// unregistered (the registration itself triggers the Gateway's catch-up).
     /// </summary>
-    public void NotifySessionState(string sessionId, string newState)
+    /// <param name="eventName">Optional <see cref="DoorbellEvents"/> name when this ping
+    /// announces a lifecycle moment; null = a plain activity-transition ping (pre-#330 shape).</param>
+    public void NotifySessionState(string sessionId, string newState, string? eventName = null)
     {
         if (!_config.IsEnabled || _disposed || !_registered) return;
         var cts = _cts;
@@ -390,7 +394,7 @@ public sealed class GatewayClient : IDisposable
         {
             try
             {
-                var req = new DoorbellRequest { SessionId = sessionId, NewState = newState };
+                var req = new DoorbellRequest { SessionId = sessionId, NewState = newState, Event = eventName };
                 var resp = await _http.PostAsJsonAsync($"directors/{_directorId}/doorbell", req, cts.Token);
                 if (!resp.IsSuccessStatusCode)
                     FileLog.Write($"[GatewayClient] doorbell {sessionId} -> {(int)resp.StatusCode} (dropped; heartbeat reconciles)");

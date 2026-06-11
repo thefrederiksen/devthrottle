@@ -39,6 +39,13 @@ public sealed class GatewayHost : IAsyncDisposable
     /// </summary>
     public SessionOwnerCache SessionOwners { get; } = new();
 
+    /// <summary>
+    /// Issue #330: the per-director ring of received doorbell events (session-created /
+    /// session-exited / prompt-detected) - the minimal Phase-1 observable sink, served at
+    /// GET /directors/{id}/events. In-memory by design (resets on Gateway restart).
+    /// </summary>
+    public Events.DirectorEventLog DirectorEvents { get; } = new();
+
     /// <summary>When this host was constructed - the Cockpit Settings page reads it for uptime.</summary>
     public DateTime StartedAtUtc { get; } = DateTime.UtcNow;
 
@@ -363,7 +370,9 @@ public sealed class GatewayHost : IAsyncDisposable
             briefHistoryFor: sid => _turnBriefStore.List(sid),
             // Issue #288: record session->Director ownership as the fleet is aggregated, so the WS
             // proxy can return 503 (owner offline) rather than 404 for a session whose Director went dark.
-            owners: SessionOwners);
+            owners: SessionOwners,
+            // Issue #330: doorbell event-vocabulary pings land in the per-director event ring.
+            directorEvents: DirectorEvents);
 
         // Issue #268: the two raw per-session WebSocket legs (live Terminal stream + dictation)
         // proxied through the Gateway so a remote Cockpit talks same-origin to the Gateway and

@@ -1,0 +1,33 @@
+﻿=== AC1+AC2: doorbell event vocabulary observed at the Gateway (GET /directors/{id}/events) ===
+Live rig: slot-6 Director (cc-director6.exe PID 45528, isolated root) registered with the
+NEW-code test Gateway (GwProofHost, port 7978, isolated root). Times are UTC.
+
+POST /sessions (17:20:45.775 local) -> session-created received 17:20:45.874Z (99 ms, < 5 s)
+POST /sessions/{sid}/prompt -> session worked; detector transitioned into WaitingForInput
+  -> prompt-detected received 17:21:11.392Z
+DELETE /sessions/{sid} -> session-exited received 17:21:17.570Z, count=1 (exactly once:
+  state->Exited and roster-removal are deduped by the announce guard)
+
+Ring entries for session f73718d2-1a73-42aa-8bd2-ad3e94fad696:
+[
+    {
+        "receivedAt":  "2026-06-11T17:20:45.8747015Z",
+        "sessionId":  "f73718d2-1a73-42aa-8bd2-ad3e94fad696",
+        "event":  "session-created",
+        "state":  "WaitingForInput"
+    },
+    {
+        "receivedAt":  "2026-06-11T17:21:11.3922892Z",
+        "sessionId":  "f73718d2-1a73-42aa-8bd2-ad3e94fad696",
+        "event":  "prompt-detected",
+        "state":  "WaitingForInput"
+    },
+    {
+        "receivedAt":  "2026-06-11T17:21:17.5702429Z",
+        "sessionId":  "f73718d2-1a73-42aa-8bd2-ad3e94fad696",
+        "event":  "session-exited",
+        "state":  "Exited"
+    }
+]
+
+Structured Gateway log lines: see ac1-gateway-structured-log.txt

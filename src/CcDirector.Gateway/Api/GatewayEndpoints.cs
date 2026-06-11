@@ -32,12 +32,17 @@ internal static class GatewayEndpoints
     /// <param name="briefHistoryFor">Issue #212 W4: the full turn-brief history for a session
     /// id, oldest first - the raw material the restore endpoint builds its continuation
     /// context from. Reads the durable brief store, so it serves dead sessions too.</param>
+    /// <param name="directorEvents">Issue #330: the per-director event ring recording the
+    /// doorbell event vocabulary (session-created/session-exited/prompt-detected) so the
+    /// events are observable at GET /directors/{id}/events. Null (old callers, tests that
+    /// don't care) records nothing and the events route serves empty lists.</param>
     public static void Map(IEndpointRouteBuilder app, DirectorRegistry registry, DirectorEndpointClient client, string version, string token, bool authEnabled = false, Func<bool>? requestShutdown = null,
         Action<string, string, string>? onSessionState = null, Func<string, string?>? assessedStateFor = null,
         Func<string, (string BriefingState, string? RailLine)>? briefStampFor = null,
         Func<string, (string? RailLine, string? Headline)>? interruptedBriefFor = null,
         Func<string, List<TurnBriefDto>>? briefHistoryFor = null,
-        SessionOwnerCache? owners = null)
+        SessionOwnerCache? owners = null,
+        Gateway.Events.DirectorEventLog? directorEvents = null)
     {
         // Graceful exit for the self-update helper: answer first (so the caller gets its 200),
         // then hand off to the host's shutdown handler shortly after. 501 when the hosting
@@ -232,7 +237,10 @@ internal static class GatewayEndpoints
         // Issue #186: the turn-end doorbell. The Director announces THAT a session's
         // mechanical state changed; the Gateway pulls the truth afterwards. Always 200 for
         // a known Director (a dropped observation costs nothing - the heartbeat reconciles);
-        // 410 tells an unregistered Director to re-register first.
+        // 410 tells an unregistered Director to re-register first. Issue #330: the same
+        // ping may carry an event-vocabulary tag (session-created/session-exited/
+        // prompt-detected) which lands in the per-director event ring; a tag-less ping is
+        // the pre-#330 shape and records nothing.
         app.MapPost("/directors/{id}/doorbell", (string id, DoorbellRequest req) =>
         {
             if (registry.Get(id) is null)
@@ -241,8 +249,22 @@ internal static class GatewayEndpoints
                 return Results.BadRequest(new { error = "sessionId and newState are required" });
 
             registry.MarkStateReporting(id);
+            if (directorEvents is not null && !string.IsNullOrEmpty(req.Event))
+                directorEvents.Record(id, req.SessionId, req.Event, req.NewState);
             onSessionState?.Invoke(id, req.SessionId, req.NewState);
             return Results.Json(new { ok = true });
+        });
+
+        // Issue #330: the per-director event debug surface - the recent doorbell events
+        // (session-created/session-exited/prompt-detected) the Gateway has recorded for a
+        // KNOWN director, oldest first. This is the minimal Phase-1 observable sink; the
+        // real consumer (the SSE/WS event hub) is Phase 3.
+        app.MapGet("/directors/{id}/events", (string id) =>
+        {
+            if (registry.Get(id) is null)
+                return Results.NotFound(new { error = "director not found" });
+            var events = directorEvents?.For(id) ?? (IReadOnlyList<DirectorEventDto>)Array.Empty<DirectorEventDto>();
+            return Results.Json(new { directorId = id, events });
         });
 
         // Two-way connectivity handshake (issues #223/#224). The Director POSTs a fresh
@@ -849,6 +871,20 @@ internal static class GatewayEndpoints
             var repos = await client.ListReposAsync(d.ControlEndpoint);
             if (repos is null) return Results.StatusCode(StatusCodes.Status502BadGateway);
             return Results.Json(repos);
+        });
+
+        // Issue #330: pull a registered Director's machine facts (tool inventory with
+        // versions + launcher presence/port) through the existing proxy leg. Pulled on
+        // demand rather than pushed in registration/heartbeat: the inventory is large and
+        // changes rarely, so riding the 15s heartbeat would bloat the hot path for a fact
+        // a consumer reads occasionally.
+        app.MapGet("/directors/{id}/facts", async (string id) =>
+        {
+            var d = registry.Get(id);
+            if (d is null) return Results.NotFound(new { error = "director not found" });
+            var facts = await client.GetFactsAsync(d.ControlEndpoint);
+            if (facts is null) return Results.StatusCode(StatusCodes.Status502BadGateway);
+            return Results.Json(facts);
         });
 
         app.MapPost("/directors/{id}/sessions", async (string id, NewSessionRequest req) =>

@@ -494,6 +494,22 @@ public sealed class DirectorEndpointClient : IDisposable
         }
     }
 
+    /// <summary>The Director's machine facts (issue #330): tool inventory with versions +
+    /// launcher presence/port. Null when the Director is unreachable or predates GET /facts
+    /// (an old build's 404 lands here as null too - the proxy then answers 502).</summary>
+    public async Task<DirectorFactsDto?> GetFactsAsync(string endpoint, CancellationToken ct = default)
+    {
+        try
+        {
+            return await _http.GetFromJsonAsync<DirectorFactsDto>($"{endpoint}/facts", ct);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[DirectorEndpointClient] GetFactsAsync FAILED: endpoint={endpoint}, error={ex.Message}");
+            return null;
+        }
+    }
+
     public async Task<List<CoachingCategoryDto>?> ListCoachingCategoriesAsync(string endpoint, CancellationToken ct = default)
     {
         try
