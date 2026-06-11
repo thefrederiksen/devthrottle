@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #264 (PR #308)</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; color: #1a1a1a; }
+  h1 { border-bottom: 2px solid #333; padding-bottom: .3rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .75rem; text-align: left; vertical-align: top; }
+  th { background: #f0f0f0; }
+  .pass { color: #0a7d28; font-weight: bold; }
+  .verdict { background: #e6f7e9; border: 1px solid #0a7d28; padding: 1rem; margin-top: 1rem; font-size: 1.1rem; }
+  code, pre { background: #f5f5f5; padding: .1rem .3rem; border-radius: 3px; font-family: Consolas, monospace; }
+  pre { padding: .75rem; overflow-x: auto; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #264</h1>
+<p><strong>Title:</strong> [Tests] Deterministic rewrite of the flaky PromptInjectionWatcher wingman-source test</p>
+<p><strong>PR:</strong> #308 (branch loop/264-flaky-promptinjection-test)</p>
+<p><strong>QA Agent:</strong> independent verifier (fresh context; did not see the Developer's reasoning).</p>
+<p><strong>Date:</strong> 2026-06-10</p>
+
+<h2>Independent verification method</h2>
+<p>Checked out the PR branch fresh, confirmed local HEAD == origin PR branch, read the diff
+independently, built the test project, and ran the test 50 consecutive times myself. Did NOT reuse
+the Developer's binary or 50x log.</p>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (my proof)</th><th>Result</th></tr>
+<tr>
+  <td>1</td>
+  <td>Test no longer skipped; asserts on the "wingman"-source captured event, not PendingPromptText.</td>
+  <td><code>[Fact(Skip)]</code> removed; assert is on the captured wingman value.</td>
+  <td>Diff shows <code>[Fact(Skip=...)]</code> -&gt; <code>[Fact]</code>. The final assert is
+      <code>Assert.Equal(expected, await pushed.Task)</code> where <code>pushed</code> is set only
+      when <code>source == "wingman"</code>. The <code>PendingPromptText</code> assert is removed.
+      A live run reports <code>Skipped: 0</code>.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td>Passes deterministically - green across 50 consecutive runs locally.</td>
+  <td>50/50 green.</td>
+  <td>My own loop of <code>dotnet test --no-build --filter ...PromptInjectionWatcher_pushes_extracted_text_via_wingman_source</code>
+      ran 50 times: <strong>PASS=50, FAIL=0</strong>. No fail log produced.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>3</td>
+  <td>No fixed Task.Delay-then-assert; single scan driven via RequestImmediateScan() after grid confirmed resolved.</td>
+  <td>Scan is event-driven, not delay-driven.</td>
+  <td>Diff: the old <code>await Task.Delay(1500)</code>-then-assert is gone. The grid is confirmed
+      resolved first (<code>SnapshotScreenRowsWithCursor</code> + <code>ExtractUserAuthoredInput</code>
+      == expected), one scan fires via <code>watcher.RequestImmediateScan()</code>, and the result is
+      awaited through a <code>TaskCompletionSource</code>. The remaining 10s <code>Task.WhenAny</code>
+      is a hang guard only, not a settle delay.</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Regression and method checks</h2>
+<ul>
+<li>Production file <code>src/CcDirector.Core/Wingman/SessionStatusWingman.cs</code> is UNTOUCHED by this PR
+    (empty diff); the <code>RequestImmediateScan()</code> seam already existed at line 340. No production
+    behavior change.</li>
+<li>Full <code>SessionStatusWingmanTests</code> class: <strong>37 passed, 0 skipped, 0 failed</strong>.</li>
+<li>CenCon impact: none. Test-only change exercising an existing internal seam; no architecture/security drift.</li>
+<li>Merge gate: <code>dotnet build cc-director.sln</code> -&gt; <strong>Build succeeded, 0 Warning(s), 0 Error(s)</strong>.</li>
+</ul>
+
+<h2>50-run evidence (my run)</h2>
+<pre>Progress: 10 done, pass=10 fail=0
+Progress: 20 done, pass=20 fail=0
+Progress: 30 done, pass=30 fail=0
+Progress: 40 done, pass=40 fail=0
+Progress: 50 done, pass=50 fail=0
+==== FINAL: PASS=50 FAIL=0 of 50 ====</pre>
+
+<div class="verdict">VERIFIED - all acceptance criteria met. 3/3 criteria PASS, 50/50 green in independent run,
+full Wingman class green, solution builds clean. Merging.</div>
+</body>
+</html>
