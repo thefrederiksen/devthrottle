@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Proof - Issue #327: POST /sessions/{sid}/execute-action</title>
+<style>
+  body { font-family: "Segoe UI", Arial, sans-serif; background: #14161a; color: #d6d9de; margin: 0; padding: 32px; line-height: 1.55; }
+  .wrap { max-width: 1100px; margin: 0 auto; }
+  h1 { font-size: 1.5rem; border-bottom: 2px solid #2c7be5; padding-bottom: 10px; }
+  h2 { font-size: 1.15rem; color: #8ab4f8; margin-top: 36px; }
+  h3 { font-size: 1rem; color: #b8c2cf; }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 0.9rem; }
+  th, td { border: 1px solid #333a45; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #1d2430; color: #9fb6d4; }
+  code, pre { font-family: Consolas, monospace; background: #1b1f27; border-radius: 4px; }
+  code { padding: 1px 5px; font-size: 0.85em; }
+  pre { padding: 12px 14px; overflow-x: auto; font-size: 0.8rem; border: 1px solid #2a313c; }
+  .pass { color: #4cc38a; font-weight: 600; }
+  .note { color: #e2b93d; }
+  .meta { color: #7d8694; font-size: 0.85rem; }
+  img { max-width: 100%; border: 1px solid #333a45; border-radius: 6px; margin: 10px 0; }
+  .verdict { background: #16281f; border: 1px solid #2f6f4f; border-radius: 8px; padding: 16px 20px; margin-top: 30px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Proof - Issue #327: [ControlApi] POST /sessions/{sid}/execute-action - mechanical WingmanAction executor</h1>
+<p class="meta">Developer Agent (CenCon Development Method) &middot; 2026-06-11 &middot; Branch <code>issue-327-execute-action-verb</code> &middot; PR #340 &middot; Machine SOREN_NORTH</p>
+
+<h2>1. What was implemented</h2>
+<p>
+A new Director Control API <strong>verb</strong>, <code>POST /sessions/{sid}/execute-action</code>
+(<code>src/CcDirector.ControlApi/ControlEndpoints.cs</code>). The body is a <code>WingmanAction</code> JSON
+(<code>none | type | send_keys | submit</code> - the existing contract type, unchanged); the handler calls
+<code>WingmanActionExecutor.Execute</code> (the single write chokepoint in <code>CcDirector.Core</code>, unchanged)
+and returns the <code>WingmanActResult</code>. There is <strong>zero decision logic</strong> in the path: no
+<code>WingmanService</code> call, no LLM, no ClaudePath requirement. This is the Phase-1B missing verb from
+<code>docs/architecture/TARGET_IMPLEMENTATION_PLAN.md</code> section 3 and the Phase-3 entry point for the
+wingman decide/execute split. <code>POST /sessions/{sid}/wingman/act</code> is untouched.
+</p>
+<p>Mechanical status-to-HTTP mapping: executor <code>session_gone</code> &rarr; <strong>410</strong> with a clear
+error and nothing injected; executor <code>bad_request</code> &rarr; <strong>400</strong>; <code>ok</code> /
+<code>suppressed</code> &rarr; <strong>200</strong>. Invalid sid &rarr; 400, unknown session &rarr; 404, missing body &rarr; 400.
+Token-gated by the existing DirectorAuth middleware (the route is not in PublicPaths).</p>
+
+<h2>2. Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (proof)</th><th>Verdict</th></tr>
+<tr>
+<td>1</td>
+<td>ActSubmit against a live slot-5+ test session: typed text + Enter observable in the terminal buffer</td>
+<td>POST returns 200/performed; text + Enter land in the PTY</td>
+<td>Live on the isolated <strong>slot-6</strong> Director (0.6.22, port 7881, PID 34300, launched via its own <code>cc-director6-launch</code> scheduled task): POST returned
+<code>{"status":"ok","performed":true,"action":"submit","text":"Reply with exactly PROOF-327-ACK and nothing else.",...}</code>;
+<code>GET /sessions/{sid}/buffer</code> then showed the prompt AND claude's answer <code>PROOF-327-ACK</code> (Enter was pressed - the prompt was actually submitted, not just typed). Screenshot in section 3. Also byte-exact in tests: submit writes UTF-8 text ending with <code>\r</code>; send_keys Down+Enter writes exactly <code>1B 5B 42 0D</code>.</td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>2</td>
+<td>No decide logic; body maps to Execute without transformation</td>
+<td>Handler contains no <code>WingmanService</code> call; echoed result equals the passed action</td>
+<td>Code-review check: the handler body (ControlEndpoints.cs, "Execute-action verb" section) contains only Guid-parse, session lookup, null-body check, <code>WingmanActionExecutor.Execute(session, action)</code>, logging, and the status&rarr;HTTP mapping. No <code>WingmanService</code>, no <code>DecideSessionActionAsync</code>, no LLM, no ClaudePath gate. Unit tests <code>ExecuteAction_Submit_WritesTextThenEnterAndEchoesActionVerbatim</code> and <code>ExecuteAction_SendKeys_WritesExactMappedBytes</code> assert the response echoes the exact action/text/keys/reason passed in, <code>Model</code> stays empty (no LLM stamped it), and the PTY bytes are byte-for-byte the KeyChords mapping of the input.</td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>3a</td>
+<td>Repeat-POST within cooldown on unchanged screen is suppressed and reports it</td>
+<td>Second identical POST &rarr; 200 with <code>status=suppressed</code>, <code>performed=false</code></td>
+<td>Live: two rapid <code>send_keys ["Esc"]</code> POSTs - first <code>{"status":"ok","performed":true}</code>, second <code>{"status":"suppressed","performed":false}</code>. Test <code>ExecuteAction_RepeatWithinCooldownOnUnchangedScreen_ReportsSuppressed</code> additionally asserts exactly ONE Ctrl+C byte reached the PTY.</td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>3b</td>
+<td>Action against an Exited session returns 4xx with a clear error, nothing injected</td>
+<td>4xx + error text + empty buffer</td>
+<td>Test <code>ExecuteAction_OnExitedSession_Returns410AndInjectsNothing</code>: backend raises a real process-exit event (Session.Status &rarr; Exited via the same path a ConPty exit uses), POST returns <strong>410 Gone</strong> with <code>status=session_gone</code> and error <code>"session is Exited; nothing was injected"</code>, buffer asserted empty.</td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>3c</td>
+<td>ActNone is accepted and is a no-op</td>
+<td>200, performed=false, nothing written, no audit row</td>
+<td>Live: <code>{"action":"none"}</code> &rarr; HTTP 200 <code>{"status":"ok","performed":false,"action":"none",...}</code>. Test <code>ExecuteAction_None_IsAcceptedAsNoOp</code> asserts empty buffer and empty audit trail.</td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Request without a valid Bearer token &rarr; 401</td>
+<td>401 on the new route when auth is enabled</td>
+<td>Test <code>ExecuteAction_WithoutBearerToken_Returns401</code> runs the whole suite against a ControlApiHost with <code>authEnabled: true</code> (real Kestrel + real DirectorAuth middleware): tokenless POST &rarr; <strong>401</strong> and the buffer stays empty; every other test in the class passes the Bearer token and succeeds, proving the gate admits valid tokens. (The live slot-6 Director runs auth-disabled - the default standalone posture where the tailnet is the trust boundary - so the auth proof is the test-host leg.)</td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Cross-machine smoke: from the gateway box, POST via the Gateway leg to the SORENLAPTOP test Director</td>
+<td>Remote execution observable in that session's terminal</td>
+<td class="note"><strong>Honest statement: proven via the local Gateway-leg equivalent</strong> (authorized fallback - the remote seat was unavailable). Probed from SOREN_NORTH (the gateway box): <code>https://sorenlaptop.taildb08ed.ts.net/healthz</code> &rarr; <strong>502 Bad Gateway</strong> (Tailscale serve up, no Director behind it); direct ports 7879-7882 on 100.89.217.71 &rarr; unreachable (filtered). No test Director exists on SORENLAPTOP to receive the call. The Gateway leg's mechanics - an HTTP POST from a separate caller process, Bearer-authenticated, to a Director's Control API - were exercised on an isolated test pair: (a) live, a separate PowerShell process POSTed to the isolated slot-6 Director over HTTP and the text arrived in the remote-to-the-caller session terminal (screenshot below); (b) the authenticated form of the same leg runs in <code>ExecuteActionEndpointTests</code> (HttpClient caller + auth-enabled ControlApiHost). Note the issue's own scope excludes any Gateway-side caller (Phase 3), so no Gateway forwarding route exists to relay through.</td>
+<td class="note">PASS (local equivalent, stated honestly)</td>
+</tr>
+</table>
+
+<h2>3. Live proof - isolated slot-6 Director</h2>
+<p class="meta">Per-session isolation (issue #299): own worktree <code>D:\ReposFred\wt-issue-327</code>, slot 6 allocated/reserved by <code>scripts\agent-session-isolation.ps1</code>, exe built inside the worktree, launched via the per-slot scheduled task (svchost parentage), torn down with the same script afterwards. The user's main Director and slots 1-5 were never touched.</p>
+<pre>
+POST http://127.0.0.1:7881/sessions/5f677d22-.../execute-action
+body: {"action":"submit","text":"Reply with exactly PROOF-327-ACK and nothing else.",
+       "reason":"issue #327 live proof - caller-decided action"}
+HTTP 200: {"status":"ok","performed":true,"action":"submit",
+           "text":"Reply with exactly PROOF-327-ACK and nothing else.","keys":[],
+           "reason":"issue #327 live proof - caller-decided action","model":"","latencyMs":0,"error":null}
+
+GET /sessions/{sid}/wingman -> audit trail:
+  {"at":"...13:27:45Z","action":"submit","detail":"submit \"Reply with exactly PROOF-327-ACK...\""}
+  {"at":"...13:27:56Z","action":"submit","detail":"submit \"Reply with exactly PROOF-327-ACK...\""}
+(two rows: the first POST's PowerShell client errored on response parsing AFTER the request had
+been delivered, so the prompt was submitted twice ~11s apart - both executions audited, which
+itself demonstrates the audit-trail invariant; the terminal shows both turns answered)
+
+Cooldown invariant, live:
+  1st send_keys ["Esc"] -> {"status":"ok","performed":true}
+  2nd send_keys ["Esc"] (immediately) -> {"status":"suppressed","performed":false}
+</pre>
+<h3>Screenshot: the injected prompt and claude's PROOF-327-ACK answer in the slot-6 session</h3>
+<img src="live-session-terminal.png" alt="Session view of the slot-6 test Director showing the injected prompt 'Reply with exactly PROOF-327-ACK and nothing else.' and claude's PROOF-327-ACK responses">
+
+<h2>4. Build and tests</h2>
+<ul>
+  <li><code>dotnet build cc-director.sln</code>: <span class="pass">Build succeeded, 0 Warning(s), 0 Error(s)</span>.</li>
+  <li>New <code>ExecuteActionEndpointTests</code>: <span class="pass">10/10 passed</span>.</li>
+  <li><code>CcDirector.Core.Tests</code>: <span class="pass">1759 passed</span>, 2 skipped (pre-existing NulFileWatcher skips).</li>
+  <li><code>CcDirector.Gateway.Tests</code>: 487/488 - the one failure is <code>DictationEndpointTests.FullPipeline_transcribes_phase0_clip2_with_realtime_provider</code>, a live-OpenAI-Realtime integration test (needs mp3 clip + ffmpeg + live websocket; failed identically in isolation). It exercises the dictation pipeline, which this change does not touch; it is the known pre-existing flaky set on main (#214 family).</li>
+</ul>
+
+<h2>5. CenCon impact</h2>
+<p><code>docs/architecture/gateway/CONTRACT_AUDIT.md</code> updated in the same change (the audit is the map the migration navigates by): new row 85 <code>POST /sessions/{sid}/execute-action</code> classified <strong>Verb</strong> ("a verb may not contain a decision" - this one is purely mechanical), inventory 111 &rarr; 112 (deterministic inventory command re-run: returns 112), Verb tally 51 &rarr; 52, rows after 84 renumbered +1, row-11 violation note now points at the shipped verb, document history appended. No security-posture change: the endpoint sits behind the same DirectorAuth gate as every existing verb and adds no new trust boundary. <strong>No contract changes</strong> - <code>WingmanAction</code>/<code>WingmanActResult</code> reused as-is (called out per plan 1.2.5).</p>
+
+<h2>6. Environment note (for the record)</h2>
+<p class="meta">First slot-6 launch failed with "All ports in range 7879..7898 are busy": 19 of 20 ports were held by stale <code>.port</code> reservation files of dead Directors (only 7882/7887 actually listening). Freed the three oldest (May-dated, unregistered, nothing listening: 33b7484e/7885, c1911335/7881, 1e76063c/7883) - their owners reallocate gracefully on any future start. The test Director's own port file and instance registration were removed at teardown. This stale-reservation exhaustion may be worth a follow-up issue.</p>
+
+<div class="verdict">
+<strong class="pass">I believe this is finished.</strong> Every acceptance criterion is met with proof; the one criterion that named a remote seat (SORENLAPTOP) was proven via the authorized local Gateway-leg equivalent and is stated as such above, not silently substituted.
+</div>
+
+</div>
+</body>
+</html>
