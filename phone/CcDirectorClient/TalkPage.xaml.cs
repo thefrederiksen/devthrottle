@@ -495,11 +495,6 @@ public partial class TalkPage : ContentPage
         _voiceTurnBusy = true;
         VoiceRecordButton.IsEnabled = false;
 
-        // Ensure the wingman is active for this session - voice mode requires it for
-        // reply summarization, regardless of the gateway default. Best-effort.
-        _ = new DirectorVoiceClient(TokenEntry.Text ?? "")
-            .SetWingmanEnabledAsync(session.TailnetEndpoint, session.SessionId, true);
-
         var convo = new VoiceConversation(new DirectorVoiceClient(TokenEntry.Text ?? ""), _tts);
         _voiceTurnCts?.Cancel();
         _voiceTurnCts = new CancellationTokenSource();

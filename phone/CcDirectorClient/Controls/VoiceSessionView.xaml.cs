@@ -221,10 +221,6 @@ public partial class VoiceSessionView : ContentView
         var voiceClient = new DirectorVoiceClient(_tokenProvider());
         _ = voiceClient.SetVoiceModeAsync(session.TailnetEndpoint, session.SessionId, true);
 
-        // Walkie-talkie mode requires the wingman for reply summarization: ensure it is
-        // active for this session regardless of the gateway's default. Best-effort.
-        if (WalkieTalkieMode)
-            _ = voiceClient.SetWingmanEnabledAsync(session.TailnetEndpoint, session.SessionId, true);
 
         SetBusy(false);
 
