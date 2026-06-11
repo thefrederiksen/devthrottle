@@ -1,0 +1,22 @@
+=== FLEET AFTER (QA) 2026-06-11T04:51:43.6568655-04:00 ===
+--- cc-director processes ---
+
+   Id ProcessName         Path                                                                    
+   -- -----------         ----                                                                    
+21128 cc-director         C:\Users\soren\AppData\Local\cc-director\app\cc-director.exe            
+65232 cc-director-cockpit C:\Users\soren\AppData\Local\cc-director\cockpit\cc-director-cockpit.exe
+42928 cc-director-gateway C:\Users\soren\AppData\Local\cc-director\gateway\cc-director-gateway.exe
+--- listeners 7878/7470/7887 ---
+
+LocalAddress              LocalPort OwningProcess
+------------              --------- -------------
+127.0.0.1                      7470         65232
+0.0.0.0                        7878         42928
+fd7a:115c:a1e0::c038:501a      7887          8640
+--- cc-director*-launch scheduled tasks ---
+
+TaskName                   State
+--------                   -----
+cc-director-gateway-launch Ready
+cc-director-launch         Ready
+cc-director2-launch        Ready

@@ -1,0 +1,56 @@
+2026-06-11T08:50:01.815Z [QA-RUN-B] RUN START worktree=D:\ReposFred\wt-issue-299-qa-b pid_of_runner=56620
+2026-06-11T08:50:01.846Z [QA-RUN-B] STEP allocate
+2026-06-11T08:50:03.477Z [QA-RUN-B]   [allocate] slot 6 lost in registration race (Cannot create a file when that file already exists.
+2026-06-11T08:50:03.478Z [QA-RUN-B]   ); trying next
+2026-06-11T08:50:03.479Z [QA-RUN-B]   [allocate] SLOT=7
+2026-06-11T08:50:03.479Z [QA-RUN-B]   [allocate] TASK=cc-director7-launch
+2026-06-11T08:50:03.480Z [QA-RUN-B]   [allocate] MANIFEST=D:\ReposFred\wt-issue-299-qa-b\local_builds\agent-session-slot7.json
+2026-06-11T08:50:03.481Z [QA-RUN-B]   [allocate] Next: build the slot exe from the worktree root:
+2026-06-11T08:50:03.482Z [QA-RUN-B]   [allocate]   powershell -NoProfile -File "D:\ReposFred\wt-issue-299-qa-b\scripts\local-build-avalonia.ps1" -Slot 7
+2026-06-11T08:50:03.538Z [QA-RUN-B] ALLOCATED slot=7 manifest=D:\ReposFred\wt-issue-299-qa-b\local_builds\agent-session-slot7.json
+2026-06-11T08:50:03.539Z [QA-RUN-B] STEP build (local-build-avalonia.ps1 -Slot 7, cwd=D:\ReposFred\wt-issue-299-qa-b)
+2026-06-11T08:50:17.468Z [QA-RUN-B]   Building CC Director Avalonia v0.6.22 (Release)
+2026-06-11T08:50:17.470Z [QA-RUN-B]     Mode: Framework-dependent (.NET 10 runtime required)
+2026-06-11T08:50:17.471Z [QA-RUN-B]     Cleaning previous build...
+2026-06-11T08:50:17.471Z [QA-RUN-B]     Pre-building Core dependency...
+2026-06-11T08:50:17.472Z [QA-RUN-B]   
+2026-06-11T08:50:17.474Z [QA-RUN-B]   Build succeeded.
+2026-06-11T08:50:17.474Z [QA-RUN-B]       0 Warning(s)
+2026-06-11T08:50:17.476Z [QA-RUN-B]       0 Error(s)
+2026-06-11T08:50:17.477Z [QA-RUN-B]   
+2026-06-11T08:50:17.478Z [QA-RUN-B]   Time Elapsed 00:00:02.57
+2026-06-11T08:50:17.479Z [QA-RUN-B]     Building Avalonia project...
+2026-06-11T08:50:17.480Z [QA-RUN-B]   
+2026-06-11T08:50:17.481Z [QA-RUN-B]   Build succeeded.
+2026-06-11T08:50:17.482Z [QA-RUN-B]       0 Warning(s)
+2026-06-11T08:50:17.482Z [QA-RUN-B]       0 Error(s)
+2026-06-11T08:50:17.484Z [QA-RUN-B]   
+2026-06-11T08:50:17.485Z [QA-RUN-B]   Time Elapsed 00:00:08.06
+2026-06-11T08:50:17.486Z [QA-RUN-B]     Publishing...
+2026-06-11T08:50:17.487Z [QA-RUN-B]   MSBuild version 18.6.4+96856fd72 for .NET
+2026-06-11T08:50:17.488Z [QA-RUN-B]     CcDirector.Avalonia -> D:\ReposFred\wt-issue-299-qa-b\src\CcDirector.Avalonia\bin\Release\net10.0\win-x64\publish\
+2026-06-11T08:50:17.489Z [QA-RUN-B]   
+2026-06-11T08:50:17.490Z [QA-RUN-B]   Build complete: 38.3 MB
+2026-06-11T08:50:17.490Z [QA-RUN-B]     D:\ReposFred\wt-issue-299-qa-b\local_builds\cc-director7.exe
+2026-06-11T08:50:17.491Z [QA-RUN-B] BUILD OK slot=7
+2026-06-11T08:50:17.492Z [QA-RUN-B] STEP launch
+2026-06-11T08:50:24.558Z [QA-RUN-B]   [launch] starting scheduled task cc-director7-launch
+2026-06-11T08:50:24.562Z [QA-RUN-B]   [launch] PID=48208
+2026-06-11T08:50:24.577Z [QA-RUN-B]   [launch] PORT=7895
+2026-06-11T08:50:24.579Z [QA-RUN-B]   [launch] LOG=C:\Users\soren\AppData\Local\cc-director\logs\director\director-2026-06-11-48208.log
+2026-06-11T08:50:24.581Z [QA-RUN-B]   [launch] Control API: http://127.0.0.1:7895 (probe GET /healthz)
+2026-06-11T08:50:24.582Z [QA-RUN-B]   [launch] MANIFEST=D:\ReposFred\wt-issue-299-qa-b\local_builds\agent-session-slot7.json (updated)
+2026-06-11T08:50:24.587Z [QA-RUN-B] LAUNCHED pid=48208 port=7895
+2026-06-11T08:50:24.589Z [QA-RUN-B] STEP probe GET http://127.0.0.1:7895/healthz
+2026-06-11T08:50:24.642Z [QA-RUN-B] PROBE status=200 body={"status":"ok","directors":1,"sessions":0,"version":"0.6.22","serverTime":"2026-06-11T08:50:24.6256761Z","directorId":"e69218bc-5420-4c0c-a8f7-4f56f53a703b","machineName":"SOREN_NORTH"}
+2026-06-11T08:50:24.691Z [QA-RUN-B] STEP hold 20s (overlap window, Director alive on port 7895)
+2026-06-11T08:50:44.708Z [QA-RUN-B] STEP teardown (RemoveWorktree=True)
+2026-06-11T08:50:46.833Z [QA-RUN-B]   [teardown] stopping PID 48208 (D:\ReposFred\wt-issue-299-qa-b\local_builds\cc-director7.exe)
+2026-06-11T08:50:46.836Z [QA-RUN-B]   [teardown] PID 48208 exited
+2026-06-11T08:50:46.836Z [QA-RUN-B]   [teardown] unregistered scheduled task cc-director7-launch
+2026-06-11T08:50:46.837Z [QA-RUN-B]   [teardown] removed worktree D:\ReposFred\wt-issue-299-qa-b
+2026-06-11T08:50:46.838Z [QA-RUN-B]   [teardown] done (slot 7 is free again)
+2026-06-11T08:50:46.842Z [QA-RUN-B] ASSERT process pid=48208 gone
+2026-06-11T08:50:47.465Z [QA-RUN-B] ASSERT scheduled task cc-director7-launch unregistered
+2026-06-11T08:50:47.468Z [QA-RUN-B] ASSERT worktree D:\ReposFred\wt-issue-299-qa-b removed
+2026-06-11T08:50:47.469Z [QA-RUN-B] RUN END slot=7 port=7895 pid=48208 result=SUCCESS

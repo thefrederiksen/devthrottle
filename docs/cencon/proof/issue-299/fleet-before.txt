@@ -1,0 +1,17 @@
+LIVE FLEET SNAPSHOT (BEFORE) - 2026-06-11T08:33:56Z
+
+Processes (cc-director* / gateway / cockpit):
+  PID=21128   NAME=cc-director                START=2026-06-10 13:34:24 PATH=C:\Users\soren\AppData\Local\cc-director\app\cc-director.exe
+  PID=42928   NAME=cc-director-gateway        START=2026-06-10 21:32:30 PATH=C:\Users\soren\AppData\Local\cc-director\gateway\cc-director-gateway.exe
+  PID=65232   NAME=cc-director-cockpit        START=2026-06-10 21:32:32 PATH=C:\Users\soren\AppData\Local\cc-director\cockpit\cc-director-cockpit.exe
+
+Listeners on protected ports 7878 (Gateway) / 7470 (Cockpit) / 7887 (Director):
+  PORT=7470    OWNINGPID=65232   OWNER=cc-director-cockpit
+  PORT=7878    OWNINGPID=42928   OWNER=cc-director-gateway
+  PORT=7887    OWNINGPID=8640    OWNER=tailscaled
+  PORT=7887    OWNINGPID=21128   OWNER=cc-director
+
+Registered cc-director*-launch scheduled tasks:
+  TASK=cc-director2-launch               STATE=Ready
+  TASK=cc-director-gateway-launch        STATE=Ready
+  TASK=cc-director-launch                STATE=Ready

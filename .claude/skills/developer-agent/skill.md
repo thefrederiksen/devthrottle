@@ -135,24 +135,40 @@ If, while planning, you discover the spec is underspecified after all, go back t
    dotnet build cc-director.sln
    ```
    Must show `Build succeeded.` and `0 Error(s)`. Fix and rebuild until clean.
-4. **Proof-based verification** (per CLAUDE.md - non-negotiable):
-   - Build a runnable test binary into **slot 5** (reserved for agent test Directors - never the
-     main build or slots 1-4, CLAUDE.md rule 0b):
-     ```powershell
-     scripts\local-build-avalonia.ps1 -Slot 5
-     ```
-   - Launch it via the **`cc-director-launch` scheduled task** - NEVER spawn cc-director.exe from
-     your own process tree (nested ConPTY kills grandchild claudes; CLAUDE.md rule 0b):
-     ```powershell
-     Start-ScheduledTask -TaskName "cc-director-launch"
-     ```
-     Find its Control API port in the latest
-     `%LOCALAPPDATA%\cc-director\logs\director\director-*.log` (`Kestrel listening on http://0.0.0.0:<port>`).
-   - Drive it via the Control API (loopback REST) and/or screenshots; capture a screenshot showing
-     the expected result. State Expected vs Actual for each acceptance criterion.
+4. **Proof-based verification** (per CLAUDE.md - non-negotiable). Your test Director is
+   **per-session isolated** (issue #299): you allocate your OWN slot (>= 6), build inside your OWN
+   worktree, and launch via your OWN per-slot scheduled task - so a concurrent session on this
+   machine never collides with you on slot, build output, or Control API port. The flow is
+   `scripts/agent-session-isolation.ps1` (ASCII output, machine-readable JSON manifest):
+   ```powershell
+   # 1. Allocate + RESERVE a free slot (>= 6; slot 5 is the legacy/manual default and may be
+   #    in use by a human - the allocator never assumes it is free; slots 1-4 and the main
+   #    build are absolutely off-limits, CLAUDE.md rule 0b):
+   powershell -NoProfile -File scripts\agent-session-isolation.ps1 allocate -Worktree <your-worktree>
+   #    -> prints SLOT=<N> and MANIFEST=<worktree>\local_builds\agent-session-slot<N>.json
+
+   # 2. Build the slot exe FROM YOUR WORKTREE ROOT (bin/obj + local_builds stay inside the
+   #    worktree - no shared-tree publish race, the proven #290 fix):
+   powershell -NoProfile -File <your-worktree>\scripts\local-build-avalonia.ps1 -Slot <N>
+
+   # 3. Launch via YOUR per-slot scheduled task (cc-director<N>-launch; clean svchost
+   #    parentage - NEVER spawn cc-director.exe from your own process tree, rule 0b).
+   #    The Director self-allocates its Control API port; launch resolves the PID by exact
+   #    image path and reads the port from the Director's own log:
+   powershell -NoProfile -File scripts\agent-session-isolation.ps1 launch -Manifest <manifest>
+   #    -> prints PID=<pid> and PORT=<port>
+   ```
+   - Drive it via the Control API (loopback REST, `http://127.0.0.1:<port>`) and/or screenshots;
+     capture a screenshot showing the expected result. State Expected vs Actual for each
+     acceptance criterion.
    - If you cannot prove it, it is not done.
-   - Clean up ONLY your slot-5 test Director afterward (confirm the path is `cc-director5.exe`
-     before `Stop-Process`); never kill the main build or the user's slots 1-4 (CLAUDE.md rule 0).
+   - Tear down with the same script - it stops ONLY processes whose image path is exactly your
+     session's exe, unregisters YOUR task, and never touches the main build, slots 1-5, or any
+     other session's Director (CLAUDE.md rule 0):
+     ```powershell
+     powershell -NoProfile -File scripts\agent-session-isolation.ps1 teardown -Manifest <manifest>
+     # add -RemoveWorktree ONLY for a scratch worktree; your primary worktree stays for QA
+     ```
 
 ### Step 5: Hand off to QA with proof (on the PR branch)
 
@@ -250,10 +266,11 @@ match it (standing rule: write code that reads like the surrounding code).
 
 ---
 
-**Skill Version:** 0.4 (DRAFT - second of the four CenCon agents, cc-director)
+**Skill Version:** 0.5 (DRAFT - second of the four CenCon agents, cc-director)
 **Implements:** Developer Agent role in docs/cencon/DEVELOPMENT_METHOD.md
 **Builds on:** review-code (mandatory)
 **Created:** 2026-06-09
 **Changes in 0.2:** Step 5 now commits the IMPLEMENTATION first (not just proof) and adds a mandatory clean-tree gate (git status --porcelain MUST be empty + branch pushed) before the flow:ready-qa hand-off. Added the no-orphan rule: never stop for any reason leaving uncommitted WIP or an unpushed branch.
 **Changes in 0.3:** Banned `git stash` as a way to fake a clean tree (a prior run hid WIP in a stash, which the human had to clean up). The clean-tree gate now also asserts `git stash list` is empty, and the no-orphan rule forbids leaving a stash behind. Also inlined the branch/PR mechanics and issue-comment format previously cited from the deleted implement-issue/bug-fixer skills.
 **Changes in 0.4 (issue #298):** Under the `implementation-loop` the input issue is now `flow:in-progress` (the loop's issue-level claim), not `flow:ready-dev`. The hand-off (Step 5.6), reject (Step 2), and weak-spec escalation now remove BOTH `flow:in-progress` and `flow:ready-dev` so the loop's claim is always released and never left stuck (the loop's Step 4 claim-release gate enforces this).
+**Changes in 0.5 (issue #299):** Replaced the fixed "slot 5 + cc-director-launch" proof instructions with the per-session isolation flow (`scripts/agent-session-isolation.ps1`): each session allocates its own slot (>= 6, reserved atomically via the per-slot scheduled-task registration), builds inside its own worktree, launches via its own `cc-director<N>-launch` task, and discovers the self-allocated Control API port from the Director log - so two implementation sessions can run concurrently on one machine without colliding on slot, build output, or port.

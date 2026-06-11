@@ -1,0 +1,54 @@
+2026-06-11T08:41:07.499Z [RUN-A] RUN START worktree=D:\ReposFred\wt-issue-299-proof-a pid_of_runner=60100
+2026-06-11T08:41:07.531Z [RUN-A] STEP allocate
+2026-06-11T08:41:08.583Z [RUN-A]   [allocate] SLOT=6
+2026-06-11T08:41:08.583Z [RUN-A]   [allocate] TASK=cc-director6-launch
+2026-06-11T08:41:08.585Z [RUN-A]   [allocate] MANIFEST=D:\ReposFred\wt-issue-299-proof-a\local_builds\agent-session-slot6.json
+2026-06-11T08:41:08.586Z [RUN-A]   [allocate] Next: build the slot exe from the worktree root:
+2026-06-11T08:41:08.586Z [RUN-A]   [allocate]   powershell -NoProfile -File "D:\ReposFred\wt-issue-299-proof-a\scripts\local-build-avalonia.ps1" -Slot 6
+2026-06-11T08:41:08.601Z [RUN-A] ALLOCATED slot=6 manifest=D:\ReposFred\wt-issue-299-proof-a\local_builds\agent-session-slot6.json
+2026-06-11T08:41:08.668Z [RUN-A] STEP build (local-build-avalonia.ps1 -Slot 6, cwd=D:\ReposFred\wt-issue-299-proof-a)
+2026-06-11T08:41:20.765Z [RUN-A]   Building CC Director Avalonia v0.6.22 (Release)
+2026-06-11T08:41:20.767Z [RUN-A]     Mode: Framework-dependent (.NET 10 runtime required)
+2026-06-11T08:41:20.769Z [RUN-A]     Cleaning previous build...
+2026-06-11T08:41:20.770Z [RUN-A]     Pre-building Core dependency...
+2026-06-11T08:41:20.771Z [RUN-A]   
+2026-06-11T08:41:20.773Z [RUN-A]   Build succeeded.
+2026-06-11T08:41:20.774Z [RUN-A]       0 Warning(s)
+2026-06-11T08:41:20.775Z [RUN-A]       0 Error(s)
+2026-06-11T08:41:20.777Z [RUN-A]   
+2026-06-11T08:41:20.778Z [RUN-A]   Time Elapsed 00:00:02.12
+2026-06-11T08:41:20.779Z [RUN-A]     Building Avalonia project...
+2026-06-11T08:41:20.781Z [RUN-A]   
+2026-06-11T08:41:20.782Z [RUN-A]   Build succeeded.
+2026-06-11T08:41:20.783Z [RUN-A]       0 Warning(s)
+2026-06-11T08:41:20.785Z [RUN-A]       0 Error(s)
+2026-06-11T08:41:20.786Z [RUN-A]   
+2026-06-11T08:41:20.787Z [RUN-A]   Time Elapsed 00:00:07.63
+2026-06-11T08:41:20.789Z [RUN-A]     Publishing...
+2026-06-11T08:41:20.790Z [RUN-A]   MSBuild version 18.6.4+96856fd72 for .NET
+2026-06-11T08:41:20.793Z [RUN-A]     CcDirector.Avalonia -> D:\ReposFred\wt-issue-299-proof-a\src\CcDirector.Avalonia\bin\Release\net10.0\win-x64\publish\
+2026-06-11T08:41:20.795Z [RUN-A]   
+2026-06-11T08:41:20.796Z [RUN-A]   Build complete: 38.3 MB
+2026-06-11T08:41:20.797Z [RUN-A]     D:\ReposFred\wt-issue-299-proof-a\local_builds\cc-director6.exe
+2026-06-11T08:41:20.799Z [RUN-A] BUILD OK slot=6
+2026-06-11T08:41:20.800Z [RUN-A] STEP launch
+2026-06-11T08:41:23.998Z [RUN-A]   [launch] starting scheduled task cc-director6-launch
+2026-06-11T08:41:24.000Z [RUN-A]   [launch] PID=40124
+2026-06-11T08:41:24.001Z [RUN-A]   [launch] PORT=7893
+2026-06-11T08:41:24.002Z [RUN-A]   [launch] LOG=C:\Users\soren\AppData\Local\cc-director\logs\director\director-2026-06-11-40124.log
+2026-06-11T08:41:24.003Z [RUN-A]   [launch] Control API: http://127.0.0.1:7893 (probe GET /healthz)
+2026-06-11T08:41:24.015Z [RUN-A]   [launch] MANIFEST=D:\ReposFred\wt-issue-299-proof-a\local_builds\agent-session-slot6.json (updated)
+2026-06-11T08:41:24.019Z [RUN-A] LAUNCHED pid=40124 port=7893
+2026-06-11T08:41:24.020Z [RUN-A] STEP probe GET http://127.0.0.1:7893/healthz
+2026-06-11T08:41:24.236Z [RUN-A] PROBE status=200 body={"status":"ok","directors":1,"sessions":0,"version":"0.6.22","serverTime":"2026-06-11T08:41:24.2200517Z","directorId":"e4937462-b7d3-4b0b-976a-db8a2f5550d1","machineName":"SOREN_NORTH"}
+2026-06-11T08:41:24.238Z [RUN-A] STEP hold 30s (overlap window, Director alive on port 7893)
+2026-06-11T08:41:54.242Z [RUN-A] STEP teardown (RemoveWorktree=True)
+2026-06-11T08:41:56.865Z [RUN-A]   [teardown] stopping PID 40124 (D:\ReposFred\wt-issue-299-proof-a\local_builds\cc-director6.exe)
+2026-06-11T08:41:56.867Z [RUN-A]   [teardown] PID 40124 exited
+2026-06-11T08:41:56.868Z [RUN-A]   [teardown] unregistered scheduled task cc-director6-launch
+2026-06-11T08:41:56.869Z [RUN-A]   [teardown] removed worktree D:\ReposFred\wt-issue-299-proof-a
+2026-06-11T08:41:56.870Z [RUN-A]   [teardown] done (slot 6 is free again)
+2026-06-11T08:41:56.874Z [RUN-A] ASSERT process pid=40124 gone
+2026-06-11T08:41:57.533Z [RUN-A] ASSERT scheduled task cc-director6-launch unregistered
+2026-06-11T08:41:57.535Z [RUN-A] ASSERT worktree D:\ReposFred\wt-issue-299-proof-a removed
+2026-06-11T08:41:57.536Z [RUN-A] RUN END slot=6 port=7893 pid=40124 result=SUCCESS

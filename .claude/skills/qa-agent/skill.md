@@ -101,20 +101,27 @@ proof target, the linked PR, and the Developer Agent's "How to Test" and proof (
 
 ### Step 2: Verify independently, one criterion at a time
 
-Build and run the change yourself - do not reuse the developer's binary or screenshots:
+Build and run the change yourself - do not reuse the developer's binary or screenshots. Your test
+Director is **per-session isolated** (issue #299): you allocate your OWN slot (>= 6), build in your
+OWN checkout of the PR branch, and launch via your OWN per-slot scheduled task - so you never
+collide with a concurrent session's slot, build output, or Control API port:
 
-1. Build a runnable test binary into **slot 5** (reserved for agent test Directors; never the main
-   build or slots 1-4, CLAUDE.md rule 0b):
+1. Check out / pull the PR branch first so you are testing the actual change, then allocate and
+   reserve a free slot with `scripts/agent-session-isolation.ps1` (slot 5 is the legacy/manual
+   default and may be in use by a human - never assume it is free; slots 1-4 and the main build
+   are absolutely off-limits, CLAUDE.md rule 0b):
    ```powershell
-   scripts\local-build-avalonia.ps1 -Slot 5
+   powershell -NoProfile -File scripts\agent-session-isolation.ps1 allocate -Worktree <your-checkout>
+   #  -> prints SLOT=<N> and MANIFEST=<checkout>\local_builds\agent-session-slot<N>.json
+   powershell -NoProfile -File scripts\local-build-avalonia.ps1 -Slot <N>   # from the checkout root
    ```
-   (Check out / pull the PR branch first so you are testing the actual change.)
-2. Launch it via the **`cc-director-launch` scheduled task** - NEVER spawn cc-director.exe from your
-   own process tree (CLAUDE.md rule 0b):
+2. Launch via YOUR per-slot scheduled task (`cc-director<N>-launch`) - NEVER spawn cc-director.exe
+   from your own process tree (CLAUDE.md rule 0b). The Director self-allocates its Control API
+   port; the script resolves the PID by exact image path and reads the port from the Director log:
    ```powershell
-   Start-ScheduledTask -TaskName "cc-director-launch"
+   powershell -NoProfile -File scripts\agent-session-isolation.ps1 launch -Manifest <manifest>
+   #  -> prints PID=<pid> and PORT=<port>; Control API at http://127.0.0.1:<port>
    ```
-   Find its Control API port in the latest `%LOCALAPPDATA%\cc-director\logs\director\director-*.log`.
 3. For each acceptance criterion: reproduce it yourself (drive the UI / call the Control API /
    inspect logs), capture a screenshot of the actual result, and READ the screenshot - judge
    Expected vs Actual. (Standing rule: read every screenshot; a blank render is a STOP-and-diagnose,
@@ -125,8 +132,12 @@ Also run the regression and method checks:
 - CenCon not violated: no blocking security rule (DT-01..DT-NN) broken, and if architecture/security
   changed the `docs/cencon/` docs were updated (use the `review-code` lens for this).
 
-Clean up ONLY your slot-5 test Director afterward (confirm the path is `cc-director5.exe` before
-`Stop-Process`); never kill the main build or the user's slots 1-4 (CLAUDE.md rule 0).
+Tear down with the same script - it stops ONLY processes whose image path is exactly your session's
+exe, unregisters YOUR `cc-director<N>-launch` task, and never touches the main build, slots 1-5, or
+any other session's Director (CLAUDE.md rule 0):
+```powershell
+powershell -NoProfile -File scripts\agent-session-isolation.ps1 teardown -Manifest <manifest>
+```
 
 ### Step 3a: PASS path (and merge - the authorized exception)
 
@@ -253,10 +264,11 @@ item, or you `/clear` between items. (Mechanism is OPEN DECISION D2 in DEVELOPME
 
 ---
 
-**Skill Version:** 0.4 (DRAFT - third of the four CenCon agents, cc-director)
+**Skill Version:** 0.5 (DRAFT - third of the four CenCon agents, cc-director)
 **Implements:** QA Agent role in docs/cencon/DEVELOPMENT_METHOD.md
 **Builds on:** playwright-cli / ui-test (UI verification), review-code (method lens), Control API (proof)
 **Created:** 2026-06-09
 **Changes in 0.2:** Added the no-orphans law (law 6), the PASS cleanup gate (branch deleted + clean tree confirmed), the FAIL clean-tree check, and Step 3c PARK-on-needs-human (the one sanctioned open PR). QA is the cleanup gate: PASS merges-and-deletes, FAIL leaves committed code on the PR branch, needs-human parks - never an orphan or loose WIP.
 **Changes in 0.3:** Closed the stash loophole. A prior run "parked by cleanup" via `git stash`, which left `git status --porcelain` empty (gate passed) while hiding WIP in the stash list - a mess the human had to clean up. Added the LEAVE ZERO MESS banner at the top, banned `git stash` as a cleanup/park mechanism everywhere (law 6 + the do-NOT list), and extended all three cleanup gates (PASS/FAIL/PARK) to also assert `git stash list` is empty and (on PASS) that local `main` == `origin/main`.
 **Changes in 0.4 (issue #298):** Noted the new `flow:in-progress` claim label (issue-level duplicate-prevention). QA never normally sees it - the Developer hand-off releases the claim to `flow:ready-qa` before QA picks the item up - so QA's own transitions are unchanged; a stuck `flow:in-progress` on a QA item is a Developer defect to bounce.
+**Changes in 0.5 (issue #299):** Replaced the fixed "slot 5 + cc-director-launch" verification instructions with the per-session isolation flow (`scripts/agent-session-isolation.ps1`): QA allocates its own slot (>= 6), builds the PR branch in its own checkout, launches via its own `cc-director<N>-launch` task with the Control API port discovered from the Director log, and tears down only its own exact-path process - safe to run concurrently with another session on the same machine.

@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Report - Issue #299 - Per-session isolation of test slot / build output / Control API port</title>
+<style>
+  body { font-family: Georgia, 'Times New Roman', serif; margin: 0; background: #f4f2ee; color: #1a1a1a; }
+  .page { max-width: 1100px; margin: 0 auto; padding: 32px 40px 64px; background: #ffffff; box-shadow: 0 0 24px rgba(0,0,0,0.08); }
+  h1 { font-size: 26px; border-bottom: 3px solid #1f3a5f; padding-bottom: 10px; }
+  h2 { font-size: 20px; color: #1f3a5f; margin-top: 36px; border-bottom: 1px solid #c9c4ba; padding-bottom: 6px; }
+  h3 { font-size: 16px; color: #333; }
+  .meta { color: #555; font-size: 14px; }
+  .verdict { display: inline-block; padding: 6px 18px; font-weight: bold; font-size: 18px; border-radius: 4px; }
+  .pass { background: #1e6e3c; color: #fff; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 14px; }
+  th, td { border: 1px solid #c9c4ba; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #1f3a5f; color: #fff; }
+  tr:nth-child(even) td { background: #f7f5f1; }
+  .ok { color: #1e6e3c; font-weight: bold; }
+  .note { background: #fdf6e3; border-left: 4px solid #b58900; padding: 10px 14px; font-size: 14px; margin: 12px 0; }
+  pre { background: #1d1f21; color: #c5c8c6; padding: 14px; font-size: 12px; overflow-x: auto; border-radius: 4px; line-height: 1.45; }
+  code { font-family: Consolas, monospace; }
+  .small { font-size: 12px; color: #666; }
+</style>
+</head>
+<body>
+<div class="page">
+
+<h1>QA Verification Report - Issue #299</h1>
+<p class="meta">
+  <strong>Issue:</strong> [Loop] Same-machine parallelism: isolate test slot / build output / Control API port per implementation session<br>
+  <strong>PR:</strong> #318 (branch <code>issue-299-session-isolation</code>, head <code>4950077</code>)<br>
+  <strong>QA Agent:</strong> independent verification in detached QA worktree <code>D:\ReposFred\wt-issue-299-qa</code> (own checkout of the PR head - the Developer's binary, worktree, and logs were NOT reused)<br>
+  <strong>Machine:</strong> SOREN_NORTH &nbsp; <strong>Date:</strong> 2026-06-11 (08:48-08:52 UTC)
+</p>
+<p><span class="verdict pass">VERIFIED - ALL ACCEPTANCE CRITERIA MET</span></p>
+
+<h2>1. Contract verified against</h2>
+<p>The issue body plus the binding "Product sharpening (Definition of Ready)" comment: two CONCURRENT
+isolated harness runs on one machine, distinct slots (&gt;= 6) / worktrees / ports, zero contention
+errors, live fleet untouched, and skills + DEVELOPMENT_METHOD.md updated per Deliverables 2-4.
+The Developer's committed proof (run-a.log / run-b.log / report.html) was treated as context only;
+the result below was reproduced from scratch by the QA Agent with its own worktrees, runs, and logs.</p>
+
+<h2>2. Independent reproduction - two concurrent isolated runs</h2>
+<p>Both runs were started simultaneously (same second) by one launcher, each driving
+<code>docs/cencon/proof/issue-299/proof-runner.ps1</code> with the NEW
+<code>scripts/agent-session-isolation.ps1</code> taken from the QA checkout of the PR head:</p>
+<table>
+  <tr><th></th><th>QA-RUN-A</th><th>QA-RUN-B</th></tr>
+  <tr><td>Worktree</td><td><code>D:\ReposFred\wt-issue-299-qa</code> (PR head 4950077)</td><td><code>D:\ReposFred\wt-issue-299-qa-b</code> (PR head 4950077, scratch)</td></tr>
+  <tr><td>Start (UTC)</td><td>08:50:01.812Z</td><td>08:50:01.815Z</td></tr>
+  <tr><td>Slot allocated</td><td><strong>6</strong></td><td><strong>7</strong> (lost the slot-6 registration race to Run A and moved on - the designed atomic arbiter, observed live)</td></tr>
+  <tr><td>Slot exe built</td><td><code>...\wt-issue-299-qa\local_builds\cc-director6.exe</code> (0 warn / 0 err)</td><td><code>...\wt-issue-299-qa-b\local_builds\cc-director7.exe</code> (0 warn / 0 err)</td></tr>
+  <tr><td>Launch task</td><td><code>cc-director6-launch</code> (Start-ScheduledTask only, rule 0b)</td><td><code>cc-director7-launch</code> (Start-ScheduledTask only, rule 0b)</td></tr>
+  <tr><td>Director PID</td><td>44152</td><td>48208</td></tr>
+  <tr><td>Control API port (self-allocated, read from Director log)</td><td><strong>7894</strong></td><td><strong>7895</strong></td></tr>
+  <tr><td>Probe GET /healthz</td><td class="ok">200, status ok, v0.6.22</td><td class="ok">200, status ok, v0.6.22</td></tr>
+  <tr><td>Director alive window (UTC)</td><td>08:50:20.8 - 08:50:42.5</td><td>08:50:24.5 - 08:50:46.8</td></tr>
+  <tr><td>Teardown asserts</td><td class="ok">process gone + task unregistered</td><td class="ok">process gone + task unregistered + worktree removed</td></tr>
+  <tr><td>Result</td><td class="ok">SUCCESS (exit 0)</td><td class="ok">SUCCESS (exit 0)</td></tr>
+</table>
+<p><strong>Concurrency proof:</strong> both Directors were alive simultaneously from 08:50:24.5Z to
+08:50:42.5Z (about 18 seconds of overlap), with interleaved timestamps across both logs from the
+first allocate (08:50:01Z) to the last teardown assert (08:50:47Z).
+Full logs: <code>qa-run-a.log</code>, <code>qa-run-b.log</code> (this directory).</p>
+
+<h2>3. Acceptance criteria - Expected vs Actual</h2>
+<table>
+  <tr><th>#</th><th>Criterion (DoR proof bar)</th><th>Expected</th><th>Actual</th><th>Verdict</th></tr>
+  <tr>
+    <td>AC1</td>
+    <td>Run A and Run B execute CONCURRENTLY, each: allocate distinct slot (&gt;= 6) -&gt; own worktree -&gt; build -&gt; launch via its own per-slot scheduled task -&gt; probe its own Control API port -&gt; teardown (process gone, task unregistered, worktree removed).</td>
+    <td>Overlapping timestamps; full lifecycle completes in both runs.</td>
+    <td>Started 3 ms apart; Directors concurrently alive 18 s; every lifecycle step logged and asserted in both runs; both exit 0. Slots 6 and 7, both &gt;= 6.</td>
+    <td class="ok">PASS</td>
+  </tr>
+  <tr>
+    <td>AC2</td>
+    <td>The two runs got DIFFERENT slots, DIFFERENT worktrees, DIFFERENT ports; neither log contains port-in-use, file-locked (bin/obj), or slot-collision errors.</td>
+    <td>Distinct resources, zero contention errors.</td>
+    <td>Slots 6 vs 7; worktrees wt-issue-299-qa vs wt-issue-299-qa-b; ports 7894 vs 7895. Grep of both logs: no "address already in use", no file-lock, no collision. (Run B's "slot 6 lost in registration race ... trying next" is the designed atomic arbitration message, not a contention error - exactly one winner, the loser moved on cleanly.)</td>
+    <td class="ok">PASS</td>
+  </tr>
+  <tr>
+    <td>AC3</td>
+    <td>The LIVE fleet (Gateway :7878, Cockpit :7470, Directors incl. :7887, main build + slots 1-4) is untouched: same PIDs before/after, no binds attempted on 7878/7470/7887.</td>
+    <td>Byte-identical fleet table.</td>
+    <td>Before and after (qa-fleet-before.txt / qa-fleet-after.txt): cc-director 21128, cc-director-cockpit 65232 (:7470), cc-director-gateway 42928 (:7878), :7887 owner 8640 - all identical. Test Directors used 7894/7895 only. Gateway /healthz returned 200 after the runs. Scheduled tasks unchanged (cc-director-launch / 2-launch / gateway-launch only).</td>
+    <td class="ok">PASS</td>
+  </tr>
+  <tr>
+    <td>AC4</td>
+    <td>Skills + DEVELOPMENT_METHOD.md updated per Deliverables 2-4.</td>
+    <td>developer-agent + qa-agent skills replace the fixed "slot 5 + cc-director-launch" flow; implementation-loop concurrency rule rewritten to per-session isolation; DEVELOPMENT_METHOD.md Section 6 DoD items 3/4 updated.</td>
+    <td>Diff vs origin/main reviewed file by file: developer-agent v0.5 (Step 4 = allocate/build/launch/teardown flow), qa-agent v0.5 (Step 2 = same flow), implementation-loop v0.7 (concurrency rule now per-session isolation + #298 issue claim), DEVELOPMENT_METHOD.md Section 6 DoD 3/4 rewritten. All consistent with the script's actual behavior.</td>
+    <td class="ok">PASS</td>
+  </tr>
+</table>
+
+<h2>4. Static checks</h2>
+<table>
+  <tr><th>Check</th><th>Result</th></tr>
+  <tr><td>ASCII-only: <code>scripts/agent-session-isolation.ps1</code>, <code>proof-runner.ps1</code>, all 3 skill files, DEVELOPMENT_METHOD.md</td><td class="ok">PASS - byte scan found zero bytes &gt; 127 in all six files</td></tr>
+  <tr><td>PowerShell 5.1 compatibility</td><td class="ok">PASS - <code>#Requires -Version 5.1</code>; parser reports 0 errors; no pipeline-chain operators, no ternary/null-coalescing, manifest written with <code>-Encoding ascii</code></td></tr>
+  <tr><td>Allocator can never pick slot 5 or below</td><td class="ok">PASS - hard floor <code>$script:SlotFloor = 6</code>; <code>-MinSlot</code> below 6 is rejected; <code>Read-Manifest</code> refuses any manifest with slot &lt; 6 (so launch/teardown cannot be pointed at slots 1-5 either); allocation loop starts at MinSlot</td></tr>
+  <tr><td>Teardown safety</td><td class="ok">PASS - stops ONLY processes whose image path exactly equals the manifest exe (case-insensitive full-path match); foreign-path processes are logged and left alone; only the session's own task is unregistered</td></tr>
+  <tr><td>Failed-launch orphan handling</td><td class="ok">PASS - port-not-found path stops the just-launched, path-confirmed PID before failing; launch refuses to stack a second instance on a running slot</td></tr>
+  <tr><td>Launch mutex (PortAllocator probe-before-bind race)</td><td class="ok">PASS - machine-wide named mutex held from task start until the port is read from the Director log; AbandonedMutexException handled; released in finally</td></tr>
+  <tr><td>review-code lens (obvious defects)</td><td class="ok">PASS - no fallback programming (every failure exits 1 with an actionable message), explicit error paths, no secrets, no PII</td></tr>
+  <tr><td>CenCon drift</td><td class="ok">PASS - zero changes under <code>src/</code> or <code>tools/</code> (script/skill/doc-only change); no architecture or security-posture change, so no <code>docs/cencon/</code> yaml updates required; DEVELOPMENT_METHOD.md updated as the deliverable demanded</td></tr>
+</table>
+
+<h2>5. Regression</h2>
+<table>
+  <tr><th>Check</th><th>Result</th></tr>
+  <tr><td><code>dotnet build cc-director.sln</code> in the QA worktree (PR head)</td><td class="ok">PASS - Build succeeded, 0 Warning(s), 0 Error(s)</td></tr>
+  <tr><td>PR CI run 27335037967</td><td>One failed test: <code>RecordingIngestServiceTests.Worker_TranscribesQueuedRecording_EndToEnd</code>. Judged PRE-EXISTING FLAKE, not a regression: this PR contains zero C# changes (scripts/skills/docs only), and main's own CI is red on 5 of the last 8 push runs including already-merged #290/#291/#298. Local build of the PR head is clean.</td></tr>
+</table>
+
+<h2>6. Key evidence excerpts</h2>
+<h3>Run B losing the slot-6 race (the atomic arbiter, observed live)</h3>
+<pre>2026-06-11T08:50:02.951Z [QA-RUN-A]   [allocate] SLOT=6
+2026-06-11T08:50:03.477Z [QA-RUN-B]   [allocate] slot 6 lost in registration race (Cannot create a file when that file already exists.
+2026-06-11T08:50:03.479Z [QA-RUN-B]   [allocate] SLOT=7</pre>
+<h3>Both Directors alive concurrently on distinct self-allocated ports</h3>
+<pre>2026-06-11T08:50:20.894Z [QA-RUN-A] PROBE status=200 body={"status":"ok",...,"directorId":"3a2323c7-...","machineName":"SOREN_NORTH"}  (port 7894, pid 44152)
+2026-06-11T08:50:24.642Z [QA-RUN-B] PROBE status=200 body={"status":"ok",...,"directorId":"e69218bc-...","machineName":"SOREN_NORTH"}  (port 7895, pid 48208)
+2026-06-11T08:50:42.540Z [QA-RUN-A]   [teardown] stopping PID 44152 (...\wt-issue-299-qa\local_builds\cc-director6.exe)
+2026-06-11T08:50:46.833Z [QA-RUN-B]   [teardown] stopping PID 48208 (...\wt-issue-299-qa-b\local_builds\cc-director7.exe)</pre>
+<h3>Fleet unchanged (qa-fleet-before.txt == qa-fleet-after.txt on PIDs/ports/tasks)</h3>
+<pre>21128 cc-director          C:\Users\soren\AppData\Local\cc-director\app\cc-director.exe
+65232 cc-director-cockpit  C:\Users\soren\AppData\Local\cc-director\cockpit\cc-director-cockpit.exe   (:7470)
+42928 cc-director-gateway  C:\Users\soren\AppData\Local\cc-director\gateway\cc-director-gateway.exe   (:7878)
+tasks: cc-director-gateway-launch, cc-director-launch, cc-director2-launch   (no slot&gt;=6 task remains)</pre>
+
+<h2>7. Verdict</h2>
+<p><span class="verdict pass">VERIFIED - all acceptance criteria met. PASS.</span></p>
+<p class="small">Evidence files in this directory: qa-run-a.log, qa-run-b.log, qa-fleet-before.txt, qa-fleet-after.txt.
+Developer evidence (context only): run-a.log, run-b.log, report.html, proof-runner.ps1, fleet-before.txt, fleet-after.txt.</p>
+
+</div>
+</body>
+</html>
