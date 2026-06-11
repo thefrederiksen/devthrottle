@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cockpit Issue Triage — 2026-06-10</title>
+<style>
+  :root{
+    --bg:#1e1e1e; --panel:#252526; --panel2:#2d2d30; --ink:#d4d4d4; --muted:#9b9b9b;
+    --line:#3a3a3d; --accent:#007acc; --accent2:#3794ff;
+    --green:#4ec96b; --amber:#e2c044; --red:#e25563; --grey:#6a6a6a; --purple:#b18cf2;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.5;font-size:15px}
+  a{color:var(--accent2);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:1100px;margin:0 auto;padding:32px 24px 80px}
+  header.top{border-bottom:1px solid var(--line);padding-bottom:20px;margin-bottom:28px}
+  header.top h1{margin:0 0 6px;font-size:26px;font-weight:700}
+  header.top .sub{color:var(--muted);font-size:14px}
+  .stats{display:flex;gap:14px;flex-wrap:wrap;margin-top:18px}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 16px;min-width:120px}
+  .stat .n{font-size:24px;font-weight:700}
+  .stat .l{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+  .legend{display:flex;gap:18px;flex-wrap:wrap;margin:22px 0 8px;font-size:13px;color:var(--muted)}
+  .legend .pill{margin-right:6px}
+  .pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:600;
+    line-height:1.7;white-space:nowrap;border:1px solid transparent}
+  .pill.ready{background:rgba(78,201,107,.14);color:var(--green);border-color:rgba(78,201,107,.35)}
+  .pill.gated{background:rgba(226,192,68,.14);color:var(--amber);border-color:rgba(226,192,68,.35)}
+  .pill.research{background:rgba(177,140,242,.14);color:var(--purple);border-color:rgba(177,140,242,.35)}
+  .pill.epic{background:rgba(55,148,255,.14);color:var(--accent2);border-color:rgba(55,148,255,.35)}
+  .pill.none{background:rgba(120,120,120,.16);color:#bdbdbd;border-color:rgba(120,120,120,.4)}
+  .pill.done{background:rgba(78,201,107,.22);color:#8ee8a6;border-color:rgba(78,201,107,.55)}
+  .pill.recheck{background:rgba(177,140,242,.14);color:var(--purple);border-color:rgba(177,140,242,.35)}
+  .pill.bug{background:rgba(226,85,99,.14);color:var(--red);border-color:rgba(226,85,99,.3)}
+  .pill.enh{background:rgba(55,148,255,.1);color:#7fb6ff;border-color:rgba(55,148,255,.28)}
+  section.epic{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:24px 26px;margin:26px 0}
+  section.epic > h2{margin:0 0 4px;font-size:20px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  section.epic > h2 .id{color:var(--muted);font-weight:600;font-size:15px}
+  .epic-sub{color:var(--muted);font-size:13.5px;margin:0 0 16px}
+  .rootcause{background:var(--panel2);border-left:3px solid var(--accent);border-radius:0 8px 8px 0;
+    padding:12px 16px;margin:14px 0 18px;font-size:14px}
+  .rootcause b{color:#fff}
+  code{background:#1b1b1b;border:1px solid #333;border-radius:4px;padding:1px 5px;font-size:12.5px;
+    font-family:"Cascadia Code",Consolas,monospace;color:#d6b97b}
+  table{width:100%;border-collapse:collapse;margin:8px 0 4px;font-size:13.5px}
+  th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.03em}
+  tr:last-child td{border-bottom:none}
+  td.num{white-space:nowrap;font-weight:700}
+  td.num a{font-weight:700}
+  .what{color:var(--ink)}
+  .dep{color:var(--muted);font-size:12.5px}
+  .dod{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:14px 18px;margin-top:16px}
+  .dod h4{margin:0 0 8px;font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+  .dod ol{margin:0;padding-left:20px}
+  .dod li{margin:4px 0;font-size:13.5px}
+  .queue{background:linear-gradient(180deg,rgba(0,122,204,.12),rgba(0,122,204,.04));
+    border:1px solid rgba(55,148,255,.4);border-radius:14px;padding:20px 24px;margin:26px 0}
+  .queue h2{margin:0 0 10px;font-size:18px}
+  .chips{display:flex;gap:10px;flex-wrap:wrap}
+  .chip{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 13px;font-size:13.5px}
+  .chip a{font-weight:700}
+  .chip .t{color:var(--muted);display:block;font-size:12px;max-width:220px}
+  .note{color:var(--muted);font-size:13px;margin-top:10px}
+  footer{margin-top:34px;padding-top:18px;border-top:1px solid var(--line);color:var(--muted);font-size:12.5px}
+  h3.side{margin:30px 0 6px;font-size:15px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <h1>Cockpit Issue Triage &amp; Remote-First Plan</h1>
+    <div class="sub">Product review of all open <code>cockpit</code> issues · 2026-06-10 · CenCon Product Agent</div>
+    <div class="stats">
+      <div class="stat"><div class="n">2</div><div class="l">New epics filed</div></div>
+      <div class="stat"><div class="n">7</div><div class="l">Ready for dev</div></div>
+      <div class="stat"><div class="n">1</div><div class="l">Backbone — DONE</div></div>
+      <div class="stat"><div class="n">2</div><div class="l">Gated / recheck</div></div>
+    </div>
+    <div class="legend">
+      <span><span class="pill done">done</span> merged to main</span>
+      <span><span class="pill ready">flow:ready-dev</span> a developer can pick up now</span>
+      <span><span class="pill recheck">recheck</span> reproduce-check on the new build first</span>
+      <span><span class="pill research">research</span> investigation, not a fix spec</span>
+      <span><span class="pill epic">epic</span> umbrella, not a dev unit</span>
+    </div>
+  </header>
+
+  <p style="font-size:14.5px;max-width:880px">
+    The headline finding: <b>Cockpit voice recording is still broken from a non-Gateway machine</b>
+    (this laptop), and it is <b>not</b> a dictation bug — it is one architectural gap that also breaks
+    the live terminal cross-machine. The per-session WebSocket legs connect <i>browser&nbsp;&rarr;&nbsp;Director
+    directly</i> using each Director's own advertised address; when that address is loopback
+    (<code>ws://127.0.0.1:7887</code>) a remote browser hits its own loopback and the socket never
+    connects. Fixing that one backbone (route the WS legs through the Gateway, same-origin) makes voice,
+    terminal, and every future per-session WS feature work from any machine. The work is organised into
+    two epics below.
+  </p>
+
+  <div class="rootcause" style="border-left-color:var(--green);margin:6px 0 18px">
+    <b>Update — 2026-06-10 (later that day):</b> the backbone
+    <a href="https://github.com/thefrederiksen/cc-director/issues/268">#268</a> has since landed and
+    merged (PRs #283 + #289) and is <span class="pill done">flow:done</span>. The per-session WS legs
+    now route through the Gateway, <b>verified cross-machine</b> (SORENLAPTOP → SOREN_NORTH: live
+    dictation + terminal, and the offline-owner 503 / unknown-session 404 path). Voice + terminal
+    <i>transport</i> from a non-Gateway machine is fixed. The remaining #279 children below are the
+    follow-on UX / resilience items, and the dependency gate they were waiting on is now satisfied.
+  </div>
+
+  <!-- ===================== EPIC 279 ===================== -->
+  <section class="epic">
+    <h2><span class="pill epic">EPIC</span> Remote-first reliability
+      <span class="id">#279</span></h2>
+    <p class="epic-sub">Make the Cockpit fully usable from any non-Gateway machine. Reliability only —
+      visual redesign is explicitly deferred.
+      <a href="https://github.com/thefrederiksen/cc-director/issues/279">view epic →</a></p>
+
+    <div class="rootcause">
+      <b>One root cause, not a pile of bugs.</b> The Gateway already reverse-proxies HTTP
+      <code>/sessions/{sid}/*</code> and the Blazor circuit WS to the owning Director, but the two raw
+      per-session WebSocket legs are <b>not</b> proxied: dictation
+      (<code>DictateWsUrl(Selected.TailnetEndpoint)</code>) and terminal
+      (<code>TerminalPane.BuildWsUrl</code>). Both target the Director's own address, so a remote
+      browser cannot reach them. Route them through the Gateway and the browser only ever talks
+      same-origin.
+    </div>
+
+    <table>
+      <thead><tr><th>Issue</th><th>Status</th><th>What it does</th><th>Dependency</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="num"><a href="https://github.com/thefrederiksen/cc-director/issues/268">#268</a><br><span class="pill bug">bug</span></td>
+          <td><span class="pill done">done</span></td>
+          <td class="what"><b>The backbone — landed.</b> New Gateway WS-proxy endpoints
+            (<code>/sessions/{sid}/stream</code>, <code>/sessions/{sid}/dictate</code>) resolve the
+            owning Director from the registry and reverse-proxy the upgrade via the existing YARP
+            forwarder; the Cockpit builds both WS URLs same-origin to the Gateway. Fixed voice + terminal
+            cross-machine in one stroke. Verified SORENLAPTOP → SOREN_NORTH.</td>
+          <td class="dep">merged — PR #283 / #289</td>
+        </tr>
+        <tr>
+          <td class="num"><a href="https://github.com/thefrederiksen/cc-director/issues/199">#199</a><br><span class="pill enh">enh</span></td>
+          <td><span class="pill ready">ready-dev</span></td>
+          <td class="what">Persisted Cockpit INFO logging (user actions + stream/circuit lifecycle). The
+            diagnosability enabler — today Cockpit logs are discarded, which is why remote WS failures
+            are so hard to root-cause.</td>
+          <td class="dep">independent — parallel</td>
+        </tr>
+        <tr>
+          <td class="num"><a href="https://github.com/thefrederiksen/cc-director/issues/267">#267</a><br><span class="pill bug">bug</span></td>
+          <td><span class="pill ready">ready-dev</span></td>
+          <td class="what">Open-in-Cockpit toolbar button honors the configured gateway URL instead of
+            hardcoded <code>127.0.0.1:7878</code>. The Avalonia front door for cross-machine use.</td>
+          <td class="dep">independent — parallel</td>
+        </tr>
+        <tr>
+          <td class="num"><a href="https://github.com/thefrederiksen/cc-director/issues/226">#226</a><br><span class="pill bug">bug</span></td>
+          <td><span class="pill ready">ready-dev</span></td>
+          <td class="what">Dictation failure UX: read the WS close code/reason (today <code>onclose</code>
+            takes no event and hard-codes "Connection closed." at <code>cockpit-dictate.js:366</code>),
+            typed Director cause before close, and retry replaying the existing capture buffer. Scoped to
+            this deterministic slice. The ~1.4s-drop root cause is split off as a <b>reproduce-check</b>
+            on the post-#268 build.</td>
+          <td class="dep">gate met (#268 done) → ready-dev</td>
+        </tr>
+        <tr>
+          <td class="num"><a href="https://github.com/thefrederiksen/cc-director/issues/198">#198</a><br><span class="pill bug">bug</span></td>
+          <td><span class="pill recheck">recheck</span></td>
+          <td class="what">Terminal tab blank for minutes. <b>Half fixed</b> by #268 (the
+            "WS never reaches the Director" cross-machine half — the stream now proxies through the
+            Gateway). The residual half — TerminalPane is one-shot, no reconnect / no "connecting…"
+            state — needs a reproduce-check on the new build before it is re-sharpened (or closed if it
+            no longer reproduces).</td>
+          <td class="dep">reproduce-check on post-#268 build</td>
+        </tr>
+        <tr>
+          <td class="num"><a href="https://github.com/thefrederiksen/cc-director/issues/170">#170</a><br><span class="pill bug">bug</span></td>
+          <td><span class="pill research">research</span></td>
+          <td class="what">Director shows yellow / "not connected" in the Cockpit. Written as an
+            investigation of the Director→Gateway→Cockpit liveness pipeline, not a fix — so it cannot be
+            ready-dev as a fix. Part of the yellow is plausibly the same loopback mechanism #268 removes.</td>
+          <td class="dep">#268 done — run after #199</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="dod">
+      <h4>Epic done when — from this laptop, over the tailnet —</h4>
+      <ol>
+        <li>Speak on a remote-Director session records &amp; transcribes (no "WebSocket connection failed." / "Connection closed.").</li>
+        <li>The Terminal tab for that remote session shows live output within seconds.</li>
+        <li>Any failure names a real cause, not a generic message.</li>
+        <li>No browser WebSocket is ever pointed at <code>127.0.0.1</code>/<code>localhost</code> for a remote session.</li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- ===================== EPIC 280 ===================== -->
+  <section class="epic">
+    <h2><span class="pill epic">EPIC</span> Optimistic-UI sweep
+      <span class="id">#280</span></h2>
+    <p class="epic-sub">Every user action gives feedback before the round-trip (CLAUDE.md rule 1:
+      &lt;100ms feedback). Found by the audit after the #217 explain-button fix.
+      <a href="https://github.com/thefrederiksen/cc-director/issues/280">view epic →</a></p>
+
+    <div class="rootcause">
+      <b>Canonical pattern — commit 137b289 (#217).</b> Stamp optimistic local state in the same render
+      as the click, <i>before</i> the POST; a stale-guard timer reconciles against the polled truth; a
+      failed POST rolls back loudly. Blazor renders at the first <code>await</code>, so setting the
+      flag/label before the network call gives instant feedback for free. All four children copy it.
+      They are independent and parallelizable.
+    </div>
+
+    <table>
+      <thead><tr><th>Issue</th><th>Status</th><th>What it does</th><th>Anchor</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="num"><a href="https://github.com/thefrederiksen/cc-director/issues/227">#227</a><br><span class="pill bug">bug</span></td>
+          <td><span class="pill ready">ready-dev</span></td>
+          <td class="what">Answer-option buttons (reply path) give zero feedback. Add an
+            <code>answering…</code> state + disable the group on click; replace the silent conveyor
+            teleport with an explicit transition; resolve the dead <code>Replying</code> wire; KEYS path
+            shows <code>sending…</code>. Needs a before/after VisualStyle mockup.</td>
+          <td class="dep"><code>BriefPane.AnswerSingleAsync</code>:716; dead param :424</td>
+        </tr>
+        <tr>
+          <td class="num"><a href="https://github.com/thefrederiksen/cc-director/issues/228">#228</a><br><span class="pill enh">enh</span></td>
+          <td><span class="pill ready">ready-dev</span></td>
+          <td class="what">Rail kebab actions (Close / Hold / Wingman / New-Issue) show no in-progress
+            state. Fire <code>ShowRailNotice("…")</code> before the await and optimistically dim the Close
+            row.</td>
+          <td class="dep">helper already at <code>Cockpit.razor</code>:1883</td>
+        </tr>
+        <tr>
+          <td class="num"><a href="https://github.com/thefrederiksen/cc-director/issues/229">#229</a><br><span class="pill enh">enh</span></td>
+          <td><span class="pill ready">ready-dev</span></td>
+          <td class="what">New-session Create button stays "Create" during the multi-second spawn. Bind
+            the existing <code>_acting</code> flag into the label → <code>Creating session…</code>.</td>
+          <td class="dep">mirrors Recap/Fan-out/Handover :218/:829/:904</td>
+        </tr>
+        <tr>
+          <td class="num"><a href="https://github.com/thefrederiksen/cc-director/issues/230">#230</a><br><span class="pill enh">enh</span></td>
+          <td><span class="pill ready">ready-dev</span></td>
+          <td class="what">Composer image upload shows nothing until it finishes. Set
+            <code>_shotStatus</code> to <code>uploading &lt;file&gt; (1 of N)…</code> before the upload
+            await + render.</td>
+          <td class="dep"><code>OnDropImages</code>:1343, status field :1214</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ===================== READY QUEUE ===================== -->
+  <div class="queue">
+    <h2>Ready-for-dev queue (sittable by the implementation-loop now)</h2>
+    <div class="chips">
+      <div class="chip"><a href="https://github.com/thefrederiksen/cc-director/issues/226">#226</a><span class="t">dictation failure UX + retry</span></div>
+      <div class="chip"><a href="https://github.com/thefrederiksen/cc-director/issues/199">#199</a><span class="t">Cockpit logging</span></div>
+      <div class="chip"><a href="https://github.com/thefrederiksen/cc-director/issues/267">#267</a><span class="t">toolbar gateway URL</span></div>
+      <div class="chip"><a href="https://github.com/thefrederiksen/cc-director/issues/227">#227</a><span class="t">answer-button feedback</span></div>
+      <div class="chip"><a href="https://github.com/thefrederiksen/cc-director/issues/228">#228</a><span class="t">rail kebab feedback</span></div>
+      <div class="chip"><a href="https://github.com/thefrederiksen/cc-director/issues/229">#229</a><span class="t">Create button label</span></div>
+      <div class="chip"><a href="https://github.com/thefrederiksen/cc-director/issues/230">#230</a><span class="t">image-upload status</span></div>
+    </div>
+    <p class="note"><b>Backbone #268 is done</b> — this laptop can now reach voice + terminal over the
+      Gateway. The queue above is the follow-on work: #226 (dictation failure UX) and #199/#267 can run
+      in parallel; #227–#230 are independent of everything. Pending a reproduce-check on the new build:
+      #198 (residual terminal-pane resilience) and the #226 ~1.4s-drop root cause.</p>
+  </div>
+
+  <!-- ===================== LEFT ALONE ===================== -->
+  <h3 class="side">Cockpit issues intentionally left as-is</h3>
+  <table>
+    <thead><tr><th>Issue</th><th>Status</th><th>Why untouched</th></tr></thead>
+    <tbody>
+      <tr>
+        <td class="num"><a href="https://github.com/thefrederiksen/cc-director/issues/270">#270</a></td>
+        <td><span class="pill epic">epic</span></td>
+        <td class="what">Autonomous work-item queue runner — its own epic with children #272–#276 and a
+          deliberate dependency order. Not part of the cockpit reliability/UX work.</td>
+      </tr>
+      <tr>
+        <td class="num"><a href="https://github.com/thefrederiksen/cc-director/issues/275">#275</a></td>
+        <td><span class="pill gated">gated</span></td>
+        <td class="what">Work-list Cockpit client — DoR-complete but correctly gated by #273 (named-lists
+          REST) until that reaches <code>flow:done</code>. Belongs to epic #270.</td>
+      </tr>
+      <tr>
+        <td class="num"><a href="https://github.com/thefrederiksen/cc-director/issues/237">#237</a></td>
+        <td><span class="pill none">no flow</span></td>
+        <td class="what">Rail shows a meaningless GUID prefix instead of the port — a separate visual
+          cleanup, not part of either epic. Candidate for a future UX batch.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <footer>
+    Generated by the CenCon Product Agent · 2026-06-10 (revised same day: backbone #268 merged,
+    #226 advanced to ready-dev, #198 flagged for reproduce-check) · source of truth is the GitHub tracker
+    (<code>thefrederiksen/cc-director</code>). Flow state lives on the <code>flow:*</code> labels, not
+    on this report. File: <code>docs/plans/cockpit-triage-2026-06-10.html</code>.
+  </footer>
+
+</div>
+</body>
+</html>
