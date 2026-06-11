@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #264 - Deterministic rewrite of the flaky PromptInjectionWatcher wingman-source test</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; color: #1b1b1b; line-height: 1.5; }
+  h1 { font-size: 1.5rem; border-bottom: 2px solid #ddd; padding-bottom: .4rem; }
+  h2 { font-size: 1.2rem; margin-top: 1.8rem; }
+  code, pre { font-family: Consolas, monospace; background: #f4f4f4; }
+  pre { padding: .8rem; overflow-x: auto; border: 1px solid #e0e0e0; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f0f0; }
+  .pass { color: #137333; font-weight: bold; }
+  .meta { color: #555; font-size: .9rem; }
+</style>
+</head>
+<body>
+<h1>Issue #264 - Deterministic rewrite of the flaky PromptInjectionWatcher wingman-source test</h1>
+<p class="meta">Repo: thefrederiksen/cc-director &middot; Branch: loop/264-flaky-promptinjection-test &middot; Developer Agent (CenCon)</p>
+
+<h2>What was implemented</h2>
+<p>
+The test
+<code>SessionStatusWingmanTests.PromptInjectionWatcher_pushes_extracted_text_via_wingman_source</code>
+was <code>[Fact(Skip)]</code> because it was timing-flaky: it wrote bytes to the buffer and slept
+1500&nbsp;ms, relying on the byte-arrival debounce to fire a single scan that happened to read a
+resolved grid. If that one scan read a not-yet-yielding grid it never re-scanned, so the push
+intermittently never landed; and the final assert on <code>PendingPromptText</code> raced the
+session's own <code>source="user"</code> write of the same field.
+</p>
+<p>The test was rewritten to be deterministic, with <strong>no production behavior change</strong>
+(<code>RequestImmediateScan()</code> already existed at
+<code>src/CcDirector.Core/Wingman/SessionStatusWingman.cs:340</code>). The rewrite:</p>
+<ol>
+  <li>Drives the internal <code>PromptInjectionWatcher</code> directly (reachable via the existing
+      <code>InternalsVisibleTo("CcDirector.Core.Tests")</code>), so there is no spurious
+      byte-arrival scan racing the explicit one.</li>
+  <li><strong>Confirms the grid is resolved before triggering</strong>: it asserts that the exact
+      inputs the watcher's tick reads (<code>SnapshotScreenRowsWithCursor()</code> +
+      <code>PromptInputLineExtractor.ExtractUserAuthoredInput(...)</code>) already extract to the
+      expected text. The single scan therefore cannot read a not-yet-yielding grid.</li>
+  <li>Fires exactly one scan via <code>RequestImmediateScan()</code> and waits on the
+      <code>"wingman"</code>-source event through a <code>TaskCompletionSource</code> (signalled by
+      the push). There is no fixed <code>Task.Delay</code>-then-assert; the 10&nbsp;s
+      <code>Task.WhenAny</code> is only a hang guard.</li>
+  <li>Asserts on the captured <code>"wingman"</code>-source value, <strong>not</strong>
+      <code>PendingPromptText</code> (which the session also writes with
+      <code>source="user"</code> - the original race).</li>
+</ol>
+
+<h2>Acceptance criteria</h2>
+<table>
+  <tr><th>Criterion</th><th>Evidence</th><th>Result</th></tr>
+  <tr>
+    <td>Test is no longer skipped and asserts on the <code>"wingman"</code>-source captured event,
+        not <code>PendingPromptText</code>.</td>
+    <td>The <code>[Fact(Skip=...)]</code> attribute is gone (now plain <code>[Fact]</code>); the
+        final assertion is <code>Assert.Equal(expected, await pushed.Task)</code> where
+        <code>pushed</code> is completed only by the <code>source == "wingman"</code> branch. No
+        <code>PendingPromptText</code> assertion remains. (Diff.)</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>Passes deterministically - green across 50 consecutive runs.</td>
+    <td>50/50 PASS, 0 FAIL - see <code>50x-green.txt</code> in this folder.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>No fixed <code>Task.Delay</code>-then-assert; the single scan is driven via
+        <code>RequestImmediateScan()</code> after the grid is confirmed resolved.</td>
+    <td>The scan is triggered by <code>watcher.RequestImmediateScan()</code> after the
+        grid-resolution assert; the wait is a <code>TaskCompletionSource</code> awaited via
+        <code>Task.WhenAny(pushed.Task, Task.Delay(10s))</code> where the delay is only a timeout
+        guard, not the thing being asserted. (Diff.)</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Build &amp; test proof</h2>
+<pre>dotnet build cc-director.sln
+  Build succeeded.
+  0 Warning(s)
+  0 Error(s)
+
+dotnet test --no-build --filter ...PromptInjectionWatcher_pushes_extracted_text_via_wingman_source
+  (looped 50x)
+  TOTAL: PASS=50 FAIL=0 / 50   (Skipped: 0)
+
+Full class:
+  Passed! - Failed: 0, Passed: 37, Skipped: 0, Total: 37</pre>
+<p>Full per-run output is committed alongside this report as
+<code>docs/cencon/proof/issue-264/50x-green.txt</code>.</p>
+
+<h2>CenCon impact</h2>
+<p>No drift. This is a test-only change plus exercising an already-existing internal test seam; it
+alters no architecture container and no security rule. The production watcher behavior and timing
+are unchanged.</p>
+
+<h2>Affected files</h2>
+<ul>
+  <li><code>src/CcDirector.Core.Tests/Wingman/SessionStatusWingmanTests.cs</code> - the rewritten,
+      un-skipped test.</li>
+</ul>
+
+<p><strong>I believe this is finished.</strong></p>
+</body>
+</html>
