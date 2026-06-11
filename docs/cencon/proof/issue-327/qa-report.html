@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Verification - Issue #327: POST /sessions/{sid}/execute-action</title>
+<style>
+  body { font-family: "Segoe UI", Arial, sans-serif; background: #14161a; color: #d6d9de; margin: 0; padding: 32px; line-height: 1.55; }
+  .wrap { max-width: 1100px; margin: 0 auto; }
+  h1 { font-size: 1.5rem; border-bottom: 2px solid #7b2ce5; padding-bottom: 10px; }
+  h2 { font-size: 1.15rem; color: #b08af8; margin-top: 36px; }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 0.9rem; }
+  th, td { border: 1px solid #333a45; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #241d30; color: #b69fd4; }
+  code, pre { font-family: Consolas, monospace; background: #1b1f27; border-radius: 4px; }
+  code { padding: 1px 5px; font-size: 0.85em; }
+  pre { padding: 12px 14px; overflow-x: auto; font-size: 0.8rem; border: 1px solid #2a313c; white-space: pre-wrap; }
+  .pass { color: #4cc38a; font-weight: 600; }
+  .note { color: #e2b93d; }
+  .meta { color: #7d8694; font-size: 0.85rem; }
+  img { max-width: 100%; border: 1px solid #333a45; border-radius: 6px; margin: 10px 0; }
+  .verdict { background: #16281f; border: 1px solid #2f6f4f; border-radius: 8px; padding: 16px 20px; margin-top: 30px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>QA Verification - Issue #327: POST /sessions/{sid}/execute-action (PR #340)</h1>
+<p class="meta">QA Agent (CenCon Development Method) &middot; 2026-06-11 &middot; Independent verification - own worktree <code>D:\ReposFred\wt-qa-327</code> at <code>47b6ac5</code>, own slot-6 build (per-session isolation, issue #299), own isolated GatewayHost. Nothing from the Developer's run was reused: fresh checkout, fresh build, fresh Director, fresh session, fresh evidence.</p>
+
+<h2>1. Independent build and test runs (QA's own)</h2>
+<ul>
+  <li><code>dotnet build cc-director.sln</code> (QA worktree): <span class="pass">Build succeeded, 0 Warning(s), 0 Error(s)</span>.</li>
+  <li><code>ExecuteActionEndpointTests</code> (the 10 new endpoint tests): <span class="pass">10/10 passed</span>.</li>
+  <li><code>CcDirector.Core.Tests</code>: <span class="pass">1759 passed, 0 failed</span>, 2 skipped (pre-existing).</li>
+  <li><code>CcDirector.Gateway.Tests</code>: 487/488 - the single failure is <code>DictationEndpointTests.FullPipeline_transcribes_phase0_clip2_with_realtime_provider</code>, the known pre-existing live-OpenAI-Realtime dictation integration test (#214 flaky family). QA reran it to name it explicitly; it is unrelated to this change (dictation pipeline, untouched by this PR).</li>
+</ul>
+
+<h2>2. Acceptance criteria - QA's own Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (QA's own evidence)</th><th>Verdict</th></tr>
+<tr>
+<td>1</td>
+<td>ActSubmit against a live slot-5+ session: text + Enter observable in the terminal buffer</td>
+<td>200 / performed=true; text submitted (not just typed)</td>
+<td>Live on QA's own isolated slot-6 Director (0.6.22, PID 9584, port 7881, launched via <code>cc-director6-launch</code> scheduled task): POST <code>{"action":"submit","text":"QA-327-PROBE reply with exactly QA-327-ACK and nothing else",...}</code> returned <code>HTTP 200 {"status":"ok","performed":true,...}</code>. <code>GET /sessions/{sid}/buffer</code> showed the prompt line <code>&#10095; QA-327-PROBE ...</code> AND claude's answer <code>QA-327-ACK</code> - Enter was pressed, the prompt actually ran. Screenshot below (rendered from the session's own <code>/buffer/html</code>).</td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>2</td>
+<td>No decide logic in the handler path; body maps to Execute untransformed</td>
+<td>No <code>WingmanService</code>/LLM call; result echoes the passed action</td>
+<td>QA read the handler source (ControlEndpoints.cs, "Execute-action verb" section, commit c4961f8): the body is exactly Guid-parse &rarr; session lookup &rarr; null-body check &rarr; <code>WingmanActionExecutor.Execute(session, action)</code> &rarr; logging &rarr; mechanical status&rarr;HTTP mapping. No <code>WingmanService</code>, no <code>DecideSessionActionAsync</code>, no LLM, no transformation of the action. The route is NOT in <code>DirectorAuth.PublicPaths</code>. Tests <code>ExecuteAction_Submit_WritesTextThenEnterAndEchoesActionVerbatim</code> / <code>ExecuteAction_SendKeys_WritesExactMappedBytes</code> assert byte-exact mapping and <code>Model</code> stays empty.</td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>3a</td>
+<td>Repeat-POST within cooldown on unchanged screen is suppressed and reports it</td>
+<td>Second POST &rarr; 200 <code>suppressed</code>, <code>performed=false</code></td>
+<td>Live, QA's own probe (two back-to-back <code>send_keys ["Right"]</code> on an idle screen): first <code>{"status":"ok","performed":true}</code>, second <code>{"status":"suppressed","performed":false}</code>. The suppressed action was correctly NOT added to the audit trail.</td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>3b</td>
+<td>Action against an Exited session &rarr; 4xx, clear error, nothing injected</td>
+<td>4xx + explicit error</td>
+<td>Live: QA created a second session, killed its claude.exe child (non-zero exit &rarr; Director keeps the row as <code>Exited</code>), then POSTed ActSubmit: <code>HTTP 410 {"status":"session_gone","performed":false,...,"error":"session is Exited; nothing was injected"}</code>. (Side observation: a CLEANLY exited session is removed from the roster entirely and returns 404 "session not found" - also a correct 4xx, verified live too.)</td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>3c</td>
+<td>ActNone accepted as a no-op</td>
+<td>200, performed=false, no audit row</td>
+<td>Live: <code>{"action":"none"}</code> &rarr; <code>HTTP 200 {"status":"ok","performed":false,"action":"none",...}</code>; audit trail row count unchanged after the call.</td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Request without a valid Bearer token &rarr; 401</td>
+<td>401 when the auth gate is on</td>
+<td><code>ExecuteAction_WithoutBearerToken_Returns401</code> passes against a real Kestrel <code>ControlApiHost</code> with <code>authEnabled: true</code> and real DirectorAuth middleware (QA ran it; tokenless POST &rarr; 401, buffer empty). QA also confirmed in source that the production Director constructs <code>ControlApiHost</code> with auth disabled (App.axaml.cs - the pre-existing standalone posture for ALL verbs, tailnet = trust boundary), and verified live that a tokenless POST on the auth-disabled slot-6 Director is accepted - consistent with that posture, identical to every existing verb, and outside this issue's scope. The new route is gated exactly like every other verb.</td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Cross-machine smoke: POST via the Gateway leg to the SORENLAPTOP test Director</td>
+<td>Remote execution observable in the remote session's terminal</td>
+<td class="note">SORENLAPTOP seat was down during DEV (502 / filtered ports); the supervisor authorized a local Gateway-leg equivalent. <strong>QA verified the Gateway-leg itself on an isolated pair</strong>, going further than the DEV proof: a REAL <code>GatewayHost</code> (isolated port 7966, isolated instance/brief/vault/worklist stores, <code>CC_GATEWAY_NO_TAILSCALE=1</code>) had the slot-6 Director registered via <code>POST /directors/register</code>; the Gateway's fan-out read leg listed the Director's live session; the Gateway WRITE relay <code>POST /sessions/{sid}/prompt</code> (DirectorEndpointClient &rarr; Director Control API, the exact component+path the Phase-3 brain will use) returned <code>{"accepted":true}</code> and the text <code>GW-LEG-327-PROBE...</code> plus claude's <code>GW-LEG-327-ACK</code> were read back through the Gateway's <code>/sessions/{sid}/buffer</code> relay. The new verb itself was exercised cross-process over HTTP (separate caller process &rarr; Director), and Bearer-authenticated in the test host. <br><br><strong>QA judgment:</strong> the criterion's literal form (Gateway relays execute-action to a remote machine) is unsatisfiable today by the issue's OWN scope - "Out: Any Gateway-side caller of the new verb (Phase 3)" - so no Gateway forwarding route for execute-action exists to relay through, and the remote seat was down. The intent (the verb is drivable by a network caller exactly the way the Phase-3 Gateway brain will drive it, and the Gateway&rarr;Director relay machinery works against this build) is fully proven by the above. Accepted as satisfied, stated honestly.</td>
+<td class="pass">PASS (intent; local Gateway-leg verified by QA)</td>
+</tr>
+</table>
+
+<h2>3. QA live evidence - key responses (QA's own slot-6 Director, session e6743d9e)</h2>
+<pre>
+POST /sessions/{sid}/execute-action  {"action":"submit","text":"QA-327-PROBE reply with exactly QA-327-ACK and nothing else",...}
+  -> HTTP 200 {"status":"ok","performed":true,"action":"submit",...}
+GET /sessions/{sid}/buffer -> "... &#10095; QA-327-PROBE reply with exactly QA-327-ACK and nothing else ... QA-327-ACK ..."
+
+Cooldown (two immediate send_keys ["Right"]):
+  1st -> HTTP 200 {"status":"ok","performed":true}
+  2nd -> HTTP 200 {"status":"suppressed","performed":false}
+
+ActNone -> HTTP 200 {"status":"ok","performed":false,"action":"none"}
+
+Exited session (claude child killed, Status=Exited):
+  -> HTTP 410 {"status":"session_gone","performed":false,"error":"session is Exited; nothing was injected"}
+
+Audit trail GET /sessions/{sid}/wingman -> 3 rows (the 3 performed actions, with reasons);
+suppressed + none correctly absent.
+
+Gateway leg (isolated GatewayHost :7966, slot-6 Director registered):
+  POST :7966/directors/register -> 201
+  GET  :7966/sessions -> lists the slot-6 session (fan-out read leg)
+  POST :7966/sessions/{sid}/prompt {"text":"GW-LEG-327-PROBE ..."} -> {"accepted":true}
+  GET  :7966/sessions/{sid}/buffer -> contains GW-LEG-327-PROBE and GW-LEG-327-ACK
+</pre>
+
+<h2>4. Screenshot - the injected prompt and claude's QA-327-ACK answer</h2>
+<p class="meta">Rendered from the live session's own <code>GET /sessions/{sid}/buffer/html</code> (the Director's terminal render), captured by QA.</p>
+<img src="qa-terminal-ack.png" alt="Slot-6 session terminal buffer showing the injected prompt QA-327-PROBE and claude's QA-327-ACK answer">
+
+<h2>5. Regression and method sweep</h2>
+<ul>
+  <li><code>POST /sessions/{sid}/wingman/act</code> untouched (diff inspected - only an additive endpoint block in ControlEndpoints.cs).</li>
+  <li>No executor changes: <code>WingmanActionExecutor.cs</code> identical to main (all invariants are the pre-existing enforcement).</li>
+  <li>No contract changes: <code>WingmanAction</code>/<code>WingmanActResult</code> reused as-is (verified in the diff; called out in the PR per plan 1.2.5).</li>
+  <li>CenCon docs updated in the same change: <code>CONTRACT_AUDIT.md</code> row 85 (Verb), inventory 111 &rarr; 112, tallies and renumbering consistent (spot-checked).</li>
+  <li>No security-posture change: same DirectorAuth gate as every verb; route not in PublicPaths.</li>
+  <li>Adjacent behavior checked live: /prompt, /escape, /buffer, /wingman, session create/exit all behaved normally on the PR build.</li>
+</ul>
+
+<h2>6. Isolation and cleanup</h2>
+<p class="meta">QA worktree <code>D:\ReposFred\wt-qa-327</code>, slot 6 allocated/launched/torn down via <code>scripts\agent-session-isolation.ps1</code> (exact-path process stop, task <code>cc-director6-launch</code> unregistered, manifest deleted). The isolated GatewayHost ran with fully isolated stores and <code>CC_GATEWAY_NO_TAILSCALE=1</code>, stopped after use; port 7966 confirmed free. The user's main Director, Gateway, Cockpit, and slots 1-5 were never touched. DEV's leftover worktree <code>wt-issue-327</code> (clean, at the PR tip) was removed as part of QA cleanup.</p>
+
+<div class="verdict">
+<strong class="pass">VERIFIED - all acceptance criteria met.</strong> 6/6 criteria PASS on QA's own independent build, tests, live isolated Director, and live isolated Gateway-leg. The one criterion that named the SORENLAPTOP remote seat is accepted on its intent via the QA-verified local Gateway-leg (judgment recorded above, stated honestly, remote seat down + Gateway caller out of scope by the issue itself).
+</div>
+
+</div>
+</body>
+</html>

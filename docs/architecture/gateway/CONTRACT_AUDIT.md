@@ -25,7 +25,7 @@ grep -rnE '\.Map(Get|Post|Put|Patch|Delete)\("' src/CcDirector.ControlApi \
   Select-String -Pattern '\.Map(Get|Post|Put|Patch|Delete)\("').Count
 ```
 
-**Both commands return `111`.** The classification table in section 4 has exactly 111 rows (the `#` column runs 1..111).
+**Both commands return `112`.** The classification table in section 4 has exactly 112 rows (the `#` column runs 1..112).
 
 ## 2. Classification rules used
 
@@ -41,16 +41,16 @@ grep -rnE '\.Map(Get|Post|Put|Patch|Delete)\("' src/CcDirector.ControlApi \
 |---|---|
 | Fact | 50 |
 | Event | 0 (event surface is outbound push, section 5) |
-| Verb | 51 |
+| Verb | 52 |
 | VIOLATION | 10 |
 | Unclassified | **0** |
-| **Total (= inventory count)** | **111** |
+| **Total (= inventory count)** | **112** |
 
 ## 4. The classification table
 
 Grouped by source file, in source order. `WS` marks WebSocket upgrade endpoints.
 
-### 4.1 ControlEndpoints.cs (84 routes)
+### 4.1 ControlEndpoints.cs (85 routes)
 
 | # | Method | Path | Classification | Rationale |
 |---|---|---|---|---|
@@ -138,73 +138,74 @@ Grouped by source file, in source order. `WS` marks WebSocket upgrade endpoints.
 | 82 | DELETE | /interrupted/{deadDirectorId}/{deadPid:int} | Verb | Dismisses a dead Director's crash journal. |
 | 83 | DELETE | /interrupted/{deadDirectorId}/{deadPid:int}/sessions/{sessionId} | Verb | Dismisses one interrupted session entry. |
 | 84 | POST | /shutdown | Verb | Graceful Director shutdown. |
+| 85 | POST | /sessions/{sid}/execute-action | Verb | Plan-1B verb (#327): executes the caller-supplied structured WingmanAction verbatim via WingmanActionExecutor (the single write chokepoint) - zero decision logic, no LLM; all executor invariants (audit trail, cooldown, suppression, exited guard) are enforcement, not intelligence. The Phase-3 entry point for row 11's execute leg. |
 
 ### 4.2 ClaudeTranscriptsEndpoint.cs (1 route)
 
 | # | Method | Path | Classification | Rationale |
 |---|---|---|---|---|
-| 85 | GET | /claude-transcripts | Fact | Transcript files (id + mtime) for a repo - machine fact for relink after /clear (#172). |
+| 86 | GET | /claude-transcripts | Fact | Transcript files (id + mtime) for a repo - machine fact for relink after /clear (#172). |
 
 ### 4.3 DictationEndpoint.cs (6 routes)
 
 | # | Method | Path | Classification | Rationale |
 |---|---|---|---|---|
-| 86 | GET | /dictate.html | Fact | Embedded dictation UI page (UI convenience). |
-| 87 | GET | /dictate-worklet.js | Fact | Embedded audio worklet asset. |
-| 88 | GET | /dictate-client.js | Fact | Embedded client script asset. |
-| 89 | GET | /dictate/recovered | Fact | Recovered-dictation pickup list (stored state). |
-| 90 | POST | /dictate/recovered/{id}/dismiss | Verb | Removes a recovered-dictation entry. |
-| 91 | GET (WS) | /dictate | VIOLATION | Audio capture is raw I/O (stays), but the same socket transcribes via the OpenAI Realtime API + dictionary cleanup - target doc section 8 places transcribe/clean above the line. **Migrates: Phase 5** (capture leg stays on the Director). |
+| 87 | GET | /dictate.html | Fact | Embedded dictation UI page (UI convenience). |
+| 88 | GET | /dictate-worklet.js | Fact | Embedded audio worklet asset. |
+| 89 | GET | /dictate-client.js | Fact | Embedded client script asset. |
+| 90 | GET | /dictate/recovered | Fact | Recovered-dictation pickup list (stored state). |
+| 91 | POST | /dictate/recovered/{id}/dismiss | Verb | Removes a recovered-dictation entry. |
+| 92 | GET (WS) | /dictate | VIOLATION | Audio capture is raw I/O (stays), but the same socket transcribes via the OpenAI Realtime API + dictionary cleanup - target doc section 8 places transcribe/clean above the line. **Migrates: Phase 5** (capture leg stays on the Director). |
 
 ### 4.4 SchedulerEndpoint.cs (2 routes)
 
 | # | Method | Path | Classification | Rationale |
 |---|---|---|---|---|
-| 92 | GET | /scheduler | Fact | Leader/runner snapshot of the local scheduler. |
-| 93 | POST | /scheduler/{name}/run | Verb | Triggers a named runner now - mechanical trigger; the scheduling *policy* behind it is the 4.4 Engine violation (Phase 3), not this endpoint. |
+| 93 | GET | /scheduler | Fact | Leader/runner snapshot of the local scheduler. |
+| 94 | POST | /scheduler/{name}/run | Verb | Triggers a named runner now - mechanical trigger; the scheduling *policy* behind it is the 4.4 Engine violation (Phase 3), not this endpoint. |
 
 ### 4.5 SessionUsageEndpoint.cs (1 route)
 
 | # | Method | Path | Classification | Rationale |
 |---|---|---|---|---|
-| 94 | GET | /sessions/{sid}/usage | Fact | Deterministic token-usage computation from the JSONL transcript. |
+| 95 | GET | /sessions/{sid}/usage | Fact | Deterministic token-usage computation from the JSONL transcript. |
 
 ### 4.6 SettingsEndpoint.cs (6 routes)
 
 | # | Method | Path | Classification | Rationale |
 |---|---|---|---|---|
-| 95 | GET | /settings | Fact | Raw config.json contents. |
-| 96 | PUT | /settings | Verb | Merge-patches config.json (re-registers gateway when touched). |
-| 97 | POST | /settings/detect/gateway | Verb | Deterministic port-scan probe, optional config apply - mechanical detection. |
-| 98 | POST | /settings/detect/public-url | Verb | Deterministic tailnet-endpoint detection, optional apply. |
-| 99 | POST | /settings/detect/screenshots | Verb | Deterministic screenshots-folder detection, optional apply. |
-| 100 | POST | /settings/test/gateway | Verb | Connectivity probe against a caller-supplied gateway URL (no mutation). |
+| 96 | GET | /settings | Fact | Raw config.json contents. |
+| 97 | PUT | /settings | Verb | Merge-patches config.json (re-registers gateway when touched). |
+| 98 | POST | /settings/detect/gateway | Verb | Deterministic port-scan probe, optional config apply - mechanical detection. |
+| 99 | POST | /settings/detect/public-url | Verb | Deterministic tailnet-endpoint detection, optional apply. |
+| 100 | POST | /settings/detect/screenshots | Verb | Deterministic screenshots-folder detection, optional apply. |
+| 101 | POST | /settings/test/gateway | Verb | Connectivity probe against a caller-supplied gateway URL (no mutation). |
 
 ### 4.7 TerminalStreamEndpoint.cs (4 routes)
 
 | # | Method | Path | Classification | Rationale |
 |---|---|---|---|---|
-| 101 | GET | /xterm.js | Fact | Embedded terminal asset. |
-| 102 | GET | /xterm.css | Fact | Embedded terminal asset. |
-| 103 | GET | /xterm-addon-canvas.js | Fact | Embedded terminal asset. |
-| 104 | GET (WS) | /sessions/{sid}/stream | Fact | Live terminal buffer streamed to the client (fact-as-stream); inbound frames are the send-input/resize verbs multiplexed on the same socket - all mechanical raw I/O, no interpretation. |
+| 102 | GET | /xterm.js | Fact | Embedded terminal asset. |
+| 103 | GET | /xterm.css | Fact | Embedded terminal asset. |
+| 104 | GET | /xterm-addon-canvas.js | Fact | Embedded terminal asset. |
+| 105 | GET (WS) | /sessions/{sid}/stream | Fact | Live terminal buffer streamed to the client (fact-as-stream); inbound frames are the send-input/resize verbs multiplexed on the same socket - all mechanical raw I/O, no interpretation. |
 
 ### 4.8 ToolsEndpoint.cs (4 routes)
 
 | # | Method | Path | Classification | Rationale |
 |---|---|---|---|---|
-| 105 | GET | /tools | Fact | cc-* tool catalog + unmanaged binaries (machine fact / tool inventory). |
-| 106 | GET | /tools/{name} | Fact | One tool descriptor + linked skills. |
-| 107 | POST | /tools/{name}/test | Verb | Runs the tool's smoke tests locally - mechanical execution. |
-| 108 | POST | /tools/test | Verb | Runs all tool smoke tests (bounded concurrency) - mechanical execution. |
+| 106 | GET | /tools | Fact | cc-* tool catalog + unmanaged binaries (machine fact / tool inventory). |
+| 107 | GET | /tools/{name} | Fact | One tool descriptor + linked skills. |
+| 108 | POST | /tools/{name}/test | Verb | Runs the tool's smoke tests locally - mechanical execution. |
+| 109 | POST | /tools/test | Verb | Runs all tool smoke tests (bounded concurrency) - mechanical execution. |
 
 ### 4.9 WorkspacesEndpoint.cs (3 routes)
 
 | # | Method | Path | Classification | Rationale |
 |---|---|---|---|---|
-| 109 | GET | /workspaces | Fact | Stored workspace definitions. |
-| 110 | GET | /workspaces/{slug} | Fact | One workspace definition. |
-| 111 | GET | /history | Fact | Session history store contents. |
+| 110 | GET | /workspaces | Fact | Stored workspace definitions. |
+| 111 | GET | /workspaces/{slug} | Fact | One workspace definition. |
+| 112 | GET | /history | Fact | Session history store contents. |
 
 ## 5. The Events surface (outbound - why no inbound route is an Event)
 
@@ -237,7 +238,7 @@ The Phase 3 exit criterion makes this list empty: "zero claude.exe spawns below 
 | Row | Endpoint | Migrates in |
 |---|---|---|
 | 10 | POST /sessions/{sid}/wingman/ask | Phase 3 |
-| 11 | POST /sessions/{sid}/wingman/act | Phase 3 (execute leg stays as the Phase-1B execute-action verb) |
+| 11 | POST /sessions/{sid}/wingman/act | Phase 3 (execute leg stays as the Phase-1B execute-action verb - shipped as row 85, #327) |
 | 27 | GET /sessions/{sid}/brief | Phase 3 |
 | 30 | POST /sessions/{sid}/recap | Phase 3 |
 | 31 | POST /voice/command | Phase 5 |
@@ -245,7 +246,7 @@ The Phase 3 exit criterion makes this list empty: "zero claude.exe spawns below 
 | 36 | POST /chat | Phase 3 |
 | 37 | POST /sessions/{sid}/rule-violations | Phase 3 |
 | 48 | POST /sessions/{sid}/turn-summaries | Phase 3 |
-| 91 | GET /dictate (WS) | Phase 5 (capture leg stays) |
+| 92 | GET /dictate (WS) | Phase 5 (capture leg stays) |
 
 ---
 
@@ -254,3 +255,4 @@ The Phase 3 exit criterion makes this list empty: "zero claude.exe spawns below 
 | Date | Author | Change |
 |---|---|---|
 | 2026-06-11 | Claude (Developer Agent, issue #326) | Initial audit: 111 routes inventoried and classified (50 Facts, 0 Events, 51 Verbs, 10 Violations, 0 unclassified); deterministic inventory commands; outbound event surface and route-less below-the-line producers documented. |
+| 2026-06-11 | Claude (Developer Agent, issue #327) | Added row 85 POST /sessions/{sid}/execute-action (Verb - the Phase-1B mechanical WingmanAction executor entry); inventory 111 -> 112, Verbs 51 -> 52; rows after 84 renumbered +1 (cross-references updated: section 7 dictate row 91 -> 92). |

@@ -2501,6 +2501,46 @@ internal static class ControlEndpoints
             });
             return Results.Json(new { accepted = true });
         });
+
+        // ===== Execute-action verb (issue #327, plan 1B) =====
+        // The DUMB execute leg of the wingman decide/execute split: the caller (the Gateway
+        // brain in Phase 3) supplies the complete structured WingmanAction in the body and
+        // this handler carries it out EXACTLY as passed via WingmanActionExecutor - the
+        // single write chokepoint - with zero decision logic and no LLM involvement.
+        // All executor invariants apply unchanged (enforcement, not intelligence): audit
+        // trail in Session.RecentWingmanActions, 3s same-screen idempotency cooldown,
+        // self-injection suppression window, exited/failed-session guard. Contrast
+        // POST /sessions/{sid}/wingman/act above, which DECIDES the action before acting;
+        // that endpoint stays until the Phase-3 split removes its decide leg.
+        app.MapPost("/sessions/{sid}/execute-action", (string sid, WingmanAction? action) =>
+        {
+            if (!Guid.TryParse(sid, out var guid))
+                return Results.BadRequest(new WingmanActResult { Status = WingmanActResult.StatusBadRequest, Error = "invalid session id format" });
+
+            var session = sessionManager.GetSession(guid);
+            if (session is null)
+                return Results.NotFound(new { error = "session not found" });
+
+            if (action is null)
+                return Results.BadRequest(new WingmanActResult { Status = WingmanActResult.StatusBadRequest, Error = "body is required: a WingmanAction JSON object (action none|type|send_keys|submit)" });
+
+            FileLog.Write($"[ControlEndpoints] POST /execute-action: session={guid} action={action.Action}");
+            var result = WingmanActionExecutor.Execute(session, action);
+            FileLog.Write($"[ControlEndpoints] POST /execute-action: session={guid} action={result.Action} performed={result.Performed} status={result.Status}");
+
+            // Mechanical status -> HTTP mapping (no judgment in this path): a gone session
+            // and a malformed action are caller errors surfaced as 4xx with nothing injected;
+            // ok and suppressed are the verb's contract working as specified (suppressed =
+            // the executor's idempotency invariant fired and reports itself).
+            if (result.Status == WingmanActResult.StatusSessionGone)
+            {
+                result.Error = $"session is {session.Status}; nothing was injected";
+                return Results.Json(result, statusCode: StatusCodes.Status410Gone);
+            }
+            if (result.Status == WingmanActResult.StatusBadRequest)
+                return Results.Json(result, statusCode: StatusCodes.Status400BadRequest);
+            return Results.Json(result);
+        });
     }
 
     /// <summary>Folder name of a repo path, for display fallback. Empty path -> "Unknown Project".</summary>
