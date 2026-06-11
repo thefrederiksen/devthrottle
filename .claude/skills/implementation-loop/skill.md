@@ -198,26 +198,74 @@ number if one was given on the command line, else `none` - no issue work has beg
 
 (This guard is independent of the issue-selection guards below; both must pass.)
 
-### Step 0: Select the issue
+### Step 0: Select AND CLAIM the issue (duplicate-prevention - issue #298)
 
-- Arg given: use that issue number. Confirm it carries `flow:ready-dev` (or `flow:qa-failed` from a
-  prior pass - treat as resume-at-DEV).
-- No arg: pick the oldest open `flow:ready-dev`:
+Two concurrent loops must never implement the same issue (it happened on #199: duplicate PRs #294 /
+#296). So selection is not just "read the oldest `flow:ready-dev`" - it is **select-then-claim**, and
+the claim removes the issue from every other loop's selection set the instant work starts. The full
+mechanism is DEVELOPMENT_METHOD.md Section 4a (DECIDED D6); this is how the loop performs it.
+
+**Step 0.0 - Stale-claim sweep (recover crashed claims FIRST).** A loop that crashed after claiming
+leaves an issue `flow:in-progress` with no live owner - invisible to selection forever unless
+reclaimed. Before selecting, sweep stale claims back into the pool:
+```bash
+# any flow:in-progress issue whose newest CLAIM comment is older than 60 min is stale
+gh issue list --repo thefrederiksen/cc-director --label flow:in-progress --state open \
+  --json number --jq '.[].number' | while read N; do
+  NEWEST=$(gh issue view "$N" --repo thefrederiksen/cc-director --json comments \
+    --jq '[.comments[] | select(.body|startswith("CLAIM flow:in-progress by "))] | sort_by(.createdAt) | last | .createdAt')
+  # if NEWEST is empty or older than 60 minutes, reclaim it:
+  #   gh issue edit "$N" --repo thefrederiksen/cc-director --add-label flow:ready-dev --remove-label flow:in-progress
+  #   gh issue comment "$N" --repo thefrederiksen/cc-director --body "STALE-CLAIM SWEEP: reclaimed flow:in-progress -> flow:ready-dev (claim older than 60 min)."
+done
+```
+Do NOT sweep an issue this run just claimed (a fresh claim is protected - that is what stops the
+sweep stealing an issue out from under a healthy run).
+
+**Step 0.1 - Select.**
+- Arg given: use that issue number. Confirm it carries `flow:ready-dev` (or `flow:qa-failed` /
+  `flow:in-progress` from a prior pass of THIS run - treat as resume; do not re-claim what you
+  already hold).
+- No arg: pick the oldest open `flow:ready-dev` (the selection query reads `flow:ready-dev` ONLY, so
+  an in-progress/claimed issue is already invisible):
   ```bash
   gh issue list --repo thefrederiksen/cc-director --label flow:ready-dev --state open \
     --json number,title,updatedAt --jq 'sort_by(.updatedAt) | .[0]'
   ```
   If none, report "No flow:ready-dev issues" and stop.
 
+**Step 0.2 - Claim it (best-effort) and verify-after-claim.** GitHub labels are NOT an atomic
+compare-and-swap, so close the race honestly:
+```bash
+# (a) best-effort claim: ready-dev -> in-progress in ONE edit, then record WHO claimed it
+gh issue edit <N> --repo thefrederiksen/cc-director --add-label flow:in-progress --remove-label flow:ready-dev
+gh issue comment <N> --repo thefrederiksen/cc-director --body "CLAIM flow:in-progress by <director-id>/<session-id> at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+# (b) verify-after-claim: the WINNER is whoever's CLAIM comment is OLDEST
+gh issue view <N> --repo thefrederiksen/cc-director --json comments \
+  --jq '[.comments[]|select(.body|startswith("CLAIM flow:in-progress by "))]|sort_by(.createdAt)|.[0].body'
+```
+- If the oldest `CLAIM ...` comment is **yours**: you won. Proceed.
+- If it is **another loop's**: you LOST the race. Back off - leave the winner's `flow:in-progress`
+  intact (do NOT relabel it back; the winner owns it), then in `--all` mode select the next oldest
+  `flow:ready-dev` and re-claim, or in single-issue mode report that the issue was claimed by another
+  run and stop (emit no sentinel for an issue you never owned).
+
+This is best-effort with a deterministic loser-back-off (claim-comment order is the arbiter), not
+lock-free atomicity - see Section 4a for the honest residual-window note. (`gh issue list --label`
+is eventually consistent; allow a few seconds for the index to reflect a relabel.)
+
 Initialize a **bounce counter = 0** for this issue (the 3-strike guard).
 
 ### Step 1: DEV phase (spawn a fresh sub-agent)
 
 Spawn a **Developer sub-agent** (`Agent` tool) with the DEV prompt from "Execution model" above,
-pointing at `.claude/skills/developer-agent/skill.md` and this issue. It plans, implements against
-every acceptance criterion, builds clean (`dotnet build cc-director.sln`), proves it on a slot-5
-test Director launched via the `cc-director-launch` scheduled task, commits proof to the PR branch,
-and labels `flow:ready-qa` - all in its own context. It returns a `RESULT` block; you read only that.
+pointing at `.claude/skills/developer-agent/skill.md` and this issue. The issue now carries the
+loop's `flow:in-progress` claim (Step 0.2); tell the sub-agent it is the claimed issue (no
+`flow:ready-dev` required). It plans, implements against every acceptance criterion, builds clean
+(`dotnet build cc-director.sln`), proves it on a slot-5 test Director launched via the
+`cc-director-launch` scheduled task, commits proof to the PR branch, and on hand-off swaps the claim
+to `flow:ready-qa` (removing `flow:in-progress`) - all in its own context. It returns a `RESULT`
+block; you read only that.
 
 - `outcome: ready-qa` -> record the pr/branch from the RESULT, go to Step 2.
 - `outcome: needs-human` -> the spec failed the Definition of Ready and there is no Product session
@@ -286,6 +334,17 @@ git stash list           # MUST be empty of any stash the loop created (stashing
   thefrederiksen/cc-director --state open` must not show it; on a needs-human outcome the parked PR
   may remain (that is the one allowed open PR).
 
+**Claim-release gate (issue #298).** `flow:in-progress` is a transient working state and must NEVER
+be the label an issue is left in at a terminal stop. Confirm the claim was released:
+```bash
+gh issue view <N> --repo thefrederiksen/cc-director --json labels --jq '[.labels[].name]'
+```
+The result must NOT contain `flow:in-progress` (it should be `flow:done` on PASS, or
+`flow:needs-human` on a park/escalate). If `flow:in-progress` lingers, a sub-agent failed to swap it
+- this is an abnormal stop: do not advance, surface it, and the terminal signal is `failed`. (A
+crashed claim left this way would be recovered by the next run's Step 0.0 stale-claim sweep, but at a
+clean terminal stop you release it here, you do not rely on the sweep.)
+
 Then report a one-line result with the link:
 ```
 Issue #NNN: MERGED (flow:done) - N/N criteria verified, squash-merged to main, branch deleted | link
@@ -337,6 +396,9 @@ your own ledger has grown large over a very long queue).
 | Guard | Trigger | Action |
 |-------|---------|--------|
 | Pre-flight | dirty working tree or wrong base branch (Step 0a) | STOP before any work; ask the human - never auto-stash/discard |
+| Issue-claim | another loop's CLAIM comment is older (Step 0.2 verify-after-claim) | LOST the race: back off, leave the winner's `flow:in-progress`, select the next issue (or stop) |
+| Stale-claim | `flow:in-progress` with newest CLAIM comment older than 60 min (Step 0.0) | reclaim `flow:in-progress` -> `flow:ready-dev` so the issue is never stranded invisible |
+| Claim-release | `flow:in-progress` still present at a terminal stop (Step 4) | abnormal stop: surface it; signal `failed`; next run's sweep recovers it |
 | Weak spec | Developer role rejects on Definition of Ready | `flow:needs-human`, stop issue |
 | 3-strike | 3rd `flow:qa-failed` on the same issue | `flow:needs-human`, stop issue |
 | Build gate | post-merge `dotnet build` not clean | `flow:needs-human`, do NOT merge |
@@ -377,7 +439,7 @@ your own ledger has grown large over a very long queue).
 
 ---
 
-**Skill Version:** 0.5 (DRAFT - thin supervisor + fresh sub-agent per phase; realizes issue #259)
+**Skill Version:** 0.6 (DRAFT - thin supervisor + fresh sub-agent per phase; realizes issue #259)
 **Implements:** the Implementation session loop in docs/cencon/DEVELOPMENT_METHOD.md (D2, D5, terminal-signal contract Section 7a)
 **Builds on:** the `Agent` tool (per-phase sub-agents), developer-agent (DEV role), qa-agent (QA role + merge), DEVELOPMENT_METHOD.md
 **Created:** 2026-06-10
@@ -385,3 +447,4 @@ your own ledger has grown large over a very long queue).
 **Changes in 0.3:** Added the leave-clean invariant (no orphaned branches, no uncommitted WIP, no dangling PRs) + the Step 4 clean-tree gate + the Leave-clean guard. One sanctioned open PR at a stopping point: a PARKED flow:needs-human. Hardened after a prior run abandoned a half-built feature as loose working-tree edits.
 **Changes in 0.4:** Closed the stash loophole. A prior run "parked by cleanup" via `git stash` - the tree looked clean (`git status --porcelain` empty) while WIP sat hidden in the stash list, and the human had to clean it up. Banned `git stash` as a cleanup/park mechanism, extended the Step 0a pre-flight and Step 4 gate to also assert `git stash list` is empty, and updated the Leave-clean guard accordingly.
 **Changes in 0.5 (issue #272):** Added the machine-readable terminal signal. The loop now emits exactly one `IMPL-LOOP-TERMINAL` sentinel block (`signal: done | needs-human | failed`) as its final output on EVERY terminal path - in addition to the human one-line report - so the autonomous queue runner (#270) can detect a finished run without parsing prose. Mapping: MERGED -> `done`; PARKED/ESCALATED/conflict/dirty-build -> `needs-human`; pre-flight stop / abnormal exit -> `failed`. Wired into Step 0a, Step 1, Step 2, Step 3, and Step 4; contract recorded in DEVELOPMENT_METHOD.md Section 7a.
+**Changes in 0.6 (issue #298):** Added the issue-level CLAIM (duplicate-prevention). Step 0 now select-THEN-claims: a stale-claim sweep (Step 0.0) reclaims crashed `flow:in-progress` claims older than 60 min, selection reads `flow:ready-dev` only, and the chosen issue is claimed `flow:ready-dev` -> `flow:in-progress` with a verify-after-claim re-read (oldest `CLAIM` comment wins; the loser backs off). Step 4 adds a claim-release gate (no `flow:in-progress` may linger at a terminal stop). New guards: Issue-claim, Stale-claim, Claim-release. Closes the #199 duplicate-PR race. Mechanism + honest residual-window note in DEVELOPMENT_METHOD.md Section 4a / D6.

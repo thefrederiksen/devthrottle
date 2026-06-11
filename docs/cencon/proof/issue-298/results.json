@@ -1,0 +1,10 @@
+{
+  "issue": 298,
+  "repo": "thefrederiksen/cc-director",
+  "testIssue": 314,
+  "staleThresholdMinutes": 60,
+  "allPass": true,
+  "results": [
+  {"ac": "AC4", "name": "flow:in-progress label exists in repo", "result": "pass", "detail": "label present"},  {"ac": "SETUP", "name": "create throwaway fixture issue", "result": "pass", "detail": "issue #314 created"},  {"ac": "AC2a", "name": "ready-dev issue is selectable", "result": "pass", "detail": "#314 in selection set"},  {"ac": "AC1", "name": "exactly one loop claims the issue (other backs off)", "result": "pass", "detail": "winner=loopA, wins=1"},  {"ac": "AC2b", "name": "in-progress issue excluded from selection", "result": "pass", "detail": "#314 absent from flow:ready-dev selection"},  {"ac": "AC2c", "name": "claim leaves exactly flow:in-progress", "result": "pass", "detail": "labels=flow:in-progress,test-fixture-298"},  {"ac": "AC3a", "name": "PASS path releases claim (in-progress -> done)", "result": "pass", "detail": "labels=flow:done,test-fixture-298"},  {"ac": "AC3b", "name": "needs-human path releases claim (no stuck in-progress)", "result": "pass", "detail": "labels=flow:needs-human,test-fixture-298"},  {"ac": "AC3c", "name": "fresh claim is protected from the stale sweep", "result": "pass", "detail": "age=0min < 60min, not reclaimed"},  {"ac": "AC3d", "name": "stale claim reclaimed (in-progress -> ready-dev, reselectable)", "result": "pass", "detail": "#314 back in selection set"}
+  ]
+}
