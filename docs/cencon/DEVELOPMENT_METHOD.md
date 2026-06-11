@@ -330,14 +330,23 @@ Before labeling `flow:ready-qa`, the Developer Agent must have ALL of:
 1. Code implemented against every acceptance criterion in the issue.
 2. `review-code` skill invoked and `docs/CodingStyle.md` + `docs/VisualStyle.md` honored before/while
    writing code (per CLAUDE.md). UI changes must comply with `docs/VisualStyle.md`.
-3. Solution builds clean: `dotnet build cc-director.sln`. For a runnable test binary, build a
-   dev slot with `scripts\local-build-avalonia.ps1 -Slot 5` (slot 5+ is reserved for agent test
-   Directors; never use the main build or slots 1-4 - CLAUDE.md rule 0b).
+3. Solution builds clean: `dotnet build cc-director.sln`, run inside the session's OWN git
+   worktree (per-session build isolation, issue #299). For a runnable test binary, allocate a
+   per-session dev slot with `scripts\agent-session-isolation.ps1 allocate` (slots are taken
+   dynamically from 6 upward; slot 5 is the legacy/manual default and may be in use by a human -
+   never assume it is free; never use the main build or slots 1-4 - CLAUDE.md rule 0b), then build
+   it with `scripts\local-build-avalonia.ps1 -Slot <N>` from the worktree root so bin/obj and
+   local_builds stay inside the worktree.
 4. **Proof-based verification** performed (per CLAUDE.md): the change exercised in the running app.
-   Launch the test Director via the `cc-director-launch` scheduled task (NEVER spawn cc-director.exe
-   from inside the agent's own process tree - CLAUDE.md rule 0b), drive it via the Control API
-   (loopback REST) and/or screenshots, and capture a screenshot showing the expected result. State
-   Expected vs Actual for each acceptance criterion.
+   Launch the test Director via the session's OWN per-slot scheduled task -
+   `scripts\agent-session-isolation.ps1 launch` registers and starts `cc-director<N>-launch`
+   (NEVER spawn cc-director.exe from inside the agent's own process tree - CLAUDE.md rule 0b) and
+   resolves the Director's self-allocated Control API port from its log. Drive it via the Control
+   API (loopback REST) and/or screenshots, and capture a screenshot showing the expected result.
+   State Expected vs Actual for each acceptance criterion. Afterward,
+   `scripts\agent-session-isolation.ps1 teardown` stops only the session's own exact-path process
+   and unregisters the session's task - concurrent sessions on one machine never collide on slot,
+   build output, or port.
 5. **CenCon not drifted:** if the change altered architecture or security posture, the relevant
    `docs/cencon/` files are updated in the same change, and no blocking security rule
    (DT-01..DT-NN in `security_profile.yaml`) is violated.
@@ -390,8 +399,9 @@ drive many items without the supervisor's context filling up. The handoff betwee
 relies on the method's existing durable state (the `flow:*` label, issue comments, and the PR
 branch), not on shared memory - so a fresh QA sub-agent is also a more honestly independent verifier.
 The 3-strike `flow:qa-failed` guard and the weak-spec `flow:needs-human` escalation live in the
-supervisor; one phase runs at a time (DEV then QA), so sub-agents never collide on the slot-5 test
-Director.
+supervisor; one phase runs at a time (DEV then QA) within a loop, and across loops each session's
+test Director is isolated per-session (own worktree, own slot >= 6, own self-allocated Control API
+port - issue #299), so sub-agents never collide on a test Director.
 
 ---
 

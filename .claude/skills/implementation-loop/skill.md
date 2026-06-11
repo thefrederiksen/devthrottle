@@ -152,11 +152,22 @@ entry. You do not absorb the sub-agent's working detail.
 
 ### Concurrency rule (why this is safe on one machine)
 
-Phases run strictly one at a time - DEV completes and returns before QA is spawned - and in `--all`
-mode issues are processed one at a time. So two sub-agents never run at once and never collide on
-the slot-5 test Director, the build output, or a Control API port. Never spawn the DEV and QA
-sub-agents in parallel. (Isolated git worktrees would only be needed if we ever parallelized across
-issues, which this loop deliberately does not.)
+Phases within ONE loop run strictly one at a time - DEV completes and returns before QA is spawned -
+and in `--all` mode issues are processed one at a time. Never spawn the DEV and QA sub-agents in
+parallel.
+
+Safety against OTHER loops on the same machine is **per-session isolation** (issue #299), not a
+single reserved slot: every DEV/QA sub-agent works in its own git worktree (own bin/obj + own
+`local_builds`), allocates its own test slot >= 6 via `scripts/agent-session-isolation.ps1` (the
+slot is reserved atomically by registering the per-slot `cc-director<N>-launch` scheduled task -
+a registration race has exactly one winner), and the test Director self-allocates its Control API
+port (discovered from the Director's own log; launches are serialized through a machine-wide mutex
+inside the script so one Director has BOUND its port before the next one probes - the Director's
+PortAllocator picks a port before Kestrel binds it, so unserialized simultaneous startups can pick
+the same port). Two concurrent implementation sessions therefore get different slots, different
+build outputs, and different ports by construction. The issue-level
+claim (Step 0, #298) keeps two loops off the same ISSUE; the session isolation keeps them off the
+same MACHINE resources.
 
 ## Quick Reference
 
@@ -433,13 +444,14 @@ your own ledger has grown large over a very long queue).
   prove, hand to `flow:ready-qa`).
 - `qa-agent` skill - the role a QA sub-agent reads and follows (independent verify,
   pass+squash-merge / fail-bounce).
-- The Control API (loopback REST) + slot-5 test Director via `cc-director-launch` - the shared
-  runtime the sub-agents drive for proof (CLAUDE.md rule 0b). Because phases are sequential, only one
-  sub-agent uses slot 5 at a time.
+- The Control API (loopback REST) + a per-session test Director via
+  `scripts/agent-session-isolation.ps1` (allocate / launch / teardown; CLAUDE.md rule 0b) - each
+  sub-agent allocates its own slot >= 6 in its own worktree, so concurrent loops on one machine
+  never share a test Director, a build output, or a port (issue #299).
 
 ---
 
-**Skill Version:** 0.6 (DRAFT - thin supervisor + fresh sub-agent per phase; realizes issue #259)
+**Skill Version:** 0.7 (DRAFT - thin supervisor + fresh sub-agent per phase; realizes issue #259)
 **Implements:** the Implementation session loop in docs/cencon/DEVELOPMENT_METHOD.md (D2, D5, terminal-signal contract Section 7a)
 **Builds on:** the `Agent` tool (per-phase sub-agents), developer-agent (DEV role), qa-agent (QA role + merge), DEVELOPMENT_METHOD.md
 **Created:** 2026-06-10
@@ -448,3 +460,4 @@ your own ledger has grown large over a very long queue).
 **Changes in 0.4:** Closed the stash loophole. A prior run "parked by cleanup" via `git stash` - the tree looked clean (`git status --porcelain` empty) while WIP sat hidden in the stash list, and the human had to clean it up. Banned `git stash` as a cleanup/park mechanism, extended the Step 0a pre-flight and Step 4 gate to also assert `git stash list` is empty, and updated the Leave-clean guard accordingly.
 **Changes in 0.5 (issue #272):** Added the machine-readable terminal signal. The loop now emits exactly one `IMPL-LOOP-TERMINAL` sentinel block (`signal: done | needs-human | failed`) as its final output on EVERY terminal path - in addition to the human one-line report - so the autonomous queue runner (#270) can detect a finished run without parsing prose. Mapping: MERGED -> `done`; PARKED/ESCALATED/conflict/dirty-build -> `needs-human`; pre-flight stop / abnormal exit -> `failed`. Wired into Step 0a, Step 1, Step 2, Step 3, and Step 4; contract recorded in DEVELOPMENT_METHOD.md Section 7a.
 **Changes in 0.6 (issue #298):** Added the issue-level CLAIM (duplicate-prevention). Step 0 now select-THEN-claims: a stale-claim sweep (Step 0.0) reclaims crashed `flow:in-progress` claims older than 60 min, selection reads `flow:ready-dev` only, and the chosen issue is claimed `flow:ready-dev` -> `flow:in-progress` with a verify-after-claim re-read (oldest `CLAIM` comment wins; the loser backs off). Step 4 adds a claim-release gate (no `flow:in-progress` may linger at a terminal stop). New guards: Issue-claim, Stale-claim, Claim-release. Closes the #199 duplicate-PR race. Mechanism + honest residual-window note in DEVELOPMENT_METHOD.md Section 4a / D6.
+**Changes in 0.7 (issue #299):** Rewrote the concurrency rule: same-machine safety now comes from per-session isolation (own worktree, own slot >= 6 reserved via the per-slot scheduled-task registration in `scripts/agent-session-isolation.ps1`, self-allocated Control API port) instead of the old "single slot-5 so nothing can collide" claim. Two loops on one machine are safe on resources (#299) and on issues (#298).
