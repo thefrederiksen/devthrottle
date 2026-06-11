@@ -205,7 +205,25 @@ internal static class DictationEndpoint
         long audioBytesReceived = 0;
         string? clientError = null;
 
-        await session.StartAsync(profile, ct);
+        // Issue #226: a provider connect failure here (provider unreachable, invalid key) is a
+        // mid-recording-class failure - the client already has the mic live (capture-first). Send a
+        // TYPED {type:error} naming the human cause BEFORE closing, so the Cockpit dialog surfaces
+        // the real reason (not a bare close code) and offers Retry with the audio it captured.
+        // DictationConnectException already carries a human-readable message; other failures are
+        // prefixed so the dialog names the operation that failed.
+        try
+        {
+            await session.StartAsync(profile, ct);
+        }
+        catch (Exception ex)
+        {
+            var cause = ex is DictationConnectException ? ex.Message : "could not start dictation: " + ex.Message;
+            FileLog.Write($"[DictationEndpoint] sid={sessionId} StartAsync FAILED: {ex.Message}");
+            await TrySendErrorAsync(ws, cause, ct);
+            await TryCloseAsync(ws, WebSocketCloseStatus.InternalServerError, "start failed");
+            return;
+        }
+
         await SendJsonAsync(ws, new { type = "started" }, ct);
 
         FileLog.Write($"[DictationEndpoint] session started: sid={sessionId} profile={profile} "
