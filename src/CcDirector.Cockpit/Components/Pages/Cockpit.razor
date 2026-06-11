@@ -1412,15 +1412,23 @@
         var sel = Selected; var dir = sel?.TailnetEndpoint;
         if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
         var files = e.GetMultipleFiles(10);
+        var total = files.Count;
         var sent = 0;
+        var index = 0;
         foreach (var f in files)
         {
+            index++;
             // One INFO line per attachment (name + size), per the issue's composer-Attach action.
             Log.LogInformation(
                 "Cockpit action=attach sid={Sid} dir={Dir} name={Name} bytes={Bytes}",
                 sel.SessionId, dir, f.Name, f.Size);
             try
             {
+                // Optimistic status: render BEFORE the upload await so a large image on a slow
+                // link shows feedback immediately instead of nothing until the bytes finish.
+                _shotStatus = $"uploading {f.Name} ({index} of {total})...";
+                await InvokeAsync(StateHasChanged);
+
                 await using var s = f.OpenReadStream(20 * 1024 * 1024, _cts.Token); // 20 MB cap
                 var path = await Director.UploadImageAsync(dir!, sel.SessionId, s, f.Name, f.ContentType, _cts.Token);
 
