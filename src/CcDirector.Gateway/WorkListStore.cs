@@ -1,26 +1,60 @@
+using System.Text.Json;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 
 namespace CcDirector.Gateway;
 
 /// <summary>
-/// The fleet's in-memory named work-list store (issue #273, child of #270). A named work list is
-/// an ordered list of structured item refs (<see cref="WorkListItemRef"/>) plus a single-consumer
-/// claim. This object is what the product skill writes to, the Cockpit views, and the queue runner
-/// drains - so it exists before any of those.
+/// The fleet's named work-list store (issue #273, child of #270; persistent since #301). A named
+/// work list is an ordered list of structured item refs (<see cref="WorkListItemRef"/>) plus a
+/// single-consumer claim. This object is what the product skill writes to, the Cockpit views, and
+/// the queue runner drains - so it exists before any of those.
 ///
 /// The store keeps order + the structured refs + the single-consumer assignment ONLY. It never
 /// stores item status (consumers read status from the source themselves) and it never rejects a
-/// source (runnability is the queue runner's concern). Persistence across Gateway restart is OUT
-/// for v1 (#270 roadmap), so this lives purely in process memory, guarded by a single lock.
+/// source (runnability is the queue runner's concern).
+///
+/// PERSISTENCE (issue #301, keyvault.json precedent): the whole store lives in ONE plain JSON
+/// file at the path the constructor receives (production: worklists.json in the Gateway data
+/// dir). Every mutation writes through immediately with an atomic temp-file + rename, so a crash
+/// mid-write can never half-truncate the store. On construction the file is loaded back:
+///   - missing file  = empty store + a log line (the normal first boot), never an error;
+///   - corrupt file  = the bytes are QUARANTINED to "&lt;path&gt;.corrupt-&lt;stamp&gt;" (preserved
+///     for the operator, never silently overwritten), an explicit error is logged, and the store
+///     starts empty so the Gateway still boots;
+///   - a persisted consumer claim is BY DEFINITION stale after a restart (the claiming runner
+///     died with the Gateway), so it is released on load with a log line naming the list and the
+///     dead consumer token, and the released state is persisted immediately.
 /// </summary>
 public sealed class WorkListStore
 {
     private readonly object _gate = new();
+    private readonly string _path;
 
     // Name -> list. Case-insensitive names so "Backlog" and "backlog" address the same list.
     private readonly Dictionary<string, WorkListDto> _lists =
         new(StringComparer.OrdinalIgnoreCase);
+
+    private static readonly JsonSerializerOptions FileJsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = true,
+        WriteIndented = true,
+    };
+
+    /// <param name="path">
+    /// The JSON file the store persists to. REQUIRED so no caller can silently land on the real
+    /// user's file: production (<see cref="GatewayHost"/>) passes worklists.json in the Gateway
+    /// data dir; tests pass an isolated temp path.
+    /// </param>
+    /// <exception cref="ArgumentException">The path is null/empty/whitespace.</exception>
+    public WorkListStore(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            throw new ArgumentException("store path is required", nameof(path));
+        _path = path;
+        Load();
+    }
 
     /// <summary>The outcome of a single-consumer claim attempt.</summary>
     public enum ClaimResult
@@ -54,6 +88,7 @@ public sealed class WorkListStore
             }
 
             _lists[name] = new WorkListDto { Name = name };
+            Save();
             FileLog.Write($"[WorkListStore] Create: name={name}");
             return true;
         }
@@ -102,6 +137,7 @@ public sealed class WorkListStore
             }
 
             list.Items.Add(new WorkListItemRef { Source = item.Source, Id = item.Id, Area = item.Area });
+            Save();
             FileLog.Write($"[WorkListStore] AppendItem: name={name}, source={item.Source}, id={item.Id}, count={list.Items.Count}");
             return true;
         }
@@ -138,6 +174,7 @@ public sealed class WorkListStore
             list.Items = items
                 .Select(i => new WorkListItemRef { Source = i.Source, Id = i.Id, Area = i.Area })
                 .ToList();
+            Save();
             FileLog.Write($"[WorkListStore] Reorder: name={name}, count={list.Items.Count}");
             return true;
         }
@@ -164,6 +201,8 @@ public sealed class WorkListStore
             var removed = list.Items.RemoveAll(i =>
                 string.Equals(i.Source, source, StringComparison.OrdinalIgnoreCase) &&
                 string.Equals(i.Id, id, StringComparison.Ordinal));
+            if (removed > 0)
+                Save();
             FileLog.Write($"[WorkListStore] RemoveItem: name={name}, source={source}, id={id}, removed={removed}");
             return removed > 0;
         }
@@ -195,6 +234,7 @@ public sealed class WorkListStore
             }
 
             list.Consumer = consumerToken;
+            Save();
             FileLog.Write($"[WorkListStore] Claim: name={name} granted");
             return ClaimResult.Granted;
         }
@@ -215,7 +255,11 @@ public sealed class WorkListStore
                 return false;
             }
 
-            list.Consumer = null;
+            if (list.Consumer is not null)
+            {
+                list.Consumer = null;
+                Save();
+            }
             FileLog.Write($"[WorkListStore] Release: name={name}");
             return true;
         }
@@ -229,4 +273,124 @@ public sealed class WorkListStore
             .Select(i => new WorkListItemRef { Source = i.Source, Id = i.Id, Area = i.Area })
             .ToList(),
     };
+
+    // ---- persistence (issue #301) ------------------------------------------------------------
+
+    /// <summary>The on-disk shape: one document holding every named list.</summary>
+    private sealed class StoreFile
+    {
+        public List<WorkListDto> Lists { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Load the store file written by a previous Gateway run. Called once from the constructor.
+    /// Missing file = the normal first boot (empty store, logged). A corrupt file is quarantined
+    /// (renamed next to the original with a timestamp suffix) so its bytes are preserved for the
+    /// operator and never silently overwritten by the next write-through; the store then starts
+    /// empty so the Gateway still boots. Stale consumer claims are released here - a persisted
+    /// claim's runner died with the Gateway - and the released state is persisted immediately.
+    /// </summary>
+    private void Load()
+    {
+        if (!File.Exists(_path))
+        {
+            FileLog.Write($"[WorkListStore] Load: no store file at {_path}; starting empty");
+            return;
+        }
+
+        StoreFile? parsed;
+        try
+        {
+            parsed = JsonSerializer.Deserialize<StoreFile>(File.ReadAllText(_path), FileJsonOptions);
+        }
+        catch (JsonException ex)
+        {
+            Quarantine(ex.Message);
+            return;
+        }
+
+        if (parsed is null)
+        {
+            // "null" is valid JSON, so deserialization succeeds but yields no document - the
+            // file carries no usable store. Same recovery as a parse failure: preserve + start empty.
+            Quarantine("file deserialized to null (no store document)");
+            return;
+        }
+
+        var staleClaims = 0;
+        foreach (var list in parsed.Lists)
+        {
+            if (string.IsNullOrWhiteSpace(list.Name))
+            {
+                Quarantine("a persisted list has an empty name");
+                _lists.Clear();
+                return;
+            }
+
+            // A persisted claim is by definition stale after a restart: the claiming runner died
+            // with the Gateway (or belongs to a session that may no longer exist). Release it so a
+            // new runner can re-claim and continue from the persisted order (issue #301 policy).
+            if (!string.IsNullOrEmpty(list.Consumer))
+            {
+                FileLog.Write($"[WorkListStore] Load: released stale claim on list={list.Name}, deadConsumer={list.Consumer} (claims do not survive a Gateway restart)");
+                list.Consumer = null;
+                staleClaims++;
+            }
+
+            _lists[list.Name] = list;
+        }
+
+        FileLog.Write($"[WorkListStore] Load: restored {_lists.Count} list(s) from {_path}, staleClaimsReleased={staleClaims}");
+
+        // Persist the released-claim state immediately so a crash before the next mutation
+        // does not resurrect a dead consumer on the following boot.
+        if (staleClaims > 0)
+            Save();
+    }
+
+    /// <summary>
+    /// Preserve an unreadable store file as "&lt;path&gt;.corrupt-&lt;stamp&gt;" and log loudly.
+    /// The original path is then free for the next write-through; the operator can inspect or
+    /// hand-restore the quarantined bytes. The move is not allowed to fail silently: if even the
+    /// quarantine fails, the exception propagates and the Gateway does not start half-blind.
+    /// </summary>
+    private void Quarantine(string reason)
+    {
+        var quarantinePath = $"{_path}.corrupt-{DateTime.UtcNow:yyyyMMdd-HHmmss-fff}";
+        File.Move(_path, quarantinePath);
+        FileLog.Write($"[WorkListStore] Load FAILED: store file at {_path} is corrupt ({reason}); quarantined to {quarantinePath}; starting empty. Operator action: inspect the quarantined file to recover lists.");
+    }
+
+    /// <summary>
+    /// Write-through: serialize the whole store and atomically replace the file (temp + rename),
+    /// so a concurrent reader or a crash mid-write never sees a half-written store. Called inside
+    /// the lock by every mutation. A failed save is a LOGGED error that propagates (the caller's
+    /// request fails loudly) - never a silent skip.
+    /// </summary>
+    private void Save()
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(_path);
+            if (!string.IsNullOrEmpty(dir))
+                Directory.CreateDirectory(dir);
+
+            var file = new StoreFile
+            {
+                Lists = _lists.Values
+                    .OrderBy(l => l.Name, StringComparer.OrdinalIgnoreCase)
+                    .ToList(),
+            };
+            var json = JsonSerializer.Serialize(file, FileJsonOptions);
+
+            var tmp = _path + ".tmp";
+            File.WriteAllText(tmp, json);
+            File.Move(tmp, _path, overwrite: true);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[WorkListStore] Save FAILED: path={_path}: {ex.Message}");
+            throw;
+        }
+    }
 }

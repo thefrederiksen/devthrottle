@@ -22,7 +22,8 @@ public sealed class GatewayClientVerifyTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         _gateway = new GatewayHost(port: FreePort(), token: "", authEnabled: false,
-            instancesDirectory: _instancesDir);
+            instancesDirectory: _instancesDir,
+            workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"));
         await _gateway.StartAsync();
     }
 

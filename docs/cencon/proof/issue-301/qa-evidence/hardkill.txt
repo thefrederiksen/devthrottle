@@ -1,0 +1,13 @@
+﻿QA #301 HARD-KILL proof - instance 2 pid 37832
+re-claim: {"name":"qa-backlog","consumer":"qa-hardkill-runner-301"}
+append-just-before-kill: {"name":"qa-today","appended":{"source":"github","id":"999-prekill","area":null}}
+kill target path check: pid=37832 path=D:\ReposFred\wt-issue-301-qa\src\CcDirector.Gateway\bin\Debug\net10.0\CcDirector.Gateway.exe
+pid 37832 exited after Stop-Process -Force: True
+instance 3 PID=8512
+AFTER-HARDKILL GET /lists: {"lists":[{"name":"qa-backlog","items":[{"source":"github","id":"262","area":"Gateway"},{"source":"devops","id":"1203","area":null},{"source":"jira","id":"CCD-44","area":"Web"}],"consumer":null},{"name":"qa-today","items":[{"source":"github","id":"301","area":null},{"source":"github","id":"999-prekill","area":null}],"consumer":null}]}
+store dir residue files: worklists.json
+--- post-hardkill WorkListStore log lines ---
+2026-06-11 06:18:06.881 [WorkListStore] Load: released stale claim on list=qa-backlog, deadConsumer=qa-stale-runner-301 (claims do not survive a Gateway restart)
+2026-06-11 06:18:06.881 [WorkListStore] Load: restored 2 list(s) from C:\Users\soren\AppData\Local\Temp\qa301-gwroot\worklists.json, staleClaimsReleased=1
+2026-06-11 06:18:32.740 [WorkListStore] Load: released stale claim on list=qa-backlog, deadConsumer=qa-hardkill-runner-301 (claims do not survive a Gateway restart)
+2026-06-11 06:18:32.740 [WorkListStore] Load: restored 2 list(s) from C:\Users\soren\AppData\Local\Temp\qa301-gwroot\worklists.json, staleClaimsReleased=1

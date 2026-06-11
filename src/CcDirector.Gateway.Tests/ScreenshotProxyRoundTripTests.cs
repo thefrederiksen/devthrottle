@@ -43,7 +43,8 @@ public sealed class ScreenshotProxyRoundTripTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         _gateway = new GatewayHost(port: FreePort(), token: "test-token", authEnabled: true,
-            instancesDirectory: _instancesDir, cockpitProxyPort: 1);
+            instancesDirectory: _instancesDir, cockpitProxyPort: 1,
+            workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"));
         await _gateway.StartAsync();
 
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };

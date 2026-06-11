@@ -1,0 +1,47 @@
+﻿QA #301 GRACEFUL-RESTART proof - instance 1 pid 53392, port 27878, root C:\Users\soren\AppData\Local\Temp\qa301-gwroot
+create qa-backlog: {"name":"qa-backlog"}
+append 1: {"name":"qa-backlog","appended":{"source":"github","id":"262","area":"Gateway"}}
+append 2: {"name":"qa-backlog","appended":{"source":"devops","id":"1203","area":null}}
+append 3: {"name":"qa-backlog","appended":{"source":"jira","id":"CCD-44","area":"Web"}}
+create qa-today: {"name":"qa-today"}
+append qa-today: {"name":"qa-today","appended":{"source":"github","id":"301","area":null}}
+claim qa-backlog: {"name":"qa-backlog","consumer":"qa-stale-runner-301"}
+BEFORE-RESTART GET /lists: {"lists":[{"name":"qa-backlog","items":[{"source":"github","id":"262","area":"Gateway"},{"source":"devops","id":"1203","area":null},{"source":"jira","id":"CCD-44","area":"Web"}],"consumer":"qa-stale-runner-301"},{"name":"qa-today","items":[{"source":"github","id":"301","area":null}],"consumer":null}]}
+worklists.json exists: True
+worklists.json content:
+{
+  "lists": [
+    {
+      "name": "qa-backlog",
+      "items": [
+        {
+          "source": "github",
+          "id": "262",
+          "area": "Gateway"
+        },
+        {
+          "source": "devops",
+          "id": "1203",
+          "area": null
+        },
+        {
+          "source": "jira",
+          "id": "CCD-44",
+          "area": "Web"
+        }
+      ],
+      "consumer": "qa-stale-runner-301"
+    },
+    {
+      "name": "qa-today",
+      "items": [
+        {
+          "source": "github",
+          "id": "301",
+          "area": null
+        }
+      ],
+      "consumer": null
+    }
+  ]
+}

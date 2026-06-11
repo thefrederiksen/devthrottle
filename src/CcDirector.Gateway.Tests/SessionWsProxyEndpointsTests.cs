@@ -35,7 +35,8 @@ public sealed class SessionWsProxyEndpointsTests : IAsyncLifetime
         // Dead Cockpit port: anything that fell through to the fallback proxy would answer the
         // 503 interstitial - so a NON-interstitial response proves the explicit WS route claimed it.
         _gateway = new GatewayHost(port: FreePort(), token: "test-token", authEnabled: true,
-            instancesDirectory: _instancesDir, cockpitProxyPort: 1);
+            instancesDirectory: _instancesDir, cockpitProxyPort: 1,
+            workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"));
         await _gateway.StartAsync();
 
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };

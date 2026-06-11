@@ -1,0 +1,52 @@
+﻿POST /shutdown -> 200 {"shuttingDown":true}
+pid 53392 exited: True
+instance 2 PID=37832
+AFTER-GRACEFUL-RESTART GET /lists: {"lists":[{"name":"qa-backlog","items":[{"source":"github","id":"262","area":"Gateway"},{"source":"devops","id":"1203","area":null},{"source":"jira","id":"CCD-44","area":"Web"}],"consumer":null},{"name":"qa-today","items":[{"source":"github","id":"301","area":null}],"consumer":null}]}
+worklists.json after restart:
+{
+  "lists": [
+    {
+      "name": "qa-backlog",
+      "items": [
+        {
+          "source": "github",
+          "id": "262",
+          "area": "Gateway"
+        },
+        {
+          "source": "devops",
+          "id": "1203",
+          "area": null
+        },
+        {
+          "source": "jira",
+          "id": "CCD-44",
+          "area": "Web"
+        }
+      ],
+      "consumer": null
+    },
+    {
+      "name": "qa-today",
+      "items": [
+        {
+          "source": "github",
+          "id": "301",
+          "area": null
+        }
+      ],
+      "consumer": null
+    }
+  ]
+}
+--- stale-claim release log lines ---
+2026-06-11 06:18:06.881 [WorkListStore] Load: released stale claim on list=qa-backlog, deadConsumer=qa-stale-runner-301 (claims do not survive a Gateway restart)
+2026-06-11 06:18:06.881 [WorkListStore] Load: restored 2 list(s) from C:\Users\soren\AppData\Local\Temp\qa301-gwroot\worklists.json, staleClaimsReleased=1
+2026-06-11 06:17:35.926 [WorkListStore] Load: no store file at C:\Users\soren\AppData\Local\Temp\qa301-gwroot\worklists.json; starting empty
+2026-06-11 06:17:51.466 [WorkListStore] Create: name=qa-backlog
+2026-06-11 06:17:51.487 [WorkListStore] AppendItem: name=qa-backlog, source=github, id=262, count=1
+2026-06-11 06:17:51.501 [WorkListStore] AppendItem: name=qa-backlog, source=devops, id=1203, count=2
+2026-06-11 06:17:51.515 [WorkListStore] AppendItem: name=qa-backlog, source=jira, id=CCD-44, count=3
+2026-06-11 06:17:51.529 [WorkListStore] Create: name=qa-today
+2026-06-11 06:17:51.540 [WorkListStore] AppendItem: name=qa-today, source=github, id=301, count=1
+2026-06-11 06:17:51.553 [WorkListStore] Claim: name=qa-backlog granted

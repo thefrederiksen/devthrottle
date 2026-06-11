@@ -30,7 +30,8 @@ public sealed class GatewayDirectoryRegistrationTests : IAsyncLifetime
         // cockpitProxyPort: a dead port so "/" hits the interstitial, never a real
         // Cockpit that may be running on the dev machine.
         _gateway = new GatewayHost(port: FreePort(), token: "test-token", authEnabled: true,
-            instancesDirectory: _instancesDir, cockpitProxyPort: 1);
+            instancesDirectory: _instancesDir, cockpitProxyPort: 1,
+            workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"));
         await _gateway.StartAsync();
 
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };

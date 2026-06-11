@@ -32,7 +32,8 @@ public sealed class TwoWayVerifyTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         _gateway = new GatewayHost(port: FreePort(), token: "", authEnabled: false,
-            instancesDirectory: _instancesDir);
+            instancesDirectory: _instancesDir,
+            workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"));
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
     }

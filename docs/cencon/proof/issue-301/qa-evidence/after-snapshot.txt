@@ -1,0 +1,14 @@
+﻿QA #301 AFTER snapshot at 2026-06-11T06:19:23.0327914-04:00
+--- live gateway data dir ---
+C:\Users\soren\AppData\Local\cc-director\gateway\cc-director-gateway.exe size=33747846 mtime=2026-06-11T09:24:17.5056384Z sha256=FA58C5C707D934C6823F09FFC87768570DD2B8D81294B72664A70E3E56D1BDFF
+C:\Users\soren\AppData\Local\cc-director\gateway\cc-director-gateway.exe.old size=33633158 mtime=2026-06-09T02:50:18.0710517Z sha256=9225D67F9DE3BCD48EF6E57D3219D74D5A9B8A4D3059E98F3C573D43C5B275F4
+--- real worklists.json / keyvault.json ---
+C:\Users\soren\AppData\Local\cc-director\worklists.json ABSENT
+C:\Users\soren\AppData\Local\cc-director\keyvault.json size=192 mtime=2026-06-09T11:01:37.4065346Z sha256=6A408B3694F660C2CFFDCF152725E7DCAC3198683B55F2D0602FB6C1844665CB
+--- fleet PID table ---
+port 7878 LISTEN pid=26640 name=cc-director-gateway
+port 7887 LISTEN pid=8640 name=tailscaled
+port 7470 LISTEN pid=19488 name=cc-director-cockpit
+pid 21128 alive name=cc-director start=2026-06-10T13:34:24.2443213-04:00
+port 27878 listener after teardown: none
+processes from QA worktree remaining: none

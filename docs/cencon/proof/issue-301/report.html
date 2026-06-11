@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Proof Report - Issue #301: Persist named work lists across a Gateway restart</title>
+<style>
+  body { font-family: "Segoe UI", Arial, sans-serif; margin: 2rem auto; max-width: 1080px; color: #1c2733; line-height: 1.5; }
+  h1 { border-bottom: 3px solid #0a6e5c; padding-bottom: .4rem; }
+  h2 { color: #0a6e5c; margin-top: 2.2rem; border-bottom: 1px solid #d8e0e6; padding-bottom: .25rem; }
+  table { border-collapse: collapse; width: 100%; margin: .8rem 0; }
+  th, td { border: 1px solid #c9d4dc; padding: .45rem .6rem; text-align: left; vertical-align: top; font-size: .92rem; }
+  th { background: #eef3f6; }
+  code, pre { font-family: Consolas, "Courier New", monospace; font-size: .85rem; }
+  pre { background: #f5f7f9; border: 1px solid #dde4ea; border-radius: 4px; padding: .7rem .9rem; overflow-x: auto; white-space: pre-wrap; }
+  .pass { color: #0a6e5c; font-weight: 700; }
+  .meta { color: #5a6b78; font-size: .9rem; }
+  .verdict { background: #e8f5f1; border: 1px solid #0a6e5c; border-radius: 6px; padding: .8rem 1rem; margin-top: 2rem; }
+  .note { background: #fcf6e8; border: 1px solid #cdb26a; border-radius: 4px; padding: .55rem .8rem; font-size: .9rem; }
+</style>
+</head>
+<body>
+
+<h1>Proof Report - Issue #301</h1>
+<p class="meta">
+  <strong>Issue:</strong> [Loop] Persist named work lists across a Gateway restart (parent epic #297)<br>
+  <strong>Branch:</strong> issue-301-worklist-persistence &nbsp;|&nbsp; <strong>Date:</strong> 2026-06-11 &nbsp;|&nbsp; <strong>Agent:</strong> Developer Agent (CenCon implementation-loop)<br>
+  <strong>Machine:</strong> SOREN_NORTH (live fleet: Gateway :7878 pid 26640, Director :7887 pid 21128, Cockpit :7470 pid 19488 - all untouched, see Section 6)
+</p>
+
+<h2>What was implemented</h2>
+<p>
+<code>WorkListStore</code> (the fleet's named work-list store, #273) now persists every list - items,
+order, consumer claim - to ONE plain JSON file, <code>worklists.json</code>, in the Gateway data dir
+(<code>%LOCALAPPDATA%\cc-director\worklists.json</code>, the <code>keyvault.json</code> precedent / D-1),
+and reloads it on startup (D-2):
+</p>
+<ul>
+  <li><strong>Write-through on every mutation</strong> (Create / AppendItem / Reorder / RemoveItem / Claim / Release) with an <strong>atomic temp-file + rename</strong>; a failed save is a logged error that propagates, never a silent skip.</li>
+  <li><strong>Reload-on-start:</strong> missing file = empty store + log line (the normal first boot). Corrupt file = <strong>quarantine</strong>: the bytes are renamed to <code>worklists.json.corrupt-&lt;stamp&gt;</code> (preserved for the operator, never silently overwritten), an explicit error is logged, and the store starts empty so the Gateway still boots. <em>Chosen recovery behavior + why:</em> refusing to boot would turn one bad file into a fleet-wide Gateway outage; quarantining keeps the Gateway up while losing nothing - the operator can inspect/hand-restore the quarantined file. The next write-through writes a fresh file at the original path.</li>
+  <li><strong>Stale-claim policy (D-2):</strong> a persisted consumer claim is by definition stale after a restart (the claiming runner died with the Gateway). On load it is released with an explicit FileLog line naming the list and the dead consumer token, and the released state is persisted immediately. A new runner re-claims and continues from the persisted order. No auto-respawn of dead runners (out of scope per the spec).</li>
+  <li><strong>Testability (D-3):</strong> the store path is a REQUIRED constructor argument (no caller can silently land on the real user's file); <code>GatewayHost</code> gains a <code>workListsPath</code> override mirroring <code>keyVaultPath</code>. Every Gateway test fixture passes an isolated temp path. The data-dir override for whole-process isolation already existed (<code>CC_DIRECTOR_ROOT</code>) and is what the isolated-instance proofs below use.</li>
+</ul>
+<p><strong>Files changed:</strong> <code>src/CcDirector.Gateway/WorkListStore.cs</code>, <code>src/CcDirector.Gateway/GatewayHost.cs</code>, <code>src/CcDirector.Gateway.Tests/WorkListStorePersistenceTests.cs</code> (new), plus isolated <code>workListsPath</code> in 19 existing test files.</p>
+
+<h2>1. Unit tests: round-trip / atomic / write-through / missing / corrupt (AC-1)</h2>
+<table>
+  <tr><th>Expected</th><th>Actual</th><th>Result</th></tr>
+  <tr>
+    <td>Store round-trip preserves lists, item order, mixed sources, areas; atomic write leaves no <code>.tmp</code> residue and the file always parses; every mutation is on disk immediately; missing file = empty store + log line, not a crash; corrupt file = explicit error log + quarantine (documented recovery: bytes preserved, never silently overwritten, Gateway still boots).</td>
+    <td>All 9 persistence tests green (plus all 32 pre-existing work-list tests still green, now running against isolated store files):
+<pre>Passed RoundTrip_ListsOrderAndMixedSources_SurviveReload [6 ms]
+Passed Reload_PersistedClaim_IsReleasedAsStale_AndReleasePersisted [6 ms]
+Passed EveryMutation_IsWrittenThroughImmediately [23 ms]
+Passed Save_LeavesNoTempResidue_AndFileIsWholeJson [41 ms]
+Passed MissingFile_StartsEmpty_NoCrash [&lt; 1 ms]
+Passed CorruptFile_IsQuarantined_StoreStartsEmpty_BytesPreserved [8 ms]
+Passed NullJsonFile_IsQuarantined_StoreStartsEmpty [1 ms]
+Passed Constructor_EmptyPath_Throws [&lt; 1 ms]
+Passed InterruptedDrain_AfterRestart_NewRunnerReclaims_ContinuesInPersistedOrder [85 ms]</pre></td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>2. Isolated-instance proof: graceful restart (AC-2)</h2>
+<p class="meta">
+Isolated Gateway = the worktree-built <code>CcDirector.Gateway.exe</code> (dev console host) on
+<strong>port 17878</strong> with <strong><code>CC_DIRECTOR_ROOT=D:\ReposFred\wt-issue-301\proof-tmp\gw-root</code></strong>
+(isolated data dir), <code>CC_GATEWAY_NO_TAILSCALE=1</code>, <code>CC_TURNBRIEFS=0</code>, <code>CC_COCKPIT_MANAGED=0</code>.
+Instance #1 pid 60068 (path-confirmed to the worktree exe). Lists created via REST: two lists,
+mixed sources, a PATCH reorder, and a consumer claim <code>runner-graceful-proof</code>.
+</p>
+<table>
+  <tr><th>Expected</th><th>Actual</th><th>Result</th></tr>
+  <tr>
+    <td>After <code>POST /shutdown</code> (graceful) and relaunch, <code>GET /lists</code> shows identical lists and order, and the stale claim is RELEASED with the documented log line.</td>
+    <td>
+<strong>BEFORE restart</strong> - <code>GET /lists</code> (instance #1, pid 60068):
+<pre>proof-backlog  consumer=runner-graceful-proof  items=devops:1203, github:262(Gateway), jira:CCD-44(Web)
+proof-today    consumer=(none)                 items=github:301</pre>
+<strong>AFTER graceful restart</strong> - <code>GET /lists</code> (instance #2, pid 36376):
+<pre>list=proof-backlog consumer= items=devops:1203,github:262,jira:CCD-44
+list=proof-today   consumer= items=github:301</pre>
+<strong>Documented stale-claim log line</strong> (isolated root, <code>logs\director\...</code>):
+<pre>2026-06-11 06:07:40.314 [WorkListStore] Load: released stale claim on list=proof-backlog, deadConsumer=runner-graceful-proof (claims do not survive a Gateway restart)
+2026-06-11 06:07:40.314 [WorkListStore] Load: restored 2 list(s) from D:\ReposFred\wt-issue-301\proof-tmp\gw-root\worklists.json, staleClaimsReleased=1</pre>
+<strong>First-boot missing-file line</strong> (instance #1):
+<pre>2026-06-11 06:07:09.377 [WorkListStore] Load: no store file at D:\ReposFred\wt-issue-301\proof-tmp\gw-root\worklists.json; starting empty</pre>
+    </td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>3. Isolated-instance proof: hard kill (AC-3)</h2>
+<table>
+  <tr><th>Expected</th><th>Actual</th><th>Result</th></tr>
+  <tr>
+    <td>Terminate the process WITHOUT graceful shutdown (<code>Stop-Process -Force</code>, the kill -9 equivalent); after relaunch the store is intact - no corruption, no loss - and the stale claim is released.</td>
+    <td>
+A new claim <code>runner-hardkill-proof</code> was taken and a new item <code>github:999</code> appended, then the process was hard-killed:
+<pre>killing PID=36376 path=D:\ReposFred\wt-issue-301\src\CcDirector.Gateway\bin\Debug\net10.0\CcDirector.Gateway.exe
+pid 36376 gone: True</pre>
+<strong>AFTER hard kill + relaunch</strong> - <code>GET /lists</code> (instance #3, pid 49088):
+<pre>list=proof-backlog consumer= items=devops:1203,github:262,jira:CCD-44
+list=proof-today   consumer= items=github:301,github:999</pre>
+<strong>Stale-claim release (the hard-killed consumer):</strong>
+<pre>2026-06-11 06:08:02.155 [WorkListStore] Load: released stale claim on list=proof-backlog, deadConsumer=runner-hardkill-proof (claims do not survive a Gateway restart)
+2026-06-11 06:08:02.155 [WorkListStore] Load: restored 2 list(s) from D:\ReposFred\wt-issue-301\proof-tmp\gw-root\worklists.json, staleClaimsReleased=1</pre>
+<strong>No corruption / no residue</strong> - the isolated data dir holds exactly one whole store file:
+<pre>worklists.json    740 bytes   (no worklists.json.tmp, no .corrupt-* file)</pre>
+The write-through item <code>github:999</code> appended seconds before the kill survived - the point of write-through + atomic writes.
+    </td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>4. Interrupted-drain proof (AC-4)</h2>
+<table>
+  <tr><th>Expected</th><th>Actual</th><th>Result</th></tr>
+  <tr>
+    <td>Start a drain (simulated session driver per the #300 <code>IImplSessionDriver</code> abstraction), restart the Gateway mid-drain, re-claim, and show the remaining queue continues in order - nothing silently lost.</td>
+    <td><code>InterruptedDrain_AfterRestart_NewRunnerReclaims_ContinuesInPersistedOrder</code> (green, 85 ms):
+a 3-item queue (101, 102, 103) is being drained by a real <code>WorkListRunner</code> holding the claim
+<code>runner-before-restart</code>, wedged inside item 101 (no terminal sentinel). The on-disk store is
+snapshotted at the instant of death (a killed process never reaches the runner's finally-release; the
+snapshot is asserted to still carry the claim), the runner task is killed, and a FRESH store loads the
+crash-state file: list + order intact (<code>101,102,103</code>), stale claim released. A NEW runner
+re-claims as <code>runner-after-restart</code> and drains to completion in persisted order:
+start order <code>101,102,103</code>, every item <code>Ran/Done</code>, claim released at the end.
+Re-running the already-dispatched item is the re-claiming runner's documented v1 behavior (duplicate
+protection lives at the issue-level claim, #298; re-attachment to still-alive sessions is out of scope).</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>5. Build + full test suite</h2>
+<table>
+  <tr><th>Expected</th><th>Actual</th><th>Result</th></tr>
+  <tr>
+    <td><code>dotnet build cc-director.sln</code> clean; Gateway test suite green apart from pre-existing environmental failures.</td>
+    <td>Build: <code>Build succeeded. 0 Warning(s) 0 Error(s)</code>.<br>
+    <code>CcDirector.Gateway.Tests</code>: <strong>462 passed / 1 failed of 463</strong>. The single failure is
+    <code>DictationEndpointTests.FullPipeline_transcribes_phase0_clip2_with_realtime_provider</code>
+    ("expected at least 1 partial transcript, got 0") - a live OpenAI realtime-transcription test,
+    PRE-EXISTING/environmental: it failed identically before this change was applied, and this change
+    touches no dictation surface (work-list store + host wiring + work-list tests only).</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>6. Live Gateway untouched (AC-5)</h2>
+<table>
+  <tr><th>Evidence</th><th>Before (06:06:50)</th><th>After (06:08:19)</th><th>Result</th></tr>
+  <tr>
+    <td>Live gateway data dir <code>%LOCALAPPDATA%\cc-director\gateway</code> (SHA256 prefix + LastWrite)</td>
+    <td><pre>FA58C5C707D934C6  cc-director-gateway.exe      2026-06-11 5:24:17
+9225D67F9DE3BCD4  cc-director-gateway.exe.old  2026-06-08 10:50:18</pre></td>
+    <td><pre>FA58C5C707D934C6  cc-director-gateway.exe      2026-06-11 5:24:17
+9225D67F9DE3BCD4  cc-director-gateway.exe.old  2026-06-08 10:50:18</pre></td>
+    <td class="pass">IDENTICAL</td>
+  </tr>
+  <tr>
+    <td>Real data root: <code>worklists.json</code> existence / <code>keyvault.json</code> hash</td>
+    <td><pre>worklists.json exists: False
+keyvault.json 6A408B3694F660C2  2026-06-09 7:01:37</pre></td>
+    <td><pre>worklists.json exists: False
+keyvault.json 6A408B3694F660C2  2026-06-09 7:01:37</pre></td>
+    <td class="pass">IDENTICAL</td>
+  </tr>
+  <tr>
+    <td>Port :7878 listener owner</td>
+    <td><pre>0.0.0.0:7878 -> pid 26640</pre></td>
+    <td><pre>0.0.0.0:7878 -> pid 26640</pre></td>
+    <td class="pass">IDENTICAL</td>
+  </tr>
+  <tr>
+    <td>Fleet PID table</td>
+    <td><pre>21128 cc-director          ...\app\cc-director.exe
+19488 cc-director-cockpit  ...\cockpit\cc-director-cockpit.exe
+26640 cc-director-gateway  ...\gateway\cc-director-gateway.exe</pre></td>
+    <td><pre>21128 cc-director          ...\app\cc-director.exe
+19488 cc-director-cockpit  ...\cockpit\cc-director-cockpit.exe
+26640 cc-director-gateway  ...\gateway\cc-director-gateway.exe</pre></td>
+    <td class="pass">IDENTICAL</td>
+  </tr>
+  <tr>
+    <td>Test instance cleanup</td>
+    <td colspan="2"><pre>test gateway gone: True
+leftover worktree gateway processes: 0
+port 17878: no listener (TIME_WAIT only, pid 0)</pre>The isolated data dir <code>proof-tmp\</code> was deleted after evidence capture (its relevant contents are embedded above).</td>
+    <td class="pass">CLEAN</td>
+  </tr>
+</table>
+<p class="note">The test instances never bound :7878, never read or wrote <code>%LOCALAPPDATA%\cc-director</code>
+(whole-process isolation via <code>CC_DIRECTOR_ROOT</code>), ran with <code>CC_GATEWAY_NO_TAILSCALE=1</code>
+(no serve mappings touched), <code>CC_TURNBRIEFS=0</code> and <code>CC_COCKPIT_MANAGED=0</code>
+(no claude.exe, no Cockpit spawned).</p>
+
+<h2>CenCon impact</h2>
+<p>No drift. Storage follows the documented keyvault.json precedent (plain JSON in the Gateway data dir,
+atomic replace, FileLog on load/save); no new container, no security-posture change, no endpoint change
+(the REST surface is byte-identical - persistence is behind it).</p>
+
+<div class="verdict">
+  <strong>Developer Agent verdict:</strong> every restated acceptance criterion is met with proof above.
+  <span class="pass">I believe this is finished.</span> Handing off to QA (flow:ready-qa).
+</div>
+
+</body>
+</html>

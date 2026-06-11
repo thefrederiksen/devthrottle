@@ -8,16 +8,30 @@ namespace CcDirector.Gateway.Tests;
 /// Unit tests for <see cref="WorkListStore"/> (issue #273): create/append/round-trip,
 /// mixed-source ordering, reorder, remove-by-source+id, and the single-consumer claim/refusal.
 /// These cover the store layer directly; <see cref="WorkListEndpointsTests"/> covers the wire.
+/// Persistence behavior (issue #301) is covered by <see cref="WorkListStorePersistenceTests"/>;
+/// here each store gets its own isolated temp file (the path is required by design so a test can
+/// never land on the real user's worklists.json).
 /// </summary>
-public sealed class WorkListStoreTests
+public sealed class WorkListStoreTests : IDisposable
 {
+    private readonly string _dir =
+        Path.Combine(Path.GetTempPath(), "cc-worklist-store-tests-" + Guid.NewGuid().ToString("N"));
+
+    private WorkListStore NewStore() =>
+        new(Path.Combine(_dir, Guid.NewGuid().ToString("N") + ".json"));
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_dir)) Directory.Delete(_dir, recursive: true);
+    }
+
     private static WorkListItemRef Ref(string source, string id, string? area = null) =>
         new() { Source = source, Id = id, Area = area };
 
     [Fact]
     public void Create_ThenGet_ReturnsEmptyList()
     {
-        var store = new WorkListStore();
+        var store = NewStore();
 
         Assert.True(store.Create("backlog"));
 
@@ -31,7 +45,7 @@ public sealed class WorkListStoreTests
     [Fact]
     public void Create_DuplicateName_ReturnsFalse()
     {
-        var store = new WorkListStore();
+        var store = NewStore();
         store.Create("backlog");
 
         Assert.False(store.Create("backlog"));
@@ -40,7 +54,7 @@ public sealed class WorkListStoreTests
     [Fact]
     public void AppendItem_ThreeItems_PreservesAppendOrder()
     {
-        var store = new WorkListStore();
+        var store = NewStore();
         store.Create("backlog");
 
         store.AppendItem("backlog", Ref("github", "262", "Gateway"));
@@ -56,7 +70,7 @@ public sealed class WorkListStoreTests
     [Fact]
     public void AppendItem_MixedSources_AllStoredInOrderWithSourcePreserved()
     {
-        var store = new WorkListStore();
+        var store = NewStore();
         store.Create("backlog");
 
         store.AppendItem("backlog", Ref("github", "262"));
@@ -72,7 +86,7 @@ public sealed class WorkListStoreTests
     [Fact]
     public void AppendItem_NoSuchList_ReturnsFalse()
     {
-        var store = new WorkListStore();
+        var store = NewStore();
 
         Assert.False(store.AppendItem("ghost", Ref("github", "1")));
     }
@@ -80,7 +94,7 @@ public sealed class WorkListStoreTests
     [Fact]
     public void Reorder_ReversedArray_ReflectsNewOrder()
     {
-        var store = new WorkListStore();
+        var store = NewStore();
         store.Create("backlog");
         store.AppendItem("backlog", Ref("github", "1"));
         store.AppendItem("backlog", Ref("github", "2"));
@@ -97,7 +111,7 @@ public sealed class WorkListStoreTests
     [Fact]
     public void RemoveItem_BySourceAndId_RemovesOnlyThatItem_KeepsOrder()
     {
-        var store = new WorkListStore();
+        var store = NewStore();
         store.Create("backlog");
         store.AppendItem("backlog", Ref("github", "1"));
         store.AppendItem("backlog", Ref("devops", "2"));
@@ -113,7 +127,7 @@ public sealed class WorkListStoreTests
     [Fact]
     public void Claim_FirstSucceeds_SecondRefused_ReleaseThenReclaimSucceeds()
     {
-        var store = new WorkListStore();
+        var store = NewStore();
         store.Create("backlog");
 
         Assert.Equal(WorkListStore.ClaimResult.Granted, store.Claim("backlog", "consumer-a"));
@@ -126,7 +140,7 @@ public sealed class WorkListStoreTests
     [Fact]
     public void Claim_NoSuchList_ReturnsNoSuchList()
     {
-        var store = new WorkListStore();
+        var store = NewStore();
 
         Assert.Equal(WorkListStore.ClaimResult.NoSuchList, store.Claim("ghost", "consumer-a"));
     }
