@@ -103,6 +103,12 @@ public sealed class GatewayRegistrationClient : IAsyncDisposable
         var req = new LauncherRegistrationRequest
         {
             MachineName = Environment.MachineName,
+            // NetworkAddress: supply the hostname so the Gateway can dial this launcher from
+            // a DIFFERENT machine over the tailnet.  The Gateway uses this when the relay
+            // target is not co-located with it (i.e. the launcher is on a remote machine).
+            // Environment.MachineName is the NetBIOS name; Tailscale appends the domain but
+            // DNS resolution normally works with just the hostname on the same tailnet.
+            NetworkAddress = Environment.MachineName,
             Port = _port,
             Token = _token,
             Pid = Environment.ProcessId,

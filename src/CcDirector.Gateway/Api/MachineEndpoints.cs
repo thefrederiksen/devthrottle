@@ -32,15 +32,14 @@ namespace CcDirector.Gateway.Api;
 /// relay refuses restart/stop targeting the main Director build or slots 1-4 unless the
 /// request carries <c>"confirmProtected": true</c>.
 ///
-/// The relay always uses loopback (127.0.0.1) on the registered port - it never tries
-/// to reach the launcher over the tailnet because the launcher is a local-machine process.
-/// On a cross-machine topology the Gateway receives the HTTP relay request from the caller
-/// over the tailnet, then dials out to 127.0.0.1:<port> on its OWN machine ONLY when the
-/// target machine IS the Gateway's machine. For a true cross-machine call the Gateway
-/// machine running these routes must be the SAME machine as the launcher.
-/// (Phase-1 design: the Gateway is co-located with SOREN_NORTH's launcher and SORENLAPTOP
-/// registers its launcher separately - a caller on SOREN_NORTH can relay to SORENLAPTOP
-/// only when SORENLAPTOP's launcher registered over the tailnet.)
+/// Cross-machine relay: when the launcher on a remote machine registers, it supplies a
+/// <c>networkAddress</c> (tailnet hostname or IP) in its registration payload.  The relay
+/// uses that address (plus the registered port) to build the outbound HTTP URL so it can
+/// reach launchers on other machines over Tailscale:
+///   - Same-machine launcher (networkAddress empty): dials http://127.0.0.1:<port>/
+///   - Remote launcher (networkAddress set):         dials http://<networkAddress>:<port>/
+/// This enables the Gateway on SOREN_NORTH to relay lifecycle verbs to the launcher on
+/// SORENLAPTOP when SORENLAPTOP's launcher registered with its tailnet hostname.
 /// </summary>
 internal static class MachineEndpoints
 {
@@ -128,7 +127,7 @@ internal static class MachineEndpoints
         {
             FileLog.Write($"[MachineEndpoints] POST /machines/{machine}/launch: caller={ctx.Connection.RemoteIpAddress}");
 
-            var (launcher, token, err) = ResolveLauncher(machine, launchers);
+            var (launcher, token, networkAddress, err) = ResolveLauncher(machine, launchers);
             if (err is not null)
             {
                 FileLog.Write($"[MachineEndpoints] /machines/{machine}/launch: {err.Value.log}");
@@ -140,7 +139,7 @@ internal static class MachineEndpoints
             try { body = await ctx.Request.ReadFromJsonAsync<LaunchRelayBody>(ct); }
             catch { /* treat as null -> launcher will 400 */ }
 
-            using var http = BuildLauncherClient(launcher!.Port, token!);
+            using var http = BuildLauncherClient(launcher!.Port, token!, networkAddress!);
             IResult result;
             try
             {
@@ -215,19 +214,20 @@ internal static class MachineEndpoints
             }
         }
 
-        var (launcher, token, err) = ResolveLauncher(machine, launchers);
+        var (launcher, token, networkAddress, err) = ResolveLauncher(machine, launchers);
         if (err is not null)
         {
             FileLog.Write($"[MachineEndpoints] /machines/{machine}/director/{verb}: {err.Value.log}");
             return err.Value.result;
         }
 
-        using var http = BuildLauncherClient(launcher!.Port, token!);
+        var dialHost = string.IsNullOrWhiteSpace(networkAddress) ? "127.0.0.1" : networkAddress;
+        using var http = BuildLauncherClient(launcher!.Port, token!, networkAddress!);
         try
         {
             var response = await http.PostAsync($"/director/{verb}", null, ct);
             var payload = await response.Content.ReadAsStringAsync(ct);
-            FileLog.Write($"[MachineEndpoints] relay /director/{verb} machine={machine} -> status={response.StatusCode}");
+            FileLog.Write($"[MachineEndpoints] relay /director/{verb} machine={machine} host={dialHost} -> status={response.StatusCode}");
             return Results.Json(new RelayResult
             {
                 Machine = machine,
@@ -238,48 +238,54 @@ internal static class MachineEndpoints
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[MachineEndpoints] relay /director/{verb} machine={machine} FAILED: {ex.Message}");
+            FileLog.Write($"[MachineEndpoints] relay /director/{verb} machine={machine} host={dialHost} FAILED: {ex.Message}");
             return Results.Json(new
             {
-                error = $"launcher unreachable on {machine}:{launcher!.Port}",
+                error = $"launcher unreachable on {dialHost}:{launcher!.Port}",
                 detail = ex.Message,
             }, statusCode: 502);
         }
     }
 
     /// <summary>
-    /// Resolve the launcher entry for a machine. Returns (dto, token, null) on success
-    /// or (null, null, (log, result)) on failure.
+    /// Resolve the launcher entry for a machine. Returns (dto, token, networkAddress, null) on
+    /// success or (null, null, null, (log, result)) on failure.
     /// </summary>
-    private static (LauncherDto? launcher, string? token, (string log, IResult result)? err)
+    private static (LauncherDto? launcher, string? token, string? networkAddress, (string log, IResult result)? err)
         ResolveLauncher(string machine, LauncherRegistry launchers)
     {
         var launcher = launchers.Get(machine);
         if (launcher is null)
         {
-            return (null, null, ($"launcher not registered for machine={machine}",
+            return (null, null, null, ($"launcher not registered for machine={machine}",
                 Results.Json(new { error = $"no launcher registered for machine '{machine}'", machine }, statusCode: 404)));
         }
 
         var token = launchers.GetToken(machine);
         if (string.IsNullOrEmpty(token))
         {
-            return (null, null, ($"launcher token missing for machine={machine}",
+            return (null, null, null, ($"launcher token missing for machine={machine}",
                 Results.Json(new { error = "launcher token not available" }, statusCode: 500)));
         }
 
-        return (launcher, token, null);
+        var networkAddress = launchers.GetNetworkAddress(machine) ?? "";
+        return (launcher, token, networkAddress, null);
     }
 
     /// <summary>
-    /// Build a short-lived HttpClient pointed at the launcher's loopback port.
-    /// Always loopback (127.0.0.1) - the launcher never listens on external interfaces.
+    /// Build a short-lived HttpClient pointed at the launcher's REST API.
+    ///
+    /// When <paramref name="networkAddress"/> is non-empty the launcher is on a REMOTE
+    /// machine: dial http://&lt;networkAddress&gt;:&lt;port&gt;/ over the tailnet.
+    /// When <paramref name="networkAddress"/> is empty the launcher is co-located with the
+    /// Gateway: dial http://127.0.0.1:&lt;port&gt;/ on loopback.
     /// </summary>
-    private static HttpClient BuildLauncherClient(int port, string token)
+    private static HttpClient BuildLauncherClient(int port, string token, string networkAddress)
     {
+        var host = string.IsNullOrWhiteSpace(networkAddress) ? "127.0.0.1" : networkAddress;
         var http = new HttpClient
         {
-            BaseAddress = new Uri($"http://127.0.0.1:{port}/"),
+            BaseAddress = new Uri($"http://{host}:{port}/"),
             Timeout = TimeSpan.FromSeconds(10),
         };
         http.DefaultRequestHeaders.Add("Authorization", $"Bearer {token}");

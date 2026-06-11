@@ -44,6 +44,7 @@ public sealed class LauncherRegistry
         {
             MachineName = req.MachineName,
             Port = req.Port,
+            NetworkAddress = req.NetworkAddress ?? "",
             Pid = req.Pid,
             Version = req.Version,
             StartedAt = req.StartedAt,
@@ -57,7 +58,7 @@ public sealed class LauncherRegistry
             LastSeenAt = now,
         };
 
-        FileLog.Write($"[LauncherRegistry] Upsert: machine={req.MachineName}, port={req.Port}, pid={req.Pid}, version={req.Version}");
+        FileLog.Write($"[LauncherRegistry] Upsert: machine={req.MachineName}, port={req.Port}, networkAddress={req.NetworkAddress}, pid={req.Pid}, version={req.Version}");
         return dto;
     }
 
@@ -103,6 +104,16 @@ public sealed class LauncherRegistry
     public string? GetToken(string machineName)
     {
         return _launchers.TryGetValue(machineName, out var e) ? e.Token : null;
+    }
+
+    /// <summary>
+    /// Retrieve the network address for a launcher (tailnet hostname or IP).
+    /// Returns empty string when the launcher is co-located with the Gateway (loopback).
+    /// Returns null when the machine is not registered.
+    /// </summary>
+    public string? GetNetworkAddress(string machineName)
+    {
+        return _launchers.TryGetValue(machineName, out var e) ? e.Dto.NetworkAddress : null;
     }
 
     /// <summary>

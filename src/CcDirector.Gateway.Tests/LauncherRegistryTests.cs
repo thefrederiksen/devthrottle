@@ -154,14 +154,59 @@ public sealed class LauncherRegistryTests
     }
 
     // -------------------------------------------------------------------------
+    // NetworkAddress (AC2 - cross-machine relay address)
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public void Upsert_WithNetworkAddress_StoredInDto()
+    {
+        var reg = new LauncherRegistry();
+        var req = MakeReq("MACHINE-NA", 7920, networkAddress: "sorenlaptop.taildb08ed.ts.net");
+
+        reg.Upsert(req);
+
+        var dto = reg.Get("MACHINE-NA");
+        Assert.NotNull(dto);
+        Assert.Equal("sorenlaptop.taildb08ed.ts.net", dto!.NetworkAddress);
+    }
+
+    [Fact]
+    public void GetNetworkAddress_ReturnsStoredAddress()
+    {
+        var reg = new LauncherRegistry();
+        reg.Upsert(MakeReq("MACHINE-NB", 7921, networkAddress: "soren-north.tailnet.ts.net"));
+
+        Assert.Equal("soren-north.tailnet.ts.net", reg.GetNetworkAddress("MACHINE-NB"));
+    }
+
+    [Fact]
+    public void GetNetworkAddress_EmptyWhenNotSet()
+    {
+        var reg = new LauncherRegistry();
+        reg.Upsert(MakeReq("MACHINE-NC", 7922)); // no networkAddress
+
+        // Empty string = co-located, loopback applies.
+        Assert.Equal("", reg.GetNetworkAddress("MACHINE-NC"));
+    }
+
+    [Fact]
+    public void GetNetworkAddress_NullForUnknownMachine()
+    {
+        var reg = new LauncherRegistry();
+        Assert.Null(reg.GetNetworkAddress("NOBODY-NA"));
+    }
+
+    // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
 
-    private static LauncherRegistrationRequest MakeReq(string machine, int port, string version = "1.0.0") =>
+    private static LauncherRegistrationRequest MakeReq(
+        string machine, int port, string version = "1.0.0", string networkAddress = "") =>
         new()
         {
             MachineName = machine,
             Port = port,
+            NetworkAddress = networkAddress,
             Token = "tok-" + machine,
             Pid = 9999,
             Version = version,

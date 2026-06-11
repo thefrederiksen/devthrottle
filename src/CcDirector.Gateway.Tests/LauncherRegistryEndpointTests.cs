@@ -250,6 +250,7 @@ public sealed class LauncherRegistryEndpointTests : IAsyncLifetime
 
     // -------------------------------------------------------------------------
     // AC2: GET /launchers lists machine + port + last-seen
+    // AC2: NetworkAddress stored and returned in listing
     // -------------------------------------------------------------------------
 
     [Fact]
@@ -262,6 +263,47 @@ public sealed class LauncherRegistryEndpointTests : IAsyncLifetime
         Assert.NotNull(list);
         Assert.Contains(list!, l => l.MachineName.Equals("LIST-A", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(list!, l => l.MachineName.Equals("LIST-B", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task Register_WithNetworkAddress_StoredAndReturnedInList()
+    {
+        // AC2: the registration must carry a network address and the list must expose it
+        // so the Gateway relay can dial a remote launcher over the tailnet.
+        var req = BuildRegistrationRequest("REMOTE-MACHINE", port: 7912);
+        req.NetworkAddress = "sorenlaptop.taildb08ed.ts.net";
+
+        await _http.PostAsJsonAsync("launchers/register", req);
+
+        var list = await _http.GetFromJsonAsync<List<LauncherDto>>("launchers");
+        var entry = Assert.Single(list!, l => l.MachineName.Equals("REMOTE-MACHINE", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal("sorenlaptop.taildb08ed.ts.net", entry.NetworkAddress);
+    }
+
+    [Fact]
+    public async Task Relay_RemoteLauncher_UsesNetworkAddress_NotLoopback()
+    {
+        // AC2: when a launcher registers with a networkAddress the relay must dial
+        // <networkAddress>:<port> rather than 127.0.0.1:<port>.
+        // We prove this by registering with a realistic tailnet hostname on a port that
+        // is NOT bound locally - if the relay used 127.0.0.1 it would get a connection
+        // refused immediately (very fast); if it dials the tailnet hostname it gets a
+        // different error (DNS / network unreachable / timeout).  In a unit-test environment
+        // neither host is reachable so we just verify that the relay returns 502 (not 403
+        // from the slot guard and not a different status).  The key assertion is that the
+        // error message in the 502 body contains the tailnet hostname, proving the relay
+        // built the URL with the network address rather than 127.0.0.1.
+        var req = BuildRegistrationRequest("TAILNET-MACHINE", port: 7913);
+        req.NetworkAddress = "sorenlaptop.taildb08ed.ts.net";
+        await _http.PostAsJsonAsync("launchers/register", req);
+
+        var resp = await _http.PostAsync("machines/TAILNET-MACHINE/director/restart", null);
+
+        Assert.Equal(HttpStatusCode.BadGateway, resp.StatusCode);
+        var json = await resp.Content.ReadAsStringAsync();
+        // The error body must name the tailnet hostname (not 127.0.0.1) so we can confirm
+        // the relay used the stored network address.
+        Assert.Contains("sorenlaptop.taildb08ed.ts.net", json);
     }
 
     // -------------------------------------------------------------------------

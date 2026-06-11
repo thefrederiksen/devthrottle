@@ -12,6 +12,12 @@ public sealed class LauncherDto
     /// <summary>Loopback port the launcher's REST API is bound to (for local relay calls).</summary>
     public int Port { get; set; }
 
+    /// <summary>
+    /// Network address the Gateway uses when dialing this launcher from a different machine.
+    /// Empty string means the launcher is co-located with the Gateway (loopback applies).
+    /// </summary>
+    public string NetworkAddress { get; set; } = "";
+
     /// <summary>OS process id of the launcher.</summary>
     public int Pid { get; set; }
 
