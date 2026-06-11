@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Developer Agent Proof - Issue #232</title>
+<style>
+  :root { --bg:#1e1e1e; --panel:#252526; --border:#3c3c3c; --fg:#cccccc; --muted:#888888; --ok:#22c55e; --teal:#14b8a6; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font-family:Segoe UI, system-ui, sans-serif; line-height:1.5; }
+  .wrap { max-width:1040px; margin:0 auto; padding:32px 24px 80px; }
+  h1 { font-size:24px; margin:0 0 4px; }
+  h2 { font-size:18px; margin:32px 0 10px; border-bottom:1px solid var(--border); padding-bottom:6px; }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:20px; }
+  .badge { display:inline-block; padding:2px 10px; border-radius:6px; font-size:12px; font-weight:600; }
+  .b-ok { background:#1b3a2a; color:var(--ok); border:1px solid var(--ok); }
+  .chip { display:inline-block; border:1px solid var(--teal); color:var(--teal); border-radius:6px; padding:0 6px; font-size:11px; font-weight:700; }
+  table { border-collapse:collapse; width:100%; margin:12px 0; font-size:14px; }
+  th, td { border:1px solid var(--border); padding:8px 10px; text-align:left; vertical-align:top; }
+  th { background:var(--panel); }
+  code { background:#2d2d30; padding:1px 5px; border-radius:4px; font-family:Cascadia Mono, Consolas, monospace; font-size:12px; }
+  pre { background:#161616; border:1px solid var(--border); border-radius:6px; padding:12px 14px; overflow:auto; font-family:Cascadia Mono, Consolas, monospace; font-size:12px; color:#d4d4d4; }
+  .fig { color:var(--muted); font-size:12px; margin:0 0 18px; }
+  ul { margin:6px 0; } li { margin:3px 0; }
+  .done { background:var(--panel); border:1px solid var(--ok); border-radius:8px; padding:16px 18px; margin-top:28px; }
+  .ok { color:var(--ok); font-weight:600; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Developer Agent - Proof Report</h1>
+  <div class="sub">
+    Issue #232 - [Build] deploy-cockpit.ps1 misses the scoped-CSS bundle - .razor.css changes deploy stale<br/>
+    Branch <code>loop/232-deploy-cockpit-css</code> &middot; CenCon Development Method &middot;
+    Result: <span class="badge b-ok">ALL ACCEPTANCE CRITERIA MET</span>
+  </div>
+
+  <h2>The bug</h2>
+  <p>
+    <code>scripts/deploy-cockpit.ps1</code> swapped a freshly-published Cockpit into the live per-user
+    install by cherry-picking files: all <code>*.dll</code>/<code>*.pdb</code>, three json configs,
+    <code>wwwroot/app.css</code>, and <code>wwwroot/js/*</code>. It never copied
+    <code>wwwroot/cc-director-cockpit.styles.css</code> - the bundle Blazor compiles every component's
+    <b>scoped</b> <code>*.razor.css</code> into (linked by <code>App.razor</code>) - nor its
+    <code>.br</code>/<code>.gz</code> siblings, nor <code>wwwroot/lib</code> (xterm.css) or
+    <code>wwwroot/pages</code>. So any deploy that changed a <code>*.razor.css</code> shipped with the
+    markup updated but its styling stale (hit for real during the #212 W3 deploy, where the
+    Interrupted-sessions styling lives in <code>Fleet.razor.css</code> - required a manual full-folder
+    swap to recover).
+  </p>
+
+  <h2>What was implemented</h2>
+  <ul>
+    <li><b>Full wwwroot mirror</b> - the issue's preferred option ("cockpit = whole-folder swap").
+      The cherry-pick of <code>app.css</code> + <code>js/*</code> is replaced by a deterministic
+      mirror of the entire published <code>wwwroot</code> into the live target via
+      <code>robocopy /MIR</code>, wrapped in a new function <code>Sync-CockpitWwwroot</code>. Every
+      static asset - the scoped <code>*.styles.css</code> bundle and its <code>.br</code>/<code>.gz</code>,
+      <code>app.css</code>, <code>js/</code>, <code>lib/</code>, <code>pages/</code>,
+      <code>_framework/</code> - is always in sync. No copy list to maintain; new assets are picked up
+      automatically.</li>
+    <li><b>Fail-fast, no fallback</b> (CodingStyle.md) - missing stage throws; robocopy exit codes
+      &ge;8 are translated to a thrown error so a real copy failure is loud, not silent. ASCII-only output.</li>
+    <li><b>The DLL/pdb/json copy logic is unchanged</b> - it already mirrors every app assembly and is
+      correct.</li>
+    <li><b>A <code>-DefineOnly</code> switch</b> lets the proof test dot-source the script to exercise
+      the <i>real</i> <code>Sync-CockpitWwwroot</code> against temp dirs - one source of truth, no copied
+      logic - without ever touching the live fleet.</li>
+    <li><b>Hermetic proof test</b> <code>scripts/test/test-deploy-cockpit-css.ps1</code>.</li>
+  </ul>
+
+  <h2>Acceptance criteria - how each is met</h2>
+  <table>
+    <tr><th>Criterion</th><th>How the code satisfies it</th><th>Proof</th></tr>
+    <tr>
+      <td>AC1 - after a deploy where a <code>*.razor.css</code> changed, the live install's
+        <code>cc-director-cockpit.styles.css</code> (and <code>.br</code>/<code>.gz</code>) matches the
+        publish output.</td>
+      <td>The full <code>robocopy /MIR</code> copies the scoped bundle + siblings every deploy.</td>
+      <td><span class="ok">PASS</span> - test SHA-256-hashes the deployed bundle + <code>.br</code>/<code>.gz</code>
+        against the staged publish; all equal.</td>
+    </tr>
+    <tr>
+      <td>AC2 - a styling change in a <code>.razor.css</code> (e.g. <code>Fleet.razor.css</code>) is
+        visibly reflected in the deployed Cockpit without a manual full-folder swap.</td>
+      <td>The mirror overwrites a stale target bundle with the new one, so the recompiled scoped CSS
+        reaches <code>$target\wwwroot</code> on the normal deploy path.</td>
+      <td><span class="ok">PASS</span> - test seeds a STALE bundle in the live target, runs the mirror,
+        then asserts the live bundle changed and now equals the new <code>.razor.css</code> output.</td>
+    </tr>
+  </table>
+
+  <h2>Why a hermetic test instead of a live deploy</h2>
+  <p>
+    The machine is a busy shared host with a LIVE fleet (Gateway 7878, Cockpit 7470, Director 7887) and
+    several other cc-director agent sessions running. Running the real <code>deploy-cockpit.ps1</code>
+    would shut the live Gateway/Cockpit down. So the proof exercises the exact mirror function the deploy
+    now uses, against throwaway temp dirs that reproduce the real <code>wwwroot</code> shape and the
+    stale-bundle scenario - deterministic, repeatable, and zero impact on the fleet. The test also
+    discriminates: under the OLD cherry-pick logic the scoped bundle stays stale and the test fails;
+    under the fix it passes.
+  </p>
+
+  <h2>Test transcript</h2>
+  <p class="fig">scripts/test/test-deploy-cockpit-css.ps1 - exit 0</p>
+  <pre>  PASS: deployed: cc-director-cockpit.styles.css
+  PASS: hash matches publish: cc-director-cockpit.styles.css
+  PASS: deployed: cc-director-cockpit.styles.css.br
+  PASS: hash matches publish: cc-director-cockpit.styles.css.br
+  PASS: deployed: cc-director-cockpit.styles.css.gz
+  PASS: hash matches publish: cc-director-cockpit.styles.css.gz
+  PASS: deployed: app.css
+  PASS: hash matches publish: app.css
+  PASS: deployed: js\app.js
+  PASS: hash matches publish: js\app.js
+  PASS: deployed: lib\xterm.css
+  PASS: hash matches publish: lib\xterm.css
+  PASS: deployed: _framework\blazor.web.js
+  PASS: hash matches publish: _framework\blazor.web.js
+  PASS: scoped bundle changed in live target (stale -&gt; fresh)
+  PASS: live bundle now equals the new .razor.css output
+  PASS: regression: stale scoped bundle no longer served
+
+RESULT: PASS - all assertions green; scoped-CSS bundle now deploys fresh (issue #232).</pre>
+
+  <h2>Build</h2>
+  <p><code>dotnet build cc-director.sln</code> -&gt; <span class="ok">Build succeeded. 0 Warning(s), 0 Error(s).</span>
+  (No C# changed; the build gate confirms the worktree is clean.)</p>
+
+  <h2>CenCon impact</h2>
+  <p>No architecture or security drift. This is an existing ops script's copy list; the deploy still
+  targets the same per-user <code>%LOCALAPPDATA%\cc-director\cockpit</code> location
+  (docs/install/INSTALLATION.md). No <code>docs/cencon/</code> update needed.</p>
+
+  <div class="done">
+    <b>I believe this is finished.</b> The deploy script now mirrors the entire published
+    <code>wwwroot</code>, so the Blazor scoped-CSS bundle (and every other static asset) ships fresh on
+    every deploy. Both acceptance criteria are proven by a hermetic, discriminating test that exercises
+    the real mirror function; the solution builds clean.
+  </div>
+</div>
+</body>
+</html>
