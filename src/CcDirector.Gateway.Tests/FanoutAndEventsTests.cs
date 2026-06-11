@@ -29,7 +29,8 @@ public sealed class FanoutAndEventsTests : IAsyncLifetime
         await _director.StartAsync();
 
         _gateway = new GatewayHost(port: AllocateFreePort(), token: "test-token", authEnabled: true,
-            instancesDirectory: _instancesDir);
+            instancesDirectory: _instancesDir,
+            workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"));
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
 

@@ -19,6 +19,9 @@ namespace CcDirector.Gateway.Tests;
 /// </summary>
 public sealed class WorkListEndpointsTests : IAsyncLifetime
 {
+    private readonly string _storePath = Path.Combine(
+        Path.GetTempPath(), "cc-worklist-ep-tests-" + Guid.NewGuid().ToString("N") + ".json");
+
     private WebApplication _app = null!;
     private HttpClient _http = null!;
 
@@ -31,7 +34,7 @@ public sealed class WorkListEndpointsTests : IAsyncLifetime
         builder.Logging.ClearProviders();
         _app = builder.Build();
         _app.Urls.Add(baseUrl);
-        WorkListEndpoints.Map(_app, new WorkListStore());
+        WorkListEndpoints.Map(_app, new WorkListStore(_storePath));
         await _app.StartAsync();
 
         _http = new HttpClient { BaseAddress = new Uri(baseUrl) };
@@ -41,6 +44,7 @@ public sealed class WorkListEndpointsTests : IAsyncLifetime
     {
         _http.Dispose();
         await _app.DisposeAsync();
+        if (File.Exists(_storePath)) File.Delete(_storePath);
     }
 
     private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNameCaseInsensitive = true };

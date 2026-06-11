@@ -27,7 +27,8 @@ public sealed class BrowserPageRoutesTests : IAsyncLifetime
         // the 503 interstitial - which is exactly the observable proof it took the Cockpit
         // path instead of the JSON endpoint.
         _gateway = new GatewayHost(port: FreePort(), token: "test-token", authEnabled: true,
-            instancesDirectory: _instancesDir, cockpitProxyPort: 1);
+            instancesDirectory: _instancesDir, cockpitProxyPort: 1,
+            workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"));
         await _gateway.StartAsync();
 
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };

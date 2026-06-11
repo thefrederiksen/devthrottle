@@ -12,8 +12,19 @@ namespace CcDirector.Gateway.Tests;
 /// refusal. A fake <see cref="IImplSessionDriver"/> stands in for a live Director so the sequencing
 /// logic is provable without a running app.
 /// </summary>
-public sealed class WorkListRunnerTests
+public sealed class WorkListRunnerTests : IDisposable
 {
+    private readonly string _dir =
+        Path.Combine(Path.GetTempPath(), "cc-worklist-runner-tests-" + Guid.NewGuid().ToString("N"));
+
+    private WorkListStore NewStore() =>
+        new(Path.Combine(_dir, Guid.NewGuid().ToString("N") + ".json"));
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_dir)) Directory.Delete(_dir, recursive: true);
+    }
+
     private static WorkListItemRef Ref(string source, string id, string? area = null) =>
         new() { Source = source, Id = id, Area = area };
 
@@ -66,7 +77,7 @@ public sealed class WorkListRunnerTests
     [Fact]
     public async Task DrainAsync_TwoGithubItems_StartsInOrder_NeverOverlapping()
     {
-        var store = new WorkListStore();
+        var store = NewStore();
         store.Create("today");
         store.AppendItem("today", Ref("github", "262"));
         store.AppendItem("today", Ref("github", "263"));
@@ -98,7 +109,7 @@ public sealed class WorkListRunnerTests
     [Fact]
     public async Task DrainAsync_MixedSources_DispatchPerAdapter_DevopsRuns_JiraSkipped()
     {
-        var store = new WorkListStore();
+        var store = NewStore();
         store.Create("mixed");
         store.AppendItem("mixed", Ref("devops", "1203"));
         store.AppendItem("mixed", Ref("github", "262"));
@@ -137,7 +148,7 @@ public sealed class WorkListRunnerTests
     [Fact]
     public async Task DrainAsync_DevopsItem_SeededWithDevopsMode_SignalRecorded()
     {
-        var store = new WorkListStore();
+        var store = NewStore();
         store.Create("devops-only");
         store.AppendItem("devops-only", Ref("devops", "4711", "Gateway"));
 
@@ -158,7 +169,7 @@ public sealed class WorkListRunnerTests
     [Fact]
     public async Task DrainAsync_JiraItem_NeverStarted_LeftInList()
     {
-        var store = new WorkListStore();
+        var store = NewStore();
         store.Create("jira-only");
         store.AppendItem("jira-only", Ref("jira", "CCD-44"));
 
@@ -179,7 +190,7 @@ public sealed class WorkListRunnerTests
     [Fact]
     public async Task DrainAsync_DevopsNonNumericId_StartFailed_CannotCorrelate()
     {
-        var store = new WorkListStore();
+        var store = NewStore();
         store.Create("bad-devops");
         store.AppendItem("bad-devops", Ref("devops", "not-a-number"));
 
@@ -198,7 +209,7 @@ public sealed class WorkListRunnerTests
     [Fact]
     public async Task DrainAsync_AlreadyClaimed_Throws_ClaimRefused()
     {
-        var store = new WorkListStore();
+        var store = NewStore();
         store.Create("today");
         store.AppendItem("today", Ref("github", "262"));
         // Someone else holds the claim already (criterion 5).
@@ -217,7 +228,7 @@ public sealed class WorkListRunnerTests
     [Fact]
     public async Task DrainAsync_NoSuchList_Throws()
     {
-        var store = new WorkListStore();
+        var store = NewStore();
         var driver = new FakeDriver(new());
         var runner = new WorkListRunner(store, driver, FastPoll);
 
@@ -228,7 +239,7 @@ public sealed class WorkListRunnerTests
     [Fact]
     public async Task DrainAsync_StartFailure_RecordedAndAdvances()
     {
-        var store = new WorkListStore();
+        var store = NewStore();
         store.Create("today");
         store.AppendItem("today", Ref("github", "262"));
         store.AppendItem("today", Ref("github", "263"));

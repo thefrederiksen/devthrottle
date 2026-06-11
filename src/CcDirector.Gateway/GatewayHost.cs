@@ -61,7 +61,7 @@ public sealed class GatewayHost : IAsyncDisposable
     private readonly TailscaleServeProvisioner _serveProvisioner;
     private readonly GatewayTurnBriefStore _turnBriefStore;
     private readonly KeyVault _keyVault;
-    private readonly WorkListStore _workLists = new();
+    private readonly WorkListStore _workLists;
     private readonly Running.WorkListRunnerManager _runnerManager = new();
     private readonly SessionAssessments _assessments = new();
     private GatewayTurnBriefAgent? _briefAgent;
@@ -84,7 +84,12 @@ public sealed class GatewayHost : IAsyncDisposable
     /// Override the gateway turn-brief store directory (issue #185). Tests pass an isolated
     /// temp directory; production omits it for the shared default.
     /// </param>
-    public GatewayHost(int port = DefaultPort, string? token = null, bool authEnabled = false, string? instancesDirectory = null, int? cockpitProxyPort = null, string? turnBriefDirectory = null, string? keyVaultPath = null)
+    /// <param name="workListsPath">
+    /// Override the named work-list store file (issue #301). Tests pass an isolated temp path;
+    /// production omits it for the shared default at <c>%LOCALAPPDATA%\cc-director\worklists.json</c>
+    /// (the keyvault.json precedent).
+    /// </param>
+    public GatewayHost(int port = DefaultPort, string? token = null, bool authEnabled = false, string? instancesDirectory = null, int? cockpitProxyPort = null, string? turnBriefDirectory = null, string? keyVaultPath = null, string? workListsPath = null)
     {
         Port = port;
         Token = token ?? GatewayAuth.LoadOrCreate();
@@ -111,6 +116,10 @@ public sealed class GatewayHost : IAsyncDisposable
         // Production omits keyVaultPath for the shared default; tests pass an isolated path so
         // they never touch the real %LOCALAPPDATA% key store.
         _keyVault = new KeyVault(keyVaultPath);
+        // Named work lists persist across a Gateway restart (issue #301): one JSON file in the
+        // Gateway data dir, loaded here (stale claims released) and written through on every
+        // mutation. Tests MUST pass an isolated path so they never touch the real store.
+        _workLists = new WorkListStore(workListsPath ?? Path.Combine(CcStorage.Root(), "worklists.json"));
     }
 
     /// <summary>
@@ -361,9 +370,10 @@ public sealed class GatewayHost : IAsyncDisposable
 
         // Named work lists (issue #273, child of #270): an ordered list of structured item refs
         // { source, id, area? } + a single-consumer claim, the object the product skill writes to,
-        // the Cockpit views, and the queue runner drains. In-memory for v1 (persistence is OUT per
-        // #270). Inherits the host-wide token middleware above and is reachable cross-machine like
-        // the rest of the Gateway surface.
+        // the Cockpit views, and the queue runner drains. Persisted to worklists.json across
+        // Gateway restarts since issue #301 (write-through + reload-on-start with stale-claim
+        // release). Inherits the host-wide token middleware above and is reachable cross-machine
+        // like the rest of the Gateway surface.
         WorkListEndpoints.Map(_app, _workLists);
 
         // The queue runner (issue #274, child 3 of #270): the thin orchestration that turns a named

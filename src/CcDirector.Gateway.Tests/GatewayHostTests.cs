@@ -39,7 +39,8 @@ public sealed class GatewayHostTests : IAsyncLifetime
 
         // Boot a gateway on an ephemeral port (port 0)
         _gateway = new GatewayHost(port: AllocateFreePort(), token: "test-token-12345", authEnabled: true,
-            instancesDirectory: _instancesDir);
+            instancesDirectory: _instancesDir,
+            workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"));
         await _gateway.StartAsync();
         _gatewayPort = _gateway.Port;
 
