@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>QA Bounce #1 Fix Report - Issue #348</title>
+<style>
+  body { font-family: Georgia, serif; max-width: 900px; margin: 40px auto; padding: 0 24px; color: #222; line-height: 1.6; }
+  h1 { font-size: 1.7em; border-bottom: 2px solid #333; padding-bottom: 8px; }
+  h2 { font-size: 1.2em; margin-top: 2em; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
+  .pass { color: #185a1a; font-weight: bold; }
+  .fail { color: #8b0000; font-weight: bold; }
+  .meta { color: #555; font-size: 0.9em; margin-bottom: 1.5em; }
+  table { border-collapse: collapse; width: 100%; margin: 1em 0; }
+  th, td { border: 1px solid #ccc; padding: 8px 12px; text-align: left; vertical-align: top; }
+  th { background: #f0f0f0; }
+  pre { background: #f4f4f4; padding: 14px; border-left: 4px solid #666; overflow-x: auto; font-size: 0.88em; }
+  code { background: #f0f0f0; padding: 1px 4px; font-size: 0.9em; }
+  .verdict { background: #e8f5e9; border: 2px solid #2e7d32; padding: 16px; border-radius: 4px; margin: 2em 0; }
+</style>
+</head>
+<body>
+
+<h1>QA Bounce #1 Fix Report - Issue #348</h1>
+<div class="meta">
+  Issue: #348 - Voice screen: walkie-talkie mode<br>
+  PR: #356<br>
+  Branch: issue-348-walkie-talkie-mode<br>
+  QA Defect: AC1 - Status label order inverted (Speaking shown before Summarizing)<br>
+  Fix Date: 2026-06-11<br>
+  Developer Agent: cc-director main session
+</div>
+
+<h2>Defect Summary (from QA)</h2>
+<p>
+  In <code>VoiceConversation.SpeakTurnAsync</code>, the <code>"reply"</code> TurnUpdate was emitted
+  at line 108 BEFORE the <code>"summarizing"</code> TurnUpdate at line 114. TalkPage's
+  <code>"reply"</code> handler set <code>VoiceStatusLabel.Text = "Speaking..."</code>, then
+  <code>"summarizing"</code> fired and overwrote it with <code>"Summarizing..."</code> - after
+  "Speaking..." was already visible. Actual sequence: Thinking... -&gt; Speaking... -&gt; Summarizing...
+  instead of the required Thinking... -&gt; Summarizing... -&gt; Speaking...
+</p>
+
+<h2>Root Cause Analysis</h2>
+<p>
+  Two interacting problems:
+</p>
+<ol>
+  <li>
+    <strong>VoiceConversation.cs</strong>: The <code>"reply"</code> and <code>"summarizing"</code>
+    events were in the correct order (reply before summarizing), but there was no explicit
+    <code>"speaking"</code> event to set the status AFTER summarization completed and BEFORE
+    <code>SpeakAsync</code> was called.
+  </li>
+  <li>
+    <strong>TalkPage.xaml.cs</strong>: The <code>"reply"</code> handler set BOTH the
+    <code>VoiceReplyLabel.Text</code> (correct) AND <code>VoiceStatusLabel.Text = "Speaking..."</code>
+    (wrong - mixed screen-update and status-update concerns in a single handler).
+  </li>
+</ol>
+<p>
+  Because <code>"reply"</code> set "Speaking..." immediately when the reply text arrived
+  (before summarization), and then <code>"summarizing"</code> overwrote it, the user saw the
+  inverted order.
+</p>
+
+<h2>Fix Applied</h2>
+
+<h3>1. VoiceConversation.cs (lines 107-125 after fix)</h3>
+<p>
+  Added an explicit <code>"speaking"</code> TurnUpdate stage emitted AFTER
+  <code>SummarizeForVoiceAsync</code> completes and BEFORE <code>SpeakAsync</code>. The
+  <code>"reply"</code> event now only carries the raw text for screen display; it no longer
+  implies a status transition.
+</p>
+<pre>
+var rawReply = result.SpokenText();
+
+// "reply" updates the on-screen reply label only - it does NOT advance the
+// status indicator. The status must follow the actual processing order:
+// Thinking -&gt; Summarizing -&gt; Speaking. See AC1.
+onUpdate?.Invoke(new TurnUpdate("reply", rawReply));
+
+// Step 5: summarize the raw reply into 2-3 spoken sentences of plain prose.
+onUpdate?.Invoke(new TurnUpdate("summarizing", "Summarizing..."));
+var spokenSummary = await SummarizeForVoiceAsync(session, rawReply, ct);
+
+// "speaking" fires after summarization completes and before TTS begins,
+// so the status label reads "Speaking..." only while audio is actually playing.
+onUpdate?.Invoke(new TurnUpdate("speaking", "Speaking..."));
+await SpeakAsync(session.TailnetEndpoint, spokenSummary, ct);
+</pre>
+
+<h3>2. TalkPage.xaml.cs (lines 484-492 after fix)</h3>
+<p>
+  Removed the <code>VoiceStatusLabel.Text = "Speaking..."</code> assignment from the
+  <code>"reply"</code> handler. Added a new <code>"speaking"</code> case that sets the status label.
+  The <code>"reply"</code> handler now only updates the screen label.
+</p>
+<pre>
+case "reply":
+    // Update the on-screen reply label only.
+    // Status is updated by the "speaking" stage after summarization.
+    VoiceReplyLabel.Text = u.Text;
+    VoiceReplyCard.IsVisible = true;
+    break;
+case "speaking":
+    VoiceStatusLabel.Text = "Speaking...";
+    break;
+</pre>
+
+<h2>Event Sequence After Fix</h2>
+<table>
+  <tr><th>Event Stage</th><th>Status Label</th><th>Reply Label</th><th>Timing</th></tr>
+  <tr><td>transcribing</td><td>Transcribing...</td><td>(hidden)</td><td>Before transcription API call</td></tr>
+  <tr><td>transcript</td><td>(unchanged)</td><td>(hidden)</td><td>After transcription returns</td></tr>
+  <tr><td>thinking</td><td>Thinking...</td><td>(hidden)</td><td>Before SendChatAsync + FollowTurnAsync</td></tr>
+  <tr><td>reply</td><td>(unchanged - still "Thinking...")</td><td>Raw reply text shown</td><td>After FollowTurnAsync completes</td></tr>
+  <tr><td>summarizing</td><td>Summarizing...</td><td>(unchanged)</td><td>Before SummarizeForVoiceAsync</td></tr>
+  <tr><td>speaking</td><td>Speaking...</td><td>(unchanged)</td><td>After summarization, before SpeakAsync</td></tr>
+</table>
+
+<h2>Acceptance Criteria Verification</h2>
+<table>
+  <tr><th>AC</th><th>Criterion</th><th>Result</th><th>Evidence</th></tr>
+  <tr>
+    <td>AC1</td>
+    <td>Status label cycles: Transcribing -&gt; Thinking -&gt; Summarizing -&gt; Speaking</td>
+    <td class="pass">PASS</td>
+    <td>
+      Code trace: "transcribing" (line 67) -&gt; "thinking" (line 98) -&gt; "reply" (no status change) -&gt;
+      "summarizing" (line 118) -&gt; "speaking" (line 123) -&gt; SpeakAsync (line 124).
+      TalkPage maps: transcribing-&gt;"Transcribing...", thinking-&gt;"Thinking...",
+      reply-&gt;screen label only, summarizing-&gt;"Summarizing...", speaking-&gt;"Speaking...".
+      Sequence is now correct.
+    </td>
+  </tr>
+  <tr>
+    <td>AC2</td>
+    <td>Raw agent reply text appears in ReplyLabel on screen</td>
+    <td class="pass">PASS (unchanged from original implementation)</td>
+    <td>
+      "reply" handler still sets VoiceReplyLabel.Text = u.Text and VoiceReplyCard.IsVisible = true.
+      Post-turn code at line 497-504 also sets it from rawReply.
+    </td>
+  </tr>
+  <tr>
+    <td>AC3-AC7</td>
+    <td>All other criteria (wingman summary, question preservation, auto-enable, fallback, FIFO unaffected)</td>
+    <td class="pass">PASS (unchanged from original implementation - QA confirmed all passed)</td>
+    <td>QA fail comment explicitly stated: "AC2 through AC7 all pass"</td>
+  </tr>
+</table>
+
+<h2>Build Verification</h2>
+<pre>
+dotnet build cc-director.sln
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:11.73
+</pre>
+
+<h2>Files Changed</h2>
+<ul>
+  <li><code>phone/CcDirectorClient/Voice/VoiceConversation.cs</code> - Added "speaking" TurnUpdate; clarified "reply" comment</li>
+  <li><code>phone/CcDirectorClient/TalkPage.xaml.cs</code> - Separated "reply" (screen only) from new "speaking" (status) handler</li>
+  <li><code>docs/cencon/proof/issue-348/qa-bounce1-fix-report.html</code> - This report</li>
+</ul>
+
+<div class="verdict">
+  <strong>VERDICT: I believe this fix is complete and correct.</strong><br><br>
+  The AC1 defect (status label order inverted) is resolved by: (1) removing the premature "Speaking..."
+  assignment from the "reply" handler in TalkPage, and (2) adding an explicit "speaking" TurnUpdate
+  stage in VoiceConversation that fires only after SummarizeForVoiceAsync completes and immediately
+  before SpeakAsync. The status sequence is now definitively Transcribing -&gt; Thinking -&gt;
+  Summarizing -&gt; Speaking, matching the spec. AC2-AC7 are unaffected. Build is clean.
+</div>
+
+</body>
+</html>

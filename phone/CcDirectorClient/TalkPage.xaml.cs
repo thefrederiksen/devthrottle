@@ -482,8 +482,12 @@ public partial class TalkPage : ContentPage
                                 VoiceStatusLabel.Text = "Summarizing...";
                                 break;
                             case "reply":
+                                // Update the on-screen reply label only.
+                                // Status is updated by the "speaking" stage after summarization.
                                 VoiceReplyLabel.Text = u.Text;
                                 VoiceReplyCard.IsVisible = true;
+                                break;
+                            case "speaking":
                                 VoiceStatusLabel.Text = "Speaking...";
                                 break;
                             default:

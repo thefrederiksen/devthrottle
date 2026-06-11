@@ -105,6 +105,10 @@ public sealed class VoiceConversation
             throw new InvalidOperationException($"agent turn ended with status '{result.Status}': {result.Error}");
 
         var rawReply = result.SpokenText();
+
+        // "reply" updates the on-screen reply label only - it does NOT advance the
+        // status indicator. The status must follow the actual processing order:
+        // Thinking -> Summarizing -> Speaking. See AC1.
         onUpdate?.Invoke(new TurnUpdate("reply", rawReply));
 
         // Step 5: summarize the raw reply into 2-3 spoken sentences of plain prose.
@@ -114,6 +118,9 @@ public sealed class VoiceConversation
         onUpdate?.Invoke(new TurnUpdate("summarizing", "Summarizing..."));
         var spokenSummary = await SummarizeForVoiceAsync(session, rawReply, ct);
 
+        // "speaking" fires after summarization completes and before TTS begins,
+        // so the status label reads "Speaking..." only while audio is actually playing.
+        onUpdate?.Invoke(new TurnUpdate("speaking", "Speaking..."));
         await SpeakAsync(session.TailnetEndpoint, spokenSummary, ct);
         return rawReply;
     }
