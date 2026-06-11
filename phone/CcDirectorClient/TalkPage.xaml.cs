@@ -331,6 +331,8 @@ public partial class TalkPage : ContentPage
 
     // True while the mic is capturing; true while the whole turn (transcribe/send/speak) runs.
     private bool _voiceRecording;
+    private CancellationTokenSource? _recordingTimerCts;
+    private DateTime _recordingStart;
     private bool _voiceTurnBusy;
     // Cancels an in-flight SpeakTurnAsync so tab/page leave stops the round-trip cleanly.
     private CancellationTokenSource? _voiceTurnCts;
@@ -371,6 +373,52 @@ public partial class TalkPage : ContentPage
         VoiceRecordButton.BackgroundColor = recording ? Color.FromArgb("#E5484D") : Color.FromArgb("#5FD08A");
         VoiceRecordButton.TextColor = recording ? Colors.White : Color.FromArgb("#06210F");
         VoiceCancelButton.IsVisible = recording;
+        RecordingIndicatorPanel.IsVisible = recording;
+
+        if (recording)
+        {
+            _recordingStart = DateTime.UtcNow;
+            _recordingTimerCts?.Cancel();
+            _recordingTimerCts = new CancellationTokenSource();
+            var ct = _recordingTimerCts.Token;
+            _ = RunRecordingIndicatorsAsync(ct);
+        }
+        else
+        {
+            _recordingTimerCts?.Cancel();
+            _recordingTimerCts = null;
+            RecordTimerLabel.Text = "0:00";
+            RecordPulseDot.Opacity = 1;
+        }
+    }
+
+    private async Task RunRecordingIndicatorsAsync(CancellationToken ct)
+    {
+        // Pulse the dot at ~1 Hz and update the elapsed timer every 100 ms.
+        bool dotVisible = true;
+        int tick = 0;
+        while (!ct.IsCancellationRequested)
+        {
+            try { await Task.Delay(100, ct); } catch (OperationCanceledException) { break; }
+
+            var elapsed = DateTime.UtcNow - _recordingStart;
+            var label = $"{(int)elapsed.TotalMinutes}:{elapsed.Seconds:D2}";
+
+            tick++;
+            if (tick >= 5) // flip every 500 ms
+            {
+                dotVisible = !dotVisible;
+                tick = 0;
+            }
+
+            var opacity = dotVisible ? 1.0 : 0.15;
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                if (ct.IsCancellationRequested) return;
+                RecordTimerLabel.Text = label;
+                RecordPulseDot.Opacity = opacity;
+            });
+        }
     }
 
     private async void OnVoiceRecordClicked(object? sender, EventArgs e)

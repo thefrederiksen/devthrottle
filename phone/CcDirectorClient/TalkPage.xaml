@@ -109,13 +109,33 @@
                      is spoken aloud (OpenAI voice) and shown. Rows: status (Auto), the
                      you-said / agent-reply transcript (*), and the record controls (Auto). -->
                 <Grid x:Name="VoiceSection" IsVisible="True"
-                      RowDefinitions="Auto,*,Auto" Padding="20,8,20,16" RowSpacing="12">
+                      RowDefinitions="Auto,Auto,*,Auto" Padding="20,8,20,16" RowSpacing="12">
 
                     <Label Grid.Row="0" x:Name="VoiceStatusLabel"
                            Text="Tap Record and talk to the agent." FontSize="14"
                            TextColor="#8A93A6" HorizontalOptions="Center" HorizontalTextAlignment="Center" />
 
-                    <ScrollView Grid.Row="1">
+                    <!-- Recording state indicators: visible only while mic is open. -->
+                    <VerticalStackLayout Grid.Row="1" x:Name="RecordingIndicatorPanel"
+                                         IsVisible="False" Spacing="10" HorizontalOptions="Center">
+                        <Grid ColumnDefinitions="Auto,Auto,Auto" ColumnSpacing="14"
+                              HorizontalOptions="Center" VerticalOptions="Center">
+                            <!-- Pulsing red dot -->
+                            <BoxView x:Name="RecordPulseDot" Grid.Column="0"
+                                     WidthRequest="18" HeightRequest="18" CornerRadius="9"
+                                     Color="#F44747" VerticalOptions="Center" />
+                            <!-- RECORDING label -->
+                            <Label x:Name="RecordingLabel" Grid.Column="1"
+                                   Text="RECORDING" FontSize="26" FontAttributes="Bold"
+                                   TextColor="#F44747" VerticalOptions="Center" />
+                            <!-- Elapsed timer -->
+                            <Label x:Name="RecordTimerLabel" Grid.Column="2"
+                                   Text="0:00" FontFamily="Consolas" FontSize="16"
+                                   TextColor="#8A93A6" VerticalOptions="Center" />
+                        </Grid>
+                    </VerticalStackLayout>
+
+                    <ScrollView Grid.Row="2">
                         <VerticalStackLayout Spacing="12">
                             <Border x:Name="VoiceYouCard" IsVisible="False" BackgroundColor="#0F1626"
                                     StrokeShape="RoundRectangle 12" Padding="14">
@@ -134,7 +154,7 @@
                         </VerticalStackLayout>
                     </ScrollView>
 
-                    <VerticalStackLayout Grid.Row="2" Spacing="8">
+                    <VerticalStackLayout Grid.Row="3" Spacing="8">
                         <!-- Shown only while the reply is playing (issue #146 parity). -->
                         <Button x:Name="VoiceStopSpeakingButton" Text="Stop talking" IsVisible="False"
                                 BackgroundColor="#E5484D" TextColor="White" HeightRequest="44"
