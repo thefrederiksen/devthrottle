@@ -1,0 +1,53 @@
+2026-06-11T08:50:01.812Z [QA-RUN-A] RUN START worktree=D:\ReposFred\wt-issue-299-qa pid_of_runner=12048
+2026-06-11T08:50:01.845Z [QA-RUN-A] STEP allocate
+2026-06-11T08:50:02.951Z [QA-RUN-A]   [allocate] SLOT=6
+2026-06-11T08:50:02.951Z [QA-RUN-A]   [allocate] TASK=cc-director6-launch
+2026-06-11T08:50:02.952Z [QA-RUN-A]   [allocate] MANIFEST=D:\ReposFred\wt-issue-299-qa\local_builds\agent-session-slot6.json
+2026-06-11T08:50:02.953Z [QA-RUN-A]   [allocate] Next: build the slot exe from the worktree root:
+2026-06-11T08:50:02.954Z [QA-RUN-A]   [allocate]   powershell -NoProfile -File "D:\ReposFred\wt-issue-299-qa\scripts\local-build-avalonia.ps1" -Slot 6
+2026-06-11T08:50:02.969Z [QA-RUN-A] ALLOCATED slot=6 manifest=D:\ReposFred\wt-issue-299-qa\local_builds\agent-session-slot6.json
+2026-06-11T08:50:03.060Z [QA-RUN-A] STEP build (local-build-avalonia.ps1 -Slot 6, cwd=D:\ReposFred\wt-issue-299-qa)
+2026-06-11T08:50:17.126Z [QA-RUN-A]   Building CC Director Avalonia v0.6.22 (Release)
+2026-06-11T08:50:17.126Z [QA-RUN-A]     Mode: Framework-dependent (.NET 10 runtime required)
+2026-06-11T08:50:17.128Z [QA-RUN-A]     Cleaning previous build...
+2026-06-11T08:50:17.129Z [QA-RUN-A]     Pre-building Core dependency...
+2026-06-11T08:50:17.130Z [QA-RUN-A]   
+2026-06-11T08:50:17.131Z [QA-RUN-A]   Build succeeded.
+2026-06-11T08:50:17.131Z [QA-RUN-A]       0 Warning(s)
+2026-06-11T08:50:17.133Z [QA-RUN-A]       0 Error(s)
+2026-06-11T08:50:17.134Z [QA-RUN-A]   
+2026-06-11T08:50:17.135Z [QA-RUN-A]   Time Elapsed 00:00:02.31
+2026-06-11T08:50:17.136Z [QA-RUN-A]     Building Avalonia project...
+2026-06-11T08:50:17.137Z [QA-RUN-A]   
+2026-06-11T08:50:17.137Z [QA-RUN-A]   Build succeeded.
+2026-06-11T08:50:17.138Z [QA-RUN-A]       0 Warning(s)
+2026-06-11T08:50:17.139Z [QA-RUN-A]       0 Error(s)
+2026-06-11T08:50:17.140Z [QA-RUN-A]   
+2026-06-11T08:50:17.140Z [QA-RUN-A]   Time Elapsed 00:00:08.09
+2026-06-11T08:50:17.141Z [QA-RUN-A]     Publishing...
+2026-06-11T08:50:17.142Z [QA-RUN-A]   MSBuild version 18.6.4+96856fd72 for .NET
+2026-06-11T08:50:17.143Z [QA-RUN-A]     CcDirector.Avalonia -> D:\ReposFred\wt-issue-299-qa\src\CcDirector.Avalonia\bin\Release\net10.0\win-x64\publish\
+2026-06-11T08:50:17.144Z [QA-RUN-A]   
+2026-06-11T08:50:17.145Z [QA-RUN-A]   Build complete: 38.3 MB
+2026-06-11T08:50:17.146Z [QA-RUN-A]     D:\ReposFred\wt-issue-299-qa\local_builds\cc-director6.exe
+2026-06-11T08:50:17.147Z [QA-RUN-A] BUILD OK slot=6
+2026-06-11T08:50:17.148Z [QA-RUN-A] STEP launch
+2026-06-11T08:50:20.814Z [QA-RUN-A]   [launch] starting scheduled task cc-director6-launch
+2026-06-11T08:50:20.818Z [QA-RUN-A]   [launch] PID=44152
+2026-06-11T08:50:20.820Z [QA-RUN-A]   [launch] PORT=7894
+2026-06-11T08:50:20.821Z [QA-RUN-A]   [launch] LOG=C:\Users\soren\AppData\Local\cc-director\logs\director\director-2026-06-11-44152.log
+2026-06-11T08:50:20.837Z [QA-RUN-A]   [launch] Control API: http://127.0.0.1:7894 (probe GET /healthz)
+2026-06-11T08:50:20.839Z [QA-RUN-A]   [launch] MANIFEST=D:\ReposFred\wt-issue-299-qa\local_builds\agent-session-slot6.json (updated)
+2026-06-11T08:50:20.843Z [QA-RUN-A] LAUNCHED pid=44152 port=7894
+2026-06-11T08:50:20.844Z [QA-RUN-A] STEP probe GET http://127.0.0.1:7894/healthz
+2026-06-11T08:50:20.894Z [QA-RUN-A] PROBE status=200 body={"status":"ok","directors":1,"sessions":0,"version":"0.6.22","serverTime":"2026-06-11T08:50:20.8734137Z","directorId":"3a2323c7-61b7-4734-95f2-fb54a2b39f01","machineName":"SOREN_NORTH"}
+2026-06-11T08:50:20.896Z [QA-RUN-A] STEP hold 20s (overlap window, Director alive on port 7894)
+2026-06-11T08:50:40.913Z [QA-RUN-A] STEP teardown (RemoveWorktree=False)
+2026-06-11T08:50:42.540Z [QA-RUN-A]   [teardown] stopping PID 44152 (D:\ReposFred\wt-issue-299-qa\local_builds\cc-director6.exe)
+2026-06-11T08:50:42.542Z [QA-RUN-A]   [teardown] PID 44152 exited
+2026-06-11T08:50:42.543Z [QA-RUN-A]   [teardown] unregistered scheduled task cc-director6-launch
+2026-06-11T08:50:42.544Z [QA-RUN-A]   [teardown] deleted manifest D:\ReposFred\wt-issue-299-qa\local_builds\agent-session-slot6.json
+2026-06-11T08:50:42.546Z [QA-RUN-A]   [teardown] done (slot 6 is free again)
+2026-06-11T08:50:42.549Z [QA-RUN-A] ASSERT process pid=44152 gone
+2026-06-11T08:50:43.183Z [QA-RUN-A] ASSERT scheduled task cc-director6-launch unregistered
+2026-06-11T08:50:43.185Z [QA-RUN-A] RUN END slot=6 port=7894 pid=44152 result=SUCCESS
