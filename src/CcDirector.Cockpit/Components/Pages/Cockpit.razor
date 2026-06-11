@@ -628,7 +628,7 @@
 
                 <div class="modal-foot">
                     <button class="btn" @onclick="CloseNewSession">Cancel</button>
-                    <button class="btn send" @onclick="CreateSession" disabled="@(_acting || string.IsNullOrWhiteSpace(EffectiveNsRepo))">Create</button>
+                    <button class="btn send" @onclick="CreateSession" disabled="@(_acting || string.IsNullOrWhiteSpace(EffectiveNsRepo))">@(_acting ? "Creating session..." : "Create")</button>
                 </div>
             </div>
         </div>

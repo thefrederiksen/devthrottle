@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Issue #229 - Developer Agent proof report</title>
+<style>
+  :root{--panel:#1E1E1E;--sidebar:#252526;--text:#CCCCCC;--text2:#AAAAAA;--text3:#888888;
+        --muted:#666666;--border:#3C3C3C;--green:#22C55E;--red:#F14C4C;--accent:#007ACC;}
+  body{background:var(--panel);color:var(--text);font-family:"Segoe UI",system-ui,sans-serif;
+       font-size:14px;line-height:1.55;margin:0;padding:32px 40px 80px;max-width:1080px}
+  h1{font-size:22px;margin:0 0 4px}
+  h2{font-size:16px;margin:30px 0 8px;border-bottom:1px solid var(--border);padding-bottom:5px}
+  .sub{color:var(--text3);margin:0 0 18px}
+  code{font-family:"Cascadia Mono",Consolas,monospace;font-size:12.5px;background:#252526;
+       border:1px solid var(--border);border-radius:4px;padding:1px 5px}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:13px}
+  th,td{border:1px solid var(--border);padding:7px 9px;text-align:left;vertical-align:top}
+  th{background:var(--sidebar);color:var(--text2)}
+  .ok{color:var(--green);font-weight:700}
+  .pill{display:inline-block;border:1px solid var(--green);color:var(--green);border-radius:10px;
+        padding:1px 9px;font-size:12px}
+  img{max-width:100%;border:1px solid var(--border);border-radius:6px;margin:8px 0}
+  ul{margin:6px 0 6px 0}
+  .verdict{margin-top:26px;padding:14px 16px;border:1px solid var(--green);border-radius:8px;
+           background:#11251a;color:var(--green);font-weight:700;font-size:15px}
+  .muted{color:var(--muted)}
+</style>
+</head>
+<body>
+
+<h1>Issue #229 - New session Create button stays "Create" during the multi-second spawn</h1>
+<p class="sub">Developer Agent proof report &middot; branch <code>issue-229-create-button-busy-label</code> &middot; CenCon Development Method &middot; child of epic #280 (Cockpit optimistic-UI sweep)</p>
+
+<h2>What was implemented</h2>
+<p>In the "+ New session" modal, clicking <strong>Create</strong> already disabled the button
+(<code>disabled="@(_acting || ...)"</code>) but the label stayed <code>Create</code> while
+<code>Gateway.CreateSessionAsync</code> spawned <code>claude.exe</code> on the target Director - a
+multi-second wait that read as "broken". This change binds the existing <code>_acting</code> busy
+flag into the button <em>label</em> so it flips to <code>Creating session...</code> the instant Create
+is clicked, exactly matching the three in-repo reference implementations
+(Recap <code>generating (~90s)...</code>, Fan-out <code>sending...</code>, Handover
+<code>handing over...</code>). The smallest possible fix: the busy flag and its toggle already
+existed; only the conditional label was missing.</p>
+
+<table>
+  <tr><th>File</th><th>Change</th></tr>
+  <tr><td><code>src/CcDirector.Cockpit/Components/Pages/Cockpit.razor</code></td>
+      <td>Create button (modal footer): content changed from the literal <code>Create</code> to
+      <code>@(_acting ? "Creating session..." : "Create")</code>. One line; no change to the spawn
+      logic, <code>CreateSession</code>/<code>CreateLocal</code>, <code>Gateway.CreateSessionAsync</code>,
+      the existing <code>disabled</code> binding, or the <code>_nsError</code> surface.</td></tr>
+</table>
+
+<h2>Acceptance criteria &rarr; how each is met (Expected vs Actual)</h2>
+<table>
+  <tr><th>#</th><th>Criterion</th><th>How the code satisfies it</th><th>Result</th></tr>
+  <tr><td>1</td><td>Clicking Create flips the label to <code>Creating session...</code> within the same
+      render (before the round-trip returns) and the button is disabled.</td>
+      <td><code>CreateLocal</code> sets <code>_acting = true</code> <em>synchronously</em> before the
+      first <code>await Gateway.CreateSessionAsync</code>; Blazor renders after that await yields, so
+      the next render evaluates the conditional to <code>Creating session...</code>. The existing
+      <code>disabled="@(_acting || ...)"</code> keeps it disabled. Identical timing to the three
+      reference impls.</td><td class="ok">PASS</td></tr>
+  <tr><td>2</td><td>On success the modal closes / advances exactly as today (no regression).</td>
+      <td>Untouched: <code>_showNewSession = false; await RefreshAsync(); OnSelect(...)</code> still
+      run on success, and <code>finally { _acting = false; }</code> clears the flag. The modal (and its
+      footer) is gone on success - end state unchanged.</td><td class="ok">PASS</td></tr>
+  <tr><td>3</td><td>On failure the label returns to <code>Create</code> and the existing error surface
+      (<code>_nsError</code>) shows.</td>
+      <td>The <code>catch</code> sets <code>_nsError = ex.Message</code>; <code>finally</code> sets
+      <code>_acting = false</code>, so the conditional evaluates back to <code>Create</code> (re-enabled
+      once a repo is selected) and the existing <code>.modal-error</code> line renders. Both untouched
+      by this change.</td><td class="ok">PASS</td></tr>
+</table>
+
+<h2>Proof (rendered states)</h2>
+<p>The Cockpit is served by the user's live Gateway, and creating a real session spawns
+<code>claude.exe</code> against the user's repos on a running Director - exercising it against the
+live fleet is not safe (CLAUDE.md rule 0), and the mid-spawn window is a sub-second timing target.
+Following the established Cockpit proof pattern of the sibling optimistic-UI issues (#227, #228), the
+before/during/after states are rendered with the <strong>real</strong> <code>app.css</code> (copied
+from <code>src/CcDirector.Cockpit/wwwroot/app.css</code> at build time) and the <strong>same markup
+classes</strong> the modal footer emits (<code>.modal-foot</code>, <code>.btn</code>,
+<code>.btn.send</code>, <code>.modal-error</code>). What renders here is what the app renders; the
+only difference between BEFORE and AC1 is the button's text, which is exactly the one-line change.</p>
+<p><code>states.html</code> screenshotted via Playwright:</p>
+<img src="states.png" alt="Before/during/after rendered states for the New session Create button" />
+<ul>
+  <li><strong>BEFORE</strong> (left): mid-spawn the button is disabled (dimmed accent via the real
+      <code>.btn:disabled{opacity:.4}</code> rule) but still reads <code>Create</code> - the defect.</li>
+  <li><strong>AC1 DURING</strong>: same disabled dimmed button now reads
+      <code>Creating session...</code>.</li>
+  <li><strong>AC2 AFTER success</strong>: modal closed, session created and selected - end state
+      unchanged.</li>
+  <li><strong>AC3 AFTER failure</strong>: label restored to <code>Create</code> (full accent,
+      re-enabled) with the existing red <code>.modal-error</code> line above the footer.</li>
+</ul>
+
+<h2>Build</h2>
+<ul>
+  <li><code>dotnet build cc-director.sln</code> &rarr; <span class="ok">Build succeeded. 0 Warning(s) 0 Error(s)</span> (Cockpit project compiled with the change).</li>
+  <li><code>scripts\local-build-avalonia.ps1 -Slot 5</code> &rarr; runnable test binary built into slot 5 (the agent-reserved slot, never the main build or slots 1-4 - CLAUDE.md rule 0b); launched via the <code>cc-director-launch</code> scheduled task and stopped afterward (only <code>cc-director5.exe</code> killed).</li>
+</ul>
+
+<h2>CenCon impact</h2>
+<p>No drift. UI-only label change in the <code>CcDirector.Cockpit</code> container; no architecture
+change and no security-posture change. No hard-coded colors added (reuses the existing
+<code>.btn.send</code> class and <code>_acting</code> flag). No <code>docs/cencon/</code> file needs
+updating; no DT-rule in <code>security_profile.yaml</code> is touched.</p>
+
+<div class="verdict">I believe this is finished. <span class="pill">ready-qa</span></div>
+
+</body>
+</html>
