@@ -23,12 +23,28 @@
 window.cockpitDictate = (function () {
   // Capture-first frame router (pure/synchronous): buffer frames until the server is ready,
   // then flush in capture order and stream live thereafter.
+  //
+  // Issue #226: every captured frame is ALSO appended to a retained log ('all') so a
+  // mid-stream drop can be retried by replaying the whole segment's audio onto a fresh
+  // socket (capture-first), instead of discarding the words spoken before the drop. The
+  // retained log is independent of 'pending' (which empties on markReady), so it survives
+  // the live-streaming phase. 'capturedBytes' lets the dialog apply the same recoverable-
+  // audio floor the server uses (MinRecoverableAudioBytes = 24000) to decide whether a
+  // drop is worth a Retry or is a sub-floor clip that should just cancel.
   function createCaptureBuffer() {
     let ready = false;
     const pending = [];
+    const all = [];
+    let capturedBytes = 0;
     return {
       get ready() { return ready; },
-      push: function (frame, send) { if (ready) send(frame); else pending.push(frame); },
+      get capturedBytes() { return capturedBytes; },
+      get frames() { return all; },
+      push: function (frame, send) {
+        all.push(frame);
+        capturedBytes += (frame && frame.byteLength) || 0;
+        if (ready) send(frame); else pending.push(frame);
+      },
       markReady: function (send) { for (const f of pending) send(f); pending.length = 0; ready = true; },
     };
   }
@@ -73,6 +89,7 @@ window.cockpitDictate = (function () {
         cursor: pointer; min-width: 84px; }
       .cd-btn:disabled { opacity: 0.55; cursor: not-allowed; }
       .cd-cancel { background: #2D2D30; color: #CCC; }
+      .cd-retry { background: #007ACC; color: #fff; display: none; }
       .cd-pause { background: #2D2D30; color: #CCC; min-width: 100px; }
       .cd-insert { background: #16A34A; color: #fff; }
       .cd-send { background: #007ACC; color: #fff; min-width: 100px; }
@@ -105,6 +122,7 @@ window.cockpitDictate = (function () {
         <textarea class="cd-transcript" readonly placeholder="(your words will appear here)"></textarea>
         <div class="cd-foot">
           <button type="button" class="cd-btn cd-cancel">Cancel</button>
+          <button type="button" class="cd-btn cd-retry">Retry</button>
           <button type="button" class="cd-btn cd-pause"><span class="cd-pause-glyph"><i></i><i></i></span></button>
           <div class="cd-spacer"></div>
           <button type="button" class="cd-btn cd-insert">Insert</button>
@@ -135,6 +153,7 @@ window.cockpitDictate = (function () {
     const hintEl       = overlay.querySelector('.cd-hint');
     const transcriptEl = overlay.querySelector('.cd-transcript');
     const cancelBtn    = overlay.querySelector('.cd-cancel');
+    const retryBtn     = overlay.querySelector('.cd-retry');
     const pauseBtn     = overlay.querySelector('.cd-pause');
     const insertBtn    = overlay.querySelector('.cd-insert');
     const sendBtn      = overlay.querySelector('.cd-send');
@@ -151,6 +170,19 @@ window.cockpitDictate = (function () {
     let currentPartial = '';
     let selectedDeviceId = '';         // '' = system default
     let done = false;
+
+    // Issue #226: failure-UX + retry-with-preserved-audio.
+    // 24 kHz mono PCM16 = 48000 bytes/sec, so 24000 bytes is half a second. This MUST match
+    // DictationEndpoint.MinRecoverableAudioBytes: below it a drop carried nothing worth saving,
+    // so we treat it as a clean cancel (no Retry, no red error); at/above it the audio is worth
+    // recovering, so we offer Retry that replays the buffered frames.
+    const MIN_RECOVERABLE_AUDIO_BYTES = 24000;
+    // The last typed {type:error} cause the Director sent (e.g. "no API key" / provider failure).
+    // Surfaced on the close instead of a bare code/reason so the user sees the real cause.
+    let lastServerError = '';
+    // Frames retained from the dropped segment, snapshotted so a Retry can replay the audio
+    // captured before the drop onto a fresh socket. Null when there is nothing to replay.
+    let replayFrames = null;
 
     // Trailing-audio drain window (web parity with the desktop DictationPipeline no-loss stop).
     // The worklet posts a PCM frame every ~5ms via postMessage; those become queued main-thread
@@ -189,6 +221,12 @@ window.cockpitDictate = (function () {
         transcriptEl.setAttribute('readonly', '');
         pauseBtn.disabled = false; insertBtn.disabled = false; sendBtn.disabled = false;
         micSel.disabled = false;
+        // Restore the action row after a Retry (issue #226): the error stage hid these and the
+        // close handler may have shown Retry / relabeled Cancel. A live recording uses the normal
+        // controls again.
+        pauseBtn.style.display = ''; insertBtn.style.display = ''; sendBtn.style.display = '';
+        retryBtn.style.display = 'none';
+        cancelBtn.textContent = 'Cancel';
         setPauseGlyph();
       } else if (s === 'transcribing') {
         statusEl.textContent = 'TRANSCRIBING';
@@ -217,6 +255,65 @@ window.cockpitDictate = (function () {
     function setPauseGlyph() { pauseBtn.innerHTML = '<span class="cd-pause-glyph"><i></i><i></i></span>'; }
 
     function showError(msg) { hintEl.textContent = ''; transcriptEl.value = msg; setStage('error'); }
+
+    // ---------- mid-stream drop (issue #226) ----------
+    // The dictation socket connected and then dropped while recording/transcribing. Surface the
+    // REAL cause (the Director's typed {type:error} if one arrived, else the WS close code/reason)
+    // and, if enough audio was captured to be worth recovering, offer Retry that replays it.
+    function describeDrop(ev) {
+      // Prefer the Director's typed cause - it names the human reason (no API key, provider
+      // failure) far better than a transport close code can.
+      if (lastServerError) return 'Dictation dropped: ' + lastServerError;
+      const code = ev && typeof ev.code === 'number' ? ev.code : 0;
+      const reason = ev && ev.reason ? String(ev.reason) : '';
+      // Read the close code/reason instead of the old bare 'Connection closed.'. 1005 = no status
+      // frame (the common abnormal-drop case): say so plainly rather than printing a bare "1005".
+      if (code === 1005 && !reason) return 'Dictation dropped (connection closed without a status).';
+      return reason
+        ? 'Dictation dropped (code ' + code + ': ' + reason + ').'
+        : 'Dictation dropped (code ' + code + ').';
+    }
+
+    function handleMidStreamDrop(ev) {
+      const captured = capture ? capture.capturedBytes : 0;
+      if (captured < MIN_RECOVERABLE_AUDIO_BYTES) {
+        // Sub-floor clip: nothing worth recovering. Treat it as a clean cancel - no red ERROR,
+        // no Retry, just close the dialog the same way the Cancel button would.
+        teardownAll();
+        notify(ref, 'OnDictateCancel');
+        return;
+      }
+      // Snapshot the frames captured this segment so Retry can replay them onto a fresh socket
+      // even after teardownSegment nulls 'capture'. ws.onclose already fired, so the socket is
+      // gone; tear the rest of the segment down but keep the dialog open showing the cause.
+      replayFrames = capture.frames.slice();
+      showError(describeDrop(ev));
+      teardownSegment();
+      // Explicit 'inline-block' (not '') - the .cd-retry rule defaults to display:none, so an
+      // empty inline value would fall back to that and keep the button hidden.
+      retryBtn.style.display = 'inline-block';
+    }
+
+    // Retry: reopen the socket and replay the buffered audio (capture-first), so the words
+    // spoken before the drop survive. Mirrors the #189 desktop preserve-audio standard.
+    async function retryWithPreservedAudio() {
+      if (!replayFrames || !replayFrames.length) return;
+      const frames = replayFrames;
+      replayFrames = null;
+      retryBtn.style.display = 'none';
+      cancelBtn.textContent = 'Cancel';
+      lastServerError = '';
+      currentPartial = '';
+      // Fresh capture buffer seeded with the dropped segment's frames: they flush in capture
+      // order the instant the new socket says 'started', then live capture continues.
+      capture = createCaptureBuffer();
+      for (const f of frames) capture.push(f, sendFrame);
+      finalizing = false;
+      setStage('starting');
+      const ok = await bootCapture();   // bring the mic back up for continued live capture
+      if (!ok) return;                  // bootCapture showed its own error
+      openSocket();
+    }
 
     // ---------- timer ----------
     function startTimer() {
@@ -336,7 +433,15 @@ window.cockpitDictate = (function () {
             else if (finalIntent === 'send') finishWith('OnDictateSend');
             break;
           }
-          case 'error': showError('Server error: ' + (m.message || 'unknown')); break;
+          case 'error': {
+            // Issue #226: remember the Director's typed cause. If it arrives just before the
+            // socket closes mid-recording, the onclose handler surfaces THIS specific cause
+            // (e.g. "no API key on the owning machine") instead of a bare close code/reason.
+            const cause = m.message || 'unknown';
+            lastServerError = cause;
+            showError('Server error: ' + cause);
+            break;
+          }
         }
       };
       // Issue #268: the dictate socket is SAME-ORIGIN to the Gateway, which reverse-proxies to
@@ -356,14 +461,21 @@ window.cockpitDictate = (function () {
       // Gateway proxy returns 503 because the owning Director is offline, or the Director rejects
       // the /dictate upgrade) would otherwise leave the dialog stuck on STARTING with no error and
       // no callback - keeping the C# Speak button disabled forever.
-      ws.onclose = () => {
+      // Issue #226: onclose now reads the close EVENT so a mid-recording drop surfaces the real
+      // cause - the WS close code/reason, or the Director's typed {type:error} if one arrived just
+      // before the close - instead of the old bare 'Connection closed.'. A drop that captured
+      // recoverable audio offers Retry (replays the buffered frames); a sub-floor clip cancels
+      // cleanly. The 'finalizing' guard means a close during the normal stop/transcribe handshake
+      // is not treated as a drop.
+      ws.onclose = (ev) => {
         if (done || stage === 'paused') return;
-        if (stage === 'starting')
+        if (stage === 'starting') {
           showError(wasReady
             ? 'Dictation stream closed before it was ready.'
             : 'Could not reach the owning Director through the Gateway (it may be offline or unreachable).');
-        else if (stage === 'recording' || stage === 'transcribing')
-          showError('Connection closed.');
+        } else if (stage === 'recording' || (stage === 'transcribing' && !finalizing)) {
+          handleMidStreamDrop(ev);
+        }
       };
       // Mark the upgrade as having actually completed (101 + server 'ready'): from here a failure
       // is a mid-stream drop, before here it is a could-not-reach.
@@ -427,6 +539,7 @@ window.cockpitDictate = (function () {
       teardownAll();
       notify(ref, 'OnDictateCancel');
     });
+    retryBtn.addEventListener('click', () => { retryWithPreservedAudio(); });
     pauseBtn.addEventListener('click', () => {
       if (stage === 'recording') { elapsedBeforeMs += performance.now() - t0; currentPartial = ''; pauseBtn.disabled = true; finalizeFromRecording('pause'); }
       else if (stage === 'paused') { accumulatedText = transcriptEl.value || ''; currentPartial = ''; pauseBtn.disabled = true; elapsedBeforeMs = 0; startSegment(); }

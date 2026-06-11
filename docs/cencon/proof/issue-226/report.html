@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Issue #226 - Dictation failure UX + retry with preserved audio - Proof</title>
+<style>
+  body { font-family: "Segoe UI", system-ui, sans-serif; background: #1E1E1E; color: #DDD; margin: 0; padding: 24px; }
+  h1 { color: #fff; font-size: 22px; }
+  h2 { color: #DCDCAA; border-bottom: 1px solid #3C3C3C; padding-bottom: 6px; margin-top: 32px; }
+  code, pre { font-family: "Cascadia Mono", Consolas, monospace; }
+  pre { background: #252526; border: 1px solid #3C3C3C; border-radius: 6px; padding: 10px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #3C3C3C; padding: 8px 10px; text-align: left; vertical-align: top; font-size: 14px; }
+  th { background: #252526; color: #DCDCAA; }
+  .pass { color: #16A34A; font-weight: 700; }
+  .fail { color: #F44747; font-weight: 700; }
+  img { max-width: 720px; width: 100%; border: 1px solid #3C3C3C; border-radius: 6px; margin: 8px 0; }
+  .muted { color: #888; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+</style>
+</head>
+<body>
+<h1>Issue #226 - [Cockpit] Dictation failure UX: surface the real close cause + retry with preserved audio</h1>
+<p class="muted">Developer Agent proof. Branch <code>loop/226-dictation-failure-ux</code>. Build: <code>dotnet build cc-director.sln</code> -> Build succeeded, 0 Warning(s), 0 Error(s).</p>
+
+<h2>What was implemented</h2>
+<ul>
+  <li><b>Read the close code/reason</b> (<code>src/CcDirector.Cockpit/wwwroot/js/cockpit-dictate.js</code>): <code>ws.onclose</code> now takes the close <b>event</b>. On a <code>recording</code>/<code>transcribing</code> drop it surfaces the WS <code>code</code>/<code>reason</code> (e.g. <code>Dictation dropped (code 1011: provider stream closed).</code>) instead of the bare literal <code>'Connection closed.'</code>. If a typed <code>{type:error}</code> arrived just before close, that human cause is shown instead.</li>
+  <li><b>Typed Director cause before close</b> (<code>src/CcDirector.ControlApi/DictationEndpoint.cs</code>): the no-API-key path already sent a typed error before close; this change also wraps <code>session.StartAsync</code> so a provider connect failure sends a typed <code>{type:error}</code> (carrying the human cause from <code>DictationConnectException</code>) <b>before</b> closing the socket, rather than relying solely on the outer catch.</li>
+  <li><b>Retry with preserved audio</b> (cockpit-dictate.js): the capture buffer now retains every captured frame and tracks <code>capturedBytes</code>. On a drop with &gt;= <code>MIN_RECOVERABLE_AUDIO_BYTES</code> (24000, matching <code>DictationEndpoint.MinRecoverableAudioBytes</code>) a <b>Retry</b> control appears; clicking it reopens the socket and replays the buffered frames capture-first, so the pre-drop words survive. A sub-floor clip (&lt; 24000 bytes) offers no Retry and dismisses cleanly as a cancel.</li>
+</ul>
+
+<h2>How it was verified</h2>
+<p>A headless-Chromium harness (<code>dictate_drop_ux_proof.js</code>) drives the <b>real shipped</b> <code>cockpit-dictate.js</code> (the file inlined verbatim, no reimplementation) with a deterministic fake WebSocket and fake mic graph, so each acceptance criterion is exercised and screenshotted. The harness asserts machine-readable facts (close-frame text, bytes the replay socket received, callbacks fired) in addition to the screenshots. Result: <span class="pass">allPass: true</span> (see <code>results.json</code>).</p>
+<p class="muted">Isolation: served on 127.0.0.1:7473 via an in-process Node HTTP server; the live fleet (Gateway 7878, Cockpit 7470, Director 7887) was confirmed still up and was never touched.</p>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+  <tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (observed)</th><th>Result</th></tr>
+  <tr>
+    <td>1</td><td>No bare message</td>
+    <td>Drop during recording shows WS close code + reason, never <code>'Connection closed.'</code></td>
+    <td><code>Dictation dropped (code 1011: provider stream closed).</code></td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>2</td><td>Typed Director cause</td>
+    <td>A provider-caused failure (no API key) shows that specific cause</td>
+    <td><code>... no OpenAI key on the owning machine. Set one in Settings &gt; Voice.</code></td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>3</td><td>Retry preserves audio</td>
+    <td>After a drop with &gt;= 24000 bytes, Retry reopens the socket, replays the buffered audio, and the transcript includes the pre-drop words</td>
+    <td>Retry shown; new socket received <b>38400</b> replayed bytes (&gt;= 24000); transcript = <code>the words spoken before the drop</code></td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>4</td><td>Tiny clips cancel cleanly</td>
+    <td>Drop with &lt; 24000 bytes: no Retry, no noisy error (treated as cancel)</td>
+    <td>Overlay removed; <code>OnDictateCancel</code> fired; no ERROR dialog</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Screenshots</h2>
+
+<h3>AC1 - mid-stream drop shows close code/reason (Retry offered)</h3>
+<img src="ac1-drop-code-reason.png" alt="Drop shows code 1011 and reason, with Retry button">
+
+<h3>AC2 - typed Director cause surfaced (no API key)</h3>
+<img src="ac2-typed-cause.png" alt="Typed cause: no OpenAI key on the owning machine">
+
+<h3>AC3 - Retry with preserved audio</h3>
+<div class="grid">
+  <div><p class="muted">a. drop with recoverable audio - Retry offered</p><img src="ac3a-drop-with-retry.png" alt="Drop with Retry"></div>
+  <div><p class="muted">b. after Retry - transcript includes the pre-drop words</p><img src="ac3b-retry-transcript.png" alt="Transcript after retry"></div>
+</div>
+
+<h3>AC4 - sub-floor clip cancels cleanly (overlay dismissed, no error)</h3>
+<img src="ac4-subfloor-clean-cancel.png" alt="Overlay dismissed - clean cancel">
+
+<h2>CenCon impact</h2>
+<p>No architecture or security drift. The change is confined to one Cockpit JS dialog plus a defensive typed-error-before-close on the existing <code>/dictate</code> endpoint. No new container, no new data flow, no DT-rule change. <code>docs/cencon/</code> not affected.</p>
+
+<h2>Reproduce-check (root cause of the original ~1.4s drop)</h2>
+<p>The issue flagged a reproduce-check (NOT part of the ready-dev fix): confirm whether the original ~1.4s drop still reproduces on the post-#268 Gateway build. This deterministic failure-UX + retry slice ships as defense-in-depth regardless. A live reproduce-check on the running fleet is left to QA / a separate investigation issue, per the issue's scope ("only becomes a separate investigation issue if it still reproduces"). The UX shipped here is exactly what makes any future drop self-explanatory (code/reason or typed cause) and recoverable (Retry), which is valuable whether or not the drop still occurs.</p>
+
+<h2>Files changed</h2>
+<pre>src/CcDirector.Cockpit/wwwroot/js/cockpit-dictate.js
+src/CcDirector.ControlApi/DictationEndpoint.cs
+docs/cencon/proof/issue-226/  (this report + harness + screenshots + results.json)</pre>
+
+<p><b>I believe this is finished.</b> All four acceptance criteria are met and proven against the real shipped dialog code; the solution builds clean (0 warnings, 0 errors).</p>
+</body>
+</html>

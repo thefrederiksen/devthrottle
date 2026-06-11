@@ -1,0 +1,36 @@
+{
+  "allPass": true,
+  "results": [
+    {
+      "ac": 1,
+      "name": "No bare message (close code/reason surfaced)",
+      "pass": true,
+      "observed": "Dictation dropped (code 1011: provider stream closed).",
+      "retry": true
+    },
+    {
+      "ac": 2,
+      "name": "Typed Director cause surfaced",
+      "pass": true,
+      "observed": "Server error: Dictation is unavailable: no OpenAI key on the owning machine. Set one in Settings > Voice.",
+      "retry": false
+    },
+    {
+      "ac": 3,
+      "name": "Retry replays buffered audio -> transcript with pre-drop words",
+      "pass": true,
+      "preDropBytes": 38400,
+      "replayBytesOnNewSocket": 38400,
+      "observedTranscript": "the words spoken before the drop"
+    },
+    {
+      "ac": 4,
+      "name": "Sub-floor clip cancels cleanly (no Retry, no error)",
+      "pass": true,
+      "overlayGone": true,
+      "callbacks": [
+        "OnDictateCancel"
+      ]
+    }
+  ]
+}
