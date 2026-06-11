@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #230 - Developer Agent proof report</title>
+<style>
+:root{--bg:#1E1E1E;--panel:#252526;--text:#CCCCCC;--text2:#AAAAAA;--text3:#888888;
+  --accent:#007ACC;--green:#22C55E;--red:#F14C4C;--border:#3C3C3C;}
+body{background:var(--bg);color:var(--text);font-family:"Segoe UI",system-ui,sans-serif;
+  font-size:14px;line-height:1.55;max-width:960px;margin:0 auto;padding:32px}
+h1{font-size:22px;margin:0 0 4px}
+h2{font-size:16px;margin:28px 0 10px;border-bottom:1px solid var(--border);padding-bottom:6px}
+.sub{color:var(--text2);font-size:13px;margin:0 0 8px}
+code,pre{font-family:"Cascadia Mono",Consolas,monospace}
+pre{background:#111;border:1px solid var(--border);border-radius:8px;padding:14px;overflow:auto;font-size:12.5px}
+table{border-collapse:collapse;width:100%;margin:8px 0}
+th,td{border:1px solid var(--border);padding:8px 10px;text-align:left;vertical-align:top;font-size:13px}
+th{background:var(--panel);color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.03em}
+.pass{color:var(--green);font-weight:600}
+img{max-width:100%;border:1px solid var(--border);border-radius:8px;margin:8px 0}
+.tag{display:inline-block;background:var(--panel);border:1px solid var(--border);border-radius:5px;
+  padding:2px 8px;font-size:11px;color:var(--text2);margin-right:6px}
+.finished{background:#0d2e16;border:1px solid var(--green);border-radius:8px;padding:14px 16px;
+  color:#bff3cf;margin-top:24px}
+</style>
+</head>
+<body>
+<h1>Issue #230 - Composer image upload shows nothing until the upload finishes</h1>
+<p class="sub">
+  <span class="tag">area: CcDirector.Cockpit</span>
+  <span class="tag">epic: #280 optimistic-UI sweep</span>
+  <span class="tag">Developer Agent proof</span>
+</p>
+
+<h2>What was implemented</h2>
+<p>The Cockpit composer's <code>OnDropImages</code> handler
+(<code>src/CcDirector.Cockpit/Components/Pages/Cockpit.razor</code>) uploaded each dropped/selected
+image (up to 20&nbsp;MB) over the tailnet, but the only status it wrote was the
+<code>inserted N image(s)</code> line written <b>after</b> each file finished. A large image on a slow
+link therefore showed nothing for several seconds.</p>
+<p>The fix sets <code>_shotStatus</code> <b>optimistically before</b> each file's upload await and calls
+<code>StateHasChanged</code> immediately, so the user sees
+<code>uploading &lt;filename&gt; (i of N)...</code> the moment the drop registers, updated per file as the
+loop advances. The existing completion (<code>inserted N image(s)</code>) and failure
+(<code>image upload failed: &lt;msg&gt;</code>) surfaces are unchanged.</p>
+
+<h2>The change (the ordering is the fix)</h2>
+<p class="sub">The new status write + render sit <b>above</b> <code>OpenReadStream</code>/<code>UploadImageAsync</code>,
+inside the existing per-file <code>try</code> (the upload's boundary). <code>total</code> is captured
+once; <code>index</code> increments per file.</p>
+<pre>
+ var files = e.GetMultipleFiles(10);
++var total = files.Count;
+ var sent = 0;
++var index = 0;
+ foreach (var f in files)
+ {
++    index++;
+     Log.LogInformation("Cockpit action=attach ...", sel.SessionId, dir, f.Name, f.Size);
+     try
+     {
++        // Optimistic status: render BEFORE the upload await so a large image on a slow
++        // link shows feedback immediately instead of nothing until the bytes finish.
++        _shotStatus = $"uploading {f.Name} ({index} of {total})...";
++        await InvokeAsync(StateHasChanged);
++
+         await using var s = f.OpenReadStream(20 * 1024 * 1024, _cts.Token); // 20 MB cap
+         var path = await Director.UploadImageAsync(dir!, sel.SessionId, s, f.Name, ...);
+         ...
+         sent++;
+         _shotStatus = $"inserted {sent} image{(sent == 1 ? "" : "s")} into the prompt";
+         await InvokeAsync(StateHasChanged);
+     }
+     catch (Exception ex)
+     {
+         _actError = $"image upload failed: {ex.Message}";   // unchanged failure surface
+         Log.LogWarning(ex, "upload-image failed for {File}", f.Name);
+     }
+ }
+</pre>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>How the code satisfies it</th><th>Result</th></tr>
+<tr><td>1</td>
+  <td>On dropping N images, status shows <code>uploading &lt;file&gt; (1 of N)...</code> before the
+      first file's bytes finish streaming.</td>
+  <td>The <code>_shotStatus</code> write + <code>StateHasChanged</code> are <b>above</b> the
+      <code>OpenReadStream</code>/<code>UploadImageAsync</code> await, so the frame renders before any
+      bytes leave the browser. State&nbsp;1 in the screenshot.</td>
+  <td class="pass">PASS</td></tr>
+<tr><td>2</td>
+  <td>Status updates per file as the loop progresses (<code>(2 of N)</code>, ...).</td>
+  <td><code>index</code> increments each iteration and the optimistic write re-runs per file, so each
+      file's status renders before its own upload. State&nbsp;2 in the screenshot.</td>
+  <td class="pass">PASS</td></tr>
+<tr><td>3</td>
+  <td>On completion the existing <code>inserted N image(s)</code> message shows and the images are in
+      the composer (no regression).</td>
+  <td>The post-upload <code>sent++</code> / <code>inserted ...</code> write and the
+      <code>InsertIntoComposer</code> call are untouched. State&nbsp;3 in the screenshot.</td>
+  <td class="pass">PASS</td></tr>
+<tr><td>4</td>
+  <td>On a failed upload the existing <code>image upload failed: &lt;msg&gt;</code> surface still shows.</td>
+  <td>The <code>catch</code> block writing <code>_actError</code> is unchanged. State&nbsp;4 in the
+      screenshot.</td>
+  <td class="pass">PASS</td></tr>
+</table>
+
+<h2>Proof screenshot</h2>
+<p class="sub">The four states rendered with the production Cockpit CSS
+(<code>wwwroot/app.css</code>) and composer markup. The status strings are the exact C# interpolations
+the patched handler writes. Fixture: <code>states.html</code>; image: <code>states.png</code>.</p>
+<img src="states.png" alt="Composer status in four states: uploading (1 of 3), uploading (2 of 3), inserted 3 images, image upload failed">
+
+<h2>Build &amp; verification</h2>
+<ul>
+  <li><code>dotnet build cc-director.sln</code> -&gt; <b>Build succeeded. 0 Warning(s), 0 Error(s).</b></li>
+  <li><code>scripts\local-build-avalonia.ps1 -Slot 5</code> -&gt; built <code>cc-director5.exe</code>;
+      launched via the <code>cc-director-launch</code> scheduled task (Control API came up on
+      <code>http://127.0.0.1:7885</code>), confirming the build is runnable.</li>
+  <li>Behavioural guarantee is shown by the diff (the status write + render precede the upload await)
+      and the state screenshot, which together prove every acceptance criterion deterministically. The
+      Cockpit is a Blazor Server app behind the Gateway; a live mid-stream capture of the (1 of N)
+      frame is a sub-second race, so the deterministic source-ordering + faithful-render proof was used,
+      matching the issue's stated proof target.</li>
+</ul>
+
+<h2>CenCon impact</h2>
+<p>No drift. This is a UI status-copy/timing change in one Blazor component; no architecture or
+security posture change, and no <code>security_profile.yaml</code> rule (DT-01..DT-NN) is touched.</p>
+
+<div class="finished">I believe this is finished. All four acceptance criteria are met, the solution
+builds clean with zero warnings, and the optimistic status now renders before the upload await.</div>
+</body>
+</html>

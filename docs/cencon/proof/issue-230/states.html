@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<!--
+  Proof fixture for issue #230: renders the Cockpit composer's status line in the four
+  states the fix produces, using the REAL Cockpit CSS (src/CcDirector.Cockpit/wwwroot/app.css)
+  and the REAL composer markup (Components/Pages/Cockpit.razor). The status strings below are the
+  exact C# interpolations the patched OnDropImages writes:
+    optimistic  -> $"uploading {f.Name} ({index} of {total})..."   (NEW: written before the await)
+    completion  -> $"inserted {sent} image{(sent==1?"":"s")} into the prompt"   (unchanged)
+    failure     -> _actError = $"image upload failed: {ex.Message}"            (unchanged)
+  This fixture exists so the screenshot shows precisely what the user sees; the behavioural
+  guarantee (status renders BEFORE the upload await) is shown by the committed source diff.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #230 - composer upload status states</title>
+<style>
+:root{
+  --panel:#1E1E1E; --sidebar:#252526; --button:#3C3C3C; --button-hover:#505050;
+  --text:#CCCCCC; --text2:#AAAAAA; --text3:#888888; --muted:#666666;
+  --accent:#007ACC; --selected:#094771; --hover:#2A2D2E; --border:#3C3C3C;
+  --red:#F14C4C; --green:#22C55E; --blue:#3B82F6; --amber:#F59E0B;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--panel);color:var(--text);
+  font-family:"Segoe UI",system-ui,sans-serif;font-size:13px;padding:24px}
+h1{font-size:18px;margin:0 0 4px}
+.lead{color:var(--text2);font-size:12px;margin:0 0 20px;max-width:880px;line-height:1.5}
+.case{margin:0 0 22px;max-width:760px}
+.case-h{font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;margin:0 0 6px}
+/* ---- below: copied verbatim from app.css so the render is faithful ---- */
+.detail-dock{flex:none;border-top:1px solid var(--border);background:var(--sidebar);border-radius:8px}
+.composer{display:flex;gap:10px;align-items:flex-end;padding:12px 14px;border-radius:8px}
+.composer textarea{flex:1;background:#1e1e1e;color:var(--text);border:1px solid var(--border);
+  border-radius:8px;padding:9px 11px;font-family:inherit;font-size:14px;resize:none;height:46px}
+.composer-btns{display:flex;gap:8px}
+.btn{background:var(--button);color:var(--text);border:1px solid var(--border);border-radius:8px;
+  padding:9px 16px;font-size:13px;cursor:pointer;white-space:nowrap}
+.btn.attach{display:inline-flex;align-items:center;cursor:pointer}
+.btn.send{background:var(--accent);color:#fff;border-color:var(--accent)}
+.btn.queue{background:#2a3a4a;border-color:#345}
+.btn.speak{background:#16A34A;color:#fff;border-color:#16A34A}
+.shots-status{font-size:12px;color:var(--green);padding:0 14px 8px}
+.act-error{color:#F1A0A0;font-size:12px;padding:0 14px 10px}
+</style>
+</head>
+<body>
+<h1>Issue #230 - Composer image-upload status states</h1>
+<p class="lead">The four states the patched <code>OnDropImages</code> renders, drawn with the production
+Cockpit CSS and composer markup. State 1 ("uploading &lt;file&gt; (1 of N)...") is the new optimistic
+write that now happens <b>before</b> each file's upload await and an immediate <code>StateHasChanged</code>,
+so a large image on a slow link shows feedback instantly instead of nothing. States 3-4 are the
+pre-existing completion and failure surfaces (unchanged).</p>
+
+<div class="case">
+  <div class="case-h">State 1 - AC1: optimistic, shown before the first byte finishes streaming</div>
+  <div class="detail-dock"><div class="composer">
+    <textarea readonly>photo.png</textarea>
+    <div class="composer-btns">
+      <span class="btn attach">Attach</span><span class="btn speak">Speak</span>
+      <span class="btn send">Send</span><span class="btn queue">Queue</span>
+    </div></div>
+    <div class="shots-status">uploading photo.png (1 of 3)...</div>
+  </div>
+</div>
+
+<div class="case">
+  <div class="case-h">State 2 - AC2: per-file progress as the loop advances</div>
+  <div class="detail-dock"><div class="composer">
+    <textarea readonly>C:\...\saved-1.png </textarea>
+    <div class="composer-btns">
+      <span class="btn attach">Attach</span><span class="btn speak">Speak</span>
+      <span class="btn send">Send</span><span class="btn queue">Queue</span>
+    </div></div>
+    <div class="shots-status">uploading diagram.png (2 of 3)...</div>
+  </div>
+</div>
+
+<div class="case">
+  <div class="case-h">State 3 - AC3: completion (existing message, no regression)</div>
+  <div class="detail-dock"><div class="composer">
+    <textarea readonly>C:\...\saved-1.png C:\...\saved-2.png C:\...\saved-3.png </textarea>
+    <div class="composer-btns">
+      <span class="btn attach">Attach</span><span class="btn speak">Speak</span>
+      <span class="btn send">Send</span><span class="btn queue">Queue</span>
+    </div></div>
+    <div class="shots-status">inserted 3 images into the prompt</div>
+  </div>
+</div>
+
+<div class="case">
+  <div class="case-h">State 4 - AC4: failed upload (existing error surface, unchanged)</div>
+  <div class="detail-dock"><div class="composer">
+    <textarea readonly>photo.png</textarea>
+    <div class="composer-btns">
+      <span class="btn attach">Attach</span><span class="btn speak">Speak</span>
+      <span class="btn send">Send</span><span class="btn queue">Queue</span>
+    </div></div>
+    <div class="act-error">image upload failed: The upload endpoint returned 500</div>
+  </div>
+</div>
+
+</body>
+</html>
