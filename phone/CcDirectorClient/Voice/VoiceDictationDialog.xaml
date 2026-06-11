@@ -10,7 +10,13 @@
     <!-- Voice-mode dictation dialog (Mode A). Used everywhere the user is already in
          voice mode (FIFO Ask Agent / Ask Wingman). Stripped to the bone for glance /
          driving use: bouncing bars to confirm the mic is hot, a big SUBMIT, a big
-         CANCEL. No timer, no transcript, no other controls.
+         CANCEL. No transcript, no other controls.
+
+         Added indicators (issue #347):
+           - Elapsed m:ss timer (top-right) so the user can see how long they have talked.
+           - Large RECORDING label (red, 24pt) that flips to Recorded (green) on SUBMIT.
+           - Pulsing red dot at ~1 Hz: a glance-able "alive" signal beyond the bars.
+           - Amber "Speak up" hint when mic input is present but too quiet for >2 seconds.
 
          The Page background is a semi-transparent black so the page underneath
          shows through as a dimmed backdrop - the dialog itself is the centred card
@@ -23,9 +29,59 @@
                 StrokeShape="RoundRectangle 18"
                 Padding="24,28" WidthRequest="320">
 
-            <VerticalStackLayout Spacing="22" HorizontalOptions="Center">
+            <VerticalStackLayout Spacing="16" HorizontalOptions="Center">
+
+                <!-- Top row: pulsing dot (left) + state label (centre) + timer (right) -->
+                <Grid ColumnDefinitions="Auto,*,Auto" VerticalOptions="Center">
+
+                    <!-- Pulsing dot: 1 Hz on/off during recording, hidden after SUBMIT/CANCEL.
+                         Sized so it is visible from a driving distance. -->
+                    <BoxView x:Name="PulseDot"
+                             Grid.Column="0"
+                             WidthRequest="16" HeightRequest="16"
+                             CornerRadius="8"
+                             Color="#F44747"
+                             VerticalOptions="Center"
+                             Margin="0,0,8,0" />
+
+                    <!-- RECORDING / Recorded label.
+                         Red while capturing, switches to green text "Recorded" on SUBMIT.
+                         FontSize >= 22 per spec so it is readable at a glance / while driving. -->
+                    <Label x:Name="RecordingLabel"
+                           Grid.Column="1"
+                           Text="RECORDING"
+                           FontSize="24"
+                           FontAttributes="Bold"
+                           TextColor="#F44747"
+                           HorizontalOptions="Center"
+                           VerticalOptions="Center" />
+
+                    <!-- Elapsed timer. Same m:ss format as SpeakIntoTextboxDialog.
+                         Subdued color (matches SpeakIntoTextboxDialog) - for orientation only. -->
+                    <Label x:Name="TimerLabel"
+                           Grid.Column="2"
+                           Text="0:00"
+                           FontFamily="Consolas"
+                           FontSize="14"
+                           TextColor="#8A93A6"
+                           HorizontalOptions="End"
+                           VerticalOptions="Center"
+                           Margin="8,0,0,0" />
+                </Grid>
 
                 <voice:BouncingBarsView x:Name="Bars" HorizontalOptions="Center" />
+
+                <!-- Speak-up hint. Amber label shown only when input level has been
+                     below the voice-present threshold for more than 2 seconds.
+                     MinimumHeightRequest reserves a row so the layout does not jump. -->
+                <Label x:Name="LevelHintLabel"
+                       Text=""
+                       FontSize="13"
+                       TextColor="#D97706"
+                       HorizontalOptions="Center"
+                       HorizontalTextAlignment="Center"
+                       MinimumHeightRequest="18"
+                       IsVisible="False" />
 
                 <Button x:Name="SubmitButton" Text="SUBMIT"
                         BackgroundColor="#5FD08A" TextColor="#06210F"
