@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Report - Issue #301: Persist named work lists across a Gateway restart</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem auto; max-width: 1100px; color: #1a1a1a; }
+  h1 { border-bottom: 3px solid #5319e7; padding-bottom: .4rem; }
+  h2 { color: #333; border-bottom: 1px solid #ddd; padding-bottom: .2rem; margin-top: 2rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #f4f1fb; }
+  .pass { color: #0a7a2f; font-weight: bold; }
+  .verdict { background: #e8f7ee; border: 2px solid #0a7a2f; padding: 1rem; font-size: 1.1rem; margin: 1.5rem 0; }
+  pre { background: #f6f6f6; border: 1px solid #ddd; padding: .7rem; overflow-x: auto; font-size: .82rem; white-space: pre-wrap; }
+  code { background: #f0f0f0; padding: 0 .2rem; }
+  .meta { color: #555; font-size: .9rem; }
+</style>
+</head>
+<body>
+<h1>QA Report - Issue #301: Persist named work lists across a Gateway restart</h1>
+<p class="meta">
+QA Agent independent verification - 2026-06-11.
+PR #321, branch <code>issue-301-worklist-persistence</code>, verified at commit <code>15078f0</code>
+in an isolated QA worktree (<code>wt-issue-301-qa</code>, detached from <code>origin/issue-301-worklist-persistence</code>).
+All proof below was reproduced by the QA Agent itself; the Developer Agent's report and proof were used as context only.
+Raw evidence captures: <code>qa-evidence/</code> next to this report.
+</p>
+
+<div class="verdict">VERIFIED - all acceptance criteria met. 7/7 criteria PASS. Sole test-suite failure is the
+pre-existing environmental dictation test, proven to fail identically on origin/main without this change.</div>
+
+<h2>Contract verified against</h2>
+<p>Issue #301 body plus the binding "Product sharpening (Definition of Ready)" comment (D-1 storage shape,
+D-2 reload + stale-claim policy, D-3 proof isolation, and the restated acceptance criteria).</p>
+
+<h2>Criteria results</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (QA-reproduced)</th><th>Verdict</th></tr>
+<tr>
+<td>1</td><td>Clean build of the PR branch</td>
+<td><code>dotnet build cc-director.sln</code> succeeds, 0 errors</td>
+<td>Build succeeded, <strong>0 Warning(s) / 0 Error(s)</strong> in the QA worktree</td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>2</td><td>Unit tests: persistence + full Gateway suite</td>
+<td>New persistence tests green; suite failures (if any) proven pre-existing on origin/main</td>
+<td>All <strong>9 WorkListStorePersistenceTests pass</strong> (round-trip, stale-claim release, write-through per mutation,
+atomic no-residue, missing file, corrupt quarantine, null-JSON quarantine, ctor guard, interrupted drain).
+Full Gateway suite: <strong>462 passed / 1 failed</strong>; the one failure is
+<code>DictationEndpointTests.FullPipeline_transcribes_phase0_clip2_with_realtime_provider</code>
+("expected at least 1 partial transcript, got 0"). QA built origin/main in a separate worktree and ran that exact test:
+<strong>it fails identically on main</strong> - pre-existing environmental (live OpenAI realtime), not caused by this PR.
+Evidence: <code>qa-evidence/unit-persistence-run.txt</code></td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>3</td><td>Isolated-instance graceful restart</td>
+<td>Lists + order identical after restart; stale claim RELEASED with the documented log line</td>
+<td>QA's own isolated instance (console host from the QA worktree build, <strong>port 27878</strong>,
+<code>CC_DIRECTOR_ROOT=%TEMP%\qa301-gwroot</code>, <code>CC_GATEWAY_NO_TAILSCALE=1</code>; pids 53392 -&gt; 37832).
+Created <code>qa-backlog</code> (github 262 / devops 1203 / jira CCD-44, ordered, mixed sources) and <code>qa-today</code> via REST,
+claimed <code>qa-backlog</code> as <code>qa-stale-runner-301</code>. <code>POST /shutdown</code>, process exit confirmed, relaunch:
+<code>GET /lists</code> showed <strong>identical lists and order</strong>, consumer null, and the isolated log contained
+<code>[WorkListStore] Load: released stale claim on list=qa-backlog, deadConsumer=qa-stale-runner-301 (claims do not survive a Gateway restart)</code>.
+Evidence: <code>qa-evidence/graceful-before.txt</code>, <code>qa-evidence/graceful-after.txt</code></td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>4</td><td>Isolated-instance hard kill</td>
+<td>After <code>Stop-Process -Force</code> + relaunch: store intact, no corruption, no loss</td>
+<td>Re-claimed as <code>qa-hardkill-runner-301</code>, appended item <code>github/999-prekill</code> seconds before the kill,
+then <code>Stop-Process -Force</code> on the path-confirmed test pid 37832. After relaunch (pid 8512):
+<strong>all lists, order, and the pre-kill append intact</strong>; stale claim released with the documented line;
+store dir held only <code>worklists.json</code> - <strong>no .tmp or .corrupt residue</strong>.
+Evidence: <code>qa-evidence/hardkill.txt</code></td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>5</td><td>Interrupted drain continues after restart</td>
+<td>A drain interrupted by a restart continues; remaining queue in order, nothing silently lost</td>
+<td>Verified via the spec-sanctioned simulated session-driver pattern:
+<code>InterruptedDrain_AfterRestart_NewRunnerReclaims_ContinuesInPersistedOrder</code> (run by QA, green) - a
+<code>WorkListRunner</code> wedged inside item 1 of 3 is killed, the crash-state file (still carrying the dead claim)
+is reloaded by a fresh store, the stale claim is released, and a NEW runner re-claims and drains
+<strong>101, 102, 103 in persisted order</strong> to completion (all Ran/Done, consumer released).</td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>6</td><td>Code review lens (D-1/D-2 conventions)</td>
+<td>Atomic write, write-through on every mutation, documented missing/corrupt-file behavior, keyvault.json precedent,
+enterprise logging, no fallbacks, ASCII-only, no CenCon drift</td>
+<td>Reviewed <code>WorkListStore.cs</code> + <code>GatewayHost.cs</code>:
+atomic temp + <code>File.Move(overwrite: true)</code>; <code>Save()</code> called inside the lock by every mutation
+(Create/AppendItem/Reorder/RemoveItem/Claim/Release) - confirmed in code, by the write-through unit test, and live
+(the claim was on disk before any restart). Missing file = empty store + log line (captured live:
+<code>Load: no store file at ...; starting empty</code>). Corrupt file = QA corrupted the live store to a half-truncated
+document; the relaunched gateway <strong>booted</strong>, served an empty store, quarantined the bytes intact to
+<code>worklists.json.corrupt-20260611-101900-689</code>, and logged the explicit
+<code>Load FAILED ... Operator action: inspect the quarantined file to recover lists</code> line - explicit, not silent,
+exactly as the developer documented. Production path <code>CcStorage.Root() + worklists.json</code> matches the
+keyvault.json precedent; store path is a required ctor arg (tests compile-forced onto isolated paths, D-3).
+A failed save logs and throws (no fallback). New code is 100% ASCII (byte-scan: 0 non-ASCII bytes).
+No CenCon doc drift (only the proof dir under docs/cencon changed; no convention change).
+Evidence: <code>qa-evidence/corrupt-file.txt</code></td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>7</td><td>Live fleet + live data dir untouched</td>
+<td>Before/after hash + timestamp evidence; :7878 never bound by tests; fleet PIDs unchanged</td>
+<td>Before/after snapshots: <code>%LOCALAPPDATA%\cc-director\gateway</code> SHA256s and mtimes
+<strong>byte-identical</strong> (exe FA58C5C7..., .old 9225D67F...); real <code>worklists.json</code>
+<strong>ABSENT before and after</strong>; <code>keyvault.json</code> hash unchanged (6A408B36...).
+Fleet identical: :7878 pid 26640 (cc-director-gateway), :7470 pid 19488 (cockpit), :7887 tailscaled,
+Director pid 21128 alive with the same start time. Test instances ran only on 27878 with an isolated
+<code>CC_DIRECTOR_ROOT</code>; after teardown: no listener on 27878, zero processes from the QA worktree,
+isolated data dir deleted. No tailscale mappings registered (<code>CC_GATEWAY_NO_TAILSCALE=1</code>).
+Evidence: <code>qa-evidence/before-snapshot.txt</code>, <code>qa-evidence/after-snapshot.txt</code></td>
+<td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Key live captures</h2>
+<h3>Graceful restart - stale claim released, order intact</h3>
+<pre>BEFORE: {"lists":[{"name":"qa-backlog","items":[{"source":"github","id":"262","area":"Gateway"},{"source":"devops","id":"1203","area":null},{"source":"jira","id":"CCD-44","area":"Web"}],"consumer":"qa-stale-runner-301"},{"name":"qa-today","items":[{"source":"github","id":"301","area":null}],"consumer":null}]}
+
+POST /shutdown -> 200, pid 53392 exited, relaunch pid 37832
+
+AFTER:  {"lists":[{"name":"qa-backlog","items":[{"source":"github","id":"262","area":"Gateway"},{"source":"devops","id":"1203","area":null},{"source":"jira","id":"CCD-44","area":"Web"}],"consumer":null},{"name":"qa-today","items":[{"source":"github","id":"301","area":null}],"consumer":null}]}
+
+LOG: 2026-06-11 06:18:06.881 [WorkListStore] Load: released stale claim on list=qa-backlog, deadConsumer=qa-stale-runner-301 (claims do not survive a Gateway restart)
+LOG: 2026-06-11 06:18:06.881 [WorkListStore] Load: restored 2 list(s) from ...\qa301-gwroot\worklists.json, staleClaimsReleased=1</pre>
+
+<h3>Hard kill - pre-kill append survives, no residue</h3>
+<pre>re-claim qa-hardkill-runner-301 -> granted; append github/999-prekill -> ok
+Stop-Process -Force pid 37832 (path-confirmed QA test exe); relaunch pid 8512
+
+AFTER: qa-backlog order intact (262, 1203, CCD-44); qa-today = [301, 999-prekill]; consumers null
+LOG: [WorkListStore] Load: released stale claim on list=qa-backlog, deadConsumer=qa-hardkill-runner-301 (claims do not survive a Gateway restart)
+store dir residue files: worklists.json   (no .tmp, no .corrupt)</pre>
+
+<h3>Corrupt file - quarantined, explicit, gateway still boots</h3>
+<pre>store corrupted to: { "lists": [ { "name": "qa-ba
+relaunch pid 55116 -> alive; GET /lists -> {"lists":[]}
+quarantine: worklists.json.corrupt-20260611-101900-689 (bytes preserved verbatim)
+LOG: [WorkListStore] Load FAILED: store file ... is corrupt (Expected end of string, but instead reached end of data...);
+     quarantined to ...worklists.json.corrupt-20260611-101900-689; starting empty.
+     Operator action: inspect the quarantined file to recover lists.</pre>
+
+<h2>Regression sweep</h2>
+<p>Full Gateway suite 462/463 (sole failure pre-existing on main, proven). The work-list endpoint, runner, and
+runner-endpoint test classes all pass on the persistent store. No adjacent surface touched: diff is confined to
+<code>WorkListStore</code>, the <code>GatewayHost</code> wiring, test isolation plumbing, and the proof directory.</p>
+
+<p class="meta">QA Agent - CenCon Development Method - independent verification, SOC 2 separation of duties.</p>
+</body>
+</html>

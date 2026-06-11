@@ -1,0 +1,13 @@
+﻿QA #301 CORRUPT-FILE live proof
+shutdown instance 3: 200
+pid 8512 exited: True
+corrupted worklists.json to a half-truncated document
+instance 4 PID=55116
+instance 4 alive (gateway still boots): True
+AFTER-CORRUPT GET /lists: {"lists":[]}
+store dir files: worklists.json.corrupt-20260611-101900-689
+quarantine file content (bytes preserved): { "lists": [ { "name": "qa-ba
+--- corrupt-load log line ---
+2026-06-11 06:19:00.690 [WorkListStore] Load FAILED: store file at C:\Users\soren\AppData\Local\Temp\qa301-gwroot\worklists.json is corrupt (Expected end of string, but instead reached end of data. Path: $.lists[0].name | LineNumber: 0 | BytePositionInLine: 29.); quarantined to C:\Users\soren\AppData\Local\Temp\qa301-gwroot\worklists.json.corrupt-20260611-101900-689; starting empty. Operator action: inspect the quarantined file to recover lists.
+instance 4 shutdown requested
+instance 4 exited: True
