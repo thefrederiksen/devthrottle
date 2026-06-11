@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Issue #347 - Voice recording-state indicator - Implementation Proof</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background: #1e1e1e; color: #cccccc; margin: 0; padding: 24px; }
+  h1 { color: #007acc; font-size: 22px; border-bottom: 1px solid #3c3c3c; padding-bottom: 8px; }
+  h2 { color: #9cdcfe; font-size: 16px; margin-top: 28px; }
+  h3 { color: #ce9178; font-size: 14px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th { background: #252526; color: #9cdcfe; text-align: left; padding: 8px 12px; border: 1px solid #3c3c3c; }
+  td { padding: 8px 12px; border: 1px solid #3c3c3c; vertical-align: top; }
+  tr:nth-child(even) { background: #252526; }
+  .pass { color: #22c55e; font-weight: bold; }
+  .code { font-family: Cascadia Mono, Consolas, monospace; background: #252526; padding: 12px; border-radius: 6px; border: 1px solid #3c3c3c; font-size: 13px; white-space: pre; overflow-x: auto; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 8px; font-size: 12px; font-weight: bold; }
+  .badge-green { background: #1b3a2a; color: #22c55e; }
+  .badge-blue { background: #1b2a3a; color: #3b82f6; }
+  .section { margin-top: 24px; padding: 16px; background: #252526; border-radius: 8px; border: 1px solid #3c3c3c; }
+  .mock-dialog { background: #0b1020; border: 1px solid #2a3550; border-radius: 18px; padding: 24px 28px; width: 280px; margin: 0 auto; }
+  .mock-row { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+  .mock-dot { width: 16px; height: 16px; border-radius: 50%; background: #f44747; display: inline-block; }
+  .mock-label { font-size: 20px; font-weight: bold; color: #f44747; flex: 1; text-align: center; }
+  .mock-timer { font-size: 13px; color: #8a93a6; font-family: Consolas; }
+  .mock-bars { display: flex; gap: 5px; height: 60px; align-items: flex-end; justify-content: center; margin: 12px 0; }
+  .mock-bar-well { width: 10px; height: 60px; background: #33333a; border-radius: 3px; display: flex; align-items: flex-end; }
+  .mock-bar { width: 10px; border-radius: 3px; background: #f44747; }
+  .mock-hint { font-size: 12px; color: #d97706; text-align: center; height: 18px; margin-bottom: 10px; }
+  .mock-btn-submit { background: #5fd08a; color: #06210f; font-size: 18px; font-weight: bold; height: 56px; width: 100%; border-radius: 14px; border: none; margin-bottom: 8px; }
+  .mock-btn-cancel { background: #e5484d; color: white; font-size: 18px; font-weight: bold; height: 56px; width: 100%; border-radius: 14px; border: none; }
+  .mock-label-recorded { color: #5fd08a; }
+  .diagram-container { display: flex; gap: 40px; flex-wrap: wrap; justify-content: center; margin: 16px 0; }
+  .diagram-label { text-align: center; color: #888888; font-size: 12px; margin-top: 8px; }
+</style>
+</head>
+<body>
+
+<h1>Issue #347 Implementation Proof</h1>
+<p>
+  <span class="badge badge-blue">PR branch: issue-347-voice-dictation-recording-indicator</span>&nbsp;
+  <span class="badge badge-green">Build: PASS (0 errors, 0 new warnings)</span>
+</p>
+
+<h2>What was implemented</h2>
+<div class="section">
+  <p>Four recording-state indicators were added to <code>VoiceDictationDialog</code> (the mobile Mode-A voice dialog):</p>
+  <ol>
+    <li><strong>Elapsed timer</strong> &mdash; <code>m:ss</code> label (Consolas 14pt, muted blue-gray) at top-right. Starts from the moment <code>OnAppearing</code> fires (same frame as <code>StartAsync</code>). Updates on a 100 ms IDispatcherTimer tick.</li>
+    <li><strong>RECORDING state label</strong> &mdash; Large label (24pt Bold, red <code>#F44747</code>) centered in the top row. Transitions to "Recorded" (green <code>#5FD08A</code>) immediately when the user taps SUBMIT, before <code>StopAsync</code> completes, giving instant visual confirmation.</li>
+    <li><strong>Pulsing dot</strong> &mdash; 16px red circle (BoxView, CornerRadius=8) at top-left. Toggles Opacity between 1 and 0 on a 500 ms IDispatcherTimer tick (~1 Hz). Hidden (<code>IsVisible=false</code>) on SUBMIT/CANCEL/back-gesture. Stopped in <code>OnDisappearing</code> and <code>ResolveAsync</code>.</li>
+    <li><strong>Speak-up hint</strong> &mdash; Amber label (<code>#D97706</code>, 13pt) below the bouncing bars. Fires when <code>ReadLevel()</code> returns below <code>VoicePresentLevel=0.025</code> (mirrors desktop threshold: sqrt(20/32767) ~ 0.025 on the 0..1 sqrt-scaled range) for more than 2 continuous seconds. Hides immediately when level recovers.</li>
+  </ol>
+  <p>All timers share the same <code>StopTimers()</code> helper called from both <code>OnDisappearing</code> and <code>ResolveAsync</code> to ensure no timer leaks.</p>
+</div>
+
+<h2>Files changed</h2>
+<table>
+  <tr>
+    <th>File</th>
+    <th>Change</th>
+  </tr>
+  <tr>
+    <td><code>phone/CcDirectorClient/Voice/VoiceDictationDialog.xaml</code></td>
+    <td>Added top row (Grid 3-col): PulseDot (BoxView), RecordingLabel (Label), TimerLabel (Label). Added LevelHintLabel below BouncingBarsView. VerticalStackLayout spacing adjusted from 22 to 16.</td>
+  </tr>
+  <tr>
+    <td><code>phone/CcDirectorClient/Voice/VoiceDictationDialog.xaml.cs</code></td>
+    <td>Added _timer, _pulseTimer, _startedUtc, _lowLevelSince, _pulseVisible fields. OnTimerTick() updates elapsed label + drives level-hint tracking. OnPulseTick() toggles dot opacity. OnSubmitClicked() transitions label to "Recorded" / hides dot before StopAsync. StopTimers() cleans up both timers. VoicePresentLevel and LowLevelGracePeriod constants documented.</td>
+  </tr>
+</table>
+
+<h2>UI mockup - Before and After</h2>
+<div class="diagram-container">
+
+  <div>
+    <div class="mock-dialog">
+      <div style="display:flex;justify-content:center;margin-bottom:14px;">
+        <div class="mock-bars">
+          <div class="mock-bar-well"><div class="mock-bar" style="height:30px;"></div></div>
+          <div class="mock-bar-well"><div class="mock-bar" style="height:45px;"></div></div>
+          <div class="mock-bar-well"><div class="mock-bar" style="height:52px;"></div></div>
+          <div class="mock-bar-well"><div class="mock-bar" style="height:58px;"></div></div>
+          <div class="mock-bar-well"><div class="mock-bar" style="height:60px;"></div></div>
+          <div class="mock-bar-well"><div class="mock-bar" style="height:58px;"></div></div>
+          <div class="mock-bar-well"><div class="mock-bar" style="height:52px;"></div></div>
+          <div class="mock-bar-well"><div class="mock-bar" style="height:45px;"></div></div>
+          <div class="mock-bar-well"><div class="mock-bar" style="height:30px;"></div></div>
+        </div>
+      </div>
+      <button class="mock-btn-submit">SUBMIT</button>
+      <button class="mock-btn-cancel">CANCEL</button>
+    </div>
+    <div class="diagram-label">BEFORE: no state feedback</div>
+  </div>
+
+  <div>
+    <div class="mock-dialog">
+      <div class="mock-row">
+        <div class="mock-dot"></div>
+        <div class="mock-label">RECORDING</div>
+        <div class="mock-timer">0:07</div>
+      </div>
+      <div class="mock-bars">
+        <div class="mock-bar-well"><div class="mock-bar" style="height:30px;"></div></div>
+        <div class="mock-bar-well"><div class="mock-bar" style="height:45px;"></div></div>
+        <div class="mock-bar-well"><div class="mock-bar" style="height:52px;"></div></div>
+        <div class="mock-bar-well"><div class="mock-bar" style="height:58px;"></div></div>
+        <div class="mock-bar-well"><div class="mock-bar" style="height:60px;"></div></div>
+        <div class="mock-bar-well"><div class="mock-bar" style="height:58px;"></div></div>
+        <div class="mock-bar-well"><div class="mock-bar" style="height:52px;"></div></div>
+        <div class="mock-bar-well"><div class="mock-bar" style="height:45px;"></div></div>
+        <div class="mock-bar-well"><div class="mock-bar" style="height:30px;"></div></div>
+      </div>
+      <div class="mock-hint">&nbsp;</div>
+      <button class="mock-btn-submit">SUBMIT</button>
+      <button class="mock-btn-cancel">CANCEL</button>
+    </div>
+    <div class="diagram-label">AFTER: recording (healthy level)</div>
+  </div>
+
+  <div>
+    <div class="mock-dialog">
+      <div class="mock-row">
+        <div class="mock-dot" style="opacity:0.2;"></div>
+        <div class="mock-label">RECORDING</div>
+        <div class="mock-timer">0:14</div>
+      </div>
+      <div class="mock-bars">
+        <div class="mock-bar-well"><div class="mock-bar" style="height:8px;"></div></div>
+        <div class="mock-bar-well"><div class="mock-bar" style="height:8px;"></div></div>
+        <div class="mock-bar-well"><div class="mock-bar" style="height:8px;"></div></div>
+        <div class="mock-bar-well"><div class="mock-bar" style="height:8px;"></div></div>
+        <div class="mock-bar-well"><div class="mock-bar" style="height:8px;"></div></div>
+        <div class="mock-bar-well"><div class="mock-bar" style="height:8px;"></div></div>
+        <div class="mock-bar-well"><div class="mock-bar" style="height:8px;"></div></div>
+        <div class="mock-bar-well"><div class="mock-bar" style="height:8px;"></div></div>
+        <div class="mock-bar-well"><div class="mock-bar" style="height:8px;"></div></div>
+      </div>
+      <div class="mock-hint">Speak up or move closer to the mic</div>
+      <button class="mock-btn-submit">SUBMIT</button>
+      <button class="mock-btn-cancel">CANCEL</button>
+    </div>
+    <div class="diagram-label">AFTER: speak-up hint (quiet for &gt;2s, dot pulse off-phase)</div>
+  </div>
+
+  <div>
+    <div class="mock-dialog">
+      <div class="mock-row">
+        <div class="mock-dot" style="background:#5fd08a;opacity:0;"></div>
+        <div class="mock-label mock-label-recorded">Recorded</div>
+        <div class="mock-timer" style="color:#5fd08a;">0:21</div>
+      </div>
+      <div class="mock-bars">
+        <div class="mock-bar-well"><div class="mock-bar" style="height:8px;background:#5fd08a;"></div></div>
+        <div class="mock-bar-well"><div class="mock-bar" style="height:8px;background:#5fd08a;"></div></div>
+        <div class="mock-bar-well"><div class="mock-bar" style="height:8px;background:#5fd08a;"></div></div>
+        <div class="mock-bar-well"><div class="mock-bar" style="height:8px;background:#5fd08a;"></div></div>
+        <div class="mock-bar-well"><div class="mock-bar" style="height:8px;background:#5fd08a;"></div></div>
+        <div class="mock-bar-well"><div class="mock-bar" style="height:8px;background:#5fd08a;"></div></div>
+        <div class="mock-bar-well"><div class="mock-bar" style="height:8px;background:#5fd08a;"></div></div>
+        <div class="mock-bar-well"><div class="mock-bar" style="height:8px;background:#5fd08a;"></div></div>
+        <div class="mock-bar-well"><div class="mock-bar" style="height:8px;background:#5fd08a;"></div></div>
+      </div>
+      <div class="mock-hint">&nbsp;</div>
+      <button class="mock-btn-submit" style="opacity:0.5;">SUBMIT</button>
+      <button class="mock-btn-cancel" style="opacity:0.5;">CANCEL</button>
+    </div>
+    <div class="diagram-label">AFTER: just after SUBMIT tap ("Recorded" green, dot hidden)</div>
+  </div>
+
+</div>
+
+<h2>Acceptance criteria verification</h2>
+<table>
+  <tr>
+    <th>Criterion</th>
+    <th>Code evidence</th>
+    <th>Status</th>
+  </tr>
+  <tr>
+    <td>Elapsed timer visible from first audio frame</td>
+    <td>IDispatcherTimer started in OnAppearing immediately after StartAsync, format m:ss, 100 ms ticks. TimerLabel is in XAML top row.</td>
+    <td><span class="pass">PASS</span></td>
+  </tr>
+  <tr>
+    <td>RECORDING label clearly visible during capture (FontSize &gt;= 22)</td>
+    <td>RecordingLabel: FontSize="24", FontAttributes="Bold", TextColor="#F44747". Horizontally centered between PulseDot and TimerLabel.</td>
+    <td><span class="pass">PASS</span></td>
+  </tr>
+  <tr>
+    <td>Pulsing indicator present during capture, stops on SUBMIT/CANCEL</td>
+    <td>PulseDot BoxView toggles Opacity 1/0 on 500 ms timer. OnSubmitClicked sets PulseDot.IsVisible=false immediately. StopTimers() called in ResolveAsync (all exit paths).</td>
+    <td><span class="pass">PASS</span></td>
+  </tr>
+  <tr>
+    <td>Speak-up hint fires when level too low for &gt; 2 s</td>
+    <td>OnTimerTick calls ReadLevel() each 100 ms. _lowLevelSince tracks start of quiet stretch. After LowLevelGracePeriod (2s) LevelHintLabel becomes visible with "Speak up or move closer to the mic". Clears when level recovers.</td>
+    <td><span class="pass">PASS</span></td>
+  </tr>
+  <tr>
+    <td>RECORDING -&gt; "Recorded" on SUBMIT</td>
+    <td>OnSubmitClicked sets RecordingLabel.Text="Recorded" and TextColor=#5FD08A before awaiting StopAsync.</td>
+    <td><span class="pass">PASS (bonus: instant, pre-StopAsync)</span></td>
+  </tr>
+</table>
+
+<h2>Build verification</h2>
+<div class="section">
+  <p><strong>Main solution (cc-director.sln):</strong></p>
+  <div class="code">dotnet build cc-director.sln
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)</div>
+  <p><strong>Phone app (CcDirectorClient.csproj, net10.0-android):</strong></p>
+  <div class="code">dotnet build CcDirectorClient.csproj -f net10.0-android
+Build succeeded.
+    0 Error(s)
+  (pre-existing warnings in TalkPage.xaml.cs and platform files unchanged)</div>
+</div>
+
+<h2>CenCon impact</h2>
+<p>No drift. Change confined to <code>phone/CcDirectorClient/Voice/</code>. No architecture or security posture changes. No new dependencies.</p>
+
+<h2>I believe this is finished</h2>
+<p>All four acceptance criteria are met by the implementation. The build is clean (0 errors, 0 new warnings). The UI is consistent with the existing dialog palette and with SpeakIntoTextboxDialog patterns.</p>
+</body>
+</html>

@@ -6,7 +6,11 @@ namespace CcDirectorClient.Voice;
 /// </summary>
 public sealed class NullAudioCue : IAudioCue
 {
-    public void PlayStart()  { }
-    public void PlayStop()   { }
-    public void PlayError()  { }
+    public void PlayStart()      { }
+    public void PlayStop()       { }
+    public void PlayError()      { }
+    public void PlaySent()       { }
+    public void PlayReply()      { }
+    public void StartThinking()  { }
+    public void StopThinking()   { }
 }
