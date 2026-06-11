@@ -18,6 +18,56 @@ public sealed class DoorbellRequest
     /// WaitingForInput / WaitingForPerm / Exited. A hypothesis from the Director's dumb
     /// 10s-quiet detector, not a verdict - the Gateway's brain may refute it.</summary>
     public string NewState { get; set; } = "";
+
+    /// <summary>
+    /// Optional event-vocabulary tag (issue #330, plan 1B): one of the
+    /// <see cref="DoorbellEvents"/> names when this ping announces a lifecycle moment
+    /// (session-created / session-exited / prompt-detected). Null/absent = a plain
+    /// activity-transition ping, exactly the pre-#330 wire shape - old Directors never
+    /// send it and old Gateways ignore it, so the field is compatible in both directions.
+    /// Still fire-and-forget: an event ping carries nothing the heartbeat snapshot
+    /// cannot reconcile.
+    /// </summary>
+    public string? Event { get; set; }
+}
+
+/// <summary>
+/// The doorbell event vocabulary (issue #330). These are RAW mechanical notifications -
+/// the Director announces THAT something happened, never what it means (interpretation
+/// is the Gateway's job; Phase 3 consumes these via the event hub).
+/// </summary>
+public static class DoorbellEvents
+{
+    /// <summary>A session was created on the Director.</summary>
+    public const string SessionCreated = "session-created";
+
+    /// <summary>A session exited or was removed from the Director (announced once per session).</summary>
+    public const string SessionExited = "session-exited";
+
+    /// <summary>The terminal-state detector saw the session transition into a detected
+    /// input-prompt state (WaitingForInput / WaitingForPerm). No prompt understanding -
+    /// WHAT is being asked is Gateway interpretation (flagged assumption on issue #330).</summary>
+    public const string PromptDetected = "prompt-detected";
+}
+
+/// <summary>
+/// One Director event as recorded by the Gateway's per-director event ring (issue #330) -
+/// the minimal Phase-1 observable sink for the doorbell event vocabulary. The real
+/// consumer (the SSE/WS event hub) lands in Phase 3.
+/// </summary>
+public sealed class DirectorEventDto
+{
+    /// <summary>When the Gateway received the event (UTC).</summary>
+    public DateTime ReceivedAt { get; set; }
+
+    /// <summary>The session the event concerns.</summary>
+    public string SessionId { get; set; } = "";
+
+    /// <summary>The <see cref="DoorbellEvents"/> name.</summary>
+    public string Event { get; set; } = "";
+
+    /// <summary>The session's mechanical state carried on the same ping.</summary>
+    public string State { get; set; } = "";
 }
 
 /// <summary>

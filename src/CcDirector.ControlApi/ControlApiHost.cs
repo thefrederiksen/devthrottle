@@ -295,6 +295,8 @@ public sealed class ControlApiHost : IAsyncDisposable
         // POST /dispatch (issue #329): null accessor means "no Engine hosted here" (tests
         // that don't care, embedded hosts) - the endpoint then answers 503, never throws.
         DispatchEndpoint.Map(_app, _commDispatcherAccessor ?? (() => null));
+        // GET /facts (issue #330): the tool inventory + launcher facts the Gateway pulls.
+        FactsEndpoint.Map(_app, DirectorId, _version);
 
         await _app.StartAsync();
 
@@ -370,18 +372,55 @@ public sealed class ControlApiHost : IAsyncDisposable
             .ToList();
 
     /// <summary>
+    /// Sessions whose session-exited event has already been announced (issue #330): a
+    /// session can hit the exit moment twice - the process dying (ActivityState -> Exited)
+    /// and the roster removal (OnSessionRemoved, e.g. a user closing an active session) -
+    /// and the Gateway must hear session-exited exactly ONCE per session.
+    /// </summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, byte> _exitAnnounced = new();
+
+    /// <summary>
     /// Subscribe every session's activity-state change to the Gateway doorbell (issue #186).
-    /// Subscribed ONCE per host; the handler reads the _gatewayClient FIELD so a settings
+    /// Issue #330 widens the same channel with the event vocabulary: session-created on
+    /// roster add, session-exited once per session (state -> Exited or roster removal,
+    /// whichever happens first), and prompt-detected on the detector's transition into a
+    /// detected input-prompt state (WaitingForInput / WaitingForPerm - the flagged
+    /// assumption on the issue: the existing detector signal, no prompt understanding).
+    /// Subscribed ONCE per host; the handlers read the _gatewayClient FIELD so a settings
     /// change that replaces the client (ReapplyGatewayAsync) is picked up without
     /// re-subscribing. NotifySessionState is a no-op while disabled/unregistered.
     /// </summary>
     private void WireDoorbellPush()
     {
         void Attach(Core.Sessions.Session session)
-            => session.OnActivityStateChanged += (_, newState)
-                => _gatewayClient?.NotifySessionState(session.Id.ToString(), newState.ToString());
+            => session.OnActivityStateChanged += (_, newState) =>
+            {
+                var eventName = newState switch
+                {
+                    Core.Sessions.ActivityState.Exited when _exitAnnounced.TryAdd(session.Id, 0)
+                        => DoorbellEvents.SessionExited,
+                    Core.Sessions.ActivityState.WaitingForInput or Core.Sessions.ActivityState.WaitingForPerm
+                        => DoorbellEvents.PromptDetected,
+                    _ => null,
+                };
+                _gatewayClient?.NotifySessionState(session.Id.ToString(), newState.ToString(), eventName);
+            };
 
-        _sessionManager.OnSessionCreated += Attach;
+        _sessionManager.OnSessionCreated += session =>
+        {
+            Attach(session);
+            _gatewayClient?.NotifySessionState(session.Id.ToString(), session.ActivityState.ToString(),
+                DoorbellEvents.SessionCreated);
+        };
+        _sessionManager.OnSessionRemoved += session =>
+        {
+            if (_exitAnnounced.TryAdd(session.Id, 0))
+                _gatewayClient?.NotifySessionState(session.Id.ToString(),
+                    Core.Sessions.ActivityState.Exited.ToString(), DoorbellEvents.SessionExited);
+            // The session is gone from the roster - drop the announce guard so the map
+            // never grows past the live roster.
+            _exitAnnounced.TryRemove(session.Id, out _);
+        };
         foreach (var s in _sessionManager.ListSessions())
             Attach(s);
     }

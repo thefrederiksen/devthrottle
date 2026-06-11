@@ -25,7 +25,7 @@ grep -rnE '\.Map(Get|Post|Put|Patch|Delete)\("' src/CcDirector.ControlApi \
   Select-String -Pattern '\.Map(Get|Post|Put|Patch|Delete)\("').Count
 ```
 
-**Both commands return `114`.** The classification table in section 4 has exactly 114 rows (the `#` column runs 1..114).
+**Both commands return `115`.** The classification table in section 4 has exactly 115 rows (the `#` column runs 1..115).
 
 ## 2. Classification rules used
 
@@ -39,12 +39,12 @@ grep -rnE '\.Map(Get|Post|Put|Patch|Delete)\("' src/CcDirector.ControlApi \
 
 | Classification | Count |
 |---|---|
-| Fact | 50 |
+| Fact | 51 |
 | Event | 0 (event surface is outbound push, section 5) |
 | Verb | 54 |
 | VIOLATION | 10 |
 | Unclassified | **0** |
-| **Total (= inventory count)** | **114** |
+| **Total (= inventory count)** | **115** |
 
 ## 4. The classification table
 
@@ -163,56 +163,62 @@ Grouped by source file, in source order. `WS` marks WebSocket upgrade endpoints.
 |---|---|---|---|---|
 | 93 | POST | /dispatch | Verb | Dispatches ONE already-APPROVED communication-queue item by id through the Engine's channel tools (#329) - mechanical execution of an approval decision the human already made; anything not in the approved state is refused (409) and nothing sends. The Phase-3 brain decides WHICH item and WHEN; this verb only carries it out. |
 
-### 4.5 SchedulerEndpoint.cs (2 routes)
+### 4.5 FactsEndpoint.cs (1 route)
 
 | # | Method | Path | Classification | Rationale |
 |---|---|---|---|---|
-| 94 | GET | /scheduler | Fact | Leader/runner snapshot of the local scheduler. |
-| 95 | POST | /scheduler/{name}/run | Verb | Triggers a named runner now - mechanical trigger; the scheduling *policy* behind it is the 4.4 Engine violation (Phase 3), not this endpoint. |
+| 94 | GET | /facts | Fact | Machine facts for the fleet (#330): the cc-* tool inventory with versions (catalog + installed.json / file-version resource - no process launched) and the launcher presence/port fact (launcher.json read at request time; absent = "not installed", a valid fact). Served deterministically; the Gateway pulls it via GET /directors/{id}/facts. |
 
-### 4.6 SessionUsageEndpoint.cs (1 route)
-
-| # | Method | Path | Classification | Rationale |
-|---|---|---|---|---|
-| 96 | GET | /sessions/{sid}/usage | Fact | Deterministic token-usage computation from the JSONL transcript. |
-
-### 4.7 SettingsEndpoint.cs (6 routes)
+### 4.6 SchedulerEndpoint.cs (2 routes)
 
 | # | Method | Path | Classification | Rationale |
 |---|---|---|---|---|
-| 97 | GET | /settings | Fact | Raw config.json contents. |
-| 98 | PUT | /settings | Verb | Merge-patches config.json (re-registers gateway when touched). |
-| 99 | POST | /settings/detect/gateway | Verb | Deterministic port-scan probe, optional config apply - mechanical detection. |
-| 100 | POST | /settings/detect/public-url | Verb | Deterministic tailnet-endpoint detection, optional apply. |
-| 101 | POST | /settings/detect/screenshots | Verb | Deterministic screenshots-folder detection, optional apply. |
-| 102 | POST | /settings/test/gateway | Verb | Connectivity probe against a caller-supplied gateway URL (no mutation). |
+| 95 | GET | /scheduler | Fact | Leader/runner snapshot of the local scheduler. |
+| 96 | POST | /scheduler/{name}/run | Verb | Triggers a named runner now - mechanical trigger; the scheduling *policy* behind it is the 4.4 Engine violation (Phase 3), not this endpoint. |
 
-### 4.8 TerminalStreamEndpoint.cs (4 routes)
+### 4.7 SessionUsageEndpoint.cs (1 route)
 
 | # | Method | Path | Classification | Rationale |
 |---|---|---|---|---|
-| 103 | GET | /xterm.js | Fact | Embedded terminal asset. |
-| 104 | GET | /xterm.css | Fact | Embedded terminal asset. |
-| 105 | GET | /xterm-addon-canvas.js | Fact | Embedded terminal asset. |
-| 106 | GET (WS) | /sessions/{sid}/stream | Fact | Live terminal buffer streamed to the client (fact-as-stream); inbound frames are the send-input/resize verbs multiplexed on the same socket - all mechanical raw I/O, no interpretation. |
+| 97 | GET | /sessions/{sid}/usage | Fact | Deterministic token-usage computation from the JSONL transcript. |
 
-### 4.9 ToolsEndpoint.cs (5 routes)
+### 4.8 SettingsEndpoint.cs (6 routes)
 
 | # | Method | Path | Classification | Rationale |
 |---|---|---|---|---|
-| 107 | GET | /tools | Fact | cc-* tool catalog + unmanaged binaries (machine fact / tool inventory). |
-| 108 | GET | /tools/{name} | Fact | One tool descriptor + linked skills. |
-| 109 | POST | /tools/{name}/test | Verb | Runs the tool's smoke tests locally - mechanical execution. |
-| 110 | POST | /tools/test | Verb | Runs all tool smoke tests (bounded concurrency) - mechanical execution. |
-| 111 | POST | /tools/run | Verb | Invokes ONE catalog tool with caller-supplied args, streamed NDJSON output (#328) - mechanical execution behind the catalog allowlist; the caller decides what runs. |
+| 98 | GET | /settings | Fact | Raw config.json contents. |
+| 99 | PUT | /settings | Verb | Merge-patches config.json (re-registers gateway when touched). |
+| 100 | POST | /settings/detect/gateway | Verb | Deterministic port-scan probe, optional config apply - mechanical detection. |
+| 101 | POST | /settings/detect/public-url | Verb | Deterministic tailnet-endpoint detection, optional apply. |
+| 102 | POST | /settings/detect/screenshots | Verb | Deterministic screenshots-folder detection, optional apply. |
+| 103 | POST | /settings/test/gateway | Verb | Connectivity probe against a caller-supplied gateway URL (no mutation). |
 
-### 4.10 WorkspacesEndpoint.cs (3 routes)
+### 4.9 TerminalStreamEndpoint.cs (4 routes)
 
 | # | Method | Path | Classification | Rationale |
 |---|---|---|---|---|
-| 112 | GET | /workspaces | Fact | Stored workspace definitions. |
-| 113 | GET | /workspaces/{slug} | Fact | One workspace definition. |
-| 114 | GET | /history | Fact | Session history store contents. |
+| 104 | GET | /xterm.js | Fact | Embedded terminal asset. |
+| 105 | GET | /xterm.css | Fact | Embedded terminal asset. |
+| 106 | GET | /xterm-addon-canvas.js | Fact | Embedded terminal asset. |
+| 107 | GET (WS) | /sessions/{sid}/stream | Fact | Live terminal buffer streamed to the client (fact-as-stream); inbound frames are the send-input/resize verbs multiplexed on the same socket - all mechanical raw I/O, no interpretation. |
+
+### 4.10 ToolsEndpoint.cs (5 routes)
+
+| # | Method | Path | Classification | Rationale |
+|---|---|---|---|---|
+| 108 | GET | /tools | Fact | cc-* tool catalog + unmanaged binaries (machine fact / tool inventory). |
+| 109 | GET | /tools/{name} | Fact | One tool descriptor + linked skills. |
+| 110 | POST | /tools/{name}/test | Verb | Runs the tool's smoke tests locally - mechanical execution. |
+| 111 | POST | /tools/test | Verb | Runs all tool smoke tests (bounded concurrency) - mechanical execution. |
+| 112 | POST | /tools/run | Verb | Invokes ONE catalog tool with caller-supplied args, streamed NDJSON output (#328) - mechanical execution behind the catalog allowlist; the caller decides what runs. |
+
+### 4.11 WorkspacesEndpoint.cs (3 routes)
+
+| # | Method | Path | Classification | Rationale |
+|---|---|---|---|---|
+| 113 | GET | /workspaces | Fact | Stored workspace definitions. |
+| 114 | GET | /workspaces/{slug} | Fact | One workspace definition. |
+| 115 | GET | /history | Fact | Session history store contents. |
 
 ## 5. The Events surface (outbound - why no inbound route is an Event)
 
@@ -223,8 +229,11 @@ Events in the section-5 taxonomy are Director -> Gateway pushes. They are not ma
 | Registration / re-registration | POST `{gateway}/directors/register` | Identity + advertised endpoint (1A). |
 | Heartbeat + session-state snapshot | POST `{gateway}/directors/{id}/heartbeat` every 15s | Carries every session's mechanical state (#186); the reconciliation channel. |
 | Doorbell (activity transition) | POST `{gateway}/directors/{id}/doorbell` on every session activity-state change | The raw event the Gateway interprets; grows into the Phase-3 event hub. |
+| `session-created` (#330) | The same doorbell ping with `event: "session-created"` | Fired on roster add (SessionManager.OnSessionCreated). |
+| `session-exited` (#330) | The same doorbell ping with `event: "session-exited"` | Fired ONCE per session: state -> Exited or roster removal, whichever first. |
+| `prompt-detected` (#330) | The same doorbell ping with `event: "prompt-detected"` | Fired on the detector's transition INTO WaitingForInput / WaitingForPerm - the raw detector signal only; what the prompt asks is Gateway interpretation (flagged assumption on #330). |
 
-Plan 1B's "missing events" work (raw activity transitions, session created/exited, prompt-detected as first-class emissions) extends this outbound surface - it does not add inbound routes.
+Plan 1B's "missing events" work (session created/exited, prompt-detected as first-class emissions) **shipped in issue #330**: the vocabulary rides the existing fire-and-forget doorbell as an optional `event` tag (old Gateways ignore it, old Directors never send it), so it extends the outbound surface without adding inbound routes. The Gateway's minimal Phase-1 observable sink is the per-director event ring at `GET /directors/{id}/events`; the SSE/WS hub remains Phase 3.
 
 ## 6. Below-the-line producers without routes (so violations do not ride unnamed)
 
@@ -265,3 +274,4 @@ The Phase 3 exit criterion makes this list empty: "zero claude.exe spawns below 
 | 2026-06-11 | Claude (Developer Agent, issue #327) | Added row 85 POST /sessions/{sid}/execute-action (Verb - the Phase-1B mechanical WingmanAction executor entry); inventory 111 -> 112, Verbs 51 -> 52; rows after 84 renumbered +1 (cross-references updated: section 7 dictate row 91 -> 92). |
 | 2026-06-11 | Claude (Developer Agent, issue #328) | Added row 110 POST /tools/run (Verb - the Phase-1B catalog-allowlisted tool invocation with streamed NDJSON result); inventory 112 -> 113, Verbs 52 -> 53; WorkspacesEndpoint rows 110-112 renumbered to 111-113 (no section-7 cross-references affected). |
 | 2026-06-11 | Claude (Developer Agent, issue #329) | Added row 93 POST /dispatch as new section 4.4 DispatchEndpoint.cs (Verb - the Phase-1B comm-dispatch of an already-approved queue item; unapproved items refused, nothing sends); inventory 113 -> 114, Verbs 53 -> 54; sections 4.4-4.9 renumbered to 4.5-4.10 and rows 93-113 renumbered to 94-114 (no section-7 cross-references affected - all violation rows are below 93). |
+| 2026-06-11 | Claude (Developer Agent, issue #330) | Added row 94 GET /facts as new section 4.5 FactsEndpoint.cs (Fact - tool inventory with versions + launcher presence/port, pulled by the Gateway via GET /directors/{id}/facts); inventory 114 -> 115, Facts 50 -> 51; sections 4.5-4.10 renumbered to 4.6-4.11 and rows 94-114 renumbered to 95-115 (no section-7 cross-references affected - all violation rows are below 94). Section 5: doorbell event vocabulary (session-created / session-exited / prompt-detected) documented as shipped - rides the existing doorbell as an optional `event` tag; Gateway sink = per-director event ring at GET /directors/{id}/events. |
