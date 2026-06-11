@@ -64,6 +64,12 @@ public sealed class GatewayHost : IAsyncDisposable
     /// </summary>
     public Action? OnShutdownRequested { get; set; }
 
+    /// <summary>
+    /// Issue #331: registered cc-launcher processes. The relay endpoints use this to
+    /// forward lifecycle verbs to the correct machine's launcher loopback REST API.
+    /// </summary>
+    public LauncherRegistry Launchers { get; } = new();
+
     private readonly DirectorEndpointClient _client;
     private readonly TailscaleServeProvisioner _serveProvisioner;
     private readonly GatewayTurnBriefStore _turnBriefStore;
@@ -185,6 +191,10 @@ public sealed class GatewayHost : IAsyncDisposable
         // gets an HTTPS mapping without anyone re-running a script.
         _serveProvisioner.Start();
         Registry.Start();
+
+        // Issue #331: start the stale-launcher sweep timer so launchers that crash
+        // without unregistering are evicted after 90 s.
+        Launchers.StartSweep();
 
         // Registry is now loaded with the current Director set: run the first self-healing
         // reconcile - re-assert the front door, drop serve mappings for Directors that died
@@ -400,6 +410,11 @@ public sealed class GatewayHost : IAsyncDisposable
         // same-machine single-drain guard (criterion 8) lives on the shared runner manager.
         WorkListRunnerEndpoints.Map(_app, _workLists, Registry, _client, _runnerManager);
 
+        // Issue #331: launcher registration + cross-machine Director lifecycle relay.
+        // Launchers POST /launchers/register on startup; relay callers POST
+        // /machines/{machine}/director/restart|start|stop to reach that machine's Director.
+        MachineEndpoints.Map(_app, Launchers);
+
         // The Cockpit Settings page surface (docs/architecture/gateway/SETTINGS_OWNERSHIP.md):
         // one snapshot GET plus brain-restart and autostart actions. Reads this host directly
         // for status/brain; run mode + autostart come from SettingsHooks (GatewayApp-owned).
@@ -461,6 +476,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // re-asserts every mapping on Start().
         _serveProvisioner.Dispose();
         Registry.Dispose();
+        Launchers.Dispose();
         _client.Dispose();
 
         if (_app is not null)
