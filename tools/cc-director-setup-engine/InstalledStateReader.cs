@@ -33,11 +33,15 @@ public sealed class InstalledStateReader
         if (!_fileExists(path))
             return new InstalledComponent(component.Id, Present: false, Version: null, Path: path);
 
+        // The on-disk file-version stamp is the ground truth for what the exe actually IS. Read it
+        // separately so the planner can cross-check the recorded version against it (issue #176).
+        var fileVersion = _readVersion(path);
+
         // Prefer the version we recorded when we placed it (reliable for every component, incl. tools
         // that carry no file-version stamp); fall back to the on-disk file version for installs that
         // predate the manifest.
-        var version = _installed.Get(component.Id) ?? _readVersion(path);
-        return new InstalledComponent(component.Id, Present: true, Version: version, Path: path);
+        var version = _installed.Get(component.Id) ?? fileVersion;
+        return new InstalledComponent(component.Id, Present: true, Version: version, Path: path, FileVersion: fileVersion);
     }
 
     /// <summary>Inspect a set of components, keyed by component id.</summary>

@@ -26,6 +26,15 @@ public class UpdatePlannerTests
         return map;
     }
 
+    private static Dictionary<string, InstalledComponent> InstalledWithFileVersion(
+        string id, string? recordedVersion, string? fileVersion)
+    {
+        return new Dictionary<string, InstalledComponent>(StringComparer.OrdinalIgnoreCase)
+        {
+            [id] = new InstalledComponent(id, Present: true, Version: recordedVersion, Path: $@"C:\x\{id}", FileVersion: fileVersion),
+        };
+    }
+
     [Fact]
     public void NotInstalled_BecomesInstall()
     {
@@ -95,5 +104,74 @@ public class UpdatePlannerTests
         Assert.Equal(PlanItemKind.Pinned, plan.Items.Single(i => i.ComponentId == "cc-pdf").Kind);
         Assert.Empty(plan.ToUpdate);
         Assert.False(plan.HasWork);
+    }
+
+    // --- Issue #176: sanity guard against a poisoned (test-polluted) installed version ---
+
+    [Fact]
+    public void PoisonedInstalledVersion_DoesNotReportUpToDate_PrefersExeFileVersion()
+    {
+        // The exact #176 scenario: installed.json records a FAKE 9.9.9 for the gateway (self-update
+        // test pollution) while the released gateway is 0.6.6 and the exe on disk is really 0.6.5.
+        // The planner must NOT trust 9.9.9 (which would say UpToDate and skip the swap); it must use
+        // the exe's real FileVersion 0.6.5 and therefore flag an Update to 0.6.6.
+        var components = new[] { ComponentRegistry.Gateway };
+        var manifest = Manifest(("cc-director-gateway-win-x64.exe", "0.6.6"));
+        var installed = InstalledWithFileVersion("gateway", recordedVersion: "9.9.9", fileVersion: "0.6.5");
+
+        var plan = UpdatePlanner.Plan(components, installed, manifest);
+
+        var item = plan.Items.Single(i => i.ComponentId == "gateway");
+        Assert.NotEqual(PlanItemKind.UpToDate, item.Kind);
+        Assert.Equal(PlanItemKind.Update, item.Kind);
+        Assert.Equal("0.6.5", item.FromVersion);   // the real exe stamp, not the poisoned 9.9.9
+        Assert.Equal("0.6.6", item.ToVersion);
+    }
+
+    [Fact]
+    public void PoisonedInstalledVersion_ExeAlreadyAtRelease_ReportsUpToDateFromExeStamp()
+    {
+        // Poisoned record 9.9.9 but the exe is genuinely already at the released 0.6.6: the guard
+        // discards 9.9.9, uses the real stamp 0.6.6, and correctly reports UpToDate on THAT basis.
+        var components = new[] { ComponentRegistry.Gateway };
+        var manifest = Manifest(("cc-director-gateway-win-x64.exe", "0.6.6"));
+        var installed = InstalledWithFileVersion("gateway", recordedVersion: "9.9.9", fileVersion: "0.6.6");
+
+        var plan = UpdatePlanner.Plan(components, installed, manifest);
+
+        var item = plan.Items.Single(i => i.ComponentId == "gateway");
+        Assert.Equal(PlanItemKind.UpToDate, item.Kind);
+        Assert.Equal("0.6.6", item.FromVersion);
+    }
+
+    [Fact]
+    public void PoisonedInstalledVersion_NoReadableExeStamp_ReappliesInsteadOfUpToDate()
+    {
+        // Poisoned record 9.9.9 and the exe carries no readable stamp: we must never report UpToDate
+        // on the basis of the discarded fake version - re-apply the released build to correct it.
+        var components = new[] { ComponentRegistry.Gateway };
+        var manifest = Manifest(("cc-director-gateway-win-x64.exe", "0.6.6"));
+        var installed = InstalledWithFileVersion("gateway", recordedVersion: "9.9.9", fileVersion: null);
+
+        var plan = UpdatePlanner.Plan(components, installed, manifest);
+
+        var item = plan.Items.Single(i => i.ComponentId == "gateway");
+        Assert.Equal(PlanItemKind.Update, item.Kind);
+    }
+
+    [Fact]
+    public void NormalInstalledVersion_NotTreatedAsPoisoned()
+    {
+        // A legitimate installed version at-or-below the release is never disturbed by the guard:
+        // recorded 0.6.6 == released 0.6.6 stays UpToDate even when no separate file stamp is read.
+        var components = new[] { ComponentRegistry.Gateway };
+        var manifest = Manifest(("cc-director-gateway-win-x64.exe", "0.6.6"));
+        var installed = InstalledWithFileVersion("gateway", recordedVersion: "0.6.6", fileVersion: "0.6.6");
+
+        var plan = UpdatePlanner.Plan(components, installed, manifest);
+
+        var item = plan.Items.Single(i => i.ComponentId == "gateway");
+        Assert.Equal(PlanItemKind.UpToDate, item.Kind);
+        Assert.Equal("0.6.6", item.FromVersion);
     }
 }

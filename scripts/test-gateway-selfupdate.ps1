@@ -21,13 +21,21 @@
 .PARAMETER Port
   Alternate port the throwaway instance binds (default 7899 - NOT the live 7878/7470).
 
+.PARAMETER Root
+  ISOLATED install root for this test run (issue #176). The self-update helper records the new
+  version into <Root>\config\setup\installed.json and any rollback pin into update-pins.json. By
+  pointing CC_DIRECTOR_ROOT at a throwaway temp dir, this test NEVER writes the FAKE 9.9.x versions
+  into the PRODUCTION %LOCALAPPDATA%\cc-director setup state. Defaults to a fresh temp dir under the
+  test work dir. Do NOT point this at %LOCALAPPDATA%\cc-director.
+
 .EXAMPLE
   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\test-gateway-selfupdate.ps1
 #>
 [CmdletBinding()]
 param(
     [int]$Port = 7899,
-    [int]$DeadPort = 7897
+    [int]$DeadPort = 7897,
+    [string]$Root
 )
 
 $ErrorActionPreference = 'Continue'
@@ -36,6 +44,31 @@ $work = Join-Path $env:TEMP ("cc-gwsu-" + [Guid]::NewGuid().ToString('N'))
 $installed = Join-Path $work 'installed\cc-director-gateway.exe'
 $staged    = Join-Path $work 'staged\cc-director-gateway.exe'
 $runArgs   = "--port $Port --no-autostart"
+
+# --- Isolation (issue #176): the self-update helper writes installed.json / update-pins.json into
+# CC_DIRECTOR_ROOT\config\setup. Point that at a THROWAWAY root so the FAKE 9.9.x versions this test
+# stages never land in the production %LOCALAPPDATA%\cc-director setup state (a silent half-install).
+if ([string]::IsNullOrWhiteSpace($Root)) { $Root = Join-Path $work 'root' }
+$prodRoot = Join-Path $env:LOCALAPPDATA 'cc-director'
+if ([IO.Path]::GetFullPath($Root).TrimEnd('\') -ieq [IO.Path]::GetFullPath($prodRoot).TrimEnd('\')) {
+    Write-Output "FAILED: -Root must not be the production install root ($prodRoot). Refusing to pollute production setup state."
+    exit 2
+}
+New-Item -ItemType Directory -Force $Root | Out-Null
+$env:CC_DIRECTOR_ROOT = $Root
+Write-Output "[OK] isolated install root: $Root (production $prodRoot is untouched)"
+
+# Snapshot the production setup files so we can PROVE they are byte-identical before vs after the run.
+$prodSetup = Join-Path $prodRoot 'config\setup'
+$prodInstalled = Join-Path $prodSetup 'installed.json'
+$prodPins      = Join-Path $prodSetup 'update-pins.json'
+function Get-FileHashOrNull([string]$p) {
+    if (Test-Path $p) { return (Get-FileHash -Algorithm SHA256 -LiteralPath $p).Hash }
+    return '(absent)'
+}
+$prodInstalledHashBefore = Get-FileHashOrNull $prodInstalled
+$prodPinsHashBefore      = Get-FileHashOrNull $prodPins
+Write-Output "[hash-before] installed.json=$prodInstalledHashBefore  update-pins.json=$prodPinsHashBefore"
 
 # The throwaway must never touch the live Tailscale serve mappings; children inherit this.
 $env:CC_GATEWAY_NO_TAILSCALE = '1'
@@ -104,11 +137,23 @@ try {
     $h2 = Healthy $Port   # after rollback the previous build relaunches with the REAL port args
     Write-Output ("  exit={0}  healthy-after-rollback={1}  (expect exit 1, healthy true)" -f $rc2, $h2)
 
+    # --- Isolation proof (issue #176): the production setup files must be byte-identical to before. ---
+    $prodInstalledHashAfter = Get-FileHashOrNull $prodInstalled
+    $prodPinsHashAfter      = Get-FileHashOrNull $prodPins
     Write-Output ""
-    if ($rc1 -eq 0 -and $h1 -and $rc2 -ne 0 -and $h2) {
-        Write-Output "RESULT: PASS - self-update applies a healthy build and auto-rolls-back an unhealthy one."
+    Write-Output "[hash-after ] installed.json=$prodInstalledHashAfter  update-pins.json=$prodPinsHashAfter"
+    $prodUntouched = ($prodInstalledHashAfter -eq $prodInstalledHashBefore) -and ($prodPinsHashAfter -eq $prodPinsHashBefore)
+    if ($prodUntouched) {
+        Write-Output "[OK] production setup state byte-identical (installed.json + update-pins.json unchanged)."
     } else {
-        Write-Output "RESULT: FAIL - see the values above and %LOCALAPPDATA%\cc-director\logs."
+        Write-Output "[X] PRODUCTION SETUP STATE CHANGED - this test polluted $prodSetup (issue #176 regression)."
+    }
+
+    Write-Output ""
+    if ($rc1 -eq 0 -and $h1 -and $rc2 -ne 0 -and $h2 -and $prodUntouched) {
+        Write-Output "RESULT: PASS - self-update applies a healthy build, auto-rolls-back an unhealthy one, and leaves production setup state untouched."
+    } else {
+        Write-Output "RESULT: FAIL - see the values above and $($env:CC_DIRECTOR_ROOT)\logs."
     }
 }
 finally {
