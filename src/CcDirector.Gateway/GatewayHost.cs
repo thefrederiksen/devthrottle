@@ -66,6 +66,7 @@ public sealed class GatewayHost : IAsyncDisposable
     private readonly SessionAssessments _assessments = new();
     private GatewayTurnBriefAgent? _briefAgent;
     private TurnEndWatcher? _turnEndWatcher;
+    private AdvertisedEndpointMonitor? _endpointMonitor;
     private WebApplication? _app;
     private bool _stopped;
 
@@ -183,6 +184,13 @@ public sealed class GatewayHost : IAsyncDisposable
         // while the Gateway was down (orphans -> 502 from a phone), and sweep any leaked
         // ephemeral-port mappings (issue #179). The provisioner repeats this on a timer.
         _serveProvisioner.Reconcile();
+
+        // Issue #325: re-verify each HTTP-registered Director's advertised endpoint every
+        // heartbeat cycle (15 s) - an advertised name that goes bad AFTER the registration-time
+        // handshake (#223/#224) is flagged unreachable-by-name on the registration within two
+        // cycles, and auto-clears when the name answers again.
+        _endpointMonitor = new AdvertisedEndpointMonitor(Registry, _client);
+        _endpointMonitor.Start();
 
         // The turn-brief stamping machine (issues #185/#186): PUSH-fed since #186 - the
         // tracker is driven by Director doorbell pings and heartbeat snapshots (wired into
@@ -427,6 +435,9 @@ public sealed class GatewayHost : IAsyncDisposable
         if (_stopped) return;
         _stopped = true;
         FileLog.Write($"[GatewayHost] StopAsync");
+
+        try { _endpointMonitor?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] endpoint monitor dispose error: {ex.Message}"); }
+        _endpointMonitor = null;
 
         // Brief pipeline first (it drives the brain), then the brain itself - the
         // supervisor's dispose gracefully stops the hosted claude.exe (never leaked).

@@ -1,0 +1,6 @@
+2026-06-11 08:12:17.650 [AdvertisedEndpointMonitor] Start: probing advertised endpoints every 15s
+2026-06-11 08:13:34.671 [DirectorRegistry] proof-dir-325 advertised endpoint UNREACHABLE-BY-NAME (still heartbeating): endpoint=http://127.0.0.1:7984, failures=1, reason=healthz probe timed out after 2s at http://127.0.0.1:7984/healthz
+2026-06-11 08:13:47.654 [DirectorRegistry] proof-dir-325 advertised endpoint REACHABLE again: endpoint=http://127.0.0.1:7984
+2026-06-11 08:14:04.668 [DirectorRegistry] proof-dir-325 advertised endpoint UNREACHABLE-BY-NAME (still heartbeating): endpoint=http://127.0.0.1:7984, failures=1, reason=healthz probe timed out after 2s at http://127.0.0.1:7984/healthz
+2026-06-11 08:16:19.656 [DirectorRegistry] proof-dir-325 advertised endpoint UNREACHABLE-BY-NAME (still heartbeating): endpoint=http://127.0.0.1:7984, failures=10, reason=healthz probe timed out after 2s at http://127.0.0.1:7984/healthz
+2026-06-11 08:18:49.666 [DirectorRegistry] proof-dir-325 advertised endpoint UNREACHABLE-BY-NAME (still heartbeating): endpoint=http://127.0.0.1:7984, failures=20, reason=healthz probe timed out after 2s at http://127.0.0.1:7984/healthz

@@ -94,6 +94,34 @@ public sealed class DirectorEndpointClient : IDisposable
         }
     }
 
+    /// <summary>
+    /// Same probe as <see cref="GetHealthAsync"/> but with the failure REASON, for the
+    /// advertised-endpoint re-verification loop (issue #325) whose flagged state must
+    /// carry why the name stopped answering. (health=null, error=&lt;reason&gt;) on failure.
+    /// </summary>
+    public async Task<(HealthDto? health, string? error)> GetHealthDetailedAsync(string endpoint, CancellationToken ct = default)
+    {
+        var url = $"{endpoint.TrimEnd('/')}/healthz";
+        try
+        {
+            var resp = await _http.GetAsync(url, ct);
+            if (!resp.IsSuccessStatusCode)
+                return (null, $"healthz answered HTTP {(int)resp.StatusCode} at {url}");
+            var health = await resp.Content.ReadFromJsonAsync<HealthDto>(cancellationToken: ct);
+            return health is null
+                ? (null, $"healthz answered 2xx at {url} but the body was empty")
+                : (health, null);
+        }
+        catch (TaskCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return (null, $"healthz probe timed out after {_http.Timeout.TotalSeconds:F0}s at {url}");
+        }
+        catch (Exception ex)
+        {
+            return (null, $"healthz probe failed at {url}: {ex.Message}");
+        }
+    }
+
     public async Task<List<SessionDto>?> ListSessionsAsync(string endpoint, CancellationToken ct = default)
     {
         try

@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Report - Issue #325 - Gateway re-verifies advertised endpoints every heartbeat cycle</title>
+<style>
+  body{font-family:Segoe UI,Arial,sans-serif;background:#11151c;color:#d7dce3;margin:0;padding:32px;max-width:1100px}
+  h1{font-size:22px;border-bottom:2px solid #2c3442;padding-bottom:10px}
+  h2{font-size:17px;margin-top:30px;color:#9fb4d0}
+  table{border-collapse:collapse;width:100%;margin:14px 0;font-size:13.5px}
+  th,td{border:1px solid #2c3442;padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:#1a2029}
+  .pass{color:#46c46e;font-weight:700}
+  .fail{color:#e25b5b;font-weight:700}
+  .verdict{font-size:18px;font-weight:700;color:#46c46e;border:2px solid #46c46e;display:inline-block;padding:10px 18px;border-radius:6px;margin:18px 0}
+  pre{background:#0b0e13;border:1px solid #2c3442;padding:12px;overflow-x:auto;font-size:12px;line-height:1.5}
+  img{max-width:100%;border:1px solid #2c3442;border-radius:4px;margin:8px 0}
+  .note{color:#8b97a8;font-size:12.5px}
+  code{background:#1a2029;padding:1px 5px;border-radius:3px}
+</style>
+</head>
+<body>
+<h1>QA Verification Report - Issue #325</h1>
+<p><strong>Issue:</strong> [Gateway] Re-verify each Director's advertised endpoint every heartbeat cycle - flag unreachable-by-name within 30 s<br>
+<strong>PR:</strong> #338 (branch <code>issue-325-gateway-endpoint-reverify</code>, head <code>d0c128f</code>)<br>
+<strong>QA Agent run:</strong> 2026-06-11, independent of the Developer Agent's proof run.<br>
+<strong>Method:</strong> Own worktree checkout of the PR branch; own solution build; own isolated QA Gateway
+(<code>CC_GATEWAY_NO_TAILSCALE=1 CC_TURNBRIEFS=0</code>, port 7975 - confirmed running the PR head:
+<code>/healthz</code> reported <code>0.6.22+d0c128f...</code>); own driver/listener harness
+(<code>qa-harness/</code>, written by QA, not a re-run of the Developer's harness); own Cockpit instance
+(port 7995) against the QA Gateway; plus a real slot-6 Director built from the PR branch and launched via
+<code>scripts/agent-session-isolation.ps1</code> (per-session isolation, never the user's production processes).
+The production Gateway and Tailscale serve table were never touched; the SORENLAPTOP serve-mapping break in the
+AC wording was exercised as the isolated-equivalent endpoint break, the same substitution the issue's proof
+target documents (the state machine under test is identical; only the failure string differs).</p>
+
+<div class="verdict">VERIFIED - all acceptance criteria met</div>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (QA-measured)</th><th>Evidence</th><th>Verdict</th></tr>
+<tr>
+<td>1</td>
+<td>Break the advertised endpoint of a test Director while its heartbeats continue: within 2 heartbeat cycles (30 s) <code>GET /directors</code> marks it unreachable-by-name via a named field/state</td>
+<td>Named state appears within 30 s; heartbeats keep flowing the whole time</td>
+<td><span class="pass">PASS</span> - listener killed 12:35:01.272Z, <code>advertisedEndpointState="unreachable-by-name"</code> observed 12:35:18.357Z = <strong>17.1 s</strong>. Heartbeat counter went 0 -&gt; 3 during the flagged window while the state stayed flagged (Director never swept = alive-but-name-dead, explicitly distinct from heartbeat loss). Named fields on the wire: <code>advertisedEndpointState</code> / <code>advertisedEndpointUnreachableSince</code> / <code>advertisedEndpointError</code> / <code>advertisedEndpointCheckedAt</code>.</td>
+<td><a href="qa-timeline.txt">qa-timeline.txt</a> lines 7-12</td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Restore the mapping: the state auto-clears within 2 cycles, no restart of either side</td>
+<td>Back to <code>ok</code> within 30 s, Gateway and Director untouched</td>
+<td><span class="pass">PASS</span> - listener relaunched 12:35:29.364Z, state back to <code>ok</code> (since/error nulled) at 12:35:31.371Z = <strong>2.0 s</strong>. No process restarts. Re-verified a second time after the impostor phase (CLEARED-AFTER-IMPOSTOR).</td>
+<td><a href="qa-timeline.txt">qa-timeline.txt</a> lines 13-17, 24-25</td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Unreachable-by-name visibly distinct from healthy and from heartbeat-lost on the Cockpit fleet/directors page</td>
+<td>Three visually different renderings</td>
+<td><span class="pass">PASS</span> - QA screenshot shows, side by side: red bold <code>UNREACHABLE BY NAME</code> (QA-BREAKABLE), amber <code>UNREACHABLE</code> (QA-CTLLOST, fan-out/control-plane failure with healthz fine), green <code>OK</code> (QA-HEALTHY and the two real Directors). Heartbeat-lost remains the existing distinct behavior (entry swept from the list at 60 s / stale LAST SEEN). Tooltip read off the live DOM: <em>"Director is alive (heartbeating) but its advertised endpoint stopped answering (3m ago): healthz probe timed out after 2s at http://127.0.0.1:7985/healthz"</em>.</td>
+<td><a href="qa-cockpit-directors.png">qa-cockpit-directors.png</a></td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Unit tests for the probe state machine: healthy -&gt; fail -&gt; flagged; flagged -&gt; succeed -&gt; cleared; directorId mismatch counts as failure (impostor guard)</td>
+<td>Tests exist and pass</td>
+<td><span class="pass">PASS</span> - <code>AdvertisedEndpointMonitorTests</code>: 8/8 green in QA's own build, covering exactly the three required transitions plus missing-directorId, FSW-local skip, #324-flagged skip, failure-without-reason throws, and re-register reset. QA additionally exercised the impostor guard LIVE: a wrong-id listener at the advertised endpoint was flagged with <em>"healthz answered ... but as a DIFFERENT Director (qa-impostor-process) - the advertised URL points at the wrong process"</em> (timeline lines 18-22).</td>
+<td>dotnet test output; <a href="qa-timeline.txt">qa-timeline.txt</a> lines 18-22</td>
+<td class="pass">PASS</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Probe failures are logged Gateway-side with endpoint + reason</td>
+<td>Log lines carry endpoint and reason</td>
+<td><span class="pass">PASS</span> - QA Gateway log (director-2026-06-11-31912.log) excerpt below: transition lines carry <code>endpoint=</code> and <code>reason=</code>, recovery logged, repeat-throttled (transition + every 10th).</td>
+<td>Log excerpt below</td>
+<td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Cockpit proof (QA's own screenshot, 12:39Z)</h2>
+<img src="qa-cockpit-directors.png" alt="Cockpit Directors page: red UNREACHABLE BY NAME, amber UNREACHABLE, green OK side by side">
+
+<h2>QA Gateway log excerpt (endpoint + reason, AC 5)</h2>
+<pre>
+2026-06-11 08:34:31.036 [AdvertisedEndpointMonitor] Start: probing advertised endpoints every 15s
+2026-06-11 08:35:18.065 [DirectorRegistry] qa-dir-breakable advertised endpoint UNREACHABLE-BY-NAME (still heartbeating): endpoint=http://127.0.0.1:7985, failures=1, reason=healthz probe timed out after 2s at http://127.0.0.1:7985/healthz
+2026-06-11 08:35:31.046 [DirectorRegistry] qa-dir-breakable advertised endpoint REACHABLE again: endpoint=http://127.0.0.1:7985
+2026-06-11 08:35:46.050 [DirectorRegistry] qa-dir-breakable advertised endpoint UNREACHABLE-BY-NAME (still heartbeating): endpoint=http://127.0.0.1:7985, failures=1, reason=healthz answered at http://127.0.0.1:7985, but as a DIFFERENT Director (qa-impostor-process) - the advertised URL points at the wrong process
+2026-06-11 08:36:01.055 [DirectorRegistry] qa-dir-breakable advertised endpoint REACHABLE again: endpoint=http://127.0.0.1:7985
+</pre>
+
+<h2>Wire contract check (GET /directors, raw)</h2>
+<pre>
+qa-dir-breakable: advertisedEndpointState="unreachable-by-name", unreachableSince=2026-06-11T12:36:18.05Z,
+                  error="healthz probe timed out after 2s at http://127.0.0.1:7985/healthz", checkedAt stamped each cycle
+qa-dir-healthy:   advertisedEndpointState="ok", since/error null
+real FSW-discovered Directors: state null (not probed - matches the documented scope), rendered OK
+</pre>
+<p class="note">DirectorDto change is additive and nullable (4 new server-stamped fields); old readers ignore them.
+Contract change called out in the PR per plan 1.2.5. Real slot-6 Director (PR-branch build, launched via
+agent-session-isolation slot 6, PID 45184) answered <code>/healthz</code> WITH its directorId - the exact echo the
+impostor guard depends on - and rendered OK on the page (regression sweep).</p>
+
+<h2>Build and test results (QA's own build)</h2>
+<ul>
+<li><code>dotnet build cc-director.sln</code> on the PR branch: <strong>Build succeeded, 0 warnings, 0 errors</strong>.</li>
+<li><code>CcDirector.Gateway.Tests</code>: <strong>477 passed / 1 failed of 478</strong>. The single failure
+(<code>DictationEndpointTests.FullPipeline_transcribes_phase0_clip2_with_realtime_provider</code>) is in the dictation
+pipeline, untouched by this PR, and was reproduced IDENTICALLY on the PR's base commit (<code>e6b8037</code> = origin/main)
+in a separate clean worktree - pre-existing environment-dependent failure, not a regression of #325.</li>
+<li><code>AdvertisedEndpointMonitorTests</code>: 8/8 green. Neighboring registry/fan-out suites green.</li>
+</ul>
+
+<h2>Regression and method sweep</h2>
+<ul>
+<li>Cockpit Directors page renders fully (nav rail, table, pager area) with the new badge - no layout breakage observed.</li>
+<li>Existing amber UNREACHABLE (fan-out) and green OK behaviors unchanged and visible in the same screenshot.</li>
+<li>FSW-discovered local Directors and #324 flagged registrations are skipped by the probe (state null), as scoped.</li>
+<li>Heartbeat handling unchanged: flagged Director kept heartbeating and was never swept; registration-time handshake (#223/#224) untouched.</li>
+<li>CenCon: <code>docs/cencon/architecture_manifest.yaml</code> updated with the AdvertisedEndpointMonitor component; no DT security rule impacted (probe is the same unauthenticated /healthz already used at registration; impostor guard added on top).</li>
+</ul>
+
+<p class="note">Reproduce: build the PR branch; <code>CC_GATEWAY_NO_TAILSCALE=1 CC_TURNBRIEFS=0 dotnet CcDirector.Gateway.dll --port 7975</code>;
+<code>python qa-harness/qa_driver.py</code>; Cockpit with <code>Cockpit__GatewayUrl=http://127.0.0.1:7975/</code> and open /directors.</p>
+</body>
+</html>

@@ -63,4 +63,31 @@ public sealed class DirectorDto
     /// truthful - a fresh registration may carry a different endpoint). Server-side stamp.
     /// </summary>
     public DateTime? TwoWayVerifiedAt { get; set; }
+
+    /// <summary>Value of <see cref="AdvertisedEndpointState"/> when the last probe answered as this Director.</summary>
+    public const string EndpointStateOk = "ok";
+
+    /// <summary>Value of <see cref="AdvertisedEndpointState"/> when the advertised name stopped answering (or answered as the wrong process).</summary>
+    public const string EndpointStateUnreachableByName = "unreachable-by-name";
+
+    /// <summary>
+    /// Issue #325: result of the Gateway's PERIODIC re-verification of the advertised
+    /// endpoint (every heartbeat cycle, not just at registration like #223/#224).
+    /// <see cref="EndpointStateOk"/> = the last probe answered /healthz as this Director;
+    /// <see cref="EndpointStateUnreachableByName"/> = the Director is alive (heartbeating)
+    /// but its advertised name no longer answers - distinct from heartbeat loss.
+    /// Null = not probed yet, or not applicable (FSW-discovered local, or a #324 flagged
+    /// no-endpoint registration). Server-side stamp; resets on re-register.
+    /// </summary>
+    public string? AdvertisedEndpointState { get; set; }
+
+    /// <summary>UTC timestamp of the most recent advertised-endpoint probe (issue #325). Server-side stamp.</summary>
+    public DateTime? AdvertisedEndpointCheckedAt { get; set; }
+
+    /// <summary>UTC timestamp when the advertised endpoint STARTED failing probes (issue #325).
+    /// Null while the state is not <see cref="EndpointStateUnreachableByName"/>.</summary>
+    public DateTime? AdvertisedEndpointUnreachableSince { get; set; }
+
+    /// <summary>Why the last advertised-endpoint probe failed (issue #325). Null while reachable.</summary>
+    public string? AdvertisedEndpointError { get; set; }
 }

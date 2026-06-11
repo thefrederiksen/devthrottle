@@ -58,7 +58,14 @@
                         <td><a class="det-link" href="/sessions?director=@Uri.EscapeDataString(d.DirectorId)"
                                @onclick:stopPropagation="true" title="Show in the sessions list">@SessionCount(d)</a></td>
                         <td>
-                            @if (err is not null)
+                            @* Issue #325: unreachable-by-name (alive but its advertised endpoint
+                               stopped answering the Gateway's per-heartbeat probe) is rendered
+                               distinctly from heartbeat/fan-out loss (UNREACHABLE) and healthy (OK). *@
+                            @if (d.AdvertisedEndpointState == DirectorDto.EndpointStateUnreachableByName)
+                            {
+                                <span class="err" title="@EndpointTooltip(d)">UNREACHABLE BY NAME</span>
+                            }
+                            else if (err is not null)
                             {
                                 <span class="warn" title="@err.Error">UNREACHABLE</span>
                             }
@@ -147,6 +154,14 @@
     private void Open(DirectorDto d) => Nav.NavigateTo($"/directors/{Uri.EscapeDataString(d.DirectorId)}");
 
     private static string ShortId(string? id) => string.IsNullOrEmpty(id) ? "?" : id[..Math.Min(8, id.Length)];
+
+    /// <summary>Tooltip for the unreachable-by-name badge (issue #325): the Director is alive
+    /// (heartbeating) - it is the advertised NAME that stopped answering - plus since-when and why.</summary>
+    private static string EndpointTooltip(DirectorDto d)
+    {
+        var since = d.AdvertisedEndpointUnreachableSince is { } s ? $" ({RelativeTime(s)})" : "";
+        return $"Director is alive (heartbeating) but its advertised endpoint stopped answering{since}: {d.AdvertisedEndpointError}";
+    }
 
     private static string RelativeTime(DateTime? utc)
     {

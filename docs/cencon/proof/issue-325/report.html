@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Proof - Issue #325: Gateway re-verifies each Director's advertised endpoint every heartbeat cycle</title>
+<style>
+  :root { --bg:#1E1E1E; --panel:#252526; --border:#3C3C3C; --text:#CCCCCC; --text2:#AAAAAA; --text3:#888888;
+          --red:#F14C4C; --green:#22C55E; --amber:#F59E0B; --blue:#3B82F6; --accent:#007ACC; }
+  body { background:var(--bg); color:var(--text); font-family:"Segoe UI",sans-serif; margin:0; padding:32px; line-height:1.5; }
+  h1 { font-size:22px; border-bottom:2px solid var(--accent); padding-bottom:8px; }
+  h2 { font-size:16px; color:var(--accent); margin-top:32px; }
+  .meta { color:var(--text3); font-size:12px; }
+  table { border-collapse:collapse; width:100%; margin:12px 0; font-size:13px; }
+  th { text-align:left; background:var(--panel); color:var(--text3); text-transform:uppercase; font-size:10.5px;
+       letter-spacing:.06em; padding:7px 10px; border-bottom:1px solid var(--border); }
+  td { padding:8px 10px; border-bottom:1px solid #2a2a2a; vertical-align:top; }
+  code, pre { font-family:"Cascadia Mono",Consolas,monospace; font-size:12px; }
+  pre { background:#111; border:1px solid var(--border); border-radius:6px; padding:12px; overflow-x:auto; }
+  .pass { color:var(--green); font-weight:600; }
+  .badge-red { color:var(--red); font-weight:600; }
+  .badge-amber { color:var(--amber); }
+  .badge-green { color:var(--green); }
+  .note { background:var(--panel); border-left:3px solid var(--amber); padding:10px 14px; border-radius:4px; font-size:13px; }
+  .done { background:var(--panel); border-left:3px solid var(--green); padding:10px 14px; border-radius:4px; font-size:14px; margin-top:24px; }
+  img { max-width:100%; border:1px solid var(--border); border-radius:6px; margin:8px 0; }
+  a { color:var(--accent); }
+</style>
+</head>
+<body>
+
+<h1>Proof - Issue #325: [Gateway] Re-verify each Director's advertised endpoint every heartbeat cycle - flag unreachable-by-name within 30 s</h1>
+<p class="meta">Developer Agent - 2026-06-11 - branch <code>issue-325-gateway-endpoint-reverify</code> - builds on #324 (EndpointUnreachableReason contract groundwork, merged to main)</p>
+
+<h2>What was implemented</h2>
+<p>
+The #223/#224 two-way handshake verified a Director's advertised endpoint only at registration time.
+A new Gateway-side <code>AdvertisedEndpointMonitor</code> (<code>src/CcDirector.Gateway/Discovery/AdvertisedEndpointMonitor.cs</code>)
+now probes <code>GET {advertised}/healthz</code> of every HTTP-registered Director on the heartbeat cadence (every 15 s)
+and requires the answer to identify as the SAME Director (<code>HealthDto.DirectorId</code> match - impostor guard).
+A failed probe flips an explicit named state on the fleet record - <code>advertisedEndpointState = "unreachable-by-name"</code> -
+with <code>advertisedEndpointUnreachableSince</code> and <code>advertisedEndpointError</code>; a later successful probe auto-clears
+it back to <code>"ok"</code>. The state machine lives in <code>DirectorRegistry.RecordEndpointProbeResult</code>.
+FSW-discovered same-machine Directors (no advertised name) and #324 flagged no-endpoint registrations are not probed (state stays null).
+</p>
+
+<h2>Contract change (called out per plan 1.2.5)</h2>
+<p><code>CcDirector.Gateway.Contracts/DirectorDto</code> gains four ADDITIVE, nullable, server-stamped fields:
+<code>AdvertisedEndpointState</code> (constants <code>"ok"</code> / <code>"unreachable-by-name"</code>),
+<code>AdvertisedEndpointCheckedAt</code>, <code>AdvertisedEndpointUnreachableSince</code>, <code>AdvertisedEndpointError</code>.
+Backward compatible: old readers ignore them; null means "not probed / not applicable".</p>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>Criterion</th><th>Expected</th><th>Actual</th><th>Verdict</th></tr>
+<tr>
+  <td>Break the advertised endpoint while heartbeats continue: flagged within 2 heartbeat cycles (30 s) via a named field in <code>GET /directors</code></td>
+  <td>Flag &lt;= 30 s after the break</td>
+  <td><span class="pass">16.1 s</span>. Timeline (<a href="harness/timeline.txt">timeline.txt</a>): BREAK at 12:13:19.081Z, <code>advertisedEndpointState=unreachable-by-name</code> observed at 12:13:35.135Z. Heartbeats ran every 10 s throughout (the entry stayed registered; only the named state flipped).</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>Restore the endpoint: state auto-clears within 2 cycles, no restart of either side</td>
+  <td>Clear &lt;= 30 s after the restore</td>
+  <td><span class="pass">14.0 s</span>. RESTORE at 12:13:35.141Z, <code>advertisedEndpointState=ok</code> observed at 12:13:49.155Z. Neither the Gateway nor the registered Director was restarted.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>Unreachable-by-name visibly distinct from healthy and from heartbeat/fan-out loss on the Cockpit directors page</td>
+  <td>Three visually distinct states</td>
+  <td>Screenshot below: <span class="badge-red">UNREACHABLE BY NAME</span> (red, new state, tooltip carries reason + since) vs <span class="badge-amber">UNREACHABLE</span> (amber, existing fan-out/control-plane loss) vs <span class="badge-green">OK</span> (green).</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>Unit tests for the probe state machine</td>
+  <td>healthy-&gt;fail-&gt;flagged; flagged-&gt;succeed-&gt;cleared; directorId mismatch = failure</td>
+  <td>8 tests in <code>AdvertisedEndpointMonitorTests</code> - the three required transitions plus: missing directorId = failure, FSW-discovered not probed, #324 flagged registration not probed, failure-without-reason throws, re-register resets state. All pass (<code>Passed: 8, Failed: 0</code>); neighboring registry suites re-run green (38 tests).</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>Probe failures logged Gateway-side with endpoint + reason</td>
+  <td>Log lines carry endpoint and reason</td>
+  <td><a href="gateway-log-excerpt.txt">gateway-log-excerpt.txt</a>: flag transition, recovery, and every-10th-repeat lines each carry <code>endpoint=...</code> and <code>reason=...</code> (throttled per the #197 log-drown lesson).</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Timed API timeline (GET /directors polled every 2 s)</h2>
+<pre>
+12:13:11.048Z REGISTERED proof-dir-325 endpoint=http://127.0.0.1:7984 -> HTTP 201
+12:13:19.080Z STATE proof-dir-325 advertisedEndpointState=ok
+12:13:19.081Z BREAK   advertised endpoint killed (heartbeats continue, every 10 s)
+12:13:35.135Z STATE proof-dir-325 advertisedEndpointState=unreachable-by-name
+              error=healthz probe timed out after 2s at http://127.0.0.1:7984/healthz
+12:13:35.138Z FLAGGED          FLAG-LATENCY 16.1s  (criterion: &lt;= 30s)
+12:13:35.141Z RESTORE advertised endpoint relaunched
+12:13:49.155Z STATE proof-dir-325 advertisedEndpointState=ok
+12:13:49.155Z CLEARED          CLEAR-LATENCY 14.0s (criterion: &lt;= 30s)
+</pre>
+<p class="meta">Full raw timeline: <a href="harness/timeline.txt">harness/timeline.txt</a>. Reproduce with <a href="harness/driver.py">harness/driver.py</a> + <a href="harness/listener.py">harness/listener.py</a> against an isolated Gateway (<code>CC_GATEWAY_NO_TAILSCALE=1 CC_TURNBRIEFS=0 dotnet run --project src/CcDirector.Gateway -- --port 7978</code>).</p>
+
+<h2>Cockpit Directors page - the three states side by side</h2>
+<img src="cockpit-directors-unreachable-by-name.png" alt="Cockpit Directors page showing UNREACHABLE BY NAME (red), UNREACHABLE (amber) and OK (green)">
+<p class="meta">PROOF-BREAKABLE = advertised endpoint dead while heartbeating (new red state). PROOF-CTLLOST = healthz fine but /sessions failing (existing amber fan-out state). PROOF-HEALTHY and the real local Director = green OK.</p>
+
+<h2>Proof-environment note (deliberate substitution)</h2>
+<div class="note">
+The acceptance criterion literally names breaking a test Director on SORENLAPTOP by removing its
+<code>tailscale serve</code> mapping. The serve table on the user's machines is production infrastructure
+(owned by the production Gateway's provisioner - manipulating it broke the fleet in #179/#200), and the
+operating rules for this session forbid touching the production Gateway or the user's machines. The proof
+therefore runs the IDENTICAL property on an isolated rig: an isolated Gateway built from this branch
+(<code>CC_GATEWAY_NO_TAILSCALE=1</code>, so it never touches the real serve table), with Directors registered
+over the same wire contract a real Director uses (register / heartbeat every 10 s / healthz echoing
+directorId), whose advertised endpoint is killed and restored WHILE HEARTBEATS CONTINUE. The probe logic
+under test is transport-agnostic (an HTTP GET to the advertised URL); a tailnet hop changes only the failure
+string, not the state machine. QA can re-run the cross-machine variant verbatim if it wants the literal setup.
+</div>
+
+<h2>CenCon impact</h2>
+<p>No container/topology change. <code>docs/cencon/architecture_manifest.yaml</code> gained the
+<code>AdvertisedEndpointMonitor</code> component entry under the Gateway container (manifest <code>last_updated</code>
+already 2026-06-11). No blocking security rule touched: the probe is an unauthenticated GET to an endpoint the
+Director itself advertised, identical to the existing registration-time probe.</p>
+
+<h2>Files changed</h2>
+<table>
+<tr><th>File</th><th>Change</th></tr>
+<tr><td><code>src/CcDirector.Gateway.Contracts/DirectorDto.cs</code></td><td>4 additive probe-state fields + 2 state constants</td></tr>
+<tr><td><code>src/CcDirector.Gateway/Discovery/AdvertisedEndpointMonitor.cs</code></td><td>NEW - the 15 s probe loop + impostor guard</td></tr>
+<tr><td><code>src/CcDirector.Gateway/Discovery/DirectorRegistry.cs</code></td><td><code>RecordEndpointProbeResult</code> state machine + counter hygiene on upsert/remove/sweep</td></tr>
+<tr><td><code>src/CcDirector.Gateway/Discovery/DirectorEndpointClient.cs</code></td><td><code>GetHealthDetailedAsync</code> (probe with failure reason)</td></tr>
+<tr><td><code>src/CcDirector.Gateway/GatewayHost.cs</code></td><td>start the monitor on StartAsync, dispose on StopAsync</td></tr>
+<tr><td><code>src/CcDirector.Cockpit/Components/Pages/Directors.razor</code> + <code>wwwroot/app.css</code></td><td>red UNREACHABLE BY NAME badge, distinct from amber UNREACHABLE and green OK</td></tr>
+<tr><td><code>src/CcDirector.Gateway.Tests/AdvertisedEndpointMonitorTests.cs</code></td><td>NEW - 8 state-machine tests</td></tr>
+<tr><td><code>docs/cencon/architecture_manifest.yaml</code></td><td>AdvertisedEndpointMonitor component entry</td></tr>
+</table>
+
+<p class="meta">Build: <code>dotnet build cc-director.sln</code> -&gt; Build succeeded, 0 Warning(s), 0 Error(s).</p>
+
+<div class="done"><strong>I believe this is finished.</strong> Every acceptance criterion is met with timed API,
+screenshot, unit-test, and log proof above.</div>
+
+</body>
+</html>
