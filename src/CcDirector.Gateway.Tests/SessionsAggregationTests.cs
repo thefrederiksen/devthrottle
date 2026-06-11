@@ -269,6 +269,54 @@ public sealed class SessionsAggregationTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.ServiceUnavailable, resp.StatusCode);
     }
 
+    // ---------- issue #335: Director-supplied identity fields win over Gateway-derived ----------
+
+    [Fact]
+    public async Task Aggregator_preserves_director_supplied_identity_fields_and_does_not_overwrite_them()
+    {
+        // A new-version Director (issue #335+) that populates the four identity fields itself.
+        // The Gateway aggregation must NOT overwrite them with its own derived values.
+        const string directorMachine = "REAL_DIRECTOR_MACHINE";
+        const string directorUser = "real_user";
+        const string directorEndpoint = "https://real-machine.tailnet.ts.net:7879";
+        const string directorViewUrl = "https://real-machine.tailnet.ts.net:7879/sessions/s1/view";
+
+        var fake = await StartFakeWithPrePopulatedIdentity(
+            directorMachine, directorUser, directorEndpoint, directorViewUrl,
+            new[] { Sample("s1", "ClaudeCode", "repo-a", "Idle", "green") });
+        await Register(fake);
+
+        var sessions = await GetSessions();
+        var s = Assert.Single(sessions);
+        Assert.Equal("s1", s.SessionId);
+        // Director-supplied values must survive the Gateway aggregation pass unchanged.
+        Assert.Equal(directorMachine, s.MachineName);
+        Assert.Equal(directorUser, s.User);
+        Assert.Equal(directorEndpoint, s.TailnetEndpoint);
+        Assert.Equal(directorViewUrl, s.ViewUrl);
+    }
+
+    [Fact]
+    public async Task Aggregator_back_compat_enriches_old_director_empty_identity_fields()
+    {
+        // An OLD Director (pre-issue #335) that returns empty identity fields must still
+        // have them enriched by the Gateway aggregation pass (back-compat for mixed fleets).
+        var fake = await StartFake("OLD_MACHINE", "old_user", new[]
+        {
+            Sample("s2", "ClaudeCode", "repo-b", "Idle", "green"),
+        });
+        await Register(fake);
+
+        var sessions = await GetSessions();
+        var s = Assert.Single(sessions);
+        Assert.Equal("s2", s.SessionId);
+        // Fields were empty from the fake Director; the Gateway must have enriched them.
+        Assert.Equal("OLD_MACHINE", s.MachineName);
+        Assert.Equal("old_user", s.User);
+        Assert.False(string.IsNullOrEmpty(s.TailnetEndpoint), "Gateway must set TailnetEndpoint for old Directors");
+        Assert.False(string.IsNullOrEmpty(s.ViewUrl), "Gateway must set ViewUrl for old Directors");
+    }
+
     // ---------- view-url shape ----------
 
     [Fact]
@@ -376,6 +424,32 @@ public sealed class SessionsAggregationTests : IAsyncLifetime
     private async Task<FakeDirector> StartFake(string machine, string user, SessionDto[]? sessions, bool alwaysError = false)
     {
         var fake = new FakeDirector(machine, user, sessions, alwaysError);
+        await fake.StartAsync();
+        _fakes.Add(fake);
+        return fake;
+    }
+
+    /// <summary>
+    /// Issue #335: start a FakeDirector whose sessions already carry the four identity
+    /// fields (machineName, user, tailnetEndpoint, viewUrl) pre-populated - simulating a
+    /// new-version Director that populated them itself. The Gateway aggregation pass must
+    /// NOT overwrite these Director-supplied values with its own derived ones.
+    /// </summary>
+    private async Task<FakeDirector> StartFakeWithPrePopulatedIdentity(
+        string machine, string user, string tailnetEndpoint, string viewUrl, SessionDto[]? sessions)
+    {
+        // Stamp the identity fields onto every session before the fake serves them.
+        if (sessions is not null)
+        {
+            foreach (var s in sessions)
+            {
+                s.MachineName = machine;
+                s.User = user;
+                s.TailnetEndpoint = tailnetEndpoint;
+                s.ViewUrl = viewUrl;
+            }
+        }
+        var fake = new FakeDirector(machine, user, sessions, alwaysError: false);
         await fake.StartAsync();
         _fakes.Add(fake);
         return fake;

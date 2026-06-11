@@ -5,6 +5,7 @@ using CcDirector.Core.Agents;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Claude;
 using CcDirector.Core.Configuration;
+using CcDirector.Core.Network;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Storage;
 using CcDirector.Core.Wingman;
@@ -23,13 +24,28 @@ namespace CcDirector.ControlApi;
 /// </summary>
 internal static class ControlEndpoints
 {
-    public static void Map(IEndpointRouteBuilder app, SessionManager sessionManager, string directorId, string version, Func<Task> requestShutdownAsync, bool authEnabled = false, RepositoryRegistry? repositoryRegistry = null, TurnSummaryCache? turnSummaryCache = null, string? gatewayUrl = null, ProactiveExplainService? proactiveExplain = null, GatewayConnectionMonitor? gatewayMonitor = null)
+    public static void Map(IEndpointRouteBuilder app, SessionManager sessionManager, string directorId, string version, Func<Task> requestShutdownAsync, bool authEnabled = false, RepositoryRegistry? repositoryRegistry = null, TurnSummaryCache? turnSummaryCache = null, string? gatewayUrl = null, ProactiveExplainService? proactiveExplain = null, GatewayConnectionMonitor? gatewayMonitor = null, Func<TailnetEndpointResolution>? resolveTailnetEndpoint = null)
     {
         var logoutVisibility = authEnabled ? "" : "style=\"display:none\"";
         // URL of the Gateway this Director is registered with, for the "Gateway" nav
         // button in the served HTML. Empty when no gateway.url is configured -- the
         // pages hide the button rather than render a dead link.
         var gatewayUrlAttr = System.Net.WebUtility.HtmlEncode(gatewayUrl ?? "");
+
+        // Issue #335: identity fields populated by the Director at request time.
+        // Called on every session DTO request; the resolver re-runs the detection ladder
+        // each time so a Tailscale daemon coming up between requests self-heals without
+        // requiring a Director restart.
+        // When no resolver is wired (tests, old callers) the fields default to empty -
+        // the Gateway back-compat pass then enriches them exactly as before.
+        SessionDto MapWithIdentity(Session s, TurnSummaryCache? cache = null)
+        {
+            var (mn, usr, ep) = resolveTailnetEndpoint is not null
+                ? ResolveDirectorIdentity(resolveTailnetEndpoint)
+                : (string.Empty, string.Empty, string.Empty);
+            return Map(s, directorId, cache, mn, usr, ep, gatewayUrl);
+        }
+
         // ===== Healthz =====
         app.MapGet("/healthz", () => Results.Json(new HealthDto
         {
@@ -65,7 +81,7 @@ internal static class ControlEndpoints
         {
             // If browser asks for JSON, give them session list (handy for curl users)
             if (!DirectorAuth.PrefersHtml(ctx))
-                return Results.Json(sessionManager.ListSessions().Select(s => Map(s, directorId, turnSummaryCache)).ToList());
+                return Results.Json(sessionManager.ListSessions().Select(s => MapWithIdentity(s, turnSummaryCache)).ToList());
 
             var html = EmbeddedResources.Load("manager.html")
                 .Replace("__LOGOUT_VISIBILITY__", logoutVisibility);
@@ -139,7 +155,7 @@ internal static class ControlEndpoints
             var includeExitedActual = includeExited ?? false;
             var sessions = sessionManager.ListSessions()
                 .Where(s => includeExitedActual || s.ActivityState != ActivityState.Exited)
-                .Select(s => Map(s, directorId, turnSummaryCache))
+                .Select(s => MapWithIdentity(s, turnSummaryCache))
                 .ToList();
             return Results.Json(sessions);
         });
@@ -153,7 +169,7 @@ internal static class ControlEndpoints
             if (session is null)
                 return Results.NotFound(new { error = "session not found" });
 
-            return Results.Json(Map(session, directorId, turnSummaryCache));
+            return Results.Json(MapWithIdentity(session, turnSummaryCache));
         });
 
         // Ask the wingman about this session. Two behaviors, both on the strong model:
@@ -561,7 +577,7 @@ internal static class ControlEndpoints
             var session = sessionManager.GetSession(guid);
             return session is null
                 ? Results.NotFound(new { error = "session not found" })
-                : Results.Json(Map(session, directorId, turnSummaryCache));
+                : Results.Json(MapWithIdentity(session, turnSummaryCache));
         });
 
         app.MapGet("/sessions/{sid}/buffer", (string sid, int? lines, bool? raw, long? since) =>
@@ -1506,7 +1522,7 @@ internal static class ControlEndpoints
             return Results.Json(new HandoverResponse
             {
                 Accepted = true,
-                TargetSession = Map(target, directorId, turnSummaryCache),
+                TargetSession = MapWithIdentity(target, turnSummaryCache),
                 ContextSent = contextText,
                 ArchivedAt = archivedAt,
             }, statusCode: 201);
@@ -2388,7 +2404,7 @@ internal static class ControlEndpoints
                 });
             }
 
-            return Results.Json(Map(session, directorId, turnSummaryCache), statusCode: 201);
+            return Results.Json(MapWithIdentity(session, turnSummaryCache), statusCode: 201);
         });
 
         // ===== REST: Create a GitHub Actions remote session =====
@@ -2422,7 +2438,7 @@ internal static class ControlEndpoints
             try
             {
                 var session = sessionManager.CreateGitHubActionsSession(config);
-                return Results.Json(Map(session, directorId, turnSummaryCache), statusCode: 201);
+                return Results.Json(MapWithIdentity(session, turnSummaryCache), statusCode: 201);
             }
             catch (Exception ex)
             {
@@ -2677,7 +2693,16 @@ internal static class ControlEndpoints
             .ToList();
     }
 
-    private static SessionDto Map(Session s, string directorId, TurnSummaryCache? cache = null)
+    /// <summary>
+    /// Map a session to its DTO. Issue #335: machineName, user, tailnetEndpoint, and viewUrl
+    /// are now populated by the Director itself (not patched in by the Gateway), so every
+    /// consumer of the Director-local /sessions and /sessions/{sid} endpoints always sees
+    /// the four identity fields. The Gateway aggregation pass still enriches DTOs from OLD
+    /// Directors that send empty fields (back-compat for mixed-version fleets) but must NOT
+    /// overwrite non-empty Director-supplied values.
+    /// </summary>
+    private static SessionDto Map(Session s, string directorId, TurnSummaryCache? cache = null,
+        string machineName = "", string user = "", string tailnetEndpoint = "", string? gatewayUrl = null)
     {
         // Phase 3: StatusColor and LastStatusReason are owned by the SessionStatusWingman
         // and live on the Session itself. Map() reads them directly - no derivation, no
@@ -2686,6 +2711,20 @@ internal static class ControlEndpoints
         var lastWrite = s.Buffer?.LastWriteAtUtc ?? DateTime.MinValue;
         var lastActivity = lastWrite == DateTime.MinValue ? s.CreatedAt.UtcDateTime : lastWrite;
         var idleSeconds = Math.Max(0, (DateTime.UtcNow - lastActivity).TotalSeconds);
+
+        // Issue #335: build the viewUrl from the resolved tailnetEndpoint and the configured
+        // gatewayUrl. Format: {tailnetEndpoint}/sessions/{sid}/view?gw={gatewayBase}
+        // Only set when a real (non-empty) tailnetEndpoint resolved - never a loopback lie.
+        var viewUrl = "";
+        if (!string.IsNullOrEmpty(tailnetEndpoint))
+        {
+            var sidStr = s.Id.ToString();
+            var base64 = tailnetEndpoint.TrimEnd('/');
+            viewUrl = !string.IsNullOrEmpty(gatewayUrl)
+                ? $"{base64}/sessions/{sidStr}/view?gw={Uri.EscapeDataString(gatewayUrl)}"
+                : $"{base64}/sessions/{sidStr}/view";
+        }
+
         return new()
         {
             SessionId = s.Id.ToString(),
@@ -2721,7 +2760,28 @@ internal static class ControlEndpoints
             RemoteThreadUrl = s.RemoteThreadUrl ?? "",
             RemoteRunUrl = s.RemoteRunUrl ?? "",
             RemoteRunStatus = s.RemoteRunStatus ?? "",
+            // Issue #335: identity fields populated by the Director (not patched by the Gateway).
+            MachineName = machineName,
+            User = user,
+            TailnetEndpoint = tailnetEndpoint,
+            ViewUrl = viewUrl,
         };
+    }
+
+    /// <summary>
+    /// Issue #335: resolve the Director's own identity (machineName, user, tailnetEndpoint)
+    /// at request time. MachineName and User come from the environment (always known).
+    /// TailnetEndpoint comes from the provided resolver - empty when unresolved (Tailscale
+    /// not running, no override configured). Never throws.
+    /// </summary>
+    private static (string MachineName, string User, string TailnetEndpoint) ResolveDirectorIdentity(
+        Func<TailnetEndpointResolution> resolver)
+    {
+        var machineName = Environment.MachineName;
+        var user = Environment.UserName;
+        var resolution = resolver();
+        var tailnetEndpoint = resolution.IsResolved ? resolution.Endpoint : "";
+        return (machineName, user, tailnetEndpoint);
     }
 
     /// <summary>

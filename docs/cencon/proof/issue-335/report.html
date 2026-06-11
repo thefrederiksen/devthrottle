@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #335 - Implementation Proof Report</title>
+<style>
+  body { font-family: Arial, sans-serif; max-width: 960px; margin: 2em auto; padding: 0 1em; background: #f8f9fa; color: #212529; }
+  h1 { color: #1a1a2e; border-bottom: 2px solid #4a90d9; padding-bottom: 0.3em; }
+  h2 { color: #2d5a8e; margin-top: 2em; }
+  h3 { color: #3a6ea8; }
+  .pass { background: #d4edda; border-left: 4px solid #28a745; padding: 0.5em 1em; margin: 0.5em 0; border-radius: 3px; }
+  .partial { background: #fff3cd; border-left: 4px solid #ffc107; padding: 0.5em 1em; margin: 0.5em 0; border-radius: 3px; }
+  .info { background: #d1ecf1; border-left: 4px solid #17a2b8; padding: 0.5em 1em; margin: 0.5em 0; border-radius: 3px; }
+  table { width: 100%; border-collapse: collapse; margin: 1em 0; background: #fff; }
+  th { background: #2d5a8e; color: #fff; padding: 0.6em 0.8em; text-align: left; }
+  td { padding: 0.5em 0.8em; border-bottom: 1px solid #dee2e6; }
+  tr:nth-child(even) { background: #f2f6fb; }
+  code { background: #e9ecef; padding: 0.1em 0.3em; border-radius: 3px; font-size: 0.9em; }
+  pre { background: #1e1e1e; color: #d4d4d4; padding: 1em; border-radius: 5px; overflow-x: auto; font-size: 0.85em; }
+  .badge-pass { background: #28a745; color: #fff; padding: 2px 8px; border-radius: 3px; font-size: 0.85em; font-weight: bold; }
+  .badge-partial { background: #ffc107; color: #212529; padding: 2px 8px; border-radius: 3px; font-size: 0.85em; font-weight: bold; }
+</style>
+</head>
+<body>
+<h1>Issue #335 - Implementation Proof Report</h1>
+<p><strong>Title:</strong> [Director] Session DTOs always carry machineName, user, tailnetEndpoint, viewUrl - populated at the Director, with regression test</p>
+<p><strong>PR:</strong> <a href="https://github.com/thefrederiksen/cc-director/pull/359">#359</a></p>
+<p><strong>Branch:</strong> issue-335-director-session-identity-fields</p>
+<p><strong>Date:</strong> 2026-06-11</p>
+<p><strong>Developer Agent:</strong> SOREN_NORTH / SOREN (Claude Sonnet 4.6)</p>
+
+<h2>1. What Was Implemented</h2>
+<p>Before this change, all four identity fields (<code>MachineName</code>, <code>User</code>, <code>TailnetEndpoint</code>, <code>ViewUrl</code>) on
+SessionDto were always empty in the Director's own <code>GET /sessions</code> and <code>GET /sessions/{sid}</code> responses.
+The Gateway aggregation pass patched them in after the fact. This meant any cross-machine feature
+that needed session identity before aggregation was blind.</p>
+
+<p>After this change:</p>
+<ul>
+  <li>The Director resolves its own tailnet identity (via TailnetIdentityResolver) at request time</li>
+  <li>Every session DTO from the Director's own REST API carries all four fields when identity resolves</li>
+  <li>The Gateway aggregation pass now only enriches fields that the Director left empty (back-compat for old Directors in mixed-version fleets)</li>
+  <li>A regression test class (DirectorSessionIdentityFieldsTests) uses a pinned resolver to assert the four fields are never empty when identity resolves</li>
+</ul>
+
+<h2>2. Files Changed</h2>
+<table>
+<tr><th>File</th><th>Change</th></tr>
+<tr><td><code>src/CcDirector.ControlApi/ControlEndpoints.cs</code></td><td>Added <code>resolveTailnetEndpoint</code> parameter to Map(); added <code>MapWithIdentity()</code> local function; added <code>ResolveDirectorIdentity()</code> static helper; extended private <code>Map()</code> with 4 identity params; all 7 session DTO call sites updated</td></tr>
+<tr><td><code>src/CcDirector.ControlApi/ControlApiHost.cs</code></td><td>Creates TailnetIdentityResolver at startup; passes resolver to ControlEndpoints.Map(); exposes TailnetEndpointResolverOverride internal seam for tests</td></tr>
+<tr><td><code>src/CcDirector.Gateway/Api/GatewayEndpoints.cs</code></td><td>Aggregation pass now checks before overwriting: Director-supplied values win; empty fields use Gateway-derived values (back-compat)</td></tr>
+<tr><td><code>src/CcDirector.Gateway.Tests/ControlApiHostTests.cs</code></td><td>Added DirectorSessionIdentityFieldsTests: 3 regression tests covering resolved, single-session, and unresolved cases</td></tr>
+<tr><td><code>src/CcDirector.Gateway.Tests/SessionsAggregationTests.cs</code></td><td>Added 2 back-compat tests: Aggregator_preserves_director_supplied_identity_fields_and_does_not_overwrite_them; Aggregator_back_compat_enriches_old_director_empty_identity_fields</td></tr>
+</table>
+
+<h2>3. Acceptance Criteria Status</h2>
+
+<table>
+<tr><th>AC</th><th>Criterion</th><th>Status</th><th>Proof</th></tr>
+<tr>
+  <td>AC1</td>
+  <td>GET /sessions directly on the Director (loopback) shows all four fields non-empty for every session when tailnet identity resolves</td>
+  <td><span class="badge-pass">PASS</span></td>
+  <td>DirectorSessionIdentityFieldsTests.SessionsEndpoint_WithResolvedIdentity_PopulatesAllFourIdentityFields - green (pinned resolver, ephemeral-port Director)</td>
+</tr>
+<tr>
+  <td>AC2</td>
+  <td>From the OTHER machine, Gateway-aggregated GET /sessions shows SORENLAPTOP sessions with real machineName, user, *.ts.net tailnetEndpoint, viewUrl</td>
+  <td><span class="badge-partial">BY EQUIVALENCE</span></td>
+  <td>Not verified on SORENLAPTOP live deployment. The logic is correct: the Director populates the fields, the Gateway preserves them. Requires QA deployment to SORENLAPTOP for live cross-machine verification.</td>
+</tr>
+<tr>
+  <td>AC3</td>
+  <td>tailnetEndpoint answers /healthz when curled FROM the other machine</td>
+  <td><span class="badge-partial">BY EQUIVALENCE</span></td>
+  <td>Not verified cross-machine. Tailnet endpoint is built by the same TailnetIdentityResolver that already powers registration (proven in issue #324). Requires QA deployment.</td>
+</tr>
+<tr>
+  <td>AC4</td>
+  <td>Opening viewUrl in browser on other machine renders the session view</td>
+  <td><span class="badge-partial">BY EQUIVALENCE</span></td>
+  <td>Not verified cross-machine. viewUrl is built as {tailnetEndpoint}/sessions/{sid}/view, same path that works today via Gateway enrichment. Requires QA deployment.</td>
+</tr>
+<tr>
+  <td>AC5</td>
+  <td>Regression test: Director session mapping with resolved identity emits no empty identity field (fails red if any goes empty)</td>
+  <td><span class="badge-pass">PASS</span></td>
+  <td>DirectorSessionIdentityFieldsTests (3 tests) - all green. Tests use a pinned resolver with a known endpoint; assert all four fields non-empty AND match exact expected values.</td>
+</tr>
+<tr>
+  <td>AC6</td>
+  <td>Back-compat: simulated old-Director DTO (empty fields) still enriched by Gateway pass exactly as today</td>
+  <td><span class="badge-pass">PASS</span></td>
+  <td>SessionsAggregationTests.Aggregator_back_compat_enriches_old_director_empty_identity_fields - green. FakeDirector returns empty identity fields; test asserts Gateway enriched MachineName, User, TailnetEndpoint, ViewUrl.</td>
+</tr>
+</table>
+
+<h2>4. Test Output</h2>
+
+<h3>DirectorSessionIdentityFieldsTests (3 tests - PASS)</h3>
+<div class="pass">
+  Passed: DirectorSessionIdentityFieldsTests.SessionsEndpoint_WithResolvedIdentity_PopulatesAllFourIdentityFields [317 ms]<br>
+  Passed: DirectorSessionIdentityFieldsTests.SingleSessionEndpoint_WithResolvedIdentity_PopulatesAllFourIdentityFields [121 ms]<br>
+  Passed: DirectorSessionIdentityFieldsTests.SessionsEndpoint_WithUnresolvedIdentity_EmitsEmptyTailnetFields [125 ms]
+</div>
+
+<h3>SessionsAggregationTests (17 tests - all PASS, including 2 new tests)</h3>
+<div class="pass">
+  Passed: Aggregator_preserves_director_supplied_identity_fields_and_does_not_overwrite_them [118 ms]<br>
+  Passed: Aggregator_back_compat_enriches_old_director_empty_identity_fields [123 ms]<br>
+  (and 15 pre-existing tests - all still passing)
+</div>
+
+<h3>Full Suite (CcDirector.Gateway.Tests - 577 pass, 2 fail)</h3>
+<div class="info">
+  2 failing tests are known benign pre-existing flakes (DictationEndpointTests requiring live OpenAI API).
+  Verified on base branch: same tests fail without this change.
+</div>
+
+<h2>5. CenCon Impact</h2>
+<p>No architecture drift. The change is within the existing ControlApi container (session DTO population)
+and Gateway container (aggregation ordering). No new containers, no new security surface.
+CONTRACT_AUDIT.md: no routes added or changed; SessionDto fields gain values they had per the existing
+DTO spec but were never populated. No DT-01..DT-NN security rule violations.</p>
+
+<h2>6. Known Gaps Requiring QA</h2>
+<div class="partial">
+  <strong>AC2-AC4 require live cross-machine verification:</strong>
+  <ul>
+    <li>Deploy this build to SORENLAPTOP (slot 6 or higher)</li>
+    <li>From SOREN_NORTH: GET Gateway /sessions, confirm SORENLAPTOP sessions have machineName="SORENLAPTOP", real *.ts.net tailnetEndpoint</li>
+    <li>curl {tailnetEndpoint}/healthz from SOREN_NORTH</li>
+    <li>Open viewUrl in browser on SOREN_NORTH</li>
+  </ul>
+  Note: SORENLAPTOP port range is fully exhausted with stale .port files on SOREN_NORTH (20/20 ports claimed).
+  This did not affect unit tests (ephemeral port) but prevented launching a slot 6 live Director.
+  QA should verify on SORENLAPTOP directly or after clearing stale port files on the test machine.
+</div>
+
+<h2>7. I Believe This Is Finished</h2>
+<p>The implementation is complete for the Director-side changes. All unit-testable acceptance criteria
+(AC1, AC5, AC6) pass with green tests. The implementation is logically correct for AC2-AC4: the
+Director now populates the fields and the Gateway preserves them. Cross-machine live verification
+(AC2-AC4) requires QA deployment to SORENLAPTOP, which is outside the capability of an isolated
+developer agent on SOREN_NORTH with exhausted ports.</p>
+<p>Build: 0 errors, 0 warnings. All existing tests still pass (known flakes excluded).</p>
+</body>
+</html>

@@ -55,6 +55,14 @@ public sealed class ControlApiHost : IAsyncDisposable
     private readonly SemaphoreSlim _gatewayReapplyLock = new(1, 1);
 
     /// <summary>
+    /// Issue #335 test seam: pin the tailnet identity resolution for the session DTO
+    /// mapper so unit tests can assert identity fields without requiring a live Tailscale
+    /// daemon. Must be set before <see cref="StartAsync"/> if used; the resolver is
+    /// captured at start time. Null (default) uses the real detection ladder.
+    /// </summary>
+    internal Func<CcDirector.Core.Network.TailnetEndpointResolution>? TailnetEndpointResolverOverride { get; set; }
+
+    /// <summary>
     /// The one home of this Director's Gateway-connection truth (issues #223/#224).
     /// Host-owned so it survives GatewayClient replacement on settings changes; the
     /// desktop indicator subscribes to its Changed event, the /verify/{nonce} endpoint
@@ -270,7 +278,22 @@ public sealed class ControlApiHost : IAsyncDisposable
         var gatewayConfig = Core.Configuration.GatewayConfig.Load();
         var gatewayUrl = gatewayConfig.IsEnabled ? gatewayConfig.Url : null;
 
-        ControlEndpoints.Map(_app, _sessionManager, DirectorId, _version, _requestShutdownAsync, _authEnabled, _repositoryRegistry, _turnSummaryCache, gatewayUrl, _proactiveExplain, GatewayMonitor);
+        // Issue #335: tailnet identity resolver for session DTO population. The resolver is
+        // captured once at start time and shared with the per-session Map helper (runs on
+        // every /sessions request). Production uses the real detection ladder; tests can pin
+        // a fixed endpoint via TailnetEndpointResolverOverride before calling StartAsync.
+        Func<CcDirector.Core.Network.TailnetEndpointResolution> resolveTailnetEndpoint;
+        if (TailnetEndpointResolverOverride is not null)
+        {
+            resolveTailnetEndpoint = TailnetEndpointResolverOverride;
+        }
+        else
+        {
+            var identityResolver = new CcDirector.Core.Network.TailnetIdentityResolver();
+            resolveTailnetEndpoint = () => identityResolver.ResolveEndpoint(Port, gatewayConfig.TailnetEndpoint);
+        }
+
+        ControlEndpoints.Map(_app, _sessionManager, DirectorId, _version, _requestShutdownAsync, _authEnabled, _repositoryRegistry, _turnSummaryCache, gatewayUrl, _proactiveExplain, GatewayMonitor, resolveTailnetEndpoint);
         // Dictation key resolution: the Gateway vault when attached to a Gateway, the local
         // Settings > Voice key when standalone (docs/architecture/gateway/GATEWAY_KEY_VAULT.md).
         // Pass GatewayConfig.Load (not the snapshot above) so the resolver re-reads config.json
