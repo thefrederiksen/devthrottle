@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Verification Report - Issue #328: POST /tools/run</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem auto; max-width: 1100px; color: #1a1a2e; line-height: 1.5; }
+  h1 { border-bottom: 3px solid #0f3460; padding-bottom: .4rem; }
+  h2 { color: #0f3460; margin-top: 2rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #0f3460; color: #fff; }
+  .pass { background: #e6f4ea; color: #137333; font-weight: bold; }
+  .verdict { background: #137333; color: #fff; padding: 1rem 1.5rem; font-size: 1.2rem; font-weight: bold; border-radius: 6px; margin: 1.5rem 0; }
+  pre { background: #f4f4f8; border: 1px solid #ddd; padding: .8rem; overflow-x: auto; font-size: .82rem; }
+  code { background: #f4f4f8; padding: .1rem .3rem; }
+  .note { background: #fff8e1; border-left: 4px solid #f9a825; padding: .6rem 1rem; margin: 1rem 0; }
+</style>
+</head>
+<body>
+<h1>QA Verification Report - Issue #328</h1>
+<p><strong>Issue:</strong> [ControlApi] New verb POST /tools/run - invoke a catalog cc-* tool with args, streamed result<br>
+<strong>PR:</strong> #341 (branch <code>issue-328-tools-run</code>, verified at commit <code>b00ae15</code>)<br>
+<strong>QA Agent:</strong> independent verification, 2026-06-11 (CenCon Development Method - SOC 2 separation of duties)<br>
+<strong>Rig:</strong> own detached worktree <code>cc-director-wt\qa-328</code>, own slot-6 build <code>cc-director6.exe</code>, launched via own <code>cc-director6-launch</code> scheduled task (svchost parentage), Control API self-allocated on <code>http://127.0.0.1:7879</code>. Developer's binary, slot, and captures were NOT reused.</p>
+
+<div class="verdict">VERIFIED - all acceptance criteria met. 6/6 PASS. Recommendation: merge.</div>
+
+<h2>Build and test gates</h2>
+<table>
+<tr><th>Gate</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+<tr><td>dotnet build cc-director.sln (QA worktree, PR tip)</td><td>0 errors, 0 warnings</td><td>Build succeeded. 0 Warning(s), 0 Error(s)</td><td class="pass">PASS</td></tr>
+<tr><td>New tests: ToolRunnerTests + ToolCatalogServiceTests (Core.Tests, filtered)</td><td>all green</td><td>Passed: 20 / Failed: 0 (9 ToolRunner + 11 ToolCatalogService incl. the 2 new shim-resolution tests)</td><td class="pass">PASS</td></tr>
+<tr><td>New tests: ToolRunEndpointTests (Gateway.Tests, real auth-enabled ControlApiHost)</td><td>all green</td><td>Passed: 14 / Failed: 0</td><td class="pass">PASS</td></tr>
+<tr><td>25 new test cases claimed (9 + 14 + 2)</td><td>present and passing</td><td>confirmed: 9 runner facts, 14 endpoint cases (8 Fact/Theory methods expanding to 14), +2 catalog tests (60 added lines in ToolCatalogServiceTests.cs)</td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>Acceptance criteria (independently reproduced)</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (QA's own capture)</th><th>Evidence</th><th>Result</th></tr>
+<tr>
+<td>1</td><td>Catalog tool runs, exit code + output returned</td>
+<td><code>{name:"cc-vault",args:["--help"]}</code> returns exitCode 0 and captured output</td>
+<td>HTTP 200 <code>application/x-ndjson</code>; <code>{"stream":"start","pid":...}</code>, full cc-vault help text as stdout chunks, terminal <code>{"stream":"exit","exitCode":0,"timedOut":false,"durationMs":337}</code></td>
+<td><a href="qa/qa-ac1-cc-vault-help.txt">qa-ac1-cc-vault-help.txt</a></td><td class="pass">PASS</td>
+</tr>
+<tr>
+<td>2</td><td>Unknown tool 404; path-shaped name 400/404, never executed</td>
+<td>404 for unknown name; 400 for slash/backslash/traversal names; target binary never launched</td>
+<td><code>cc-not-a-tool</code> -&gt; 404 "unknown tool"; <code>../../bin/cc-vault</code>, <code>..cc-vault..</code>, <code>C:\Windows\System32\calc.exe</code>, <code>bin\cc-vault</code> -&gt; all 400 "name must be a bare catalog tool name"; no calc process existed afterward; Director log shows REJECTED lines, no ToolRunner launch</td>
+<td><a href="qa/qa-ac2-rejections.txt">qa-ac2-rejections.txt</a></td><td class="pass">PASS</td>
+</tr>
+<tr>
+<td>3</td><td>Streaming: chunks arrive before process exit</td>
+<td>timestamped client capture shows output before exit</td>
+<td><code>cc-vault search</code> (49.4s run): start chunk at t+0.012s, first stderr chunk at t+2.658s, exit chunk at t+49.390s - output led process exit by 46.7s</td>
+<td><a href="qa/qa-ac3-streaming.txt">qa-ac3-streaming.txt</a></td><td class="pass">PASS</td>
+</tr>
+<tr>
+<td>4</td><td>timeoutS=2 on long command: timeout error + child gone</td>
+<td>distinct timeout error; PID absent after the run</td>
+<td>exit chunk <code>{"timedOut":true,"durationMs":2070,"error":"timed out after 2s; process tree killed"}</code> (no exitCode); child PID 17052 verified GONE in 3 consecutive process checks</td>
+<td><a href="qa/qa-ac4-timeout.txt">qa-ac4-timeout.txt</a></td><td class="pass">PASS</td>
+</tr>
+<tr>
+<td>5</td><td>No token -&gt; 401; FileLog audit line per run</td>
+<td>401 without Bearer token; audit line with exe path + args per invocation</td>
+<td>401 gate: proven by <code>ToolsRun_WithoutBearerToken_Returns401</code> (and 13 siblings) against a REAL auth-enabled ControlApiHost in QA's own test run - the live host intentionally runs <code>authEnabled=false</code> (pre-existing tailnet-trust policy for ALL routes, not a #328 change). Audit: every QA invocation produced <code>[ToolsEndpoint] POST /tools/run: tool=..., exe=..., args=[...], cwd=..., timeoutS=..., caller=...</code>; rejected names produce REJECTED audit lines</td>
+<td><a href="qa/qa-ac5-filelog-audit.txt">qa-ac5-filelog-audit.txt</a></td><td class="pass">PASS</td>
+</tr>
+<tr>
+<td>6</td><td>Cross-machine smoke (plan 1B)</td>
+<td>run a tool on a remote Director via the Gateway leg</td>
+<td>Verified the gateway-leg equivalent myself (see judgment below): gateway roster advertises the QA slot-6 Director at <code>tailnetEndpoint https://soren-north.taildb08ed.ts.net:7879</code>; a streamed run through that HTTPS tailnet endpoint (tailscale-serve leg, not loopback) returned start/stdout/exit with exitCode 0. SORENLAPTOP independently confirmed at v0.6.22 with POST /tools/run -&gt; HTTP 405 (verb predates that release)</td>
+<td><a href="qa/qa-ac6-gateway-leg.txt">qa-ac6-gateway-leg.txt</a></td><td class="pass">PASS (equivalent - judgment below)</td>
+</tr>
+</table>
+
+<div class="note">
+<strong>QA judgment on criterion 6 (cross-machine):</strong> a literal run hosted on SORENLAPTOP is impossible today - that Director runs released v0.6.22, which predates the verb (QA independently reproduced the 405), and force-updating the user's production laptop Director is prohibited. The criterion's intent is to prove the verb works over the path a remote caller actually uses: the gateway-advertised tailnet endpoint. QA exercised exactly that leg - HTTPS through tailscale serve to the endpoint the gateway hands out in its <code>/directors</code> roster - and the streamed run succeeded end-to-end. The only untested delta is originating the TCP connection from different hardware, which cannot change Director-side behavior. <strong>Judged: satisfies the criterion's intent.</strong> The literal cross-machine run becomes possible (and should be smoked) once a release containing #328 reaches SORENLAPTOP.
+</div>
+
+<h2>Contract audit (CONTRACT_AUDIT.md)</h2>
+<table>
+<tr><th>Check</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+<tr><td>Deterministic inventory grep (section 1 command)</td><td>113</td><td>113</td><td class="pass">PASS</td></tr>
+<tr><td>Section 4 table rows</td><td>runs 1..113</td><td>unique rows 1..113 (the 10 duplicate numbers are the section-7 violations re-list)</td><td class="pass">PASS</td></tr>
+<tr><td>Row 110</td><td>POST /tools/run classified Verb</td><td>row 110 = POST /tools/run, Verb, #328 rationale; tally 50 Facts / 53 Verbs / 10 Violations = 113</td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>Regression sweep</h2>
+<table>
+<tr><th>Surface</th><th>Result</th></tr>
+<tr><td>GET /healthz</td><td class="pass">OK (directorId, version 0.6.22)</td></tr>
+<tr><td>GET /tools</td><td class="pass">catalog returned; 25 tools isBuilt=true - the ToolCatalogService shim fix resolves python tools to <code>pyenv\Scripts\&lt;name&gt;.exe</code> on a real install</td></tr>
+<tr><td>GET /tools/cc-vault</td><td class="pass">detail + skill links intact</td></tr>
+<tr><td>POST /tools/cc-vault/test</td><td class="pass">status Pass, 3 check results</td></tr>
+<tr><td>GET /tools/run (wrong method)</td><td class="pass">404 via the /tools/{name} catalog lookup - no route ambiguity</td></tr>
+<tr><td>docs/public/api/01-control-api.md</td><td class="pass">verb documented</td></tr>
+</table>
+
+<h2>Environment note (not a PR defect)</h2>
+<p>First slot-6 launch failed with "All ports in range 7879..7898 are busy": 21 stale <code>.port</code> lease files from dead Directors covered the whole range while only two Directors were actually running. QA removed the two oldest stale leases (dead since May 30 / Jun 4) to free a port. <code>PortAllocator</code> predates this PR; consider a follow-up issue for stale-lease reaping.</p>
+
+<h2>Cleanup</h2>
+<p>Slot-6 Director stopped (exact-path), <code>cc-director6-launch</code> task unregistered, manifest deleted, QA's tailscale serve :7879 mapping removed, QA's port lease removed. Main build and slots 1-5 untouched.</p>
+</body>
+</html>

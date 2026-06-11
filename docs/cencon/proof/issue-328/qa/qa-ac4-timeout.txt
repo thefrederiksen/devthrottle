@@ -1,0 +1,8 @@
+# body: {"name": "cc-vault", "args": ["search", "neural network patent"], "timeoutS": 2}
+# start: 2026-06-11T10:59:18.558524
+[t+  0.016s] {"stream":"start","pid":17052}
+[t+  2.079s] {"stream":"exit","timedOut":true,"durationMs":2070,"error":"timed out after 2s; process tree killed"}
+# stream done at t+2.080s, child pid was 17052
+# pid check 1: PID 17052 GONE (process tree killed)
+# pid check 2: PID 17052 GONE (process tree killed)
+# pid check 3: PID 17052 GONE (process tree killed)
