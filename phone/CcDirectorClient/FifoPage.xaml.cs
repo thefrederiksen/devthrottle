@@ -28,6 +28,7 @@ public partial class FifoPage : ContentPage
     private readonly IUtteranceRecorder _recorder;
     private readonly IReplySpeaker _tts;
     private readonly IVoiceForeground _foreground;
+    private readonly IAudioCue _audioCue;
 
     // When the conveyor runs dry the page parks on the idle panel and re-checks the
     // roster on this cadence, resuming the moment a session needs the user again. A 1s
@@ -58,12 +59,13 @@ public partial class FifoPage : ContentPage
     private bool _backgrounded;
     private bool _lifecycleHooked;
 
-    public FifoPage(IUtteranceRecorder recorder, IReplySpeaker tts, IVoiceForeground foreground)
+    public FifoPage(IUtteranceRecorder recorder, IReplySpeaker tts, IVoiceForeground foreground, IAudioCue audioCue)
     {
         InitializeComponent();
         _recorder = recorder;
         _tts = tts;
         _foreground = foreground;
+        _audioCue = audioCue;
 
         _recheckTimer = Dispatcher.CreateTimer();
         _recheckTimer.Interval = TimeSpan.FromSeconds(1);
@@ -90,7 +92,7 @@ public partial class FifoPage : ContentPage
         TokenEntry.Text = Preferences.Get(PrefToken, "");
 
         // Configure the shared voice control to run in queue mode.
-        Voice.Configure(_recorder, _tts, _foreground, () => TokenEntry.Text ?? "");
+        Voice.Configure(_recorder, _tts, _foreground, () => TokenEntry.Text ?? "", _audioCue);
         Voice.ShowSkip = true;
         Voice.ExitButtonText = "< Exit FIFO";
         Voice.ReadyActionsLine = "Ask Agent, Skip, or Hold";

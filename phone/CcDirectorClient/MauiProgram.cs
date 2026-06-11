@@ -40,6 +40,9 @@ public static class MauiProgram
 		builder.Services.AddSingleton<IUtteranceRecorder, CcDirectorClient.Platforms.Android.AndroidUtteranceRecorder>();
 		builder.Services.AddSingleton<IReplySpeaker, CcDirectorClient.Platforms.Android.AndroidReplySpeaker>();
 		builder.Services.AddSingleton<IVoiceForeground, CcDirectorClient.Platforms.Android.AndroidVoiceForeground>();
+		builder.Services.AddSingleton<IAudioCue, CcDirectorClient.Platforms.Android.AndroidAudioCue>();
+#else
+		builder.Services.AddSingleton<IAudioCue, NullAudioCue>();
 #endif
 		builder.Services.AddSingleton<MainPage>();
 		builder.Services.AddTransient<TalkPage>();
