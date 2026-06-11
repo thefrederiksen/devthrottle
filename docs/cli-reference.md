@@ -923,6 +923,53 @@ COMMANDS:
 
 ---
 
+## Director Control API
+
+The Director exposes a loopback REST API (default port range 7879-7898). All session
+endpoints are under `/sessions/{sessionId}/`.
+
+### POST /sessions/{id}/voice-turn
+
+Server-side walkie-talkie turn (issue #351). One call = one complete turn:
+audio or pre-transcribed text goes in, a spoken summary comes out.
+
+**Input:** `multipart/form-data` or JSON
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `audio` | binary | either/or | Raw audio bytes (AAC, WAV, WebM). Director transcribes via Whisper. |
+| `text`  | string | either/or | Pre-transcribed text. Bypasses transcription - used by tests and non-audio callers. |
+
+**Response:** `text/event-stream` (Server-Sent Events). One `data:` JSON per stage,
+then a final `reply` event.
+
+```
+data: {"stage":"transcribing"}
+data: {"stage":"transcript","text":"what should we focus on next?"}
+data: {"stage":"waiting"}
+data: {"stage":"thinking"}
+data: {"stage":"summarizing"}
+data: {"stage":"reply","summary":"Here is what I found. The main decision is X.","audioBase64":"<mp3 bytes base64>"}
+```
+
+On any error the stream ends with `{"stage":"error","message":"<reason>"}`.
+
+The `summary` field is the wingman-produced plain-prose spoken version (2-3 sentences,
+no markdown). The `audioBase64` field contains the TTS bytes (MP3) for that summary.
+If the wingman or TTS is unavailable, the fallback path fires: a plain-text excerpt is
+synthesized instead. The reply event is always emitted - never goes silent.
+
+**Status codes:**
+- `200` - SSE stream (even on turn errors, which surface as `{"stage":"error",...}`)
+- `400` - Invalid session id format (JSON body)
+- `404` - Session not found (JSON body)
+- `410` - Session has already exited (JSON body)
+
+**Multiple turns = multiple calls.** No persistent voice session state on the server
+between calls.
+
+---
+
 ## Common Flag Patterns
 
 Most tools use these consistent flags:

@@ -297,6 +297,9 @@ public sealed class ControlApiHost : IAsyncDisposable
         DispatchEndpoint.Map(_app, _commDispatcherAccessor ?? (() => null));
         // GET /facts (issue #330): the tool inventory + launcher facts the Gateway pulls.
         FactsEndpoint.Map(_app, DirectorId, _version);
+        // POST /sessions/{id}/voice-turn (issue #351): server-side walkie-talkie turn
+        // (transcribe -> wait -> send -> poll -> summarize -> TTS -> SSE reply).
+        VoiceTurnEndpoint.Map(_app, _sessionManager);
 
         await _app.StartAsync();
 
