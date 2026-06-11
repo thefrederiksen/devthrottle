@@ -16,12 +16,18 @@ namespace CcDirector.Gateway.Api;
 /// proxied through the Gateway so a remote Cockpit only ever talks SAME-ORIGIN to the Gateway
 /// and never needs a Director's own (possibly loopback) address.
 ///
-/// The Gateway resolves the owning Director for the session id, then reverse-proxies the WS
-/// upgrade to that Director using the same YARP <see cref="IHttpForwarder"/> that already carries
-/// the Blazor-circuit WebSocket (so binary PCM audio frames and text frames pass through
-/// unchanged - YARP handles the upgrade). The Director's own endpoints are unchanged: the stream
-/// stays at <c>/sessions/{sid}/stream</c> and dictation stays at <c>/dictate</c> (the Gateway
-/// introduces the sid in the dictate path so it can pick the owning Director - Assumption A1).
+/// Issue #317 adds a third, plain-HTTP leg with the SAME resolution: per-session screenshot
+/// bytes (<c>GET /sessions/{sid}/screenshots/file?name=...</c>) forwarded to the owning
+/// Director's machine-wide <c>GET /screenshots/file?name=...</c>, so the Cockpit's thumbnail
+/// <c>&lt;img src&gt;</c>, View, and Copy never target a Director address either.
+///
+/// The Gateway resolves the owning Director for the session id, then reverse-proxies the request
+/// to that Director using the same YARP <see cref="IHttpForwarder"/> that already carries
+/// the Blazor-circuit WebSocket (so binary PCM audio frames, text frames, and image bytes pass
+/// through unchanged - YARP handles WS upgrades and plain HTTP alike). The Director's own
+/// endpoints are unchanged: the stream stays at <c>/sessions/{sid}/stream</c>, dictation stays at
+/// <c>/dictate</c>, and screenshots stay at <c>/screenshots/file</c> (the Gateway introduces the
+/// sid in the path so it can pick the owning Director - Assumption A1).
 ///
 /// These routes MUST be mapped BEFORE the <see cref="Cockpit.CockpitProxy"/> fallback and the
 /// browser-page routes so they win for these paths.
@@ -29,9 +35,9 @@ namespace CcDirector.Gateway.Api;
 internal static class SessionWsProxyEndpoints
 {
     /// <summary>
-    /// Map the two per-session WS proxy endpoints. Resolves the owning Director from
-    /// <paramref name="registry"/> via <paramref name="client"/>; 404 when the session is
-    /// unknown across the fleet, 503 when the owning Director cannot be reached.
+    /// Map the per-session proxy endpoints (two WS legs + the screenshot-bytes leg). Resolves the
+    /// owning Director from <paramref name="registry"/> via <paramref name="client"/>; 404 when
+    /// the session is unknown across the fleet, 503 when the owning Director cannot be reached.
     /// </summary>
     public static void Map(IEndpointRouteBuilder app, DirectorRegistry registry, DirectorEndpointClient client, SessionOwnerCache owners)
     {
@@ -49,17 +55,26 @@ internal static class SessionWsProxyEndpoints
         {
             await ProxyAsync(ctx, sid, "dictate", "/dictate", registry, client, proxy, owners);
         });
+
+        // Screenshot bytes (issue #317): plain HTTP forward (no WS upgrade) to the owning
+        // Director's machine-wide /screenshots/file . The ?name=... query carries through via
+        // RewritePathTransformer; the response (image bytes + content type) streams back as-is.
+        app.MapGet("/sessions/{sid}/screenshots/file", async (string sid, HttpContext ctx) =>
+        {
+            await ProxyAsync(ctx, sid, "shot", "/screenshots/file", registry, client, proxy, owners);
+        });
     }
 
     /// <summary>
-    /// Resolve the owning Director and reverse-proxy the WS upgrade to <paramref name="directorPath"/>
-    /// on that Director. 404 only for a session no Director has ever been seen to own; 503 when the
-    /// owning Director is known (cached) but currently offline/unreachable, or when the forward fails.
+    /// Resolve the owning Director and reverse-proxy the request (WS upgrade or plain HTTP) to
+    /// <paramref name="directorPath"/> on that Director. 404 only for a session no Director has ever
+    /// been seen to own; 503 when the owning Director is known (cached) but currently
+    /// offline/unreachable, or when the forward fails.
     /// </summary>
     private static async Task ProxyAsync(HttpContext ctx, string sid, string leg, string directorPath,
         DirectorRegistry registry, DirectorEndpointClient client, SessionWsForwarder proxy, SessionOwnerCache owners)
     {
-        FileLog.Write($"[SessionWsProxy] open leg={leg} sid={sid} client={ctx.Connection.RemoteIpAddress}");
+        FileLog.Write($"[SessionWsProxy] open leg={leg} sid={sid} query={ctx.Request.QueryString} client={ctx.Connection.RemoteIpAddress}");
 
         var director = await LocateOwningDirectorAsync(registry, client, sid);
         if (director is null)
@@ -146,9 +161,10 @@ internal static class SessionWsProxyEndpoints
     }
 
     /// <summary>
-    /// Reverse-proxies a per-session WS upgrade to a per-request Director destination, reusing the
-    /// shared YARP <see cref="IHttpForwarder"/>. The forwarder rewrites the request path to the
-    /// Director's own endpoint path (e.g. the sid-scoped /dictate becomes the Director's /dictate).
+    /// Reverse-proxies a per-session request (WS upgrade or plain HTTP) to a per-request Director
+    /// destination, reusing the shared YARP <see cref="IHttpForwarder"/>. The forwarder rewrites the
+    /// request path to the Director's own endpoint path (e.g. the sid-scoped /dictate becomes the
+    /// Director's /dictate, the sid-scoped screenshots path becomes /screenshots/file).
     /// </summary>
     private sealed class SessionWsForwarder
     {

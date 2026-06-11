@@ -1,6 +1,7 @@
-// Screenshot gallery helpers for the Cockpit. The image bytes are served browser-direct by
-// the owning Director (GET /screenshots/file, with Access-Control-Allow-Origin:*), so these
-// run entirely in the browser - no round-trip through the Blazor circuit for the pixels.
+// Screenshot gallery helpers for the Cockpit. The image bytes are fetched SAME-ORIGIN from the
+// Gateway's per-session proxy (GET /sessions/{sid}/screenshots/file, issue #317), which forwards
+// to the owning Director - so these run entirely in the browser (no round-trip through the
+// Blazor circuit for the pixels) and the auth cookie rides along automatically.
 
 // Copy an image (by URL) onto the system clipboard as an actual image, not a path/URL string.
 // The Clipboard API only reliably writes image/png, so non-PNG sources are converted via a
