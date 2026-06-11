@@ -31,6 +31,7 @@ public partial class TalkPage : ContentPage
     private readonly IUtteranceRecorder _recorder;
     private readonly IReplySpeaker _tts;
     private readonly IVoiceForeground _foreground;
+    private readonly IAudioCue _audioCue;
 
     private SessionInfo? _selected;
 
@@ -56,12 +57,13 @@ public partial class TalkPage : ContentPage
     // Cancels the Wingman brief poll loop when the tab or page is left.
     private CancellationTokenSource? _wingmanPollCts;
 
-    public TalkPage(IUtteranceRecorder recorder, IReplySpeaker tts, IVoiceForeground foreground)
+    public TalkPage(IUtteranceRecorder recorder, IReplySpeaker tts, IVoiceForeground foreground, IAudioCue audioCue)
     {
         InitializeComponent();
         _recorder = recorder;
         _tts = tts;
         _foreground = foreground;
+        _audioCue = audioCue;
 
         var savedServer = Preferences.Get(PrefServer, "");
         if (string.IsNullOrWhiteSpace(savedServer))
@@ -477,13 +479,15 @@ public partial class TalkPage : ContentPage
                                 break;
                             case "thinking":
                                 VoiceStatusLabel.Text = "Thinking...";
+                                _audioCue.PlaySent();
+                                _audioCue.StartThinking();
                                 break;
                             case "summarizing":
                                 VoiceStatusLabel.Text = "Summarizing...";
                                 break;
                             case "reply":
-                                // Update the on-screen reply label only.
-                                // Status is updated by the "speaking" stage after summarization.
+                                _audioCue.StopThinking();
+                                _audioCue.PlayReply();
                                 VoiceReplyLabel.Text = u.Text;
                                 VoiceReplyCard.IsVisible = true;
                                 break;
@@ -520,6 +524,7 @@ public partial class TalkPage : ContentPage
         }
         finally
         {
+            _audioCue.StopThinking();
             _voiceTurnBusy = false;
             VoiceRecordButton.IsEnabled = true;
             _foreground.Stop();

@@ -17,4 +17,16 @@ public interface IAudioCue
 
     /// <summary>Play the "error" cue (transcription or send failure).</summary>
     void PlayError();
+
+    /// <summary>Announce that text was sent to the agent (spoken via local TTS).</summary>
+    void PlaySent();
+
+    /// <summary>Announce that the agent reply has arrived (spoken via local TTS).</summary>
+    void PlayReply();
+
+    /// <summary>Start a soft repeating "thinking" ambient sound while the agent is working.</summary>
+    void StartThinking();
+
+    /// <summary>Stop the thinking sound started by <see cref="StartThinking"/>.</summary>
+    void StopThinking();
 }

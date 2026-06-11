@@ -65,7 +65,7 @@ public sealed class TtsService
 
         try
         {
-            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(180) };
             http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", key);
 
             // Single-chunk fast path: no parallelism overhead.

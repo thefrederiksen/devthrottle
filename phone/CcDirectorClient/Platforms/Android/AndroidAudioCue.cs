@@ -1,57 +1,111 @@
 using Android.Media;
 using CcDirectorClient.Voice;
+using ATts = Android.Speech.Tts;
 
 namespace CcDirectorClient.Platforms.Android;
 
 /// <summary>
-/// Android audio cues for the voice recording flow. Uses <see cref="ToneGenerator"/>
-/// (no file assets, no extra permissions beyond MODIFY_AUDIO_SETTINGS which is normal
-/// for tone generation). All three methods are fire-and-forget: ToneGenerator.StartTone
-/// is synchronous but brief, so each call is dispatched onto a background thread via
-/// Task.Run to keep the UI thread free.
+/// Android audio cues for the voice recording flow.
+///
+/// Beep cues (Start/Stop/Error): ToneGenerator on a background thread - no permissions,
+/// no file assets, instant playback.
+///
+/// Status announcements (Sent/Reply): Android's on-device TextToSpeech - local, offline,
+/// no network call, no OpenAI timeout risk. Initialized lazily on first use.
+///
+/// Thinking sound: soft repeating beep every 3 seconds while the agent is working,
+/// cancelled by StopThinking(). Gives the user a "still alive" pulse without being
+/// intrusive.
 /// </summary>
-public sealed class AndroidAudioCue : IAudioCue
+public sealed class AndroidAudioCue : IAudioCue, IDisposable
 {
-    // ToneGenerator volume scale is 0..100; the Android binding exposes it as Android.Media.Volume
-    // (an enum over int). 80 is clearly audible without being jarring.
-    private const global::Android.Media.Volume ToneVolume = (global::Android.Media.Volume)80;
+    private const global::Android.Media.Volume ToneVolume  = (global::Android.Media.Volume)80;
+    private const global::Android.Media.Volume ThinkVolume = (global::Android.Media.Volume)40;
 
-    // Durations chosen for minimum perceptible confirmation while driving:
-    // start=150ms (distinctive short beep), stop=100ms (higher pitch, punchy), error=300ms (unmissable).
-    private const int StartMs = 150;
-    private const int StopMs  = 100;
-    private const int ErrorMs = 300;
+    private const int StartMs    = 150;
+    private const int StopMs     = 100;
+    private const int ErrorMs    = 300;
+    private const int ThinkMs    = 80;
+    private const int ThinkGapMs = 3000;
 
-    public void PlayStart()
+    private ATts.TextToSpeech? _tts;
+    private readonly object _ttsLock = new();
+    private bool _ttsReady;
+
+    private CancellationTokenSource? _thinkingCts;
+
+    // ===== recording beeps =================================================
+
+    public void PlayStart() => _ = Task.Run(() => PlayTone(Tone.PropBeep,  StartMs, ToneVolume));
+    public void PlayStop()  => _ = Task.Run(() => PlayTone(Tone.PropBeep2, StopMs,  ToneVolume));
+    public void PlayError() => _ = Task.Run(() => PlayTone(Tone.PropNack,  ErrorMs, ToneVolume));
+
+    // ===== status announcements (local TTS) ================================
+
+    public void PlaySent()  => SpeakPhrase("Sent");
+    public void PlayReply() => SpeakPhrase("Agent replied");
+
+    // ===== thinking sound ==================================================
+
+    public void StartThinking()
     {
-        // Beep (mid pitch) - recording started.
-        _ = Task.Run(() => PlayTone(Tone.PropBeep, StartMs));
+        _thinkingCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _thinkingCts = cts;
+        _ = Task.Run(async () =>
+        {
+            while (!cts.Token.IsCancellationRequested)
+            {
+                PlayTone(Tone.PropBeep, ThinkMs, ThinkVolume);
+                try { await Task.Delay(ThinkGapMs, cts.Token); }
+                catch (OperationCanceledException) { break; }
+            }
+        });
     }
 
-    public void PlayStop()
+    public void StopThinking()
     {
-        // Higher pitch beep - submitted successfully.
-        _ = Task.Run(() => PlayTone(Tone.PropBeep2, StopMs));
+        _thinkingCts?.Cancel();
+        _thinkingCts = null;
     }
 
-    public void PlayError()
+    // ===== internals =======================================================
+
+    private void SpeakPhrase(string text)
     {
-        // Negative acknowledgement tone - turn failed.
-        _ = Task.Run(() => PlayTone(Tone.PropNack, ErrorMs));
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                EnsureTts();
+                if (_ttsReady)
+                    _tts?.Speak(text, ATts.QueueMode.Flush, null, null);
+            }
+            catch (Exception ex)
+            {
+                ClientLog.Write($"[AndroidAudioCue] SpeakPhrase({text}) FAILED: {ex.Message}");
+            }
+        });
     }
 
-    private static void PlayTone(Tone tone, int durationMs)
+    private void EnsureTts()
+    {
+        lock (_ttsLock)
+        {
+            if (_tts != null) return;
+            var ctx = global::Android.App.Application.Context;
+            _tts = new ATts.TextToSpeech(ctx, new TtsInitListener(ready => _ttsReady = ready));
+        }
+    }
+
+    private static void PlayTone(Tone tone, int durationMs, global::Android.Media.Volume volume)
     {
         ToneGenerator? gen = null;
         try
         {
-            gen = new ToneGenerator(global::Android.Media.Stream.Notification, ToneVolume);
+            gen = new ToneGenerator(global::Android.Media.Stream.Notification, volume);
             gen.StartTone(tone, durationMs);
-            // Block the background thread for the duration so the generator is not
-            // disposed before the tone finishes. ToneGenerator.StartTone is async
-            // internally; the documented approach is to wait the duration or call
-            // StopTone, then release.
-            System.Threading.Thread.Sleep(durationMs + 50); // +50ms safety margin
+            System.Threading.Thread.Sleep(durationMs + 50);
             gen.StopTone();
         }
         catch (Exception ex)
@@ -63,5 +117,19 @@ public sealed class AndroidAudioCue : IAudioCue
             try { gen?.Release(); } catch { }
             try { gen?.Dispose(); } catch { }
         }
+    }
+
+    public void Dispose()
+    {
+        StopThinking();
+        try { _tts?.Shutdown(); } catch { }
+        _tts?.Dispose();
+    }
+
+    private sealed class TtsInitListener : Java.Lang.Object, ATts.TextToSpeech.IOnInitListener
+    {
+        private readonly Action<bool> _onReady;
+        public TtsInitListener(Action<bool> onReady) => _onReady = onReady;
+        public void OnInit(ATts.OperationResult status) => _onReady(status == ATts.OperationResult.Success);
     }
 }
