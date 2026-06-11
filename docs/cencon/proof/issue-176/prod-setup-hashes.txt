@@ -1,0 +1,27 @@
+Issue #176 - Production setup state byte-identical across the work (AC1 evidence)
+================================================================================
+
+Production setup dir: %LOCALAPPDATA%\cc-director\config\setup
+
+SHA-256 captured at the START of the dev session (before any isolation experiment):
+  installed.json   = BFDBD7E2C17D975FED03450A5AA99C7EBEE5EC1E71F0C8EC607DBAAD358E08E7
+  update-pins.json = E3566B3A06430868D71E9287DFD6C6C520A3DA027AABEA01951D407EE131DC2F
+
+SHA-256 captured at the END (after building, running the full 153-test engine suite,
+and exercising the isolated InstalledManifest/PinStore writes under CC_DIRECTOR_ROOT):
+  installed.json   = BFDBD7E2C17D975FED03450A5AA99C7EBEE5EC1E71F0C8EC607DBAAD358E08E7
+  update-pins.json = E3566B3A06430868D71E9287DFD6C6C520A3DA027AABEA01951D407EE131DC2F
+
+Result: BYTE-IDENTICAL. The production installed.json still records the REAL versions
+("gateway":"0.6.22", ...), never the fake 9.9.x the self-update harness stages.
+
+Live fleet untouched during the work:
+  Gateway  http://127.0.0.1:7878/healthz -> 200
+  Cockpit  http://127.0.0.1:7470/        -> 200
+  Director http://127.0.0.1:7887/healthz -> 200
+
+Note: the live self-update script (test-gateway-selfupdate.ps1) was NOT executed end-to-end
+on this busy shared machine (it builds and spawns gateway processes and binds ports). Its
+isolation MECHANISM is proven hermetically by SelfUpdateIsolationTests, which records the same
+fake 9.9.x versions GatewaySelfUpdate would, under an isolated CC_DIRECTOR_ROOT, and asserts the
+production setup files are byte-identical before/after - the same hashes shown above.

@@ -1,0 +1,26 @@
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  CcDirector.Setup.Engine -> D:\ReposFred\cc-director-wt-176\tools\cc-director-setup-engine\bin\Debug\net10.0\CcDirector.Setup.Engine.dll
+  CcDirector.Setup.Engine.Tests -> D:\ReposFred\cc-director-wt-176\tools\cc-director-setup-engine.Tests\bin\Debug\net10.0\CcDirector.Setup.Engine.Tests.dll
+Test run for D:\ReposFred\cc-director-wt-176\tools\cc-director-setup-engine.Tests\bin\Debug\net10.0\CcDirector.Setup.Engine.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v2.8.2+699d445a1a (64-bit .NET 10.0.9)
+[xUnit.net 00:00:00.05]   Discovering: CcDirector.Setup.Engine.Tests
+[xUnit.net 00:00:00.09]   Discovered:  CcDirector.Setup.Engine.Tests
+[xUnit.net 00:00:00.09]   Starting:    CcDirector.Setup.Engine.Tests
+  Passed CcDirector.Setup.Engine.Tests.UpdatePlannerTests.NotInstalled_BecomesInstall [17 ms]
+  Passed CcDirector.Setup.Engine.Tests.UpdatePlannerTests.PoisonedInstalledVersion_NoReadableExeStamp_ReappliesInsteadOfUpToDate [1 ms]
+  Passed CcDirector.Setup.Engine.Tests.UpdatePlannerTests.NoAssetInManifest_BecomesMissingAsset [2 ms]
+  Passed CcDirector.Setup.Engine.Tests.UpdatePlannerTests.IndependentVersioning_OnlyBehindComponentUpdates [1 ms]
+  Passed CcDirector.Setup.Engine.Tests.UpdatePlannerTests.PoisonedInstalledVersion_ExeAlreadyAtRelease_ReportsUpToDateFromExeStamp [< 1 ms]
+  Passed CcDirector.Setup.Engine.Tests.UpdatePlannerTests.NormalInstalledVersion_NotTreatedAsPoisoned [< 1 ms]
+  Passed CcDirector.Setup.Engine.Tests.UpdatePlannerTests.PinnedVersion_IsSkippedNotUpdated [1 ms]
+  Passed CcDirector.Setup.Engine.Tests.UpdatePlannerTests.PoisonedInstalledVersion_DoesNotReportUpToDate_PrefersExeFileVersion [< 1 ms]
+  Passed CcDirector.Setup.Engine.Tests.SelfUpdateIsolationTests.RecordingFakeVersions_UnderIsolatedRoot_LeavesProductionSetupStateUntouched [35 ms]
+[xUnit.net 00:00:00.18]   Finished:    CcDirector.Setup.Engine.Tests
+  Passed CcDirector.Setup.Engine.Tests.SelfUpdateIsolationTests.Default_HonorsCcDirectorRootOverride [< 1 ms]
+
+Test Run Successful.
+Total tests: 10
+     Passed: 10
+ Total time: 0.4924 Seconds

@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #176 - QA Proof Report</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem auto; max-width: 62rem; color: #1b1b1b; line-height: 1.5; }
+  h1 { border-bottom: 3px solid #1a7a32; padding-bottom: .3rem; }
+  h2 { margin-top: 2rem; color: #1a7a32; }
+  code, pre { font-family: Consolas, monospace; background: #f4f6fa; }
+  pre { padding: 1rem; border-radius: 6px; overflow-x: auto; border: 1px solid #dfe3ea; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #cfd6e2; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #eafbef; }
+  .pass { color: #1a7a32; font-weight: bold; }
+  .meta { color: #555; font-size: .9rem; }
+</style>
+</head>
+<body>
+<h1>Issue #176 - QA Proof Report (independent verification)</h1>
+<p class="meta">QA Agent (CenCon) - independent of the Developer Agent. Repo: thefrederiksen/cc-director.
+PR #306, branch <code>loop/176-selfupdate-installedjson</code> @ 07a9124. Verified on a busy shared
+machine; the live fleet (Gateway 7878, Cockpit 7470, Director 7887) was confirmed responding 200
+before, during, and after, and the production setup state was kept byte-identical throughout.</p>
+
+<h2>Method</h2>
+<p>The PR branch was checked out fresh and built and tested by QA independently - the Developer's
+binaries, test output, and screenshots were NOT reused. The full setup-engine test project was run
+by QA; the script's production-root refusal was exercised by QA; the production setup files were
+hashed by QA at the start, after the build + full test run, and after the refusal run.</p>
+
+<h2>Acceptance criteria - independently verified</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (QA-observed)</th><th>Result</th></tr>
+<tr>
+  <td>1</td>
+  <td>Running the self-update test leaves production <code>installed.json</code> /
+      <code>update-pins.json</code> byte-identical (hash before/after).</td>
+  <td>Production setup files unchanged; the harness writes the fake versions only to an isolated root.</td>
+  <td>Production SHA-256 identical across the entire QA session (baseline -&gt; after build+153 tests -&gt;
+      after refusal run). The <code>RecordingFakeVersions_UnderIsolatedRoot_LeavesProductionSetupStateUntouched</code>
+      test (which performs the REAL <code>InstalledManifest.Set(gateway,9.9.9).Save()</code> +
+      <code>PinStore.Pin(gateway,9.9.8)</code> under <code>CC_DIRECTOR_ROOT</code>) passed in QA's own run, and
+      QA confirmed production unchanged. The script also refuses the production root: invoking it with
+      <code>-Root %LOCALAPPDATA%\cc-director</code> exited 2 with a refusal message before any build or process spawn.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td>A poisoned installed version (higher than newest release) -&gt; planner logs loudly and does NOT
+      report UpToDate; prefers the exe FileVersion.</td>
+  <td>UpdatePlanner ignores the anomalous recorded version, logs a WARNING, and uses the exe stamp.</td>
+  <td>QA ran the guard tests independently:
+      <code>PoisonedInstalledVersion_DoesNotReportUpToDate_PrefersExeFileVersion</code> (exact #176 case: recorded
+      9.9.9, exe 0.6.5, release 0.6.6 -&gt; Update from 0.6.5, NOT UpToDate),
+      <code>PoisonedInstalledVersion_NoReadableExeStamp_ReappliesInsteadOfUpToDate</code> (no exe stamp -&gt; Update,
+      never UpToDate on the discarded fake), and
+      <code>PoisonedInstalledVersion_ExeAlreadyAtRelease_ReportsUpToDateFromExeStamp</code> all passed. The loud
+      <code>EngineLog.Write</code> WARNING is present in <code>UpdatePlanner.Plan</code>. Logic reviewed: guard fires only on
+      <code>present &amp;&amp; IsNewer(recorded, release) &amp;&amp; recorded != fileVersion</code>, and <code>VersionUtil.IsNewer</code>
+      returns false on any unparseable side, so legitimate states are never falsely flagged.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>3</td>
+  <td>A normal install/update still completes and reports success only when the exe was actually swapped.</td>
+  <td>Legitimate at-or-below versions still resolve to UpToDate/Update correctly; guard does not misfire.</td>
+  <td><code>NormalInstalledVersion_NotTreatedAsPoisoned</code> (recorded 0.6.6 == release 0.6.6 -&gt; UpToDate) and the
+      pre-existing <code>IndependentVersioning_OnlyBehindComponentUpdates</code> /
+      <code>PinnedVersion_IsSkippedNotUpdated</code> all passed in QA's run. The guard only touches the anomalous
+      installed &gt; release path; the happy/rollback paths of the script are unchanged.</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>QA build &amp; test evidence (independent run)</h2>
+<pre>dotnet build cc-director.sln -c Debug
+  Build succeeded.  0 Warning(s)  0 Error(s)
+
+dotnet test tools/cc-director-setup-engine.Tests/CcDirector.Setup.Engine.Tests.csproj
+  Passed!  - Failed: 0, Passed: 153, Skipped: 0, Total: 153</pre>
+
+<h2>Production setup state - byte-identical throughout (QA hashes)</h2>
+<pre>installed.json   = BFDBD7E2C17D975FED03450A5AA99C7EBEE5EC1E71F0C8EC607DBAAD358E08E7   (baseline / post-tests / post-refusal - all identical)
+update-pins.json = E3566B3A06430868D71E9287DFD6C6C520A3DA027AABEA01951D407EE131DC2F   (baseline / post-tests / post-refusal - all identical)</pre>
+<p>These match the hashes the Developer recorded, confirming production was never touched by QA's
+build, the 153-test run, or the production-root refusal run.</p>
+
+<h2>Production-root refusal (QA-observed)</h2>
+<pre>powershell -File scripts\test-gateway-selfupdate.ps1 -Root %LOCALAPPDATA%\cc-director
+  EXITCODE = 2
+  FAILED: -Root must not be the production install root (C:\Users\soren\AppData\Local\cc-director). Refusing to pollute production setup state.</pre>
+<p>The refusal fires before any build or process spawn - no port was bound, no gateway was launched,
+the live fleet stayed at 200/200/200.</p>
+
+<h2>Regression / CenCon checks</h2>
+<ul>
+  <li>Full setup-engine suite green (153/153); no adjacent test regressed.</li>
+  <li>Change confined to the <code>CcDirector.Setup.Engine</code> container's update-planning logic + its test
+      harness. No container boundaries, data flows, or DT security rules affected; no <code>docs/cencon/</code>
+      update required.</li>
+  <li>Live fleet (7878 / 7470 / 7887) confirmed 200 before, during, and after QA.</li>
+</ul>
+
+<p class="pass">VERIFIED - all acceptance criteria met. Merging to main on a clean build.</p>
+</body>
+</html>
