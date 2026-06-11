@@ -108,6 +108,66 @@ public class ToolCatalogServiceTests : IDisposable
         Assert.Throws<InvalidOperationException>(() => svc.GetTool("cc-does-not-exist"));
     }
 
+    // ---------- Installed-layout resolution: bin\<name>.exe, else pyenv\Scripts\<name>.exe ----------
+
+    /// <summary>
+    /// Builds the installer's real layout (root\bin + root\pyenv\Scripts) in an isolated temp
+    /// root, so the pyenv probe is exercised hermetically (issue #328).
+    /// </summary>
+    private static (string Root, string BinDir) NewInstallLayout()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "ToolCatalogLayout_" + Guid.NewGuid().ToString("N"));
+        var binDir = Path.Combine(root, "bin");
+        Directory.CreateDirectory(binDir);
+        Directory.CreateDirectory(Path.Combine(root, "pyenv", "Scripts"));
+        return (root, binDir);
+    }
+
+    [Fact]
+    public void GetCatalog_PyenvScriptExePresent_ResolvesShimTargetAndMarksBuilt()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var (root, binDir) = NewInstallLayout();
+        try
+        {
+            // The installer's layout: bin holds only the .cmd shim; the real exe is in pyenv\Scripts.
+            File.WriteAllText(Path.Combine(binDir, "cc-vault.cmd"), "@echo off\r\n\"%~dp0..\\pyenv\\Scripts\\cc-vault.exe\" %*\r\n");
+            var pyenvExe = Path.Combine(root, "pyenv", "Scripts", "cc-vault.exe");
+            File.WriteAllText(pyenvExe, "stub");
+
+            var vault = new ToolCatalogService(binDir).GetCatalog().Single(d => d.Name == "cc-vault");
+
+            Assert.True(vault.IsBuilt);
+            Assert.Equal(pyenvExe, vault.BinaryPath);
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch { /* temp dir cleanup is best-effort */ }
+        }
+    }
+
+    [Fact]
+    public void GetCatalog_NativeExeAndPyenvExeBothPresent_NativeWins()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var (root, binDir) = NewInstallLayout();
+        try
+        {
+            var native = Path.Combine(binDir, "cc-vault.exe");
+            File.WriteAllText(native, "stub");
+            File.WriteAllText(Path.Combine(root, "pyenv", "Scripts", "cc-vault.exe"), "stub");
+
+            var vault = new ToolCatalogService(binDir).GetCatalog().Single(d => d.Name == "cc-vault");
+
+            Assert.True(vault.IsBuilt);
+            Assert.Equal(native, vault.BinaryPath);
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch { /* temp dir cleanup is best-effort */ }
+        }
+    }
+
     [Fact]
     public void GetUnmanagedBinaries_BuiltCcBinaryNotInManifest_Reported()
     {
