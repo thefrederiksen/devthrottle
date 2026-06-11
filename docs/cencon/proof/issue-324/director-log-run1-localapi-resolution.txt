@@ -1,0 +1,7 @@
+2026-06-11 07:05:43.264 [GatewayConnectionMonitor] Reset: status=Connecting
+2026-06-11 07:05:43.264 [GatewayClient] Start: gateway=http://localhost:7878, directorId=f6b778b1-3b24-4c79-b0b5-6eb942626702, port=7897
+2026-06-11 07:05:43.273 [TailnetIdentityResolver] ResolveEndpoint: resolved https://soren-north.taildb08ed.ts.net:7897 via local-api
+2026-06-11 07:05:43.526 [MainWindow] Gateway indicator attached to GatewayConnectionMonitor
+2026-06-11 07:05:43.534 [GatewayClient] POST /directors/register: endpoint=https://soren-north.taildb08ed.ts.net:7897
+2026-06-11 07:05:45.582 [GatewayClient] Registered: status=201, endpoint=https://soren-north.taildb08ed.ts.net:7897
+2026-06-11 07:05:45.609 [GatewayConnectionMonitor] Handshake PASSED: two-way connection verified

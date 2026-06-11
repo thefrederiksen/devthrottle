@@ -1,0 +1,30 @@
+2026-06-11 07:11:47.909 [ControlApiHost] Kestrel listening on http://127.0.0.1:7898 (loopback only; remote access via Tailscale Serve)
+2026-06-11 07:11:47.913 [TailscaleServeSelfProvisioner] CC_GATEWAY_NO_TAILSCALE=1; serve self-provisioning disabled (local test mode).
+2026-06-11 07:11:47.915 [GatewayConnectionMonitor] Reset: status=Connecting
+2026-06-11 07:11:47.915 [GatewayClient] Start: gateway=http://localhost:7878, directorId=f6b778b1-3b24-4c79-b0b5-6eb942626702, port=7898
+2026-06-11 07:11:47.918 [TailnetIdentityResolver] ResolveEndpoint FAILED: gateway.tailnetEndpoint override 'http://127.0.0.1:7887' is a loopback address and is never advertised - set it to a tailnet-routable URL, or start Tailscale so the MagicDNS identity resolves.
+2026-06-11 07:11:47.918 [GatewayClient] TryRegisterAsync: NO TAILNET IDENTITY - gateway.tailnetEndpoint override 'http://127.0.0.1:7887' is a loopback address and is never advertised - set it to a tailnet-routable URL, or start Tailscale so the MagicDNS identity resolves.
+2026-06-11 07:11:47.918 [GatewayConnectionMonitor] Tailnet identity failure: gateway.tailnetEndpoint override 'http://127.0.0.1:7887' is a loopback address and is never advertised - set it to a tailnet-routable URL, or start Tailscale so the MagicDNS identity resolves.
+2026-06-11 07:11:48.163 [MainWindow] Gateway indicator attached to GatewayConnectionMonitor
+2026-06-11 07:11:49.975 [GatewayClient] Flagged register returned 400 Bad Request (Gateway predates issue #324 or refused); will retry
+2026-06-11 07:11:49.986 [GatewayConnectionMonitor] Handshake PASSED: two-way connection verified
+2026-06-11 07:11:51.988 [GatewayClient] TryRegisterAsync: NO TAILNET IDENTITY - gateway.tailnetEndpoint override 'http://127.0.0.1:7887' is a loopback address and is never advertised - set it to a tailnet-routable URL, or start Tailscale so the MagicDNS identity resolves.
+2026-06-11 07:11:51.988 [GatewayConnectionMonitor] Tailnet identity failure: gateway.tailnetEndpoint override 'http://127.0.0.1:7887' is a loopback address and is never advertised - set it to a tailnet-routable URL, or start Tailscale so the MagicDNS identity resolves.
+2026-06-11 07:11:51.989 [GatewayClient] Flagged register returned 400 Bad Request (Gateway predates issue #324 or refused); will retry
+2026-06-11 07:11:55.997 [GatewayClient] TryRegisterAsync: NO TAILNET IDENTITY - gateway.tailnetEndpoint override 'http://127.0.0.1:7887' is a loopback address and is never advertised - set it to a tailnet-routable URL, or start Tailscale so the MagicDNS identity resolves.
+2026-06-11 07:11:55.998 [GatewayClient] Flagged register returned 400 Bad Request (Gateway predates issue #324 or refused); will retry
+2026-06-11 07:12:04.008 [GatewayClient] TryRegisterAsync: NO TAILNET IDENTITY - gateway.tailnetEndpoint override 'http://127.0.0.1:7887' is a loopback address and is never advertised - set it to a tailnet-routable URL, or start Tailscale so the MagicDNS identity resolves.
+2026-06-11 07:12:04.009 [GatewayClient] Flagged register returned 400 Bad Request (Gateway predates issue #324 or refused); will retry
+2026-06-11 07:12:19.022 [GatewayClient] TryRegisterAsync: NO TAILNET IDENTITY - gateway.tailnetEndpoint override 'http://127.0.0.1:7887' is a loopback address and is never advertised - set it to a tailnet-routable URL, or start Tailscale so the MagicDNS identity resolves.
+2026-06-11 07:12:19.022 [GatewayClient] Flagged register returned 400 Bad Request (Gateway predates issue #324 or refused); will retry
+2026-06-11 07:12:34.034 [GatewayClient] TryRegisterAsync: NO TAILNET IDENTITY - gateway.tailnetEndpoint override 'http://127.0.0.1:7887' is a loopback address and is never advertised - set it to a tailnet-routable URL, or start Tailscale so the MagicDNS identity resolves.
+2026-06-11 07:12:34.035 [GatewayClient] Flagged register returned 400 Bad Request (Gateway predates issue #324 or refused); will retry
+2026-06-11 07:12:49.046 [GatewayClient] TryRegisterAsync: NO TAILNET IDENTITY - gateway.tailnetEndpoint override 'http://127.0.0.1:7887' is a loopback address and is never advertised - set it to a tailnet-routable URL, or start Tailscale so the MagicDNS identity resolves.
+2026-06-11 07:12:49.046 [GatewayClient] Flagged register returned 400 Bad Request (Gateway predates issue #324 or refused); will retry
+2026-06-11 07:13:04.047 [GatewayClient] TryRegisterAsync: NO TAILNET IDENTITY - gateway.tailnetEndpoint override 'http://127.0.0.1:7887' is a loopback address and is never advertised - set it to a tailnet-routable URL, or start Tailscale so the MagicDNS identity resolves.
+2026-06-11 07:13:04.047 [GatewayClient] Flagged register returned 400 Bad Request (Gateway predates issue #324 or refused); will retry
+2026-06-11 07:13:19.058 [GatewayClient] TryRegisterAsync: NO TAILNET IDENTITY - gateway.tailnetEndpoint override 'http://127.0.0.1:7887' is a loopback address and is never advertised - set it to a tailnet-routable URL, or start Tailscale so the MagicDNS identity resolves.
+2026-06-11 07:13:19.059 [GatewayClient] Flagged register returned 400 Bad Request (Gateway predates issue #324 or refused); will retry
+2026-06-11 07:13:34.070 [GatewayClient] TryRegisterAsync: NO TAILNET IDENTITY - gateway.tailnetEndpoint override 'http://127.0.0.1:7887' is a loopback address and is never advertised - set it to a tailnet-routable URL, or start Tailscale so the MagicDNS identity resolves.
+2026-06-11 07:13:34.070 [GatewayClient] Flagged register returned 400 Bad Request (Gateway predates issue #324 or refused); will retry
+2026-06-11 07:13:49.084 [GatewayClient] TryRegisterAsync: NO TAILNET IDENTITY - gateway.tailnetEndpoint override 'http://127.0.0.1:7887' is a loopback address and is never advertised - set it to a tailnet-routable URL, or start Tailscale so the MagicDNS identity resolves.

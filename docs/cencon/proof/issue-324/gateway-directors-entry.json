@@ -1,0 +1,14 @@
+{
+    "directorId":  "f6b778b1-3b24-4c79-b0b5-6eb942626702",
+    "pid":  56400,
+    "startedAt":  "2026-06-11T11:05:42.2524953Z",
+    "controlEndpoint":  "https://soren-north.taildb08ed.ts.net:7897",
+    "machineName":  "SOREN_NORTH",
+    "user":  "soren",
+    "version":  "0.6.22",
+    "schemaVersion":  1,
+    "lastSeen":  "2026-06-11T11:06:28.2678539Z",
+    "tailnetEndpoint":  "https://soren-north.taildb08ed.ts.net:7897",
+    "source":  "http",
+    "twoWayVerifiedAt":  "2026-06-11T11:05:45.605127Z"
+}
