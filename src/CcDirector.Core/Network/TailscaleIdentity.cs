@@ -1,12 +1,15 @@
 using System.Diagnostics;
+using System.IO.Pipes;
+using System.Net.Sockets;
 using System.Text.Json;
 using CcDirector.Core.Utilities;
 
 namespace CcDirector.Core.Network;
 
 /// <summary>
-/// Resolves this machine's own Tailscale identity (its MagicDNS name) by shelling
-/// <c>tailscale status --json</c> and reading <c>Self.DNSName</c>.
+/// Resolves this machine's own Tailscale identity (its MagicDNS name) either through the
+/// tailscaled LocalAPI (<see cref="TryGetMagicDnsNameViaLocalApi"/>) or by shelling
+/// <c>tailscale status --json</c> (<see cref="TryGetMagicDnsName"/>), reading <c>Self.DNSName</c>.
 ///
 /// Two consumers:
 ///   - The Director registration path advertises <c>http://&lt;magicdns&gt;:&lt;port&gt;</c> by
@@ -38,6 +41,80 @@ public static class TailscaleIdentity
     }
 
     /// <summary>
+    /// This node's MagicDNS name resolved through the tailscaled LocalAPI (issue #324, plan 1A:
+    /// the local API is the FIRST rung of the detection ladder, ahead of shelling the CLI).
+    /// On Windows the LocalAPI listens on the named pipe
+    /// <c>\\.\pipe\ProtectedPrefix\Administrators\Tailscale\tailscaled</c>; on Linux (and the
+    /// open-source macOS daemon) it is the unix socket <c>/var/run/tailscale/tailscaled.sock</c>.
+    /// GET <c>/localapi/v0/status</c> returns the same JSON shape as <c>tailscale status --json</c>,
+    /// so the same <see cref="ParseSelfDnsName"/> applies. Returns null when the daemon is not
+    /// running / not installed / the transport is unavailable - the caller then falls back to
+    /// the CLI rung.
+    /// </summary>
+    public static string? TryGetMagicDnsNameViaLocalApi()
+    {
+        try
+        {
+            using var handler = new SocketsHttpHandler
+            {
+                ConnectCallback = async (_, ct) =>
+                {
+                    if (OperatingSystem.IsWindows())
+                    {
+                        // TokenImpersonationLevel.Impersonation is REQUIRED: tailscaled
+                        // identifies the calling user by impersonating the pipe client, and
+                        // the .NET default (None) makes it answer 401 "Unable to impersonate
+                        // using a named pipe until data has been read from that pipe."
+                        // (verified live against tailscale 1.98.2 on Windows).
+                        var pipe = new NamedPipeClientStream(
+                            ".", @"ProtectedPrefix\Administrators\Tailscale\tailscaled",
+                            PipeDirection.InOut, PipeOptions.Asynchronous,
+                            System.Security.Principal.TokenImpersonationLevel.Impersonation);
+                        await pipe.ConnectAsync((int)LocalApiTimeout.TotalMilliseconds, ct);
+                        return pipe;
+                    }
+
+                    var socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+                    await socket.ConnectAsync(new UnixDomainSocketEndPoint("/var/run/tailscale/tailscaled.sock"), ct);
+                    return new NetworkStream(socket, ownsSocket: true);
+                },
+            };
+            // The host name is a placeholder (the transport above ignores it); "local-tailscaled.sock"
+            // is the conventional Host value tailscale's own clients send to the LocalAPI.
+            using var http = new HttpClient(handler) { Timeout = LocalApiTimeout };
+            using var resp = http.Send(new HttpRequestMessage(HttpMethod.Get, "http://local-tailscaled.sock/localapi/v0/status"));
+            if (!resp.IsSuccessStatusCode)
+            {
+                FileLog.Write($"[TailscaleIdentity] LocalAPI status answered HTTP {(int)resp.StatusCode}");
+                return null;
+            }
+            using var stream = resp.Content.ReadAsStream();
+            using var reader = new StreamReader(stream);
+            var json = reader.ReadToEnd();
+            var name = ParseSelfDnsName(json);
+            if (name is null)
+                FileLog.Write("[TailscaleIdentity] LocalAPI status had no Self.DNSName");
+            return name;
+        }
+        catch (Exception ex)
+        {
+            // Expected when tailscaled is not running (pipe/socket missing) - the caller's
+            // CLI fallback covers the rest. Logged once per distinct message, not per probe:
+            // this runs every heartbeat cycle (issue #324) and must not drown the log (#197).
+            if (_lastLocalApiError != ex.Message)
+            {
+                _lastLocalApiError = ex.Message;
+                FileLog.Write($"[TailscaleIdentity] LocalAPI probe unavailable: {ex.Message}");
+            }
+            return null;
+        }
+    }
+
+    private static string? _lastLocalApiError;
+    private static bool _loggedCliMissing;
+    private static readonly TimeSpan LocalApiTimeout = TimeSpan.FromSeconds(3);
+
+    /// <summary>
     /// The MagicDNS names of the tailnet nodes a gateway could plausibly run on - online and
     /// not mobile (a gateway never runs on a phone) - so a caller can probe each for a gateway.
     /// Self is first. Returns an empty list when Tailscale is unavailable. The caller does the
@@ -60,9 +137,16 @@ public static class TailscaleIdentity
         var exe = ResolveExe();
         if (exe is null)
         {
-            FileLog.Write("[TailscaleIdentity] tailscale CLI not found in any known location");
+            // Logged once, not per call: the identity resolver re-runs this every heartbeat
+            // cycle (issue #324) and a missing CLI is missing until someone installs it.
+            if (!_loggedCliMissing)
+            {
+                _loggedCliMissing = true;
+                FileLog.Write("[TailscaleIdentity] tailscale CLI not found in any known location");
+            }
             return null;
         }
+        _loggedCliMissing = false;
 
         try
         {

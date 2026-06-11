@@ -107,6 +107,38 @@ public sealed class GatewayConnectionMonitorTests
     }
 
     [Fact]
+    public void ReportTailnetIdentityFailure_GoesExplicitState_ButNeverFromNotConfigured()
+    {
+        // Issue #324: the identity failure is its OWN state (the remediation is local, not
+        // a Gateway problem), and gray stays sticky for local-only Directors.
+        var m = new GatewayConnectionMonitor();
+
+        m.ReportTailnetIdentityFailure("anything");
+        Assert.Equal(GatewayConnectionStatus.NotConfigured, m.Status);
+
+        m.Reset(gatewayConfigured: true);
+        m.ReportTailnetIdentityFailure("No tailnet identity: start Tailscale or set gateway.tailnetEndpoint.");
+        Assert.Equal(GatewayConnectionStatus.NoTailnetIdentity, m.Status);
+        Assert.Contains("start Tailscale", m.FailureSummary);
+    }
+
+    [Fact]
+    public void ReportTailnetIdentityFailure_RepeatedIdenticalSummary_NoChurn()
+    {
+        var m = new GatewayConnectionMonitor();
+        m.Reset(gatewayConfigured: true);
+        var fired = 0;
+        m.Changed += () => fired++;
+
+        m.ReportTailnetIdentityFailure("reason A"); // 1
+        m.ReportTailnetIdentityFailure("reason A"); // suppressed (heartbeat re-resolve repeats it)
+        m.ReportTailnetIdentityFailure("reason B"); // 2
+
+        Assert.Equal(2, fired);
+        Assert.Equal(GatewayConnectionStatus.NoTailnetIdentity, m.Status);
+    }
+
+    [Fact]
     public void Changed_FiresOnTransitions_NotOnRepeatedIdenticalFailure()
     {
         var m = new GatewayConnectionMonitor();

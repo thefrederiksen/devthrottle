@@ -42,6 +42,14 @@ public sealed class DirectorDto
     public string? TailnetEndpoint { get; set; }
 
     /// <summary>
+    /// Issue #324: the Director's own declaration that it has NO reachable advertised
+    /// endpoint (no tailnet identity resolved), with the reason naming the fix. Null when
+    /// the endpoint is claimed reachable. While set, the Gateway must not probe the
+    /// (empty) endpoint - the Director told us why it cannot answer.
+    /// </summary>
+    public string? EndpointUnreachableReason { get; set; }
+
+    /// <summary>
     /// How this Director got into the registry. "file" = FSW-discovered same-machine.
     /// "http" = registered via POST /directors/register from anywhere on the network.
     /// Defaults to "file" for backward compat with existing JSON registration files.

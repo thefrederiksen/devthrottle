@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Report - Issue #324 - Tailnet identity resolution and advertisement</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background: #14161a; color: #d8dce2; margin: 0; padding: 32px; }
+  h1 { color: #fff; font-size: 22px; border-bottom: 2px solid #2d7d46; padding-bottom: 8px; }
+  h2 { color: #9ecbff; font-size: 17px; margin-top: 32px; }
+  .verdict { background: #15351f; border: 1px solid #2d7d46; color: #7ee2a8; padding: 14px 18px; font-weight: 600; font-size: 16px; border-radius: 6px; }
+  table { border-collapse: collapse; width: 100%; margin-top: 12px; }
+  th, td { border: 1px solid #333a45; padding: 8px 10px; text-align: left; vertical-align: top; font-size: 13px; }
+  th { background: #1d2026; color: #aeb6c2; }
+  .pass { color: #7ee2a8; font-weight: 700; }
+  code, pre { background: #1d2026; color: #c9d4e3; padding: 2px 5px; border-radius: 3px; font-size: 12px; }
+  pre { padding: 10px; overflow-x: auto; white-space: pre-wrap; }
+  img { max-width: 100%; border: 1px solid #333a45; margin-top: 8px; }
+  .meta { color: #8a93a2; font-size: 12px; }
+  .note { background: #2a2417; border: 1px solid #6b5a23; color: #e0c97e; padding: 10px 14px; border-radius: 6px; font-size: 13px; }
+</style>
+</head>
+<body>
+<h1>QA Verification Report - Issue #324 / PR #337</h1>
+<p class="meta">QA Agent (independent verification) - 2026-06-11 - branch <code>issue-324-tailnet-identity</code> @ <code>acc4863</code> - isolated worktree <code>qa-324-worktree</code>, slot-6 test Director (per-session isolation, issue #299), machine SOREN_NORTH (the gateway box, live prod Gateway on :7878).</p>
+
+<div class="verdict">VERIFIED - all acceptance criteria met. 5/5 PASS. Recommend merge.</div>
+
+<h2>Method</h2>
+<p>Independent of the Developer's proof: own git worktree on the PR branch, own build (<code>dotnet build cc-director.sln</code> - 0 warnings, 0 errors), own slot-6 Director launched via its own scheduled task (<code>scripts/agent-session-isolation.ps1</code>), own screenshots and Control API / Gateway REST captures. The shared config carries a REAL adversarial condition: <code>gateway.tailnetEndpoint = http://127.0.0.1:7887</code> (a loopback override), so both runs also exercise the never-advertise-loopback rule against live data.</p>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (my evidence)</th><th>Verdict</th></tr>
+<tr>
+  <td>1</td>
+  <td>Gateway <code>GET /directors</code> shows the Director with <code>tailnetEndpoint = https://&lt;machine&gt;.&lt;tailnet&gt;.ts.net:&lt;port&gt;</code> - never empty, never 127.0.0.1</td>
+  <td>Real ts.net endpoint despite the loopback override in config.json</td>
+  <td>Run 1 (Tailscale up): Director log shows <code>resolved https://soren-north.taildb08ed.ts.net:7896 via local-api</code> (the loopback override correctly outranked). Live Gateway <code>/directors</code> entry: <code>tailnetEndpoint = https://soren-north.taildb08ed.ts.net:7896</code>, <code>twoWayVerifiedAt</code> stamped 11:47:38Z (the Gateway itself called back through that endpoint). <code>https://soren-north.taildb08ed.ts.net:7896/healthz</code> answered HTTP 200 with the matching <code>directorId 1fd9d3c5-...</code>. Evidence: <code>qa-run1-gateway-directors-entry.json</code>, <code>qa-run1-healthz-via-tailnet.txt</code>, <code>qa-run1-log-excerpt.txt</code>, <code>qa-run1-indicator-connected.png</code>.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td>No identity resolvable: never advertise loopback/empty as reachable; desktop indicator failure state naming the fix; clear <code>[GatewayClient]</code> FileLog error with remediation</td>
+  <td>Loud explicit failure, loopback refused</td>
+  <td>Run 2 (<code>CC_GATEWAY_NO_TAILSCALE=1</code>, loopback override present): log shows <code>ResolveEndpoint FAILED: gateway.tailnetEndpoint override 'http://127.0.0.1:7887' is a loopback address and is never advertised - set it to a tailnet-routable URL, or start Tailscale...</code> and <code>[GatewayClient] TryRegisterAsync: NO TAILNET IDENTITY - ...</code>. Desktop indicator shows red <strong>NO TAILNET IDENTITY</strong> with that remediation text (screenshot read and judged). Registration went out FLAGGED (empty endpoint + reason); the live pre-#324 Gateway answered 400 (the designed back-compat path, logged <code>Gateway predates issue #324 or refused; will retry</code>); Gateway <code>/directors</code> never showed a loopback endpoint for this Director. Retry cadence observed capped at heartbeat interval (2s/4s/8s/15s) per the heal-fast design. Evidence: <code>qa-run2-log-excerpt.txt</code>, <code>qa-run2-indicator-no-tailnet-identity.png</code>.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>3</td>
+  <td>Detection order unit-tested with stubbed seams</td>
+  <td>local API preferred; CLI fallback; config override when both fail</td>
+  <td><code>TailnetIdentityResolverTests</code>: 15/15 passed in my build. Names verify the seams directly: <code>LocalApiResolves_IsPreferredAndCliIsNotCalled</code>, <code>LocalApiUnavailable_FallsBackToCli</code>, <code>BothProbesFail_UsesConfigOverride</code>, <code>ProbeResultWinsOverStaleOverride</code>, <code>NothingResolves_FailureNamesTheFix</code>, <code>LoopbackOverride_RefusedNeverAdvertised</code>, plus port validation and IsLoopback classification.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>4</td>
+  <td>Healing: identity unresolved at start, Tailscale comes up, registration shows the real endpoint within 2 heartbeat cycles (30 s), no restart</td>
+  <td>Timed proof</td>
+  <td><code>HeartbeatReResolve_IdentityAppears_HealsRegistrationWithoutRestart</code> passed (15 s) in my build - real GatewayClient register/heartbeat loop against a real in-proc GatewayHost over HTTP; the test asserts the heal lands inside the 30 s bound. Forever-cache (<code>_cachedDnsName</code>) confirmed deleted from GatewayClient; <code>BuildRegistrationRequest()</code> runs the ladder fresh every call, and the heartbeat tick calls <code>MaybeReRegisterOnIdentityChange()</code> every cycle (code-inspected on the PR branch). Live env-var kill switch cannot be flipped in a running process and stopping the real tailscaled on the production gateway box is rule-0 territory, so the timed integration test is the accepted proof - same limitation the Developer recorded.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>5</td>
+  <td>Regression: <code>BuildRegistrationRequest()</code> never claims a reachable endpoint while TailnetEndpoint is empty or loopback</td>
+  <td>Test suite green</td>
+  <td><code>GatewayClientRegistrationRequestTests</code> green in my build: <code>NoIdentityNoOverride_NeverClaimsReachable</code>, <code>LoopbackOverride_NeverClaimsReachable</code>, <code>IdentityResolves_ClaimsReachableTailnetEndpoint</code>. Full #324 Gateway sweep: 40/40 passed (registration, monitor, two-way verify, flagged-shape acceptance/rejection suites).</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Regression and method sweep</h2>
+<ul>
+  <li>Full solution build: <strong>0 warnings, 0 errors</strong>.</li>
+  <li>Run 1 indicator earned a normal green <strong>GATEWAY CONNECTED / two-way verified</strong> - the existing #223/#224 handshake path is intact alongside the new state.</li>
+  <li>Live Gateway <code>/directors</code> after both runs shows no loopback entry anywhere; the SORENLAPTOP entry is unaffected.</li>
+  <li>Contract change is exactly one additive optional field (<code>EndpointUnreachableReason</code>) + DTO mirror, called out in the PR per plan 1.2.5; old-Gateway 400 degradation observed live (Run 2).</li>
+  <li>Both screenshots read in full; no adjacent UI breakage observed.</li>
+</ul>
+
+<h2>Honest limitations</h2>
+<div class="note">
+Cross-machine proof-target half executed single-box, same as the Developer recorded: the slot Director ran on SOREN_NORTH (the gateway box) and its ts.net front door was dialed from the same box - transport-identical (HTTPS through the tailscale serve front door with the tailnet cert), and the Gateway's own two-way callback verification (<code>twoWayVerifiedAt</code>) independently proves the advertised endpoint answers. A SORENLAPTOP-hosted rig needs build access on that machine. AC4 healing proven by the timed integration test, not by stopping the production tailscaled (rule-0).
+</div>
+
+<h2>Evidence files (this directory)</h2>
+<ul>
+  <li><code>qa-run1-indicator-connected.png</code> - slot-6 Director, green GATEWAY CONNECTED, v0.6.22 (acc4863)</li>
+  <li><code>qa-run1-gateway-directors-entry.json</code> - live Gateway /directors entry with the real ts.net endpoint</li>
+  <li><code>qa-run1-healthz-via-tailnet.txt</code> - HTTP 200 via the ts.net front door, matching directorId</li>
+  <li><code>qa-run1-log-excerpt.txt</code> - resolution via local-api, register 201</li>
+  <li><code>qa-run2-indicator-no-tailnet-identity.png</code> - red NO TAILNET IDENTITY with remediation text</li>
+  <li><code>qa-run2-log-excerpt.txt</code> - loopback override refused, flagged register, 400 back-compat, heartbeat-cadence retries</li>
+</ul>
+
+<p class="meta">QA Agent - CenCon Development Method - independent verification; Developer evidence was used as context only, never as proof.</p>
+</body>
+</html>

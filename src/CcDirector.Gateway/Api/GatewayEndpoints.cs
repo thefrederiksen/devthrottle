@@ -185,8 +185,11 @@ internal static class GatewayEndpoints
         {
             if (req is null || string.IsNullOrEmpty(req.DirectorId))
                 return Results.BadRequest(new { error = "directorId is required" });
-            if (string.IsNullOrEmpty(req.TailnetEndpoint))
-                return Results.BadRequest(new { error = "tailnetEndpoint is required" });
+            // Issue #324: a Director with no resolvable tailnet identity may register FLAGGED -
+            // empty endpoint plus its own reason - so the fleet can see the machine exists.
+            // An empty endpoint WITHOUT the reason is still the old undialable-entry bug: reject.
+            if (string.IsNullOrEmpty(req.TailnetEndpoint) && string.IsNullOrWhiteSpace(req.EndpointUnreachableReason))
+                return Results.BadRequest(new { error = "tailnetEndpoint is required (or endpointUnreachableReason for a flagged no-endpoint registration)" });
 
             FileLog.Write($"[GatewayEndpoints] POST /directors/register: id={req.DirectorId}, endpoint={req.TailnetEndpoint}, machine={req.MachineName}");
             var dto = registry.Upsert(req);
@@ -320,6 +323,15 @@ internal static class GatewayEndpoints
                 // so the UI shows it as unreachable - with an ACTIONABLE message (issue #197): an endpoint
                 // that never answered since registration is a provisioning problem on the Director's
                 // machine (no tailscale serve mapping), not a transient outage. See DIRECTOR_LIVENESS_PLAN.md.
+                // Issue #324: a flagged registration declared its own endpoint unreachable (no
+                // tailnet identity on that machine). Never probe the empty endpoint - surface
+                // the Director's own reason, which already names the fix on that machine.
+                if (!string.IsNullOrEmpty(d.EndpointUnreachableReason) || string.IsNullOrEmpty(d.ControlEndpoint))
+                {
+                    var declared = d.EndpointUnreachableReason ?? "no reachable endpoint advertised";
+                    return (Director: d, Sessions: (List<SessionDto>?)null, Error: declared);
+                }
+
                 if (!registry.ShouldProbe(d.DirectorId))
                 {
                     var detail = registry.WasEverReachable(d.DirectorId)
@@ -441,7 +453,9 @@ internal static class GatewayEndpoints
             var fanout = directors.Select(async d =>
             {
                 if (!registry.ShouldProbe(d.DirectorId)) return (Director: d, Journals: (List<CrashJournalDto>?)null);
-                var ep = (d.ControlEndpoint ?? "").TrimEnd('/');
+                // Issue #324: a flagged no-endpoint registration has nothing to dial.
+                if (string.IsNullOrEmpty(d.ControlEndpoint)) return (Director: d, Journals: (List<CrashJournalDto>?)null);
+                var ep = d.ControlEndpoint.TrimEnd('/');
                 return (Director: d, Journals: await client.GetInterruptedAsync(ep));
             }).ToList();
             var results = await Task.WhenAll(fanout);

@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #324 - Developer Proof: tailnet identity resolution + fail-loudly + heartbeat healing</title>
+<style>
+  body { font-family: 'Segoe UI', sans-serif; background: #1e1e1e; color: #cccccc; margin: 0; padding: 32px; line-height: 1.55; }
+  h1 { color: #ffffff; font-size: 22px; border-bottom: 2px solid #007acc; padding-bottom: 8px; }
+  h2 { color: #4fc1ff; font-size: 17px; margin-top: 36px; }
+  h3 { color: #9cdcfe; font-size: 14px; }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; }
+  th, td { border: 1px solid #3c3c3c; padding: 8px 10px; text-align: left; vertical-align: top; font-size: 13px; }
+  th { background: #2d2d30; color: #ffffff; }
+  code, pre { font-family: Consolas, monospace; background: #2d2d30; color: #d7ba7d; border-radius: 3px; }
+  code { padding: 1px 5px; font-size: 12px; }
+  pre { padding: 12px; overflow-x: auto; font-size: 12px; border: 1px solid #3c3c3c; }
+  .pass { color: #4ec9b0; font-weight: 600; }
+  .warn { color: #d7ba7d; font-weight: 600; }
+  .fail-loud { color: #ef4444; font-weight: 600; }
+  .box { background: #252526; border: 1px solid #3c3c3c; border-radius: 6px; padding: 14px 18px; margin: 14px 0; }
+  .verdict { background: #103a2a; border: 1px solid #2ea043; border-radius: 6px; padding: 14px 18px; margin: 22px 0; color: #7ee2a8; font-size: 15px; }
+  img { max-width: 100%; border: 1px solid #3c3c3c; border-radius: 4px; margin: 8px 0; }
+  .meta { color: #808080; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<h1>Issue #324 - Resolve and advertise the real MagicDNS tailnet endpoint; fail loudly when unresolvable</h1>
+<p class="meta">Developer Agent proof - branch <code>issue-324-tailnet-identity</code> - 2026-06-11 - machine SOREN_NORTH (the gateway box)</p>
+
+<h2>What was implemented</h2>
+<div class="box">
+<ul>
+  <li><strong>New <code>TailnetIdentityResolver</code></strong> (<code>src/CcDirector.Core/Network/TailnetIdentityResolver.cs</code>): the plan-1A detection ladder - tailscaled <strong>LocalAPI</strong> (named pipe <code>ProtectedPrefix\Administrators\Tailscale\tailscaled</code>, GET <code>/localapi/v0/status</code>) -&gt; <strong>CLI</strong> (<code>tailscale status --json</code>) -&gt; <strong>explicit <code>gateway.tailnetEndpoint</code> config override</strong>. First success wins. A loopback or empty endpoint is NEVER reported as resolved; a loopback override is refused with a reason that names the fix. Each probe is a seam (<code>LocalApiProbe</code>/<code>CliProbe</code>) so the order is unit-testable.</li>
+  <li><strong>LocalAPI probe</strong> added to <code>TailscaleIdentity</code> (<code>TryGetMagicDnsNameViaLocalApi</code>): Windows named pipe with <code>TokenImpersonationLevel.Impersonation</code> (required - verified live against tailscale 1.98.2; the .NET default gets 401), unix socket on Linux.</li>
+  <li><strong>Forever-cache deleted</strong>: <code>GatewayClient._cachedDnsName</code> and <code>ResolveTailnetEndpoint()</code> are gone. The identity is re-resolved fresh on EVERY register attempt and EVERY heartbeat tick (<code>MaybeReRegisterOnIdentityChange</code>); when the resolved endpoint differs from what the Gateway knows, the client re-registers - so identity heals (or truthfully degrades) within one heartbeat (15 s), no Director restart. While unresolved, register retries stay at heartbeat cadence instead of backing off to 60 s.</li>
+  <li><strong>Fail loudly</strong>: new explicit <code>GatewayConnectionStatus.NoTailnetIdentity</code> state on <code>GatewayConnectionMonitor</code> (<code>ReportTailnetIdentityFailure</code>), painted by the desktop gateway indicator as a red <strong>NO TAILNET IDENTITY</strong> card whose text names the fix (start Tailscale / set <code>gateway.tailnetEndpoint</code>), wired into the troubleshooter dialog, plus <code>[GatewayClient]</code>/<code>[TailnetIdentityResolver]</code> FileLog lines carrying the same remediation. Log output is deduped per transition so the heartbeat re-resolve never drowns the log.</li>
+  <li><strong>Register-with-flag</strong> (the issue's flagged ASSUMPTION): with no identity the Director still registers, with <code>TailnetEndpoint=""</code> and a new additive optional contract field <code>DirectorRegistrationRequest.EndpointUnreachableReason</code> / <code>DirectorDto.EndpointUnreachableReason</code> carrying the reason. The Gateway accepts the flagged shape (and never probes the empty endpoint in fan-outs); an empty endpoint WITHOUT a reason is still rejected (the old undialable-entry bug stays fixed). An OLD Gateway answers 400 to the flagged shape - the client logs it and retries at heartbeat cadence, truthfully preserving old-Gateway behavior (observed live, see Run 2).</li>
+</ul>
+<p><strong>Contract change called out explicitly (plan 1.2.5):</strong> one additive, optional, null-defaulted field <code>EndpointUnreachableReason</code> on <code>DirectorRegistrationRequest</code> and <code>DirectorDto</code> in <code>CcDirector.Gateway.Contracts</code>. Old Directors against new Gateways are unaffected (field absent = null = old behavior). New Directors against old Gateways degrade to the old local-only behavior with a clear log line.</p>
+</div>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (proof)</th><th>Result</th></tr>
+<tr>
+  <td>1</td>
+  <td>After registration, Gateway <code>GET /directors</code> shows <code>tailnetEndpoint = https://&lt;machine&gt;.&lt;tailnet&gt;.ts.net:&lt;port&gt;</code> - never empty, never 127.0.0.1</td>
+  <td>Real ts.net URL with the Director's own port</td>
+  <td>Live Run 1 (slot test Director, port 7897): resolver logged <code>resolved https://soren-north.taildb08ed.ts.net:7897 via local-api</code>; Gateway <code>/directors</code> entry shows exactly that endpoint (<a href="gateway-directors-entry.json">gateway-directors-entry.json</a>); note the user's config.json contains the loopback override <code>http://127.0.0.1:7887</code> and it did NOT poison the advertisement (LocalAPI rung wins). Log: <a href="director-log-run1-localapi-resolution.txt">director-log-run1-localapi-resolution.txt</a></td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td>No identity + no usable override: never advertise loopback/empty as reachable; indicator shows failure state naming the fix; FileLog has a clear <code>[GatewayClient]</code> error naming the remediation</td>
+  <td>Red indicator + actionable log, no loopback advertisement</td>
+  <td>Live Run 2 (slot test Director, port 7898, probes disabled via <code>CC_GATEWAY_NO_TAILSCALE=1</code>, loopback override present): resolver REFUSED the loopback override with <code>...is a loopback address and is never advertised - set it to a tailnet-routable URL, or start Tailscale...</code>; <code>[GatewayClient] TryRegisterAsync: NO TAILNET IDENTITY - ...</code> logged; desktop indicator painted red <strong>NO TAILNET IDENTITY</strong> with the same remediation text (<a href="indicator-no-tailnet-identity.png">screenshot</a>). The old prod Gateway answered 400 to the flagged register; client logged it and kept retrying at heartbeat cadence (back-compat observed live). Log: <a href="director-log-run2-no-identity-fail-loudly.txt">director-log-run2-no-identity-fail-loudly.txt</a></td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>3</td>
+  <td>Detection order unit-tested: LocalAPI preferred, CLI fallback, config override last; each seam stubbed</td>
+  <td>Tests green</td>
+  <td><code>TailnetIdentityResolverTests</code> (15 tests): LocalAPI preferred AND CLI not even called when LocalAPI answers; CLI fallback; override used only when both probes fail; loopback override refused; loopback detection cases. All 15 passed (23 ms).</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>4</td>
+  <td>Healing: start with Tailscale stopped, then start Tailscale; within 2 heartbeat cycles (30 s) the Gateway registration shows the real ts.net endpoint, no restart (timed log/API proof)</td>
+  <td>Heal &lt;= 30 s, no restart</td>
+  <td><code>GatewayClientTests.HeartbeatReResolve_IdentityAppears_HealsRegistrationWithoutRestart</code>: a REAL <code>GatewayClient</code> (production register loop + heartbeat) against a REAL in-proc <code>GatewayHost</code> over HTTP starts with the probe unresolvable, registers FLAGGED (empty endpoint + reason in the registry), then the probe starts answering ("Tailscale comes up"); the test asserts the registry transitions to <code>https://healed-node.test-tailnet.ts.net:65505</code> with the reason cleared, TIMED and asserted <code>&lt;= HeartbeatInterval * 2</code>. Passed. See the honest-limitations note below for why the machine-level Tailscale stop/start was not performed live on this box.</td>
+  <td class="pass">PASS (timed API proof via test rig)</td>
+</tr>
+<tr>
+  <td>5</td>
+  <td>Regression: <code>BuildRegistrationRequest()</code> never claims a reachable endpoint while <code>TailnetEndpoint</code> is empty or loopback</td>
+  <td>Tests green</td>
+  <td><code>GatewayClientRegistrationRequestTests</code> (3 tests) runs the REAL ladder through <code>BuildRegistrationRequest()</code>: no identity + no override -&gt; empty endpoint + reason set; loopback override -&gt; empty endpoint + "loopback" reason (never passed through); identity resolves -&gt; real ts.net endpoint + reason null. All passed.</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Screenshots</h2>
+<h3>Fail loudly: red NO TAILNET IDENTITY indicator naming the fix (Run 2)</h3>
+<img src="indicator-no-tailnet-identity.png" alt="Red NO TAILNET IDENTITY indicator with loopback-override remediation text">
+<h3>Healthy state: identity resolved via LocalAPI, two-way verified (Run 1)</h3>
+<img src="indicator-gateway-connected.png" alt="Green GATEWAY CONNECTED indicator, two-way verified">
+
+<h2>Cross-machine reachability (proof-target Director half)</h2>
+<div class="box">
+<p>From Run 1: <code>curl https://soren-north.taildb08ed.ts.net:7897/healthz</code> through the REAL Tailscale Serve front door (HTTPS + tailnet cert, not loopback) returned 200 with the matching <code>directorId f6b778b1-...</code> (<a href="healthz-via-tailnet-front-door.json">healthz-via-tailnet-front-door.json</a>) - i.e. the advertised endpoint answers exactly as a remote machine would dial it.</p>
+</div>
+
+<h2>Builds and tests</h2>
+<pre>dotnet build cc-director.sln          -> Build succeeded. 0 Warning(s) 0 Error(s)
+CcDirector.Core.Tests   (TailnetIdentityResolverTests)            -> 15/15 passed
+CcDirector.Gateway.Tests (all #324-relevant suites, 40 tests:
+  GatewayClientTests, GatewayClientVerifyTests, GatewayConnectionMonitorTests,
+  GatewayDirectoryRegistrationTests, TwoWayVerifyTests,
+  GatewayClientRegistrationRequestTests)                          -> 40/40 passed
+CcDirector.Gateway.Tests full run                                 -> 469/470 passed; 1 pre-existing
+  environment-dependent failure: DictationEndpointTests.FullPipeline_transcribes_phase0_clip2_
+  with_realtime_provider ("expected at least 1 partial transcript, got 0" - OpenAI realtime
+  transcription flake; this change touches no dictation code).</pre>
+
+<h2>Honest limitations (for QA)</h2>
+<div class="box">
+<ul>
+  <li><span class="warn">Healing (AC 4) was proven by the timed integration test, not by stopping the machine's real tailscaled.</span> This box (SOREN_NORTH) is the production gateway box: stopping the Tailscale service would sever the user's live tailnet, the prod Gateway's serve front doors, and every remote Director connection (CLAUDE.md rule-0 territory). The test exercises the REAL production register/heartbeat loop against a REAL Gateway host over HTTP with only the OS probe pinned, and asserts the 2-heartbeat (30 s) bound. The live Run 2 log additionally shows the production loop re-resolving and retrying at exactly heartbeat cadence (15/15/15 s lines) while unresolved.</li>
+  <li><span class="warn">The issue's cross-machine proof target (test Director hosted on SORENLAPTOP, exercised from this box) was executed single-box instead:</span> the slot test Director ran HERE on the gateway box and was dialed through its real ts.net front door (Run 1 healthz). Hosting a slot build on SORENLAPTOP requires building on that machine, which this agent cannot do; the front-door dial is transport-identical to a remote dial. QA may repeat the healthz call from another tailnet node verbatim.</li>
+  <li><span class="warn">Flagged registration acceptance by a NEW Gateway was proven by integration tests (real GatewayHost over HTTP), not by a live new-Gateway process</span> - the live prod Gateway predates #324 and (correctly, per design) answered 400, which Run 2 captured as the back-compat path. Standing up a second live Gateway on the prod box would collide with the real one.</li>
+  <li>The register-with-flag behavior itself is the issue's explicitly flagged ASSUMPTION for human review.</li>
+</ul>
+</div>
+
+<h2>CenCon impact</h2>
+<div class="box">
+<p>No architecture drift: no container added or removed; <code>CcDirector.ControlApi</code>, <code>CcDirector.Core</code>, <code>CcDirector.Avalonia</code>, <code>CcDirector.Gateway</code>, <code>CcDirector.Gateway.Contracts</code> change internally per the issue's "Affected Containers" list. No blocking security rule (DT-*) is touched: no new listener, no credential handling, the LocalAPI probe is a loopback named-pipe read of the local daemon's status. Contract change is one additive optional field, called out above and in the PR body.</p>
+</div>
+
+<div class="verdict">
+<strong>Developer verdict: I believe this is finished.</strong> All five acceptance criteria are met with proof; the fail-loudly path, the never-loopback regression guard, the detection ladder, and the heartbeat healing are implemented, tested (58 directly-relevant tests green), and demonstrated live on an isolated slot test Director against the real tailnet front door. Limitations are stated honestly above for QA's independent judgment.
+</div>
+
+</body>
+</html>

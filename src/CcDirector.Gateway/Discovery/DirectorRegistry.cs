@@ -109,6 +109,9 @@ public sealed class DirectorRegistry : IDisposable
             StartedAt = req.StartedAt == default ? now : req.StartedAt,
             ControlEndpoint = req.TailnetEndpoint, // HTTP path: the tailnet endpoint IS the control endpoint
             TailnetEndpoint = req.TailnetEndpoint,
+            // Issue #324: a flagged no-endpoint registration carries the Director's own
+            // reason; readers (fan-outs) must not probe an endpoint the Director declared dead.
+            EndpointUnreachableReason = string.IsNullOrWhiteSpace(req.EndpointUnreachableReason) ? null : req.EndpointUnreachableReason,
             MachineName = req.MachineName,
             User = req.User,
             Version = req.Version,
@@ -122,7 +125,9 @@ public sealed class DirectorRegistry : IDisposable
         // A fresh registration may carry a corrected endpoint - give it a clean reachability slate so a
         // previously-broken Director that restarted on a good build is probed again immediately.
         _reach.TryRemove(req.DirectorId, out _);
-        FileLog.Write($"[DirectorRegistry] Upsert (http): id={dto.DirectorId}, endpoint={dto.TailnetEndpoint}, existed={existed}");
+        FileLog.Write(dto.EndpointUnreachableReason is null
+            ? $"[DirectorRegistry] Upsert (http): id={dto.DirectorId}, endpoint={dto.TailnetEndpoint}, existed={existed}"
+            : $"[DirectorRegistry] Upsert (http, FLAGGED no reachable endpoint): id={dto.DirectorId}, existed={existed}, reason={dto.EndpointUnreachableReason}");
         if (!existed)
             OnDirectorAdded?.Invoke(dto);
         return dto;

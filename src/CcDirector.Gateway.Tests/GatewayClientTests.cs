@@ -57,12 +57,12 @@ public sealed class GatewayClientTests : IAsyncLifetime
             Url = $"http://127.0.0.1:{_gateway.Port}",
             Token = "",
             // The MagicDNS identity must always win over a configured override, so a stale
-            // shared override cannot poison a multi-Director box (see ResolveTailnetEndpoint).
+            // shared override cannot poison a multi-Director box (see TailnetIdentityResolver).
             TailnetEndpoint = "http://stale-override:1",
         };
         using var client = new GatewayClient(cfg, id, port: 65500, version: "9.9.9-test")
         {
-            MagicDnsResolver = () => "test-node.test-tailnet.ts.net",
+            IdentityResolver = { LocalApiProbe = () => null, CliProbe = () => "test-node.test-tailnet.ts.net" },
         };
         client.Start();
 
@@ -97,7 +97,7 @@ public sealed class GatewayClientTests : IAsyncLifetime
         };
         using var client = new GatewayClient(cfg, id, port: 65500, version: "9.9.9-test")
         {
-            MagicDnsResolver = () => null, // no Tailscale on this node
+            IdentityResolver = { LocalApiProbe = () => null, CliProbe = () => null }, // no Tailscale on this node
         };
         client.Start();
 
@@ -113,7 +113,7 @@ public sealed class GatewayClientTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Start_without_identity_or_override_stays_local_only()
+    public async Task Start_without_identity_or_override_registers_flagged_not_reachable()
     {
         var id = Guid.NewGuid().ToString();
         var cfg = new GatewayConfig
@@ -124,15 +124,61 @@ public sealed class GatewayClientTests : IAsyncLifetime
         };
         using var client = new GatewayClient(cfg, id, port: 7880, version: "1.0.0")
         {
-            MagicDnsResolver = () => null,
+            IdentityResolver = { LocalApiProbe = () => null, CliProbe = () => null },
         };
         client.Start();
 
-        // Policy is tailnet-or-nothing: with no identity and no override the client must
-        // NOT register (a loopback URL would be undialable for any remote caller).
-        await Task.Delay(TimeSpan.FromSeconds(1));
-        Assert.Null(_gateway.Registry.Get(id));
-        Assert.False(client.IsRegistered);
+        // Issue #324: with no identity and no override the Director still registers - so the
+        // fleet can see the machine exists - but FLAGGED: the endpoint is empty (never a
+        // loopback lie) and EndpointUnreachableReason names the fix.
+        await WaitFor(() => _gateway.Registry.Get(id) is not null, TimeSpan.FromSeconds(5));
+        var dto = _gateway.Registry.Get(id);
+        Assert.NotNull(dto);
+        Assert.True(string.IsNullOrEmpty(dto.TailnetEndpoint));
+        Assert.NotNull(dto.EndpointUnreachableReason);
+        Assert.Contains("Tailscale", dto.EndpointUnreachableReason);
+        await WaitFor(() => client.IsRegistered, TimeSpan.FromSeconds(2));
+        Assert.True(client.IsRegistered);
+
+        await client.StopAsync();
+    }
+
+    [Fact]
+    public async Task HeartbeatReResolve_IdentityAppears_HealsRegistrationWithoutRestart()
+    {
+        // Issue #324 healing criterion: start with NO tailnet identity (flagged registration),
+        // then "start Tailscale" (the probe begins answering); the next heartbeat tick must
+        // re-register the REAL ts.net endpoint - no client restart. Timed against two
+        // heartbeat cycles (30s), the acceptance bound.
+        var id = Guid.NewGuid().ToString();
+        var cfg = new GatewayConfig { Url = $"http://127.0.0.1:{_gateway.Port}", Token = "" };
+        string? dnsName = null; // starts unresolvable
+        using var client = new GatewayClient(cfg, id, port: 65505, version: "9.9.9-test")
+        {
+            IdentityResolver = { LocalApiProbe = () => null, CliProbe = () => dnsName },
+        };
+        client.Start();
+
+        await WaitFor(() => _gateway.Registry.Get(id) is not null, TimeSpan.FromSeconds(5));
+        var flagged = _gateway.Registry.Get(id);
+        Assert.NotNull(flagged);
+        Assert.True(string.IsNullOrEmpty(flagged.TailnetEndpoint));
+        Assert.NotNull(flagged.EndpointUnreachableReason);
+
+        // "Tailscale comes up": the probe starts resolving.
+        var healStarted = DateTime.UtcNow;
+        dnsName = "healed-node.test-tailnet.ts.net";
+
+        await WaitFor(
+            () => _gateway.Registry.Get(id)?.TailnetEndpoint == "https://healed-node.test-tailnet.ts.net:65505",
+            GatewayClient.HeartbeatInterval * 2 + TimeSpan.FromSeconds(5));
+        var healed = _gateway.Registry.Get(id);
+        Assert.NotNull(healed);
+        Assert.Equal("https://healed-node.test-tailnet.ts.net:65505", healed.TailnetEndpoint);
+        Assert.Null(healed.EndpointUnreachableReason);
+        var healDuration = DateTime.UtcNow - healStarted;
+        Assert.True(healDuration <= GatewayClient.HeartbeatInterval * 2,
+            $"Healing took {healDuration.TotalSeconds:F1}s - must be within 2 heartbeat cycles ({(GatewayClient.HeartbeatInterval * 2).TotalSeconds:F0}s)");
 
         await client.StopAsync();
     }

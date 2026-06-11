@@ -157,6 +157,17 @@ public partial class GatewayTroubleshootDialog : Window
                 VerdictLegs.IsVisible = true;
                 break;
 
+            case GatewayConnectionStatus.NoTailnetIdentity:
+                // Issue #324: the problem is LOCAL - no tailnet identity to advertise. The
+                // summary already names the fix (start Tailscale / set gateway.tailnetEndpoint).
+                VerdictBorder.Background = Brush.Parse("#3A1B1B");
+                VerdictBorder.BorderBrush = Brush.Parse("#DC2626");
+                VerdictText.Foreground = Brush.Parse("#EF4444");
+                VerdictText.Text = $"NO TAILNET IDENTITY - {m.FailureSummary}";
+                VerdictLegs.Text = "This Director re-checks its Tailscale identity every heartbeat (15s); fixing Tailscale heals this automatically, no restart.";
+                VerdictLegs.IsVisible = true;
+                break;
+
             case GatewayConnectionStatus.Connecting:
                 ShowVerdictNeutral("Still verifying - registration or handshake in flight. Re-test in a few seconds.");
                 return;
