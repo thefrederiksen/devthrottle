@@ -104,10 +104,59 @@ public sealed class VoiceConversation
         if (!string.Equals(result.Status, "ok", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException($"agent turn ended with status '{result.Status}': {result.Error}");
 
-        var spoken = result.SpokenText();
-        onUpdate?.Invoke(new TurnUpdate("reply", spoken));
-        await SpeakAsync(session.TailnetEndpoint,spoken, ct);
-        return spoken;
+        var rawReply = result.SpokenText();
+
+        // "reply" updates the on-screen reply label only - it does NOT advance the
+        // status indicator. The status must follow the actual processing order:
+        // Thinking -> Summarizing -> Speaking. See AC1.
+        onUpdate?.Invoke(new TurnUpdate("reply", rawReply));
+
+        // Step 5: summarize the raw reply into 2-3 spoken sentences of plain prose.
+        // The wingman translates terminal output (markdown, code, file paths) into
+        // something that can be read aloud naturally. Falls back to the raw reply text
+        // on any failure so the user always hears something rather than silence.
+        onUpdate?.Invoke(new TurnUpdate("summarizing", "Summarizing..."));
+        var spokenSummary = await SummarizeForVoiceAsync(session, rawReply, ct);
+
+        // "speaking" fires after summarization completes and before TTS begins,
+        // so the status label reads "Speaking..." only while audio is actually playing.
+        onUpdate?.Invoke(new TurnUpdate("speaking", "Speaking..."));
+        await SpeakAsync(session.TailnetEndpoint, spokenSummary, ct);
+        return rawReply;
+    }
+
+    /// <summary>
+    /// Ask the wingman to turn the raw agent reply into 2-3 sentences of plain spoken prose
+    /// safe to read aloud while driving (no markdown, no code, question preserved at the end
+    /// when the agent is asking the user something). Falls back to the raw <paramref name="rawReply"/>
+    /// text if the wingman is unavailable, times out, or returns empty, so the user always
+    /// hears something rather than silence.
+    /// </summary>
+    private async Task<string> SummarizeForVoiceAsync(
+        SessionInfo session, string rawReply, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(rawReply)) return rawReply;
+        ClientLog.Write($"[VoiceConversation] SummarizeForVoice: session={session.DisplayName}, rawChars={rawReply.Length}");
+        try
+        {
+            var prompt =
+                "Summarize the following agent reply in 2-3 spoken sentences of plain prose " +
+                "for a user who is driving. No markdown. No code. No bullet points. " +
+                "If the agent is asking the user a question, end with that question clearly. " +
+                $"Reply: {rawReply}";
+            var summary = await _client.AskWingmanAsync(session.TailnetEndpoint, session.SessionId, prompt, ct);
+            if (!string.IsNullOrWhiteSpace(summary))
+            {
+                ClientLog.Write($"[VoiceConversation] SummarizeForVoice OK: summaryChars={summary.Length}");
+                return summary;
+            }
+            ClientLog.Write("[VoiceConversation] SummarizeForVoice: wingman returned empty, using raw reply");
+        }
+        catch (Exception ex)
+        {
+            ClientLog.Write($"[VoiceConversation] SummarizeForVoice FAILED (fallback): {ex.Message}");
+        }
+        return rawReply;
     }
 
     /// <summary>

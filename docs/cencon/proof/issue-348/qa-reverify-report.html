@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>QA Re-Verification Report - Issue #348 (Bounce #1 Fix)</title>
+<style>
+  body { font-family: Georgia, serif; max-width: 900px; margin: 40px auto; padding: 0 24px; color: #222; line-height: 1.6; }
+  h1 { font-size: 1.7em; border-bottom: 2px solid #333; padding-bottom: 8px; }
+  h2 { font-size: 1.2em; margin-top: 2em; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
+  .pass { color: #185a1a; font-weight: bold; }
+  .fail { color: #8b0000; font-weight: bold; }
+  .meta { color: #555; font-size: 0.9em; margin-bottom: 1.5em; }
+  table { border-collapse: collapse; width: 100%; margin: 1em 0; }
+  th, td { border: 1px solid #ccc; padding: 8px 12px; text-align: left; vertical-align: top; }
+  th { background: #f0f0f0; }
+  pre { background: #f4f4f4; padding: 14px; border-left: 4px solid #666; overflow-x: auto; font-size: 0.88em; }
+  code { background: #f0f0f0; padding: 1px 4px; font-size: 0.9em; }
+  .verdict { background: #e8f5e9; border: 2px solid #2e7d32; padding: 16px; border-radius: 4px; margin: 2em 0; }
+</style>
+</head>
+<body>
+
+<h1>QA Re-Verification Report - Issue #348 (After QA Bounce #1)</h1>
+<div class="meta">
+  Issue: #348 - Voice screen: walkie-talkie mode - read agent reply aloud after turn<br>
+  PR: #356 (branch: issue-348-walkie-talkie-mode)<br>
+  Re-verify date: 2026-06-11<br>
+  QA Agent session: standalone re-verification (flow:ready-qa)<br>
+  Prior defect: AC1 - status label order inverted (Speaking shown before Summarizing)
+</div>
+
+<h2>Re-Verification Scope</h2>
+<p>
+  This is a re-verification after the developer fixed the single defect filed in QA Bounce #1.
+  The prior QA report confirmed AC2-AC7 all passed in the first round; this report re-verifies
+  AC1 (the fixed defect) by independent code inspection and build verification.
+</p>
+
+<h2>AC1 - Status label order: Transcribing -&gt; Thinking -&gt; Summarizing -&gt; Speaking</h2>
+
+<h3>Defect that was filed</h3>
+<p>
+  In <code>VoiceConversation.SpeakTurnAsync</code>, the <code>"reply"</code> TurnUpdate was setting
+  <code>VoiceStatusLabel.Text = "Speaking..."</code> in TalkPage's reply handler, then
+  <code>"summarizing"</code> fired after it - producing the inverted sequence
+  Thinking... -&gt; Speaking... -&gt; Summarizing... instead of the required
+  Thinking... -&gt; Summarizing... -&gt; Speaking...
+</p>
+
+<h3>Fix applied (commit 9362343)</h3>
+<p>Two-part fix:</p>
+<ol>
+  <li>
+    <strong>VoiceConversation.cs</strong>: Added an explicit <code>"speaking"</code> TurnUpdate
+    emitted AFTER <code>SummarizeForVoiceAsync</code> completes and BEFORE <code>SpeakAsync</code>
+    is called. The comment on the <code>"reply"</code> event was updated to document that it
+    carries raw text for the screen label only and does NOT advance the status indicator.
+  </li>
+  <li>
+    <strong>TalkPage.xaml.cs</strong>: Removed the premature
+    <code>VoiceStatusLabel.Text = "Speaking..."</code> from the <code>"reply"</code> handler.
+    Added a dedicated <code>"speaking"</code> case that sets the status to "Speaking..." when
+    TTS actually begins.
+  </li>
+</ol>
+
+<h3>Code evidence - VoiceConversation.cs (lines 107-125)</h3>
+<pre>
+var rawReply = result.SpokenText();
+
+// "reply" updates the on-screen reply label only - it does NOT advance the
+// status indicator. The status must follow the actual processing order:
+// Thinking -&gt; Summarizing -&gt; Speaking. See AC1.
+onUpdate?.Invoke(new TurnUpdate("reply", rawReply));
+
+// Step 5: summarize the raw reply into 2-3 spoken sentences of plain prose.
+onUpdate?.Invoke(new TurnUpdate("summarizing", "Summarizing..."));
+var spokenSummary = await SummarizeForVoiceAsync(session, rawReply, ct);
+
+// "speaking" fires after summarization completes and before TTS begins,
+// so the status label reads "Speaking..." only while audio is actually playing.
+onUpdate?.Invoke(new TurnUpdate("speaking", "Speaking..."));
+await SpeakAsync(session.TailnetEndpoint, spokenSummary, ct);
+</pre>
+
+<h3>Code evidence - TalkPage.xaml.cs (lines 484-491)</h3>
+<pre>
+case "reply":
+    // Update the on-screen reply label only.
+    // Status is updated by the "speaking" stage after summarization.
+    VoiceReplyLabel.Text = u.Text;
+    VoiceReplyCard.IsVisible = true;
+    break;
+case "speaking":
+    VoiceStatusLabel.Text = "Speaking...";
+    break;
+</pre>
+
+<h3>Verified event sequence</h3>
+<table>
+<tr><th>Event fired</th><th>Status label result</th></tr>
+<tr><td>"transcribing"</td><td>Transcribing...</td></tr>
+<tr><td>"transcript"</td><td>(no status change - sets VoiceYouLabel only)</td></tr>
+<tr><td>"thinking"</td><td>Thinking...</td></tr>
+<tr><td>"reply"</td><td>(no status change - sets VoiceReplyLabel only)</td></tr>
+<tr><td>"summarizing"</td><td>Summarizing...</td></tr>
+<tr><td>[SummarizeForVoiceAsync runs]</td><td>(still Summarizing...)</td></tr>
+<tr><td>"speaking"</td><td>Speaking...</td></tr>
+<tr><td>[SpeakAsync runs - audio plays]</td><td>(still Speaking...)</td></tr>
+</table>
+<p>
+  <span class="pass">PASS</span> - The order is now correct: Thinking -&gt; Summarizing -&gt; Speaking.
+  The fix matches the issue spec: "Add a 'Summarizing...' status stage to OnTurnUpdate
+  between 'Thinking...' and 'Speaking...'"
+</p>
+
+<h2>Build Gate</h2>
+<pre>
+dotnet build cc-director.sln --nologo -verbosity:minimal
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:09.68
+</pre>
+<p><span class="pass">PASS</span> - Clean build, 0 errors, 0 warnings.</p>
+
+<h2>AC2-AC7 Status (confirmed in prior QA round, unchanged by the fix)</h2>
+<table>
+<tr><th>AC</th><th>Criterion</th><th>Status</th></tr>
+<tr>
+  <td>AC2</td>
+  <td>Raw agent reply text appears in ReplyLabel on screen</td>
+  <td><span class="pass">PASS</span> - onUpdate("reply", rawReply) sets VoiceReplyLabel.Text; confirmed unchanged by this fix</td>
+</tr>
+<tr>
+  <td>AC3</td>
+  <td>Spoken audio is wingman plain-prose summary, not raw terminal output</td>
+  <td><span class="pass">PASS</span> - SummarizeForVoiceAsync called before SpeakAsync; unchanged</td>
+</tr>
+<tr>
+  <td>AC4</td>
+  <td>If agent asks a question, it is audible in the summary</td>
+  <td><span class="pass">PASS</span> - Wingman prompt explicitly requires preserving agent question as final sentence; unchanged</td>
+</tr>
+<tr>
+  <td>AC5</td>
+  <td>Wingman guaranteed active for session during voice mode regardless of gateway default</td>
+  <td><span class="pass">PASS</span> - POST /voice-mode forces wingman ON on entry, restores prior state on exit; unchanged</td>
+</tr>
+<tr>
+  <td>AC6</td>
+  <td>If wingman summarization fails, app falls back to raw SpokenText() rather than silence</td>
+  <td><span class="pass">PASS</span> - SummarizeForVoiceAsync catches all exceptions and returns rawReply; unchanged</td>
+</tr>
+<tr>
+  <td>AC7</td>
+  <td>FIFO mode (FifoPage) is unaffected</td>
+  <td><span class="pass">PASS</span> - DeliverToSessionAsync path unchanged; WalkieTalkieMode=false by default; unchanged</td>
+</tr>
+</table>
+
+<h2>Regression Sweep</h2>
+<p>
+  The fix is surgical: two files changed (VoiceConversation.cs and TalkPage.xaml.cs),
+  both changes are additive (adding the "speaking" TurnUpdate event + dedicated case handler)
+  plus the removal of the premature status update from the "reply" handler.
+  No adjacent functionality was affected. FIFO paths (DeliverToSessionAsync) are untouched.
+  Build is clean with 0 warnings.
+</p>
+
+<div class="verdict">
+  <strong>VERDICT: PASS - All 7 acceptance criteria verified.</strong><br>
+  The prior defect (AC1 status label order inverted) is fixed. The event sequence in
+  VoiceConversation.SpeakTurnAsync now emits "summarizing" before "speaking", and TalkPage
+  no longer sets the status label to "Speaking..." prematurely in the "reply" handler.
+  Build passes with 0 errors. All other ACs confirmed unchanged from prior QA round.
+</div>
+
+</body>
+</html>

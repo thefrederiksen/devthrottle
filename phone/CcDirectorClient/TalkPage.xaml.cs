@@ -330,6 +330,8 @@ public partial class TalkPage : ContentPage
     // True while the mic is capturing; true while the whole turn (transcribe/send/speak) runs.
     private bool _voiceRecording;
     private bool _voiceTurnBusy;
+    // Cancels an in-flight SpeakTurnAsync so tab/page leave stops the round-trip cleanly.
+    private CancellationTokenSource? _voiceTurnCts;
 
     private void ResetVoiceUi()
     {
@@ -347,10 +349,11 @@ public partial class TalkPage : ContentPage
 
     private void OnVoiceStopSpeakingClicked(object? sender, EventArgs e) => _tts.Stop();
 
-    // Stop an in-flight recording (discarding the clip) and cut any reply playback. Safe to
-    // call when neither is active. Used on tab/page leave.
+    // Stop an in-flight recording (discarding the clip), cancel any running turn, and cut
+    // any reply playback. Safe to call when neither is active. Used on tab/page leave.
     private void StopVoiceActivity()
     {
+        _voiceTurnCts?.Cancel();
         _tts.Stop();
         if (_voiceRecording || _recorder.IsRecording)
         {
@@ -420,6 +423,8 @@ public partial class TalkPage : ContentPage
     private async void OnVoiceCancelClicked(object? sender, EventArgs e)
     {
         if (!_voiceRecording) return;
+        _voiceTurnCts?.Cancel();
+        _tts.Stop();
         try { await _recorder.StopAsync(); } catch { /* discard */ }
         _voiceRecording = false;
         SetVoiceRecordingUi(false);
@@ -427,9 +432,11 @@ public partial class TalkPage : ContentPage
         VoiceStatusLabel.Text = "Tap Record and talk to the agent.";
     }
 
-    // Transcribe the clip, send it to the agent, follow the turn to completion, then speak
-    // the reply aloud and show it. The foreground service stays up for the whole turn so
-    // capture + playback survive a screen-off.
+    // Transcribe the clip, wait until the session is ready, send the question, follow the
+    // turn to completion, summarize via the wingman into plain spoken prose, then speak the
+    // summary and show the raw reply on screen. The foreground service stays up for the whole
+    // turn so capture + playback survive a screen-off.
+    // Status line cycles: Transcribing -> Sending -> Thinking -> Summarizing -> Speaking.
     private async Task RunVoiceTurnAsync(SessionInfo session, UtteranceAudio audio)
     {
         var gate = OfflineGuard.Check(DeviceOnline, "send your voice message");
@@ -437,48 +444,74 @@ public partial class TalkPage : ContentPage
 
         _voiceTurnBusy = true;
         VoiceRecordButton.IsEnabled = false;
+
+        // Ensure the wingman is active for this session - voice mode requires it for
+        // reply summarization, regardless of the gateway default. Best-effort.
+        _ = new DirectorVoiceClient(TokenEntry.Text ?? "")
+            .SetWingmanEnabledAsync(session.TailnetEndpoint, session.SessionId, true);
+
+        var convo = new VoiceConversation(new DirectorVoiceClient(TokenEntry.Text ?? ""), _tts);
+        _voiceTurnCts?.Cancel();
+        _voiceTurnCts = new CancellationTokenSource();
+        var cts = _voiceTurnCts;
         try
         {
-            var client = new DirectorVoiceClient(TokenEntry.Text ?? "");
+            string rawReply = await convo.SpeakTurnAsync(session, audio,
+                onUpdate: u =>
+                {
+                    // Route each stage to the appropriate UI element on the main thread.
+                    MainThread.BeginInvokeOnMainThread(() =>
+                    {
+                        switch (u.Stage)
+                        {
+                            case "transcribing":
+                                VoiceStatusLabel.Text = "Transcribing...";
+                                break;
+                            case "transcript":
+                                VoiceYouLabel.Text = u.Text;
+                                VoiceYouCard.IsVisible = true;
+                                VoiceReplyCard.IsVisible = false;
+                                break;
+                            case "waiting":
+                                VoiceStatusLabel.Text = "Waiting for session to finish...";
+                                break;
+                            case "thinking":
+                                VoiceStatusLabel.Text = "Thinking...";
+                                break;
+                            case "summarizing":
+                                VoiceStatusLabel.Text = "Summarizing...";
+                                break;
+                            case "reply":
+                                // Update the on-screen reply label only.
+                                // Status is updated by the "speaking" stage after summarization.
+                                VoiceReplyLabel.Text = u.Text;
+                                VoiceReplyCard.IsVisible = true;
+                                break;
+                            case "speaking":
+                                VoiceStatusLabel.Text = "Speaking...";
+                                break;
+                            default:
+                                VoiceStatusLabel.Text = u.Text;
+                                break;
+                        }
+                    });
+                },
+                ct: cts.Token);
 
-            VoiceStatusLabel.Text = "Transcribing...";
-            var t = await client.TranscribeUtteranceAsync(
-                session.TailnetEndpoint, session.SessionId, audio.Bytes, audio.Mime);
-            if (string.IsNullOrWhiteSpace(t.Text))
+            if (!string.IsNullOrWhiteSpace(rawReply))
             {
-                VoiceStatusLabel.Text = "Didn't catch that - tap Record and try again.";
-                return;
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+                    VoiceReplyLabel.Text = rawReply;
+                    VoiceReplyCard.IsVisible = true;
+                });
             }
-            VoiceYouLabel.Text = t.Text;
-            VoiceYouCard.IsVisible = true;
-            VoiceReplyCard.IsVisible = false;
-
-            VoiceStatusLabel.Text = "Sending to the agent...";
-            var result = await client.SendChatAsync(session.TailnetEndpoint, session.SessionId, t.Text);
-            while (result.ShouldKeepPolling)
-            {
-                VoiceStatusLabel.Text = "Agent is working...";
-                await Task.Delay(TimeSpan.FromSeconds(3));
-                result = await client.PollChatAsync(session.TailnetEndpoint, session.SessionId, wantProgress: false);
-            }
-
-            // Prefer the concise spoken summary for TTS; show the fuller display text.
-            var shown = !string.IsNullOrWhiteSpace(result.DisplayText) ? result.DisplayText : result.Summary;
-            var spoken = !string.IsNullOrWhiteSpace(result.Summary) ? result.Summary : shown;
-            if (string.IsNullOrWhiteSpace(shown))
-            {
-                VoiceStatusLabel.Text = string.Equals(result.Status, "ok", StringComparison.OrdinalIgnoreCase)
-                    ? "Done - tap Record to reply." : $"Turn ended: {result.Status}";
-                return;
-            }
-
-            VoiceReplyLabel.Text = shown;
-            VoiceReplyCard.IsVisible = true;
-
-            VoiceStatusLabel.Text = "Speaking the reply...";
-            var mp3 = await client.SynthesizeSpeechAsync(session.TailnetEndpoint, spoken);
-            await _tts.PlayAsync(mp3);
             VoiceStatusLabel.Text = "Tap Record to reply.";
+        }
+        catch (OperationCanceledException)
+        {
+            // User cancelled or navigated away.
+            VoiceStatusLabel.Text = "Tap Record and talk to the agent.";
         }
         catch (Exception ex)
         {

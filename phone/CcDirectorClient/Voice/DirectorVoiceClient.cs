@@ -278,6 +278,28 @@ public sealed class DirectorVoiceClient
     }
 
     /// <summary>
+    /// Ensure the wingman is active for a session (POST /sessions/{sid}/wingman-enabled).
+    /// Voice mode requires the wingman for summarization; this is called when voice mode
+    /// is entered to guarantee it is on regardless of the gateway default. Best-effort:
+    /// a failure here must not block the user from talking, so it never throws.
+    /// </summary>
+    public async Task SetWingmanEnabledAsync(string directorBase, string sessionId, bool enabled, CancellationToken ct = default)
+    {
+        try
+        {
+            var b = directorBase.TrimEnd('/');
+            using var http = NewClient();
+            await http.PostAsync($"{b}/sessions/{sessionId}/wingman-enabled",
+                JsonBody(new { Enabled = enabled }), ct);
+            ClientLog.Write($"[DirectorVoiceClient] SetWingmanEnabled: sid={sessionId}, enabled={enabled}");
+        }
+        catch (Exception ex)
+        {
+            ClientLog.Write($"[DirectorVoiceClient] SetWingmanEnabled FAILED (non-fatal): {ex.Message}");
+        }
+    }
+
+    /// <summary>
     /// Set the session's walkie-talkie voice-mode flag on the owning Director (POST
     /// /sessions/{sid}/voice-mode) so every client - the desktop tile, the web view,
     /// and this roster - agrees the session is being talked to. Best-effort: a

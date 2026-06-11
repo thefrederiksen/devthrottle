@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Issue #348 - QA FAIL Report: Walkie-Talkie Mode</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0B1020; color: #E6EAF2; margin: 0; padding: 24px; line-height: 1.6; }
+  h1 { color: #E5484D; font-size: 24px; margin-bottom: 4px; }
+  h2 { color: #37C2B6; font-size: 17px; margin-top: 28px; margin-bottom: 10px; border-bottom: 1px solid #1E2A44; padding-bottom: 6px; }
+  h3 { color: #8A93A6; font-size: 14px; margin-top: 16px; margin-bottom: 6px; }
+  .meta { color: #8A93A6; font-size: 13px; margin-bottom: 24px; }
+  .card { background: #141B2E; border: 1px solid #1E2A44; border-radius: 10px; padding: 16px; margin-bottom: 14px; }
+  .pass { border-left: 3px solid #5FD08A; }
+  .fail { border-left: 3px solid #E5484D; }
+  .warn { border-left: 3px solid #E8B339; }
+  .label { font-size: 11px; font-weight: bold; letter-spacing: 0.6px; margin-bottom: 4px; }
+  .pass .label { color: #5FD08A; }
+  .fail .label { color: #E5484D; }
+  .warn .label { color: #E8B339; }
+  .code { font-family: 'Cascadia Code', 'Fira Code', monospace; background: #0F1626; border: 1px solid #1E2A44; border-radius: 6px; padding: 12px; font-size: 12px; color: #A9B4C8; white-space: pre-wrap; margin-top: 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; color: #8A93A6; font-size: 11px; font-weight: bold; letter-spacing: 0.6px; padding: 8px 10px; border-bottom: 1px solid #1E2A44; }
+  td { padding: 8px 10px; border-bottom: 1px solid #0F1626; vertical-align: top; }
+  .done { color: #5FD08A; font-weight: bold; }
+  .failed { color: #E5484D; font-weight: bold; }
+  .file { color: #37C2B6; font-family: monospace; font-size: 12px; }
+  .verdict-box { background: #1B0F10; border: 1px solid #E5484D; border-radius: 10px; padding: 16px; margin-bottom: 24px; }
+  .verdict-box p { margin: 0; color: #E5484D; font-weight: bold; }
+</style>
+</head>
+<body>
+
+<h1>Issue #348 - QA FAIL Report: Walkie-Talkie Mode</h1>
+<div class="meta">QA Agent | Branch: issue-348-walkie-talkie-mode | Commit: 26ec955 | Verified: 2026-06-11</div>
+
+<div class="verdict-box">
+  <p>QA FAIL: Acceptance Criterion 1 is violated. The status label shows "Speaking..." before "Summarizing..." - the order is reversed from the spec. The issue requires Thinking -> Summarizing -> Speaking; the implementation delivers Thinking -> Speaking -> Summarizing. This means the user sees "Speaking..." while the wingman is still summarizing, then sees "Summarizing..." right before the audio plays - the exact opposite of the intended UX. Bouncing to Developer Agent with flow:qa-failed.</p>
+</div>
+
+<h2>Build Verification</h2>
+<div class="card pass">
+  <div class="label">PASS</div>
+  <p>dotnet build cc-director.sln -- 0 Error(s), 0 Warning(s). Build clean.</p>
+</div>
+
+<h2>Acceptance Criteria Evaluation</h2>
+
+<h3>AC1: Status label cycles Transcribing -&gt; Sending -&gt; Thinking -&gt; Summarizing -&gt; Speaking</h3>
+<div class="card fail">
+  <div class="label">FAIL - Status order wrong: "Speaking..." fires before "Summarizing..."</div>
+  <p><strong>Expected:</strong> Label sequence ends with Thinking -&gt; Summarizing -&gt; Speaking</p>
+  <p><strong>Actual:</strong> The "reply" TurnUpdate (line 108 of VoiceConversation.cs) fires BEFORE the "summarizing" TurnUpdate (line 114). The TalkPage handler for "reply" sets the label to "Speaking...". Then "summarizing" fires and sets it to "Summarizing...". So the user sees: Thinking... -&gt; Speaking... -&gt; Summarizing... -&gt; (audio plays).</p>
+  <p><strong>Root cause:</strong> In VoiceConversation.SpeakTurnAsync, the "reply" event is emitted at line 108 before the wingman summarization at line 114. The TalkPage "reply" handler sets VoiceStatusLabel.Text = "Speaking..." which is displayed while the wingman call (SummarizeForVoiceAsync) is still running.</p>
+  <div class="code">// VoiceConversation.cs lines 107-117 (the wrong order):
+var rawReply = result.SpokenText();
+onUpdate?.Invoke(new TurnUpdate("reply", rawReply));     // line 108 - sets "Speaking..." in TalkPage
+
+onUpdate?.Invoke(new TurnUpdate("summarizing", "Summarizing..."));  // line 114 - sets "Summarizing..." AFTER
+var spokenSummary = await SummarizeForVoiceAsync(session, rawReply, ct);
+
+await SpeakAsync(session.TailnetEndpoint, spokenSummary, ct);  // actual audio plays here</div>
+  <p><strong>Fix:</strong> The "summarizing" event must be emitted BEFORE the audio plays (and before showing "Speaking..."). The "reply" event (which updates ReplyLabel with the raw text) should either be repositioned after summarization, or its handler should NOT update the status label to "Speaking...". The correct flow should be: emit "reply" (update screen only, no status change) -&gt; emit "summarizing" (set "Summarizing...") -&gt; complete summarization -&gt; emit something like "speaking" (set "Speaking...") -&gt; call SpeakAsync.</p>
+</div>
+
+<h3>AC2: Raw agent reply text appears in ReplyLabel on screen</h3>
+<div class="card pass">
+  <div class="label">PASS</div>
+  <p>The "reply" TurnUpdate carries rawReply text. TalkPage sets VoiceReplyLabel.Text and shows VoiceReplyCard. VoiceConversation.SpeakTurnAsync returns rawReply and TalkPage also sets it in the post-turn block (lines 497-504). The raw text is visible on screen.</p>
+</div>
+
+<h3>AC3: Spoken audio is wingman's plain-prose summary, not raw terminal output</h3>
+<div class="card pass">
+  <div class="label">PASS - Code path correct</div>
+  <p>SummarizeForVoiceAsync calls AskWingmanAsync with the correct voice-tuned prompt ("No markdown. No code. No bullet points. If the agent is asking a question, end with it clearly."). The summary (not rawReply) is passed to SpeakAsync. Fallback to rawReply on any exception is correctly implemented.</p>
+</div>
+
+<h3>AC4: If agent asks a question, that question is audible in the summary</h3>
+<div class="card pass">
+  <div class="label">PASS - Prompt instructs wingman correctly</div>
+  <p>The wingman summarization prompt at VoiceConversation.cs line 137-139 ends with "If the agent is asking the user a question, end with that question clearly." This correctly instructs the wingman to preserve questions.</p>
+</div>
+
+<h3>AC5: Wingman guaranteed active during voice mode regardless of gateway default</h3>
+<div class="card pass">
+  <div class="label">PASS - Two-layer guarantee</div>
+  <p>Layer 1: POST /sessions/sid/voice-mode in ControlEndpoints.cs captures PreVoiceWingmanEnabled (Session.cs line 442) and forces WingmanEnabled=true on entry; restores on exit. This is correct.</p>
+  <p>Layer 2: TalkPage.RunVoiceTurnAsync also calls SetWingmanEnabledAsync(true) explicitly before SpeakTurnAsync (lines 450-451). VoiceSessionView.LoadSessionAsync also calls it when WalkieTalkieMode=true (lines 226-227). Belt-and-suspenders approach is appropriate given the feature's requirements.</p>
+</div>
+
+<h3>AC6: Wingman summarization fallback - if wingman fails, app still speaks</h3>
+<div class="card pass">
+  <div class="label">PASS</div>
+  <p>SummarizeForVoiceAsync (VoiceConversation.cs lines 128-153) wraps the AskWingmanAsync call in try/catch and returns rawReply on any exception. Also handles empty response explicitly. The fallback path is correct.</p>
+</div>
+
+<h3>AC7: FIFO mode (FifoPage) is unaffected</h3>
+<div class="card pass">
+  <div class="label">PASS</div>
+  <p>WalkieTalkieMode property defaults to false (VoiceSessionView.cs line 68). When false, RunTurnAsync calls DeliverToSessionAsync (the unchanged FIFO path, lines 396-414). FifoPage never sets WalkieTalkieMode=true. DeliverToSessionAsync is unchanged. TalkPage is a separate page that does not host VoiceSessionView.</p>
+</div>
+
+<h3>AC8: Verified end-to-end on Android</h3>
+<div class="card warn">
+  <div class="label">NOT VERIFIED - Phone not available for QA</div>
+  <p>End-to-end Android verification requires a physical device or emulator with the mobile app. QA was performed via code review and static analysis. AC1 failure detected before this could be reached. Note: this is a mobile-only feature (TalkPage is in the MAUI phone app), so code correctness verification is the primary QA lever available in this environment.</p>
+</div>
+
+<h2>Summary of Defect</h2>
+<div class="card fail">
+  <div class="label">DEFECT: AC1 - Status label order inverted (Speaking shown before Summarizing)</div>
+  <p><strong>File:</strong> phone/CcDirectorClient/Voice/VoiceConversation.cs, lines 107-117</p>
+  <p><strong>Steps to reproduce:</strong> (1) Open TalkPage Voice tab on any session. (2) Tap Record, say a question, tap Submit. (3) Watch the status label. Observe it reads: Transcribing... then Thinking... then Speaking... then Summarizing... (4) The audio then plays.</p>
+  <p><strong>Expected:</strong> Transcribing... -&gt; Thinking... -&gt; Summarizing... -&gt; Speaking... (audio plays).</p>
+  <p><strong>Actual:</strong> Transcribing... -&gt; Thinking... -&gt; Speaking... -&gt; Summarizing... (audio plays).</p>
+  <p><strong>Why it matters:</strong> The user sees "Speaking..." while the wingman is still processing. This is actively misleading - the app is not speaking yet. The spec (issue description + AC1 + the "Status line during the loop" section) is explicit that Summarizing must come between Thinking and Speaking.</p>
+</div>
+
+</body>
+</html>
