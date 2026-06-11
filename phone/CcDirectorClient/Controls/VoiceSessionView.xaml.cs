@@ -57,6 +57,16 @@ public partial class VoiceSessionView : ContentView
     // the pill on a fresh control.
     private bool _attached;
 
+    /// <summary>
+    /// When true (single-session walkie-talkie host, TalkPage), Ask Agent runs the full
+    /// wait-send-follow-summarize-speak loop (<see cref="VoiceConversation.SpeakTurnAsync"/>)
+    /// so the agent's reply is read back aloud as plain spoken prose.
+    /// When false (FIFO queue host, FifoPage), Ask Agent delivers the answer and moves on
+    /// (<see cref="VoiceConversation.DeliverToSessionAsync"/>). Default false so FifoPage
+    /// needs no change.
+    /// </summary>
+    public bool WalkieTalkieMode { get; set; } = false;
+
     /// <summary>True only when Skip is meaningful (queue host). Single-session hosts set this
     /// to false; Skip is hidden and Hold expands to fill the row.</summary>
     public bool ShowSkip
@@ -208,8 +218,13 @@ public partial class VoiceSessionView : ContentView
 
         // Flag voice mode so the desktop tile / web view / roster show that this session
         // is being talked to. Best-effort, fire-and-forget.
-        _ = new DirectorVoiceClient(_tokenProvider())
-            .SetVoiceModeAsync(session.TailnetEndpoint, session.SessionId, true);
+        var voiceClient = new DirectorVoiceClient(_tokenProvider());
+        _ = voiceClient.SetVoiceModeAsync(session.TailnetEndpoint, session.SessionId, true);
+
+        // Walkie-talkie mode requires the wingman for reply summarization: ensure it is
+        // active for this session regardless of the gateway's default. Best-effort.
+        if (WalkieTalkieMode)
+            _ = voiceClient.SetWingmanEnabledAsync(session.TailnetEndpoint, session.SessionId, true);
 
         SetBusy(false);
 
@@ -362,6 +377,22 @@ public partial class VoiceSessionView : ContentView
         var convo = new VoiceConversation(new DirectorVoiceClient(_tokenProvider()), _tts);
         try
         {
+            // Walkie-talkie mode (single-session host): run the full wait-send-follow-
+            // summarize-speak loop so the agent's reply is read back aloud as plain prose.
+            // FIFO mode (queue host): deliver and move on without waiting for the reply.
+            if (WalkieTalkieMode && !_recordingForWingman)
+            {
+                var rawReply = await convo.SpeakTurnAsync(
+                    session, audio, OnTurnUpdate, _turnCts.Token);
+                SetStatus(ReadyActionsLine, StatusGreen);
+                SetBusy(false);
+                // Reply was spoken; AnswerDelivered tells the single-session host to reset
+                // rather than advance (TalkPage reacts by staying on the session, ready for
+                // another question).
+                AnswerDelivered?.Invoke(this, EventArgs.Empty);
+                return;
+            }
+
             var outcome = await convo.DeliverToSessionAsync(
                 session, audio, OnTurnUpdate, _turnCts.Token, forceWingman: _recordingForWingman,
                 onClip: CacheClip);
@@ -408,6 +439,10 @@ public partial class VoiceSessionView : ContentView
             case "delivered": ReplyLabel.Text = u.Text; SetStatus("Sent - next session", StatusGreen); break;
             case "wingman": SetStatus("Asking the wingman...", StatusBlue); break;
             case "answer": ReplyLabel.Text = u.Text; SetStatus("Speaking...", StatusBlue); break;
+            // Walkie-talkie mode stages (issue #348):
+            case "thinking": SetStatus("Thinking...", StatusYellow); break;
+            case "summarizing": SetStatus("Summarizing...", StatusBlue); break;
+            case "reply": ReplyLabel.Text = u.Text; SetStatus("Speaking...", StatusBlue); break;
             default: TurnStatusLabel.Text = u.Text; break;
         }
     });

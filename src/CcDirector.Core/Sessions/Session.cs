@@ -432,6 +432,15 @@ public sealed class Session : IDisposable
     /// </summary>
     public bool WingmanEnabled { get; set; } = false;
 
+    /// <summary>
+    /// The <see cref="WingmanEnabled"/> value captured just before voice mode was enabled
+    /// for this session, so the prior state can be restored when voice mode ends. Null when
+    /// voice mode is not active (the value is transient and is not persisted). Voice mode
+    /// requires the Wingman for reply summarization, so it force-enables WingmanEnabled on
+    /// entry regardless of the user's normal setting; this field records what to restore.
+    /// </summary>
+    public bool? PreVoiceWingmanEnabled { get; set; } = null;
+
     private bool _isExplaining;
 
     /// <summary>
