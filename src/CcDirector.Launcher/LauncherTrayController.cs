@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Platform;
 using Avalonia.Threading;
+using CcDirector.Core.Configuration;
 using CcDirector.Core.Utilities;
 
 namespace CcDirector.Launcher;
@@ -25,6 +26,7 @@ public sealed class LauncherTrayController : IDisposable
     private NativeMenuItem? _statusItem;
     private NativeMenuItem? _autostartItem;
     private LauncherHost? _host;
+    private GatewayRegistrationClient? _gatewayClient;
     private HostState _state = HostState.Starting;
     private bool _disposed;
 
@@ -91,17 +93,25 @@ public sealed class LauncherTrayController : IDisposable
         {
             var launchService = new LaunchService();
             var directorSupervisor = new DirectorSupervisor();
+            var version = ReadVersion();
 
             _host = new LauncherHost(
                 _port,
                 launchService,
                 directorSupervisor,
                 QuitAsync,
-                ReadVersion());
+                version);
 
             await _host.StartAsync();
             SetState(HostState.Running);
             FileLog.Write($"[LauncherTrayController] Host running on :{_port}");
+
+            // Issue #331: register with the Gateway (no-op when gateway not configured).
+            // The token is read after host start because LauncherHost writes it on start.
+            var gwConfig = GatewayConfig.Load();
+            var launcherToken = LauncherAuth.LoadOrCreateToken();
+            _gatewayClient = new GatewayRegistrationClient(gwConfig, _port, launcherToken, version);
+            _gatewayClient.Start();
         }
         catch (Exception ex)
         {
@@ -134,6 +144,14 @@ public sealed class LauncherTrayController : IDisposable
     private async Task QuitAsync()
     {
         FileLog.Write("[LauncherTrayController] QuitAsync");
+
+        // Issue #331: unregister from the Gateway before shutting down the REST host.
+        if (_gatewayClient is not null)
+        {
+            await _gatewayClient.StopAsync();
+            _gatewayClient = null;
+        }
+
         if (_host is not null)
         {
             await _host.StopAsync();
@@ -267,6 +285,9 @@ public sealed class LauncherTrayController : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        try { _gatewayClient?.StopAsync().GetAwaiter().GetResult(); }
+        catch (Exception ex) { FileLog.Write($"[LauncherTrayController] Dispose gateway client stop error: {ex.Message}"); }
+        _gatewayClient = null;
         try { _host?.StopAsync().GetAwaiter().GetResult(); }
         catch (Exception ex) { FileLog.Write($"[LauncherTrayController] Dispose stop error: {ex.Message}"); }
         _host = null;

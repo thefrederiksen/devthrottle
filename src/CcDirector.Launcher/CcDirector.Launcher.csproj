@@ -26,6 +26,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\CcDirector.Core\CcDirector.Core.csproj" />
+    <!-- Issue #331: LauncherRegistrationRequest lives in Gateway.Contracts. -->
+    <ProjectReference Include="..\CcDirector.Gateway.Contracts\CcDirector.Gateway.Contracts.csproj" />
     <ProjectReference Include="..\..\tools\cc-director-setup-engine\CcDirector.Setup.Engine.csproj" />
   </ItemGroup>
 

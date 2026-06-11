@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Issue #331 - QA Verification Report</title>
+<style>
+body { font-family: Georgia, 'Times New Roman', serif; max-width: 900px; margin: 40px auto; padding: 0 24px; color: #1a1a1a; }
+h1 { font-size: 1.8em; border-bottom: 2px solid #333; padding-bottom: 10px; }
+h2 { font-size: 1.3em; margin-top: 36px; color: #222; border-left: 4px solid #c0392b; padding-left: 12px; }
+h3 { font-size: 1.1em; margin-top: 24px; color: #333; }
+table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 0.9em; }
+th { background: #2c3e50; color: white; padding: 8px 12px; text-align: left; }
+td { padding: 7px 12px; border-bottom: 1px solid #ddd; vertical-align: top; }
+tr:nth-child(even) { background: #f7f9fc; }
+code { background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-size: 0.9em; font-family: 'Courier New', monospace; }
+pre { background: #1e1e1e; color: #d4d4d4; padding: 16px; border-radius: 6px; overflow-x: auto; font-size: 0.85em; line-height: 1.5; }
+.pass { color: #27ae60; font-weight: bold; }
+.fail { color: #c0392b; font-weight: bold; }
+.warn { color: #f39c12; font-weight: bold; }
+.note { background: #fffde7; border-left: 4px solid #f9a825; padding: 12px 16px; margin: 16px 0; }
+.defect { background: #fff5f5; border-left: 4px solid #c0392b; padding: 12px 16px; margin: 16px 0; }
+.meta { color: #666; font-size: 0.85em; margin-bottom: 24px; }
+</style>
+</head>
+<body>
+
+<h1>Issue #331 - QA Verification Report</h1>
+<div class="meta">
+  Issue: <a href="https://github.com/thefrederiksen/cc-director/issues/331">#331 Gateway Launcher Registration + Cross-Machine Director Lifecycle Relay</a><br>
+  QA Agent: Independent QA session (SOREN_NORTH)<br>
+  Date: 2026-06-11<br>
+  Branch: issue-331-gateway-launcher-relay<br>
+  Worktree: D:\ReposFred\cc-director-331<br>
+  Test Slot: 6 (agent-session-slot6, port 7887)<br>
+  Verdict: <span class="fail">FAIL - flow:qa-failed</span>
+</div>
+
+<h2>Build Verification</h2>
+<pre>
+dotnet build cc-director.sln
+Result: Build succeeded.  0 Warning(s)  0 Error(s)
+Script: scripts\local-build-avalonia.ps1 -Slot 6
+Result: Build complete: 38.4 MB  D:\ReposFred\cc-director-331\local_builds\cc-director6.exe
+</pre>
+<p><span class="pass">PASS</span> - Clean build, 0 errors.</p>
+
+<h2>Test Suite Results</h2>
+<pre>
+New tests (filter LauncherRegistryTests|LauncherRegistryEndpointTests|MachineRelaySlotGuardTests):
+  Total: 44   Passed: 44   Failed: 0
+
+Full Gateway suite (CcDirector.Gateway.Tests):
+  Total: 560  Passed: 559  Failed: 1
+  KNOWN FLAKE: DictationEndpointTests.FullPipeline_transcribes_phase0_clip2_with_realtime_provider
+               Same failure on main branch (commit e527087) - confirmed non-regression.
+
+Launcher suite (CcDirector.Launcher.Tests):
+  Total: 22   Passed: 22   Failed: 0
+</pre>
+<p><span class="pass">PASS</span> - All new tests pass, one known pre-existing flake, non-regression confirmed.</p>
+
+<h2>Acceptance Criteria Evaluation</h2>
+
+<table>
+  <tr><th>#</th><th>Criterion</th><th>Verdict</th><th>Expected</th><th>Actual</th></tr>
+
+  <tr>
+    <td>AC1</td>
+    <td>Launcher registers; Gateway lists it (machine, port, last-seen) via queryable endpoint.</td>
+    <td><span class="pass">PASS</span></td>
+    <td>POST /launchers/register returns 201, GET /launchers shows entry with machine name, port, last-seen.</td>
+    <td>
+      11 integration tests in LauncherRegistryEndpointTests cover full lifecycle: register, idempotent update,
+      validation rejects (missing machineName, zero port, missing token), heartbeat known/unknown,
+      unregister, GET /launchers listing. All 44 targeted tests pass.
+      LauncherDto includes MachineName, Port, LastSeenAt as required.
+    </td>
+  </tr>
+
+  <tr>
+    <td>AC2</td>
+    <td>From the gateway box: POST /machines/SORENLAPTOP/director/restart scoped to slot-5+ restarts end-to-end.</td>
+    <td><span class="fail">FAIL - ARCHITECTURAL DEFECT</span></td>
+    <td>
+      A POST to /machines/SORENLAPTOP/director/restart on the SOREN_NORTH Gateway
+      should relay the command to SORENLAPTOP's launcher and restart SORENLAPTOP's Director.
+      The relay must route to SORENLAPTOP's network address.
+    </td>
+    <td>
+      DEFECT: The relay implementation in MachineEndpoints.cs (BuildLauncherClient, line 279-286)
+      ALWAYS dials http://127.0.0.1:{port}/ regardless of target machine.
+      For SORENLAPTOP's launcher (registered port = e.g. 7900), the Gateway dials
+      http://127.0.0.1:7900/ on SOREN_NORTH - which reaches nothing related to SORENLAPTOP.
+      Cross-machine relay is physically impossible with this implementation.
+
+      Code evidence: BuildLauncherClient (line 282): "new Uri($"http://127.0.0.1:{port}/")"
+      LauncherRegistrationRequest has no field for external/tailnet address.
+      LauncherRegistry stores only Port, no hostname.
+
+      Developer's equivalence argument ("502 on dead port proves relay fires") only proves
+      the guard passes and the HTTP call fires. It does not prove the call reaches a different
+      machine - it cannot, because the target is always 127.0.0.1 on the Gateway host.
+
+      True cross-machine relay requires storing the launcher's tailnet/network address and
+      dialing that address instead of loopback.
+    </td>
+  </tr>
+
+  <tr>
+    <td>AC3</td>
+    <td>Relay refuses restart/stop targeting main build or slots 1-4 without confirmProtected; named error, audit log, nothing killed.</td>
+    <td><span class="pass">PASS</span></td>
+    <td>403 + "slot_guard" error JSON for main build and slots 1-4. 502 (guard passes) for slots 5+.</td>
+    <td>
+      15 MachineRelaySlotGuardTests cover: main build refused (cc-director.exe, C:\...\cc-director.exe),
+      slots 1-4 refused, slots 5+ pass (502), confirmProtected=true bypasses guard,
+      guard applies to /stop not /start, no exePath means guard not applied.
+      All pass. Audit log: RELAY_REFUSED lines confirmed in source (FileLog.Write line 205).
+    </td>
+  </tr>
+
+  <tr>
+    <td>AC4</td>
+    <td>All relay calls are audit-logged Gateway-side (caller, target machine, verb, outcome).</td>
+    <td><span class="pass">PASS</span></td>
+    <td>FileLog entries with caller IP, machine, verb, and outcome status for every relay call.</td>
+    <td>
+      Verified in MachineEndpoints.cs: entry log (lines 108/115/122/129) includes caller IP.
+      Outcome log (lines 149/160/230/241) includes machine, verb, and status.
+      Refused relays log RELAY_REFUSED with machine/verb/reason (line 205).
+    </td>
+  </tr>
+
+  <tr>
+    <td>AC5</td>
+    <td>Missing/wrong token -> 401; launcher unreachable on target machine -> clear 502-style error, not a hang.</td>
+    <td><span class="pass">PASS</span></td>
+    <td>401 for wrong token; 502 with "unreachable" message for dead launcher port; no hang.</td>
+    <td>
+      Register_Launcher_WrongToken_Returns401: passes.
+      Relay_LauncherUnreachable_Returns502: passes (10-second timeout, not a hang).
+      Response body contains "unreachable" text.
+    </td>
+  </tr>
+
+  <tr>
+    <td>AC6</td>
+    <td>Unit tests: relay routing (machine to launcher endpoint), slot-guard refusal matrix, token gate.</td>
+    <td><span class="pass">PASS</span></td>
+    <td>44 new tests covering all matrix cases.</td>
+    <td>
+      LauncherRegistryTests (12 tests), LauncherRegistryEndpointTests (11 tests via in-process GatewayHost),
+      MachineRelaySlotGuardTests (15 tests). All 44 pass. Slot-guard matrix fully covered.
+    </td>
+  </tr>
+
+</table>
+
+<h2>Defect Detail - AC2 Cross-Machine Relay</h2>
+
+<div class="defect">
+<strong>Defect: Relay always dials 127.0.0.1 (loopback) - cross-machine relay is impossible</strong>
+
+<p><strong>File:</strong> src/CcDirector.Gateway/Api/MachineEndpoints.cs, method BuildLauncherClient (line 279-286)</p>
+
+<p><strong>Failing code:</strong></p>
+<pre>
+private static HttpClient BuildLauncherClient(int port, string token)
+{
+    var http = new HttpClient
+    {
+        BaseAddress = new Uri($"http://127.0.0.1:{port}/"),   // &lt;-- always loopback
+        Timeout = TimeSpan.FromSeconds(10),
+    };
+    ...
+}
+</pre>
+
+<p><strong>Root cause:</strong> The LauncherRegistrationRequest DTO and LauncherRegistry store only the port number,
+with no tailnet/network address field. When SORENLAPTOP's launcher registers with SOREN_NORTH's Gateway
+(e.g. Port=7900), the Gateway relay dials http://127.0.0.1:7900/ on SOREN_NORTH - which has no listener
+on port 7900 from SORENLAPTOP's launcher. The relay cannot reach a different machine because it always
+resolves to the Gateway's own loopback interface.</p>
+
+<p><strong>Steps to reproduce:</strong></p>
+<ol>
+  <li>Deploy the new Gateway to SOREN_NORTH (or test with the in-process GatewayHost).</li>
+  <li>Simulate SORENLAPTOP's launcher by registering: POST /launchers/register with MachineName="SORENLAPTOP", Port=7900, Token="x"</li>
+  <li>Start a real HTTP listener on port 7900 on SOREN_NORTH (NOT on SORENLAPTOP).</li>
+  <li>POST /machines/SORENLAPTOP/director/restart - the relay reaches port 7900 on SOREN_NORTH (same machine), NOT SORENLAPTOP.</li>
+  <li>Verify: SORENLAPTOP's launcher is never called.</li>
+</ol>
+
+<p><strong>Fix required:</strong> Add an ExternalAddress (or TailnetEndpoint) field to LauncherRegistrationRequest and
+LauncherDto. The Launcher client should send its tailnet address (mirroring GatewayClient's
+tailnet endpoint resolution pattern, already present in the Director's GatewayRegistrationClient).
+BuildLauncherClient should use the stored external address instead of hardcoded 127.0.0.1.
+For local-machine launchers (same machine as Gateway), loopback is correct; for remote launchers,
+the tailnet/network address is required.</p>
+
+<p><strong>Analogy:</strong> The Director's registration (GatewayClientRegistrationRequestTests) stores a
+tailnetEndpoint or a configured override URL, not just a port. The Launcher registration needs
+the same pattern. The developer's AC2 comment at MachineEndpoints.cs line 39-43 acknowledges
+cross-machine topology but the implementation does not support it.</p>
+</div>
+
+<h2>Regression Sweep</h2>
+<p>No regressions observed. The new Gateway routes are additive (new files: MachineEndpoints.cs,
+LauncherRegistry.cs, new Contracts DTOs). Existing tests (559 pass) confirm no regression.
+The single failing test (dictation flake) is pre-existing on main branch - confirmed.</p>
+
+<h2>Verdict</h2>
+<p><span class="fail">FAIL - flow:qa-failed</span></p>
+<p>AC2 fails: The relay implementation physically cannot reach a different machine because it always
+dials 127.0.0.1 (loopback). The issue's proof target ("SOREN_NORTH -> Gateway -> SORENLAPTOP launcher
+-> Director restart") cannot be achieved with the current code. The developer's equivalence argument
+(502 on dead port proves relay fires) is not equivalent to cross-machine relay - it proves the guard
+passes but does not prove the request reaches another host.</p>
+<p>AC1, AC3, AC4, AC5, AC6: all PASS.</p>
+<p>Required fix: Add tailnet/network address to LauncherRegistrationRequest + LauncherDto; use that
+address (not hardcoded 127.0.0.1) in BuildLauncherClient for remote machines.</p>
+
+</body>
+</html>
