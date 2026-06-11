@@ -1,0 +1,71 @@
+{
+  "commentVersionRef": {
+    "commentId": 20214732,
+    "url": "https://dev.azure.com/mindzie/92590636-26d4-4584-9f7c-4be0270cbd1c/_apis/wit/workItems/7660/comments/20214732/versions/1",
+    "version": 1
+  },
+  "fields": {
+    "Microsoft.VSTS.Common.ActivatedBy": {
+      "_links": {
+        "avatar": {
+          "href": "https://dev.azure.com/mindzie/_apis/GraphProfile/MemberAvatars/aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk"
+        }
+      },
+      "descriptor": "aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk",
+      "displayName": "Soren Frederiksen",
+      "id": "cfb1ae32-63d2-6512-9a07-fac159c57a0d",
+      "imageUrl": "https://dev.azure.com/mindzie/_apis/GraphProfile/MemberAvatars/aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk",
+      "uniqueName": "soren.frederiksen@mindzie.com",
+      "url": "https://spsprodcca1.vssps.visualstudio.com/A3c2242d7-a70a-4e5f-95fd-3f49198e4785/_apis/Identities/cfb1ae32-63d2-6512-9a07-fac159c57a0d"
+    },
+    "Microsoft.VSTS.Common.ActivatedDate": "2026-06-11T09:39:14.677Z",
+    "Microsoft.VSTS.Common.Priority": 2,
+    "Microsoft.VSTS.Common.StateChangeDate": "2026-06-11T09:39:14.677Z",
+    "System.AreaPath": "Z_Archive_DataWarehouse",
+    "System.ChangedBy": {
+      "_links": {
+        "avatar": {
+          "href": "https://dev.azure.com/mindzie/_apis/GraphProfile/MemberAvatars/aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk"
+        }
+      },
+      "descriptor": "aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk",
+      "displayName": "Soren Frederiksen",
+      "id": "cfb1ae32-63d2-6512-9a07-fac159c57a0d",
+      "imageUrl": "https://dev.azure.com/mindzie/_apis/GraphProfile/MemberAvatars/aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk",
+      "uniqueName": "soren.frederiksen@mindzie.com",
+      "url": "https://spsprodcca1.vssps.visualstudio.com/A3c2242d7-a70a-4e5f-95fd-3f49198e4785/_apis/Identities/cfb1ae32-63d2-6512-9a07-fac159c57a0d"
+    },
+    "System.ChangedDate": "2026-06-11T09:39:14.677Z",
+    "System.CommentCount": 1,
+    "System.CreatedBy": {
+      "_links": {
+        "avatar": {
+          "href": "https://dev.azure.com/mindzie/_apis/GraphProfile/MemberAvatars/aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk"
+        }
+      },
+      "descriptor": "aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk",
+      "displayName": "Soren Frederiksen",
+      "id": "cfb1ae32-63d2-6512-9a07-fac159c57a0d",
+      "imageUrl": "https://dev.azure.com/mindzie/_apis/GraphProfile/MemberAvatars/aad.Y2ZiMWFlMzItNjNkMi03NTEyLTlhMDctZmFjMTU5YzU3YTBk",
+      "uniqueName": "soren.frederiksen@mindzie.com",
+      "url": "https://spsprodcca1.vssps.visualstudio.com/A3c2242d7-a70a-4e5f-95fd-3f49198e4785/_apis/Identities/cfb1ae32-63d2-6512-9a07-fac159c57a0d"
+    },
+    "System.CreatedDate": "2026-06-11T09:38:50.873Z",
+    "System.Description": "QA Agent scratch item for issue 300 verification. Target repo: thefrederiksen/cc-director. Will be deleted after proof capture.",
+    "System.History": "CLAIM by SOREN_NORTH/qa-agent-issue-300 at 2026-06-11T09:39:12Z",
+    "System.IterationPath": "Z_Archive_DataWarehouse",
+    "System.Reason": "Work started",
+    "System.State": "In Progress",
+    "System.TeamProject": "Z_Archive_DataWarehouse",
+    "System.Title": "[TEST cc-director #300 QA] scratch item for adapter write-back verification",
+    "System.WorkItemType": "Task"
+  },
+  "id": 7660,
+  "multilineFieldsFormat": {
+    "System.Description": "html",
+    "System.History": "html"
+  },
+  "relations": null,
+  "rev": 2,
+  "url": "https://dev.azure.com/mindzie/92590636-26d4-4584-9f7c-4be0270cbd1c/_apis/wit/workItems/7660"
+}

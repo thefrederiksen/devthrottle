@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Report - Issue #300 (devops source adapter) - PR #320</title>
+<style>
+  body { font-family: Georgia, 'Times New Roman', serif; margin: 40px auto; max-width: 1000px; color: #1a1a2e; line-height: 1.5; }
+  h1 { border-bottom: 3px solid #1a1a2e; padding-bottom: 8px; }
+  h2 { margin-top: 32px; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 14px; }
+  th, td { border: 1px solid #999; padding: 6px 10px; text-align: left; vertical-align: top; }
+  th { background: #1a1a2e; color: #fff; }
+  code, pre { font-family: Consolas, monospace; background: #f4f4f4; padding: 1px 4px; font-size: 13px; }
+  pre { padding: 10px; overflow-x: auto; border: 1px solid #ddd; }
+  .pass { color: #0a6b0a; font-weight: bold; }
+  .fail { color: #a00; font-weight: bold; }
+  .verdict { background: #e8f5e8; border: 2px solid #0a6b0a; padding: 14px 18px; font-size: 17px; margin: 24px 0; }
+  .note { background: #fff8e0; border: 1px solid #d4b106; padding: 8px 12px; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<h1>QA Verification Report - Issue #300 / PR #320</h1>
+<p><b>Issue:</b> [Loop] Source adapters: make devops/jira work-list refs runnable (v1 runs github only)<br>
+<b>PR:</b> #320 (branch <code>issue-300-devops-adapter</code>, HEAD <code>e99d4f0</code>)<br>
+<b>QA identity:</b> independent QA Agent session (separate from the Developer session; SOC 2 separation of duties)<br>
+<b>QA worktree:</b> detached checkout of <code>origin/issue-300-devops-adapter</code> (own worktree, developer binaries NOT reused)<br>
+<b>Date:</b> 2026-06-11<br>
+<b>Contract verified against:</b> issue #300 body + the "Product sharpening (Definition of Ready)" comment (D-1..D-4 + restated acceptance criteria). D-4 explicitly allows proof level a+b (runner-level dispatch proof + live az write-back demo); the Developer declared a+b and QA verified at that level. The Developer's report and proof files were treated as context only - every result below is from QA's OWN runs.</p>
+
+<div class="verdict">VERDICT: PASS - all 5 acceptance criteria independently verified. All adapter dispatch and github regression tests green in QA's own run; live az write-back demonstrated on QA's own scratch work item against the real Scrum-process project; fleet untouched; zero DevOps residue.</div>
+
+<h2>Criterion 1 - Build clean</h2>
+<table>
+<tr><th>Expected</th><th>Actual (QA's own run)</th><th>Result</th></tr>
+<tr><td><code>dotnet build cc-director.sln</code> in the QA worktree succeeds with 0 errors.</td>
+<td><code>Build succeeded. 0 Warning(s) 0 Error(s)</code> (full solution, 21.6 s)</td>
+<td class="pass">PASS</td></tr>
+</table>
+
+<h2>Criterion 2 - Gateway test suite (adapter dispatch + github regression)</h2>
+<table>
+<tr><th>Expected</th><th>Actual (QA's own run)</th><th>Result</th></tr>
+<tr><td>Adapter dispatch tests pass: github runnable, devops runnable, jira skip-with-note.</td>
+<td>26/26 passed across <code>SourceAdapterTests</code> (15), <code>WorkListRunnerTests</code> (9, incl. <code>DrainAsync_MixedSources_DispatchPerAdapter_DevopsRuns_JiraSkipped</code>, <code>DrainAsync_DevopsItem_SeededWithDevopsMode_SignalRecorded</code>, <code>DrainAsync_JiraItem_NeverStarted_LeftInList</code>, <code>DrainAsync_DevopsNonNumericId_StartFailed_CannotCorrelate</code>), <code>DevopsAdapterDispatchProofTests</code> (1, real GatewayHost over HTTP), <code>WorkListRunnerEndpointProofTests</code> (1). Evidence: <code>qa-adapter-tests-run.txt</code>.</td>
+<td class="pass">PASS</td></tr>
+<tr><td>github regression: existing WorkListRunner github tests still green; github seed byte-identical.</td>
+<td><code>DrainAsync_TwoGithubItems_StartsInOrder_NeverOverlapping</code>, <code>Github_BuildSeedPrompt_IsOriginalV1Form</code> (asserts exact seed <code>/implementation-loop 262</code>), claim/refusal/start-failure tests all passed. <code>SkippedNonGithub</code> REST projection name kept stable.</td>
+<td class="pass">PASS</td></tr>
+<tr><td>Full Gateway.Tests suite: no NEW failures introduced by the PR.</td>
+<td>432/434 passed (<code>qa-gateway-tests-full.txt</code>). The 2 failures are BOTH in <code>DictationEndpointTests</code> (real-network OpenAI realtime tests, NOT touched by this PR). QA proved pre-existing/flaky by running the same tests on a scratch worktree at <code>origin/main</code>: <code>FullPipeline_transcribes_phase0_clip2_with_realtime_provider</code> fails IDENTICALLY on origin/main ("expected at least 1 partial transcript, got 0"); <code>ClientCloseWithoutStop_recovers_transcript_instead_of_discarding</code> passes in isolation on BOTH origin/main and the PR branch (1 failed / 4 passed in both isolated DictationEndpointTests runs - flaky under full-suite load). Evidence: <code>qa-dictation-rerun-prbranch.txt</code>.</td>
+<td class="pass">PASS (failures pre-existing, unrelated)</td></tr>
+</table>
+
+<h2>Criterion 3 - Live az write-back on QA's OWN scratch item (proof level b)</h2>
+<p>QA created its own scratch item (NOT the developer's 7659): work item <b>7660</b>, type Task, project <code>Z_Archive_DataWarehouse</code>, title <code>[TEST cc-director #300 QA] scratch item for adapter write-back verification</code>. The documented devops-mode procedure from the PR branch's implementation-loop skill was followed exactly as written.</p>
+<table>
+<tr><th>Step (per skill / DEVELOPMENT_METHOD.md 7b)</th><th>Expected</th><th>Actual (QA's own az run)</th><th>Result</th></tr>
+<tr><td>State probe: <code>az devops invoke --area wit --resource workitemtypestates</code> (the documented mapping lookup)</td>
+<td>Returns the type's state list; the shipped Basic/Scrum/Agile table must resolve the project's Scrum process unambiguously.</td>
+<td>Returned <code>To Do / In Progress / Done / Removed</code> - matches the Scrum row exactly (Basic's <code>Doing</code> absent, so the documented disambiguation works against the real Scrum project). Evidence: <code>qa-az-state-probe.json</code>.</td>
+<td class="pass">PASS</td></tr>
+<tr><td>CLAIM: <code>az boards work-item update --id 7660 --state "In Progress" --discussion "CLAIM by ..."</code></td>
+<td>State transitions To Do -&gt; In Progress; CLAIM comment lands on the discussion.</td>
+<td>State = <code>In Progress</code>; comment <code>CLAIM by SOREN_NORTH/qa-agent-issue-300 at 2026-06-11T09:39:12Z</code> (id 20214732). Evidence: <code>qa-az-claim-transition.json</code>.</td>
+<td class="pass">PASS</td></tr>
+<tr><td>Verify-after-claim: comments REST read</td>
+<td>Oldest CLAIM comment is this run's (claim won).</td>
+<td>Single CLAIM comment, QA's own - claim verified. Evidence: <code>qa-az-claim-verify-comments.json</code>.</td>
+<td class="pass">PASS</td></tr>
+<tr><td>DONE: <code>az boards work-item update --id 7660 --state "Done" --discussion "done: merged &lt;PR URL&gt;"</code></td>
+<td>State transitions In Progress -&gt; Done; PR-link comment lands.</td>
+<td>State = <code>Done</code>; comment <code>done: merged https://github.com/thefrederiksen/cc-director/pull/320 (QA verification of devops-mode write-back)</code>. Evidence: <code>qa-az-done-transition.json</code>, <code>qa-az-final-comments.json</code>.</td>
+<td class="pass">PASS</td></tr>
+<tr><td>Cleanup: delete + verify</td>
+<td>Scratch item removed, zero residue.</td>
+<td><code>az boards work-item delete --id 7660 --destroy --yes</code> => "Deleted work item 7660"; subsequent <code>show</code> returns TF401232 does-not-exist; project-wide WIQL sweep returns ZERO work items in Z_Archive_DataWarehouse (pristine). Evidence: <code>qa-az-delete-verify.txt</code>, <code>qa-az-residual-query.txt</code>.</td>
+<td class="pass">PASS</td></tr>
+</table>
+<p class="note">Note: the project uses the Scrum process; the shipped mapping (probe the TYPE's allowed states, pick the matching template row) worked AS DOCUMENTED with no improvisation - the D-3 deviation fix the Developer described (Scrum row + type-state probe) is real and correct in the shipped skill text.</p>
+
+<h2>Criterion 4 - Static / method checks</h2>
+<table>
+<tr><th>Check</th><th>Actual</th><th>Result</th></tr>
+<tr><td>Adapter contract code review (<code>ISourceAdapter</code> / <code>SourceAdapters</code> / <code>WorkListRunner</code>) vs CodingStyle.md</td>
+<td>Thin adapter per D-2 (Source / BuildSeedPrompt / TryGetCorrelationKey only); registry dispatch IS runnability; case-insensitive lookup; no fallback programming (no adapter =&gt; explicit skip note; non-numeric id =&gt; explicit StartFailed note, never a guess); enterprise logging on the runner and driver public paths (<code>DrainAsync</code> entry/refused/done/released, per-item skip/start-failed/terminal, driver start/started/FAILED); try-catch only at lifecycle/dispose seams.</td>
+<td class="pass">PASS</td></tr>
+<tr><td>ASCII-only in new/changed files</td>
+<td>All 15 changed source/test/skill/doc files scanned byte-wise: 0 non-ASCII bytes in every file.</td>
+<td class="pass">PASS</td></tr>
+<tr><td>Skills + method docs present and consistent</td>
+<td>implementation-loop v0.8 (devops mode: --source devops arg, host prereqs, state-probe command, Basic/Scrum/Agile table, CLAIM + verify-after-claim, write-back table for done/needs-human/failed), developer-agent v0.6 + qa-agent v0.6 devops notes, DEVELOPMENT_METHOD.md Section 7b (Gateway half = ISourceAdapter table matching the shipped interface member-for-member; skill half = status mapping matching the skill; future-source recipe). Doc tables match the code (seed prompts, correlation key semantics, skip-note behavior) and match what QA executed live in criterion 3.</td>
+<td class="pass">PASS</td></tr>
+<tr><td>No CenCon drift; sentinel contract unchanged for github</td>
+<td><code>ImplLoopTerminalSignal.cs</code> has ZERO diff vs origin/main (sentinel parser untouched); github seed byte-identical (<code>/implementation-loop &lt;id&gt;</code>, regression-asserted); diff confined to Gateway/Contracts/Tests/skills/docs - no Avalonia/Core/UI code touched; <code>SkippedNonGithub</code> enum name deliberately kept for REST projection stability.</td>
+<td class="pass">PASS</td></tr>
+</table>
+
+<h2>Criterion 5 - Live fleet untouched</h2>
+<table>
+<tr><th>Surface</th><th>Before QA</th><th>After QA</th><th>Result</th></tr>
+<tr><td>Main Director</td><td>PID 21128 (app\cc-director.exe), port 7887</td><td>PID 21128, port 7887</td><td class="pass">PASS</td></tr>
+<tr><td>Gateway</td><td>PID 26640 (gateway\cc-director-gateway.exe), port 7878</td><td>PID 26640, port 7878</td><td class="pass">PASS</td></tr>
+<tr><td>Cockpit</td><td>PID 19488 (cockpit\cc-director-cockpit.exe), port 7470</td><td>PID 19488, port 7470</td><td class="pass">PASS</td></tr>
+<tr><td>Test Directors / slot tasks</td><td colspan="2">QA launched NO test Director (proof level a+b needs only the runner-level HTTP tests, which bind ephemeral ports with CC_GATEWAY_NO_TAILSCALE=1, plus the az demo). No cc-director&lt;N&gt;-launch task with N &gt;= 6 exists. Evidence: <code>qa-fleet-after.txt</code>.</td><td class="pass">PASS</td></tr>
+</table>
+<p class="note">The task brief quoted Gateway PID 42928 / Cockpit PID 65232; the fleet observed at QA start was already 26640 / 19488 (a Gateway self-update relaunch predating this QA session, consistent with the Developer's fleet-after note). The pass bar is before == after across QA's own work, which holds exactly.</p>
+
+<h2>QA evidence files (this directory, qa- prefix)</h2>
+<pre>qa-adapter-tests-run.txt          26/26 adapter + runner test results (QA run)
+qa-gateway-tests-full.txt         full Gateway.Tests run, 432/434 (QA run)
+qa-dictation-rerun-prbranch.txt   isolated dictation rerun on PR branch (matches origin/main behavior)
+qa-az-create.json                 scratch item 7660 creation (To Do)
+qa-az-state-probe.json            workitemtypestates probe (Scrum resolved)
+qa-az-claim-transition.json       To Do -&gt; In Progress + CLAIM comment
+qa-az-claim-verify-comments.json  verify-after-claim comment read
+qa-az-done-transition.json        In Progress -&gt; Done
+qa-az-final-comments.json         final discussion (done + PR link, CLAIM)
+qa-az-delete-verify.txt           destroy + does-not-exist verification
+qa-az-residual-query.txt          project-wide WIQL sweep: zero items remain
+qa-fleet-after.txt                fleet PID/port/task table after QA</pre>
+
+<p><b>VERIFIED - all acceptance criteria met. PASS.</b></p>
+
+</body>
+</html>

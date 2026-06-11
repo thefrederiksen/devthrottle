@@ -1,0 +1,3 @@
+Residual sweep after QA scratch-item destroy (2026-06-11):
+command: az boards query --wiql "SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = 'Z_Archive_DataWarehouse'" -o json
+result: EMPTY (exit 0, zero work items in the entire archive project - no [TEST cc-director ...] residue; item 7660 destroyed, show returns TF401232 does-not-exist)
