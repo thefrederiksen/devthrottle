@@ -1,0 +1,29 @@
+12:34:53.211Z QA INDEPENDENT PROOF issue #325 against http://127.0.0.1:7975 (isolated QA gateway, port 7975)
+12:34:54.244Z REGISTERED qa-dir-breakable endpoint=http://127.0.0.1:7985 -> HTTP 201
+12:34:54.248Z REGISTERED qa-dir-healthy endpoint=http://127.0.0.1:7986 -> HTTP 201
+12:34:54.250Z REGISTERED qa-dir-ctllost endpoint=http://127.0.0.1:7987 -> HTTP 201
+12:35:01.272Z STATE qa-dir-breakable advertisedEndpointState=ok unreachableSince=None error=None
+12:35:01.272Z BASELINE-OK
+12:35:01.272Z BREAK advertised endpoint of qa-dir-breakable killed (heartbeats continue)
+12:35:01.273Z STATE qa-dir-breakable advertisedEndpointState=ok unreachableSince=None error=None
+12:35:18.357Z STATE qa-dir-breakable advertisedEndpointState=unreachable-by-name unreachableSince=2026-06-11T12:35:18.0642449Z error=healthz probe timed out after 2s at http://127.0.0.1:7985/healthz
+12:35:18.357Z FLAGGED
+12:35:18.357Z FLAG-LATENCY 17.1s after the break (criterion: <= 30s) -> PASS
+12:35:29.360Z HEARTBEAT-CHECK during flagged window: count 0 -> 3, state=unreachable-by-name -> PASS (alive + flagged, distinct from heartbeat-loss)
+12:35:29.364Z RESTORE advertised endpoint of qa-dir-breakable relaunched (no restarts of gateway/director)
+12:35:29.366Z STATE qa-dir-breakable advertisedEndpointState=unreachable-by-name unreachableSince=2026-06-11T12:35:18.0642449Z error=healthz probe timed out after 2s at http://127.0.0.1:7985/healthz
+12:35:31.369Z STATE qa-dir-breakable advertisedEndpointState=ok unreachableSince=None error=None
+12:35:31.371Z CLEARED
+12:35:31.371Z CLEAR-LATENCY 2.0s after the restore (criterion: <= 30s) -> PASS
+12:35:31.877Z IMPOSTOR listener answering at qa-dir-breakable's endpoint as 'qa-impostor-process'
+12:35:31.882Z STATE qa-dir-breakable advertisedEndpointState=ok unreachableSince=None error=None
+12:35:46.908Z STATE qa-dir-breakable advertisedEndpointState=unreachable-by-name unreachableSince=2026-06-11T12:35:46.0500029Z error=healthz answered at http://127.0.0.1:7985, but as a DIFFERENT Director (qa-impostor-process) - the advertised URL points at the wrong process
+12:35:46.909Z IMPOSTOR-FLAGGED
+12:35:46.909Z IMPOSTOR-ERROR-TEXT: healthz answered at http://127.0.0.1:7985, but as a DIFFERENT Director (qa-impostor-process) - the advertised URL points at the wrong process
+12:35:47.417Z STATE qa-dir-breakable advertisedEndpointState=unreachable-by-name unreachableSince=2026-06-11T12:35:46.0500029Z error=healthz answered at http://127.0.0.1:7985, but as a DIFFERENT Director (qa-impostor-process) - the advertised URL points at the wrong process
+12:36:01.443Z STATE qa-dir-breakable advertisedEndpointState=ok unreachableSince=None error=None
+12:36:01.443Z CLEARED-AFTER-IMPOSTOR
+12:36:01.443Z BREAK-AND-HOLD for the Cockpit screenshot (kill this process to end)
+12:36:01.444Z STATE qa-dir-breakable advertisedEndpointState=ok unreachableSince=None error=None
+12:36:18.482Z STATE qa-dir-breakable advertisedEndpointState=unreachable-by-name unreachableSince=2026-06-11T12:36:18.0512237Z error=healthz probe timed out after 2s at http://127.0.0.1:7985/healthz
+12:36:18.483Z SCREENSHOT-READY
