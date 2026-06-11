@@ -1,0 +1,56 @@
+2026-06-11T08:41:07.506Z [RUN-B] RUN START worktree=D:\ReposFred\wt-issue-299-proof-b pid_of_runner=46240
+2026-06-11T08:41:07.538Z [RUN-B] STEP allocate
+2026-06-11T08:41:09.258Z [RUN-B]   [allocate] slot 6 lost in registration race (Cannot create a file when that file already exists.
+2026-06-11T08:41:09.259Z [RUN-B]   ); trying next
+2026-06-11T08:41:09.260Z [RUN-B]   [allocate] SLOT=7
+2026-06-11T08:41:09.261Z [RUN-B]   [allocate] TASK=cc-director7-launch
+2026-06-11T08:41:09.262Z [RUN-B]   [allocate] MANIFEST=D:\ReposFred\wt-issue-299-proof-b\local_builds\agent-session-slot7.json
+2026-06-11T08:41:09.263Z [RUN-B]   [allocate] Next: build the slot exe from the worktree root:
+2026-06-11T08:41:09.263Z [RUN-B]   [allocate]   powershell -NoProfile -File "D:\ReposFred\wt-issue-299-proof-b\scripts\local-build-avalonia.ps1" -Slot 7
+2026-06-11T08:41:09.279Z [RUN-B] ALLOCATED slot=7 manifest=D:\ReposFred\wt-issue-299-proof-b\local_builds\agent-session-slot7.json
+2026-06-11T08:41:09.280Z [RUN-B] STEP build (local-build-avalonia.ps1 -Slot 7, cwd=D:\ReposFred\wt-issue-299-proof-b)
+2026-06-11T08:41:21.153Z [RUN-B]   Building CC Director Avalonia v0.6.22 (Release)
+2026-06-11T08:41:21.154Z [RUN-B]     Mode: Framework-dependent (.NET 10 runtime required)
+2026-06-11T08:41:21.155Z [RUN-B]     Cleaning previous build...
+2026-06-11T08:41:21.157Z [RUN-B]     Pre-building Core dependency...
+2026-06-11T08:41:21.158Z [RUN-B]   
+2026-06-11T08:41:21.159Z [RUN-B]   Build succeeded.
+2026-06-11T08:41:21.160Z [RUN-B]       0 Warning(s)
+2026-06-11T08:41:21.161Z [RUN-B]       0 Error(s)
+2026-06-11T08:41:21.162Z [RUN-B]   
+2026-06-11T08:41:21.163Z [RUN-B]   Time Elapsed 00:00:02.06
+2026-06-11T08:41:21.164Z [RUN-B]     Building Avalonia project...
+2026-06-11T08:41:21.165Z [RUN-B]   
+2026-06-11T08:41:21.166Z [RUN-B]   Build succeeded.
+2026-06-11T08:41:21.167Z [RUN-B]       0 Warning(s)
+2026-06-11T08:41:21.169Z [RUN-B]       0 Error(s)
+2026-06-11T08:41:21.170Z [RUN-B]   
+2026-06-11T08:41:21.171Z [RUN-B]   Time Elapsed 00:00:07.33
+2026-06-11T08:41:21.173Z [RUN-B]     Publishing...
+2026-06-11T08:41:21.174Z [RUN-B]   MSBuild version 18.6.4+96856fd72 for .NET
+2026-06-11T08:41:21.175Z [RUN-B]     CcDirector.Avalonia -> D:\ReposFred\wt-issue-299-proof-b\src\CcDirector.Avalonia\bin\Release\net10.0\win-x64\publish\
+2026-06-11T08:41:21.176Z [RUN-B]   
+2026-06-11T08:41:21.177Z [RUN-B]   Build complete: 38.3 MB
+2026-06-11T08:41:21.178Z [RUN-B]     D:\ReposFred\wt-issue-299-proof-b\local_builds\cc-director7.exe
+2026-06-11T08:41:21.179Z [RUN-B] BUILD OK slot=7
+2026-06-11T08:41:21.181Z [RUN-B] STEP launch
+2026-06-11T08:41:26.688Z [RUN-B]   [launch] starting scheduled task cc-director7-launch
+2026-06-11T08:41:26.690Z [RUN-B]   [launch] PID=35984
+2026-06-11T08:41:26.691Z [RUN-B]   [launch] PORT=7891
+2026-06-11T08:41:26.705Z [RUN-B]   [launch] LOG=C:\Users\soren\AppData\Local\cc-director\logs\director\director-2026-06-11-35984.log
+2026-06-11T08:41:26.706Z [RUN-B]   [launch] Control API: http://127.0.0.1:7891 (probe GET /healthz)
+2026-06-11T08:41:26.708Z [RUN-B]   [launch] MANIFEST=D:\ReposFred\wt-issue-299-proof-b\local_builds\agent-session-slot7.json (updated)
+2026-06-11T08:41:26.710Z [RUN-B] LAUNCHED pid=35984 port=7891
+2026-06-11T08:41:26.712Z [RUN-B] STEP probe GET http://127.0.0.1:7891/healthz
+2026-06-11T08:41:26.745Z [RUN-B] PROBE status=200 body={"status":"ok","directors":1,"sessions":0,"version":"0.6.22","serverTime":"2026-06-11T08:41:26.7286452Z","directorId":"ff388894-6949-40c3-b15d-6f5446de9068","machineName":"SOREN_NORTH"}
+2026-06-11T08:41:26.746Z [RUN-B] STEP hold 30s (overlap window, Director alive on port 7891)
+2026-06-11T08:41:56.757Z [RUN-B] STEP teardown (RemoveWorktree=True)
+2026-06-11T08:41:59.414Z [RUN-B]   [teardown] stopping PID 35984 (D:\ReposFred\wt-issue-299-proof-b\local_builds\cc-director7.exe)
+2026-06-11T08:41:59.415Z [RUN-B]   [teardown] PID 35984 exited
+2026-06-11T08:41:59.417Z [RUN-B]   [teardown] unregistered scheduled task cc-director7-launch
+2026-06-11T08:41:59.418Z [RUN-B]   [teardown] removed worktree D:\ReposFred\wt-issue-299-proof-b
+2026-06-11T08:41:59.419Z [RUN-B]   [teardown] done (slot 7 is free again)
+2026-06-11T08:41:59.422Z [RUN-B] ASSERT process pid=35984 gone
+2026-06-11T08:42:00.081Z [RUN-B] ASSERT scheduled task cc-director7-launch unregistered
+2026-06-11T08:42:00.084Z [RUN-B] ASSERT worktree D:\ReposFred\wt-issue-299-proof-b removed
+2026-06-11T08:42:00.085Z [RUN-B] RUN END slot=7 port=7891 pid=35984 result=SUCCESS

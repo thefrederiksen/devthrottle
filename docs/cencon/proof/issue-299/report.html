@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Proof - Issue #299: Per-session isolation of test slot / build output / Control API port</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem auto; max-width: 1200px; color: #1c2733; line-height: 1.45; }
+  h1 { font-size: 1.5rem; border-bottom: 3px solid #0b6e4f; padding-bottom: .4rem; }
+  h2 { font-size: 1.15rem; margin-top: 2rem; border-bottom: 1px solid #cfd8dc; padding-bottom: .25rem; }
+  h3 { font-size: 1rem; margin-top: 1.2rem; }
+  table { border-collapse: collapse; width: 100%; margin: .75rem 0; font-size: .9rem; }
+  th, td { border: 1px solid #b0bec5; padding: .4rem .6rem; text-align: left; vertical-align: top; }
+  th { background: #eceff1; }
+  pre { background: #10151a; color: #d7e3ea; padding: .8rem; overflow-x: auto; font-size: .72rem; line-height: 1.35; border-radius: 4px; }
+  .pass { color: #0b6e4f; font-weight: 600; }
+  .note { background: #fff8e1; border-left: 4px solid #f9a825; padding: .6rem .8rem; margin: .8rem 0; font-size: .9rem; }
+  .logs { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem; }
+  @media (max-width: 1000px) { .logs { grid-template-columns: 1fr; } }
+  .meta { color: #546e7a; font-size: .85rem; }
+  code { background: #eceff1; padding: 0 .25rem; border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<h1>Proof - Issue #299: Per-session isolation of test slot / build output / Control API port</h1>
+<p class="meta">
+  Repo: thefrederiksen/cc-director | Branch: issue-299-session-isolation | Machine: SOREN_NORTH |
+  Date: 2026-06-11 | Proof run: 08:41:07Z - 08:42:00Z (concurrent Run A + Run B)
+</p>
+
+<h2>What was implemented</h2>
+<ul>
+  <li><code>scripts/agent-session-isolation.ps1</code> (NEW) - allocate / launch / teardown lifecycle for a per-session
+      test Director. Allocation probes BOTH running <code>cc-director&lt;N&gt;.exe</code> processes AND registered
+      <code>cc-director&lt;N&gt;-launch</code> scheduled tasks from slot 6 upward; the reservation IS the task
+      registration without <code>-Force</code>, so a race between two sessions has exactly one winner. Launch is
+      scheduled-task-only (rule 0b), resolves the PID by exact image path, and reads the self-allocated Control API
+      port from the Director's own log. Teardown stops ONLY exact-image-path matches, unregisters only the session's
+      own task, and optionally removes a scratch worktree. Slots 1-5 and the main build are protected by a hard floor
+      (any manifest or -MinSlot below 6 is refused). ASCII-only output.</li>
+  <li><code>.claude/skills/developer-agent/skill.md</code> v0.5 - Step 4 proof flow replaced with the per-session
+      isolation flow (Deliverable 2).</li>
+  <li><code>.claude/skills/qa-agent/skill.md</code> v0.5 - Step 2 verification flow replaced with the per-session
+      isolation flow (Deliverable 2).</li>
+  <li><code>.claude/skills/implementation-loop/skill.md</code> v0.7 - concurrency-rule section rewritten: same-machine
+      safety now comes from per-session isolation, not a single reserved slot-5 (Deliverable 3).</li>
+  <li><code>docs/cencon/DEVELOPMENT_METHOD.md</code> - Section 6 DoD items 3 and 4 updated to the per-session flow
+      (Deliverable 4).</li>
+</ul>
+
+<div class="note">
+<strong>Defect discovered and mitigated during proof:</strong> the Director's own <code>PortAllocator</code>
+(src/CcDirector.ControlApi/PortAllocator.cs) probes for a free port and persists its pick, but Kestrel binds the port
+LATER. Two Directors starting in the same instant both picked port 7892 (observed live at 08:34:53.9Z in
+director-2026-06-11-62912.log and director-2026-06-11-22216.log); the loser logged
+"Control API failed to start: Failed to bind to address http://127.0.0.1:7892: address already in use" and ran with no
+Control API. Director C# changes are explicitly OUT OF SCOPE per the sharpened spec, so the in-scope mitigation is in
+the harness: <code>launch</code> holds a machine-wide named mutex (<code>Global\cc-director-agent-session-launch</code>)
+from task start until the port is read from the log (i.e. Kestrel has bound it), so one Director has BOUND its port
+before the next one probes. A failed launch now also stops its own (exact-path-confirmed) process so it never leaks an
+orphan. A Director-side fix to PortAllocator (bind-and-hold allocation) is recommended as a follow-up issue.
+</div>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+  <tr><th style="width:38%">Criterion (sharpened spec)</th><th>Expected</th><th>Actual</th><th style="width:6%">Verdict</th></tr>
+  <tr>
+    <td>Run A and Run B execute CONCURRENTLY, each: allocate distinct slot (&gt;= 6) -&gt; own worktree off origin/main -&gt;
+        build -&gt; launch via its own per-slot scheduled task -&gt; probe its own Control API port (GET succeeds) -&gt;
+        teardown (process gone, task unregistered, worktree removed).</td>
+    <td>Both run logs show the full lifecycle with overlapping timestamps and SUCCESS.</td>
+    <td>Both runners started 08:41:07Z. Builds overlapped (A: 08:41:08-08:41:20, B: 08:41:09-08:41:21). Both Directors
+        were alive simultaneously 08:41:26.7Z - 08:41:54.2Z (A held port 7893 from 08:41:24 to 08:41:54 teardown; B held
+        port 7891 from 08:41:26 to 08:41:56 teardown). Both probes returned HTTP 200 from /healthz. Both logs end with
+        ASSERT process gone + ASSERT task unregistered + ASSERT worktree removed + RUN END result=SUCCESS.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>The two runs got DIFFERENT slots, DIFFERENT worktrees, DIFFERENT ports; neither run's log contains port-in-use,
+        file-locked (bin/obj), or slot-collision errors.</td>
+    <td>Distinct slot/worktree/port per run; clean logs.</td>
+    <td>A: slot 6, D:\ReposFred\wt-issue-299-proof-a, port 7893. B: slot 7, D:\ReposFred\wt-issue-299-proof-b, port 7891.
+        B lost the slot-6 registration race and moved to slot 7 - that race message IS the atomic reservation working,
+        not a collision (exactly one session can hold a slot's task). Zero port-in-use, file-locked, or build errors in
+        either log (both builds: "Build succeeded. 0 Error(s)").</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>The LIVE fleet (Gateway :7878, Cockpit :7470, the user's Directors incl. :7887, main build + slots 1-4) is
+        untouched: same PIDs before and after, no binds attempted on 7878/7470/7887.</td>
+    <td>Identical fleet snapshot before and after.</td>
+    <td>Gateway PID 42928 (:7878), Cockpit PID 65232 (:7470), main Director PID 21128 (:7887, alongside tailscaled 8640)
+        identical in both snapshots, same start times. Scheduled tasks cc-director-launch / cc-director2-launch /
+        cc-director-gateway-launch present and Ready in both. Test ports used were 7891/7893 - never 7878/7470/7887.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>Skills + DEVELOPMENT_METHOD.md updated as in Deliverables 2-4.</td>
+    <td>developer-agent, qa-agent, implementation-loop skills and DEVELOPMENT_METHOD.md Section 6 reference the
+        per-session flow.</td>
+    <td>All four files updated on the branch (see "What was implemented"); version footers bumped with #299 changelog
+        entries. Full solution builds clean inside the worktree: "Build succeeded. 0 Error(s)".</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Slot / port / worktree table</h2>
+<table>
+  <tr><th>Run</th><th>Slot</th><th>Worktree</th><th>Exe</th><th>Director PID</th><th>Control API port</th><th>Probe</th><th>Result</th></tr>
+  <tr><td>RUN-A</td><td>6</td><td>D:\ReposFred\wt-issue-299-proof-a</td><td>local_builds\cc-director6.exe</td><td>40124</td><td>7893</td><td>200 /healthz</td><td>SUCCESS, fully torn down</td></tr>
+  <tr><td>RUN-B</td><td>7</td><td>D:\ReposFred\wt-issue-299-proof-b</td><td>local_builds\cc-director7.exe</td><td>35984</td><td>7891</td><td>200 /healthz</td><td>SUCCESS, fully torn down</td></tr>
+</table>
+
+<h2>Concurrency timeline (from the run logs)</h2>
+<table>
+  <tr><th>Time (UTC)</th><th>RUN-A (slot 6)</th><th>RUN-B (slot 7)</th></tr>
+  <tr><td>08:41:07.5</td><td>RUN START</td><td>RUN START</td></tr>
+  <tr><td>08:41:08-09</td><td>allocate wins slot 6</td><td>loses slot-6 registration race, takes slot 7</td></tr>
+  <tr><td>08:41:09-21</td><td>build cc-director6.exe (concurrent)</td><td>build cc-director7.exe (concurrent)</td></tr>
+  <tr><td>08:41:24</td><td>launched PID 40124, port 7893, probe 200</td><td>(launch waiting on machine-wide mutex)</td></tr>
+  <tr><td>08:41:26</td><td>holding (Director alive)</td><td>launched PID 35984, port 7891, probe 200</td></tr>
+  <tr><td>08:41:26 - 08:41:54</td><td colspan="2"><strong>BOTH Directors alive concurrently on different ports</strong></td></tr>
+  <tr><td>08:41:54-57</td><td>teardown + all asserts, SUCCESS</td><td>holding</td></tr>
+  <tr><td>08:41:56-60</td><td>-</td><td>teardown + all asserts, SUCCESS</td></tr>
+</table>
+
+<h2>Live-fleet PID table (before / after)</h2>
+<table>
+  <tr><th>Component</th><th>Before (08:33:56Z)</th><th>After (08:42:27Z)</th><th>Verdict</th></tr>
+  <tr><td>Main Director (cc-director.exe)</td><td>PID 21128, started 2026-06-10 13:34:24</td><td>PID 21128, started 2026-06-10 13:34:24</td><td class="pass">UNCHANGED</td></tr>
+  <tr><td>Gateway (cc-director-gateway.exe)</td><td>PID 42928, started 2026-06-10 21:32:30</td><td>PID 42928, started 2026-06-10 21:32:30</td><td class="pass">UNCHANGED</td></tr>
+  <tr><td>Cockpit (cc-director-cockpit.exe)</td><td>PID 65232, started 2026-06-10 21:32:32</td><td>PID 65232, started 2026-06-10 21:32:32</td><td class="pass">UNCHANGED</td></tr>
+  <tr><td>Port 7878 listener</td><td>42928 (gateway)</td><td>42928 (gateway)</td><td class="pass">UNCHANGED</td></tr>
+  <tr><td>Port 7470 listener</td><td>65232 (cockpit)</td><td>65232 (cockpit)</td><td class="pass">UNCHANGED</td></tr>
+  <tr><td>Port 7887 listeners</td><td>8640 (tailscaled) + 21128 (cc-director)</td><td>8640 (tailscaled) + 21128 (cc-director)</td><td class="pass">UNCHANGED</td></tr>
+  <tr><td>Scheduled tasks</td><td>cc-director-launch, cc-director2-launch, cc-director-gateway-launch (Ready)</td><td>same three, Ready; zero cc-director&lt;6+&gt;-launch leftovers</td><td class="pass">UNCHANGED</td></tr>
+</table>
+
+<h2>Run logs (complete, end to end)</h2>
+<div class="logs">
+<div>
+<h3>run-a.log</h3>
+<pre>2026-06-11T08:41:07.499Z [RUN-A] RUN START worktree=D:\ReposFred\wt-issue-299-proof-a pid_of_runner=60100
+2026-06-11T08:41:07.531Z [RUN-A] STEP allocate
+2026-06-11T08:41:08.583Z [RUN-A]   [allocate] SLOT=6
+2026-06-11T08:41:08.583Z [RUN-A]   [allocate] TASK=cc-director6-launch
+2026-06-11T08:41:08.585Z [RUN-A]   [allocate] MANIFEST=D:\ReposFred\wt-issue-299-proof-a\local_builds\agent-session-slot6.json
+2026-06-11T08:41:08.586Z [RUN-A]   [allocate] Next: build the slot exe from the worktree root:
+2026-06-11T08:41:08.586Z [RUN-A]   [allocate]   powershell -NoProfile -File "D:\ReposFred\wt-issue-299-proof-a\scripts\local-build-avalonia.ps1" -Slot 6
+2026-06-11T08:41:08.601Z [RUN-A] ALLOCATED slot=6 manifest=D:\ReposFred\wt-issue-299-proof-a\local_builds\agent-session-slot6.json
+2026-06-11T08:41:08.668Z [RUN-A] STEP build (local-build-avalonia.ps1 -Slot 6, cwd=D:\ReposFred\wt-issue-299-proof-a)
+2026-06-11T08:41:20.765Z [RUN-A]   Building CC Director Avalonia v0.6.22 (Release)
+2026-06-11T08:41:20.767Z [RUN-A]     Mode: Framework-dependent (.NET 10 runtime required)
+2026-06-11T08:41:20.769Z [RUN-A]     Cleaning previous build...
+2026-06-11T08:41:20.770Z [RUN-A]     Pre-building Core dependency...
+2026-06-11T08:41:20.771Z [RUN-A]   
+2026-06-11T08:41:20.773Z [RUN-A]   Build succeeded.
+2026-06-11T08:41:20.774Z [RUN-A]       0 Warning(s)
+2026-06-11T08:41:20.775Z [RUN-A]       0 Error(s)
+2026-06-11T08:41:20.777Z [RUN-A]   
+2026-06-11T08:41:20.778Z [RUN-A]   Time Elapsed 00:00:02.12
+2026-06-11T08:41:20.779Z [RUN-A]     Building Avalonia project...
+2026-06-11T08:41:20.781Z [RUN-A]   
+2026-06-11T08:41:20.782Z [RUN-A]   Build succeeded.
+2026-06-11T08:41:20.783Z [RUN-A]       0 Warning(s)
+2026-06-11T08:41:20.785Z [RUN-A]       0 Error(s)
+2026-06-11T08:41:20.786Z [RUN-A]   
+2026-06-11T08:41:20.787Z [RUN-A]   Time Elapsed 00:00:07.63
+2026-06-11T08:41:20.789Z [RUN-A]     Publishing...
+2026-06-11T08:41:20.790Z [RUN-A]   MSBuild version 18.6.4+96856fd72 for .NET
+2026-06-11T08:41:20.793Z [RUN-A]     CcDirector.Avalonia -&gt; D:\ReposFred\wt-issue-299-proof-a\src\CcDirector.Avalonia\bin\Release\net10.0\win-x64\publish\
+2026-06-11T08:41:20.795Z [RUN-A]   
+2026-06-11T08:41:20.796Z [RUN-A]   Build complete: 38.3 MB
+2026-06-11T08:41:20.797Z [RUN-A]     D:\ReposFred\wt-issue-299-proof-a\local_builds\cc-director6.exe
+2026-06-11T08:41:20.799Z [RUN-A] BUILD OK slot=6
+2026-06-11T08:41:20.800Z [RUN-A] STEP launch
+2026-06-11T08:41:23.998Z [RUN-A]   [launch] starting scheduled task cc-director6-launch
+2026-06-11T08:41:24.000Z [RUN-A]   [launch] PID=40124
+2026-06-11T08:41:24.001Z [RUN-A]   [launch] PORT=7893
+2026-06-11T08:41:24.002Z [RUN-A]   [launch] LOG=C:\Users\soren\AppData\Local\cc-director\logs\director\director-2026-06-11-40124.log
+2026-06-11T08:41:24.003Z [RUN-A]   [launch] Control API: http://127.0.0.1:7893 (probe GET /healthz)
+2026-06-11T08:41:24.015Z [RUN-A]   [launch] MANIFEST=D:\ReposFred\wt-issue-299-proof-a\local_builds\agent-session-slot6.json (updated)
+2026-06-11T08:41:24.019Z [RUN-A] LAUNCHED pid=40124 port=7893
+2026-06-11T08:41:24.020Z [RUN-A] STEP probe GET http://127.0.0.1:7893/healthz
+2026-06-11T08:41:24.236Z [RUN-A] PROBE status=200 body={"status":"ok","directors":1,"sessions":0,"version":"0.6.22","serverTime":"2026-06-11T08:41:24.2200517Z","directorId":"e4937462-b7d3-4b0b-976a-db8a2f5550d1","machineName":"SOREN_NORTH"}
+2026-06-11T08:41:24.238Z [RUN-A] STEP hold 30s (overlap window, Director alive on port 7893)
+2026-06-11T08:41:54.242Z [RUN-A] STEP teardown (RemoveWorktree=True)
+2026-06-11T08:41:56.865Z [RUN-A]   [teardown] stopping PID 40124 (D:\ReposFred\wt-issue-299-proof-a\local_builds\cc-director6.exe)
+2026-06-11T08:41:56.867Z [RUN-A]   [teardown] PID 40124 exited
+2026-06-11T08:41:56.868Z [RUN-A]   [teardown] unregistered scheduled task cc-director6-launch
+2026-06-11T08:41:56.869Z [RUN-A]   [teardown] removed worktree D:\ReposFred\wt-issue-299-proof-a
+2026-06-11T08:41:56.870Z [RUN-A]   [teardown] done (slot 6 is free again)
+2026-06-11T08:41:56.874Z [RUN-A] ASSERT process pid=40124 gone
+2026-06-11T08:41:57.533Z [RUN-A] ASSERT scheduled task cc-director6-launch unregistered
+2026-06-11T08:41:57.535Z [RUN-A] ASSERT worktree D:\ReposFred\wt-issue-299-proof-a removed
+2026-06-11T08:41:57.536Z [RUN-A] RUN END slot=6 port=7893 pid=40124 result=SUCCESS</pre>
+</div>
+<div>
+<h3>run-b.log</h3>
+<pre>2026-06-11T08:41:07.506Z [RUN-B] RUN START worktree=D:\ReposFred\wt-issue-299-proof-b pid_of_runner=46240
+2026-06-11T08:41:07.538Z [RUN-B] STEP allocate
+2026-06-11T08:41:09.258Z [RUN-B]   [allocate] slot 6 lost in registration race (Cannot create a file when that file already exists.
+2026-06-11T08:41:09.259Z [RUN-B]   ); trying next
+2026-06-11T08:41:09.260Z [RUN-B]   [allocate] SLOT=7
+2026-06-11T08:41:09.261Z [RUN-B]   [allocate] TASK=cc-director7-launch
+2026-06-11T08:41:09.262Z [RUN-B]   [allocate] MANIFEST=D:\ReposFred\wt-issue-299-proof-b\local_builds\agent-session-slot7.json
+2026-06-11T08:41:09.263Z [RUN-B]   [allocate] Next: build the slot exe from the worktree root:
+2026-06-11T08:41:09.263Z [RUN-B]   [allocate]   powershell -NoProfile -File "D:\ReposFred\wt-issue-299-proof-b\scripts\local-build-avalonia.ps1" -Slot 7
+2026-06-11T08:41:09.279Z [RUN-B] ALLOCATED slot=7 manifest=D:\ReposFred\wt-issue-299-proof-b\local_builds\agent-session-slot7.json
+2026-06-11T08:41:09.280Z [RUN-B] STEP build (local-build-avalonia.ps1 -Slot 7, cwd=D:\ReposFred\wt-issue-299-proof-b)
+2026-06-11T08:41:21.153Z [RUN-B]   Building CC Director Avalonia v0.6.22 (Release)
+2026-06-11T08:41:21.154Z [RUN-B]     Mode: Framework-dependent (.NET 10 runtime required)
+2026-06-11T08:41:21.155Z [RUN-B]     Cleaning previous build...
+2026-06-11T08:41:21.157Z [RUN-B]     Pre-building Core dependency...
+2026-06-11T08:41:21.158Z [RUN-B]   
+2026-06-11T08:41:21.159Z [RUN-B]   Build succeeded.
+2026-06-11T08:41:21.160Z [RUN-B]       0 Warning(s)
+2026-06-11T08:41:21.161Z [RUN-B]       0 Error(s)
+2026-06-11T08:41:21.162Z [RUN-B]   
+2026-06-11T08:41:21.163Z [RUN-B]   Time Elapsed 00:00:02.06
+2026-06-11T08:41:21.164Z [RUN-B]     Building Avalonia project...
+2026-06-11T08:41:21.165Z [RUN-B]   
+2026-06-11T08:41:21.166Z [RUN-B]   Build succeeded.
+2026-06-11T08:41:21.167Z [RUN-B]       0 Warning(s)
+2026-06-11T08:41:21.169Z [RUN-B]       0 Error(s)
+2026-06-11T08:41:21.170Z [RUN-B]   
+2026-06-11T08:41:21.171Z [RUN-B]   Time Elapsed 00:00:07.33
+2026-06-11T08:41:21.173Z [RUN-B]     Publishing...
+2026-06-11T08:41:21.174Z [RUN-B]   MSBuild version 18.6.4+96856fd72 for .NET
+2026-06-11T08:41:21.175Z [RUN-B]     CcDirector.Avalonia -&gt; D:\ReposFred\wt-issue-299-proof-b\src\CcDirector.Avalonia\bin\Release\net10.0\win-x64\publish\
+2026-06-11T08:41:21.176Z [RUN-B]   
+2026-06-11T08:41:21.177Z [RUN-B]   Build complete: 38.3 MB
+2026-06-11T08:41:21.178Z [RUN-B]     D:\ReposFred\wt-issue-299-proof-b\local_builds\cc-director7.exe
+2026-06-11T08:41:21.179Z [RUN-B] BUILD OK slot=7
+2026-06-11T08:41:21.181Z [RUN-B] STEP launch
+2026-06-11T08:41:26.688Z [RUN-B]   [launch] starting scheduled task cc-director7-launch
+2026-06-11T08:41:26.690Z [RUN-B]   [launch] PID=35984
+2026-06-11T08:41:26.691Z [RUN-B]   [launch] PORT=7891
+2026-06-11T08:41:26.705Z [RUN-B]   [launch] LOG=C:\Users\soren\AppData\Local\cc-director\logs\director\director-2026-06-11-35984.log
+2026-06-11T08:41:26.706Z [RUN-B]   [launch] Control API: http://127.0.0.1:7891 (probe GET /healthz)
+2026-06-11T08:41:26.708Z [RUN-B]   [launch] MANIFEST=D:\ReposFred\wt-issue-299-proof-b\local_builds\agent-session-slot7.json (updated)
+2026-06-11T08:41:26.710Z [RUN-B] LAUNCHED pid=35984 port=7891
+2026-06-11T08:41:26.712Z [RUN-B] STEP probe GET http://127.0.0.1:7891/healthz
+2026-06-11T08:41:26.745Z [RUN-B] PROBE status=200 body={"status":"ok","directors":1,"sessions":0,"version":"0.6.22","serverTime":"2026-06-11T08:41:26.7286452Z","directorId":"ff388894-6949-40c3-b15d-6f5446de9068","machineName":"SOREN_NORTH"}
+2026-06-11T08:41:26.746Z [RUN-B] STEP hold 30s (overlap window, Director alive on port 7891)
+2026-06-11T08:41:56.757Z [RUN-B] STEP teardown (RemoveWorktree=True)
+2026-06-11T08:41:59.414Z [RUN-B]   [teardown] stopping PID 35984 (D:\ReposFred\wt-issue-299-proof-b\local_builds\cc-director7.exe)
+2026-06-11T08:41:59.415Z [RUN-B]   [teardown] PID 35984 exited
+2026-06-11T08:41:59.417Z [RUN-B]   [teardown] unregistered scheduled task cc-director7-launch
+2026-06-11T08:41:59.418Z [RUN-B]   [teardown] removed worktree D:\ReposFred\wt-issue-299-proof-b
+2026-06-11T08:41:59.419Z [RUN-B]   [teardown] done (slot 7 is free again)
+2026-06-11T08:41:59.422Z [RUN-B] ASSERT process pid=35984 gone
+2026-06-11T08:42:00.081Z [RUN-B] ASSERT scheduled task cc-director7-launch unregistered
+2026-06-11T08:42:00.084Z [RUN-B] ASSERT worktree D:\ReposFred\wt-issue-299-proof-b removed
+2026-06-11T08:42:00.085Z [RUN-B] RUN END slot=7 port=7891 pid=35984 result=SUCCESS</pre>
+</div>
+</div>
+
+<h2>Fleet snapshots (raw)</h2>
+<div class="logs">
+<div>
+<h3>fleet-before.txt</h3>
+<pre>LIVE FLEET SNAPSHOT (BEFORE) - 2026-06-11T08:33:56Z
+
+Processes (cc-director* / gateway / cockpit):
+  PID=21128   NAME=cc-director                START=2026-06-10 13:34:24 PATH=C:\Users\soren\AppData\Local\cc-director\app\cc-director.exe
+  PID=42928   NAME=cc-director-gateway        START=2026-06-10 21:32:30 PATH=C:\Users\soren\AppData\Local\cc-director\gateway\cc-director-gateway.exe
+  PID=65232   NAME=cc-director-cockpit        START=2026-06-10 21:32:32 PATH=C:\Users\soren\AppData\Local\cc-director\cockpit\cc-director-cockpit.exe
+
+Listeners on protected ports 7878 (Gateway) / 7470 (Cockpit) / 7887 (Director):
+  PORT=7470    OWNINGPID=65232   OWNER=cc-director-cockpit
+  PORT=7878    OWNINGPID=42928   OWNER=cc-director-gateway
+  PORT=7887    OWNINGPID=8640    OWNER=tailscaled
+  PORT=7887    OWNINGPID=21128   OWNER=cc-director
+
+Registered cc-director*-launch scheduled tasks:
+  TASK=cc-director2-launch               STATE=Ready
+  TASK=cc-director-gateway-launch        STATE=Ready
+  TASK=cc-director-launch                STATE=Ready</pre>
+</div>
+<div>
+<h3>fleet-after.txt</h3>
+<pre>LIVE FLEET SNAPSHOT (AFTER) - 2026-06-11T08:42:27Z
+
+Processes (cc-director* / gateway / cockpit):
+  PID=21128   NAME=cc-director                START=2026-06-10 13:34:24 PATH=C:\Users\soren\AppData\Local\cc-director\app\cc-director.exe
+  PID=42928   NAME=cc-director-gateway        START=2026-06-10 21:32:30 PATH=C:\Users\soren\AppData\Local\cc-director\gateway\cc-director-gateway.exe
+  PID=65232   NAME=cc-director-cockpit        START=2026-06-10 21:32:32 PATH=C:\Users\soren\AppData\Local\cc-director\cockpit\cc-director-cockpit.exe
+
+Listeners on protected ports 7878 (Gateway) / 7470 (Cockpit) / 7887 (Director):
+  PORT=7470    OWNINGPID=65232   OWNER=cc-director-cockpit
+  PORT=7878    OWNINGPID=42928   OWNER=cc-director-gateway
+  PORT=7887    OWNINGPID=8640    OWNER=tailscaled
+  PORT=7887    OWNINGPID=21128   OWNER=cc-director
+
+Registered cc-director*-launch scheduled tasks:
+  TASK=cc-director2-launch               STATE=Ready
+  TASK=cc-director-gateway-launch        STATE=Ready
+  TASK=cc-director-launch                STATE=Ready</pre>
+</div>
+</div>
+
+<h2>Build gate</h2>
+<p><code>dotnet build cc-director.sln</code> inside D:\ReposFred\wt-issue-299: <span class="pass">Build succeeded. 0 Warning(s), 0 Error(s).</span></p>
+
+<h2>CenCon impact</h2>
+<p>Process/method change only: docs/cencon/DEVELOPMENT_METHOD.md Section 6 (DoD items 3-4) updated in this change.
+No architecture containers or security posture altered; no blocking security rule (DT-01..DT-NN) touched. Zero C#
+changes (the Director's port-allocation code is explicitly out of scope; the discovered PortAllocator startup race is
+mitigated at the harness level and recommended as a follow-up issue).</p>
+
+<h2>Verdict</h2>
+<p class="pass">All acceptance criteria PASS. I believe this is finished.</p>
+
+</body>
+</html>
+
