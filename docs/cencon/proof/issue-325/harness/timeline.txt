@@ -1,0 +1,20 @@
+12:13:10.023Z PROOF issue #325 against http://127.0.0.1:7978 (isolated proof gateway)
+12:13:11.048Z REGISTERED proof-dir-325 endpoint=http://127.0.0.1:7984 -> HTTP 201
+12:13:11.049Z REGISTERED proof-dir-healthy endpoint=http://127.0.0.1:7981 -> HTTP 201
+12:13:11.050Z REGISTERED proof-dir-ctllost endpoint=http://127.0.0.1:7982 -> HTTP 201
+12:13:19.080Z STATE proof-dir-325 advertisedEndpointState=ok error=None
+12:13:19.080Z BASELINE-OK (probe verified the advertised endpoint)
+12:13:19.081Z BREAK advertised endpoint of proof-dir-325 killed (heartbeats continue)
+12:13:19.082Z STATE proof-dir-325 advertisedEndpointState=ok error=None
+12:13:35.135Z STATE proof-dir-325 advertisedEndpointState=unreachable-by-name error=healthz probe timed out after 2s at http://127.0.0.1:7984/healthz
+12:13:35.138Z FLAGGED
+12:13:35.138Z FLAG-LATENCY 16.1s after the break (criterion: <= 30s)
+12:13:35.141Z RESTORE advertised endpoint of proof-dir-325 relaunched
+12:13:35.143Z STATE proof-dir-325 advertisedEndpointState=unreachable-by-name error=healthz probe timed out after 2s at http://127.0.0.1:7984/healthz
+12:13:49.155Z STATE proof-dir-325 advertisedEndpointState=ok error=None
+12:13:49.155Z CLEARED
+12:13:49.155Z CLEAR-LATENCY 14.0s after the restore (criterion: <= 30s)
+12:13:49.155Z BREAK-AND-HOLD for the Cockpit screenshot (kill this process to end)
+12:13:49.156Z STATE proof-dir-325 advertisedEndpointState=ok error=None
+12:14:05.254Z STATE proof-dir-325 advertisedEndpointState=unreachable-by-name error=healthz probe timed out after 2s at http://127.0.0.1:7984/healthz
+12:14:05.255Z SCREENSHOT-READY
