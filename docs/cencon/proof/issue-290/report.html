@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Issue #290 - Developer Proof - redeploy-gateway.ps1 isolated worktree + SHA assertion</title>
+<style>
+  :root { --bg:#16181d; --panel:#1e2128; --ink:#e6e6e6; --muted:#9aa3b2; --green:#5fd68a; --blue:#4ec3ff; --amber:#e6c463; --red:#f08080; --line:#2c303a; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.55 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
+  .wrap { max-width:1000px; margin:0 auto; padding:32px 24px 80px; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  h2 { font-size:17px; margin:30px 0 10px; border-bottom:1px solid var(--line); padding-bottom:6px; }
+  .sub { color:var(--muted); margin:0 0 20px; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px 18px; margin:14px 0; }
+  code, pre { font-family:Consolas,Menlo,monospace; }
+  pre { background:#0f1115; border:1px solid var(--line); border-radius:8px; padding:12px 14px; overflow:auto; font-size:13px; color:#d4d4d4; }
+  table { width:100%; border-collapse:collapse; margin:8px 0; }
+  th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:600; font-size:13px; }
+  .ok { color:var(--green); font-weight:600; }
+  .tag { display:inline-block; background:#243; color:var(--green); border:1px solid #2f5; border-radius:999px; padding:1px 10px; font-size:12px; }
+  img { max-width:100%; border:1px solid var(--line); border-radius:8px; display:block; margin:10px 0; }
+  .files li { margin:3px 0; }
+  .verdict { background:#16271c; border:1px solid #2f5; border-radius:10px; padding:16px 18px; font-size:16px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Issue #290 - [Gateway] redeploy-gateway.ps1 shared build/stage tree can silently ship a stale build</h1>
+  <p class="sub">Developer Agent proof report &middot; branch <code>issue-290-isolated-worktree-sha-assert</code> &middot; <span class="tag">RESULT: PASS</span></p>
+
+  <h2>What was wrong</h2>
+  <div class="panel">
+    <p><code>scripts/redeploy-gateway.ps1</code> published the Gateway from the <strong>shared working tree</strong> into a
+    <strong>shared stage dir</strong> (<code>local_builds\_gw-deploy</code>). Two redeploys, or a concurrent branch switch in the
+    checkout, could clobber each other so the Gateway came up running an <strong>older build than HEAD</strong> &mdash; while
+    <code>GET /cockpit</code> still returned HTTP 200. HTTP 200 proves <em>a</em> Gateway is up, not <em>which build</em>, so any
+    post-deploy verification (including automated QA) could validate against stale code.</p>
+  </div>
+
+  <h2>What was implemented (decided approach: option 1 + option 2)</h2>
+  <div class="panel">
+    <ul>
+      <li><strong>Isolated-source publish.</strong> The deploy now pins HEAD to a commit SHA, creates a throwaway
+        <code>git worktree --detach</code> at that exact commit, and publishes <em>from the worktree</em> into a
+        <strong>per-run stage dir</strong> (GUID). A branch switch or edit in the main checkout after that point cannot change
+        what this run ships, and two redeploys cannot corrupt each other's staged output. The worktree is always removed afterward.</li>
+      <li><strong>Post-deploy build-identity assertion.</strong> After swap + relaunch + the existing <code>GET /cockpit</code>
+        smoke check, the script reads the <strong>running</strong> Gateway's <code>GET /healthz</code> <code>version</code> field
+        (which is <code>AppVersion.Full</code> and already carries <code>+&lt;sha&gt;</code> via SourceLink) and asserts its commit
+        SHA matches the commit it just published. On mismatch it throws <code>STALE BUILD: published commit X but the RUNNING
+        Gateway reports Y</code> and exits non-zero. No new endpoint was needed &mdash; <code>/healthz</code> already reports the SHA.</li>
+      <li><strong>Latent bug surfaced &amp; fixed.</strong> Publishing from a clean worktree exposed that
+        <code>--self-contained false</code> alone trips <code>NETSDK1150</code> with <code>PublishSingleFile</code> + a RID; the
+        shared tree only avoided it by reusing cached build state. Fixed by setting the property
+        <code>-p:SelfContained=false</code> so it flows to every project in the graph.</li>
+    </ul>
+    <p class="sub">Existing behavior preserved: graceful <code>POST /shutdown</code>, file swap, relaunch <code>--managed</code>,
+    and the <code>GET /cockpit</code> smoke check all still run and still gate success.</p>
+  </div>
+
+  <h2>Acceptance criteria &rarr; how met &rarr; how verified</h2>
+  <table>
+    <tr><th>Criterion</th><th>How the code satisfies it</th><th>Verification</th></tr>
+    <tr>
+      <td>Publish from a source isolated from the shared working tree</td>
+      <td><code>New-IsolatedGatewayPublish</code>: <code>git worktree add --detach</code> at the resolved HEAD commit, publish from there into a GUID stage dir</td>
+      <td><span class="ok">PASS</span> &sect;B: real worktree publish produced <code>cc-director-gateway.exe</code>; worktree removed (before=1 after=1)</td>
+    </tr>
+    <tr>
+      <td>Read the running Gateway's build identity and assert it matches the published commit; fail loud on mismatch</td>
+      <td><code>Assert-RunningGatewaySha</code> reads <code>/healthz</code> <code>version</code>, extracts the SHA, compares; throws <code>STALE BUILD</code> with expected-vs-actual otherwise</td>
+      <td><span class="ok">PASS</span> &sect;C against a real self-hosted Gateway: PASS on the true commit, throws on a wrong one</td>
+    </tr>
+    <tr>
+      <td>Two redeploys cannot corrupt each other's staged output</td>
+      <td>Per-run stage dir <code>local_builds\_gw-deploy-&lt;GUID&gt;</code> and a per-run throwaway worktree</td>
+      <td><span class="ok">PASS</span>: stage + worktree paths are GUID-unique per run (code review + &sect;B isolation)</td>
+    </tr>
+    <tr>
+      <td>Existing behavior preserved (shutdown, swap, relaunch --managed, /cockpit gate)</td>
+      <td>Deploy body retains the <code>POST /shutdown</code> wait loop, copy, <code>Start-Process --managed</code>, and <code>Invoke-RestMethod /cockpit</code> before the new SHA gate</td>
+      <td><span class="ok">PASS</span>: diff review &mdash; those steps are unchanged; the SHA assertion is added after them</td>
+    </tr>
+    <tr>
+      <td>Proof: a stale/mismatched build is caught and fails loudly</td>
+      <td>The real <code>Assert-RunningGatewaySha</code> is driven with a deliberately wrong commit</td>
+      <td><span class="ok">PASS</span> &sect;C: "Assert-RunningGatewaySha FAILS LOUD on a mismatched (stale) commit"</td>
+    </tr>
+  </table>
+
+  <h2>Proof run (hermetic test)</h2>
+  <div class="panel">
+    <p>Command (never touches the live Gateway on 7878 or the production install):</p>
+    <pre>powershell -NoProfile -ExecutionPolicy Bypass -File scripts\test\test-redeploy-gateway-sha.ps1</pre>
+    <p>The test loads the real functions from <code>redeploy-gateway.ps1</code> via <code>-DefineOnly</code> (the same pattern
+    <code>deploy-cockpit.ps1</code> uses), then exercises them. Section C runs the <strong>actual</strong>
+    <code>Assert-RunningGatewaySha</code> against a real self-hosted Gateway (the dev console host, Tailscale + turn-briefs
+    disabled) on a free loopback port.</p>
+    <img src="test-pass.png" alt="Test PASS output">
+  </div>
+
+  <h2>CenCon impact</h2>
+  <div class="panel">
+    <p><strong>No architecture or security drift.</strong> This is a developer/deploy PowerShell script change plus a hermetic
+    test. It adds no container, no endpoint (it reuses the existing <code>/healthz</code> version field), and changes no security
+    posture &mdash; it makes a deploy <em>safer</em> (isolated source + self-verification). No <code>docs/cencon/</code> manifest
+    or <code>security_profile.yaml</code> rule is affected.</p>
+  </div>
+
+  <h2>Files changed</h2>
+  <ul class="files">
+    <li><code>scripts/redeploy-gateway.ps1</code> &mdash; isolated-worktree publish + per-run stage dir + post-deploy SHA assertion; testable functions behind <code>-DefineOnly</code></li>
+    <li><code>scripts/test/test-redeploy-gateway-sha.ps1</code> &mdash; hermetic proof test (SHA units, isolated publish, self-hosted SHA assertion incl. the fail-loud stale case)</li>
+    <li><code>docs/cencon/proof/issue-290/report.html</code>, <code>docs/cencon/proof/issue-290/test-pass.png</code> &mdash; this proof</li>
+  </ul>
+
+  <h2>Verdict</h2>
+  <div class="verdict">I believe this is finished. The redeploy now publishes from an isolated git worktree pinned to the
+  resolved HEAD commit and, after relaunch, asserts the running Gateway reports exactly that commit &mdash; turning
+  "<code>/cockpit</code> 200" into "<code>/cockpit</code> 200 AND this is the build I shipped". The stale-deploy case fails loud,
+  proven against a real self-hosted Gateway. Full solution build is clean (0 warnings, 0 errors).</div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof - Issue #290 (redeploy-gateway isolated worktree + build-SHA assertion)</title>
+<style>
+  body { font-family: Segoe UI, system-ui, sans-serif; margin: 2rem; color: #1a1a1a; line-height: 1.5; }
+  h1 { font-size: 1.5rem; } h2 { font-size: 1.15rem; margin-top: 1.6rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .7rem; vertical-align: top; text-align: left; }
+  th { background: #f0f0f5; }
+  .pass { color: #0a7d29; font-weight: 600; }
+  .fail { color: #c0142b; font-weight: 600; }
+  code, pre { font-family: Cascadia Code, Consolas, monospace; font-size: .85rem; }
+  pre { background: #1e1e1e; color: #e6e6e6; padding: .8rem; border-radius: 6px; overflow-x: auto; }
+  .verdict { font-size: 1.2rem; padding: .8rem 1rem; background: #e7f8ec; border-left: 5px solid #0a7d29; margin: 1.2rem 0; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #290</h1>
+<p><strong>Title:</strong> [Gateway] redeploy-gateway.ps1 shared build/stage tree can silently ship a stale build<br>
+<strong>PR:</strong> #311 &nbsp; <strong>Branch:</strong> issue-290-isolated-worktree-sha-assert<br>
+<strong>Commit under test:</strong> <code>ce29ba042cc3a7a7e2af2a6054c764113cd98ea8</code><br>
+<strong>QA Agent:</strong> independent context, never saw the Developer's work. Verified with own proof.</p>
+
+<div class="verdict">VERIFIED - all acceptance criteria met. Full solution build: 0 Warnings, 0 Errors.</div>
+
+<h2>Method</h2>
+<p>This is a deploy-script + build-identity change (no Cockpit UI, no production Gateway on this box, so no full redeploy was required or attempted). Verification was done by (a) inspecting <code>scripts/redeploy-gateway.ps1</code>, (b) running the real isolated-worktree publish into a temp stage dir, and (c) standing up a self-hosted <code>CcDirector.Gateway</code> host on a free loopback port and calling the real <code>Assert-RunningGatewaySha</code> for BOTH the match and the stale-mismatch paths. I ran the developer's proof test AND an additional independent script of my own.</p>
+
+<h2>Acceptance Criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (my proof)</th><th>Result</th></tr>
+<tr>
+  <td>1</td>
+  <td>Publish from a source isolated from the shared working tree (worktree pinned to resolved HEAD)</td>
+  <td>A throwaway <code>git worktree --detach</code> at the HEAD commit, per-run dir, removed afterward; a concurrent branch switch cannot change what ships.</td>
+  <td><code>New-IsolatedGatewayPublish</code> ran <code>git worktree add --detach &lt;guid-temp&gt; ce29ba0...</code>, published a real <code>cc-director-gateway.exe</code>, and removed the worktree (worktree count before=1 after=1; <code>git worktree list</code> shows only the main checkout). Commit is pinned via <code>Get-DeployCommitSha</code> BEFORE publish.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td>After relaunch, read running Gateway build identity (version+SHA), assert match, fail loud on mismatch</td>
+  <td>Reads <code>/healthz</code> <code>version</code> (= <code>AppVersion.Full</code>, carries <code>+&lt;sha&gt;</code>); match -&gt; ok; mismatch -&gt; non-zero exit naming expected vs actual.</td>
+  <td>Self-hosted Gateway reported <code>version = 0.6.22+ce29ba042cc3a7a7e2af2a6054c764113cd98ea8</code>. MATCH path returned the version. MISMATCH path threw: <code>STALE BUILD: published commit feedface... but the RUNNING Gateway reports ce29ba0 ... refusing to declare success.</code> Reproduced in BOTH the dev test and my own independent script.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>3</td>
+  <td>Two redeploys cannot corrupt each other's staged output</td>
+  <td>Per-run stage dir or lock.</td>
+  <td>Stage dir is <code>local_builds\_gw-deploy-&lt;GUID&gt;</code> and the worktree temp dir is also a fresh GUID per run; the <code>finally</code> removes only this run's stage dir. No shared mutable path.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>4</td>
+  <td>Existing behavior preserved: graceful POST /shutdown, file swap, relaunch --managed, GET /cockpit smoke check still gate</td>
+  <td>All prior steps run and still gate success; the SHA assertion is additive.</td>
+  <td>By inspection of the deploy body: <code>POST /shutdown</code>, wait-for-unlock loop, <code>Copy-Item</code> swap, <code>Start-Process --managed</code>, and <code>GET /cockpit</code> all retained and run before the new SHA gate.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>5</td>
+  <td>Proof: isolated-source publish + post-deploy SHA assertion passing, plus a stale build caught and failing loudly</td>
+  <td>Run log + a demonstration that a mismatched build fails loudly.</td>
+  <td>Dev proof test <code>RESULT: PASS</code> (A SHA units, B real worktree publish, C self-hosted match + fail-loud). I independently reproduced the match AND the STALE BUILD throw on a free loopback port.</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Regression / method sweep</h2>
+<ul>
+<li>Change is a deploy script + a hermetic test; reuses the existing <code>/healthz</code> endpoint (no new endpoint, no architecture/security drift). CenCon docs unaffected.</li>
+<li>Full solution build (<code>dotnet build cc-director.sln -c Debug</code>): <strong>Build succeeded. 0 Warning(s), 0 Error(s).</strong></li>
+<li>No leaked git worktree, no leaked TEMP stage dir after the run.</li>
+</ul>
+
+<h2>Evidence: developer proof test run (independently executed by QA)</h2>
+<pre>=== A. SHA parsing + matching ===  (5 PASS)
+=== B. Isolated-worktree publish ===
+  PASS: Get-DeployCommitSha resolved HEAD: ce29ba042cc3a7a7e2af2a6054c764113cd98ea8
+  PASS: New-IsolatedGatewayPublish produced cc-director-gateway.exe
+  PASS: the throwaway worktree was removed afterward (before=1 after=1)
+=== C. Post-deploy SHA assertion vs a self-hosted Gateway ===
+  PASS: self-hosted Gateway answered /healthz with a version: '0.6.22+ce29ba042cc3a7a7e2af2a6054c764113cd98ea8'
+  PASS: Assert-RunningGatewaySha PASSES when expected == running commit
+  PASS: Assert-RunningGatewaySha FAILS LOUD on a mismatched (stale) commit
+RESULT: PASS</pre>
+
+<h2>Evidence: QA independent self-hosted-Gateway script</h2>
+<pre>QA: running /healthz version = 0.6.22+ce29ba042cc3a7a7e2af2a6054c764113cd98ea8
+QA: parsed short sha = ce29ba0 ; repo HEAD = ce29ba042cc3a7a7e2af2a6054c764113cd98ea8
+[redeploy-gateway] build-identity OK: running Gateway reports ... (matches published ce29ba0...)
+QA: MATCH path returned: 0.6.22+ce29ba042cc3a7a7e2af2a6054c764113cd98ea8
+QA: MISMATCH path threw: STALE BUILD: published commit feedface... but the RUNNING Gateway reports ce29ba0 ... refusing to declare success.
+QA: independent verification PASS</pre>
+
+<p><em>QA verdict: 5/5 acceptance criteria PASS. Authorized to squash-merge inside the implementation-loop.</em></p>
+</body>
+</html>
