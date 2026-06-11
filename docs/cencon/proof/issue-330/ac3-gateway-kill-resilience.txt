@@ -1,0 +1,12 @@
+﻿=== AC3: doorbell stays fire-and-forget; Gateway killed mid-stream, Director carries on ===
+GwProofHost (test Gateway, PID 35212) killed at 13:16:44.707 local.
+Session de9c5193-623d-4961-8a85-f913e94c8c5a created at 13:16:45 WHILE the Gateway was dead:
+  POST /sessions -> 200, status=Running, state=WaitingForInput
+  GET /sessions  -> 200 (Director fully responsive)
+  DELETE        -> killed=true removed=true
+Director log lines around the kill (doorbell failures logged and dropped, never wedging):
+2026-06-11 13:16:47.809 [GatewayClient] doorbell de9c5193-623d-4961-8a85-f913e94c8c5a FAILED (dropped; heartbeat reconciles): No connection could be made because the target machine actively refused it. (127.0.0.1:7978)
+2026-06-11 13:16:47.809 [GatewayClient] GetLatestTurnBriefAsync de9c5193-623d-4961-8a85-f913e94c8c5a FAILED: No connection could be made because the target machine actively refused it. (127.0.0.1:7978)
+2026-06-11 13:16:53.233 [GatewayClient] Heartbeat FAILED: No connection could be made because the target machine actively refused it. (127.0.0.1:7978)
+2026-06-11 13:16:55.868 [GatewayClient] doorbell de9c5193-623d-4961-8a85-f913e94c8c5a FAILED (dropped; heartbeat reconciles): No connection could be made because the target machine actively refused it. (127.0.0.1:7978)
+2026-06-11 13:17:08.221 [GatewayClient] Heartbeat FAILED: No connection could be made because the target machine actively refused it. (127.0.0.1:7978)

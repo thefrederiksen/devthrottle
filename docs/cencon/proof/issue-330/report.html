@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #330 - Director events + machine facts - Developer Agent Proof</title>
+<style>
+  body { font-family: "Segoe UI", Arial, sans-serif; background: #14181d; color: #d8dee6; margin: 0; padding: 32px; line-height: 1.5; }
+  .wrap { max-width: 1000px; margin: 0 auto; }
+  h1 { color: #6fc3ff; font-size: 1.5em; border-bottom: 2px solid #2a3340; padding-bottom: 8px; }
+  h2 { color: #8fd0a0; font-size: 1.15em; margin-top: 32px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #2a3340; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #1c232b; color: #9fb3c8; }
+  code, pre { font-family: Consolas, monospace; background: #1c232b; color: #c9e3a6; border-radius: 4px; }
+  code { padding: 1px 5px; }
+  pre { padding: 12px; overflow-x: auto; border: 1px solid #2a3340; }
+  .pass { color: #7ce38b; font-weight: bold; }
+  .note { background: #20262e; border-left: 4px solid #c9a227; padding: 10px 14px; margin: 14px 0; }
+  a { color: #6fc3ff; }
+  img { max-width: 100%; border: 1px solid #2a3340; margin: 8px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Issue #330 - [Director] Emit session-created/exited and prompt-detected events; expose tool-inventory and launcher facts to the Gateway</h1>
+
+<p><strong>Role:</strong> Developer Agent (CenCon Development Method) &nbsp;|&nbsp;
+<strong>Branch:</strong> <code>issue-330-director-events-and-facts</code> &nbsp;|&nbsp;
+<strong>Date:</strong> 2026-06-11 &nbsp;|&nbsp;
+<strong>Live rig:</strong> isolated slot-6 Director (own worktree build <code>cc-director6.exe</code>,
+PID 45528, Control API 127.0.0.1:7879, ISOLATED <code>CC_DIRECTOR_ROOT</code>, launched via the
+per-slot scheduled task <code>cc-director6-launch</code>) registered ONLY with an isolated
+NEW-code test Gateway (GwProofHost, 127.0.0.1:7978) - the user's production fleet was never touched.</p>
+
+<div class="note">
+<strong>CROSS-MACHINE PROOF CAVEAT (stated honestly, convention from #324-#329):</strong>
+The issue's AC4 names the SORENLAPTOP test Director as the cross-machine facts source. SORENLAPTOP
+runs v0.6.22, which predates <code>GET /facts</code> - a true remote proof of the NEW surface is
+structurally impossible until that machine updates to a build containing this change. Per the
+established convention, the Gateway-leg equivalent was proven locally: a NEW-code Gateway pulled
+<code>GET /directors/{id}/facts</code> through the registered proxy leg from the live slot-6
+Director (a real HTTP hop over the registered control endpoint - the same code path a remote
+Director exercises). An old Director answering 404 lands as <code>null</code> in
+<code>DirectorEndpointClient.GetFactsAsync</code> and the proxy answers 502, so pre-#330 fleet
+members degrade cleanly.
+</div>
+
+<h2>What was implemented</h2>
+<ul>
+  <li><strong>Doorbell event vocabulary (CONTRACT CHANGE, plan 1.2.5):</strong>
+      <code>DoorbellRequest</code> gains an OPTIONAL <code>Event</code> field
+      (<code>src/CcDirector.Gateway.Contracts/DoorbellRequest.cs</code>) with the
+      <code>DoorbellEvents</code> vocabulary: <code>session-created</code>,
+      <code>session-exited</code>, <code>prompt-detected</code>. Null/absent = the exact
+      pre-#330 wire shape - old Directors never send it, old Gateways ignore it
+      (compatible both directions). The channel stays fire-and-forget with heartbeat
+      reconciliation.</li>
+  <li><strong>Director-side emission</strong> (<code>ControlApiHost.WireDoorbellPush</code>):
+      <code>session-created</code> on roster add (<code>SessionManager.OnSessionCreated</code>);
+      <code>session-exited</code> exactly ONCE per session (state -&gt; Exited or roster removal,
+      whichever first, deduped by a concurrent announce guard that is dropped on removal so it
+      never outgrows the roster); <code>prompt-detected</code> on the detector's transition INTO
+      <code>WaitingForInput</code>/<code>WaitingForPerm</code> (the flagged assumption: the
+      existing detector signal, no prompt understanding).</li>
+  <li><strong>Gateway observable sink (Phase-1, NOT the Phase-3 hub):</strong>
+      <code>DirectorEventLog</code> (<code>src/CcDirector.Gateway/Events/</code>) - a per-director
+      capped ring (200) plus one structured <code>[DirectorEvents]</code> log line per event,
+      served at <code>GET /directors/{id}/events</code> (404 for unknown directors).</li>
+  <li><strong>Facts (CONTRACT ADDITION):</strong> <code>DirectorFactsDto</code> /
+      <code>ToolInventoryItemDto</code> / <code>LauncherFactDto</code> in
+      <code>CcDirector.Gateway.Contracts</code>. New Director route <code>GET /facts</code>
+      (<code>FactsEndpoint.cs</code>) serving the cc-* tool inventory with versions
+      (<code>CcDirector.Core/Tools/ToolInventory.cs</code>: installed.json per-tool version, else
+      binary file-version resource, else the python-tools bundle version for pyenv console
+      scripts, else honestly null - NO process is ever launched) and the launcher presence/port
+      fact (<code>CcDirector.Core/Configuration/LauncherDiscovery.cs</code>: reads
+      <code>%LOCALAPPDATA%/cc-director/config/launcher/launcher.json</code> at request time,
+      never cached; absent = Installed=false, a valid fact, not an error).</li>
+  <li><strong>Gateway pull leg:</strong> <code>GET /directors/{id}/facts</code> proxies to the
+      Director via <code>DirectorEndpointClient.GetFactsAsync</code> (pull-on-demand was chosen
+      over push-in-heartbeat: the inventory is large and changes rarely, so it must not bloat
+      the 15s hot path - justification carried in the PR).</li>
+</ul>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (proof)</th><th>Verdict</th></tr>
+<tr>
+  <td>1</td>
+  <td>session-created / session-exited observable at the Gateway within 5 s</td>
+  <td>Events land in the Gateway ring + structured log shortly after the moment</td>
+  <td><code>session-created</code> received 99 ms after POST /sessions; <code>session-exited</code>
+      received once (count=1, dedupe proven across state-&gt;Exited and roster removal) -
+      <a href="ac1-ac2-event-lifecycle.txt">ac1-ac2-event-lifecycle.txt</a>,
+      structured log lines <a href="ac1-gateway-structured-log.txt">ac1-gateway-structured-log.txt</a></td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td>prompt-detected on transition into a detected input-prompt state</td>
+  <td>Detector transition into WaitingForInput emits the event</td>
+  <td><code>prompt-detected</code> received at 17:21:11Z after the session finished working
+      and the detector flipped to WaitingForInput -
+      <a href="ac1-ac2-event-lifecycle.txt">ac1-ac2-event-lifecycle.txt</a></td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>3</td>
+  <td>Doorbell stays fire-and-forget; Gateway killed mid-stream does not wedge the Director</td>
+  <td>Director keeps creating/serving sessions while the Gateway is dead; failures logged and dropped</td>
+  <td>Test Gateway killed; session created WHILE dead (POST /sessions -&gt; 200), Director fully
+      responsive, doorbell failures logged "dropped; heartbeat reconciles" -
+      <a href="ac3-gateway-kill-resilience.txt">ac3-gateway-kill-resilience.txt</a></td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>4</td>
+  <td>Tool inventory (names + versions) retrievable through the Gateway</td>
+  <td>GET /directors/{id}/facts returns the inventory via the proxy leg</td>
+  <td>32 tools with categories/versions/presence + launcher fact pulled through the NEW-code
+      test Gateway from the live slot-6 Director -
+      <a href="ac4-facts-via-gateway.txt">ac4-facts-via-gateway.txt</a>
+      (cross-machine caveat above: SORENLAPTOP is pre-#330, gateway-leg proven locally)</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>5</td>
+  <td>Launcher fact: absent = not installed; launcher.json fixture present = reports port</td>
+  <td>Absent file is a valid 200 fact; fixture with port 7900 reports it; read at request time</td>
+  <td>With fixture: installed=true port=7900; after deleting the fixture on the SAME running
+      Director (no restart): installed=false - <a href="ac5-launcher-absent-vs-present.txt">ac5-launcher-absent-vs-present.txt</a>,
+      full body <a href="ac5-facts-direct-launcher-present.txt">ac5-facts-direct-launcher-present.txt</a></td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>6</td>
+  <td>Contract changes called out explicitly in the PR description</td>
+  <td>DoorbellRequest.Event + DoorbellEvents + DirectorFactsDto family named in the PR</td>
+  <td>PR description carries a CONTRACT CHANGES section naming every DTO change</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<p>Live slot-6 rig screenshot: <a href="live-slot6-director.png">live-slot6-director.png</a></p>
+<img src="live-slot6-director.png" alt="Live slot-6 Director">
+
+<h2>Tests</h2>
+<ul>
+  <li>New unit tests, all green: <code>ToolInventoryTests</code> (6) +
+      <code>LauncherDiscoveryTests</code> (6) in CcDirector.Core.Tests;
+      <code>DirectorEventsAndFactsTests</code> (6) in CcDirector.Gateway.Tests - ring recording +
+      events route, legacy tag-less doorbell compatibility, 404s, GatewayClient event leg,
+      facts proxy end-to-end.</li>
+  <li>Full solution build: <code>Build succeeded. 0 Warning(s) 0 Error(s)</code>.</li>
+  <li>Full CcDirector.Core.Tests: 1782 passed, 0 failed.</li>
+  <li>Full CcDirector.Gateway.Tests: 515 passed, 1 failed -
+      <code>DictationEndpointTests.FullPipeline_transcribes_phase0_clip2_with_realtime_provider</code>
+      (live-OpenAI dictation test). NON-REGRESSION VERIFIED: the same test fails identically on
+      the base commit (main @ 43f1831) with zero #330 changes present - a known pre-existing
+      flake, not introduced by this change.</li>
+</ul>
+
+<h2>CenCon impact</h2>
+<ul>
+  <li><code>docs/architecture/gateway/CONTRACT_AUDIT.md</code> updated in the same change:
+      new row 94 <code>GET /facts</code> (Fact) as section 4.5 FactsEndpoint.cs; inventory
+      114 -&gt; 115, Facts 50 -&gt; 51; later sections/rows renumbered; section 5 documents the
+      shipped doorbell event vocabulary and the Gateway ring sink; changelog entry appended.</li>
+  <li>No security-posture change: <code>GET /facts</code> sits behind the same host auth
+      middleware as every Control API route; the Gateway routes require the same registry
+      knowledge as the existing proxy legs. No DT-* blocking rule touched.</li>
+</ul>
+
+<p class="pass">I believe this is finished.</p>
+
+</div>
+</body>
+</html>

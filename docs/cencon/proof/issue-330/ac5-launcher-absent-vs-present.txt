@@ -1,0 +1,7 @@
+﻿=== AC5: launcher fact, absent vs present (GET /facts on the live slot-6 Director) ===
+WITH fixture launcher.json { "launcherId": "proof-330-fixture", "port": 7900, "pid": 12345 }
+at <isolated-root>\config\launcher\launcher.json:
+  launcher: installed=True port=7900 error=null   (full body: ac5-facts-direct-launcher-present.txt)
+AFTER deleting the fixture (read at request time, never cached - same running Director, no restart):
+  launcher: installed=False port=null error=null
+Absent = NOT INSTALLED is served as a valid fact (200), never an error.
