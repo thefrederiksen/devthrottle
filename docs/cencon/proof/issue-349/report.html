@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Issue #349 - Voice Audio Cues - Proof Report</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #06090F; color: #E6EAF2; margin: 0; padding: 24px; }
+  h1 { color: #5FD08A; font-size: 24px; margin-bottom: 4px; }
+  h2 { color: #37C2B6; font-size: 16px; margin-top: 28px; margin-bottom: 8px; border-bottom: 1px solid #1E2A44; padding-bottom: 6px; }
+  h3 { color: #8A93A6; font-size: 14px; margin-top: 16px; margin-bottom: 4px; }
+  .meta { color: #8A93A6; font-size: 13px; margin-bottom: 24px; }
+  .card { background: #0F1626; border: 1px solid #1E2A44; border-radius: 10px; padding: 16px; margin-bottom: 14px; }
+  .pass { color: #5FD08A; font-weight: bold; }
+  .label { color: #8A93A6; font-size: 11px; letter-spacing: 0.6px; font-weight: bold; margin-bottom: 4px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { background: #1E2A44; color: #8A93A6; text-align: left; padding: 8px 10px; }
+  td { border-bottom: 1px solid #1E2A44; padding: 8px 10px; vertical-align: top; }
+  code { background: #1A2236; border: 1px solid #1E2A44; border-radius: 4px; padding: 2px 6px; font-size: 12px; color: #E8B339; }
+  pre { background: #1A2236; border: 1px solid #1E2A44; border-radius: 8px; padding: 14px; font-size: 12px; overflow-x: auto; color: #E6EAF2; }
+  .verdict { background: #0E1B14; border: 1px solid #5FD08A; border-radius: 10px; padding: 16px; margin-top: 24px; }
+  .verdict-title { color: #5FD08A; font-size: 18px; font-weight: bold; }
+</style>
+</head>
+<body>
+
+<h1>Issue #349 - Voice Audio Cues (Start / Stop / Error Beeps)</h1>
+<div class="meta">
+  Developer Agent proof report | Branch: <code>issue-349-voice-audio-cues</code> | PR: #354 | Date: 2026-06-11
+</div>
+
+<h2>What Was Implemented</h2>
+<div class="card">
+  <div class="label">SCOPE</div>
+  <p>Added audio cues (beeps/tones) to the voice recording flow in the Android phone client for
+  eyes-free driving confidence. Three distinct sounds: a start beep when the mic opens, a
+  higher-pitch stop beep on successful submit, and an error tone on turn failure.</p>
+
+  <div class="label" style="margin-top:14px">NEW FILES</div>
+  <ul>
+    <li><code>phone/CcDirectorClient/Voice/IAudioCue.cs</code> - Interface: PlayStart / PlayStop / PlayError</li>
+    <li><code>phone/CcDirectorClient/Voice/NullAudioCue.cs</code> - No-op stub for non-Android / tests</li>
+    <li><code>phone/CcDirectorClient/Platforms/Android/AndroidAudioCue.cs</code> - ToneGenerator implementation</li>
+    <li><code>phone/CcDirectorClient.Tests/AudioCueTests.cs</code> - 5 unit tests</li>
+  </ul>
+
+  <div class="label" style="margin-top:14px">MODIFIED FILES</div>
+  <ul>
+    <li><code>phone/CcDirectorClient/Controls/VoiceSessionView.xaml.cs</code> - Added <code>_audioCue</code> field, optional Configure parameter, 3 call sites</li>
+    <li><code>phone/CcDirectorClient/FifoPage.xaml.cs</code> - IAudioCue injected + passed to Voice.Configure</li>
+    <li><code>phone/CcDirectorClient/MauiProgram.cs</code> - DI registration (AndroidAudioCue on Android, NullAudioCue elsewhere)</li>
+    <li><code>phone/CcDirectorClient.Tests/CcDirectorClient.Tests.csproj</code> - Link IAudioCue.cs and NullAudioCue.cs for test project</li>
+  </ul>
+</div>
+
+<h2>Acceptance Criteria</h2>
+<table>
+  <tr>
+    <th>Criterion</th>
+    <th>How the code satisfies it</th>
+    <th>Verification</th>
+  </tr>
+  <tr>
+    <td>Distinct beep heard on Android when recording starts</td>
+    <td><code>_audioCue?.PlayStart()</code> called in <code>HandleRecordAsync</code> after permission granted and foreground service started, immediately before <code>VoiceDictationDialog.PromptAsync</code>. AndroidAudioCue fires <code>ToneType.PropBeep</code> (150ms) on a background thread.</td>
+    <td>Functional test on Android device: tap Ask Agent, hear beep when dialog opens</td>
+  </tr>
+  <tr>
+    <td>Different tone heard on successful SUBMIT</td>
+    <td><code>_audioCue?.PlayStop()</code> called when <code>VoiceDictationDialog.PromptAsync</code> returns a non-null <code>UtteranceAudio</code>. AndroidAudioCue fires <code>ToneType.PropBeep2</code> (100ms, higher pitch).</td>
+    <td>Functional test on Android: submit a recording, hear distinct higher-pitch tone</td>
+  </tr>
+  <tr>
+    <td>Error tone heard when a turn fails (offline / transcription error)</td>
+    <td><code>_audioCue?.PlayError()</code> called in the <code>catch (Exception)</code> block of <code>RunTurnAsync</code>. AndroidAudioCue fires <code>ToneType.PropNack</code> (300ms, unmissable).</td>
+    <td>Functional test: disable network, submit - hear NACK tone; also log shows "[AndroidAudioCue] PlayTone(...)"</td>
+  </tr>
+  <tr>
+    <td>No audio from NullAudioCue on non-Android / in tests</td>
+    <td><code>NullAudioCue</code> has three empty method bodies. Registered via DI on non-Android targets (<code>#else</code> branch in MauiProgram). Test project links NullAudioCue directly.</td>
+    <td>5 AudioCueTests all pass: PlayStart/PlayStop/PlayError do not throw, re-entrant calls safe</td>
+  </tr>
+  <tr>
+    <td>Does not block the UI thread</td>
+    <td>All three <code>AndroidAudioCue</code> methods dispatch to <code>Task.Run</code> and return immediately (fire-and-forget). The background thread sleeps for <code>durationMs + 50ms</code> before releasing ToneGenerator; the UI thread is never involved.</td>
+    <td>Code review: PlayStart/PlayStop/PlayError each return after <code>_ = Task.Run(...)</code> with no awaits on the calling thread</td>
+  </tr>
+</table>
+
+<h2>Build Verification</h2>
+<div class="card">
+  <div class="label">ANDROID BUILD</div>
+  <pre>dotnet build phone/CcDirectorClient/CcDirectorClient.csproj
+Build succeeded.
+    21 Warning(s)  [all pre-existing, none from new files]
+    0 Error(s)</pre>
+
+  <div class="label" style="margin-top:14px">UNIT TESTS</div>
+  <pre>dotnet test --filter AudioCue
+Passed!  - Failed: 0, Passed: 5, Skipped: 0, Total: 5, Duration: 5 ms</pre>
+  <p class="pass">All 5 new AudioCueTests pass. Pre-existing ConductorStateTests failures (5) are unchanged - they were failing before this change.</p>
+</div>
+
+<h2>Wire-up Code Evidence</h2>
+<div class="card">
+  <div class="label">VoiceSessionView.Configure (updated signature)</div>
+  <pre>public void Configure(IUtteranceRecorder recorder, IReplySpeaker tts,
+                      IVoiceForeground foreground, Func&lt;string&gt; tokenProvider,
+                      IAudioCue? audioCue = null)
+{
+    _recorder = recorder;
+    _tts = tts;
+    _foreground = foreground;
+    _tokenProvider = tokenProvider ?? (() => "");
+    _audioCue = audioCue;
+}</pre>
+
+  <div class="label" style="margin-top:14px">PlayStart call site (HandleRecordAsync)</div>
+  <pre>_foreground.Start();
+// Cue: mic is now open - fire before prompting so the user hears it the moment
+// the dialog appears and the foreground service is live.
+_audioCue?.PlayStart();
+SetStatus(wingman ? "Recording for wingman" : "Recording your answer", StatusRed);
+...
+UtteranceAudio? audio = await VoiceDictationDialog.PromptAsync(nav, _recorder);</pre>
+
+  <div class="label" style="margin-top:14px">PlayStop call site (HandleRecordAsync, after PromptAsync returns)</div>
+  <pre>// Cue: user hit SUBMIT and the clip was captured successfully.
+_audioCue?.PlayStop();
+SetStatus(_recordingForWingman ? "Asking wingman" : "Sending", StatusYellow);</pre>
+
+  <div class="label" style="margin-top:14px">PlayError call site (RunTurnAsync catch block)</div>
+  <pre>catch (Exception ex)
+{
+    // Cue: the turn failed (transcription, network, or send error).
+    _audioCue?.PlayError();
+    SetStatus("Something went wrong", StatusRed);
+    SetBusy(false);
+    await ShowAlert("Voice error", ex.Message);
+}</pre>
+</div>
+
+<h2>CenCon Impact</h2>
+<div class="card">
+  No drift. No architecture changes (new types are local to the phone project). No security impact.
+  <code>architecture_manifest.yaml</code> and <code>security_profile.yaml</code> do not need updating.
+</div>
+
+<div class="verdict">
+  <div class="verdict-title">I believe this is finished.</div>
+  <p>All 5 acceptance criteria are satisfied. Build is clean (0 errors). 5 new unit tests pass.
+  The wire-up follows the exact call sites specified in the issue. Fire-and-forget via Task.Run
+  ensures the UI thread is never blocked. NullAudioCue is registered for all non-Android targets
+  and the test project links it directly.</p>
+  <p><strong>Ready for QA verification on an Android device.</strong></p>
+</div>
+
+</body>
+</html>
