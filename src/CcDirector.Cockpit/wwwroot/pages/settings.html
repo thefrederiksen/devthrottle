@@ -15,8 +15,21 @@
   .top{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
   h1{font-size:26px;margin:0}
   a.back{color:var(--blue);text-decoration:none;font-size:14px}
-  .sub{color:var(--muted);font-size:14px;margin:6px 0 18px;max-width:640px}
-  .section{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin:14px 0}
+  .sub{color:var(--muted);font-size:14px;margin:6px 0 0;max-width:640px}
+
+  /* Tabs */
+  .tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin:20px 0 0}
+  .tab-btn{background:none;border:none;border-bottom:2px solid transparent;color:var(--muted);
+           font-size:14px;font-weight:500;padding:8px 18px 10px;cursor:pointer;margin-bottom:-1px;
+           transition:color .15s,border-color .15s}
+  .tab-btn:hover{color:var(--ink)}
+  .tab-btn.active{color:var(--blue);border-bottom-color:var(--blue)}
+
+  /* Panels */
+  .tab-panel{display:none;padding-top:18px}
+  .tab-panel.active{display:block}
+
+  .section{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin:0 0 14px}
   .section h2{font-size:16px;margin:0 0 2px}
   .section .hint{color:var(--muted);font-size:12.5px;margin:0 0 14px}
   .status{display:inline-flex;align-items:center;gap:8px;font-size:13.5px;margin-bottom:14px}
@@ -40,13 +53,7 @@
   .kv .v.red{color:var(--red)} .kv .v.green{color:var(--green)}
   .chk{display:inline-flex;align-items:center;gap:9px;font-size:14px;color:var(--ink);cursor:pointer}
   .chk input{accent-color:var(--blue);width:16px;height:16px}
-  .links{display:flex;flex-wrap:wrap;gap:10px;margin-top:2px}
-  .links a{display:inline-flex;flex-direction:column;background:var(--panel2);border:1px solid var(--line);
-        border-radius:10px;padding:10px 14px;color:var(--ink);text-decoration:none;font-size:13.5px;min-width:150px}
-  .links a:hover{border-color:var(--blue)}
-  .links a .s{color:var(--muted);font-size:11.5px;margin-top:2px}
   .pill{display:inline-block;font-size:11px;padding:2px 8px;border-radius:999px;background:#23314d;color:#9fb0d8;margin-left:8px;vertical-align:middle}
-  .loading{color:var(--muted);text-align:center;padding:60px 0}
 </style>
 </head>
 <body>
@@ -55,29 +62,60 @@
     <h1>Settings</h1>
     <a class="back" href="/">&larr; Dashboard</a>
   </div>
-  <p class="sub">Everything that configures this Gateway and the fleet, in one place. Settings here apply to every Director connected to this Gateway.</p>
+  <p class="sub">Gateway and fleet configuration.</p>
 
-  <!-- API Keys -->
-  <div class="section">
-    <h2>API Keys</h2>
-    <p class="hint">Stored once here on the Gateway, pulled on demand by every Director. Never shown back in this page and never written to a Director's disk.</p>
-    <div class="status">
-      <span class="dot" id="keydot"></span>
-      <span id="keystate">Loading...</span>
-    </div>
-    <div class="row">
-      <input id="keybox" type="password" placeholder="sk-..." autocomplete="off" spellcheck="false">
-      <button class="save" id="savebtn">Save</button>
-      <button class="danger" id="delbtn" style="display:none">Remove</button>
-    </div>
-    <div style="margin-top:10px">
-      <label class="show"><input type="checkbox" id="showbox"> Show what I type</label>
-    </div>
-    <div class="msg" id="keymsg"></div>
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="keys">Keys</button>
+    <button class="tab-btn" data-tab="gateway">Gateway</button>
   </div>
 
-  <!-- Brain -->
-  <div class="section">
+  <!-- ===== Keys tab ===== -->
+  <div class="tab-panel active" id="tab-keys">
+    <div class="section">
+      <h2>API Keys</h2>
+      <p class="hint">Stored once here on the Gateway, pulled on demand by every Director. Never shown back in this page and never written to a Director's disk.</p>
+      <div class="status">
+        <span class="dot" id="keydot"></span>
+        <span id="keystate">Loading...</span>
+      </div>
+      <div class="row">
+        <input id="keybox" type="password" placeholder="sk-..." autocomplete="off" spellcheck="false">
+        <button class="save" id="savebtn">Save</button>
+        <button class="danger" id="delbtn" style="display:none">Remove</button>
+      </div>
+      <div style="margin-top:10px">
+        <label class="show"><input type="checkbox" id="showbox"> Show what I type</label>
+      </div>
+      <div class="msg" id="keymsg"></div>
+    </div>
+  </div>
+
+  <!-- ===== Gateway tab ===== -->
+  <div class="tab-panel" id="tab-gateway">
+    <div class="section">
+      <h2>Gateway</h2>
+      <p class="hint">The Gateway process serving this page and supervising the fleet.</p>
+      <div class="kv" id="gwkv">
+        <span class="k">State</span><span class="v" id="gwstate">-</span>
+        <span class="k">Port</span><span class="v mono" id="gwport">-</span>
+        <span class="k">Cockpit</span><span class="v mono" id="gwcockpit">-</span>
+        <span class="k">Mode</span><span class="v" id="gwmode">-</span>
+        <span class="k">Uptime</span><span class="v" id="gwuptime">-</span>
+        <span class="k">Version</span><span class="v mono" id="gwversion">-</span>
+        <span class="k">Directors</span><span class="v" id="gwdirectors">-</span>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Startup</h2>
+      <p class="hint">Registers a Run entry under HKCU so the Gateway starts in your session when you log in. The fleet only works while you are logged in, so this is per-user, never a machine service.</p>
+      <label class="chk"><input type="checkbox" id="autostart" disabled> Start the Gateway when I log in</label>
+      <div class="msg" id="autostartmsg"></div>
+    </div>
+  </div>
+
+  <!-- Brain (alpha) -->
+  <div class="section" style="display:none">
     <h2>Brain <span class="pill">warm claude.exe</span></h2>
     <p class="hint">A hosted claude.exe used by Gateway agents (the wingman). It starts on first use; restart replaces a wedged or dead brain. The model is pinned via config.json <code>brain_model</code>; a change applies on the next Gateway restart.</p>
     <div class="status">
@@ -94,54 +132,28 @@
     </div>
   </div>
 
-  <!-- Wingman -->
-  <div class="section">
+  <!-- Wingman (alpha) -->
+  <div class="section" style="display:none">
     <h2>Wingman <span class="pill">turn-brief pipeline</span></h2>
     <p class="hint">When enabled, the Gateway reads every session turn and stamps a brief for the Cockpit's Wingman tab. Disabled by default. Changes take effect after a Gateway restart.</p>
     <label class="chk"><input type="checkbox" id="wingman" disabled> Enable the Wingman</label>
     <div class="msg" id="wingmanmsg"></div>
   </div>
-
-  <!-- Gateway -->
-  <div class="section">
-    <h2>Gateway</h2>
-    <p class="hint">The Gateway process serving this page and supervising the fleet.</p>
-    <div class="kv" id="gwkv">
-      <span class="k">State</span><span class="v" id="gwstate">-</span>
-      <span class="k">Port</span><span class="v mono" id="gwport">-</span>
-      <span class="k">Cockpit</span><span class="v mono" id="gwcockpit">-</span>
-      <span class="k">Mode</span><span class="v" id="gwmode">-</span>
-      <span class="k">Uptime</span><span class="v" id="gwuptime">-</span>
-      <span class="k">Version</span><span class="v mono" id="gwversion">-</span>
-      <span class="k">Directors</span><span class="v" id="gwdirectors">-</span>
-    </div>
-  </div>
-
-  <!-- Startup -->
-  <div class="section">
-    <h2>Startup</h2>
-    <p class="hint">Registers a Run entry under HKCU so the Gateway starts in your session when you log in. The fleet only works while you are logged in, so this is per-user, never a machine service.</p>
-    <label class="chk"><input type="checkbox" id="autostart" disabled> Start the Gateway when I log in</label>
-    <div class="msg" id="autostartmsg"></div>
-  </div>
-
-  <!-- Files & data -->
-  <div class="section">
-    <h2>Files &amp; data</h2>
-    <p class="hint">The Gateway's other tool pages.</p>
-    <div class="links">
-      <a href="/transcripts">Voice transcripts<span class="s">recordings &amp; transcripts</span></a>
-      <a href="/dictionary">Dictation dictionary<span class="s">custom terms</span></a>
-      <a href="/exes">Builds<span class="s">local_builds slots</span></a>
-      <a href="/keys">API keys page<span class="s">full key vault</span></a>
-    </div>
-  </div>
 </div>
 
 <script>
+  // Tab switching
+  document.querySelectorAll('.tab-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
+      document.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('active'); });
+      btn.classList.add('active');
+      document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+    });
+  });
+
   const KEY = 'OPENAI_API_KEY';
 
-  // ---- API key block (talks to the existing vault endpoints) ----
   function setKeyMsg(text, ok){
     const m = document.getElementById('keymsg');
     m.textContent = text || '';
@@ -192,7 +204,6 @@
     } catch (e){ setKeyMsg('Remove failed: ' + e, false); }
   }
 
-  // ---- Brain + Gateway + Startup block (one snapshot endpoint) ----
   function fmtUptime(sec){
     sec = Math.max(0, sec|0);
     const h = (sec/3600)|0, m = ((sec%3600)/60)|0, s = sec%60;
@@ -271,7 +282,6 @@
     } catch (err){ msg.className = 'msg err'; msg.textContent = 'Failed: ' + err; await loadSnapshot(); }
   }
 
-  // ---- Wingman toggle ----
   async function loadWingman(){
     try {
       const r = await fetch('/gateway/wingman');
@@ -310,7 +320,7 @@
 
   document.getElementById('savebtn').addEventListener('click', saveKey);
   document.getElementById('delbtn').addEventListener('click', removeKey);
-  document.getElementById('showbox').addEventListener('change', e => {
+  document.getElementById('showbox').addEventListener('change', function(e) {
     document.getElementById('keybox').type = e.target.checked ? 'text' : 'password';
   });
   document.getElementById('restartbtn').addEventListener('click', restartBrain);

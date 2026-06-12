@@ -152,7 +152,7 @@ public sealed class GatewayClient
     /// </summary>
     public async Task<AboutDto> GetAboutAsync(CancellationToken ct = default)
     {
-        var a = await _http.GetFromJsonAsync<AboutDto>("about", ct);
+        var a = await _http.GetFromJsonAsync<AboutDto>("gateway/about", ct);
         return a ?? throw new HttpRequestException("about returned an empty body");
     }
 

@@ -1589,6 +1589,57 @@ internal static class ControlEndpoints
             return Results.Json(new { items = ProjectQueue(session) });
         });
 
+        // Edit the text of a queued item in place.
+        app.MapPatch("/sessions/{sid}/queue/{itemId}", (string sid, string itemId, PromptRequest req) =>
+        {
+            FileLog.Write($"[ControlEndpoints] PATCH queue edit: sid={sid}, item={itemId}");
+            if (!Guid.TryParse(sid, out var guid) || !Guid.TryParse(itemId, out var itemGuid))
+                return Results.BadRequest(new { error = "invalid id format" });
+            if (req is null || string.IsNullOrWhiteSpace(req.Text))
+                return Results.BadRequest(new { error = "text is required" });
+            var session = sessionManager.GetSession(guid);
+            if (session is null)
+                return Results.NotFound(new { error = "session not found" });
+            session.PromptQueue.UpdateText(itemGuid, req.Text);
+            return Results.Json(new { items = ProjectQueue(session) });
+        });
+
+        app.MapPost("/sessions/{sid}/queue/{itemId}/move-up", (string sid, string itemId) =>
+        {
+            FileLog.Write($"[ControlEndpoints] POST queue move-up: sid={sid}, item={itemId}");
+            if (!Guid.TryParse(sid, out var guid) || !Guid.TryParse(itemId, out var itemGuid))
+                return Results.BadRequest(new { error = "invalid id format" });
+            var session = sessionManager.GetSession(guid);
+            if (session is null)
+                return Results.NotFound(new { error = "session not found" });
+            session.PromptQueue.MoveUp(itemGuid);
+            return Results.Json(new { items = ProjectQueue(session) });
+        });
+
+        app.MapPost("/sessions/{sid}/queue/{itemId}/move-down", (string sid, string itemId) =>
+        {
+            FileLog.Write($"[ControlEndpoints] POST queue move-down: sid={sid}, item={itemId}");
+            if (!Guid.TryParse(sid, out var guid) || !Guid.TryParse(itemId, out var itemGuid))
+                return Results.BadRequest(new { error = "invalid id format" });
+            var session = sessionManager.GetSession(guid);
+            if (session is null)
+                return Results.NotFound(new { error = "session not found" });
+            session.PromptQueue.MoveDown(itemGuid);
+            return Results.Json(new { items = ProjectQueue(session) });
+        });
+
+        app.MapDelete("/sessions/{sid}/queue", (string sid) =>
+        {
+            FileLog.Write($"[ControlEndpoints] DELETE queue clear: sid={sid}");
+            if (!Guid.TryParse(sid, out var guid))
+                return Results.BadRequest(new { error = "invalid session id format" });
+            var session = sessionManager.GetSession(guid);
+            if (session is null)
+                return Results.NotFound(new { error = "session not found" });
+            session.PromptQueue.Clear();
+            return Results.Json(new { items = ProjectQueue(session) });
+        });
+
         // Deliver one queued item to the PTY now (and drop it from the queue). Used by the
         // queue panel's per-item "send" and by a "send next" action.
         app.MapPost("/sessions/{sid}/queue/{itemId}/send", async (string sid, string itemId) =>

@@ -148,7 +148,8 @@ internal static class GatewayEndpoints
         // About / diagnostics: product, version, build date, install root, the one Cockpit URL, and
         // the installed component versions (from installed.json on this box). Feeds the Cockpit About
         // page; loopback-reachable like the rest of the read API.
-        app.MapGet("/about", () => Results.Json(new AboutDto
+        // Route is /gateway/about so the /about path passes through to the Cockpit's Blazor page.
+        app.MapGet("/gateway/about", () => Results.Json(new AboutDto
         {
             Product = AboutInfo.ProductName,
             Version = AboutInfo.VersionFull,

@@ -19,12 +19,6 @@
   button.ghost{background:transparent;border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:6px 12px;font-size:13px;cursor:pointer}
   button.ghost:hover{border-color:var(--blue)}
   .agentmsg{color:var(--green);font-size:12.5px}
-  /* tab strip shared with the Dictionary page */
-  .tabs{display:flex;gap:8px;border-bottom:1px solid var(--line);margin:6px 0 18px}
-  .tab{padding:8px 16px;border:1px solid var(--line);border-bottom:none;border-radius:10px 10px 0 0;
-       color:var(--muted);text-decoration:none;font-size:14px;background:transparent;transform:translateY(1px)}
-  .tab:hover{color:var(--ink)}
-  .tab.active{color:var(--ink);background:var(--panel);border-color:var(--line)}
   .sub{color:var(--muted);font-size:14px;margin:0 0 22px}
   .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin:12px 0}
   .row{display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer}
@@ -68,10 +62,6 @@
       <button class="ghost" id="agentinfo" title="Copy API endpoint + directory + usage so an external agent can connect and process these transcripts">Copy agent info</button>
       <a class="back" href="/">&larr; Dashboard</a>
     </div>
-  </div>
-  <div class="tabs">
-    <a class="tab active" href="/transcripts">Transcripts</a>
-    <a class="tab" href="/dictionary">Dictionary</a>
   </div>
   <p class="sub">Recordings uploaded from the phone and transcribed. These are kept locally and are temporary. Use "Save to vault" to keep one permanently, or "Delete" to remove a transient transcript. Click one to read it or play the audio.</p>
   <div id="list"><p class="empty">Loading...</p></div>

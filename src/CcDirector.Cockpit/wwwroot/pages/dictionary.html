@@ -15,12 +15,6 @@
   .top{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
   h1{font-size:26px;margin:0}
   a.back{color:var(--blue);text-decoration:none;font-size:14px}
-  /* tab strip shared with the Transcripts page */
-  .tabs{display:flex;gap:8px;border-bottom:1px solid var(--line);margin:6px 0 18px}
-  .tab{padding:8px 16px;border:1px solid var(--line);border-bottom:none;border-radius:10px 10px 0 0;
-       color:var(--muted);text-decoration:none;font-size:14px;background:transparent;transform:translateY(1px)}
-  .tab:hover{color:var(--ink)}
-  .tab.active{color:var(--ink);background:var(--panel);border-color:var(--line)}
   .saverow{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:18px}
   .sub{color:var(--muted);font-size:14px;margin:0;max-width:640px}
   .savemsg{color:var(--green);font-size:12.5px}
@@ -64,13 +58,10 @@
 <body>
 <div class="wrap">
   <div class="top">
-    <h1>Voice Recorder</h1>
+    <h1>Dictionary</h1>
     <a class="back" href="/">&larr; Dashboard</a>
   </div>
-  <div class="tabs">
-    <a class="tab" href="/transcripts">Transcripts</a>
-    <a class="tab active" href="/dictionary">Dictionary</a>
-  </div>
+  <p class="sub">The Gateway is the single source of truth for this glossary. It is used by <strong>phone-recording transcription</strong> and by <strong>live dictation/Speak on every Director</strong> connected to this Gateway. Edits apply on the next recording or dictation - no file copying.</p>
 
   <div id="page"><p class="loading">Loading dictionary...</p></div>
 </div>
@@ -90,7 +81,7 @@
     const page = document.getElementById('page');
     page.innerHTML = `
       <div class="saverow">
-        <p class="sub">The Gateway is the single source of truth for this glossary. It is used by phone-recording transcription and by live desktop dictation/Speak on every Director connected to this Gateway. Edits apply on the next recording or dictation - no file copying.</p>
+        <div></div>
         <div style="display:flex;align-items:center;gap:12px;white-space:nowrap">
           <span class="savemsg" id="savemsg"></span>
           <button class="save" id="savebtn" disabled>Save</button>

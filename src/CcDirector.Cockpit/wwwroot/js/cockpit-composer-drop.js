@@ -8,9 +8,25 @@
 // Wired ONCE at the document level (event delegation) so it survives every composer
 // re-render (session switches) without re-binding. init() is idempotent.
 
+// Auto-resize a composer textarea to fit its content, capped at 160px.
+// Called from Blazor after every input event and after session switches.
+export function resizeTextarea(el) {
+  if (!el) return;
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+}
+
 export function init() {
   if (window.__cockpitComposerDropInit) return;
   window.__cockpitComposerDropInit = true;
+
+  // Auto-resize all composer textareas on input (covers typing, paste, cut).
+  document.addEventListener('input', (e) => {
+    if (e.target && e.target.matches('.composer textarea')) {
+      e.target.style.height = 'auto';
+      e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px';
+    }
+  });
 
   const composerOf = (t) => (t && t.closest) ? t.closest('.composer') : null;
   const hasFiles = (dt) => dt && Array.from(dt.types || []).includes('Files');
