@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Proof Report - Issue #366 - Voice-turn stale transcript fix</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 980px; margin: 2rem auto; padding: 0 1rem; color: #1c2733; }
+  h1 { border-bottom: 3px solid #0b6e4f; padding-bottom: .4rem; }
+  h2 { color: #0b6e4f; margin-top: 2rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #c8d2dc; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #eef3f7; }
+  code, pre { background: #f4f6f8; border-radius: 4px; }
+  code { padding: .1rem .3rem; }
+  pre { padding: .8rem; overflow-x: auto; border: 1px solid #dbe2e8; }
+  .pass { color: #0b6e4f; font-weight: 600; }
+  .fail { color: #b3261e; font-weight: 600; }
+  .meta { color: #5a6a78; font-size: .9rem; }
+</style>
+</head>
+<body>
+
+<h1>Proof Report - Issue #366</h1>
+<p class="meta">
+  Issue: <a href="https://github.com/thefrederiksen/cc-director/issues/366">#366 [Voice] Fix stale transcript: voice-turn endpoint speaks previous-turn content</a><br>
+  PR: <a href="https://github.com/thefrederiksen/cc-director/pull/379">#379</a> (branch <code>issue-366-stale-transcript</code>)<br>
+  Date: 2026-06-12 - Developer Agent (CenCon Development Method)
+</p>
+
+<h2>What was implemented</h2>
+<p>
+The voice-turn endpoint (<code>POST /sessions/{sid}/voice-turn</code>) read the most recent
+assistant message of the WHOLE JSONL transcript after its turn poll loop. When the agent had
+not yet written its reply to the current utterance, the endpoint summarized and spoke the
+PREVIOUS turn's output - a systematic stale replay.
+</p>
+<ul>
+  <li><code>src/CcDirector.ControlApi/VoiceTurnEndpoint.cs</code> - <code>SnapshotTranscriptLength(session)</code>
+      captures the transcript byte length immediately before <code>session.SendTextAsync()</code>.
+      After the poll loop, <code>ReadNewAssistantText(session, offsetBefore)</code> reads only assistant
+      content appended at/after that offset. <code>ReadLastAssistantText</code> is gone.</li>
+  <li><code>src/CcDirector.Core/Claude/StreamMessage.cs</code> - new public
+      <code>StreamMessageParser.ParseFileFromOffset(jsonlPath, byteOffset)</code> (seeks to the snapshotted
+      line boundary, reads with <code>FileShare.ReadWrite</code>; an offset beyond EOF - transcript replaced -
+      reads from the start because then all content is new).</li>
+  <li><code>src/CcDirector.Gateway.Tests/VoiceTurnEndpointTests.cs</code> - regression test
+      <code>VoiceTurn_TwoConsecutiveTurns_SecondTurnSpeaksCurrentReply</code> plus a
+      <code>TranscriptWritingBackend</code> stub that appends scripted assistant replies to a real temp
+      JSONL transcript per turn (and, when the script runs out, ends a turn with NO new content -
+      the exact defect window).</li>
+</ul>
+
+<h2>Acceptance criteria</h2>
+<table>
+  <tr><th>Criterion</th><th>Proof</th><th>Result</th></tr>
+  <tr>
+    <td>Two consecutive turns: the second turn's spoken summary reflects the second turn's reply, not the first turn's</td>
+    <td>Test turn 2: summary contains <code>ZEBRASECOND</code> and does NOT contain <code>ZEBRAFIRST</code>
+        (<code>test-output-voiceturn-gateway-tests.txt</code>)</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>Post-send byte-offset filter; no pre-turn assistant content can leak into the summary</td>
+    <td>Test turn 3: agent writes nothing during the turn; summary contains neither marker.
+        On PRE-FIX code this exact assertion fails with the stale turn-2 reply spoken
+        (<code>regression-proof-prefix-code-fails.txt</code>)</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td><code>dotnet build cc-director.sln</code> succeeds with 0 errors</td>
+    <td>Build output: <code>Build succeeded. 0 Warning(s) 0 Error(s)</code> (full solution, worktree at the PR head)</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td><code>dotnet test --filter VoiceTurn</code> passes; existing tests unaffected, new regression test added</td>
+    <td>14/14 pass: 9 in Gateway.Tests (8 existing + 1 new), 5 in Core.Tests
+        (<code>test-output-voiceturn-gateway-tests.txt</code>, <code>test-output-voiceturn-core-tests.txt</code>)</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Test output (fixed code)</h2>
+<pre>
+  Passed CcDirector.Gateway.Tests.VoiceTurnEndpointTests.VoiceTurn_TextInput_EmitsTranscriptAndReplyStages [844 ms]
+  Passed CcDirector.Gateway.Tests.VoiceTurnEndpointTests.VoiceTurn_EmptyJsonBody_EmitsErrorStage [113 ms]
+  Passed CcDirector.Gateway.Tests.VoiceTurnEndpointTests.VoiceTurn_MissingTextAndAudio_EmitsErrorStage [103 ms]
+  Passed CcDirector.Gateway.Tests.VoiceTurnEndpointTests.VoiceTurn_WingmanUnavailable_ReplyStageAlwaysEmitted [715 ms]
+  Passed CcDirector.Gateway.Tests.VoiceTurnEndpointTests.VoiceTurn_TwoConsecutiveTurns_SecondTurnSpeaksCurrentReply [2 s]
+  Passed CcDirector.Gateway.Tests.VoiceTurnEndpointTests.VoiceTurn_UnknownSession_Returns404Json [181 ms]
+  Passed CcDirector.Gateway.Tests.VoiceTurnEndpointTests.VoiceTurn_InvalidGuid_Returns400Json [179 ms]
+  Passed CcDirector.Gateway.Tests.VoiceTurnEndpointTests.VoiceTurn_AudioInput_NoKey_EmitsNoKeyError [109 ms]
+  Passed CcDirector.Gateway.Tests.VoiceTurnEndpointTests.VoiceTurn_SessionAlreadyExited_Returns410 [99 ms]
+Test Run Successful.  Total tests: 9  Passed: 9
+</pre>
+
+<h2>Regression proof (pre-fix code FAILS the new test)</h2>
+<pre>
+  Failed CcDirector.Gateway.Tests.VoiceTurnEndpointTests.VoiceTurn_TwoConsecutiveTurns_SecondTurnSpeaksCurrentReply [2 s]
+   Assert.DoesNotContain() Failure: Sub-string found
+  String: "ZEBRASECOND the second task is complete."
+  Found:  "ZEBRASECOND"
+</pre>
+<p>
+On pre-fix code, turn 3 (agent wrote nothing during the turn) spoke the second turn's reply -
+the exact stale-replay defect from session e0a4ffbd. Procedure in
+<code>regression-proof-prefix-code-fails.txt</code>.
+</p>
+
+<h2>How QA can verify</h2>
+<ol>
+  <li>Check out PR #379 (branch <code>issue-366-stale-transcript</code>).</li>
+  <li><code>dotnet build cc-director.sln</code> - expect 0 errors.</li>
+  <li><code>dotnet test src/CcDirector.Gateway.Tests/CcDirector.Gateway.Tests.csproj --filter VoiceTurn</code> - expect 9/9 pass.</li>
+  <li><code>dotnet test src/CcDirector.Core.Tests/CcDirector.Core.Tests.csproj --filter VoiceTurn</code> - expect 5/5 pass.</li>
+  <li>Optional regression check: <code>git checkout origin/main -- src/CcDirector.ControlApi/VoiceTurnEndpoint.cs src/CcDirector.Core/Claude/StreamMessage.cs</code>,
+      rebuild the test project, re-run the named test - expect FAIL with the stale <code>ZEBRASECOND</code> leak;
+      then <code>git checkout HEAD -- &lt;files&gt;</code> to restore.</li>
+</ol>
+
+<h2>CenCon impact</h2>
+<p>No drift. Bug fix inside the existing <code>CcDirector.ControlApi</code> container plus a parsing helper
+in <code>CcDirector.Core</code> (Claude transcript reader). No architecture or security posture change;
+no blocking security rule touched.</p>
+
+<h2>Statement</h2>
+<p><strong>I believe this is finished.</strong> All four acceptance criteria are met with committed,
+reproducible proof, and the regression test demonstrably fails on the pre-fix code.</p>
+
+</body>
+</html>

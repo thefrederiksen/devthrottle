@@ -1,0 +1,13 @@
+  Passed CcDirector.Gateway.Tests.VoiceTurnEndpointTests.VoiceTurn_TextInput_EmitsTranscriptAndReplyStages [844 ms]
+  Passed CcDirector.Gateway.Tests.VoiceTurnEndpointTests.VoiceTurn_EmptyJsonBody_EmitsErrorStage [113 ms]
+  Passed CcDirector.Gateway.Tests.VoiceTurnEndpointTests.VoiceTurn_MissingTextAndAudio_EmitsErrorStage [103 ms]
+  Passed CcDirector.Gateway.Tests.VoiceTurnEndpointTests.VoiceTurn_WingmanUnavailable_ReplyStageAlwaysEmitted [715 ms]
+  Passed CcDirector.Gateway.Tests.VoiceTurnEndpointTests.VoiceTurn_TwoConsecutiveTurns_SecondTurnSpeaksCurrentReply [2 s]
+  Passed CcDirector.Gateway.Tests.VoiceTurnEndpointTests.VoiceTurn_UnknownSession_Returns404Json [181 ms]
+  Passed CcDirector.Gateway.Tests.VoiceTurnEndpointTests.VoiceTurn_InvalidGuid_Returns400Json [179 ms]
+  Passed CcDirector.Gateway.Tests.VoiceTurnEndpointTests.VoiceTurn_AudioInput_NoKey_EmitsNoKeyError [109 ms]
+  Passed CcDirector.Gateway.Tests.VoiceTurnEndpointTests.VoiceTurn_SessionAlreadyExited_Returns410 [99 ms]
+Test Run Successful.
+Total tests: 9
+     Passed: 9
+ Total time: 5.1510 Seconds
