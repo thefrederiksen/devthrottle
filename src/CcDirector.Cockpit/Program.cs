@@ -37,14 +37,17 @@ builder.Services.AddHttpClient<GitHubItemStatusClient>(c =>
     c.Timeout = TimeSpan.FromSeconds(15);
 });
 
-// Direct-to-Director write/act client. No fixed base address (each call targets the owning
-// Director's TailnetEndpoint). The Tailscale Serve front door uses a valid public cert, so
-// the default handler trusts it - no cert bypass needed.
+// Per-session write/act/read client. Issue #372: every per-session verb now goes to the local
+// GATEWAY (same base as GatewayClient), which resolves the owning Director by session id and
+// reverse-proxies to it - so the Cockpit never dials a Director address directly. The few
+// Director-scoped calls (screenshots folder, settings, fanout) still pass an absolute Director
+// base per call, which overrides this BaseAddress.
 builder.Services.AddHttpClient<DirectorClient>(c =>
 {
-    // Generous: most Director calls return in milliseconds, but recap generation is an
-    // opus call that can take ~90s. A high ceiling lets that one call through without
-    // affecting the fast ones (it only bounds how long a hung call waits).
+    c.BaseAddress = new Uri(gatewayUrl);
+    // Generous: most calls return in milliseconds, but recap generation is an opus call that can
+    // take ~90s. A high ceiling lets that one call through without affecting the fast ones (it
+    // only bounds how long a hung call waits).
     c.Timeout = TimeSpan.FromSeconds(150);
 });
 

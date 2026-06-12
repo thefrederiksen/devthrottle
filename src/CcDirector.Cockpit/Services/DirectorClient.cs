@@ -54,11 +54,15 @@ public sealed class ScreenshotsResponse
 }
 
 /// <summary>
-/// Talks DIRECT to an owning Director (never through the Gateway) for the write/act path:
-/// prompts, interrupt, escape, the prompt queue, and image upload. The base URL is the
-/// session's TailnetEndpoint (e.g. https://&lt;machine&gt;.&lt;tailnet&gt;.ts.net:7887), fronted by
-/// Tailscale Serve - so every call rides the tailnet, never localhost. Matches the design's
-/// "reads aggregate through the Gateway; writes/streams go direct to the Director" rule.
+/// Drives a single session's write/act/read path. Issue #372: every PER-SESSION verb now goes to
+/// the local GATEWAY (this client's BaseAddress), which resolves the owning Director by session id
+/// and reverse-proxies to it (CcDirector.Gateway SessionWsProxyEndpoints). The Cockpit never dials
+/// a Director address directly, so a Director that advertises only a loopback endpoint is still
+/// fully drivable and there is one reachability/trust story (the Gateway), not two.
+///
+/// The few DIRECTOR-scoped paths that are not session-scoped (the screenshots folder, the
+/// Director's settings, and same-Director fanout) still take an explicit <c>directorBase</c> -
+/// they have no session id for the Gateway to resolve an owner from. Those are the next slice.
 /// </summary>
 public sealed class DirectorClient
 {
@@ -71,13 +75,16 @@ public sealed class DirectorClient
         _log = log;
     }
 
+    // Absolute URL builder for the DIRECTOR-scoped calls that still target a Director base directly
+    // (screenshots folder, settings, fanout). Session-scoped calls below use relative paths so they
+    // resolve against the Gateway BaseAddress instead.
     private static Uri Url(string directorBase, string path) =>
         new(new Uri(directorBase.TrimEnd('/') + "/"), path.TrimStart('/'));
 
-    public async Task SendPromptAsync(string directorBase, string sid, string text, CancellationToken ct = default)
+    public async Task SendPromptAsync(string sid, string text, CancellationToken ct = default)
     {
         _log.LogDebug("SendPrompt sid={Sid} len={Len}", sid, text.Length);
-        var resp = await _http.PostAsJsonAsync(Url(directorBase, $"sessions/{sid}/prompt"),
+        var resp = await _http.PostAsJsonAsync($"sessions/{sid}/prompt",
             new { text, appendEnter = true }, ct);
         resp.EnsureSuccessStatusCode();
     }
@@ -88,87 +95,87 @@ public sealed class DirectorClient
     /// the slash-command UI) reach the terminal exactly as typed. Used by the live terminal's
     /// keystroke forwarding; not logged per-keystroke to avoid noise.
     /// </summary>
-    public async Task SendInputAsync(string directorBase, string sid, string data, CancellationToken ct = default)
+    public async Task SendInputAsync(string sid, string data, CancellationToken ct = default)
     {
-        var resp = await _http.PostAsJsonAsync(Url(directorBase, $"sessions/{sid}/prompt"),
+        var resp = await _http.PostAsJsonAsync($"sessions/{sid}/prompt",
             new { text = data, appendEnter = false }, ct);
         resp.EnsureSuccessStatusCode();
     }
 
-    public async Task InterruptAsync(string directorBase, string sid, CancellationToken ct = default)
-        => (await _http.PostAsync(Url(directorBase, $"sessions/{sid}/interrupt"), null, ct)).EnsureSuccessStatusCode();
+    public async Task InterruptAsync(string sid, CancellationToken ct = default)
+        => (await _http.PostAsync($"sessions/{sid}/interrupt", null, ct)).EnsureSuccessStatusCode();
 
-    public async Task EscapeAsync(string directorBase, string sid, CancellationToken ct = default)
-        => (await _http.PostAsync(Url(directorBase, $"sessions/{sid}/escape"), null, ct)).EnsureSuccessStatusCode();
+    public async Task EscapeAsync(string sid, CancellationToken ct = default)
+        => (await _http.PostAsync($"sessions/{sid}/escape", null, ct)).EnsureSuccessStatusCode();
 
     // Reset the conversation context in place (/clear for Claude, /new for pi). Only meaningful
     // for drivers that declare the ClearContext capability; the action bar gates the button on it.
-    public async Task ClearContextAsync(string directorBase, string sid, CancellationToken ct = default)
-        => (await _http.PostAsync(Url(directorBase, $"sessions/{sid}/clear-context"), null, ct)).EnsureSuccessStatusCode();
+    public async Task ClearContextAsync(string sid, CancellationToken ct = default)
+        => (await _http.PostAsync($"sessions/{sid}/clear-context", null, ct)).EnsureSuccessStatusCode();
 
     // Open the tool's in-terminal history/rewind picker (Claude's double-Esc). Gated on the
     // History capability - a visible-terminal feature, only meaningful with the terminal on screen.
-    public async Task HistoryPickerAsync(string directorBase, string sid, CancellationToken ct = default)
-        => (await _http.PostAsync(Url(directorBase, $"sessions/{sid}/history-picker"), null, ct)).EnsureSuccessStatusCode();
+    public async Task HistoryPickerAsync(string sid, CancellationToken ct = default)
+        => (await _http.PostAsync($"sessions/{sid}/history-picker", null, ct)).EnsureSuccessStatusCode();
 
-    public async Task<List<QueueItem>> GetQueueAsync(string directorBase, string sid, CancellationToken ct = default)
+    public async Task<List<QueueItem>> GetQueueAsync(string sid, CancellationToken ct = default)
     {
-        var r = await _http.GetFromJsonAsync<QueueResponse>(Url(directorBase, $"sessions/{sid}/queue"), ct);
+        var r = await _http.GetFromJsonAsync<QueueResponse>($"sessions/{sid}/queue", ct);
         return r?.Items ?? new List<QueueItem>();
     }
 
-    public async Task<List<QueueItem>> EnqueueAsync(string directorBase, string sid, string text, CancellationToken ct = default)
+    public async Task<List<QueueItem>> EnqueueAsync(string sid, string text, CancellationToken ct = default)
     {
         _log.LogDebug("Enqueue sid={Sid} len={Len}", sid, text.Length);
-        var resp = await _http.PostAsJsonAsync(Url(directorBase, $"sessions/{sid}/queue"), new { text }, ct);
+        var resp = await _http.PostAsJsonAsync($"sessions/{sid}/queue", new { text }, ct);
         resp.EnsureSuccessStatusCode();
         var r = await resp.Content.ReadFromJsonAsync<QueueResponse>(cancellationToken: ct);
         return r?.Items ?? new List<QueueItem>();
     }
 
-    public async Task<List<QueueItem>> DeleteQueueItemAsync(string directorBase, string sid, string itemId, CancellationToken ct = default)
+    public async Task<List<QueueItem>> DeleteQueueItemAsync(string sid, string itemId, CancellationToken ct = default)
     {
-        var resp = await _http.DeleteAsync(Url(directorBase, $"sessions/{sid}/queue/{itemId}"), ct);
+        var resp = await _http.DeleteAsync($"sessions/{sid}/queue/{itemId}", ct);
         resp.EnsureSuccessStatusCode();
         var r = await resp.Content.ReadFromJsonAsync<QueueResponse>(cancellationToken: ct);
         return r?.Items ?? new List<QueueItem>();
     }
 
-    public async Task<List<QueueItem>> SendQueueItemAsync(string directorBase, string sid, string itemId, CancellationToken ct = default)
+    public async Task<List<QueueItem>> SendQueueItemAsync(string sid, string itemId, CancellationToken ct = default)
     {
-        var resp = await _http.PostAsync(Url(directorBase, $"sessions/{sid}/queue/{itemId}/send"), null, ct);
+        var resp = await _http.PostAsync($"sessions/{sid}/queue/{itemId}/send", null, ct);
         resp.EnsureSuccessStatusCode();
         var r = await resp.Content.ReadFromJsonAsync<QueueResponse>(cancellationToken: ct);
         return r?.Items ?? new List<QueueItem>();
     }
 
-    public async Task<List<QueueItem>> EditQueueItemAsync(string directorBase, string sid, string itemId, string text, CancellationToken ct = default)
+    public async Task<List<QueueItem>> EditQueueItemAsync(string sid, string itemId, string text, CancellationToken ct = default)
     {
-        var resp = await _http.PatchAsJsonAsync(Url(directorBase, $"sessions/{sid}/queue/{itemId}"), new { text }, ct);
+        var resp = await _http.PatchAsJsonAsync($"sessions/{sid}/queue/{itemId}", new { text }, ct);
         resp.EnsureSuccessStatusCode();
         var r = await resp.Content.ReadFromJsonAsync<QueueResponse>(cancellationToken: ct);
         return r?.Items ?? new List<QueueItem>();
     }
 
-    public async Task<List<QueueItem>> MoveQueueItemUpAsync(string directorBase, string sid, string itemId, CancellationToken ct = default)
+    public async Task<List<QueueItem>> MoveQueueItemUpAsync(string sid, string itemId, CancellationToken ct = default)
     {
-        var resp = await _http.PostAsync(Url(directorBase, $"sessions/{sid}/queue/{itemId}/move-up"), null, ct);
+        var resp = await _http.PostAsync($"sessions/{sid}/queue/{itemId}/move-up", null, ct);
         resp.EnsureSuccessStatusCode();
         var r = await resp.Content.ReadFromJsonAsync<QueueResponse>(cancellationToken: ct);
         return r?.Items ?? new List<QueueItem>();
     }
 
-    public async Task<List<QueueItem>> MoveQueueItemDownAsync(string directorBase, string sid, string itemId, CancellationToken ct = default)
+    public async Task<List<QueueItem>> MoveQueueItemDownAsync(string sid, string itemId, CancellationToken ct = default)
     {
-        var resp = await _http.PostAsync(Url(directorBase, $"sessions/{sid}/queue/{itemId}/move-down"), null, ct);
+        var resp = await _http.PostAsync($"sessions/{sid}/queue/{itemId}/move-down", null, ct);
         resp.EnsureSuccessStatusCode();
         var r = await resp.Content.ReadFromJsonAsync<QueueResponse>(cancellationToken: ct);
         return r?.Items ?? new List<QueueItem>();
     }
 
-    public async Task<List<QueueItem>> ClearQueueAsync(string directorBase, string sid, CancellationToken ct = default)
+    public async Task<List<QueueItem>> ClearQueueAsync(string sid, CancellationToken ct = default)
     {
-        var resp = await _http.DeleteAsync(Url(directorBase, $"sessions/{sid}/queue"), ct);
+        var resp = await _http.DeleteAsync($"sessions/{sid}/queue", ct);
         resp.EnsureSuccessStatusCode();
         var r = await resp.Content.ReadFromJsonAsync<QueueResponse>(cancellationToken: ct);
         return r?.Items ?? new List<QueueItem>();
@@ -183,14 +190,14 @@ public sealed class DirectorClient
     /// the Director never needs CORS for a browser cross-origin upload.
     /// </summary>
     /// <returns>The absolute path the Director saved the image to (empty if not reported).</returns>
-    public async Task<string> UploadImageAsync(string directorBase, string sid, Stream content, string fileName, string contentType, CancellationToken ct = default)
+    public async Task<string> UploadImageAsync(string sid, Stream content, string fileName, string contentType, CancellationToken ct = default)
     {
         _log.LogDebug("UploadImage sid={Sid} file={File}", sid, fileName);
         using var form = new MultipartFormDataContent();
         var fileContent = new StreamContent(content);
         fileContent.Headers.ContentType = new MediaTypeHeaderValue(string.IsNullOrWhiteSpace(contentType) ? "application/octet-stream" : contentType);
         form.Add(fileContent, "file", fileName);
-        var resp = await _http.PostAsync(Url(directorBase, $"sessions/{sid}/upload-image"), form, ct);
+        var resp = await _http.PostAsync($"sessions/{sid}/upload-image", form, ct);
         resp.EnsureSuccessStatusCode();
         var r = await resp.Content.ReadFromJsonAsync<UploadImageResponse>(cancellationToken: ct);
         return r?.Path ?? "";
@@ -200,10 +207,11 @@ public sealed class DirectorClient
 
     /// <summary>
     /// List the screenshots in the Director's screenshots folder, newest first
-    /// (<c>GET /screenshots</c>). The folder is per-machine, not per-session, so this takes only
-    /// the Director base. The image bytes themselves are loaded by the browser SAME-ORIGIN via
-    /// the Gateway's per-session proxy (<c>CockpitShotUrls.Screenshot</c>, issue #317); this call
-    /// returns just the metadata + time labels.
+    /// (<c>GET /screenshots</c>). The folder is per-machine, not per-session, so this still takes
+    /// the Director base directly (issue #372: no session id for the Gateway to resolve an owner
+    /// from - moving this onto the Gateway is the next slice). The image bytes themselves are
+    /// loaded by the browser SAME-ORIGIN via the Gateway's per-session proxy
+    /// (<c>CockpitShotUrls.Screenshot</c>, issue #317); this call returns just metadata + labels.
     /// <paramref name="count"/> caps the items (the folder can hold thousands); &lt;=0 fetches
     /// everything. Old Directors ignore the param and return all items with Total=0.
     /// </summary>
@@ -228,34 +236,34 @@ public sealed class DirectorClient
     // by CockpitShotUrls.Screenshot (CcDirector.Gateway.Contracts).
 
     /// <summary>Kill a session (<c>DELETE /sessions/{sid}</c>) on its owning Director.</summary>
-    public async Task DeleteSessionAsync(string directorBase, string sid, CancellationToken ct = default)
+    public async Task DeleteSessionAsync(string sid, CancellationToken ct = default)
     {
         _log.LogDebug("DeleteSession sid={Sid}", sid);
-        var resp = await _http.DeleteAsync(Url(directorBase, $"sessions/{sid}"), ct);
+        var resp = await _http.DeleteAsync($"sessions/{sid}", ct);
         resp.EnsureSuccessStatusCode();
     }
 
     /// <summary>Rename a session (<c>PATCH /sessions/{sid}</c> with <c>{ name }</c>).</summary>
-    public async Task RenameSessionAsync(string directorBase, string sid, string name, CancellationToken ct = default)
+    public async Task RenameSessionAsync(string sid, string name, CancellationToken ct = default)
     {
         _log.LogDebug("RenameSession sid={Sid} name={Name}", sid, name);
-        var resp = await _http.PatchAsJsonAsync(Url(directorBase, $"sessions/{sid}"), new { name }, ct);
+        var resp = await _http.PatchAsJsonAsync($"sessions/{sid}", new { name }, ct);
         resp.EnsureSuccessStatusCode();
     }
 
     /// <summary>Park / un-park a session (<c>POST /sessions/{sid}/hold</c>).</summary>
-    public async Task SetHoldAsync(string directorBase, string sid, bool onHold, CancellationToken ct = default)
+    public async Task SetHoldAsync(string sid, bool onHold, CancellationToken ct = default)
     {
         _log.LogDebug("SetHold sid={Sid} onHold={OnHold}", sid, onHold);
-        var resp = await _http.PostAsJsonAsync(Url(directorBase, $"sessions/{sid}/hold"), new { onHold }, ct);
+        var resp = await _http.PostAsJsonAsync($"sessions/{sid}/hold", new { onHold }, ct);
         resp.EnsureSuccessStatusCode();
     }
 
     /// <summary>Toggle the Wingman experience (<c>POST /sessions/{sid}/wingman-enabled</c>).</summary>
-    public async Task SetWingmanEnabledAsync(string directorBase, string sid, bool enabled, CancellationToken ct = default)
+    public async Task SetWingmanEnabledAsync(string sid, bool enabled, CancellationToken ct = default)
     {
         _log.LogDebug("SetWingmanEnabled sid={Sid} enabled={Enabled}", sid, enabled);
-        var resp = await _http.PostAsJsonAsync(Url(directorBase, $"sessions/{sid}/wingman-enabled"), new { enabled }, ct);
+        var resp = await _http.PostAsJsonAsync($"sessions/{sid}/wingman-enabled", new { enabled }, ct);
         resp.EnsureSuccessStatusCode();
     }
 
@@ -265,10 +273,10 @@ public sealed class DirectorClient
     /// config on the Director's machine. Throws with the Director's message when the repo has
     /// no GitHub origin (409) or the Director predates the endpoint (404).
     /// </summary>
-    public async Task<string> GetGitHubNewIssueUrlAsync(string directorBase, string sid, CancellationToken ct = default)
+    public async Task<string> GetGitHubNewIssueUrlAsync(string sid, CancellationToken ct = default)
     {
         _log.LogDebug("GetGitHubNewIssueUrl sid={Sid}", sid);
-        var resp = await _http.GetAsync(Url(directorBase, $"sessions/{sid}/github-urls"), ct);
+        var resp = await _http.GetAsync($"sessions/{sid}/github-urls", ct);
         if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
             throw new InvalidOperationException("This Director predates the GitHub-issue endpoint - relaunch it on a newer build.");
         if (!resp.IsSuccessStatusCode)
@@ -282,7 +290,8 @@ public sealed class DirectorClient
         return body.NewIssueUrl;
     }
 
-    /// <summary>Read a Director's raw settings JSON (<c>GET /settings</c>).</summary>
+    /// <summary>Read a Director's raw settings JSON (<c>GET /settings</c>). Director-scoped (no
+    /// session id), so it still targets the Director base directly (issue #372: next slice).</summary>
     public async Task<string> GetSettingsAsync(string directorBase, CancellationToken ct = default)
         => await _http.GetStringAsync(Url(directorBase, "settings"), ct);
 
@@ -299,28 +308,28 @@ public sealed class DirectorClient
 
     /// <summary>The cached "what's happening" recap (<c>GET /recap</c>). Status is "not_cached"
     /// until one is generated. Fast/free - just reads the cache.</summary>
-    public async Task<RecapResponse?> GetRecapAsync(string directorBase, string sid, CancellationToken ct = default)
-        => await _http.GetFromJsonAsync<RecapResponse>(Url(directorBase, $"sessions/{sid}/recap"), ct);
+    public async Task<RecapResponse?> GetRecapAsync(string sid, CancellationToken ct = default)
+        => await _http.GetFromJsonAsync<RecapResponse>($"sessions/{sid}/recap", ct);
 
     /// <summary>Generate a fresh recap (<c>POST /recap</c>). SLOW - an opus call (~90s); the
     /// caller shows progress and never blocks the live terminal (that is a separate stream).</summary>
-    public async Task<RecapResponse?> GenerateRecapAsync(string directorBase, string sid, CancellationToken ct = default)
+    public async Task<RecapResponse?> GenerateRecapAsync(string sid, CancellationToken ct = default)
     {
         _log.LogDebug("GenerateRecap sid={Sid}", sid);
-        var resp = await _http.PostAsync(Url(directorBase, $"sessions/{sid}/recap"), null, ct);
+        var resp = await _http.PostAsync($"sessions/{sid}/recap", null, ct);
         resp.EnsureSuccessStatusCode();
         return await resp.Content.ReadFromJsonAsync<RecapResponse>(cancellationToken: ct);
     }
 
     /// <summary>The session's turn-by-turn summaries (<c>GET /turn-summaries</c>) - the arc of
     /// the session. Fast/free - reads cached summaries.</summary>
-    public async Task<TurnSummariesResponse?> GetTurnSummariesAsync(string directorBase, string sid, CancellationToken ct = default)
-        => await _http.GetFromJsonAsync<TurnSummariesResponse>(Url(directorBase, $"sessions/{sid}/turn-summaries"), ct);
+    public async Task<TurnSummariesResponse?> GetTurnSummariesAsync(string sid, CancellationToken ct = default)
+        => await _http.GetFromJsonAsync<TurnSummariesResponse>($"sessions/{sid}/turn-summaries", ct);
 
     /// <summary>The plain-text handover prompt that a target session would receive
     /// (<c>GET /handover-context</c>) - shown as a preview before dispatching a handover.</summary>
-    public async Task<string> GetHandoverContextAsync(string directorBase, string sid, CancellationToken ct = default)
-        => await _http.GetStringAsync(Url(directorBase, $"sessions/{sid}/handover-context"), ct);
+    public async Task<string> GetHandoverContextAsync(string sid, CancellationToken ct = default)
+        => await _http.GetStringAsync($"sessions/{sid}/handover-context", ct);
 
     // ===== Brief (the full-page session view: ASK / DID / NEEDS YOU) =====
 
@@ -331,9 +340,9 @@ public sealed class DirectorClient
     /// first call after a new turn runs the Director-side condensation (~1-2s); subsequent
     /// calls hit its cache.
     /// </summary>
-    public async Task<BriefResponse?> GetBriefAsync(string directorBase, string sid, CancellationToken ct = default)
+    public async Task<BriefResponse?> GetBriefAsync(string sid, CancellationToken ct = default)
     {
-        var resp = await _http.GetAsync(Url(directorBase, $"sessions/{sid}/brief"), ct);
+        var resp = await _http.GetAsync($"sessions/{sid}/brief", ct);
         if (resp.StatusCode == System.Net.HttpStatusCode.NotFound) return null;
         resp.EnsureSuccessStatusCode();
         return await resp.Content.ReadFromJsonAsync<BriefResponse>(cancellationToken: ct);
@@ -344,9 +353,9 @@ public sealed class DirectorClient
     /// target on old Directors (it ships LastUserPrompt/LastAssistantText since the final
     /// build). Returns null on 404.
     /// </summary>
-    public async Task<SessionSummaryDto?> GetSummaryAsync(string directorBase, string sid, CancellationToken ct = default)
+    public async Task<SessionSummaryDto?> GetSummaryAsync(string sid, CancellationToken ct = default)
     {
-        var resp = await _http.GetAsync(Url(directorBase, $"sessions/{sid}/summary"), ct);
+        var resp = await _http.GetAsync($"sessions/{sid}/summary", ct);
         if (resp.StatusCode == System.Net.HttpStatusCode.NotFound) return null;
         resp.EnsureSuccessStatusCode();
         return await resp.Content.ReadFromJsonAsync<SessionSummaryDto>(cancellationToken: ct);
@@ -359,10 +368,9 @@ public sealed class DirectorClient
     /// byte stream, because the TUI's constant repaints flatten into "spinner spinner
     /// spinner" noise in the stream while the grid is always the coherent screen.
     /// </summary>
-    public async Task<string> GetScreenTailAsync(string directorBase, string sid, int lines, CancellationToken ct = default)
+    public async Task<string> GetScreenTailAsync(string sid, int lines, CancellationToken ct = default)
     {
-        var r = await _http.GetFromJsonAsync<BufferHtmlResponse>(
-            Url(directorBase, $"sessions/{sid}/buffer/html"), ct);
+        var r = await _http.GetFromJsonAsync<BufferHtmlResponse>($"sessions/{sid}/buffer/html", ct);
         if (string.IsNullOrEmpty(r?.GridHtml)) return "";
 
         var rows = r.GridHtml
@@ -380,9 +388,9 @@ public sealed class DirectorClient
     /// <summary>The session's token usage (<c>GET /sessions/{sid}/usage</c>): totals, current
     /// context size, per-turn deltas - computed Director-side from the transcript JSONL. Null
     /// on 404 (old Director, or no transcript yet); the panel hides the tokens block.</summary>
-    public async Task<SessionUsageDto?> GetSessionUsageAsync(string directorBase, string sid, CancellationToken ct = default)
+    public async Task<SessionUsageDto?> GetSessionUsageAsync(string sid, CancellationToken ct = default)
     {
-        var resp = await _http.GetAsync(Url(directorBase, $"sessions/{sid}/usage"), ct);
+        var resp = await _http.GetAsync($"sessions/{sid}/usage", ct);
         if (resp.StatusCode == System.Net.HttpStatusCode.NotFound) return null;
         resp.EnsureSuccessStatusCode();
         return await resp.Content.ReadFromJsonAsync<SessionUsageDto>(cancellationToken: ct);
@@ -393,14 +401,14 @@ public sealed class DirectorClient
     /// <summary>A read-only git summary for the session's repo (<c>GET /git</c>): branch,
     /// dirty, ahead/behind, last commit. (Per-file status needs a Director endpoint that does
     /// not exist yet.)</summary>
-    public async Task<GitSnapshot?> GetGitAsync(string directorBase, string sid, CancellationToken ct = default)
-        => await _http.GetFromJsonAsync<GitSnapshot>(Url(directorBase, $"sessions/{sid}/git"), ct);
+    public async Task<GitSnapshot?> GetGitAsync(string sid, CancellationToken ct = default)
+        => await _http.GetFromJsonAsync<GitSnapshot>($"sessions/{sid}/git", ct);
 
     /// <summary>
     /// Broadcast a prompt to several sessions on ONE Director (<c>POST /fanout-local</c>). The
     /// session ids must all belong to <paramref name="directorBase"/>; the Cockpit groups a
-    /// fleet-wide selection by Director and calls this once per Director. <c>waitForIdle:false</c>
-    /// returns as soon as the text is delivered, so the UI does not block.
+    /// fleet-wide selection by Director and calls this once per Director. Director-scoped (issue
+    /// #372: next slice). <c>waitForIdle:false</c> returns as soon as the text is delivered.
     /// </summary>
     public async Task<FanoutResponse?> FanoutAsync(string directorBase, List<string> sessionIds, string text, CancellationToken ct = default)
     {

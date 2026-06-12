@@ -58,19 +58,7 @@
                     The explain report will appear here when it is ready - usually well under a minute.</span>
             </div>
         }
-        else
-        {
-            <div class="explain-row">
-                <button class="explain-btn" disabled="@_explainBusy" @onclick="RequestExplainAsync"
-                        title="The wingman re-reads the whole session and answers: what happened, what we did, what next.">
-                    I am lost - explain
-                </button>
-                @if (_explainStatus is not null)
-                {
-                    <span class="brief-muted">@_explainStatus</span>
-                }
-            </div>
-        }
+        @* explain-row hidden (alpha) *@
         @if (_explain is not null)
         {
             <div class="explain-report">
@@ -754,7 +742,7 @@
         await InvokeAsync(StateHasChanged);
         try
         {
-            await Director.SendInputAsync(DirectorBase, SessionId, o.Send);
+            await Director.SendInputAsync(SessionId, o.Send);
             _answerStatus = $"sent: {o.Key}";
         }
         catch (Exception ex)
@@ -779,11 +767,11 @@
         {
             foreach (var o in n.Options.Where(o => _toggled.Contains(o.Send)))
             {
-                await Director.SendInputAsync(DirectorBase, SessionId, o.Send);
+                await Director.SendInputAsync(SessionId, o.Send);
                 await Task.Delay(300);
             }
             if (!string.IsNullOrEmpty(n.Submit))
-                await Director.SendInputAsync(DirectorBase, SessionId, n.Submit);
+                await Director.SendInputAsync(SessionId, n.Submit);
             _answerStatus = $"submitted {_toggled.Count} selection(s)";
             _toggled.Clear();
         }
@@ -829,7 +817,7 @@
             {
                 try
                 {
-                    _tail = await Director.GetScreenTailAsync(DirectorBase, SessionId, TailLines, ct);
+                    _tail = await Director.GetScreenTailAsync(SessionId, TailLines, ct);
                     await InvokeAsync(StateHasChanged);
                 }
                 catch (OperationCanceledException) { throw; }
@@ -922,9 +910,9 @@
 
     private async Task LoadAsync()
     {
-        if (string.IsNullOrEmpty(SessionId) || string.IsNullOrEmpty(DirectorBase))
+        if (string.IsNullOrEmpty(SessionId))
         {
-            _error = "This session has no reachable Director endpoint.";
+            _error = "This session has no id.";
             return;
         }
 
@@ -942,7 +930,7 @@
             // The GATEWAY is the one brief store (#187 deleted the Director-side pipeline).
             var gatewayBriefTask = Gateway.GetLatestTurnBriefAsync(SessionId, ct);
             var explainTask = Gateway.GetLatestExplainAsync(SessionId, ct);
-            var briefTask = Director.GetBriefAsync(DirectorBase, SessionId, ct);
+            var briefTask = Director.GetBriefAsync(SessionId, ct);
             _turnBrief = await gatewayBriefTask;
             _explain = await explainTask;
             _brief = await briefTask;
@@ -956,7 +944,7 @@
             if (_turnBrief is null && _brief is null)
             {
                 Log.LogInformation("BriefPane: no turnbrief and no /brief for sid={Sid}, degrading to /summary", SessionId);
-                _summary = await Director.GetSummaryAsync(DirectorBase, SessionId, ct);
+                _summary = await Director.GetSummaryAsync(SessionId, ct);
                 if (_summary is null)
                     _error = "This Director does not know the session (or predates the summary endpoint).";
                 else if (_summary.Status != "ok")

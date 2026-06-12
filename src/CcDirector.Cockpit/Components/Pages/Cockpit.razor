@@ -1066,7 +1066,7 @@
         _quickReplyNotice = null;
         try
         {
-            await Director.SendPromptAsync(dir, sel.SessionId, text, _cts.Token);
+            await Director.SendPromptAsync(sel.SessionId, text, _cts.Token);
             // Advance past the answered session when others are waiting. The answered one
             // drops out of the needs-you list on the next poll. Either way the user gets an
             // explicit message - no silent teleport, no dead air on the single-session case.
@@ -1366,7 +1366,7 @@
             // the client's full timeout. Linked to _cts so circuit teardown still cancels it.
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
             cts.CancelAfter(TimeSpan.FromSeconds(8));
-            _queue = await Director.GetQueueAsync(dir!, sel.SessionId, cts.Token);
+            _queue = await Director.GetQueueAsync(sel.SessionId, cts.Token);
         }
         catch (OperationCanceledException) { }
         catch (Exception ex) { Log.LogDebug(ex, "LoadQueue failed"); }
@@ -1383,7 +1383,7 @@
         Log.LogInformation("Cockpit action=send sid={Sid} dir={Dir} chars={Chars}", sel.SessionId, dir, _compose.Length);
         await Act(async () =>
         {
-            await Director.SendPromptAsync(dir!, sel.SessionId, _compose, _cts.Token);
+            await Director.SendPromptAsync(sel.SessionId, _compose, _cts.Token);
             _compose = "";
         });
     }
@@ -1395,7 +1395,7 @@
         Log.LogInformation("Cockpit action=queue sid={Sid} dir={Dir} chars={Chars}", sel.SessionId, dir, _compose.Length);
         await Act(async () =>
         {
-            _queue = await Director.EnqueueAsync(dir!, sel.SessionId, _compose, _cts.Token);
+            _queue = await Director.EnqueueAsync(sel.SessionId, _compose, _cts.Token);
             _compose = "";
         });
     }
@@ -1404,35 +1404,35 @@
     {
         var sel = Selected; var dir = sel?.TailnetEndpoint;
         if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
-        await Act(async () => _queue = await Director.SendQueueItemAsync(dir!, sel.SessionId, itemId, _cts.Token));
+        await Act(async () => _queue = await Director.SendQueueItemAsync(sel.SessionId, itemId, _cts.Token));
     }
 
     private async Task RemoveQueued(string itemId)
     {
         var sel = Selected; var dir = sel?.TailnetEndpoint;
         if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
-        await Act(async () => _queue = await Director.DeleteQueueItemAsync(dir!, sel.SessionId, itemId, _cts.Token));
+        await Act(async () => _queue = await Director.DeleteQueueItemAsync(sel.SessionId, itemId, _cts.Token));
     }
 
     private async Task MoveQueuedUp(string itemId)
     {
         var sel = Selected; var dir = sel?.TailnetEndpoint;
         if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
-        await Act(async () => _queue = await Director.MoveQueueItemUpAsync(dir!, sel.SessionId, itemId, _cts.Token));
+        await Act(async () => _queue = await Director.MoveQueueItemUpAsync(sel.SessionId, itemId, _cts.Token));
     }
 
     private async Task MoveQueuedDown(string itemId)
     {
         var sel = Selected; var dir = sel?.TailnetEndpoint;
         if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
-        await Act(async () => _queue = await Director.MoveQueueItemDownAsync(dir!, sel.SessionId, itemId, _cts.Token));
+        await Act(async () => _queue = await Director.MoveQueueItemDownAsync(sel.SessionId, itemId, _cts.Token));
     }
 
     private async Task ClearQueue()
     {
         var sel = Selected; var dir = sel?.TailnetEndpoint;
         if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
-        await Act(async () => _queue = await Director.ClearQueueAsync(dir!, sel.SessionId, _cts.Token));
+        await Act(async () => _queue = await Director.ClearQueueAsync(sel.SessionId, _cts.Token));
     }
 
     private async Task PopQueued(string itemId, string text)
@@ -1440,7 +1440,7 @@
         var sel = Selected; var dir = sel?.TailnetEndpoint;
         if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
         _compose = (_compose ?? "") + text;
-        await Act(async () => _queue = await Director.DeleteQueueItemAsync(dir!, sel.SessionId, itemId, _cts.Token));
+        await Act(async () => _queue = await Director.DeleteQueueItemAsync(sel.SessionId, itemId, _cts.Token));
     }
 
     private void StartEditQueue(string itemId, string currentText)
@@ -1462,7 +1462,7 @@
         var text = _editingQueueText;
         _editingQueueId = null;
         _editingQueueText = "";
-        await Act(async () => _queue = await Director.EditQueueItemAsync(dir!, sel.SessionId, itemId, text, _cts.Token));
+        await Act(async () => _queue = await Director.EditQueueItemAsync(sel.SessionId, itemId, text, _cts.Token));
     }
 
     // The selected session's driver capabilities drive the action bar: one button per verb
@@ -1497,7 +1497,7 @@
         var sel = Selected; var dir = sel?.TailnetEndpoint;
         if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
         Log.LogInformation("Cockpit action=interrupt sid={Sid} dir={Dir}", sel.SessionId, dir);
-        await Act(() => Director.InterruptAsync(dir!, sel.SessionId, _cts.Token));
+        await Act(() => Director.InterruptAsync(sel.SessionId, _cts.Token));
         if (_actError is null) ShowActionStatus("interrupted");
     }
 
@@ -1506,7 +1506,7 @@
         var sel = Selected; var dir = sel?.TailnetEndpoint;
         if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
         Log.LogInformation("Cockpit action=escape sid={Sid} dir={Dir}", sel.SessionId, dir);
-        await Act(() => Director.EscapeAsync(dir!, sel.SessionId, _cts.Token));
+        await Act(() => Director.EscapeAsync(sel.SessionId, _cts.Token));
         if (_actError is null) ShowActionStatus("turn stopped");
     }
 
@@ -1515,7 +1515,7 @@
         var sel = Selected; var dir = sel?.TailnetEndpoint;
         if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
         Log.LogInformation("Cockpit action=clear-context sid={Sid} dir={Dir}", sel.SessionId, dir);
-        await Act(() => Director.ClearContextAsync(dir!, sel.SessionId, _cts.Token));
+        await Act(() => Director.ClearContextAsync(sel.SessionId, _cts.Token));
         if (_actError is null) ShowActionStatus("context cleared");
     }
 
@@ -1524,7 +1524,7 @@
         var sel = Selected; var dir = sel?.TailnetEndpoint;
         if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
         Log.LogInformation("Cockpit action=history sid={Sid} dir={Dir}", sel.SessionId, dir);
-        await Act(() => Director.HistoryPickerAsync(dir!, sel.SessionId, _cts.Token));
+        await Act(() => Director.HistoryPickerAsync(sel.SessionId, _cts.Token));
         if (_actError is null) ShowActionStatus("history picker opened (Esc closes)");
     }
 
@@ -1575,7 +1575,7 @@
                 await InvokeAsync(StateHasChanged);
 
                 await using var s = f.OpenReadStream(20 * 1024 * 1024, _cts.Token); // 20 MB cap
-                var path = await Director.UploadImageAsync(dir!, sel.SessionId, s, f.Name, f.ContentType, _cts.Token);
+                var path = await Director.UploadImageAsync(sel.SessionId, s, f.Name, f.ContentType, _cts.Token);
 
                 if (!string.IsNullOrWhiteSpace(path))
                     await InsertIntoComposer(path + " ");
@@ -1900,8 +1900,8 @@
             // store (#187 deleted the Director-side pipeline).
             var gatewayBriefs = await Gateway.GetTurnBriefsAsync(sel.SessionId, cts.Token);
             _turnTimeline = gatewayBriefs?.Items ?? new List<TurnBriefDto>();
-            _usage = await Director.GetSessionUsageAsync(dir!, sel.SessionId, cts.Token);
-            _recap = await Director.GetRecapAsync(dir!, sel.SessionId, cts.Token);
+            _usage = await Director.GetSessionUsageAsync(sel.SessionId, cts.Token);
+            _recap = await Director.GetRecapAsync(sel.SessionId, cts.Token);
         }
         catch (OperationCanceledException) { }
         catch (Exception ex) { _awareError = ex.Message; Log.LogWarning(ex, "LoadWingman failed"); }
@@ -2199,7 +2199,7 @@
                     // is a Director round-trip, so say so optimistically before the await (#228).
                     ShowRailNotice("Resolving GitHub repo...");
                     await InvokeAsync(StateHasChanged);
-                    var url = await Director.GetGitHubNewIssueUrlAsync(dir, s.SessionId, _cts.Token);
+                    var url = await Director.GetGitHubNewIssueUrlAsync(s.SessionId, _cts.Token);
                     await JS.InvokeVoidAsync("window.open", url, "_blank");
                     break;
 
@@ -2208,7 +2208,7 @@
                     // the existing result notice when they complete (#228).
                     ShowRailNotice(s.OnHold ? $"Taking {SessionTitle(s)} off hold..." : $"Putting {SessionTitle(s)} on hold...");
                     await InvokeAsync(StateHasChanged);
-                    await Director.SetHoldAsync(dir, s.SessionId, !s.OnHold, _cts.Token);
+                    await Director.SetHoldAsync(s.SessionId, !s.OnHold, _cts.Token);
                     ShowRailNotice(s.OnHold ? $"Took {SessionTitle(s)} off hold" : $"Put {SessionTitle(s)} on hold");
                     await RefreshAsync();
                     break;
@@ -2217,7 +2217,7 @@
                     // In-progress notice BEFORE the Director round-trip + refresh (#228).
                     ShowRailNotice($"Updating Wingman for {SessionTitle(s)}...");
                     await InvokeAsync(StateHasChanged);
-                    await Director.SetWingmanEnabledAsync(dir, s.SessionId, !s.WingmanEnabled, _cts.Token);
+                    await Director.SetWingmanEnabledAsync(s.SessionId, !s.WingmanEnabled, _cts.Token);
                     ShowRailNotice(s.WingmanEnabled ? $"Removed wingman from {SessionTitle(s)}" : $"Added wingman to {SessionTitle(s)}");
                     await RefreshAsync();
                     break;
@@ -2230,7 +2230,7 @@
                     StampClosing(s.SessionId);
                     ShowRailNotice($"Closing {SessionTitle(s)}...");
                     await InvokeAsync(StateHasChanged);
-                    await Director.DeleteSessionAsync(dir, s.SessionId, _cts.Token);
+                    await Director.DeleteSessionAsync(s.SessionId, _cts.Token);
                     if (_selectedId == s.SessionId) _selectedId = null;
                     ShowRailNotice($"Closed {SessionTitle(s)}");
                     await RefreshAsync();
@@ -2254,7 +2254,7 @@
                     {
                         // The request carries no name; give it the spec's "Bug Report" label
                         // until the playbook renames it "Bug: #N <title>" after filing.
-                        try { await Director.RenameSessionAsync(dir, createdBug.SessionId, "Bug Report", _cts.Token); }
+                        try { await Director.RenameSessionAsync(createdBug.SessionId, "Bug Report", _cts.Token); }
                         catch (Exception rex) { Log.LogWarning(rex, "bug session rename failed sid={Sid}", createdBug.SessionId); }
                         ShowRailNotice($"Started bug session in {RepoShortName(s.RepoPath)}");
                         await RefreshAsync();
@@ -2288,7 +2288,7 @@
         var name = _renameText.Trim();
         await Act(async () =>
         {
-            await Director.RenameSessionAsync(DirBase!, sid, name, _cts.Token);
+            await Director.RenameSessionAsync(sid, name, _cts.Token);
             _renaming = false;
             await RefreshAsync();
         });
@@ -2303,7 +2303,7 @@
         Log.LogInformation("Cockpit: closing sid={Sid} ({Title}) on wingman mission-complete approval", s.SessionId, SessionTitle(s));
         await Act(async () =>
         {
-            await Director.DeleteSessionAsync(DirBase!, s.SessionId, _cts.Token);
+            await Director.DeleteSessionAsync(s.SessionId, _cts.Token);
             _selectedId = null;
             ShowRailNotice($"Closed {SessionTitle(s)}");
             await RefreshAsync();
@@ -2317,7 +2317,7 @@
         var sid = Selected.SessionId;
         await Act(async () =>
         {
-            await Director.DeleteSessionAsync(DirBase!, sid, _cts.Token);
+            await Director.DeleteSessionAsync(sid, _cts.Token);
             _killArmed = false;
             _selectedId = null;
             await RefreshAsync();
@@ -2586,9 +2586,9 @@
         var sid = Selected.SessionId;
         try
         {
-            _git = await Director.GetGitAsync(dir, sid, _cts.Token);
-            _recap = await Director.GetRecapAsync(dir, sid, _cts.Token);
-            var ts = await Director.GetTurnSummariesAsync(dir, sid, _cts.Token);
+            _git = await Director.GetGitAsync(sid, _cts.Token);
+            _recap = await Director.GetRecapAsync(sid, _cts.Token);
+            var ts = await Director.GetTurnSummariesAsync(sid, _cts.Token);
             _turns = ts?.Summaries ?? new List<TurnSummary>();
         }
         catch (Exception ex) { _awareError = ex.Message; Log.LogWarning(ex, "OpenAwareness failed"); }
@@ -2603,7 +2603,7 @@
         _recapBusy = true;
         _awareError = null;
         await InvokeAsync(StateHasChanged);
-        try { _recap = await Director.GenerateRecapAsync(DirBase!, Selected.SessionId, _cts.Token); }
+        try { _recap = await Director.GenerateRecapAsync(Selected.SessionId, _cts.Token); }
         catch (Exception ex) { _awareError = $"recap failed: {ex.Message}"; Log.LogWarning(ex, "GenerateRecap failed"); }
         finally { _recapBusy = false; }
         await InvokeAsync(StateHasChanged);
@@ -2697,7 +2697,7 @@
         {
             _directors = await Gateway.GetDirectorsAsync(_cts.Token);
             _hoDirectorId = Selected.DirectorId;
-            _handoverContext = await Director.GetHandoverContextAsync(dir, sid, _cts.Token);
+            _handoverContext = await Director.GetHandoverContextAsync(sid, _cts.Token);
         }
         catch (Exception ex) { _hoError = ex.Message; Log.LogWarning(ex, "OpenHandover failed"); }
         await InvokeAsync(StateHasChanged);

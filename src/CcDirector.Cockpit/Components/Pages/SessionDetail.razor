@@ -305,15 +305,16 @@
                 }
 
                 // Director-side reads (git runs git, screen reads the PTY) refresh on a
-                // slower cadence: first tick, then every third (15s).
-                if (_tick % 3 == 0 && !string.IsNullOrWhiteSpace(_session.TailnetEndpoint))
+                // slower cadence: first tick, then every third (15s). Issue #372: routed through
+                // the Gateway by session id, so no TailnetEndpoint gate - a loopback-only Director
+                // still serves these.
+                if (_tick % 3 == 0)
                 {
-                    var dir = _session.TailnetEndpoint;
                     try
                     {
-                        _git = await Director.GetGitAsync(dir, Sid, _cts.Token);
-                        _usage = await Director.GetSessionUsageAsync(dir, Sid, _cts.Token);
-                        _screenTail = await Director.GetScreenTailAsync(dir, Sid, 18, _cts.Token);
+                        _git = await Director.GetGitAsync(Sid, _cts.Token);
+                        _usage = await Director.GetSessionUsageAsync(Sid, _cts.Token);
+                        _screenTail = await Director.GetScreenTailAsync(Sid, 18, _cts.Token);
                     }
                     catch (Exception ex)
                     {
