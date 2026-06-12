@@ -1,0 +1,180 @@
+=== CC Director Degradation Property Test v1.0.0 - COMBINED RUN ===
+Date       : 2026-06-12 00:56
+Machine    : SOREN_NORTH (Windows 11)
+Exe        : D:\ReposFred\wt-issue-336\local_builds\cc-director7.exe (slot 7)
+Branch     : issue-336-degradation-test
+Script     : scripts/test-degradation.ps1
+
+GATEWAY NOTE: No production Gateway was stopped. Case B uses a fake gateway.url
+(http://127.0.0.1:1) so the Director tries to register, gets connection-refused,
+and transitions to Failed state. No real Gateway is touched.
+
+=======================================================================
+CASE A - no gateway.url configured
+=======================================================================
+=== CC Director Degradation Property Test v1.0.0 ===
+Date    : 2026-06-12 00:56:03
+Repo    : D:\ReposFred\wt-issue-336
+Cases   : A
+
+[test-degradation] Using pre-supplied manifest: D:\ReposFred\wt-issue-336\local_builds\agent-session-slot7.json
+[test-degradation] Slot=7 Exe=D:\ReposFred\wt-issue-336\local_builds\cc-director7.exe
+[test-degradation] Using existing exe: D:\ReposFred\wt-issue-336\local_builds\cc-director7.exe
+[test-degradation] Scratch git repo: C:\Users\soren\AppData\Local\Temp\cc-dir-scratch-7e99f3c0
+
+##############################################
+# CASE A - no gateway.url configured
+##############################################
+[test-degradation] [A] isolated root: C:\Users\soren\AppData\Local\Temp\cc-dir-degrade-a-70d08a07
+
+--- [A] Launching Director ---
+[test-degradation] [A] registered task cc-director7-degrade-caseA with CC_DIRECTOR_ROOT=C:\Users\soren\AppData\Local\Temp\cc-dir-degrade-a-70d08a07
+[test-degradation] [A] started task cc-director7-degrade-caseA
+[test-degradation] [A] Director PID=56280
+[test-degradation] [A] Port=7879 LogFile=C:\Users\soren\AppData\Local\Temp\cc-dir-degrade-a-70d08a07\logs\director\director-2026-06-12-56280.log
+[PASS] [A] Director launched - port=7879 pid=56280
+[PASS] [A] Director healthz - url=http://127.0.0.1:7879/healthz
+
+--- [A] Step 1: healthz and non-blocking fact endpoints ---
+[PASS] [A] healthz 200 - status=200
+[PASS] [A] GET /sessions non-blocking (<5000ms) - status=200 elapsed=17ms
+[PASS] [A] GET /facts non-blocking (<5000ms) - status=200 elapsed=54ms
+
+--- [A] Step 2: create RawCli/pwsh session ---
+[PASS] [A] POST /sessions 201 - status=201
+[PASS] [A] session id present - sid=d353ffbd-8c4c-471e-aff1-fd0bf8af03c5
+[PASS] [A] session in GET /sessions list - listed=True
+
+--- [A] Step 3: round-trip a prompt ---
+[PASS] [A] POST /prompt 200 - status=200
+[PASS] [A] probe output in buffer - found=True
+
+--- [A] Step 4: resize ---
+[PASS] [A] POST /resize 200 - status=200
+
+--- [A] Step 5: git facts (GET /git) ---
+[PASS] [A] GET /git 200 - status=200
+[PASS] [A] GET /git returns non-empty data - contentLen=109
+
+--- [A] Step 6: git stage/unstage round-trip ---
+[PASS] [A] POST /git/unstage 200 - status=200
+[PASS] [A] POST /git/stage 200 - status=200
+
+--- [A] Step 7: kill the session ---
+[PASS] [A] DELETE /sessions 200 - status=200
+[PASS] [A] session absent after kill - stillListed=False
+
+--- [A] Step 8: crash recovery ---
+[test-degradation] [A] crash-recovery session: sid=cbcc863b-90b8-451c-8ab9-2f37c1396749
+[test-degradation] [A] waiting 6s for crash journal to be written...
+[test-degradation] [A] killing Director PID=56280
+[PASS] [A] crash-recovery: Director killed - pid=56280
+[test-degradation] [A] re-launching via task cc-director7-degrade-caseA
+[test-degradation] [A] new Director PID=56248
+[PASS] [A] crash-recovery: Director restarted - newPid=56248 newPort=7881
+[PASS] [A] crash-recovery: restarted Director healthz - url=http://127.0.0.1:7881/healthz
+[PASS] [A] crash-recovery: GET /interrupted 200 - status=200
+[PASS] [A] crash-recovery: interrupted session in journal - sid=cbcc863b-90b8-451c-8ab9-2f37c1396749 found=True
+[test-degradation] [A] Stopping Director PID 56248
+[test-degradation] [A] unregistered task cc-director7-degrade-caseA
+
+====== DEGRADATION TEST SUMMARY ======
+Cases     : A
+Passed    : 22
+Failed    : 0
+Elapsed   : 24.2s
+
+RESULT: PASS - Director is fully usable without the Gateway.
+Phase 1 exit criterion 1D: SATISFIED.
+
+=======================================================================
+CASE B - gateway.url set, Gateway unreachable (fake port 1)
+=======================================================================
+=== CC Director Degradation Property Test v1.0.0 ===
+Date    : 2026-06-12 00:56:34
+Repo    : D:\ReposFred\wt-issue-336
+Cases   : B
+
+[test-degradation] Using pre-supplied manifest: D:\ReposFred\wt-issue-336\local_builds\agent-session-slot7.json
+[test-degradation] Slot=7 Exe=D:\ReposFred\wt-issue-336\local_builds\cc-director7.exe
+[test-degradation] Using existing exe: D:\ReposFred\wt-issue-336\local_builds\cc-director7.exe
+[test-degradation] Scratch git repo: C:\Users\soren\AppData\Local\Temp\cc-dir-scratch-956dd273
+
+##############################################
+# CASE B - gateway.url set, Gateway unreachable (fake port 1)
+##############################################
+[test-degradation] [B] isolated root: C:\Users\soren\AppData\Local\Temp\cc-dir-degrade-b-12eddddc
+
+--- [B] Launching Director ---
+[test-degradation] [B] registered task cc-director7-degrade-caseB with CC_DIRECTOR_ROOT=C:\Users\soren\AppData\Local\Temp\cc-dir-degrade-b-12eddddc
+[test-degradation] [B] started task cc-director7-degrade-caseB
+[test-degradation] [B] Director PID=47020
+[test-degradation] [B] Port=7884 LogFile=C:\Users\soren\AppData\Local\Temp\cc-dir-degrade-b-12eddddc\logs\director\director-2026-06-12-47020.log
+[PASS] [B] Director launched - port=7884 pid=47020
+[PASS] [B] Director healthz - url=http://127.0.0.1:7884/healthz
+[test-degradation] [B] waiting 5s for gateway registration to fail...
+
+--- [B] Step 1: healthz and non-blocking fact endpoints ---
+[PASS] [B] healthz 200 - status=200
+[PASS] [B] GET /sessions non-blocking (<5000ms) - status=200 elapsed=18ms
+[PASS] [B] GET /facts non-blocking (<5000ms) - status=200 elapsed=27ms
+
+--- [B] Step 2: create RawCli/pwsh session ---
+[PASS] [B] POST /sessions 201 - status=201
+[PASS] [B] session id present - sid=552c8018-6021-43c8-8279-ef77110e9f5a
+[PASS] [B] session in GET /sessions list - listed=True
+
+--- [B] Step 3: round-trip a prompt ---
+[PASS] [B] POST /prompt 200 - status=200
+[PASS] [B] probe output in buffer - found=True
+
+--- [B] Step 4: resize ---
+[PASS] [B] POST /resize 200 - status=200
+
+--- [B] Step 5: git facts (GET /git) ---
+[PASS] [B] GET /git 200 - status=200
+[PASS] [B] GET /git returns non-empty data - contentLen=109
+
+--- [B] Step 6: git stage/unstage round-trip ---
+[PASS] [B] POST /git/unstage 200 - status=200
+[PASS] [B] POST /git/stage 200 - status=200
+
+--- [B] Step 7: kill the session ---
+[PASS] [B] DELETE /sessions 200 - status=200
+[PASS] [B] session absent after kill - stillListed=False
+
+--- [B] Step 8: crash recovery ---
+[test-degradation] [B] crash-recovery session: sid=a0889b46-27e7-4f22-b238-a10353deb22b
+[test-degradation] [B] waiting 6s for crash journal to be written...
+[test-degradation] [B] killing Director PID=47020
+[PASS] [B] crash-recovery: Director killed - pid=47020
+[test-degradation] [B] re-launching via task cc-director7-degrade-caseB
+[test-degradation] [B] new Director PID=47048
+[PASS] [B] crash-recovery: Director restarted - newPid=47048 newPort=7885
+[PASS] [B] crash-recovery: restarted Director healthz - url=http://127.0.0.1:7885/healthz
+[PASS] [B] crash-recovery: GET /interrupted 200 - status=200
+[PASS] [B] crash-recovery: interrupted session in journal - sid=a0889b46-27e7-4f22-b238-a10353deb22b found=True
+
+--- [B] Step 9: non-blocking after gateway retry cycle (10s wait) ---
+[PASS] [B] GET /sessions non-blocking after gateway retry wait (<10000ms) - elapsed=10ms
+[test-degradation] [B] Stopping Director PID 47048
+[test-degradation] [B] unregistered task cc-director7-degrade-caseB
+
+====== DEGRADATION TEST SUMMARY ======
+Cases     : B
+Passed    : 23
+Failed    : 0
+Elapsed   : 37.2s
+
+RESULT: PASS - Director is fully usable without the Gateway.
+Phase 1 exit criterion 1D: SATISFIED.
+
+Cross-machine proof note: no remote machine was required. Gateway stop is
+simulated as connection-refused (fake port 1). The Director, all sessions,
+and all assertions ran on this machine. This is the correct shape per
+docs/architecture/DIRECTOR_DUMB_WRAPPER_TARGET.md section 6.
+
+=======================================================================
+OVERALL: Case A 22/22 PASS, Case B 23/23 PASS - 45 total, 0 failed.
+Phase 1 exit criterion 1D: SATISFIED.
+=======================================================================

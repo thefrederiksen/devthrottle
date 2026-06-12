@@ -171,6 +171,8 @@ Dumbness must never mean dependency. A Director with no Gateway configured (or a
 
 What the Director must never do is *block* on the Gateway. Conversely, the Gateway being the single brain is acceptable because it is the always-on box, and the Cockpit on top of it is stateless - the oversight layer can restart freely without touching work in progress (proven property; keep it). The desktop fallback is the floor under all of it: every layer above the Director can break simultaneously and the user still has raw metal.
 
+**Tested property (issue #336):** the degradation story is a scripted, repeatable check - not prose. The canonical script is [`scripts/test-degradation.ps1`](../../scripts/test-degradation.ps1). It exercises two cases: (A) no `gateway.url` configured, (B) `gateway.url` set but the Gateway unreachable. Both cases assert session lifecycle, terminal I/O, resize, git facts, stage/unstage, clean kill, and crash recovery - all via Control API only. Run transcript: [`docs/cencon/proof/issue-336/degradation-test-transcript.txt`](../cencon/proof/issue-336/degradation-test-transcript.txt).
+
 ---
 
 ## 7. The Wingman: from status reporter to decision-support staff
