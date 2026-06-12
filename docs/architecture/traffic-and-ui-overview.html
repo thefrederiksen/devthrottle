@@ -50,11 +50,11 @@
 <div class="header">
   <h1>CC Director - Traffic and UI Architecture</h1>
   <div class="meta">
-    <b>Status:</b> CURRENT &nbsp;|&nbsp; <b>Date:</b> 2026-06-12 &nbsp;|&nbsp;
-    <b>Verified against:</b> working tree @ v0.6.23 (commit 28b1da3) &nbsp;|&nbsp;
+    <b>Status:</b> CURRENT &nbsp;|&nbsp; <b>Date:</b> 2026-06-12 (updated post-#372) &nbsp;|&nbsp;
+    <b>Verified against:</b> main @ commit b949edb (#372 slices 1-2 PR #373, slice 3 PR #375) &nbsp;|&nbsp;
     <b>Audience:</b> anyone touching Gateway / Director / Cockpit traffic
   </div>
-  <div class="meta">Maps every network flow and UI surface across the three processes, names the one architectural wart, and points at the cleanup.</div>
+  <div class="meta">Maps every network flow and UI surface across the three processes. The Cockpit's old three-way traffic split was unified by issue #372: the Cockpit now talks to exactly ONE origin - the Gateway.</div>
 </div>
 
 <div class="wrap">
@@ -110,20 +110,21 @@
  |   |   YARP router:     |         |                            | |  |
  |   |    explicit API    |         |   SessionManager           | |  |
  |   |      routes win  --+---pull--+-> Session -> Backend(ConPty)| |  |
- |   |    else -> Cockpit |  /sessions  |        -> Driver        | |  |
- |   |    WS/shot -> Dir  |         |                            | |  |
+ |   |    session+settings|  /sessions  |        -> Driver        | |  |
+ |   |      legs -> Dir   |         |                            | |  |
+ |   |    else -> Cockpit |         |                            | |  |
  |   |        |           |         |   Control API (Kestrel,    | |  |
  |   |        |           |  proxy  |   LOOPBACK 127.0.0.1:788x):| |  |
  |   |        |           +--------->   WS  /sessions/{sid}/stream| |  |
- |   |        |           |         |   POST /sessions/{sid}/...  | |  |
- |   |        |           |         |   WS  /dictate              | |  |
- |   |        v           |         |   GET /screenshots/file     | |  |
- |   |   +-----------+    |         |   GET /buffer /git /usage   | |  |
+ |   |        |           | (ALL    |   POST /sessions/{sid}/...  | |  |
+ |   |        |           | Cockpit |   WS  /dictate              | |  |
+ |   |        v           | session |   GET /screenshots[/file]   | |  |
+ |   |   +-----------+    | traffic)|   GET /settings /buffer /git| |  |
  |   |   | COCKPIT   |    |         +-----------------------------+   |
- |   |   | :7470     |    |              ^                            |
- |   |   | (loopback)|    |              |  direct REST (writes/reads)|
- |   |   | Blazor    |----+--------------+  to TailnetEndpoint        |
- |   |   +-----------+   supervises                                   |
+ |   |   | :7470     |    |                                           |
+ |   |   | (loopback)|    |   Issue #372: the Cockpit's ONLY HTTP     |
+ |   |   | Blazor    |----+   destination is the Gateway - it never   |
+ |   |   +-----------+   supervises   dials a Director address.       |
  |   +--------------------+                                           |
  +--------------------------------------------------------------------+
 </pre>
@@ -153,54 +154,54 @@
        YES                                     NO
         |                                      |
         v                                      v
-   Gateway serves it          /sessions/{sid}/stream | /dictate | /screenshots/file ?
-   (fans out to Directors,           |                          |
-    builds the roster)              YES                         NO
+   Gateway serves it          A per-session or per-Director proxy leg?
+   (fans out to Directors,      /sessions/{sid}/stream | /dictate |
+    builds the roster)          /screenshots[/file]    | /directors/{id}/settings
+                                or the CATCH-ALL  /sessions/{sid}/{**rest}
+                                (any method, issue #372)
+                                     |                          |
+                                    YES                         NO
                                      |                          |
                                      v                          v
                        PROXY to the OWNING Director    FALLBACK (default route):
-                       (found by fanning out to all    reverse-proxy to Cockpit :7470
-                       Directors). 503 if owner is     (every UI page + asset)
+                       (owner-cache fast path on the   reverse-proxy to Cockpit :7470
+                       hot HTTP leg; fleet fan-out     (every UI page + asset)
+                       on miss). 503 if owner is
                        known-but-offline, 404 if
                        the session is truly unknown
 </pre>
 
-<h2>4. The Cockpit reaches a session THREE ways (the wart)</h2>
+<h2>4. The Cockpit has ONE channel: the Gateway (issue #372)</h2>
 
-<p>This is the part that is confusing and worth cleaning up. The Cockpit does not have one channel to a session - it has three, chosen per-call:</p>
+<p>The Cockpit talks to exactly one origin - the Gateway that served its page. Every call, whatever its nature, lands there; the Gateway routes it onward:</p>
 
 <pre>
    Browser (Blazor circuit + JS)
         |
    +----+-----------------------------------------------------------+
-   |  COCKPIT                                                        |
+   |  COCKPIT  ->  GATEWAY :7878  (the ONLY HTTP destination)        |
    |                                                                |
-   |  (A) READ aggregate ........> GATEWAY :7878  (Cockpit:GatewayUrl)|
-   |      roster, turnbriefs, lists, interrupted, directors,         |
-   |      create-session                                            |
+   |  READ aggregate (Gateway answers itself):                      |
+   |      roster, turnbriefs, lists, interrupted, directors,        |
+   |      create-session, fleet-wide fanout                         |
    |                                                                |
-   |  (B) WRITE / per-session REST > DIRECT to session.TailnetEndpoint|
+   |  PER-SESSION verbs (Gateway forwards to the owning Director    |
+   |  via the /sessions/{sid}/{**rest} catch-all + explicit legs):  |
    |      prompt, keystroke, interrupt, escape, clear-context,      |
-   |      history, queue, settings, git, usage, brief, recap,       |
-   |      summary, screenshots LIST, hold, rename, upload-image     |
+   |      history, queue*, git, usage, brief, recap, summary,       |
+   |      screenshots LIST + bytes + delete, hold, rename,          |
+   |      upload-image, terminal WS /stream, dictate WS             |
    |                                                                |
-   |  (C) STREAM / bytes ..........> SAME-ORIGIN -> GATEWAY proxy ->  |
-   |      terminal WS /stream, dictate WS,         owning Director   |
-   |      screenshot BYTES /screenshots/file                        |
+   |  PER-DIRECTOR verbs (Gateway forwards by Director id):         |
+   |      /directors/{id}/settings  (GET + PUT)                     |
    +----------------------------------------------------------------+
 </pre>
 
-<p>The code's stated rule is <i>"reads aggregate through the Gateway; writes and streams go direct to the Director."</i> In practice the split is three-way and inconsistent:</p>
+<p>The rule is one sentence now: <b>"the Cockpit talks to the Gateway; the Gateway talks to Directors."</b> <code>DirectorClient</code> carries no Director addresses at all - session-scoped methods take a session id, settings take a Director id, and fanout is a single fleet-wide <code>POST /fanout</code> on the Gateway.</p>
 
-<ul>
-  <li>screenshot <b>LIST</b> goes direct-to-Director (B), but screenshot <b>BYTES</b> go via the Gateway proxy (C).</li>
-  <li><code>brief</code> / <code>recap</code> / <code>git</code> / <code>usage</code> go direct-to-Director (B), but <code>turnbriefs</code> go via the Gateway (A).</li>
-  <li>The terminal <b>output</b> stream goes via the Gateway proxy (C, which issue #268 built to kill the loopback-resolution failure), but the terminal <b>keystroke</b> leg posts direct to the Director (B) - re-opening the exact failure mode #268 closed.</li>
-</ul>
-
-<div class="callout warn">
-  <h4>Why this bites</h4>
-  <p>Pattern B requires the <b>browser</b> to reach the Director's advertised <code>TailnetEndpoint</code> directly. A Director that can only advertise a loopback URL (<code>http://127.0.0.1:788x</code>) makes a remote phone resolve that to its OWN loopback - so writes silently fail while streams (routed through the Gateway) keep working. It also breaks local dev: running the Cockpit standalone makes "same-origin" point at the Cockpit instead of the Gateway, so streams and screenshots 404 while REST still works. Same root cause, two symptoms.</p>
+<div class="callout good">
+  <h4>History: this used to be a three-way split (the wart this doc originally named)</h4>
+  <p>Before issue #372, per-session REST went DIRECT to each session's advertised <code>TailnetEndpoint</code> while streams/screenshot-bytes went via the Gateway proxy and aggregates went to the Gateway API - three patterns, inconsistently applied (screenshot LIST direct, screenshot BYTES proxied; keystrokes direct, terminal output proxied). The direct leg re-created the loopback-resolution failure #268 had fixed for streams: a Director advertising <code>http://127.0.0.1:788x</code> made a remote browser dial its OWN loopback, so writes silently failed while streams worked. Fixed in three slices: PR #373 (generic catch-all forwarder + owner-cache fast path; Cockpit session verbs repointed) and PR #375 (screenshots list/delete, settings by Director id, fleet fanout; all stale <code>TailnetEndpoint</code> guards swept). A loopback-only Director is now fully drivable from a remote browser.</p>
 </div>
 
 <h2>5. Cross-machine</h2>
@@ -238,7 +239,8 @@
 
    Keystrokes flow back the other way:
      Desktop  -> session.SendInput(bytes)                      (in-process)
-     Cockpit  -> POST /sessions/{sid}/prompt {appendEnter}     (HTTP, pattern B)
+     Cockpit  -> POST /sessions/{sid}/prompt {appendEnter}     (HTTP via the
+                 Gateway catch-all forwarder, owner-cache fast path - #372)
 </pre>
 
 <h2>7. Full traffic table</h2>
@@ -254,11 +256,13 @@
   <tr><td><span class="pill p-cock">Cockpit</span></td><td><span class="pill p-gw">GW</span></td><td>HTTP</td><td class="mono">/lists*, /handover, /fanout</td><td>Cockpit:GatewayUrl</td><td>Lists, handover, fanout (A)</td></tr>
   <tr><td><span class="pill p-cock">Cockpit</span></td><td><span class="pill p-gw">GW</span></td><td>HTTP</td><td class="mono">/directors/{id}/sessions, /repos, /fs/list</td><td>Cockpit:GatewayUrl</td><td>New-session dialog (A)</td></tr>
 
-  <tr><td><span class="pill p-cock">Cockpit</span></td><td><span class="pill p-dir">DIR</span></td><td>HTTP</td><td class="mono">/sessions/{sid}/prompt</td><td>session.TailnetEndpoint</td><td>Prompt + keystrokes (B)</td></tr>
-  <tr><td><span class="pill p-cock">Cockpit</span></td><td><span class="pill p-dir">DIR</span></td><td>HTTP</td><td class="mono">.../interrupt|escape|clear-context|history-picker</td><td>session.TailnetEndpoint</td><td>Driver actions (B)</td></tr>
-  <tr><td><span class="pill p-cock">Cockpit</span></td><td><span class="pill p-dir">DIR</span></td><td>HTTP</td><td class="mono">/sessions/{sid}/queue*</td><td>session.TailnetEndpoint</td><td>Prompt queue (B)</td></tr>
-  <tr><td><span class="pill p-cock">Cockpit</span></td><td><span class="pill p-dir">DIR</span></td><td>HTTP</td><td class="mono">.../git, /usage, /brief, /summary, /recap, /buffer/html</td><td>session.TailnetEndpoint</td><td>Per-session reads (B)</td></tr>
-  <tr><td><span class="pill p-cock">Cockpit</span></td><td><span class="pill p-dir">DIR</span></td><td>HTTP</td><td class="mono">/screenshots (list), /settings</td><td>session.TailnetEndpoint</td><td>Shot list, settings (B)</td></tr>
+  <tr><td><span class="pill p-cock">Cockpit</span></td><td><span class="pill p-gw">GW</span>-&gt;<span class="pill p-dir">DIR</span></td><td>HTTP</td><td class="mono">/sessions/{sid}/prompt</td><td>Cockpit:GatewayUrl</td><td>Prompt + keystrokes (catch-all, fast path)</td></tr>
+  <tr><td><span class="pill p-cock">Cockpit</span></td><td><span class="pill p-gw">GW</span>-&gt;<span class="pill p-dir">DIR</span></td><td>HTTP</td><td class="mono">.../interrupt|escape|clear-context|history-picker</td><td>Cockpit:GatewayUrl</td><td>Driver actions (catch-all)</td></tr>
+  <tr><td><span class="pill p-cock">Cockpit</span></td><td><span class="pill p-gw">GW</span>-&gt;<span class="pill p-dir">DIR</span></td><td>HTTP</td><td class="mono">/sessions/{sid}/queue*</td><td>Cockpit:GatewayUrl</td><td>Prompt queue (catch-all)</td></tr>
+  <tr><td><span class="pill p-cock">Cockpit</span></td><td><span class="pill p-gw">GW</span>-&gt;<span class="pill p-dir">DIR</span></td><td>HTTP</td><td class="mono">.../git, /usage, /brief, /summary, /recap, /buffer/html</td><td>Cockpit:GatewayUrl</td><td>Per-session reads (catch-all)</td></tr>
+  <tr><td><span class="pill p-cock">Cockpit</span></td><td><span class="pill p-gw">GW</span>-&gt;<span class="pill p-dir">DIR</span></td><td>HTTP</td><td class="mono">/sessions/{sid}/screenshots [+ /file DELETE]</td><td>Cockpit:GatewayUrl</td><td>Shot list + delete (#372 s3)</td></tr>
+  <tr><td><span class="pill p-cock">Cockpit</span></td><td><span class="pill p-gw">GW</span>-&gt;<span class="pill p-dir">DIR</span></td><td>HTTP</td><td class="mono">/directors/{id}/settings</td><td>Cockpit:GatewayUrl</td><td>Director settings GET/PUT (#372 s3)</td></tr>
+  <tr><td><span class="pill p-cock">Cockpit</span></td><td><span class="pill p-gw">GW</span></td><td>HTTP</td><td class="mono">/fanout</td><td>Cockpit:GatewayUrl</td><td>Fleet-wide fanout, GW resolves owners (#372 s3)</td></tr>
 
   <tr><td><span class="pill p-cock">Cockpit</span></td><td><span class="pill p-gw">GW</span>-&gt;<span class="pill p-dir">DIR</span></td><td>WS</td><td class="mono">/sessions/{sid}/stream</td><td>same-origin (Nav.BaseUri)</td><td>Terminal output (C)</td></tr>
   <tr><td><span class="pill p-cock">Cockpit</span></td><td><span class="pill p-gw">GW</span>-&gt;<span class="pill p-dir">DIR</span></td><td>WS</td><td class="mono">/sessions/{sid}/dictate</td><td>same-origin (Nav.BaseUri)</td><td>Voice audio (C)</td></tr>
@@ -292,29 +296,30 @@
   <tr><td>CleanView</td><td>Rich card view of the transcript (7 card types, rewind, wingman mode)</td></tr>
 </table>
 
-<h2>9. Cleanup target: one channel, not three</h2>
+<h2>9. The #372 cleanup: SHIPPED</h2>
 
-<p>The architecture is sound. The single wart is section 4: the Cockpit reaches a session three ways, and the direct-to-Director leg (B) re-introduces the loopback/cross-origin failure that the same-origin proxy (C) was built to eliminate.</p>
+<p>The unification this doc originally proposed is implemented, QA-verified, and merged: issue <a href="https://github.com/thefrederiksen/cc-director/issues/372">#372</a> (slices 1-2, PR #373, commit <code>eae996d</code>) and follow-up <a href="https://github.com/thefrederiksen/cc-director/issues/374">#374</a> (slice 3, PR #375, commit <code>b949edb</code>).</p>
 
-<div class="callout">
-  <h4>Proposed direction: route ALL session traffic same-origin through the Gateway proxy.</h4>
-  <p>Promote the per-session reads and writes (pattern B) onto the same same-origin Gateway proxy that already carries streams and screenshot bytes (pattern C). The Cockpit would talk to exactly one origin (the Gateway that served its page) for everything session-scoped; the Gateway forwards to the owning Director by session id - the lookup it already does for the WS/screenshot proxy.</p>
+<div class="callout good">
+  <h4>What shipped</h4>
+  <p><b>Slice 1</b> - the Gateway's <code>SessionWsProxyEndpoints</code> gained a catch-all <code>/sessions/{sid}/{**rest}</code> (any HTTP method) that reverse-proxies to the owning Director at the same path, with an owner-cache <b>fast path</b> so the per-keystroke leg costs a dictionary lookup instead of a fleet fan-out (a stale entry self-heals via the live resolve). <b>Slice 2</b> - <code>DirectorClient</code> repointed at the Gateway base; ~41 session-scoped call sites updated; the <code>TailnetEndpoint</code> guards that blocked loopback-only Directors dropped. <b>Slice 3</b> - screenshots LIST/DELETE routed by session id, Director settings by Director id (<code>/directors/{id}/settings</code>), fanout collapsed to one fleet-wide Gateway <code>/fanout</code> call; the "no tailnet endpoint" dead-end pane and the vestigial <code>DirectorBase</code> component parameters removed.</p>
 </div>
 
-<p>What this buys:</p>
+<p>What it bought (all verified live and by the round-trip suites):</p>
 <ul>
-  <li><b>Kills the loopback-resolution failure class entirely</b> - not just for streams. A Director that advertises only loopback still works for writes, because the browser never dials the Director.</li>
-  <li><b>Remote write path becomes as robust as the stream path</b> - one trust/cert/reachability story (the Gateway front door), not two.</li>
-  <li><b>Local dev becomes trivial</b> - run the Cockpit behind the Gateway and nothing same-origin breaks; no standalone-port surprises.</li>
-  <li><b>One mental model</b> - "the Cockpit talks to the Gateway; the Gateway talks to Directors." The three-way split collapses.</li>
+  <li><b>The loopback-resolution failure class is dead</b> - a Director that advertises only <code>http://127.0.0.1:788x</code> is fully drivable from a remote browser, because the browser never dials the Director.</li>
+  <li><b>One trust/cert/reachability story</b> - the Gateway front door - for writes, reads, streams, and bytes alike.</li>
+  <li><b>Local dev is trivial</b> - run the Cockpit behind the Gateway and nothing same-origin breaks.</li>
+  <li><b>One mental model</b> - "the Cockpit talks to the Gateway; the Gateway talks to Directors."</li>
 </ul>
 
-<p>Scope sketch (the cleanup issue tracks the detail): add per-session REST forwarding to the Gateway (generalize the existing <code>SessionWsProxyEndpoints</code> owner-lookup to plain HTTP verbs), point <code>DirectorClient</code> at the same-origin base instead of <code>TailnetEndpoint</code>, and retire the browser's direct-to-Director leg. The Director Control API stays exactly as-is (it is still the thing that owns the PTY); only <i>who dials it</i> changes - always the Gateway, never the browser.</p>
+<p><b>Extension rules going forward:</b> a NEW per-session verb on the Director Control API needs <i>no Gateway change</i> - the catch-all carries it. A new Director-scoped (non-session) verb needs an explicit forwarder keyed by Director id, like <code>/directors/{id}/settings</code>. Never reintroduce a <code>TailnetEndpoint</code> guard or a Director-address HTTP call in the Cockpit - the remaining <code>TailnetEndpoint</code> references there are display-only. The Director Control API itself is unchanged; only <i>who dials it</i> changed: always the Gateway, never the browser.</p>
 
 <h2>Document history</h2>
 <table>
   <tr><th>Date</th><th>Change</th></tr>
   <tr><td>2026-06-12</td><td>Initial map: three processes, routing, three-way Cockpit split, cleanup target. Verified against v0.6.23 working tree.</td></tr>
+  <tr><td>2026-06-12</td><td>Post-#372 update: the three-way split is gone - one Gateway channel (catch-all forwarder + fast path, screenshots/settings/fanout legs, guards swept). Sections 2/3/4/6/7/9 rewritten to the shipped state; history preserved in section 4. Verified against main @ b949edb.</td></tr>
 </table>
 
 </div>
