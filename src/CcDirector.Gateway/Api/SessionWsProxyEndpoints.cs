@@ -21,6 +21,11 @@ namespace CcDirector.Gateway.Api;
 /// Director's machine-wide <c>GET /screenshots/file?name=...</c>, so the Cockpit's thumbnail
 /// <c>&lt;img src&gt;</c>, View, and Copy never target a Director address either.
 ///
+/// Issue #372 generalizes this into a single channel: a catch-all <c>/sessions/{sid}/{**rest}</c>
+/// (any HTTP method) forwards every remaining per-session verb to the owning Director at the same
+/// path, so the Cockpit can retire its direct-to-Director leg entirely and reach a session only
+/// through the Gateway.
+///
 /// The Gateway resolves the owning Director for the session id, then reverse-proxies the request
 /// to that Director using the same YARP <see cref="IHttpForwarder"/> that already carries
 /// the Blazor-circuit WebSocket (so binary PCM audio frames, text frames, and image bytes pass
@@ -63,6 +68,23 @@ internal static class SessionWsProxyEndpoints
         {
             await ProxyAsync(ctx, sid, "shot", "/screenshots/file", registry, client, proxy, owners);
         });
+
+        // Issue #372: generic per-session HTTP forward. ANY method on /sessions/{sid}/{**rest} that
+        // is not handled by a more specific route is reverse-proxied to the owning Director at the
+        // SAME path, so the Cockpit drives every session verb (prompt, interrupt, escape,
+        // clear-context, history-picker, queue*, git, usage, brief, recap, summary, hold, rename,
+        // upload-image, ...) through this one Gateway-proxied channel and never dials a Director
+        // address directly. The explicit WS + screenshot legs above (and any literal
+        // /sessions/{sid}/x route mapped elsewhere) are more specific, so they still win; this
+        // catch-all only carries the remainder. Same ownership resolution and 404/503 semantics.
+        app.Map("/sessions/{sid}/{**rest}", async (string sid, string? rest, HttpContext ctx) =>
+        {
+            var directorPath = string.IsNullOrEmpty(rest) ? $"/sessions/{sid}" : $"/sessions/{sid}/{rest}";
+            // fastPath: this leg carries high-frequency calls (per-keystroke input POSTs), so try the
+            // cached owner before a fleet fan-out. The WS/screenshot legs are long-lived/low-frequency
+            // and keep the plain resolve.
+            await ProxyAsync(ctx, sid, "http", directorPath, registry, client, proxy, owners, fastPath: true);
+        });
     }
 
     /// <summary>
@@ -72,9 +94,28 @@ internal static class SessionWsProxyEndpoints
     /// offline/unreachable, or when the forward fails.
     /// </summary>
     private static async Task ProxyAsync(HttpContext ctx, string sid, string leg, string directorPath,
-        DirectorRegistry registry, DirectorEndpointClient client, SessionWsForwarder proxy, SessionOwnerCache owners)
+        DirectorRegistry registry, DirectorEndpointClient client, SessionWsForwarder proxy, SessionOwnerCache owners,
+        bool fastPath = false)
     {
         FileLog.Write($"[SessionWsProxy] open leg={leg} sid={sid} query={ctx.Request.QueryString} client={ctx.Connection.RemoteIpAddress}");
+
+        // Fast path (issue #372): when enabled, forward straight to the last-known owner without a
+        // fleet fan-out. The owner cache is kept fresh by the 2s fleet aggregation and by every
+        // successful forward, so the hot HTTP leg costs a dictionary lookup, not N ownership probes.
+        // A stale entry self-heals: the forward fails before any byte is sent, and we fall through to
+        // the live resolution below.
+        if (fastPath && owners.OwnerOf(sid) is { } cachedOwnerId && registry.Get(cachedOwnerId) is { } cachedDir
+            && ForwardDestination(cachedDir) is { } cachedDest)
+        {
+            var cachedError = await proxy.ForwardAsync(ctx, cachedDest, directorPath);
+            if (cachedError == ForwarderError.None)
+            {
+                FileLog.Write($"[SessionWsProxy] close leg={leg} sid={sid} (fast-path owner {cachedOwnerId})");
+                return;
+            }
+            if (ctx.Response.HasStarted) return; // bytes already flowed; cannot re-resolve
+            FileLog.Write($"[SessionWsProxy] leg={leg} sid={sid} fast-path owner {cachedOwnerId} failed ({cachedError}); re-resolving live");
+        }
 
         var director = await LocateOwningDirectorAsync(registry, client, sid);
         if (director is null)

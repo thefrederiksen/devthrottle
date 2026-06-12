@@ -74,11 +74,14 @@
     [JSInvokable]
     public async Task OnInput(string data)
     {
-        if (string.IsNullOrEmpty(data) || string.IsNullOrEmpty(DirectorBase) || string.IsNullOrEmpty(SessionId))
+        if (string.IsNullOrEmpty(data) || string.IsNullOrEmpty(SessionId))
             return;
         try
         {
-            await Director.SendInputAsync(DirectorBase, SessionId, data);
+            // Issue #372: keystrokes go to the Gateway (DirectorClient base), which resolves the
+            // owning Director by SessionId - so a loopback-only Director is drivable too. No
+            // DirectorBase needed here anymore.
+            await Director.SendInputAsync(SessionId, data);
         }
         catch (Exception ex)
         {
