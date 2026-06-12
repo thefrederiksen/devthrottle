@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>CC Director - Traffic and UI Architecture</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f1117; color: #e2e8f0; font-size: 14px; line-height: 1.55; }
+
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 0 32px 80px; }
+
+  .header { padding: 28px 32px 18px; border-bottom: 1px solid #1e2535; }
+  .header h1 { font-size: 24px; font-weight: 700; color: #f8fafc; }
+  .header .meta { margin-top: 8px; color: #94a3b8; font-size: 13px; }
+  .header .meta b { color: #cbd5e1; }
+
+  h2 { font-size: 18px; font-weight: 700; color: #f8fafc; margin: 38px 0 10px; padding-bottom: 8px; border-bottom: 1px solid #1e2535; }
+  h3 { font-size: 15px; font-weight: 600; color: #e2e8f0; margin: 22px 0 8px; }
+  p  { margin: 10px 0; color: #cbd5e1; }
+  ul, ol { margin: 10px 0 10px 22px; color: #cbd5e1; }
+  li { margin: 5px 0; }
+  code { font-family: 'Cascadia Code', Consolas, monospace; background: #1a2030; color: #93c5fd; padding: 1px 5px; border-radius: 3px; font-size: 12.5px; }
+  b, strong { color: #f1f5f9; }
+
+  pre { background: #0a0d14; border: 1px solid #1e2535; border-radius: 6px; padding: 16px 18px; overflow-x: auto;
+        font-family: 'Cascadia Code', Consolas, monospace; font-size: 12px; line-height: 1.4; color: #b6c2d9; margin: 14px 0; }
+
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; }
+  th { text-align: left; font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.07em; padding: 8px 12px; border-bottom: 1px solid #1e2535; }
+  td { padding: 9px 12px; border-bottom: 1px solid #111827; vertical-align: top; color: #cbd5e1; font-size: 13px; }
+  tr:hover td { background: #111827; }
+  td.mono, th.mono { font-family: 'Cascadia Code', Consolas, monospace; font-size: 12px; color: #93c5fd; white-space: nowrap; }
+
+  .pill { padding: 2px 9px; border-radius: 12px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+  .p-gw   { background: #0c2d48; color: #7dd3fc; border: 1px solid #1e4e6e; }
+  .p-dir  { background: #14532d; color: #86efac; border: 1px solid #166534; }
+  .p-cock { background: #3b0764; color: #e879f9; border: 1px solid #6b21a8; }
+  .p-warn { background: #431407; color: #f97316; border: 1px solid #7c2d12; }
+
+  .callout { border-left: 3px solid #3b82f6; background: #0d1626; padding: 12px 16px; border-radius: 0 6px 6px 0; margin: 16px 0; }
+  .callout.warn { border-left-color: #f97316; background: #1a1206; }
+  .callout.good { border-left-color: #22c55e; background: #0a1710; }
+  .callout h4 { color: #f8fafc; font-size: 13px; margin-bottom: 4px; }
+
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; margin: 10px 0 0; font-size: 12px; color: #94a3b8; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>CC Director - Traffic and UI Architecture</h1>
+  <div class="meta">
+    <b>Status:</b> CURRENT &nbsp;|&nbsp; <b>Date:</b> 2026-06-12 &nbsp;|&nbsp;
+    <b>Verified against:</b> working tree @ v0.6.23 (commit 28b1da3) &nbsp;|&nbsp;
+    <b>Audience:</b> anyone touching Gateway / Director / Cockpit traffic
+  </div>
+  <div class="meta">Maps every network flow and UI surface across the three processes, names the one architectural wart, and points at the cleanup.</div>
+</div>
+
+<div class="wrap">
+
+<h2>1. The three processes (and the fourth UI)</h2>
+
+<p>CC Director is three processes plus one in-process UI. Two of them are web servers; one is a desktop app that also happens to host a web server.</p>
+
+<table>
+  <tr><th>Process</th><th>What it is</th><th class="mono">Port</th><th>Bind</th></tr>
+  <tr>
+    <td><span class="pill p-dir">DIRECTOR</span></td>
+    <td>Avalonia <b>desktop app</b> + an in-process <b>Control API</b> (Kestrel). Owns the PTYs (sessions). The desktop window IS a UI; the Control API is how everything else reaches the sessions.</td>
+    <td class="mono">7879-7898</td>
+    <td>loopback only</td>
+  </tr>
+  <tr>
+    <td><span class="pill p-gw">GATEWAY</span></td>
+    <td>Fleet <b>aggregator</b> + <b>reverse proxy</b> (YARP) + Tailscale Serve provisioner + Cockpit supervisor. The single front door.</td>
+    <td class="mono">7878</td>
+    <td>all interfaces</td>
+  </tr>
+  <tr>
+    <td><span class="pill p-cock">COCKPIT</span></td>
+    <td>Blazor Server <b>web UI</b>. Never exposed directly - the Gateway reverse-proxies browsers to it.</td>
+    <td class="mono">7470</td>
+    <td>loopback only</td>
+  </tr>
+  <tr>
+    <td><span class="pill p-dir">DESKTOP UI</span></td>
+    <td>The Director's own native window (MainWindow, SessionActionBar, CleanView, TerminalView). Talks to sessions <b>in-process</b> - no HTTP.</td>
+    <td class="mono">n/a</td>
+    <td>in-process</td>
+  </tr>
+</table>
+
+<p>Public reach is via <b>Tailscale Serve</b>: <code>https://&lt;machine&gt;.&lt;tailnet&gt;.ts.net/</code> on <code>443</code> maps to the Gateway on <code>7878</code>. Each local Director's fixed port also gets a Serve mapping so it is reachable at <code>https://&lt;machine&gt;.&lt;tailnet&gt;.ts.net:&lt;port&gt;</code>.</p>
+
+<h2>2. Single-machine topology</h2>
+
+<pre>
+   Phone / remote browser
+        |
+        |  https  :443   (Tailscale Serve terminates TLS)
+        v
+ +--------------------------------------------------------------------+
+ |  THIS MACHINE                                                       |
+ |                                                                    |
+ |   +--------------------+         +-----------------------------+   |
+ |   |   GATEWAY  :7878   |         |   DIRECTOR (desktop app)     |  |
+ |   |   (all interfaces) |         |                             |   |
+ |   |                    |         |   Desktop UI --in-process--+ |  |
+ |   |   YARP router:     |         |                            | |  |
+ |   |    explicit API    |         |   SessionManager           | |  |
+ |   |      routes win  --+---pull--+-> Session -> Backend(ConPty)| |  |
+ |   |    else -> Cockpit |  /sessions  |        -> Driver        | |  |
+ |   |    WS/shot -> Dir  |         |                            | |  |
+ |   |        |           |         |   Control API (Kestrel,    | |  |
+ |   |        |           |  proxy  |   LOOPBACK 127.0.0.1:788x):| |  |
+ |   |        |           +--------->   WS  /sessions/{sid}/stream| |  |
+ |   |        |           |         |   POST /sessions/{sid}/...  | |  |
+ |   |        |           |         |   WS  /dictate              | |  |
+ |   |        v           |         |   GET /screenshots/file     | |  |
+ |   |   +-----------+    |         |   GET /buffer /git /usage   | |  |
+ |   |   | COCKPIT   |    |         +-----------------------------+   |
+ |   |   | :7470     |    |              ^                            |
+ |   |   | (loopback)|    |              |  direct REST (writes/reads)|
+ |   |   | Blazor    |----+--------------+  to TailnetEndpoint        |
+ |   |   +-----------+   supervises                                   |
+ |   +--------------------+                                           |
+ +--------------------------------------------------------------------+
+</pre>
+
+<div class="legend">
+  <span><span class="pill p-gw">GATEWAY</span> aggregates + routes</span>
+  <span><span class="pill p-dir">DIRECTOR</span> owns the sessions</span>
+  <span><span class="pill p-cock">COCKPIT</span> is the web face</span>
+</div>
+
+<h2>3. About that word: "fallback"</h2>
+
+<div class="callout good">
+  <h4>"Fallback" here is a router default route, NOT the fallback-programming anti-pattern.</h4>
+  <p>The Gateway uses YARP <code>app.MapFallback("{*path}", ...)</code>. Routing is matched in order: explicit API endpoints first; anything left over (HTML pages, the Blazor circuit, <code>app.css</code>, <code>blazor.web.js</code>) is reverse-proxied to the Cockpit. It is deterministic "if not an API route, it is the web UI" - not "try X, silently degrade to Y." The only soft state is a 503 <i>"Cockpit starting..."</i> interstitial during boot/update, which is explicit and auto-retries.</p>
+</div>
+
+<h3>How the Gateway routes one request</h3>
+
+<pre>
+   Request hits GATEWAY :7878
+        |
+        v
+   Explicit mapped route?  (/healthz /gateway/* /directors* /sessions JSON
+     /interrupted* /worklists* /turnbriefs* /vault* /handover /fanout ...)
+        |                                      |
+       YES                                     NO
+        |                                      |
+        v                                      v
+   Gateway serves it          /sessions/{sid}/stream | /dictate | /screenshots/file ?
+   (fans out to Directors,           |                          |
+    builds the roster)              YES                         NO
+                                     |                          |
+                                     v                          v
+                       PROXY to the OWNING Director    FALLBACK (default route):
+                       (found by fanning out to all    reverse-proxy to Cockpit :7470
+                       Directors). 503 if owner is     (every UI page + asset)
+                       known-but-offline, 404 if
+                       the session is truly unknown
+</pre>
+
+<h2>4. The Cockpit reaches a session THREE ways (the wart)</h2>
+
+<p>This is the part that is confusing and worth cleaning up. The Cockpit does not have one channel to a session - it has three, chosen per-call:</p>
+
+<pre>
+   Browser (Blazor circuit + JS)
+        |
+   +----+-----------------------------------------------------------+
+   |  COCKPIT                                                        |
+   |                                                                |
+   |  (A) READ aggregate ........> GATEWAY :7878  (Cockpit:GatewayUrl)|
+   |      roster, turnbriefs, lists, interrupted, directors,         |
+   |      create-session                                            |
+   |                                                                |
+   |  (B) WRITE / per-session REST > DIRECT to session.TailnetEndpoint|
+   |      prompt, keystroke, interrupt, escape, clear-context,      |
+   |      history, queue, settings, git, usage, brief, recap,       |
+   |      summary, screenshots LIST, hold, rename, upload-image     |
+   |                                                                |
+   |  (C) STREAM / bytes ..........> SAME-ORIGIN -> GATEWAY proxy ->  |
+   |      terminal WS /stream, dictate WS,         owning Director   |
+   |      screenshot BYTES /screenshots/file                        |
+   +----------------------------------------------------------------+
+</pre>
+
+<p>The code's stated rule is <i>"reads aggregate through the Gateway; writes and streams go direct to the Director."</i> In practice the split is three-way and inconsistent:</p>
+
+<ul>
+  <li>screenshot <b>LIST</b> goes direct-to-Director (B), but screenshot <b>BYTES</b> go via the Gateway proxy (C).</li>
+  <li><code>brief</code> / <code>recap</code> / <code>git</code> / <code>usage</code> go direct-to-Director (B), but <code>turnbriefs</code> go via the Gateway (A).</li>
+  <li>The terminal <b>output</b> stream goes via the Gateway proxy (C, which issue #268 built to kill the loopback-resolution failure), but the terminal <b>keystroke</b> leg posts direct to the Director (B) - re-opening the exact failure mode #268 closed.</li>
+</ul>
+
+<div class="callout warn">
+  <h4>Why this bites</h4>
+  <p>Pattern B requires the <b>browser</b> to reach the Director's advertised <code>TailnetEndpoint</code> directly. A Director that can only advertise a loopback URL (<code>http://127.0.0.1:788x</code>) makes a remote phone resolve that to its OWN loopback - so writes silently fail while streams (routed through the Gateway) keep working. It also breaks local dev: running the Cockpit standalone makes "same-origin" point at the Cockpit instead of the Gateway, so streams and screenshots 404 while REST still works. Same root cause, two symptoms.</p>
+</div>
+
+<h2>5. Cross-machine</h2>
+
+<pre>
+  Machine A (has the Gateway)            Machine B (Director only)
+  +-----------------------+              +-----------------------+
+  |  DIRECTOR A  :788x     |              |  DIRECTOR B  :788x     |
+  |  COCKPIT     :7470     |              |                       |
+  |  GATEWAY     :7878     | <--register--+  POST /directors/     |
+  +----------+------------+   heartbeat   |       register         |
+             ^                doorbell    |  + heartbeat (15s)     |
+             |  front door    verify      |  + doorbell (turn-end) |
+             |  :443                       |  + verify (nonce)      |
+       Phone / browser                    |  over Tailscale         |
+       ONE url:                           +-----------------------+
+       https://A.tailnet.ts.net/
+</pre>
+
+<p>The Gateway is the single front door. It <b>pulls</b> <code>/sessions</code> from every registered Director in parallel to build the fleet roster (total latency = slowest single Director, not the sum). Directors only <b>push</b> lightweight signals: register / heartbeat / doorbell / verify-nonce. Wingman briefs are generated Gateway-side and pulled by clients.</p>
+
+<h2>6. Inside the Director: one byte stream, two consumers</h2>
+
+<p>The desktop UI and the Control API stream share the same buffer - the desktop is not privileged, it is just another reader.</p>
+
+<pre>
+   claude/pi process
+        |  PTY bytes
+        v
+   ConPtyBackend  -> CircularTerminalBuffer  (one monotonic write cursor)
+                          |                 \
+                          | in-process       \  WS /sessions/{sid}/stream
+                          v                   v  (replay-from-cursor then live tail)
+                   Desktop TerminalView    Cockpit xterm.js (via Gateway proxy)
+
+   Keystrokes flow back the other way:
+     Desktop  -> session.SendInput(bytes)                      (in-process)
+     Cockpit  -> POST /sessions/{sid}/prompt {appendEnter}     (HTTP, pattern B)
+</pre>
+
+<h2>7. Full traffic table</h2>
+
+<table>
+  <tr><th>Source</th><th>Dest</th><th>Proto</th><th class="mono">Path</th><th>Base URL</th><th>Purpose</th></tr>
+
+  <tr><td>Phone/browser</td><td><span class="pill p-gw">GW</span></td><td>HTTPS</td><td class="mono">/*</td><td>front door :443</td><td>Everything (Serve -> :7878)</td></tr>
+
+  <tr><td><span class="pill p-cock">Cockpit</span></td><td><span class="pill p-gw">GW</span></td><td>HTTP</td><td class="mono">/sessions?envelope=true</td><td>Cockpit:GatewayUrl</td><td>Roster + machine errors (A)</td></tr>
+  <tr><td><span class="pill p-cock">Cockpit</span></td><td><span class="pill p-gw">GW</span></td><td>HTTP</td><td class="mono">/directors, /interrupted, /healthz</td><td>Cockpit:GatewayUrl</td><td>Fleet reads (A)</td></tr>
+  <tr><td><span class="pill p-cock">Cockpit</span></td><td><span class="pill p-gw">GW</span></td><td>HTTP</td><td class="mono">/sessions/{sid}/turnbriefs*, /explain*</td><td>Cockpit:GatewayUrl</td><td>Briefs + explain (A)</td></tr>
+  <tr><td><span class="pill p-cock">Cockpit</span></td><td><span class="pill p-gw">GW</span></td><td>HTTP</td><td class="mono">/lists*, /handover, /fanout</td><td>Cockpit:GatewayUrl</td><td>Lists, handover, fanout (A)</td></tr>
+  <tr><td><span class="pill p-cock">Cockpit</span></td><td><span class="pill p-gw">GW</span></td><td>HTTP</td><td class="mono">/directors/{id}/sessions, /repos, /fs/list</td><td>Cockpit:GatewayUrl</td><td>New-session dialog (A)</td></tr>
+
+  <tr><td><span class="pill p-cock">Cockpit</span></td><td><span class="pill p-dir">DIR</span></td><td>HTTP</td><td class="mono">/sessions/{sid}/prompt</td><td>session.TailnetEndpoint</td><td>Prompt + keystrokes (B)</td></tr>
+  <tr><td><span class="pill p-cock">Cockpit</span></td><td><span class="pill p-dir">DIR</span></td><td>HTTP</td><td class="mono">.../interrupt|escape|clear-context|history-picker</td><td>session.TailnetEndpoint</td><td>Driver actions (B)</td></tr>
+  <tr><td><span class="pill p-cock">Cockpit</span></td><td><span class="pill p-dir">DIR</span></td><td>HTTP</td><td class="mono">/sessions/{sid}/queue*</td><td>session.TailnetEndpoint</td><td>Prompt queue (B)</td></tr>
+  <tr><td><span class="pill p-cock">Cockpit</span></td><td><span class="pill p-dir">DIR</span></td><td>HTTP</td><td class="mono">.../git, /usage, /brief, /summary, /recap, /buffer/html</td><td>session.TailnetEndpoint</td><td>Per-session reads (B)</td></tr>
+  <tr><td><span class="pill p-cock">Cockpit</span></td><td><span class="pill p-dir">DIR</span></td><td>HTTP</td><td class="mono">/screenshots (list), /settings</td><td>session.TailnetEndpoint</td><td>Shot list, settings (B)</td></tr>
+
+  <tr><td><span class="pill p-cock">Cockpit</span></td><td><span class="pill p-gw">GW</span>-&gt;<span class="pill p-dir">DIR</span></td><td>WS</td><td class="mono">/sessions/{sid}/stream</td><td>same-origin (Nav.BaseUri)</td><td>Terminal output (C)</td></tr>
+  <tr><td><span class="pill p-cock">Cockpit</span></td><td><span class="pill p-gw">GW</span>-&gt;<span class="pill p-dir">DIR</span></td><td>WS</td><td class="mono">/sessions/{sid}/dictate</td><td>same-origin (Nav.BaseUri)</td><td>Voice audio (C)</td></tr>
+  <tr><td><span class="pill p-cock">Cockpit</span></td><td><span class="pill p-gw">GW</span>-&gt;<span class="pill p-dir">DIR</span></td><td>HTTP</td><td class="mono">/sessions/{sid}/screenshots/file</td><td>same-origin (Nav.BaseUri)</td><td>Screenshot bytes (C)</td></tr>
+
+  <tr><td><span class="pill p-dir">Director</span></td><td><span class="pill p-gw">GW</span></td><td>HTTP</td><td class="mono">/directors/register, /{id}/heartbeat, /doorbell, /verify</td><td>gateway.url</td><td>Registration + liveness</td></tr>
+  <tr><td><span class="pill p-gw">Gateway</span></td><td><span class="pill p-dir">DIR</span></td><td>HTTP</td><td class="mono">/sessions, /sessions/{sid}/*</td><td>director ControlEndpoint</td><td>Roster pull + proxied actions</td></tr>
+  <tr><td><span class="pill p-gw">Gateway</span></td><td><span class="pill p-cock">COCK</span></td><td>HTTP/WS</td><td class="mono">/* (fallback)</td><td>127.0.0.1:7470</td><td>Reverse-proxy the web UI</td></tr>
+  <tr><td><span class="pill p-dir">Desktop UI</span></td><td><span class="pill p-dir">Core</span></td><td>in-proc</td><td class="mono">session.SendInput / .Buffer</td><td>object ref</td><td>Native UI, no HTTP</td></tr>
+</table>
+
+<h2>8. UI surfaces</h2>
+
+<h3>Cockpit (Blazor pages, served via the Gateway front door)</h3>
+<table>
+  <tr><th class="mono">Route</th><th>Purpose</th></tr>
+  <tr><td class="mono">/</td><td>Gateway dashboard: counts, needs-you hotlist, director table</td></tr>
+  <tr><td class="mono">/cockpit</td><td>Main triage app: session rail, brief/terminal tabs, composer, queue, screenshots</td></tr>
+  <tr><td class="mono">/sessions, /sessions/{sid}</td><td>Fleet list; single-session read-mostly detail</td></tr>
+  <tr><td class="mono">/directors, /directors/{id}</td><td>Director registry; single-director detail</td></tr>
+  <tr><td class="mono">/fleet, /lists, /feedback, /about</td><td>Cards dashboard; work-lists; brief-feedback corpus; version</td></tr>
+  <tr><td class="mono">/exes /transcripts /dictionary /keys /settings</td><td>Static HTML tool pages (served by Cockpit MapGet)</td></tr>
+</table>
+
+<h3>Director desktop window (in-process)</h3>
+<table>
+  <tr><th>Control</th><th>Purpose</th></tr>
+  <tr><td>MainWindow + session rail</td><td>Local session roster on this machine</td></tr>
+  <tr><td>TerminalView</td><td>Live PTY render (shares the buffer with the WS stream)</td></tr>
+  <tr><td>SessionActionBar</td><td>Stop / Interrupt / Clear context / History from driver capabilities</td></tr>
+  <tr><td>CleanView</td><td>Rich card view of the transcript (7 card types, rewind, wingman mode)</td></tr>
+</table>
+
+<h2>9. Cleanup target: one channel, not three</h2>
+
+<p>The architecture is sound. The single wart is section 4: the Cockpit reaches a session three ways, and the direct-to-Director leg (B) re-introduces the loopback/cross-origin failure that the same-origin proxy (C) was built to eliminate.</p>
+
+<div class="callout">
+  <h4>Proposed direction: route ALL session traffic same-origin through the Gateway proxy.</h4>
+  <p>Promote the per-session reads and writes (pattern B) onto the same same-origin Gateway proxy that already carries streams and screenshot bytes (pattern C). The Cockpit would talk to exactly one origin (the Gateway that served its page) for everything session-scoped; the Gateway forwards to the owning Director by session id - the lookup it already does for the WS/screenshot proxy.</p>
+</div>
+
+<p>What this buys:</p>
+<ul>
+  <li><b>Kills the loopback-resolution failure class entirely</b> - not just for streams. A Director that advertises only loopback still works for writes, because the browser never dials the Director.</li>
+  <li><b>Remote write path becomes as robust as the stream path</b> - one trust/cert/reachability story (the Gateway front door), not two.</li>
+  <li><b>Local dev becomes trivial</b> - run the Cockpit behind the Gateway and nothing same-origin breaks; no standalone-port surprises.</li>
+  <li><b>One mental model</b> - "the Cockpit talks to the Gateway; the Gateway talks to Directors." The three-way split collapses.</li>
+</ul>
+
+<p>Scope sketch (the cleanup issue tracks the detail): add per-session REST forwarding to the Gateway (generalize the existing <code>SessionWsProxyEndpoints</code> owner-lookup to plain HTTP verbs), point <code>DirectorClient</code> at the same-origin base instead of <code>TailnetEndpoint</code>, and retire the browser's direct-to-Director leg. The Director Control API stays exactly as-is (it is still the thing that owns the PTY); only <i>who dials it</i> changes - always the Gateway, never the browser.</p>
+
+<h2>Document history</h2>
+<table>
+  <tr><th>Date</th><th>Change</th></tr>
+  <tr><td>2026-06-12</td><td>Initial map: three processes, routing, three-way Cockpit split, cleanup target. Verified against v0.6.23 working tree.</td></tr>
+</table>
+
+</div>
+</body>
+</html>
