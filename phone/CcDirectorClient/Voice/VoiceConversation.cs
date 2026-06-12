@@ -1,25 +1,18 @@
 namespace CcDirectorClient.Voice;
 
 /// <summary>
-/// Runs one full voice turn against a single session: take the recorded audio,
-/// transcribe it, send it to the session, follow the agent's turn to completion,
-/// and speak the reply with the Director's OpenAI TTS voice (fetched from /tts
-/// and played on the device, identical to the web). Built on the injected clients and
-/// device interfaces so the page that hosts it stays thin and so the round-trip
-/// can be exercised with fakes.
-///
-/// Polling cadence: after the initial send returns "timeout" (the turn is still
-/// running), the conversation polls every <see cref="PollSeconds"/> and asks for
-/// a spoken progress note roughly every <see cref="ProgressEverySeconds"/> so a
-/// driver hears that work is still happening without paying a Haiku call on each
-/// cheap poll.
+/// Runs one full voice turn against a single session. The agent turn goes through
+/// the GATEWAY's async voice-turn pipeline (issue #378): the audio is submitted once
+/// to the Gateway, which drives the owning Director server-side (transcribe, wait for
+/// the session, run the turn, summarize, TTS) and caches the result, and the phone
+/// polls every <see cref="VoiceTurnPollMs"/> ms until the reply (with its synthesized
+/// audio) is ready. Built on the injected clients and device interfaces so the page
+/// that hosts it stays thin and so the round-trip can be exercised with fakes.
 /// </summary>
 public sealed class VoiceConversation
 {
-    private const int PollSeconds = 3;
-    private const int ProgressEverySeconds = 120;
-    private const int InitialTurnTimeoutMs = 45_000;
-    private const int ReadyPollSeconds = 4;
+    /// <summary>Cadence of the Gateway voice-turn poll loop (~1.5s; cheap cache reads).</summary>
+    private const int VoiceTurnPollMs = 1_500;
 
     // FIFO delivery: we deliberately do NOT wait for the agent's turn - the point of FIFO
     // is to deposit the answer and move on. The /chat call sends the text to the PTY before
@@ -29,11 +22,19 @@ public sealed class VoiceConversation
 
     private readonly DirectorVoiceClient _client;
     private readonly IReplySpeaker _tts;
+    private readonly string _gatewayBaseUrl;
 
-    public VoiceConversation(DirectorVoiceClient client, IReplySpeaker tts)
+    /// <summary>
+    /// <paramref name="gatewayBaseUrl"/> is the Gateway's base URL (the same address
+    /// the roster comes from) - required by <see cref="SpeakTurnAsync"/>'s agent path,
+    /// which submits/polls the voice turn on the Gateway (issue #378). Hosts that only
+    /// use the Director-direct members (FIFO deliver, briefing, one-off lines) may omit it.
+    /// </summary>
+    public VoiceConversation(DirectorVoiceClient client, IReplySpeaker tts, string gatewayBaseUrl = "")
     {
         _client = client;
         _tts = tts;
+        _gatewayBaseUrl = (gatewayBaseUrl ?? "").TrimEnd('/');
     }
 
     /// <summary>Status callback so the UI can show what is happening at each step.</summary>
@@ -55,108 +56,117 @@ public sealed class VoiceConversation
 
     /// <summary>
     /// Send a recorded utterance to <paramref name="session"/> and speak the reply.
-    /// <paramref name="onUpdate"/> fires on the main concerns (transcript, thinking,
-    /// progress, reply). Returns the final reply text. Throws on transcription or
-    /// send failure so the caller can surface the real error.
+    /// The agent path runs on the GATEWAY's async voice-turn pipeline (issue #378):
+    /// submit the audio once to the Gateway, which transcribes, waits for the session,
+    /// runs the agent turn, summarizes, and synthesizes the reply audio entirely
+    /// server-side; the phone polls ~every 1.5s and plays the returned audio directly,
+    /// so a brief signal drop just means the next poll arrives a little late.
+    /// The wingman path stays Director-direct (read-only, answers immediately).
+    /// <paramref name="onUpdate"/> fires as processing advances (transcribing,
+    /// transcript, waiting, thinking, summarizing, reply, speaking). Returns the final
+    /// spoken summary text. Throws on submit/poll failure or a terminal error stage so
+    /// the caller can surface the real error.
     /// </summary>
     public async Task<string> SpeakTurnAsync(
         SessionInfo session, UtteranceAudio audio,
         Action<TurnUpdate>? onUpdate = null, CancellationToken ct = default, bool forceWingman = false)
     {
         ClientLog.Write($"[VoiceConversation] SpeakTurn: session={session.DisplayName}, forceWingman={forceWingman}");
-        onUpdate?.Invoke(new TurnUpdate("transcribing", "Transcribing..."));
-
-        var t = await _client.TranscribeUtteranceAsync(
-            session.TailnetEndpoint, session.SessionId, audio.Bytes, audio.Mime, ct);
-        if (string.IsNullOrWhiteSpace(t.Text))
-            throw new InvalidOperationException("nothing was transcribed from the recording");
-        var transcript = t.Text;
-        onUpdate?.Invoke(new TurnUpdate("transcript", transcript));
 
         // Route to the wingman when the user tapped Ask Wingman. The wingman is
-        // read-only and answers immediately from the session - no waiting for the
-        // agent's turn, no /chat - and reads content verbatim instead of summarizing.
+        // read-only and answers immediately from the session - no agent turn - so it
+        // keeps the Director-direct transcribe-then-ask path.
         if (forceWingman)
         {
+            onUpdate?.Invoke(new TurnUpdate("transcribing", "Transcribing..."));
+            var t = await _client.TranscribeUtteranceAsync(
+                session.TailnetEndpoint, session.SessionId, audio.Bytes, audio.Mime, ct);
+            if (string.IsNullOrWhiteSpace(t.Text))
+                throw new InvalidOperationException("nothing was transcribed from the recording");
+            onUpdate?.Invoke(new TurnUpdate("transcript", t.Text));
+
             ClientLog.Write($"[VoiceConversation] SpeakTurn: routing to wingman for session={session.DisplayName}");
             onUpdate?.Invoke(new TurnUpdate("wingman", "Asking the wingman..."));
-            var answer = await _client.AskWingmanAsync(session.TailnetEndpoint, session.SessionId, transcript, ct);
+            var answer = await _client.AskWingmanAsync(session.TailnetEndpoint, session.SessionId, t.Text, ct);
             if (string.IsNullOrWhiteSpace(answer))
                 answer = "The wingman had nothing to report.";
             onUpdate?.Invoke(new TurnUpdate("answer", answer));
-            await SpeakAsync(session.TailnetEndpoint,answer, ct);
+            await SpeakAsync(session.TailnetEndpoint, answer, ct);
             return answer;
         }
 
-        // Only deliver the question to a session that has FINISHED its current
-        // turn. If it is still working, the prompt would interleave with the
-        // in-progress turn and the reply we read back would be that turn's
-        // output, not an answer to the question. So wait for a stopping point
-        // first - the same discipline as single-session voice.
-        await WaitUntilReadyAsync(session, onUpdate, ct);
+        if (string.IsNullOrWhiteSpace(_gatewayBaseUrl))
+            throw new InvalidOperationException(
+                "gateway URL is not configured - set the Gateway address in settings to run a voice turn");
 
-        onUpdate?.Invoke(new TurnUpdate("thinking", "Thinking..."));
-        var result = await _client.SendChatAsync(
-            session.TailnetEndpoint, session.SessionId, transcript, InitialTurnTimeoutMs, ct);
+        // Submit once: the Gateway queues the turn and answers 202 with a turn id
+        // immediately, so the phone is free while the Director does the work.
+        onUpdate?.Invoke(new TurnUpdate("transcribing", "Sending to the gateway..."));
+        var submit = await _client.SubmitVoiceTurnAsync(
+            _gatewayBaseUrl, session.SessionId, audio.Bytes, audio.Mime, ct);
+        ClientLog.Write($"[VoiceConversation] SpeakTurn: submitted turnId={submit.TurnId}");
 
-        result = await FollowTurnAsync(session, result, onUpdate, ct);
-
-        if (!string.Equals(result.Status, "ok", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException($"agent turn ended with status '{result.Status}': {result.Error}");
-
-        var rawReply = result.SpokenText();
-
-        // "reply" updates the on-screen reply label only - it does NOT advance the
-        // status indicator. The status must follow the actual processing order:
-        // Thinking -> Summarizing -> Speaking. See AC1.
-        onUpdate?.Invoke(new TurnUpdate("reply", rawReply));
-
-        // Step 5: summarize the raw reply into 2-3 spoken sentences of plain prose.
-        // The wingman translates terminal output (markdown, code, file paths) into
-        // something that can be read aloud naturally. Falls back to the raw reply text
-        // on any failure so the user always hears something rather than silence.
-        onUpdate?.Invoke(new TurnUpdate("summarizing", "Summarizing..."));
-        var spokenSummary = await SummarizeForVoiceAsync(session, rawReply, ct);
-
-        // "speaking" fires after summarization completes and before TTS begins,
-        // so the status label reads "Speaking..." only while audio is actually playing.
-        onUpdate?.Invoke(new TurnUpdate("speaking", "Speaking..."));
-        await SpeakAsync(session.TailnetEndpoint, spokenSummary, ct);
-        return rawReply;
-    }
-
-    /// <summary>
-    /// Ask the wingman to turn the raw agent reply into 2-3 sentences of plain spoken prose
-    /// safe to read aloud while driving (no markdown, no code, question preserved at the end
-    /// when the agent is asking the user something). Falls back to the raw <paramref name="rawReply"/>
-    /// text if the wingman is unavailable, times out, or returns empty, so the user always
-    /// hears something rather than silence.
-    /// </summary>
-    private async Task<string> SummarizeForVoiceAsync(
-        SessionInfo session, string rawReply, CancellationToken ct)
-    {
-        if (string.IsNullOrWhiteSpace(rawReply)) return rawReply;
-        ClientLog.Write($"[VoiceConversation] SummarizeForVoice: session={session.DisplayName}, rawChars={rawReply.Length}");
-        try
+        // Poll the Gateway's job cache until the turn lands in a terminal stage.
+        // Stage vocabulary: submitted, transcribing, transcript, waiting, thinking,
+        // summarizing, reply (terminal), error (terminal).
+        var lastStage = "";
+        while (true)
         {
-            var prompt =
-                "Summarize the following agent reply in 2-3 spoken sentences of plain prose " +
-                "for a user who is driving. No markdown. No code. No bullet points. " +
-                "If the agent is asking the user a question, end with that question clearly. " +
-                $"Reply: {rawReply}";
-            var summary = await _client.AskWingmanAsync(session.TailnetEndpoint, session.SessionId, prompt, ct);
-            if (!string.IsNullOrWhiteSpace(summary))
+            ct.ThrowIfCancellationRequested();
+            await Task.Delay(TimeSpan.FromMilliseconds(VoiceTurnPollMs), ct);
+
+            var poll = await _client.PollVoiceTurnAsync(
+                _gatewayBaseUrl, session.SessionId, submit.TurnId, ct);
+
+            if (!string.Equals(poll.Stage, lastStage, StringComparison.Ordinal))
             {
-                ClientLog.Write($"[VoiceConversation] SummarizeForVoice OK: summaryChars={summary.Length}");
-                return summary;
+                lastStage = poll.Stage;
+                switch (poll.Stage)
+                {
+                    case "transcribing":
+                        onUpdate?.Invoke(new TurnUpdate("transcribing", "Transcribing..."));
+                        break;
+                    case "transcript":
+                        if (!string.IsNullOrWhiteSpace(poll.Transcript))
+                            onUpdate?.Invoke(new TurnUpdate("transcript", poll.Transcript));
+                        break;
+                    case "waiting":
+                        onUpdate?.Invoke(new TurnUpdate("waiting", "Waiting for the session to be ready..."));
+                        break;
+                    case "thinking":
+                        onUpdate?.Invoke(new TurnUpdate("thinking", "Thinking..."));
+                        break;
+                    case "summarizing":
+                        onUpdate?.Invoke(new TurnUpdate("summarizing", "Summarizing..."));
+                        break;
+                }
             }
-            ClientLog.Write("[VoiceConversation] SummarizeForVoice: wingman returned empty, using raw reply");
+
+            if (string.Equals(poll.Stage, "error", StringComparison.Ordinal))
+                throw new InvalidOperationException($"gateway voice turn failed: {poll.Error ?? "unknown error"}");
+
+            if (!string.Equals(poll.Stage, "reply", StringComparison.Ordinal))
+                continue;
+
+            var summary = poll.Summary ?? "";
+            onUpdate?.Invoke(new TurnUpdate("reply", summary));
+
+            // "speaking" fires before playback begins so the status label reads
+            // "Speaking..." only while audio is actually playing. The Gateway returns
+            // the reply audio with the result; audioBase64 is empty (never null) when
+            // the Director has no TTS key, in which case the on-screen summary is the
+            // whole reply.
+            onUpdate?.Invoke(new TurnUpdate("speaking", "Speaking..."));
+            if (!string.IsNullOrWhiteSpace(poll.AudioBase64))
+            {
+                var mp3 = Convert.FromBase64String(poll.AudioBase64);
+                if (mp3.Length > 0)
+                    await _tts.PlayAsync(mp3, ct);
+            }
+
+            ClientLog.Write($"[VoiceConversation] SpeakTurn done: turnId={submit.TurnId}, summaryChars={summary.Length}");
+            return summary;
         }
-        catch (Exception ex)
-        {
-            ClientLog.Write($"[VoiceConversation] SummarizeForVoice FAILED (fallback): {ex.Message}");
-        }
-        return rawReply;
     }
 
     /// <summary>
@@ -319,66 +329,6 @@ public sealed class VoiceConversation
             await SpeakAsync(session.TailnetEndpoint,answer, ct);
         }
         return answer;
-    }
-
-    /// <summary>
-    /// Block until the session has finished its current turn (is at a stopping
-    /// point: Idle / WaitingForInput / WaitingForPerm, which the server reports as
-    /// poll status "ok"). If it is still working, announce it once and poll until
-    /// it finishes. Throws if the session has exited. Honors cancellation so the
-    /// user can leave instead of waiting on a long turn.
-    /// </summary>
-    private async Task WaitUntilReadyAsync(SessionInfo session, Action<TurnUpdate>? onUpdate, CancellationToken ct)
-    {
-        var poll = await _client.PollChatAsync(session.TailnetEndpoint, session.SessionId, wantProgress: false, ct);
-        if (poll.IsGone)
-            throw new InvalidOperationException("that session has exited");
-        if (!poll.IsWorking)
-            return; // already finished its turn - safe to ask now
-
-        ClientLog.Write($"[VoiceConversation] WaitUntilReady: session={session.DisplayName} is working; holding the question");
-        onUpdate?.Invoke(new TurnUpdate("waiting", "That session is still working. I will ask when it finishes."));
-        await SpeakAsync(session.TailnetEndpoint,"That session is still working. I'll ask when it finishes.", ct);
-
-        while (!ct.IsCancellationRequested)
-        {
-            await Task.Delay(TimeSpan.FromSeconds(ReadyPollSeconds), ct);
-            poll = await _client.PollChatAsync(session.TailnetEndpoint, session.SessionId, wantProgress: false, ct);
-            if (poll.IsGone)
-                throw new InvalidOperationException("that session has exited");
-            if (!poll.IsWorking)
-            {
-                ClientLog.Write($"[VoiceConversation] WaitUntilReady: session={session.DisplayName} now ready");
-                return;
-            }
-        }
-        ct.ThrowIfCancellationRequested();
-    }
-
-    private async Task<ChatTurnResult> FollowTurnAsync(
-        SessionInfo session, ChatTurnResult result, Action<TurnUpdate>? onUpdate, CancellationToken ct)
-    {
-        var elapsed = 0;
-        var sinceProgress = 0;
-        while (result.ShouldKeepPolling && !ct.IsCancellationRequested)
-        {
-            await Task.Delay(TimeSpan.FromSeconds(PollSeconds), ct);
-            elapsed += PollSeconds;
-            sinceProgress += PollSeconds;
-
-            var wantProgress = sinceProgress >= ProgressEverySeconds;
-            if (wantProgress) sinceProgress = 0;
-
-            result = await _client.PollChatAsync(session.TailnetEndpoint, session.SessionId, wantProgress, ct);
-
-            if (wantProgress && !string.IsNullOrWhiteSpace(result.ProgressNote))
-            {
-                onUpdate?.Invoke(new TurnUpdate("progress", result.ProgressNote));
-                await SpeakAsync(session.TailnetEndpoint,result.ProgressNote, ct);
-            }
-        }
-        ClientLog.Write($"[VoiceConversation] FollowTurn done: status={result.Status}, elapsed~{elapsed}s");
-        return result;
     }
 
     /// <summary>

@@ -21,9 +21,13 @@ public sealed record TranscribeResult(string Text);
 public sealed record BufferSlice(string Text, long NewCursor);
 
 /// <summary>
-/// Drives the per-session voice round-trip directly against the owning Director's
-/// Control API (the same endpoints the web voice page uses), using the Director's
-/// Tailnet base URL taken from the roster. Three concerns, kept apart:
+/// Drives the per-session voice round-trip. The full walkie-talkie agent turn goes
+/// through the GATEWAY's async submit/poll surface (<see cref="SubmitVoiceTurnAsync"/> /
+/// <see cref="PollVoiceTurnAsync"/>, issue #378) so the phone only ever needs the
+/// Gateway URL for it; the remaining read-only and utility calls still address the
+/// owning Director's Control API directly (the same endpoints the web voice page
+/// uses), using the Director's Tailnet base URL taken from the roster.
+/// Director-side concerns, kept apart:
 ///
 ///   1. <see cref="TranscribeUtteranceAsync"/> - upload the recorded audio and
 ///      get the transcript back (POST /voice/utterance -> PUT chunk -> POST complete).
@@ -172,6 +176,65 @@ public sealed class DirectorVoiceClient
             throw new InvalidOperationException("tts returned empty audio");
         ClientLog.Write($"[DirectorVoiceClient] SynthesizeSpeech OK: bytes={bytes.Length}");
         return bytes;
+    }
+
+    // ===== ASYNC VOICE TURN (Gateway submit + poll, issue #378) =============
+
+    /// <summary>
+    /// Submit a recorded utterance to the GATEWAY's async voice-turn pipeline
+    /// (POST {gatewayBase}/sessions/{sid}/voice-turn/submit, issue #376). The Gateway
+    /// resolves the owning Director, drives the turn server-side (transcribe, send to
+    /// the session, summarize, TTS), and caches the result for 10 minutes - so the
+    /// phone is freed immediately and can poll again after a signal drop. Pass the
+    /// Gateway base URL, never a Director's address: the Gateway is the stable entry
+    /// point and its address does not change when a session moves between Directors.
+    /// Throws on HTTP failure or a malformed 202 so the caller surfaces the real error.
+    /// </summary>
+    public async Task<VoiceTurnSubmitResult> SubmitVoiceTurnAsync(
+        string gatewayBase, string sessionId, byte[] audio, string mime, CancellationToken ct = default)
+    {
+        var b = gatewayBase.TrimEnd('/');
+        ClientLog.Write($"[DirectorVoiceClient] SubmitVoiceTurn: base={b}, sid={sessionId}, bytes={audio.Length}, mime={mime}");
+        using var http = NewClient();
+        using var form = new MultipartFormDataContent();
+        var audioContent = new ByteArrayContent(audio);
+        audioContent.Headers.ContentType = new MediaTypeHeaderValue(mime);
+        var ext = mime switch
+        {
+            "audio/mp4" => "m4a",
+            "audio/webm" => "webm",
+            "audio/ogg" => "ogg",
+            "audio/wav" => "wav",
+            _ => "bin",
+        };
+        form.Add(audioContent, "audio", $"audio.{ext}");
+        var resp = await http.PostAsync($"{b}/sessions/{sessionId}/voice-turn/submit", form, ct);
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode)
+            throw new HttpRequestException($"voice-turn/submit failed: {(int)resp.StatusCode} {body}");
+        var r = VoiceTurnResults.ParseSubmit(body);
+        ClientLog.Write($"[DirectorVoiceClient] SubmitVoiceTurn OK: turnId={r.TurnId}");
+        return r;
+    }
+
+    /// <summary>
+    /// Poll the GATEWAY for the result of a previously submitted voice turn
+    /// (GET {gatewayBase}/sessions/{sid}/voice-turn/{turnId}). Answered from the
+    /// Gateway's job cache - no Director call. Call every ~1.5 seconds until
+    /// <see cref="VoiceTurnPollResult.Stage"/> is "reply" or "error". Throws on HTTP
+    /// failure (including the 404 for an unknown/expired turn id) so the caller
+    /// surfaces the real reason.
+    /// </summary>
+    public async Task<VoiceTurnPollResult> PollVoiceTurnAsync(
+        string gatewayBase, string sessionId, string turnId, CancellationToken ct = default)
+    {
+        var b = gatewayBase.TrimEnd('/');
+        using var http = NewClient();
+        var resp = await http.GetAsync($"{b}/sessions/{sessionId}/voice-turn/{turnId}", ct);
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode)
+            throw new HttpRequestException($"voice-turn poll failed: {(int)resp.StatusCode} {body}");
+        return VoiceTurnResults.ParsePoll(body);
     }
 
     // ===== 2. CHAT (send + follow) =========================================
