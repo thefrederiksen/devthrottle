@@ -4,6 +4,7 @@ using System.Text.Json;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Discovery;
+using CcDirector.Gateway.Util;
 using CcDirector.Gateway.Voice;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -28,6 +29,11 @@ namespace CcDirector.Gateway.Api;
 /// TTS); this layer only owns the async interface and the result cache. Owner resolution
 /// mirrors <see cref="SessionWsProxyEndpoints"/>: the <see cref="SessionOwnerCache"/> fast
 /// path first, then a live fleet fan-out.
+///
+/// Both routes require the Gateway token (issue #369) via <see cref="AuthMiddleware.HasValidToken"/>
+/// - the same Bearer-or-cookie check every other protected route uses - enforced HERE so the
+/// gate holds even in production mode, where the global auth middleware is off
+/// (the tray Gateway runs authEnabled=false). Missing/wrong token -> 401.
 /// </summary>
 internal static class GatewayVoiceTurnEndpoint
 {
@@ -41,6 +47,16 @@ internal static class GatewayVoiceTurnEndpoint
         app.MapPost("/sessions/{sid}/voice-turn/submit", async (string sid, HttpContext ctx) =>
         {
             FileLog.Write($"[GatewayVoiceTurn] POST /sessions/{sid}/voice-turn/submit from {ctx.Connection.RemoteIpAddress}");
+
+            // Issue #369: token-gated even when the global AuthMiddleware is off (the
+            // production tray Gateway runs authEnabled=false). Same mechanism as every
+            // other protected Gateway route - Bearer header or the gateway cookie.
+            if (!AuthMiddleware.HasValidToken(ctx, token))
+            {
+                FileLog.Write($"[GatewayVoiceTurn] submit sid={sid}: missing or invalid token from {ctx.Connection.RemoteIpAddress} -> 401");
+                return Results.Json(new { error = "missing or invalid token" },
+                    statusCode: StatusCodes.Status401Unauthorized);
+            }
 
             if (!Guid.TryParse(sid, out _))
                 return Results.Json(new { error = "invalid session id format" }, statusCode: StatusCodes.Status400BadRequest);
@@ -102,8 +118,16 @@ internal static class GatewayVoiceTurnEndpoint
                 statusCode: StatusCodes.Status202Accepted);
         });
 
-        app.MapGet("/sessions/{sid}/voice-turn/{turnId}", (string sid, string turnId) =>
+        app.MapGet("/sessions/{sid}/voice-turn/{turnId}", (string sid, string turnId, HttpContext ctx) =>
         {
+            // Issue #369: same token gate as the submit route above.
+            if (!AuthMiddleware.HasValidToken(ctx, token))
+            {
+                FileLog.Write($"[GatewayVoiceTurn] poll sid={sid} turnId={turnId}: missing or invalid token from {ctx.Connection.RemoteIpAddress} -> 401");
+                return Results.Json(new { error = "missing or invalid token" },
+                    statusCode: StatusCodes.Status401Unauthorized);
+            }
+
             var job = store.Get(turnId);
             if (job is null || !string.Equals(job.SessionId, sid, StringComparison.OrdinalIgnoreCase))
             {

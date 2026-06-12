@@ -30,6 +30,9 @@ public sealed class GatewayVoiceTurnAsyncTests : IAsyncLifetime
 {
     private static readonly TimeSpan ReplyDeadline = TimeSpan.FromSeconds(120);
 
+    /// <summary>The Gateway's per-instance token; the voice-turn routes require it (issue #369).</summary>
+    private const string GatewayToken = "test-token";
+
     private ControlApiHost _director = null!;
     private SessionManager _sm = null!;
     private GatewayHost _gateway = null!;
@@ -52,15 +55,20 @@ public sealed class GatewayVoiceTurnAsyncTests : IAsyncLifetime
             instancesDirectory: _instancesDir);
         await _director.StartAsync();
 
-        _gateway = new GatewayHost(port: AllocateFreePort(), token: "test-token", authEnabled: false,
+        _gateway = new GatewayHost(port: AllocateFreePort(), token: GatewayToken, authEnabled: false,
             instancesDirectory: _instancesDir,
             workListsPath: Path.Combine(_instancesDir, "worklists", "worklists.json"));
         await _gateway.StartAsync();
+        // The voice-turn routes are endpoint-level token-gated (issue #369) even with
+        // authEnabled:false (production tray mode), so the default client authenticates
+        // like the phone does (DirectorVoiceClient.NewClient): Authorization: Bearer.
         _http = new HttpClient
         {
             BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/"),
             Timeout = TimeSpan.FromSeconds(30),
         };
+        _http.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", GatewayToken);
 
         // Wait for FSW discovery of the in-process Director.
         var deadline = DateTime.UtcNow.AddSeconds(5);
@@ -80,6 +88,94 @@ public sealed class GatewayVoiceTurnAsyncTests : IAsyncLifetime
         Environment.SetEnvironmentVariable("OPENAI_API_KEY", _originalEnv);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); }
         catch { /* test cleanup, ignore */ }
+    }
+
+    // ===== Auth (issue #369): both routes are token-gated even with authEnabled:false =====
+
+    /// <summary>A client with NO Authorization header (and no cookie) against the same Gateway.</summary>
+    private HttpClient NewAnonymousClient(string? bearer = null)
+    {
+        var http = new HttpClient
+        {
+            BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/"),
+            Timeout = TimeSpan.FromSeconds(30),
+        };
+        if (bearer is not null)
+            http.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearer);
+        return http;
+    }
+
+    [Fact]
+    public async Task Submit_MissingToken_Returns401()
+    {
+        var sid = AdoptQuickIdleSession();
+
+        using var anon = NewAnonymousClient();
+        var resp = await anon.PostAsJsonAsync($"sessions/{sid}/voice-turn/submit", new { text = "hello" });
+
+        Assert.Equal(HttpStatusCode.Unauthorized, resp.StatusCode);
+        var body = await resp.Content.ReadAsStringAsync();
+        Assert.Contains("missing or invalid token", body, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Submit_InvalidToken_Returns401()
+    {
+        var sid = AdoptQuickIdleSession();
+
+        using var wrong = NewAnonymousClient(bearer: "wrong-token");
+        var resp = await wrong.PostAsJsonAsync($"sessions/{sid}/voice-turn/submit", new { text = "hello" });
+
+        Assert.Equal(HttpStatusCode.Unauthorized, resp.StatusCode);
+        var body = await resp.Content.ReadAsStringAsync();
+        Assert.Contains("missing or invalid token", body, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Poll_MissingToken_Returns401()
+    {
+        // A REAL turn id (created with the valid token) must still be unreadable without one:
+        // the gate sits before the job lookup, so the 401 never leaks turn existence.
+        var sid = AdoptQuickIdleSession();
+        var turnId = await SubmitTextTurnAsync(sid, "What is 2 + 2?");
+
+        using var anon = NewAnonymousClient();
+        var resp = await anon.GetAsync($"sessions/{sid}/voice-turn/{turnId}");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, resp.StatusCode);
+        var body = await resp.Content.ReadAsStringAsync();
+        Assert.Contains("missing or invalid token", body, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Poll_InvalidToken_Returns401()
+    {
+        var sid = AdoptQuickIdleSession();
+        var turnId = await SubmitTextTurnAsync(sid, "What is 2 + 2?");
+
+        using var wrong = NewAnonymousClient(bearer: "wrong-token");
+        var resp = await wrong.GetAsync($"sessions/{sid}/voice-turn/{turnId}");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task Submit_GatewayCookie_IsAcceptedLikeOtherProtectedRoutes()
+    {
+        // The mechanism is AuthMiddleware's bearer-OR-cookie check, reused verbatim - so the
+        // cc-gateway-token cookie (the Cockpit browser path) authenticates here too.
+        var sid = AdoptQuickIdleSession();
+
+        using var cookieClient = NewAnonymousClient();
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"sessions/{sid}/voice-turn/submit")
+        {
+            Content = new StringContent("""{"text":"What is 2 + 2?"}""", Encoding.UTF8, "application/json"),
+        };
+        req.Headers.Add("Cookie", $"cc-gateway-token={GatewayToken}");
+        var resp = await cookieClient.SendAsync(req);
+
+        Assert.Equal(HttpStatusCode.Accepted, resp.StatusCode);
     }
 
     // ===== Submit validation =====
