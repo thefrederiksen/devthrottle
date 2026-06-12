@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>CC Director Cockpit - UI Cleanup Inventory</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f1117; color: #e2e8f0; font-size: 14px; }
+
+  .header { padding: 24px 32px 16px; border-bottom: 1px solid #1e2535; }
+  .header h1 { font-size: 22px; font-weight: 700; color: #f8fafc; }
+  .header p { margin-top: 6px; color: #94a3b8; font-size: 13px; }
+
+  .screenshots { display: flex; gap: 12px; padding: 20px 32px; border-bottom: 1px solid #1e2535; flex-wrap: wrap; }
+  .screenshots figure { flex: 0 0 auto; }
+  .screenshots img { height: 180px; border: 1px solid #1e2535; border-radius: 4px; display: block; }
+  .screenshots figcaption { font-size: 10px; color: #64748b; text-align: center; margin-top: 4px; }
+
+  .table-section { padding: 0 32px 40px; }
+  .region-header { font-size: 16px; font-weight: 700; color: #f8fafc; margin: 28px 0 8px; padding-bottom: 8px; border-bottom: 1px solid #1e2535; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.08em; padding: 8px 12px; border-bottom: 1px solid #1e2535; }
+  td { padding: 9px 12px; border-bottom: 1px solid #111827; vertical-align: top; }
+  tr:hover td { background: #111827; }
+  .col-el  { width: 220px; font-weight: 500; color: #f1f5f9; }
+  .col-what { color: #94a3b8; font-size: 13px; }
+  .col-status { width: 110px; }
+  .col-notes { color: #64748b; font-size: 12px; }
+  .tag-keep   { background: #14532d; color: #86efac; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+  .tag-alpha  { background: #431407; color: #f97316; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; white-space: nowrap; border: 1px solid #7c2d12; }
+  .tag-remove { background: #3b0764; color: #e879f9; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+  .tag-tbd    { background: #1e1b4b; color: #a5b4fc; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>CC Director Cockpit - UI Cleanup Inventory</h1>
+  <p>Screenshots: Cockpit v0.6.22 at localhost:7470, captured 2026-06-12. Decision: KEEP / ALPHA / REMOVE / TBD.</p>
+</div>
+
+<div class="screenshots">
+  <figure>
+    <img src="file:///D:/Personal/OneDrive/Pictures/Screenshots/cockpit-cockpit.png" alt="Cockpit">
+    <figcaption>/cockpit</figcaption>
+  </figure>
+  <figure>
+    <img src="file:///D:/Personal/OneDrive/Pictures/Screenshots/cockpit-sessions.png" alt="Sessions">
+    <figcaption>/sessions</figcaption>
+  </figure>
+  <figure>
+    <img src="file:///D:/Personal/OneDrive/Pictures/Screenshots/cockpit-directors.png" alt="Directors">
+    <figcaption>/directors</figcaption>
+  </figure>
+  <figure>
+    <img src="file:///D:/Personal/OneDrive/Pictures/Screenshots/cockpit-fleet.png" alt="Fleet">
+    <figcaption>/fleet</figcaption>
+  </figure>
+  <figure>
+    <img src="file:///D:/Personal/OneDrive/Pictures/Screenshots/cockpit-lists.png" alt="Lists">
+    <figcaption>/lists</figcaption>
+  </figure>
+  <figure>
+    <img src="file:///D:/Personal/OneDrive/Pictures/Screenshots/cockpit-feedback.png" alt="Feedback">
+    <figcaption>/feedback</figcaption>
+  </figure>
+  <figure>
+    <img src="file:///D:/Personal/OneDrive/Pictures/Screenshots/cockpit-settings.png" alt="Settings">
+    <figcaption>/settings</figcaption>
+  </figure>
+  <figure>
+    <img src="file:///D:/Personal/OneDrive/Pictures/Screenshots/cockpit-about.png" alt="About">
+    <figcaption>/about</figcaption>
+  </figure>
+  <figure>
+    <img src="file:///D:/Personal/OneDrive/Pictures/Screenshots/cockpit-exes.png" alt="Builds">
+    <figcaption>/exes (Builds)</figcaption>
+  </figure>
+  <figure>
+    <img src="file:///D:/Personal/OneDrive/Pictures/Screenshots/cockpit-transcripts.png" alt="Voice">
+    <figcaption>/transcripts (Voice)</figcaption>
+  </figure>
+  <figure>
+    <img src="file:///D:/Personal/OneDrive/Pictures/Screenshots/cockpit-keys.png" alt="API Keys">
+    <figcaption>/keys (API Keys)</figcaption>
+  </figure>
+</div>
+
+<div class="table-section">
+
+  <!-- ==================== LEFT NAVIGATION ==================== -->
+  <div class="region-header">Left Navigation</div>
+  <table>
+    <thead><tr><th class="col-el">Nav Item</th><th class="col-what">What it shows</th><th class="col-status">Decision</th><th class="col-notes">Notes</th></tr></thead>
+    <tbody>
+      <tr><td class="col-el">Home (/)</td><td class="col-what">Fleet dashboard - session counts, status overview</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Cockpit (/cockpit)</td><td class="col-what">Main session tree - drive sessions, see status, new session</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes">Core page</td></tr>
+      <tr><td class="col-el">Lists (/lists)</td><td class="col-what">Named priority queues - hold items across any repo/source, drained by the loop</td><td class="col-status"><span class="tag-alpha">ALPHA</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Sessions (/sessions)</td><td class="col-what">Flat table of all sessions across fleet</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Directors (/directors)</td><td class="col-what">Registered Director instances - machine, version, endpoint, status</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Fleet (/fleet)</td><td class="col-what">Interrupted session recovery - restore or dismiss sessions lost to Director crash</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes">Important recovery surface</td></tr>
+      <tr><td class="col-el">Feedback (/feedback)</td><td class="col-what">Wingman brief vote history</td><td class="col-status"><span class="tag-alpha">ALPHA</span></td><td class="col-notes">Wingman is alpha</td></tr>
+      <tr><td class="col-el">About (/about)</td><td class="col-what">Version, machine, install root, installed components</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Settings (/settings)</td><td class="col-what">Gateway + fleet configuration</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Builds (/exes)</td><td class="col-what">Director build/exe manager</td><td class="col-status"><span class="tag-alpha">ALPHA</span></td><td class="col-notes">Returns HTTP 404 currently - hide until fixed</td></tr>
+      <tr><td class="col-el">Voice (/transcripts)</td><td class="col-what">Voice Recorder - transcripts + dictionary tabs</td><td class="col-status"><span class="tag-alpha">ALPHA</span></td><td class="col-notes">Voice is alpha</td></tr>
+      <tr><td class="col-el">Dictionary (/dictionary)</td><td class="col-what">Same page as Voice - dictionary tab</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes">Shared page with Voice; Dictionary tab itself is keep even though Voice tab is alpha</td></tr>
+      <tr><td class="col-el">API Keys (/keys)</td><td class="col-what">Dedicated API key management page</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+    </tbody>
+  </table>
+
+  <!-- ==================== COCKPIT PAGE (/cockpit) ==================== -->
+  <div class="region-header">Cockpit Page (/cockpit) - Top Bar</div>
+  <table>
+    <thead><tr><th class="col-el">Element</th><th class="col-what">What it does</th><th class="col-status">Decision</th><th class="col-notes">Notes</th></tr></thead>
+    <tbody>
+      <tr><td class="col-el">CC Director + Gateway Cockpit label</td><td class="col-what">Branding / title</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Session count + "N need you" badge</td><td class="col-what">Fleet attention summary</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">+ New session button</td><td class="col-what">Opens new session flow</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Fan-out button</td><td class="col-what">Broadcast a prompt to multiple sessions at once</td><td class="col-status"><span class="tag-alpha">ALPHA</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Settings button (top right)</td><td class="col-what">Opens raw Director config.json editor dialog</td><td class="col-status"><span class="tag-alpha">ALPHA</span></td><td class="col-notes">Exposes raw file paths and machine info; not safe for general use</td></tr>
+      <tr><td class="col-el">Endpoint URL display</td><td class="col-what">Shows the Gateway Control API URL</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Version + updated timestamp</td><td class="col-what">Gateway version and last-refresh time</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+    </tbody>
+  </table>
+
+  <div class="region-header">Cockpit Page (/cockpit) - Session Tree</div>
+  <table>
+    <thead><tr><th class="col-el">Element</th><th class="col-what">What it does</th><th class="col-status">Decision</th><th class="col-notes">Notes</th></tr></thead>
+    <tbody>
+      <tr><td class="col-el">Tree tab</td><td class="col-what">Shows sessions grouped under their Director/machine</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Triage tab</td><td class="col-what">Filtered view of sessions needing attention</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Director group header (machine name + count)</td><td class="col-what">Groups sessions by Director instance</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Director version + uptime + "+" button</td><td class="col-what">Director metadata; + adds a session to this Director</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Session row (name + status dot + state)</td><td class="col-what">Click to open session detail panel</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">"needs you" badge on session</td><td class="col-what">Flags session waiting for user input</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Collapse sidebar ("«") button</td><td class="col-what">Hides the left nav rail</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Session detail panel (right side)</td><td class="col-what">Terminal + screenshots + queue + composer for selected session</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">What's happening button</td><td class="col-what">Recap + turn summaries for the selected session</td><td class="col-status"><span class="tag-alpha">ALPHA</span></td><td class="col-notes">Wingman/awareness feature</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ==================== SESSIONS PAGE ==================== -->
+  <div class="region-header">Sessions Page (/sessions)</div>
+  <table>
+    <thead><tr><th class="col-el">Element</th><th class="col-what">What it does</th><th class="col-status">Decision</th><th class="col-notes">Notes</th></tr></thead>
+    <tbody>
+      <tr><td class="col-el">Filter by name/repo/machine search</td><td class="col-what">Free-text session filter</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">State dropdown (All states)</td><td class="col-what">Filter by session state</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Director dropdown (All directors)</td><td class="col-what">Filter by Director instance</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Session table (name, repo, agent, machine, state, activity, created)</td><td class="col-what">Full fleet session list</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">drive → link per row</td><td class="col-what">Opens that session in the Cockpit drive view</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+    </tbody>
+  </table>
+
+  <!-- ==================== SETTINGS PAGE ==================== -->
+  <div class="region-header">Settings Page (/settings)</div>
+  <table>
+    <thead><tr><th class="col-el">Section</th><th class="col-what">What it does</th><th class="col-status">Decision</th><th class="col-notes">Notes</th></tr></thead>
+    <tbody>
+      <tr><td class="col-el">API Keys section</td><td class="col-what">Set the OpenAI key stored on the Gateway</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Brain section (warm claude.exe)</td><td class="col-what">Hosted claude.exe used by Gateway agents (Wingman). Restart Brain button.</td><td class="col-status"><span class="tag-alpha">ALPHA</span></td><td class="col-notes">Wingman is alpha</td></tr>
+      <tr><td class="col-el">Wingman section (turn-brief pipeline)</td><td class="col-what">Enable/disable Wingman brief generation on turn-end</td><td class="col-status"><span class="tag-alpha">ALPHA</span></td><td class="col-notes">Wingman is alpha</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ==================== OTHER PAGES ==================== -->
+  <div class="region-header">Other Pages</div>
+  <table>
+    <thead><tr><th class="col-el">Page</th><th class="col-what">What it shows</th><th class="col-status">Decision</th><th class="col-notes">Notes</th></tr></thead>
+    <tbody>
+      <tr><td class="col-el">Fleet (/fleet)</td><td class="col-what">Interrupted session recovery - restore or dismiss sessions lost to Director crash</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Directors (/directors)</td><td class="col-what">Table of registered Directors: machine, version, endpoint, PID, sessions, status</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">About (/about)</td><td class="col-what">Product version, machine name, install root, Cockpit URL, component versions</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes">Shows install path with username at runtime (not hardcoded)</td></tr>
+      <tr><td class="col-el">API Keys (/keys)</td><td class="col-what">Standalone API key management (same data as Settings > API Keys)</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Lists (/lists)</td><td class="col-what">Named priority queues drained by the loop runner</td><td class="col-status"><span class="tag-alpha">ALPHA</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Builds (/exes)</td><td class="col-what">Director build manager</td><td class="col-status"><span class="tag-alpha">ALPHA</span></td><td class="col-notes">Returns HTTP 404 currently - hide until fixed</td></tr>
+      <tr><td class="col-el">Voice (/transcripts)</td><td class="col-what">Voice Recorder - Transcripts tab (phone recordings)</td><td class="col-status"><span class="tag-alpha">ALPHA</span></td><td class="col-notes">Voice is alpha</td></tr>
+      <tr><td class="col-el">Dictionary (/dictionary)</td><td class="col-what">Voice Recorder - Dictionary tab (dictation word list)</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes">Shares page with Voice but Dictionary tab is keep</td></tr>
+      <tr><td class="col-el">Feedback (/feedback)</td><td class="col-what">Wingman brief vote log</td><td class="col-status"><span class="tag-alpha">ALPHA</span></td><td class="col-notes">Wingman is alpha</td></tr>
+    </tbody>
+  </table>
+
+  <div style="margin-top:40px;padding:20px;background:#111827;border-radius:8px;color:#64748b;font-size:13px;">
+    <strong style="color:#94a3b8;">TBDs to resolve:</strong> Lists, Fan-out button, Triage tab, API Keys page (vs Settings section). Then implement: hide ALPHA nav items, remove Builds nav link, hide Brain/Wingman sections in Settings.
+  </div>
+
+</div>
+</body>
+</html>

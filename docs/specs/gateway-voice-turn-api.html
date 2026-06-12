@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gateway Voice Turn API - Design Spec</title>
+<style>
+  :root {
+    --bg:        #0d1117;
+    --card:      #161b22;
+    --border:    #30363d;
+    --border2:   #21262d;
+    --blue:      #4d9ef7;
+    --blue-dim:  #1b3a5c;
+    --purple:    #a371f7;
+    --purple-dim:#2d1f5e;
+    --green:     #3fb950;
+    --green-dim: #0d2a14;
+    --amber:     #d29922;
+    --amber-dim: #3d2b00;
+    --red:       #f85149;
+    --red-dim:   #3d0c09;
+    --text:      #c9d1d9;
+    --muted:     #6e7681;
+    --heading:   #f0f6fc;
+    --code-bg:   #0d1117;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  /* ---- layout ---- */
+  .page { max-width: 1100px; margin: 0 auto; padding: 40px 24px 80px; }
+
+  h1 { font-size: 28px; color: var(--heading); font-weight: 700; margin-bottom: 8px; }
+  h2 { font-size: 20px; color: var(--heading); font-weight: 600; margin: 48px 0 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 15px; color: var(--heading); font-weight: 600; margin: 24px 0 8px; }
+  h4 { font-size: 13px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .05em; margin: 16px 0 6px; }
+
+  p  { margin-bottom: 12px; }
+  ul { margin: 8px 0 12px 20px; }
+  li { margin-bottom: 4px; }
+  a  { color: var(--blue); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  code {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
+    font-size: 12px;
+    color: #79c0ff;
+  }
+
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    overflow-x: auto;
+    margin: 8px 0 16px;
+    font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.7;
+    color: #c9d1d9;
+  }
+
+  pre .kw  { color: #ff7b72; }   /* keyword */
+  pre .str { color: #a5d6ff; }   /* string  */
+  pre .num { color: #d2a8ff; }   /* number  */
+  pre .cmt { color: #6e7681; font-style: italic; }  /* comment */
+  pre .key { color: #79c0ff; }   /* json key */
+
+  /* ---- badge / pill ---- */
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+  }
+  .badge-get    { background: var(--green-dim); color: var(--green); border: 1px solid var(--green); }
+  .badge-post   { background: var(--blue-dim);  color: var(--blue);  border: 1px solid var(--blue); }
+  .badge-put    { background: var(--amber-dim); color: var(--amber); border: 1px solid var(--amber); }
+  .badge-delete { background: var(--red-dim);   color: var(--red);   border: 1px solid var(--red); }
+
+  /* ---- state badge ---- */
+  .state {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .03em;
+  }
+  .s-registered  { background: #161b22; color: var(--muted);   border: 1px solid var(--border); }
+  .s-uploading   { background: var(--blue-dim); color: var(--blue); border: 1px solid var(--blue); }
+  .s-transcribing{ background: var(--purple-dim); color: var(--purple); border: 1px solid var(--purple); }
+  .s-thinking    { background: var(--amber-dim); color: var(--amber); border: 1px solid var(--amber); }
+  .s-synthesizing{ background: #0d2518; color: #58d68d; border: 1px solid #27ae60; }
+  .s-ready       { background: var(--green-dim); color: var(--green); border: 1px solid var(--green); }
+  .s-error       { background: var(--red-dim);   color: var(--red);   border: 1px solid var(--red); }
+
+  /* ---- card ---- */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 24px;
+    margin-bottom: 16px;
+  }
+
+  /* ---- endpoint row ---- */
+  .endpoint {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 16px;
+    overflow: hidden;
+  }
+  .endpoint-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border2);
+    background: #0d1117;
+    font-family: 'Cascadia Code', Consolas, monospace;
+    font-size: 13px;
+  }
+  .endpoint-body { padding: 16px 20px; }
+  .endpoint-path { color: var(--heading); font-weight: 600; }
+
+  /* ---- flow diagram ---- */
+  .flow-wrap {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 32px 16px;
+    margin: 16px 0;
+    overflow-x: auto;
+  }
+
+  /* ---- info / note box ---- */
+  .note {
+    background: var(--blue-dim);
+    border: 1px solid var(--blue);
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin: 12px 0;
+    font-size: 13px;
+  }
+  .warn {
+    background: var(--amber-dim);
+    border: 1px solid var(--amber);
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin: 12px 0;
+    font-size: 13px;
+  }
+
+  /* ---- table ---- */
+  table { width: 100%; border-collapse: collapse; margin: 8px 0 16px; font-size: 13px; }
+  th { text-align: left; padding: 8px 12px; border-bottom: 2px solid var(--border); color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+  td { padding: 8px 12px; border-bottom: 1px solid var(--border2); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+
+  /* ---- hero ---- */
+  .hero { margin-bottom: 40px; }
+  .hero .subtitle { color: var(--muted); font-size: 15px; margin-top: 4px; }
+  .meta { color: var(--muted); font-size: 12px; margin-top: 12px; }
+
+  /* ---- divider ---- */
+  hr { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+
+  /* ---- two-col ---- */
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 700px) { .cols { grid-template-columns: 1fr; } }
+
+  /* ---- harness section ---- */
+  .step-num {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 24px; height: 24px; border-radius: 50%;
+    background: var(--blue-dim); color: var(--blue);
+    font-size: 12px; font-weight: 700;
+    flex-shrink: 0; margin-right: 8px;
+  }
+  .step { display: flex; align-items: flex-start; gap: 0; margin-bottom: 24px; }
+  .step-content { flex: 1; }
+  .step-title { display: flex; align-items: center; margin-bottom: 6px; font-weight: 600; color: var(--heading); }
+
+</style>
+</head>
+<body>
+<div class="page">
+
+<!-- HERO -->
+<div class="hero">
+  <h1>Gateway Voice Turn API</h1>
+  <p class="subtitle">Async voice-to-agent round-trip over a resilient, chunked-upload pipeline</p>
+  <p class="meta">spec v1.0 &nbsp;|&nbsp; 2026-06-11 &nbsp;|&nbsp; cc-director</p>
+</div>
+
+<!-- OVERVIEW -->
+<h2>Overview</h2>
+<p>
+  A voice turn lets a client (phone, web app, car) speak to a running agent session and hear a spoken reply.
+  The pipeline must survive poor network conditions: audio is uploaded in resumable chunks and all
+  processing happens on the Gateway after the upload is complete.
+  The client just submits audio and waits; a status poll tells it when audio is ready to play.
+</p>
+<div class="note">
+  <strong>Design principle:</strong> The client does one thing -- capture audio and play audio.
+  Everything else (transcription, routing, agent response, TTS synthesis) happens on the Gateway,
+  making the same REST surface reusable by any client: phone, browser, car unit, CLI test script.
+</div>
+
+<!-- PARTICIPANTS -->
+<div class="cols">
+  <div class="card">
+    <h4>Client (any)</h4>
+    <ul>
+      <li>Records audio (or types text)</li>
+      <li>Uploads in chunks -- survives signal drops</li>
+      <li>Polls for status</li>
+      <li>Downloads and plays response audio</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4>Gateway (port 7878)</h4>
+    <ul>
+      <li>Accepts chunked audio upload</li>
+      <li>Transcribes with Whisper</li>
+      <li>Routes text to the right Director / session</li>
+      <li>Synthesizes agent reply to audio with TTS</li>
+      <li>Stores result until client downloads</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ================================================================ -->
+<!-- FLOW DIAGRAM                                                       -->
+<!-- ================================================================ -->
+<h2>End-to-End Flow</h2>
+
+<div class="flow-wrap">
+<svg viewBox="0 0 1020 620" xmlns="http://www.w3.org/2000/svg"
+     style="width:100%;min-width:700px;display:block;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
+
+  <!-- ===== BACKGROUND LANES ===== -->
+  <!-- Client lane -->
+  <rect x="0"   y="40" width="230" height="560" rx="8" fill="#161b22" stroke="#30363d" stroke-width="1"/>
+  <!-- Gateway lane -->
+  <rect x="390" y="40" width="250" height="560" rx="8" fill="#1a1225" stroke="#30363d" stroke-width="1"/>
+  <!-- Director lane -->
+  <rect x="790" y="40" width="220" height="560" rx="8" fill="#0d1f14" stroke="#30363d" stroke-width="1"/>
+
+  <!-- Lane headers -->
+  <rect x="0"   y="40" width="230" height="36" rx="8" fill="#1b3a5c"/>
+  <rect x="0"   y="68" width="230" height="8"  fill="#1b3a5c"/>
+  <text x="115" y="63" text-anchor="middle" fill="#4d9ef7" font-weight="700" font-size="13">CLIENT</text>
+  <text x="115" y="78" text-anchor="middle" fill="#6e7681" font-size="11">Phone | Web App | Car | CLI</text>
+
+  <rect x="390" y="40" width="250" height="36" rx="8" fill="#2d1f5e"/>
+  <rect x="390" y="68" width="250" height="8"  fill="#2d1f5e"/>
+  <text x="515" y="63" text-anchor="middle" fill="#a371f7" font-weight="700" font-size="13">GATEWAY</text>
+  <text x="515" y="78" text-anchor="middle" fill="#6e7681" font-size="11">Port 7878 (Tailscale + local)</text>
+
+  <rect x="790" y="40" width="220" height="36" rx="8" fill="#0d2a14"/>
+  <rect x="790" y="68" width="220" height="8"  fill="#0d2a14"/>
+  <text x="900" y="63" text-anchor="middle" fill="#3fb950" font-weight="700" font-size="13">DIRECTOR / SESSION</text>
+  <text x="900" y="78" text-anchor="middle" fill="#6e7681" font-size="11">Agent session (any machine)</text>
+
+  <!-- ===== STEP BOXES ===== -->
+
+  <!-- 1: Register turn -->
+  <rect x="20"  y="106" width="190" height="40" rx="6" fill="#0d1117" stroke="#4d9ef7" stroke-width="1.5"/>
+  <text x="115" y="121" text-anchor="middle" fill="#4d9ef7" font-size="11" font-weight="600">1. Register turn</text>
+  <text x="115" y="137" text-anchor="middle" fill="#6e7681" font-size="10">POST /voice-turn</text>
+
+  <!-- Arrow 1->2 -->
+  <line x1="210" y1="126" x2="388" y2="126" stroke="#4d9ef7" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <polygon points="388,122 396,126 388,130" fill="#4d9ef7"/>
+  <text x="300" y="120" text-anchor="middle" fill="#4d9ef7" font-size="10">turnId returned</text>
+
+  <!-- 2: Gateway receives registration -->
+  <rect x="405" y="106" width="220" height="40" rx="6" fill="#0d1117" stroke="#a371f7" stroke-width="1.5"/>
+  <text x="515" y="121" text-anchor="middle" fill="#a371f7" font-size="11" font-weight="600">Turn registered</text>
+  <text x="515" y="137" text-anchor="middle" fill="#6e7681" font-size="10">state: registered</text>
+
+  <!-- 3: Upload chunks (client) -->
+  <rect x="20"  y="186" width="190" height="50" rx="6" fill="#0d1117" stroke="#4d9ef7" stroke-width="1.5"/>
+  <text x="115" y="202" text-anchor="middle" fill="#4d9ef7" font-size="11" font-weight="600">2. Upload chunks</text>
+  <text x="115" y="216" text-anchor="middle" fill="#6e7681" font-size="10">PUT /voice-turn/{id}/chunk/{n}</text>
+  <text x="115" y="228" text-anchor="middle" fill="#6e7681" font-size="10">Retry any chunk on signal drop</text>
+
+  <!-- Arrow 3->gateway -->
+  <line x1="210" y1="211" x2="388" y2="211" stroke="#d29922" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <polygon points="388,207 396,211 388,215" fill="#d29922"/>
+  <text x="295" y="204" text-anchor="middle" fill="#d29922" font-size="10">raw audio bytes</text>
+
+  <!-- 4: Gateway stores chunks -->
+  <rect x="405" y="186" width="220" height="50" rx="6" fill="#0d1117" stroke="#a371f7" stroke-width="1.5"/>
+  <text x="515" y="202" text-anchor="middle" fill="#a371f7" font-size="11" font-weight="600">Chunks stored (idempotent)</text>
+  <text x="515" y="218" text-anchor="middle" fill="#6e7681" font-size="10">SHA256 guard -- safe to retry</text>
+  <text x="515" y="230" text-anchor="middle" fill="#6e7681" font-size="10">state: uploading</text>
+
+  <!-- 5: Complete -->
+  <rect x="20"  y="278" width="190" height="40" rx="6" fill="#0d1117" stroke="#4d9ef7" stroke-width="1.5"/>
+  <text x="115" y="294" text-anchor="middle" fill="#4d9ef7" font-size="11" font-weight="600">3. Mark complete</text>
+  <text x="115" y="309" text-anchor="middle" fill="#6e7681" font-size="10">POST /voice-turn/{id}/complete</text>
+
+  <!-- Arrow complete -> gateway -->
+  <line x1="210" y1="298" x2="388" y2="298" stroke="#4d9ef7" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <polygon points="388,294 396,298 388,302" fill="#4d9ef7"/>
+  <text x="300" y="290" text-anchor="middle" fill="#4d9ef7" font-size="10">202 Accepted</text>
+
+  <!-- 6: Transcribe -->
+  <rect x="405" y="270" width="220" height="56" rx="6" fill="#0d1117" stroke="#a371f7" stroke-width="1.5"/>
+  <text x="515" y="286" text-anchor="middle" fill="#a371f7" font-size="11" font-weight="600">Transcribe (Whisper)</text>
+  <text x="515" y="300" text-anchor="middle" fill="#6e7681" font-size="10">Assemble chunks → send to</text>
+  <text x="515" y="312" text-anchor="middle" fill="#6e7681" font-size="10">OpenAI /v1/audio/transcriptions</text>
+  <text x="515" y="325" text-anchor="middle" fill="#a371f7" font-size="10" font-style="italic">state: transcribing</text>
+
+  <!-- 7: Route to Director -->
+  <rect x="405" y="358" width="220" height="56" rx="6" fill="#0d1117" stroke="#a371f7" stroke-width="1.5"/>
+  <text x="515" y="374" text-anchor="middle" fill="#a371f7" font-size="11" font-weight="600">Route to Director</text>
+  <text x="515" y="389" text-anchor="middle" fill="#6e7681" font-size="10">Lookup Director by sessionId</text>
+  <text x="515" y="401" text-anchor="middle" fill="#6e7681" font-size="10">POST /sessions/{id}/voice-text</text>
+  <text x="515" y="414" text-anchor="middle" fill="#a371f7" font-size="10" font-style="italic">state: thinking</text>
+
+  <!-- Arrow gateway -> director -->
+  <line x1="625" y1="386" x2="788" y2="386" stroke="#3fb950" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <polygon points="788,382 796,386 788,390" fill="#3fb950"/>
+  <text x="707" y="378" text-anchor="middle" fill="#3fb950" font-size="10">text input</text>
+
+  <!-- Director session box -->
+  <rect x="808" y="358" width="184" height="56" rx="6" fill="#0d1117" stroke="#3fb950" stroke-width="1.5"/>
+  <text x="900" y="374" text-anchor="middle" fill="#3fb950" font-size="11" font-weight="600">Claude agent session</text>
+  <text x="900" y="389" text-anchor="middle" fill="#6e7681" font-size="10">Receives text, processes turn</text>
+  <text x="900" y="402" text-anchor="middle" fill="#6e7681" font-size="10">returns full reply text</text>
+
+  <!-- Arrow director -> gateway (reply) -->
+  <line x1="808" y1="430" x2="626" y2="460" stroke="#3fb950" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <polygon points="626,455 624,464 632,462" fill="#3fb950"/>
+  <text x="725" y="440" text-anchor="middle" fill="#3fb950" font-size="10">agent reply text</text>
+
+  <!-- 8: TTS -->
+  <rect x="405" y="450" width="220" height="56" rx="6" fill="#0d1117" stroke="#a371f7" stroke-width="1.5"/>
+  <text x="515" y="466" text-anchor="middle" fill="#a371f7" font-size="11" font-weight="600">Summarize + TTS</text>
+  <text x="515" y="480" text-anchor="middle" fill="#6e7681" font-size="10">Claude Haiku condenses reply</text>
+  <text x="515" y="492" text-anchor="middle" fill="#6e7681" font-size="10">OpenAI TTS -> audio/mpeg</text>
+  <text x="515" y="505" text-anchor="middle" fill="#a371f7" font-size="10" font-style="italic">state: synthesizing -> ready</text>
+
+  <!-- 9: Client polls -->
+  <rect x="20"  y="378" width="190" height="40" rx="6" fill="#0d1117" stroke="#4d9ef7" stroke-width="1.5"/>
+  <text x="115" y="394" text-anchor="middle" fill="#4d9ef7" font-size="11" font-weight="600">4. Poll status</text>
+  <text x="115" y="409" text-anchor="middle" fill="#6e7681" font-size="10">GET /voice-turn/{id}/status</text>
+
+  <!-- Poll arrows (loop) -->
+  <line x1="210" y1="398" x2="388" y2="398" stroke="#4d9ef7" stroke-width="1" stroke-dasharray="3,3"/>
+  <polygon points="388,394 396,398 388,402" fill="#4d9ef7"/>
+  <path d="M 25 398 Q 10 442 25 462" stroke="#4d9ef7" stroke-width="1" fill="none" stroke-dasharray="3,3"/>
+  <polygon points="22,462 26,470 30,462" fill="#4d9ef7"/>
+  <text x="5"  y="445" text-anchor="middle" fill="#4d9ef7" font-size="9">poll</text>
+
+  <!-- 10: Client download + play -->
+  <rect x="20"  y="470" width="190" height="50" rx="6" fill="#0d1117" stroke="#3fb950" stroke-width="1.5"/>
+  <text x="115" y="488" text-anchor="middle" fill="#3fb950" font-size="11" font-weight="600">5. Download audio</text>
+  <text x="115" y="503" text-anchor="middle" fill="#6e7681" font-size="10">GET /voice-turn/{id}/audio</text>
+  <text x="115" y="515" text-anchor="middle" fill="#3fb950" font-size="10">Play response to user</text>
+
+  <!-- Arrow gateway -> client (audio) -->
+  <line x1="405" y1="498" x2="212" y2="498" stroke="#3fb950" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <polygon points="212,494 204,498 212,502" fill="#3fb950"/>
+  <text x="305" y="490" text-anchor="middle" fill="#3fb950" font-size="10">audio/mpeg</text>
+
+  <!-- ===== OPTIONAL TEXT SHORTCUT ===== -->
+  <rect x="20"  y="558" width="190" height="30" rx="6" fill="#3d2b00" stroke="#d29922" stroke-width="1"/>
+  <text x="115" y="575" text-anchor="middle" fill="#d29922" font-size="10" font-weight="600">Alt: POST /voice-turn with "text"</text>
+  <text x="115" y="586" text-anchor="middle" fill="#6e7681" font-size="9">Skips upload + transcription phases</text>
+
+  <!-- step numbers in circles -->
+  <circle cx="48" cy="107" r="9" fill="#1b3a5c" stroke="#4d9ef7" stroke-width="1"/>
+  <text   x="48" y="111" text-anchor="middle" fill="#4d9ef7" font-size="9" font-weight="700">1</text>
+
+  <circle cx="48" cy="188" r="9" fill="#1b3a5c" stroke="#4d9ef7" stroke-width="1"/>
+  <text   x="48" y="192" text-anchor="middle" fill="#4d9ef7" font-size="9" font-weight="700">2</text>
+
+  <circle cx="48" cy="279" r="9" fill="#1b3a5c" stroke="#4d9ef7" stroke-width="1"/>
+  <text   x="48" y="283" text-anchor="middle" fill="#4d9ef7" font-size="9" font-weight="700">3</text>
+
+  <circle cx="48" cy="379" r="9" fill="#1b3a5c" stroke="#4d9ef7" stroke-width="1"/>
+  <text   x="48" y="383" text-anchor="middle" fill="#4d9ef7" font-size="9" font-weight="700">4</text>
+
+  <circle cx="48" cy="471" r="9" fill="#1b3a5c" stroke="#4d9ef7" stroke-width="1"/>
+  <text   x="48" y="475" text-anchor="middle" fill="#4d9ef7" font-size="9" font-weight="700">5</text>
+</svg>
+</div>
+
+<!-- ================================================================ -->
+<!-- STATE MACHINE                                                      -->
+<!-- ================================================================ -->
+<h2>Turn State Machine</h2>
+
+<div class="card">
+<table>
+  <thead>
+    <tr>
+      <th>State</th>
+      <th>Meaning</th>
+      <th>Transition</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><span class="state s-registered">registered</span></td>
+      <td>Turn ID allocated. No chunks yet.</td>
+      <td>First chunk received &rarr; <span class="state s-uploading">uploading</span></td>
+    </tr>
+    <tr>
+      <td><span class="state s-uploading">uploading</span></td>
+      <td>Chunks are being accepted.</td>
+      <td>POST /complete with all chunks present &rarr; <span class="state s-transcribing">transcribing</span></td>
+    </tr>
+    <tr>
+      <td><span class="state s-transcribing">transcribing</span></td>
+      <td>Audio assembled, Whisper running.</td>
+      <td>Transcript received &rarr; <span class="state s-thinking">thinking</span></td>
+    </tr>
+    <tr>
+      <td><span class="state s-thinking">thinking</span></td>
+      <td>Text forwarded to agent session, waiting for reply.</td>
+      <td>Agent turn complete &rarr; <span class="state s-synthesizing">synthesizing</span></td>
+    </tr>
+    <tr>
+      <td><span class="state s-synthesizing">synthesizing</span></td>
+      <td>Reply being summarized and converted to speech.</td>
+      <td>Audio ready &rarr; <span class="state s-ready">ready</span></td>
+    </tr>
+    <tr>
+      <td><span class="state s-ready">ready</span></td>
+      <td>Audio available for download. Terminal state.</td>
+      <td>Client downloads, then client calls DELETE (optional cleanup)</td>
+    </tr>
+    <tr>
+      <td><span class="state s-error">error</span></td>
+      <td>Pipeline failed at any stage. Terminal state.</td>
+      <td><code>errorMessage</code> and <code>errorStage</code> fields are set</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<!-- ================================================================ -->
+<!-- REST API REFERENCE                                                 -->
+<!-- ================================================================ -->
+<h2>REST API Reference</h2>
+<p>All endpoints are on the Gateway. Default local address: <code>http://localhost:7878</code>. Remote (Tailscale): <code>https://soren-north.taildb08ed.ts.net:7878</code>.</p>
+<p>All endpoints require the Gateway auth token header: <code>X-Director-Token: {token}</code> (same token used by Directors to register).</p>
+
+<!-- POST /voice-turn -->
+<div class="endpoint">
+  <div class="endpoint-header">
+    <span class="badge badge-post">POST</span>
+    <span class="endpoint-path">/voice-turn</span>
+  </div>
+  <div class="endpoint-body">
+    <p>Register a new voice turn. Returns a <code>turnId</code> the client uses for all subsequent calls. Optionally accepts <code>text</code> directly (skips upload and transcription phases).</p>
+
+    <h4>Request Body (JSON)</h4>
+    <pre>{
+  <span class="key">"sessionId"</span>:  <span class="str">"d3f1a2b4-..."</span>,     <span class="cmt">// required -- target agent session</span>
+  <span class="key">"directorId"</span>: <span class="str">"ce7e7143-..."</span>,     <span class="cmt">// optional -- if omitted, Gateway locates it</span>
+  <span class="key">"text"</span>:       <span class="str">"what are you working on?"</span> <span class="cmt">// optional -- skips audio upload entirely</span>
+}</pre>
+
+    <h4>Response 201 Created</h4>
+    <pre>{
+  <span class="key">"turnId"</span>: <span class="str">"a1b2c3d4e5f6..."</span>,
+  <span class="key">"state"</span>:  <span class="str">"registered"</span>          <span class="cmt">// or "thinking" if text shortcut used</span>
+}</pre>
+
+    <h4>Errors</h4>
+    <table>
+      <tr><td><code>400</code></td><td>Missing sessionId</td></tr>
+      <tr><td><code>404</code></td><td>Session not found on any connected Director</td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- PUT /voice-turn/{id}/chunk/{n} -->
+<div class="endpoint">
+  <div class="endpoint-header">
+    <span class="badge badge-put">PUT</span>
+    <span class="endpoint-path">/voice-turn/{turnId}/chunk/{index}</span>
+  </div>
+  <div class="endpoint-body">
+    <p>Upload one audio chunk. Idempotent: uploading the same chunk twice (same SHA256) is a no-op. Safe to retry on signal drop. Chunks are zero-indexed.</p>
+
+    <h4>Request</h4>
+    <table>
+      <tr><th>Header</th><th>Value</th></tr>
+      <tr><td><code>Content-Type</code></td><td><code>application/octet-stream</code></td></tr>
+      <tr><td><code>X-Chunk-Sha256</code></td><td>Optional -- hex SHA256 of the chunk bytes (integrity guard)</td></tr>
+    </table>
+    <p>Body: raw audio bytes (any supported format: webm, mp3, wav, m4a, ogg, aac, flac)</p>
+
+    <h4>Response</h4>
+    <table>
+      <tr><td><code>204</code></td><td>Chunk accepted</td></tr>
+      <tr><td><code>409</code></td><td>SHA256 mismatch -- client should re-upload</td></tr>
+      <tr><td><code>422</code></td><td>Turn is in a state that no longer accepts chunks (already complete/error)</td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- POST /voice-turn/{id}/complete -->
+<div class="endpoint">
+  <div class="endpoint-header">
+    <span class="badge badge-post">POST</span>
+    <span class="endpoint-path">/voice-turn/{turnId}/complete</span>
+  </div>
+  <div class="endpoint-body">
+    <p>Tell the Gateway that all chunks are uploaded. The Gateway validates all chunks are present, then starts the pipeline (assemble &rarr; transcribe &rarr; think &rarr; TTS). Returns immediately with 202; the client polls /status to follow progress.</p>
+
+    <h4>Request Body (JSON)</h4>
+    <pre>{
+  <span class="key">"totalChunks"</span>: <span class="num">6</span>,
+  <span class="key">"mime"</span>:        <span class="str">"audio/webm"</span>
+}</pre>
+
+    <h4>Response</h4>
+    <table>
+      <tr><td><code>202</code></td><td>Pipeline started. Poll /status.</td></tr>
+      <tr><td><code>409</code></td><td>Missing chunks -- body lists which ones: <code>{ "missingChunks": [2, 5] }</code></td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- GET /voice-turn/{id}/status -->
+<div class="endpoint">
+  <div class="endpoint-header">
+    <span class="badge badge-get">GET</span>
+    <span class="endpoint-path">/voice-turn/{turnId}/status</span>
+  </div>
+  <div class="endpoint-body">
+    <p>Poll pipeline progress. Recommended interval: every 1-2 seconds. When state is <span class="state s-ready">ready</span> or <span class="state s-error">error</span> polling can stop.</p>
+
+    <h4>Response 200</h4>
+    <pre>{
+  <span class="key">"turnId"</span>:      <span class="str">"a1b2c3d4..."</span>,
+  <span class="key">"state"</span>:       <span class="str">"thinking"</span>,         <span class="cmt">// registered | uploading | transcribing | thinking | synthesizing | ready | error</span>
+  <span class="key">"transcript"</span>:  <span class="str">"what are you working on?"</span>, <span class="cmt">// set when transcription completes</span>
+  <span class="key">"summary"</span>:     <span class="str">null</span>,                <span class="cmt">// set when synthesis completes (the spoken text)</span>
+  <span class="key">"errorMessage"</span>: <span class="str">null</span>,               <span class="cmt">// set on error state</span>
+  <span class="key">"errorStage"</span>:   <span class="str">null</span>,               <span class="cmt">// which stage failed: "transcription" | "routing" | "agent" | "tts"</span>
+  <span class="key">"createdAt"</span>:   <span class="str">"2026-06-11T20:30:00Z"</span>,
+  <span class="key">"updatedAt"</span>:   <span class="str">"2026-06-11T20:30:14Z"</span>
+}</pre>
+  </div>
+</div>
+
+<!-- GET /voice-turn/{id}/audio -->
+<div class="endpoint">
+  <div class="endpoint-header">
+    <span class="badge badge-get">GET</span>
+    <span class="endpoint-path">/voice-turn/{turnId}/audio</span>
+  </div>
+  <div class="endpoint-body">
+    <p>Download the synthesized response audio. Only available when state is <span class="state s-ready">ready</span>.</p>
+
+    <h4>Response</h4>
+    <table>
+      <tr><td><code>200</code></td><td><code>Content-Type: audio/mpeg</code> -- MP3 bytes, ready to play</td></tr>
+      <tr><td><code>425</code></td><td>Turn not yet ready (still processing)</td></tr>
+      <tr><td><code>410</code></td><td>Turn in error state -- audio will never be available</td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- DELETE /voice-turn/{id} -->
+<div class="endpoint">
+  <div class="endpoint-header">
+    <span class="badge badge-delete">DELETE</span>
+    <span class="endpoint-path">/voice-turn/{turnId}</span>
+  </div>
+  <div class="endpoint-body">
+    <p>Clean up a completed or errored turn. Removes stored chunks and audio from disk. Optional -- the Gateway auto-purges turns older than 24 hours.</p>
+    <table>
+      <tr><td><code>204</code></td><td>Deleted</td></tr>
+      <tr><td><code>422</code></td><td>Turn is still in progress (cannot delete active turns)</td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- GET /voice-turns -->
+<div class="endpoint">
+  <div class="endpoint-header">
+    <span class="badge badge-get">GET</span>
+    <span class="endpoint-path">/voice-turns</span>
+  </div>
+  <div class="endpoint-body">
+    <p>List all recent voice turns (last 24 hours). Useful for monitoring and debugging.</p>
+    <h4>Response 200</h4>
+    <pre>[
+  {
+    <span class="key">"turnId"</span>:    <span class="str">"a1b2c3d4..."</span>,
+    <span class="key">"sessionId"</span>: <span class="str">"d3f1a2b4-..."</span>,
+    <span class="key">"state"</span>:     <span class="str">"ready"</span>,
+    <span class="key">"createdAt"</span>: <span class="str">"2026-06-11T20:30:00Z"</span>
+  }
+]</pre>
+  </div>
+</div>
+
+<!-- ================================================================ -->
+<!-- DESIGN NOTES                                                       -->
+<!-- ================================================================ -->
+<h2>Design Notes</h2>
+
+<div class="cols">
+  <div class="card">
+    <h3>Bad reception resilience</h3>
+    <p>Chunks are stored the moment they land. If the phone drops signal mid-upload, it simply
+    re-sends the missing chunks later. The SHA256 guard means re-sending a chunk that already
+    arrived is a free no-op. Only when <code>POST /complete</code> arrives with a valid chunk count
+    does the pipeline start.</p>
+  </div>
+  <div class="card">
+    <h3>Text shortcut (test + web)</h3>
+    <p>Including <code>"text"</code> in the <code>POST /voice-turn</code> body skips audio upload and
+    transcription entirely. The turn goes straight to <span class="state s-thinking">thinking</span>.
+    This is the primary path for the test harness and for web app text-input mode.</p>
+  </div>
+  <div class="card">
+    <h3>Gateway as hub</h3>
+    <p>The Gateway routes to the right Director based on <code>sessionId</code>. If <code>directorId</code>
+    is omitted, the Gateway queries its registered Directors to locate the session. This means the
+    client never needs to know which Director is running the session.</p>
+  </div>
+  <div class="card">
+    <h3>Notification (future)</h3>
+    <p>The current design uses polling. A future enhancement can add a webhook or SSE event when
+    the turn becomes <span class="state s-ready">ready</span>, so the client does not need to
+    poll. The phone can show a "response waiting" indicator without keeping a connection open.</p>
+  </div>
+</div>
+
+<div class="warn">
+  <strong>What does NOT live on the phone / client:</strong> transcription, agent routing, summarization, TTS.
+  The client only records audio bytes (or types text), uploads them, and plays back the response MP3.
+  All intelligence is on the Gateway.
+</div>
+
+<!-- ================================================================ -->
+<!-- TEST HARNESS                                                       -->
+<!-- ================================================================ -->
+<h2>Test Harness</h2>
+<p>These scripts let you drive the full voice-turn pipeline from a terminal -- no phone required.
+   The <strong>text shortcut</strong> path (step 1b) is the fastest way to test that routing,
+   agent communication, and TTS are all working.</p>
+
+<div class="note">
+  <strong>Prerequisites:</strong> Gateway running on <code>localhost:7878</code>, at least one
+  Director connected with a live session, <code>$TOKEN</code> set to the Gateway auth token,
+  <code>$SESSION</code> set to a session GUID.
+</div>
+
+<h3>Path A: Text shortcut (no audio)</h3>
+<p>Fastest test. Skips recording and Whisper entirely.</p>
+
+<pre><span class="cmt"># PowerShell</span>
+
+<span class="kw">$</span>GW = <span class="str">"http://localhost:7878"</span>
+<span class="kw">$</span>TOKEN = <span class="str">"your-gateway-token"</span>   <span class="cmt"># from gateway config.json</span>
+<span class="kw">$</span>SESSION = <span class="str">"d3f1a2b4-..."</span>        <span class="cmt"># session GUID from Director /sessions</span>
+<span class="kw">$</span>HEADERS = @{ <span class="str">"X-Director-Token"</span> = <span class="kw">$</span>TOKEN; <span class="str">"Content-Type"</span> = <span class="str">"application/json"</span> }
+
+<span class="cmt"># 1. Register turn with text</span>
+<span class="kw">$</span>body = @{ sessionId = <span class="kw">$</span>SESSION; text = <span class="str">"What are you currently working on? One sentence."</span> } | ConvertTo-Json
+<span class="kw">$</span>turn = Invoke-RestMethod -Uri <span class="str">"$GW/voice-turn"</span> -Method POST -Headers <span class="kw">$</span>HEADERS -Body <span class="kw">$</span>body
+<span class="kw">$</span>tid = <span class="kw">$</span>turn.turnId
+Write-Host <span class="str">"Turn registered: $tid, state: $($turn.state)"</span>
+
+<span class="cmt"># 2. Poll until ready</span>
+<span class="kw">do</span> {
+    Start-Sleep -Seconds 2
+    <span class="kw">$</span>status = Invoke-RestMethod -Uri <span class="str">"$GW/voice-turn/$tid/status"</span> -Method GET -Headers <span class="kw">$</span>HEADERS
+    Write-Host <span class="str">"  state: $($status.state)"</span>
+} <span class="kw">while</span> (<span class="kw">$</span>status.state -notin <span class="str">"ready"</span>, <span class="str">"error"</span>)
+
+<span class="kw">if</span> (<span class="kw">$</span>status.state -eq <span class="str">"error"</span>) {
+    Write-Host <span class="str">"ERROR at $($status.errorStage): $($status.errorMessage)"</span>
+    <span class="kw">exit</span> 1
+}
+
+Write-Host <span class="str">"Spoken reply: $($status.summary)"</span>
+
+<span class="cmt"># 3. Download audio</span>
+<span class="kw">$</span>dl = @{ <span class="str">"X-Director-Token"</span> = <span class="kw">$</span>TOKEN }
+Invoke-WebRequest -Uri <span class="str">"$GW/voice-turn/$tid/audio"</span> -Headers <span class="kw">$</span>dl -OutFile <span class="str">"reply.mp3"</span>
+Write-Host <span class="str">"Audio saved to reply.mp3"</span>
+Start-Process <span class="str">"reply.mp3"</span>   <span class="cmt"># opens in Windows Media Player</span>
+
+<span class="cmt"># 4. Cleanup</span>
+Invoke-RestMethod -Uri <span class="str">"$GW/voice-turn/$tid"</span> -Method DELETE -Headers <span class="kw">$</span>HEADERS</pre>
+
+<h3>Path B: Chunked audio file (full pipeline)</h3>
+<p>Splits a local audio file into chunks and drives the complete pipeline including Whisper.</p>
+
+<pre><span class="cmt"># PowerShell -- supply any audio file</span>
+
+<span class="kw">$</span>GW = <span class="str">"http://localhost:7878"</span>
+<span class="kw">$</span>TOKEN = <span class="str">"your-gateway-token"</span>
+<span class="kw">$</span>SESSION = <span class="str">"d3f1a2b4-..."</span>
+<span class="kw">$</span>AUDIO_FILE = <span class="str">"D:\test\question.m4a"</span>  <span class="cmt"># any format Whisper accepts</span>
+<span class="kw">$</span>CHUNK_SIZE = 128KB                   <span class="cmt"># 128 KB per chunk</span>
+
+<span class="kw">$</span>HEADERS = @{ <span class="str">"X-Director-Token"</span> = <span class="kw">$</span>TOKEN }
+
+<span class="cmt"># 1. Register</span>
+<span class="kw">$</span>h = <span class="kw">$</span>HEADERS + @{ <span class="str">"Content-Type"</span> = <span class="str">"application/json"</span> }
+<span class="kw">$</span>turn = Invoke-RestMethod -Uri <span class="str">"$GW/voice-turn"</span> -Method POST -Headers <span class="kw">$</span>h `
+          -Body (@{ sessionId = <span class="kw">$</span>SESSION } | ConvertTo-Json)
+<span class="kw">$</span>tid = <span class="kw">$</span>turn.turnId
+
+<span class="cmt"># 2. Split and upload chunks</span>
+<span class="kw">$</span>bytes = [System.IO.File]::ReadAllBytes(<span class="kw">$</span>AUDIO_FILE)
+<span class="kw">$</span>total = [Math]::Ceiling(<span class="kw">$</span>bytes.Length / <span class="kw">$</span>CHUNK_SIZE)
+<span class="kw">for</span> (<span class="kw">$</span>i = 0; <span class="kw">$</span>i -lt <span class="kw">$</span>total; <span class="kw">$</span>i++) {
+    <span class="kw">$</span>start = <span class="kw">$</span>i * <span class="kw">$</span>CHUNK_SIZE
+    <span class="kw">$</span>len = [Math]::Min(<span class="kw">$</span>CHUNK_SIZE, <span class="kw">$</span>bytes.Length - <span class="kw">$</span>start)
+    <span class="kw">$</span>chunk = <span class="kw">$</span>bytes[<span class="kw">$</span>start..(<span class="kw">$</span>start + <span class="kw">$</span>len - 1)]
+    <span class="kw">$</span>sha = [BitConverter]::ToString(
+        [System.Security.Cryptography.SHA256]::Create().ComputeHash(<span class="kw">$</span>chunk)
+    ).Replace(<span class="str">"-"</span>, <span class="str">""</span>).ToLower()
+    Invoke-RestMethod -Uri <span class="str">"$GW/voice-turn/$tid/chunk/$i"</span> -Method PUT `
+        -Headers (<span class="kw">$</span>HEADERS + @{ <span class="str">"X-Chunk-Sha256"</span> = <span class="kw">$</span>sha; <span class="str">"Content-Type"</span> = <span class="str">"application/octet-stream"</span> }) `
+        -Body <span class="kw">$</span>chunk
+    Write-Host <span class="str">"  chunk $i/$($total-1) uploaded"</span>
+}
+
+<span class="cmt"># 3. Complete</span>
+<span class="kw">$</span>ext = [System.IO.Path]::GetExtension(<span class="kw">$</span>AUDIO_FILE).TrimStart(<span class="str">"."</span>)
+<span class="kw">$</span>mime = @{ m4a=<span class="str">"audio/mp4"</span>; mp3=<span class="str">"audio/mpeg"</span>; wav=<span class="str">"audio/wav"</span>; webm=<span class="str">"audio/webm"</span>; ogg=<span class="str">"audio/ogg"</span> }[<span class="kw">$</span>ext]
+Invoke-RestMethod -Uri <span class="str">"$GW/voice-turn/$tid/complete"</span> -Method POST `
+    -Headers (<span class="kw">$</span>HEADERS + @{ <span class="str">"Content-Type"</span> = <span class="str">"application/json"</span> }) `
+    -Body (@{ totalChunks = <span class="kw">$</span>total; mime = <span class="kw">$</span>mime } | ConvertTo-Json)
+
+<span class="cmt"># 4. Poll + download (same as Path A above)</span></pre>
+
+<h3>curl (cross-platform)</h3>
+<pre><span class="cmt"># Register a text-mode turn</span>
+curl -s -X POST http://localhost:7878/voice-turn \
+  -H "X-Director-Token: {token}" \
+  -H "Content-Type: application/json" \
+  -d '{"sessionId":"d3f1a2b4-...","text":"What are you working on?"}' | jq .
+
+<span class="cmt"># Poll status</span>
+curl -s http://localhost:7878/voice-turn/{turnId}/status \
+  -H "X-Director-Token: {token}" | jq .
+
+<span class="cmt"># Download audio</span>
+curl -s http://localhost:7878/voice-turn/{turnId}/audio \
+  -H "X-Director-Token: {token}" -o reply.mp3</pre>
+
+<!-- ================================================================ -->
+<!-- WHAT IS NEW vs EXISTING                                           -->
+<!-- ================================================================ -->
+<h2>What Needs to Be Built</h2>
+
+<div class="card">
+  <h4>Already exists (on Director ControlAPI, port 7879/7880)</h4>
+  <table>
+    <tr><td><code>POST /sessions/{id}/voice-turn</code></td><td>SSE walkie-talkie turn (audio or text in, streamed events + base64 audio out)</td></tr>
+    <tr><td><code>POST /voice/utterance</code> + chunks</td><td>Resumable utterance upload on Director</td></tr>
+    <tr><td>TtsService, ClaudeSummarizer</td><td>TTS + summarization pipeline</td></tr>
+    <tr><td><code>POST /ingest/recording</code> + chunks</td><td>Phone recorder upload pattern (Gateway)</td></tr>
+  </table>
+
+  <h4 style="margin-top:16px">New: Gateway Voice Turn API</h4>
+  <table>
+    <tr><td><code>POST /voice-turn</code></td><td>New Gateway endpoint -- turn registration with text shortcut</td></tr>
+    <tr><td><code>PUT /voice-turn/{id}/chunk/{n}</code></td><td>New -- identical pattern to /ingest/recording chunks</td></tr>
+    <tr><td><code>POST /voice-turn/{id}/complete</code></td><td>New -- triggers pipeline</td></tr>
+    <tr><td><code>GET /voice-turn/{id}/status</code></td><td>New -- async status poll</td></tr>
+    <tr><td><code>GET /voice-turn/{id}/audio</code></td><td>New -- download response MP3</td></tr>
+    <tr><td><code>DELETE /voice-turn/{id}</code></td><td>New -- optional cleanup</td></tr>
+    <tr><td>VoiceTurnService (Gateway)</td><td>New service -- orchestrates transcribe + route + TTS, mirrors VoiceTurnEndpoint logic</td></tr>
+    <tr><td>Director routing logic</td><td>New -- Gateway looks up which Director owns a sessionId</td></tr>
+  </table>
+
+  <div class="note" style="margin-top:12px">
+    <strong>Implementation shortcut:</strong> The bulk of the pipeline already exists in
+    <code>VoiceTurnEndpoint.cs</code> on the Director. The new Gateway VoiceTurnService wraps the
+    same steps (Whisper &rarr; Director relay &rarr; summarize &rarr; TTS) but as an async background
+    job instead of SSE. The chunked upload logic is a copy of <code>RecordingIngestService</code>.
+  </div>
+</div>
+
+<hr>
+<p style="color:var(--muted);font-size:12px;text-align:center">
+  cc-director &nbsp;|&nbsp; gateway-voice-turn-api v1.0 &nbsp;|&nbsp; 2026-06-11
+</p>
+
+</div>
+</body>
+</html>

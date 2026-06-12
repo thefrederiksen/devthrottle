@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Voice Turn -&gt; Gateway: Implementation Plan</title>
+<style>
+        /* Boardroom Theme - Corporate, executive style with serif fonts */
+        
+        :root {
+            /* Colors */
+            --primary: #1A365D;
+            --primary-light: #2A4A7F;
+            --accent: #D69E2E;
+            --text: #2D3748;
+            --heading: #1A365D;
+            --background: #FFFFFF;
+            --code-bg: #EDF2F7;
+            --code-text: #1A365D;
+            --border: #CBD5E0;
+            --link: #2B6CB0;
+            --blockquote-text: #4A5568;
+            --blockquote-border: #D69E2E;
+            --blockquote-bg: #FFFFFF;
+            --table-header-bg: #1A365D;
+            --table-header-text: #FFFFFF;
+            --alt-row-bg: #F7FAFC;
+            --shadow-color: rgba(26, 54, 93, 0.08);
+        
+            /* Fonts */
+            --font-heading: "Palatino Linotype", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-body: "Georgia", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-code: "Courier New", "JetBrains Mono", "Fira Code", Consolas, monospace;
+        
+            /* Style */
+            --heading-letter-spacing: -0.02em;
+            --line-height: 1.7;
+            --radius: 4px;
+            --code-radius: 6px;
+            --shadow-sm: 0 1px 3px rgba(26, 54, 93, 0.08);
+            --shadow-md: 0 4px 12px rgba(26, 54, 93, 0.1);
+        }
+        
+        /* Base styles for all themes */
+        
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+        }
+        
+        html {
+            font-size: 16px;
+            line-height: var(--line-height);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: var(--font-body);
+            color: var(--text);
+            background: var(--background);
+        }
+        
+        .markdown-body {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 3rem 2.5rem;
+        }
+        
+        /* Typography */
+        h1, h2, h3, h4, h5, h6 {
+            font-family: var(--font-heading);
+            color: var(--heading);
+            margin-top: 1.8em;
+            margin-bottom: 0.6em;
+            font-weight: 600;
+            line-height: 1.25;
+            letter-spacing: var(--heading-letter-spacing);
+            orphans: 3;
+            widows: 3;
+        }
+        
+        h1 {
+            font-size: 2.25em;
+            margin-top: 0;
+        }
+        
+        h2 { font-size: 1.65em; }
+        h3 { font-size: 1.35em; }
+        h4 { font-size: 1.1em; }
+        h5 { font-size: 0.95em; }
+        h6 { font-size: 0.85em; color: var(--blockquote-text); }
+        
+        p {
+            margin: 1em 0;
+            orphans: 3;
+            widows: 3;
+        }
+        
+        /* Links */
+        a {
+            color: var(--link);
+            text-decoration: none;
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.2s ease;
+        }
+        
+        a:hover {
+            border-bottom-color: var(--link);
+        }
+        
+        /* Lists */
+        ul, ol {
+            margin: 1em 0;
+            padding-left: 2em;
+            line-height: var(--line-height);
+        }
+        
+        li {
+            margin: 0.35em 0;
+        }
+        
+        li > ul,
+        li > ol {
+            margin: 0.2em 0;
+        }
+        
+        /* Inline code */
+        code {
+            font-family: var(--font-code);
+            font-size: 0.875em;
+            padding: 0.15em 0.4em;
+            border-radius: var(--radius);
+            background: var(--code-bg);
+            color: var(--code-text);
+        }
+        
+        /* Code blocks */
+        pre {
+            margin: 1.5em 0;
+            padding: 1.25em 1.5em;
+            overflow-x: auto;
+            border-radius: var(--code-radius);
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow-sm);
+            position: relative;
+        }
+        
+        pre code {
+            padding: 0;
+            background: transparent;
+            border-radius: 0;
+            font-size: 0.875em;
+            line-height: 1.55;
+        }
+        
+        /* Blockquotes */
+        blockquote {
+            margin: 1.5em 0;
+            padding: 0.75em 1.25em;
+            border-left: 4px solid var(--blockquote-border);
+            background: var(--blockquote-bg);
+            color: var(--blockquote-text);
+            border-radius: 0 var(--radius) var(--radius) 0;
+        }
+        
+        blockquote p {
+            margin: 0.4em 0;
+        }
+        
+        blockquote p:first-child {
+            margin-top: 0;
+        }
+        
+        blockquote p:last-child {
+            margin-bottom: 0;
+        }
+        
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin: 1.5em 0;
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border);
+        }
+        
+        th, td {
+            padding: 0.75em 1em;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        th {
+            font-weight: 600;
+            background: var(--table-header-bg);
+            color: var(--table-header-text);
+        }
+        
+        tr:last-child td {
+            border-bottom: none;
+        }
+        
+        /* Horizontal rule */
+        hr {
+            border: none;
+            height: 2px;
+            max-width: 200px;
+            margin: 2.5em auto;
+            background: var(--border);
+            border-radius: 1px;
+        }
+        
+        /* Images */
+        img {
+            max-width: 100%;
+            height: auto;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        /* Task lists */
+        .task-list-item {
+            list-style-type: none;
+        }
+        
+        .task-list-item input[type="checkbox"] {
+            margin-right: 0.5em;
+        }
+        
+        /* Strong and emphasis */
+        strong {
+            font-weight: 700;
+        }
+        
+        /* Definition lists (if supported by parser) */
+        dt {
+            font-weight: 600;
+            margin-top: 1em;
+        }
+        
+        dd {
+            margin-left: 1.5em;
+            margin-bottom: 0.5em;
+        }
+        
+        
+        /* Boardroom: corporate authority with accent borders */
+        h1 {
+            border-bottom: 3px solid var(--accent);
+            padding-bottom: 0.5em;
+        }
+        
+        h2 {
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.3em;
+        }
+        
+        pre {
+            border-left: 4px solid var(--primary);
+            border-radius: 0 var(--code-radius) var(--code-radius) 0;
+        }
+        
+        pre::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--accent);
+            border-radius: 0;
+        }
+        
+        blockquote {
+            font-style: italic;
+        }
+        
+        hr {
+            background: var(--accent);
+            max-width: none;
+            height: 2px;
+        }
+        
+        tr:nth-child(even) td {
+            background: var(--alt-row-bg);
+        }
+        
+    </style>
+</head>
+<body>
+<article class="markdown-body">
+<h1>Voice Turn -&gt; Gateway: Implementation Plan</h1>
+<p><strong>Date:</strong> 2026-06-12
+        <strong>Branch base:</strong> <code>main</code> (start a new branch per issue)
+        <strong>Architecture doc:</strong> <code>docs/architecture/gateway/VOICE_TURN_ARCHITECTURE.md</code></p>
+<hr/>
+<h2>Goal</h2>
+<p>Move the async voice-turn submit/poll interface from the Director to the Gateway. Fix three confirmed voice bugs in the Director's SSE endpoint. Add bearer-token auth to the new Gateway endpoints.</p>
+<p>The phone currently holds a live SSE connection to the Director for the full duration of a voice turn (60-120 s). If it loses signal the turn is lost. The Gateway's submit/poll surface decouples the phone from the Director: submit once, poll at leisure, reconnect freely.</p>
+<hr/>
+<h2>Architecture (target state)</h2>
+<pre><code>PHONE  --&gt;  POST /sessions/{sid}/voice-turn/submit  --&gt;  GATEWAY
+                                                                    |
+                                                             (background Task)
+                                                                    |
+                                                             POST /sessions/{sid}/voice-turn (SSE)
+                                                                    |
+                                                                 DIRECTOR
+                                                           (transcribe, Claude, TTS)
+                                                                    |
+                                                             GATEWAY caches result (10 min TTL)
+                                                                    |
+        PHONE  --&gt;  GET /sessions/{sid}/voice-turn/{turnId}  --&gt;  GATEWAY  --&gt;  200 {stage, summary, audioBase64}
+        </code></pre>
+<p>The Director's SSE endpoint (<code>POST /sessions/{sid}/voice-turn</code>) is <strong>unchanged</strong>. The Gateway calls it in a background task and caches the final reply event.</p>
+<hr/>
+<h2>Issue Sequence</h2>
+<p>Dependencies flow left to right. Issues with no arrow are independent.</p>
+<pre><code>#376 (Gateway endpoints + tests)
+            --&gt; #377 (Director cleanup)
+            --&gt; #378 (Phone URL swap)
+            --&gt; #369 (Auth)
+        
+        #366 (stale transcript fix)   -- independent
+        #367 (non-Latin fix)          -- independent
+        #368 (backtick fix)           -- independent
+        </code></pre>
+<p><strong>Recommended implementation order:</strong></p>
+<ol>
+<li>#366, #367, #368 in parallel (small, self-contained, fixes code that will keep running)</li>
+<li>#376 (the core Gateway work -- largest issue)</li>
+<li>#377 + #378 in parallel (both depend on #376 merged)</li>
+<li>#369 (auth, last -- depends on #376 merged)</li>
+</ol>
+<hr/>
+<h2>Issues</h2>
+<h3>#376 -- [Gateway] Add async voice-turn submit/poll endpoints and TurnJobStore</h3>
+<p><strong>Link:</strong> <a href="https://github.com/thefrederiksen/cc-director/issues/376">https://github.com/thefrederiksen/cc-director/issues/376</a>
+<strong>Labels:</strong> flow:ready-dev, enhancement</p>
+<p><strong>What to build:</strong></p>
+<ol>
+<li>
+<p><code>src/CcDirector.Gateway/Voice/GatewayTurnJobStore.cs</code></p>
+<ul>
+<li>In-memory dictionary of <code>TurnJob</code> objects keyed by UUID <code>turn_id</code></li>
+<li>10-minute TTL; expiry checked lazily on read</li>
+<li>Thread-safe (ConcurrentDictionary or lock)</li>
+<li><code>TurnJob</code> fields: <code>TurnId</code>, <code>SessionId</code>, <code>Stage</code>, <code>Transcript</code>, <code>Summary</code>, <code>AudioBase64</code>, <code>ErrorMessage</code>, <code>CreatedAt</code>, <code>ExpiresAt</code></li>
+</ul>
+</li>
+<li>
+<p><code>src/CcDirector.Gateway/Api/GatewayVoiceTurnEndpoint.cs</code></p>
+<ul>
+<li><code>POST /sessions/{sid}/voice-turn/submit</code>
+<ul>
+<li>Validate <code>sid</code> is a valid Guid; return 400 if not</li>
+<li>Look up session owner via <code>SessionOwnerCache</code>; return 404 if not found</li>
+<li>Create <code>TurnJob</code> (stage = <code>submitted</code>), store in <code>GatewayTurnJobStore</code></li>
+<li>Fire background <code>Task</code> (not awaited): POST multipart/form-data (forwarding audio or JSON text) to the Director's <code>POST /sessions/{sid}/voice-turn</code> SSE endpoint; read SSE events and update the <code>TurnJob</code> stage/fields as each event arrives; on completion set stage to <code>reply</code> or <code>error</code></li>
+<li>Return 202 <code>{ "turn_id": "...", "expires_at": "..." }</code></li>
+</ul>
+</li>
+<li><code>GET /sessions/{sid}/voice-turn/{turnId}</code>
+<ul>
+<li>Look up by <code>turnId</code>; return 404 if unknown or expired</li>
+<li>Return 200 <code>{ "stage": "...", "transcript": "...", "summary": "...", "audioBase64": "...", "message": "..." }</code> (null fields omitted or empty string is fine)</li>
+</ul>
+</li>
+</ul>
+</li>
+<li>
+<p>Wire into <code>GatewayEndpoints.Map()</code>:</p>
+<ul>
+<li>Add <code>GatewayTurnJobStore store</code> parameter (singleton injected by <code>GatewayHost</code>)</li>
+<li>Call <code>GatewayVoiceTurnEndpoint.Map(app, store, owners)</code></li>
+</ul>
+</li>
+<li>
+<p>Wire into <code>GatewayHost</code>:</p>
+<ul>
+<li>Register <code>GatewayTurnJobStore</code> as a singleton</li>
+<li>Pass it to <code>GatewayEndpoints.Map()</code></li>
+</ul>
+</li>
+<li>
+<p><code>src/CcDirector.Gateway.Tests/GatewayVoiceTurnAsyncTests.cs</code></p>
+<ul>
+<li>Follow pattern in <code>WingmanAskForwardingTests.cs</code>: real <code>ControlApiHost</code> + real <code>GatewayHost</code> on ephemeral ports, isolated <code>_instancesDir</code></li>
+<li>Use <code>QuickIdleBackend</code> from <code>VoiceTurnEndpointTests.cs</code> so sessions go Idle instantly (no live Claude/OpenAI needed)</li>
+<li>Tests to cover:
+        <ol>
+<li><code>Submit_InvalidGuid_Returns400</code></li>
+<li><code>Submit_UnknownSession_Returns404</code></li>
+<li><code>Submit_ValidIdleSession_Returns202WithTurnId</code></li>
+<li><code>Poll_UnknownTurnId_Returns404</code></li>
+<li><code>Poll_ValidTurnId_WhileProcessing_ReturnsInProgressStage</code></li>
+<li><code>Poll_ValidTurnId_AfterCompletion_ReturnsReplyStage</code></li>
+<li><code>Poll_ValidTurnId_AfterTTLExpiry_Returns404</code> (inject old <code>CreatedAt</code> to simulate expiry)</li>
+<li><code>Submit_SessionAlreadyExited_Returns404OrGone</code></li>
+<li><code>Poll_DirectorUnreachable_ReturnsErrorStage</code> (no Director registered)</li>
+<li><code>Submit_TextBody_Returns202</code> (JSON <code>{ "text": "..." }</code> path, not multipart)</li>
+<li><code>Poll_MultiplePolls_SameResult</code> (idempotent after completion)</li>
+</ol>
+</li>
+</ul>
+</li>
+<li>
+<p>HTML proof report at <code>docs/cencon/proof/voice-turn-gateway/report.html</code></p>
+<ul>
+<li>List all test names with PASS/FAIL</li>
+<li>Include a <code>curl</code> trace of the submit -&gt; poll -&gt; reply sequence against a real slot-5 Director + Gateway</li>
+</ul>
+</li>
+</ol>
+<p><strong>Key files to read before implementing:</strong></p>
+<ul>
+<li><code>src/CcDirector.Gateway.Tests/WingmanAskForwardingTests.cs</code> -- GatewayHost+Director test pattern</li>
+<li><code>src/CcDirector.Gateway.Tests/VoiceTurnEndpointTests.cs</code> -- QuickIdleBackend, ReadSseStreamAsync helpers</li>
+<li><code>src/CcDirector.ControlApi/VoiceTurnEndpoint.cs</code> -- SSE event format the background task must consume</li>
+<li><code>src/CcDirector.Gateway/Api/GatewayEndpoints.cs</code> -- how to wire new endpoints</li>
+<li><code>src/CcDirector.Gateway/GatewayHost.cs</code> -- how to add a new singleton and pass to Map()</li>
+<li><code>docs/architecture/gateway/VOICE_TURN_ARCHITECTURE.md</code> -- full flow diagram and stage table</li>
+</ul>
+<hr/>
+<h3>#377 -- [ControlApi] Remove temporary async voice-turn endpoints from Director</h3>
+<p><strong>Link:</strong> <a href="https://github.com/thefrederiksen/cc-director/issues/377">https://github.com/thefrederiksen/cc-director/issues/377</a>
+<strong>Labels:</strong> flow:ready-dev, enhancement
+        <strong>Depends on:</strong> #376 merged</p>
+<p><strong>What to do:</strong></p>
+<ul>
+<li>Delete <code>src/CcDirector.ControlApi/VoiceTurnAsyncEndpoint.cs</code> (if present on branch)</li>
+<li>Delete <code>src/CcDirector.ControlApi/TurnJobStore.cs</code> (if present on branch)</li>
+<li>In <code>src/CcDirector.ControlApi/ControlApiHost.cs</code>: remove singleton registration for <code>TurnJobStore</code> and the <code>VoiceTurnAsyncEndpoint.Map()</code> call; remove now-unused <code>using</code> directives</li>
+<li>Run <code>dotnet build cc-director.sln</code> -- must succeed with 0 errors</li>
+<li>Run <code>dotnet test --filter VoiceTurn</code> -- existing SSE endpoint tests must still pass</li>
+<li>Screenshot of successful build is the proof</li>
+</ul>
+<p><strong>Do NOT touch:</strong></p>
+<ul>
+<li><code>VoiceTurnEndpoint.cs</code> (SSE endpoint, stays on Director)</li>
+<li><code>VoiceTurnHelpers.cs</code> (if present, stays on Director)</li>
+</ul>
+<p><strong>Note:</strong> These files are on branch <code>issue-347-voice-dictation-recording-indicator</code> (commit <code>044e1c3</code>). If they are not present in the working tree when this issue is picked up, close as no-op with a comment.</p>
+<hr/>
+<h3>#378 -- [Voice] Phone app: swap voice-turn URLs from Director to Gateway</h3>
+<p><strong>Link:</strong> <a href="https://github.com/thefrederiksen/cc-director/issues/378">https://github.com/thefrederiksen/cc-director/issues/378</a>
+<strong>Labels:</strong> flow:ready-dev, enhancement
+        <strong>Depends on:</strong> #376 merged and deployed</p>
+<p><strong>What to change:</strong></p>
+<ul>
+<li><code>phone/CcDirectorClient/TalkPage.xaml.cs</code> -- <code>RunVoiceTurnAsync</code>: change the base URL for <code>SubmitVoiceTurnAsync</code> and <code>PollVoiceTurnAsync</code> from <code>session.TailnetEndpoint</code> (Director URL) to the Gateway URL</li>
+<li><code>phone/CcDirectorClient/Voice/VoiceConversation.cs</code> -- <code>SpeakTurnAsync</code>: same URL swap</li>
+<li><code>phone/CcDirectorClient/Voice/DirectorVoiceClient.cs</code> -- <code>NewClient()</code> or equivalent: ensure Gateway URL is used as <code>HttpClient.BaseAddress</code> for submit/poll calls</li>
+</ul>
+<p><strong>Before implementing:</strong> check whether the session DTO the phone receives includes a Gateway URL field. If not, that field must be added to the DTO and populated by the Gateway's sessions aggregation endpoint -- flag as a blocker if missing.</p>
+<p><strong>After change:</strong></p>
+<ul>
+<li><code>dotnet build</code> (MAUI Android) must succeed with 0 errors</li>
+<li>Deploy to test device via <code>scripts/deploy-phone.ps1</code></li>
+<li>Live end-to-end test: voice turn succeeds with spoken reply received on phone</li>
+<li>Director log shows the voice turn request arriving from the Gateway IP (not from the phone IP directly)</li>
+</ul>
+<hr/>
+<h3>#366 -- [Voice] Fix stale transcript: voice-turn endpoint speaks previous-turn content</h3>
+<p><strong>Link:</strong> <a href="https://github.com/thefrederiksen/cc-director/issues/366">https://github.com/thefrederiksen/cc-director/issues/366</a>
+<strong>Labels:</strong> flow:ready-dev, bug, voice-review
+        <strong>Independent</strong> (no dependency on Gateway issues)</p>
+<p><strong>Root cause:</strong> <code>ReadLastAssistantText</code> in <code>src/CcDirector.ControlApi/VoiceTurnEndpoint.cs</code> reads the most recent assistant message in the JSONL file after the turn poll loop exits. If the agent has not yet written its response to the current utterance, this returns the previous turn's output.</p>
+<p><strong>Fix:</strong></p>
+<ul>
+<li>Immediately before calling <code>session.SendTextAsync()</code>, snapshot the JSONL file size: <code>var offsetBefore = File.Exists(jsonlPath) ? new FileInfo(jsonlPath).Length : 0L;</code></li>
+<li>After the turn poll loop completes, pass <code>offsetBefore</code> to a new <code>ReadNewAssistantText(session, offsetBefore)</code> method</li>
+<li><code>ReadNewAssistantText</code> reads only assistant messages whose byte position in the file is &gt;= <code>offsetBefore</code></li>
+</ul>
+<p><strong>File:</strong> <code>src/CcDirector.ControlApi/VoiceTurnEndpoint.cs</code> (and/or <code>VoiceTurnHelpers.cs</code> if that file exists on the branch)</p>
+<p><strong>Test required:</strong> <code>VoiceTurn_TwoConsecutiveTurns_SecondTurnSpeaksCurrentReply</code> -- submit two turns to the same session with <code>QuickIdleBackend</code>, assert the second reply stage does not contain content from the first turn.</p>
+<hr/>
+<h3>#367 -- [Voice] Fix non-Latin script refusal in ClaudeSummarizer</h3>
+<p><strong>Link:</strong> <a href="https://github.com/thefrederiksen/cc-director/issues/367">https://github.com/thefrederiksen/cc-director/issues/367</a>
+<strong>Labels:</strong> flow:ready-dev, bug, voice-review
+        <strong>Independent</strong></p>
+<p><strong>Root cause:</strong> The summarizer prompt or pre-processing in <code>src/CcDirector.Core/Voice/Services/ClaudeSummarizer.cs</code> flags non-ASCII code points as encoding corruption and instructs the model to refuse.</p>
+<p><strong>Fix:</strong></p>
+<ul>
+<li>Remove any encoding-validation guard from <code>ClaudeSummarizer.cs</code> pre-processing</li>
+<li>Update the system/user prompt to explicitly allow non-Latin input: instruct the model to summarize faithfully in the source language without treating Unicode characters as errors</li>
+</ul>
+<p><strong>File:</strong> <code>src/CcDirector.Core/Voice/Services/ClaudeSummarizer.cs</code></p>
+<p><strong>Test required:</strong> <code>ClaudeSummarizer_NonLatinInput_IsNotDropped</code> -- pass a Korean or Japanese string through <code>CleanupForSpeech</code>; assert the content is not empty or near-empty after processing.</p>
+<hr/>
+<h3>#368 -- [Voice] Fix backtick content deletion in ClaudeSummarizer CleanupForSpeech</h3>
+<p><strong>Link:</strong> <a href="https://github.com/thefrederiksen/cc-director/issues/368">https://github.com/thefrederiksen/cc-director/issues/368</a>
+<strong>Labels:</strong> flow:ready-dev, bug, voice-review
+        <strong>Independent</strong></p>
+<p><strong>Root cause:</strong> <code>CleanupForSpeech</code> in <code>src/CcDirector.Core/Voice/Services/ClaudeSummarizer.cs</code> (around line 261) strips the content inside backticks (e.g. <code>`sessionName`</code> becomes empty string). The fix is to strip the backtick markers only and keep the inner text.</p>
+<p><strong>Fix:</strong> Change the backtick regex replacement from deleting the match to emitting the captured group content. Example: replace <code>`([^`]+)`</code> -&gt; <code>$1</code> instead of <code>""</code>.</p>
+<p>Note: triple-backtick code blocks should still be stripped entirely (code blocks are not speakable).</p>
+<p><strong>File:</strong> <code>src/CcDirector.Core/Voice/Services/ClaudeSummarizer.cs</code></p>
+<p><strong>Tests required:</strong></p>
+<ul>
+<li><code>ClaudeSummarizer_BacktickIdentifier_IsPreserved</code> -- <code>CleanupForSpeech("session \</code>my-session` is active")` contains "my-session"</li>
+<li><code>ClaudeSummarizer_TripleBacktickCodeBlock_IsStripped</code> -- triple-backtick blocks are removed entirely</li>
+</ul>
+<hr/>
+<h3>#369 -- Security: require API key on Gateway voice-turn endpoints</h3>
+<p><strong>Link:</strong> <a href="https://github.com/thefrederiksen/cc-director/issues/369">https://github.com/thefrederiksen/cc-director/issues/369</a>
+<strong>Labels:</strong> flow:ready-dev (already filed)
+        <strong>Depends on:</strong> #376 merged</p>
+<p>Add bearer-token check (same mechanism as other protected Gateway routes) to:</p>
+<ul>
+<li><code>POST /sessions/{sid}/voice-turn/submit</code></li>
+<li><code>GET /sessions/{sid}/voice-turn/{turnId}</code></li>
+</ul>
+<p>Return 401 when token is missing or invalid. Phone already sends <code>Authorization: Bearer &lt;token&gt;</code> via <code>DirectorVoiceClient.NewClient()</code>.</p>
+<hr/>
+<h2>Key File Locations</h2>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>src/CcDirector.Gateway/Api/GatewayEndpoints.cs</code></td>
+<td>Where new Gateway routes are wired</td>
+</tr>
+<tr>
+<td><code>src/CcDirector.Gateway/GatewayHost.cs</code></td>
+<td>Singleton registration, passes to Map()</td>
+</tr>
+<tr>
+<td><code>src/CcDirector.Gateway/Discovery/SessionOwnerCache.cs</code></td>
+<td>Session-to-Director lookup</td>
+</tr>
+<tr>
+<td><code>src/CcDirector.ControlApi/VoiceTurnEndpoint.cs</code></td>
+<td>Director SSE endpoint (stays, don't break it)</td>
+</tr>
+<tr>
+<td><code>src/CcDirector.Core/Voice/Services/ClaudeSummarizer.cs</code></td>
+<td>Bug fixes #367 + #368</td>
+</tr>
+<tr>
+<td><code>src/CcDirector.Gateway.Tests/WingmanAskForwardingTests.cs</code></td>
+<td>GatewayHost+Director test pattern</td>
+</tr>
+<tr>
+<td><code>src/CcDirector.Gateway.Tests/VoiceTurnEndpointTests.cs</code></td>
+<td>SSE test helpers to reuse</td>
+</tr>
+<tr>
+<td><code>src/CcDirector.Gateway.Tests/TestEnvironment.cs</code></td>
+<td>Assembly env (CC_TURNBRIEFS=0 etc.)</td>
+</tr>
+<tr>
+<td><code>phone/CcDirectorClient/Voice/DirectorVoiceClient.cs</code></td>
+<td>Phone voice client</td>
+</tr>
+<tr>
+<td><code>phone/CcDirectorClient/TalkPage.xaml.cs</code></td>
+<td>Phone voice UI</td>
+</tr>
+<tr>
+<td><code>docs/architecture/gateway/VOICE_TURN_ARCHITECTURE.md</code></td>
+<td>Target architecture + stage table</td>
+</tr>
+</tbody>
+</table>
+<hr/>
+<h2>SSE Stage Reference</h2>
+<p>The Director's SSE endpoint emits these stages (phone polls for them at Gateway level):</p>
+<table>
+<thead>
+<tr>
+<th>stage</th>
+<th>meaning</th>
+<th>extra fields</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>submitted</code></td>
+<td>job created, background task starting</td>
+<td>--</td>
+</tr>
+<tr>
+<td><code>transcribing</code></td>
+<td>Whisper in progress</td>
+<td>--</td>
+</tr>
+<tr>
+<td><code>transcript</code></td>
+<td>audio transcribed</td>
+<td><code>text</code></td>
+</tr>
+<tr>
+<td><code>waiting</code></td>
+<td>session busy, polling</td>
+<td>--</td>
+</tr>
+<tr>
+<td><code>thinking</code></td>
+<td>Claude processing</td>
+<td>--</td>
+</tr>
+<tr>
+<td><code>summarizing</code></td>
+<td>turn complete, summarizing</td>
+<td>--</td>
+</tr>
+<tr>
+<td><code>reply</code></td>
+<td>complete</td>
+<td><code>summary</code>, <code>audioBase64</code></td>
+</tr>
+<tr>
+<td><code>error</code></td>
+<td>terminal failure</td>
+<td><code>message</code></td>
+</tr>
+</tbody>
+</table>
+<hr/>
+<h2>Build + Test Commands</h2>
+<pre><code class="language-powershell"># Build
+        dotnet build src\cc-director.sln
+        
+        # Run all Gateway tests
+        dotnet test src\CcDirector.Gateway.Tests
+        
+        # Run only voice-turn tests
+        dotnet test src\CcDirector.Gateway.Tests --filter VoiceTurn
+        
+        # Run ClaudeSummarizer tests (once added)
+        dotnet test src\CcDirector.Core.Tests --filter ClaudeSummarizer
+        
+        # Build phone (MAUI Android)
+        dotnet build phone\CcDirectorClient\CcDirectorClient.csproj -f net10.0-android
+        
+        # Deploy phone
+        powershell scripts\deploy-phone.ps1
+        </code></pre>
+<hr/>
+<h2>Proof Requirements (QA checklist)</h2>
+<p>Each issue requires a proof artifact committed to the PR branch:</p>
+<table>
+<thead>
+<tr>
+<th>Issue</th>
+<th>Proof artifact</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>#376</td>
+<td><code>docs/cencon/proof/voice-turn-gateway/report.html</code> with all tests PASS + curl trace</td>
+</tr>
+<tr>
+<td>#377</td>
+<td>Screenshot of <code>dotnet build</code> showing 0 errors</td>
+</tr>
+<tr>
+<td>#378</td>
+<td>Screenshot of phone with spoken reply + Gateway log showing submit from phone</td>
+</tr>
+<tr>
+<td>#366</td>
+<td><code>dotnet test</code> output showing <code>VoiceTurn_TwoConsecutiveTurns_*</code> PASS</td>
+</tr>
+<tr>
+<td>#367</td>
+<td><code>dotnet test</code> output showing <code>ClaudeSummarizer_NonLatinInput_*</code> PASS</td>
+</tr>
+<tr>
+<td>#368</td>
+<td><code>dotnet test</code> output showing backtick tests PASS</td>
+</tr>
+<tr>
+<td>#369</td>
+<td><code>curl</code> trace showing 401 without token, 202 with token</td>
+</tr>
+</tbody>
+</table>
+</article>
+</body>
+</html>
