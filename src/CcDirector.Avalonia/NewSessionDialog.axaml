@@ -64,7 +64,8 @@
                          applies) vs "Group" (a preset that creates several tied, typed sessions
                          at once). Exactly one of the Type dropdown / Group panel is shown below,
                          so the dialog reads as one control rather than two competing pickers. -->
-                    <StackPanel x:Name="CreateModePanel" Orientation="Horizontal" Margin="0,0,0,12">
+                    <StackPanel x:Name="CreateModePanel" Orientation="Horizontal" Margin="0,0,0,12"
+                                IsVisible="False">
                         <TextBlock Text="Create:"
                                    Foreground="#CCCCCC" FontSize="14"
                                    VerticalAlignment="Center" Margin="0,0,16,0" />
@@ -176,7 +177,8 @@
                          identity chosen at creation, Developer preselected. Each item carries
                          its enum name in Tag; the playbook for non-default types is seeded into
                          the agent at startup. Shown only in Single mode. -->
-                    <StackPanel x:Name="TypePickerPanel" Orientation="Horizontal" Margin="0,0,0,12">
+                    <StackPanel x:Name="TypePickerPanel" Orientation="Horizontal" Margin="0,0,0,12"
+                                IsVisible="False">
                         <TextBlock Text="Type:"
                                    Foreground="#CCCCCC" FontSize="14"
                                    VerticalAlignment="Center" Margin="0,0,16,0" />
@@ -406,14 +408,8 @@
                               Margin="0,12,0,0"
                               ToolTip.Tip="When checked, Claude Code will not prompt for permission to execute tools" />
 
-                    <CheckBox x:Name="RemoteControlCheckBox" Grid.Row="7"
-                              Content="Enable Remote Control"
-                              IsChecked="False"
-                              Foreground="#CCCCCC"
-                              Margin="0,8,0,0"
-                              ToolTip.Tip="When checked, starts session in Remote Control mode for access from claude.ai or mobile app" />
-
                     <CheckBox x:Name="WingmanCheckBox" Grid.Row="7"
+                              IsVisible="False"
                               Content="Wingman (auto-explain on turn-end + Voice tabs)"
                               IsChecked="False"
                               HorizontalAlignment="Right"

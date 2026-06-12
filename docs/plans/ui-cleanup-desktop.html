@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>CC Director Desktop - UI Cleanup Inventory</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f1117; color: #e2e8f0; font-size: 14px; }
+
+  .header { padding: 24px 32px 16px; border-bottom: 1px solid #1e2535; }
+  .header h1 { font-size: 22px; font-weight: 700; color: #f8fafc; }
+  .header p { margin-top: 6px; color: #94a3b8; font-size: 13px; }
+
+  .screenshot-row { display: flex; gap: 24px; padding: 24px 32px; border-bottom: 1px solid #1e2535; align-items: flex-start; }
+  .screenshot-wrap { flex: 0 0 auto; }
+  .screenshot-wrap img { width: 680px; border: 1px solid #1e2535; border-radius: 6px; }
+  .legend { flex: 1; }
+  .legend h2 { font-size: 14px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 12px; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; margin-bottom: 6px; }
+  .keep   { background: #14532d; color: #86efac; }
+  .alpha  { background: #1c1917; color: #f97316; border: 1px solid #f97316; }
+  .tbd    { background: #1e1b4b; color: #a5b4fc; }
+
+  .legend-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 13px; color: #cbd5e1; }
+  .legend-dot { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+
+  .table-section { padding: 0 32px 40px; }
+  .region-header { font-size: 16px; font-weight: 700; color: #f8fafc; margin: 28px 0 8px; padding-bottom: 8px; border-bottom: 1px solid #1e2535; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.08em; padding: 8px 12px; border-bottom: 1px solid #1e2535; }
+  td { padding: 9px 12px; border-bottom: 1px solid #111827; vertical-align: top; }
+  tr:hover td { background: #111827; }
+  .col-el { width: 200px; font-weight: 500; color: #f1f5f9; }
+  .col-what { color: #94a3b8; font-size: 13px; }
+  .col-status { width: 110px; }
+  .col-notes { color: #64748b; font-size: 12px; }
+  .tag-keep  { background: #14532d; color: #86efac; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+  .tag-alpha { background: #431407; color: #f97316; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; white-space: nowrap; border: 1px solid #7c2d12; }
+  .tag-tbd    { background: #1e1b4b; color: #a5b4fc; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+  .tag-remove { background: #3b0764; color: #e879f9; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>CC Director Desktop - UI Cleanup Inventory</h1>
+  <p>Screenshot: cc-director1 (v0.6.22) - captured 2026-06-12. Decision: KEEP = ship now / ALPHA = hide behind flag / TBD = needs discussion.</p>
+</div>
+
+<div class="screenshot-row">
+  <div class="screenshot-wrap">
+    <img src="file:///D:/Personal/OneDrive/Pictures/Screenshots/cc-director-window-20260612-060219.png" alt="CC Director Desktop Screenshot">
+  </div>
+  <div class="legend">
+    <h2>Decision Key</h2>
+    <div class="legend-row"><div class="legend-dot" style="background:#14532d;"></div><span><span class="tag-keep">KEEP</span> - Core, tested, ships to all users</span></div>
+    <div class="legend-row"><div class="legend-dot" style="background:#7c2d12;"></div><span><span class="tag-alpha">ALPHA</span> - Hide behind alpha flag. Code stays, UI hidden.</span></div>
+    <div class="legend-row"><div class="legend-dot" style="background:#1e1b4b;"></div><span><span class="tag-tbd">TBD</span> - Needs discussion before deciding</span></div>
+    <br>
+    <h2 style="margin-top:16px;">Summary</h2>
+    <p style="color:#94a3b8;font-size:13px;margin-top:8px;">Fill in decisions below, then we implement the alpha flag gate in one pass.</p>
+  </div>
+</div>
+
+<div class="table-section">
+
+  <!-- ==================== MENU BAR ==================== -->
+  <div class="region-header">Menu Bar</div>
+  <table>
+    <thead><tr><th class="col-el">Element</th><th class="col-what">What it does</th><th class="col-status">Decision</th><th class="col-notes">Notes</th></tr></thead>
+    <tbody>
+      <tr><td class="col-el">File menu</td><td class="col-what">Open repo, exit</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Session menu</td><td class="col-what">New session, close session</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">View menu</td><td class="col-what">Panel toggles, zoom</td><td class="col-status"><span class="tag-tbd">TBD</span></td><td class="col-notes">Depends on what's in it</td></tr>
+      <tr><td class="col-el">Tools menu</td><td class="col-what">Tool-related actions</td><td class="col-status"><span class="tag-tbd">TBD</span></td><td class="col-notes">Depends on what's in it</td></tr>
+      <tr><td class="col-el">Help menu</td><td class="col-what">About, documentation links</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+    </tbody>
+  </table>
+
+  <!-- ==================== TOP TOOLBAR ==================== -->
+  <div class="region-header">Top Toolbar</div>
+  <table>
+    <thead><tr><th class="col-el">Element</th><th class="col-what">What it does</th><th class="col-status">Decision</th><th class="col-notes">Notes</th></tr></thead>
+    <tbody>
+      <tr><td class="col-el">+ New Session</td><td class="col-what">Opens new session dialog</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes">Primary CTA</td></tr>
+      <tr><td class="col-el">Comms</td><td class="col-what">Communication queue / email drafts</td><td class="col-status"><span class="tag-alpha">ALPHA</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Conns</td><td class="col-what">Browser connections / profiles</td><td class="col-status"><span class="tag-alpha">ALPHA</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Sched (+ badge)</td><td class="col-what">Scheduled tasks / crons</td><td class="col-status"><span class="tag-alpha">ALPHA</span></td><td class="col-notes">Badge shows pending count</td></tr>
+      <tr><td class="col-el">Tools</td><td class="col-what">cc-* tool list / status</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Cockpit</td><td class="col-what">Opens Cockpit web UI</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes">Cockpit is a shipped product</td></tr>
+      <tr><td class="col-el">Settings (gear)</td><td class="col-what">App settings dialog</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+    </tbody>
+  </table>
+
+  <!-- ==================== SESSION LIST (LEFT PANEL) ==================== -->
+  <div class="region-header">Session List - Left Panel</div>
+  <table>
+    <thead><tr><th class="col-el">Element</th><th class="col-what">What it does</th><th class="col-status">Decision</th><th class="col-notes">Notes</th></tr></thead>
+    <tbody>
+      <tr><td class="col-el">Sessions header</td><td class="col-what">Label + "N need you" attention count</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">&lt;&lt; (collapse panel)</td><td class="col-what">Collapses the session list panel</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Session card (name)</td><td class="col-what">Session name, click to select</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Status dot (colored square)</td><td class="col-what">Red = needs you, blue = working</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Runtime badge (Claude Code)</td><td class="col-what">Shows the CLI runtime type</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Session type badge ([III] Implementation)</td><td class="col-what">CenCon session type label</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Turn status ("Your Turn - waiting 15h")</td><td class="col-what">Last turn age + whose turn</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">"3 chg" badge</td><td class="col-what">Uncommitted git changes count</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">... (session context menu)</td><td class="col-what">Per-session actions (rename, close, etc.)</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Gateway Connected banner</td><td class="col-what">Shows gateway connection status + timestamp</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Version string (v0.6.22)</td><td class="col-what">App version + build hash</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+    </tbody>
+  </table>
+
+  <!-- ==================== SESSION DETAIL - HEADER ==================== -->
+  <div class="region-header">Session Detail - Header Bar</div>
+  <table>
+    <thead><tr><th class="col-el">Element</th><th class="col-what">What it does</th><th class="col-status">Decision</th><th class="col-notes">Notes</th></tr></thead>
+    <tbody>
+      <tr><td class="col-el">Session name (title)</td><td class="col-what">Name of the active session</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Working / Your Turn status</td><td class="col-what">Real-time session state</td><td class="col-status"><span class="tag-alpha">ALPHA</span></td><td class="col-notes">Duplicates the colored dot on the session card</td></tr>
+      <tr><td class="col-el">Refresh button</td><td class="col-what">Force-refresh the session view</td><td class="col-status"><span class="tag-alpha">ALPHA</span></td><td class="col-notes">Should not be needed in normal flow</td></tr>
+      <tr><td class="col-el">Claude ID + Re-link</td><td class="col-what">Internal process identifier + re-attach</td><td class="col-status"><span class="tag-remove">REMOVE</span></td><td class="col-notes">Remove entirely - internal detail, no user value</td></tr>
+      <tr><td class="col-el">Director ID</td><td class="col-what">Which Director instance owns this session</td><td class="col-status"><span class="tag-remove">REMOVE</span></td><td class="col-notes">Remove entirely - replaced by new Director Info widget</td></tr>
+      <tr><td class="col-el" style="color:#38bdf8;">Director Info widget (NEW)</td><td class="col-what">Shows <strong>computer name</strong> + <strong>Control API port</strong> e.g. SOREN_NORTH:7879. Copy button copies connection info (hostname, port, token) so another agent can find this Director.</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes">Replaces Claude ID + Director ID. Useful for multi-machine and agent-to-agent routing.</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ==================== SESSION DETAIL - TABS ==================== -->
+  <div class="region-header">Session Detail - Tab Bar</div>
+  <table>
+    <thead><tr><th class="col-el">Element</th><th class="col-what">What it does</th><th class="col-status">Decision</th><th class="col-notes">Notes</th></tr></thead>
+    <tbody>
+      <tr><td class="col-el">Terminal tab</td><td class="col-what">Main terminal output + composer</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes">Core feature</td></tr>
+      <tr><td class="col-el">Source Control tab</td><td class="col-what">Git diff / branch / commit UI</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Voice tab</td><td class="col-what">Voice dictation / Speak settings</td><td class="col-status"><span class="tag-alpha">ALPHA</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Open Wingman</td><td class="col-what">Opens the Wingman assistant pane</td><td class="col-status"><span class="tag-alpha">ALPHA</span></td><td class="col-notes">Wingman is experimental; not all sessions have briefs</td></tr>
+      <tr><td class="col-el">Capture</td><td class="col-what">Takes a screenshot capture of the session</td><td class="col-status"><span class="tag-alpha">ALPHA</span></td><td class="col-notes">Supporting feature; not core</td></tr>
+      <tr><td class="col-el">Reset View</td><td class="col-what">Resets panel layout to default</td><td class="col-status"><span class="tag-alpha">ALPHA</span></td><td class="col-notes">Rarely used; confusing label</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ==================== TERMINAL AREA ==================== -->
+  <div class="region-header">Terminal Area</div>
+  <table>
+    <thead><tr><th class="col-el">Element</th><th class="col-what">What it does</th><th class="col-status">Decision</th><th class="col-notes">Notes</th></tr></thead>
+    <tbody>
+      <tr><td class="col-el">Terminal output (ANSI)</td><td class="col-what">Live Claude Code output stream</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes">Core</td></tr>
+      <tr><td class="col-el">Scrollbar</td><td class="col-what">Scroll through history</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+    </tbody>
+  </table>
+
+  <!-- ==================== COMPOSER / INPUT AREA ==================== -->
+  <div class="region-header">Composer / Input Area</div>
+  <table>
+    <thead><tr><th class="col-el">Element</th><th class="col-what">What it does</th><th class="col-status">Decision</th><th class="col-notes">Notes</th></tr></thead>
+    <tbody>
+      <tr><td class="col-el">Notification bar ("taken off hold")</td><td class="col-what">Shows system events / alerts about this session</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Stop button</td><td class="col-what">Sends Ctrl+C to interrupt Claude</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes">Core control</td></tr>
+      <tr><td class="col-el">Interrupt button</td><td class="col-what">Soft interrupt (escape)</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Clear context button</td><td class="col-what">Sends /clear to Claude</td><td class="col-status"><span class="tag-tbd">TBD</span></td><td class="col-notes">Useful but is it tested + reliable?</td></tr>
+      <tr><td class="col-el">History button</td><td class="col-what">Shows sent message history</td><td class="col-status"><span class="tag-alpha">ALPHA</span></td><td class="col-notes">Supplementary; unclear if tested</td></tr>
+      <tr><td class="col-el">Text input ("Type a message...")</td><td class="col-what">Compose a message to Claude</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes">Core</td></tr>
+      <tr><td class="col-el">Expand button</td><td class="col-what">Enlarges the composer text area</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes">Useful for long prompts</td></tr>
+      <tr><td class="col-el">Send button</td><td class="col-what">Sends the composed message</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes">Core</td></tr>
+      <tr><td class="col-el">Speak button</td><td class="col-what">Voice dictation to composer</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Queue button</td><td class="col-what">Adds message to queued prompts list</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Explain button</td><td class="col-what">Triggers Wingman "explain current state"</td><td class="col-status"><span class="tag-alpha">ALPHA</span></td><td class="col-notes">Depends on Wingman; experimental</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ==================== RIGHT PANEL ==================== -->
+  <div class="region-header">Right Panel (Side Panel)</div>
+  <table>
+    <thead><tr><th class="col-el">Element</th><th class="col-what">What it does</th><th class="col-status">Decision</th><th class="col-notes">Notes</th></tr></thead>
+    <tbody>
+      <tr><td class="col-el">Screenshots tab</td><td class="col-what">View captures taken for this session</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Wingman tab</td><td class="col-what">Shows Wingman brief / suggestions</td><td class="col-status"><span class="tag-alpha">ALPHA</span></td><td class="col-notes">Wingman is experimental</td></tr>
+      <tr><td class="col-el">Queue tab</td><td class="col-what">List of queued prompts for this session</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Director tab</td><td class="col-what">Director-level info (cross-session view)</td><td class="col-status"><span class="tag-alpha">ALPHA</span></td><td class="col-notes">Technical / diagnostic</td></tr>
+      <tr><td class="col-el">&lt;&lt; (collapse right panel)</td><td class="col-what">Hides the right panel</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Clear button (Queue)</td><td class="col-what">Clears the queued prompts list</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+    </tbody>
+  </table>
+
+  <!-- ==================== NEW SESSION DIALOG ==================== -->
+  <div class="region-header" style="margin-top:40px;">New Session Dialog</div>
+  <table>
+    <thead><tr><th class="col-el">Element</th><th class="col-what">What it does</th><th class="col-status">Decision</th><th class="col-notes">Notes</th></tr></thead>
+    <tbody>
+      <tr><td class="col-el">Create: Single / Group row</td><td class="col-what">Toggle between single and group session creation</td><td class="col-status"><span class="tag-alpha">ALPHA</span></td><td class="col-notes">Group mode not tested; row hidden since Single is the only option</td></tr>
+      <tr><td class="col-el">Agent picker (Claude Code, Pi, Codex...)</td><td class="col-what">Select which CLI to run</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Type: dropdown</td><td class="col-what">Sets the session playbook (Implementation, Developer, etc.)</td><td class="col-status"><span class="tag-alpha">ALPHA</span></td><td class="col-notes">Hidden pending presets redesign (#344)</td></tr>
+      <tr><td class="col-el">Repository list + search + browse</td><td class="col-what">Pick the repo to open</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Bypass permission prompts</td><td class="col-what">Passes --dangerously-skip-permissions to Claude</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Enable Remote Control</td><td class="col-what">Starts session in remote-control mode</td><td class="col-status"><span class="tag-remove">REMOVE</span></td><td class="col-notes">Property stubbed to false; XAML removed</td></tr>
+      <tr><td class="col-el">Wingman checkbox</td><td class="col-what">Enables Wingman auto-explain + voice tabs</td><td class="col-status"><span class="tag-alpha">ALPHA</span></td><td class="col-notes">Matches Wingman alpha status in main UI</td></tr>
+      <tr><td class="col-el">Quick launch cards (Assistant / Coach)</td><td class="col-what">Opens personal assistant / life coach sessions</td><td class="col-status"><span class="tag-tbd">TBD</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Resume Session tab</td><td class="col-what">Browse and re-open previous Claude sessions</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">Handovers tab</td><td class="col-what">Browse and continue from a handover document</td><td class="col-status"><span class="tag-keep">KEEP</span></td><td class="col-notes"></td></tr>
+      <tr><td class="col-el">GitHub (Remote) tab</td><td class="col-what">Start a GitHub Actions-hosted session</td><td class="col-status"><span class="tag-alpha">ALPHA</span></td><td class="col-notes">Not tested; complex setup required</td></tr>
+    </tbody>
+  </table>
+
+  <div style="margin-top:40px;padding:20px;background:#111827;border-radius:8px;color:#64748b;font-size:13px;">
+    <strong style="color:#94a3b8;">Remaining TBDs (desktop):</strong> View menu, Tools menu, Clear context button. <strong style="color:#94a3b8;">Dialog TBDs:</strong> Wingman checkbox, Quick launch cards.
+  </div>
+
+</div>
+</body>
+</html>

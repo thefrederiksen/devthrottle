@@ -51,7 +51,7 @@
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"
                             Spacing="2" VerticalAlignment="Center">
                     <!-- Comms (with pending-count badge) -->
-                    <Grid>
+                    <Grid IsVisible="False">
                         <Button x:Name="BtnComms" Classes="toolbarBtn"
                                 Click="BtnComms_Click"
                                 ToolTip.Tip="Communication Manager">
@@ -74,6 +74,7 @@
                     <!-- Connections -->
                     <Button x:Name="BtnConnections" Classes="toolbarBtn"
                             Click="BtnConnections_Click"
+                            IsVisible="False"
                             ToolTip.Tip="Browser Connections">
                         <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                             <Viewbox Width="15" Height="13">
@@ -84,7 +85,7 @@
                         </StackPanel>
                     </Button>
                     <!-- Scheduler (with LEADER pill) -->
-                    <Grid>
+                    <Grid IsVisible="False">
                         <Button x:Name="BtnScheduler" Classes="toolbarBtn"
                                 Click="BtnScheduler_Click"
                                 ToolTip.Tip="Scheduler -- view registered runners and run them on demand">
@@ -592,11 +593,13 @@
                                    Foreground="#FFFFFFCC"
                                    FontSize="13"
                                    VerticalAlignment="Center"
+                                   IsVisible="False"
                                    Margin="0,0,8,0" />
                         <!-- Refresh terminal button -->
                         <Button x:Name="BtnRefreshTerminal"
                                 Content="Refresh"
                                 Click="BtnRefreshTerminal_Click"
+                                IsVisible="False"
                                 Background="Transparent"
                                 Foreground="White"
                                 BorderThickness="0"
@@ -628,63 +631,28 @@
                     </Border>
                 </DockPanel>
 
-                <!-- Row 1: Session ID + Director ID -->
-                <StackPanel x:Name="HeaderSessionIdPanel" Grid.Row="1"
+                <!-- Row 1: Director connection info (machine name + port + copy for agents) -->
+                <StackPanel x:Name="DirectorInfoPanel" Grid.Row="1"
                             Orientation="Horizontal"
                             HorizontalAlignment="Right"
-                            Margin="0,4,0,0"
-                            IsVisible="False">
-                    <TextBlock Text="Claude ID:"
-                               Foreground="#87CEFA"
-                               FontSize="10"
-                               VerticalAlignment="Center" />
-                    <TextBlock x:Name="HeaderSessionId"
-                               Text="Not linked"
-                               Foreground="#E0E0E0"
+                            Margin="0,4,0,0">
+                    <TextBlock x:Name="DirectorInfoText"
+                               Text="..."
+                               Foreground="White"
                                FontSize="10"
                                FontFamily="Cascadia Mono,Consolas,monospace"
-                               Margin="4,0,0,0"
                                VerticalAlignment="Center" />
-                    <!-- Verification badge -->
-                    <Border x:Name="HeaderVerificationBadge"
-                            CornerRadius="2"
-                            Padding="4,1"
-                            Margin="6,0,0,0"
-                            VerticalAlignment="Center"
-                            IsVisible="False">
-                        <TextBlock x:Name="HeaderVerificationText"
-                                   Text="OK"
-                                   FontSize="9"
-                                   FontWeight="SemiBold"
-                                   Foreground="White" />
-                    </Border>
-                    <!-- Re-link button -->
-                    <Button x:Name="BtnRelink"
-                            Content="Re-link"
-                            Click="BtnRelink_Click"
-                            IsVisible="False"
-                            Margin="6,0,0,0"
+                    <Button x:Name="BtnCopyDirectorInfo"
+                            Content="Copy"
+                            Click="BtnCopyDirectorInfo_Click"
+                            Margin="8,0,0,0"
                             Padding="6,2"
                             FontSize="10"
-                            Background="#005A9E"
-                            Foreground="#E0E0E0"
+                            Background="#2D2D30"
+                            Foreground="White"
                             BorderThickness="0"
-                            Cursor="Hand" />
-                    <TextBlock Text="|"
-                               Foreground="#4A5568"
-                               FontSize="10"
-                               Margin="12,0"
-                               VerticalAlignment="Center" />
-                    <TextBlock Text="Director ID:"
-                               Foreground="#87CEFA"
-                               FontSize="10"
-                               VerticalAlignment="Center" />
-                    <TextBlock x:Name="HeaderDirectorId"
-                               Foreground="#E0E0E0"
-                               FontSize="10"
-                               FontFamily="Cascadia Mono,Consolas,monospace"
-                               Margin="4,0,0,0"
-                               VerticalAlignment="Center" />
+                            Cursor="Hand"
+                            ToolTip.Tip="Copy Control API URL so other agents can reach this Director" />
                 </StackPanel>
 
                 <!-- Row 2: GitHub remote links (only for GitHub Actions sessions) -->
@@ -787,6 +755,7 @@
                                     Click="SourceControlTabButton_Click" />
                             <Button x:Name="VoiceTabButton"
                                     Content="Voice"
+                                    IsVisible="False"
                                     Background="Transparent"
                                     Foreground="#888888"
                                     Padding="12,4"
@@ -794,6 +763,7 @@
                                     Click="VoiceTabButton_Click" />
                             <Button x:Name="WingmanTabButton"
                                     Content="Wingman"
+                                    IsVisible="False"
                                     Background="Transparent"
                                     Foreground="#888888"
                                     Padding="12,4"
@@ -1164,6 +1134,7 @@
                             <Button x:Name="BtnExplain"
                                     Grid.Column="0"
                                     Content="Explain"
+                                    IsVisible="False"
                                     Click="BtnExplain_Click"
                                     HorizontalAlignment="Left"
                                     VerticalAlignment="Bottom"
@@ -1433,7 +1404,7 @@
                     </TabItem>
 
                     <!-- ===== Wingman Tab (per-session state observability) ===== -->
-                    <TabItem Header="Wingman">
+                    <TabItem Header="Wingman" IsVisible="False">
                         <controls:WingmanView x:Name="WingmanView" />
                     </TabItem>
 
@@ -1557,7 +1528,7 @@
                     </TabItem>
 
                     <!-- ===== Director Tab ===== -->
-                    <TabItem Header="Director" x:Name="TabItemDirector">
+                    <TabItem Header="Director" x:Name="TabItemDirector" IsVisible="False">
                         <mgr:DirectorView x:Name="DirectorView" />
                     </TabItem>
                 </TabControl>

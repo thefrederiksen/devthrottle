@@ -411,7 +411,7 @@ public partial class NewSessionDialog : Window
 
     private const int GitHubTabIndex = 3;
     public bool BypassPermissions => BypassPermissionsCheckBox.IsChecked == true;
-    public bool EnableRemoteControl => RemoteControlCheckBox.IsChecked == true;
+    public bool EnableRemoteControl => false;
     public bool WingmanEnabled => WingmanCheckBox?.IsChecked == true;
     public bool IsStudioMode => false;
 
@@ -518,7 +518,7 @@ public partial class NewSessionDialog : Window
         AgentRadioCodex.IsVisible = alpha || IsAgentSelectableOutsideAlpha(AgentKind.Codex, options);
         AgentRadioGemini.IsVisible = alpha || IsAgentSelectableOutsideAlpha(AgentKind.Gemini, options);
         AgentRadioOpenCode.IsVisible = alpha || IsAgentSelectableOutsideAlpha(AgentKind.OpenCode, options);
-        HandoversTab.IsVisible = alpha;
+        HandoversTab.IsVisible = true;
         GitHubTab.IsVisible = alpha;
         QuickLaunchPanel.IsVisible = alpha;
         FileLog.Write($"[NewSessionDialog] Constructor: alphaFeatures={alpha}, codexVisible={AgentRadioCodex.IsVisible}, geminiVisible={AgentRadioGemini.IsVisible}, openCodeVisible={AgentRadioOpenCode.IsVisible}");
@@ -578,8 +578,6 @@ public partial class NewSessionDialog : Window
             var isClaude = agentKind == AgentKind.ClaudeCode;
             if (BypassPermissionsCheckBox is not null)
                 BypassPermissionsCheckBox.IsEnabled = isClaude;
-            if (RemoteControlCheckBox is not null)
-                RemoteControlCheckBox.IsEnabled = isClaude;
 
             // Show the custom-CLI command/args panel only when "Custom CLI" is selected.
             if (CustomCliPanel is not null)

@@ -282,6 +282,46 @@ public partial class MainWindow : Window
         RefreshSchedulerLeaderIndicator();
 
         WireGatewayIndicator();
+        InitDirectorInfo();
+    }
+
+    private void InitDirectorInfo()
+    {
+        FileLog.Write("[MainWindow] InitDirectorInfo");
+        var app = global::Avalonia.Application.Current as App;
+        var port = app?.ControlApiHost?.Port;
+        var portStr = port is > 0 ? port.Value.ToString() : "...";
+        DirectorInfoText.Text = $"{Environment.MachineName}:{portStr}";
+    }
+
+    private async void BtnCopyDirectorInfo_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write("[MainWindow] BtnCopyDirectorInfo_Click");
+        try
+        {
+            var app = global::Avalonia.Application.Current as App;
+            var port = app?.ControlApiHost?.Port;
+            if (port is null or 0)
+            {
+                ShowNotification("Control API not started yet.");
+                return;
+            }
+            var url = await Task.Run(() =>
+                TailscaleIdentity.ResolveAdvertisedControlApiEndpoint(port.Value));
+            var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+            if (clipboard == null) { ShowNotification("Clipboard unavailable."); return; }
+            await clipboard.SetTextAsync(url);
+            ShowNotification($"Copied: {url}");
+            FileLog.Write($"[MainWindow] BtnCopyDirectorInfo_Click: copied {url}");
+            BtnCopyDirectorInfo.Content = "Copied!";
+            await Task.Delay(1500);
+            BtnCopyDirectorInfo.Content = "Copy";
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] BtnCopyDirectorInfo_Click FAILED: {ex.Message}");
+            ShowNotification($"Copy failed: {ex.Message}");
+        }
     }
 
     // ==================== GATEWAY CONNECTION INDICATOR (issues #223/#224) ====================
@@ -877,16 +917,11 @@ public partial class MainWindow : Window
         // Attach the Wingman observability tab (right panel) to the new session.
         WingmanView.Attach(vm.Session);
 
-        // Show prompt bar and header buttons
+        // Show prompt bar
         PromptBarBorder.IsVisible = true;
-        TabBarRefreshButton.IsVisible = _activeLeftTab == "Terminal";
-        TabBarCaptureButton.IsVisible = _activeLeftTab == "Terminal";
-        TabBarOpenWingmanButton.IsVisible = true;
 
-        // Wingman tab is only available when the session has the Wingman experience
-        // enabled. If it's off, the tab button is hidden and the Wingman left panel
-        // stays collapsed.
-        WingmanTabButton.IsVisible = vm.Session.WingmanEnabled;
+        // Wingman tab is alpha-hidden
+        WingmanTabButton.IsVisible = false;
         // Render whatever cached briefing the ProactiveExplainService has produced so far
         // (or the brand-new greeting set on session creation) IMMEDIATELY for responsiveness,
         // then asynchronously upgrade to the richer Gateway turn brief if one exists. Reset the
@@ -1231,7 +1266,7 @@ public partial class MainWindow : Window
 
         if (_activeSession == vm)
         {
-            WingmanTabButton.IsVisible = newState;
+            WingmanTabButton.IsVisible = false;
             if (!newState && string.Equals(_activeLeftTab, "Wingman", StringComparison.Ordinal))
                 SwitchLeftTab("Terminal");
         }
@@ -1660,20 +1695,6 @@ public partial class MainWindow : Window
             HeaderMessageCountBadge.IsVisible = false;
         }
 
-        // Session IDs
-        var claudeId = session.ClaudeSessionId;
-        if (!string.IsNullOrEmpty(claudeId))
-        {
-            HeaderSessionId.Text = claudeId.Length > 12 ? claudeId[..12] + "..." : claudeId;
-            HeaderDirectorId.Text = session.Id.ToString()[..8];
-            HeaderSessionIdPanel.IsVisible = true;
-        }
-        else
-        {
-            HeaderSessionId.Text = "Not linked";
-            HeaderDirectorId.Text = session.Id.ToString()[..8];
-            HeaderSessionIdPanel.IsVisible = true;
-        }
 
         UpdateHeaderVerification(_activeSession);
     }
@@ -1683,30 +1704,6 @@ public partial class MainWindow : Window
 
     private void UpdateHeaderVerification(SessionViewModel vm)
     {
-        if (vm.IsVerified)
-        {
-            HeaderVerificationBadge.Background = VerifiedBadgeBrush;
-            HeaderVerificationText.Text = "OK";
-            HeaderVerificationBadge.IsVisible = true;
-            BtnRelink.IsVisible = false;
-        }
-        else if (vm.HasVerificationWarning)
-        {
-            HeaderVerificationBadge.Background = WarningBadgeBrush;
-            HeaderVerificationText.Text = "!";
-            HeaderVerificationBadge.IsVisible = true;
-            BtnRelink.IsVisible = true;
-        }
-        else
-        {
-            HeaderVerificationBadge.IsVisible = false;
-            BtnRelink.IsVisible = true;
-        }
-
-        var tooltip = vm.VerificationStatusText;
-        if (!string.IsNullOrEmpty(vm.VerifiedFirstPrompt))
-            tooltip += $"\n\nFirst prompt: {vm.VerifiedFirstPrompt}";
-        ToolTip.SetTip(HeaderVerificationBadge, tooltip);
     }
 
     private void CheckTerminalVerification()
