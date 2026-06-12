@@ -1,0 +1,19 @@
+  Passed CcDirector.Gateway.Tests.GatewayVoiceTurnAsyncTests.Submit_MissingToken_Returns401 [172 ms]
+  Passed CcDirector.Gateway.Tests.GatewayVoiceTurnAsyncTests.Poll_ValidTurnId_AfterTTLExpiry_Returns404 [213 ms]
+  Passed CcDirector.Gateway.Tests.GatewayVoiceTurnAsyncTests.Submit_GatewayCookie_IsAcceptedLikeOtherProtectedRoutes [204 ms]
+  Passed CcDirector.Gateway.Tests.GatewayVoiceTurnAsyncTests.Poll_InvalidToken_Returns401 [183 ms]
+  Passed CcDirector.Gateway.Tests.GatewayVoiceTurnAsyncTests.Submit_TextBody_Returns202 [275 ms]
+  Passed CcDirector.Gateway.Tests.GatewayVoiceTurnAsyncTests.Submit_UnknownSession_Returns404 [254 ms]
+  Passed CcDirector.Gateway.Tests.GatewayVoiceTurnAsyncTests.Poll_ValidTurnId_AfterCompletion_ReturnsReplyStage [1 s]
+  Passed CcDirector.Gateway.Tests.GatewayVoiceTurnAsyncTests.Poll_DirectorUnreachable_ReturnsErrorStage [2 s]
+  Passed CcDirector.Gateway.Tests.GatewayVoiceTurnAsyncTests.Poll_MultiplePolls_SameResult [1 s]
+  Passed CcDirector.Gateway.Tests.GatewayVoiceTurnAsyncTests.Poll_UnknownTurnId_Returns404 [116 ms]
+  Passed CcDirector.Gateway.Tests.GatewayVoiceTurnAsyncTests.Submit_SessionAlreadyExited_Returns404OrGone [237 ms]
+  Passed CcDirector.Gateway.Tests.GatewayVoiceTurnAsyncTests.Poll_ValidTurnId_WhileProcessing_ReturnsInProgressStage [1 s]
+  Passed CcDirector.Gateway.Tests.GatewayVoiceTurnAsyncTests.Submit_InvalidToken_Returns401 [128 ms]
+  Passed CcDirector.Gateway.Tests.GatewayVoiceTurnAsyncTests.Submit_ValidIdleSession_Returns202WithTurnId [240 ms]
+  Passed CcDirector.Gateway.Tests.GatewayVoiceTurnAsyncTests.Submit_InvalidGuid_Returns400 [132 ms]
+  Passed CcDirector.Gateway.Tests.GatewayVoiceTurnAsyncTests.Poll_MissingToken_Returns401 [239 ms]
+Total tests: 16
+     Passed: 16
+ Total time: 15.5108 Seconds
