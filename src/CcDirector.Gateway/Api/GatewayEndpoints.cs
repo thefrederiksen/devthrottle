@@ -36,14 +36,24 @@ internal static class GatewayEndpoints
     /// doorbell event vocabulary (session-created/session-exited/prompt-detected) so the
     /// events are observable at GET /directors/{id}/events. Null (old callers, tests that
     /// don't care) records nothing and the events route serves empty lists.</param>
+    /// <param name="turnJobs">Issue #376: the async voice-turn job store (singleton owned by
+    /// <see cref="GatewayHost"/>). When present, the submit/poll routes are mapped via
+    /// <see cref="GatewayVoiceTurnEndpoint"/>; null (old callers) maps nothing.</param>
     public static void Map(IEndpointRouteBuilder app, DirectorRegistry registry, DirectorEndpointClient client, string version, string token, bool authEnabled = false, Func<bool>? requestShutdown = null,
         Action<string, string, string>? onSessionState = null, Func<string, string?>? assessedStateFor = null,
         Func<string, (string BriefingState, string? RailLine)>? briefStampFor = null,
         Func<string, (string? RailLine, string? Headline)>? interruptedBriefFor = null,
         Func<string, List<TurnBriefDto>>? briefHistoryFor = null,
         SessionOwnerCache? owners = null,
-        Gateway.Events.DirectorEventLog? directorEvents = null)
+        Gateway.Events.DirectorEventLog? directorEvents = null,
+        Voice.GatewayTurnJobStore? turnJobs = null)
     {
+        // Issue #376: async voice-turn submit/poll (the phone's reconnect-resilient voice
+        // interface). Mapped first for readability; route precedence (literal segments win
+        // over the catch-all session forwarder) does the actual dispatch.
+        if (turnJobs is not null)
+            GatewayVoiceTurnEndpoint.Map(app, turnJobs, registry, client, owners, token);
+
         // Graceful exit for the self-update helper: answer first (so the caller gets its 200),
         // then hand off to the host's shutdown handler shortly after. 501 when the hosting
         // process wired no handler - this endpoint never half-stops the host on its own.
