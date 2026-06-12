@@ -1,0 +1,17 @@
+Test run for D:\ReposFred\cc-director\src\CcDirector.Core.Tests\bin\Debug\net10.0\CcDirector.Core.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v2.8.2+699d445a1a (64-bit .NET 10.0.9)
+[xUnit.net 00:00:00.06]   Discovering: CcDirector.Core.Tests
+[xUnit.net 00:00:00.18]   Discovered:  CcDirector.Core.Tests
+[xUnit.net 00:00:00.18]   Starting:    CcDirector.Core.Tests
+[xUnit.net 00:00:00.22]   Finished:    CcDirector.Core.Tests
+  Passed CcDirector.Core.Tests.Voice.ClaudeSummarizerTests.CleanupForSpeech_JapaneseInput_IsNotDropped [4 ms]
+  Passed CcDirector.Core.Tests.Voice.ClaudeSummarizerTests.ClaudeSummarizer_NonLatinInput_IsNotDropped [< 1 ms]
+  Passed CcDirector.Core.Tests.Voice.ClaudeSummarizerTests.CleanupForSpeech_NonLatinWithMarkdown_KeepsTextRemovesMarkdown [< 1 ms]
+  Passed CcDirector.Core.Tests.Voice.ClaudeSummarizerTests.ProgressPrompt_AllowsNonLatinInput_NoRejectionInstructions [6 ms]
+  Passed CcDirector.Core.Tests.Voice.ClaudeSummarizerTests.SummarizationPrompt_AllowsNonLatinInput_NoRejectionInstructions [< 1 ms]
+
+Test Run Successful.
+Total tests: 5
+     Passed: 5
+ Total time: 0.5925 Seconds
