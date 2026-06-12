@@ -163,6 +163,56 @@ public static class StreamMessageParser
         }
     }
 
+    /// <summary>
+    /// Parse messages starting from a specific BYTE offset in the JSONL file
+    /// (for reading only content appended after a snapshot, issue #366).
+    /// The offset must sit on a line boundary - callers snapshot the file
+    /// length between writes (Claude appends whole lines), so seeking there
+    /// lands at the start of the next appended line. Offsets beyond the
+    /// current end of file (e.g. the file was replaced and is now shorter)
+    /// fall back to reading from the start, because then ALL content is new.
+    /// Reads with FileShare.ReadWrite to allow reading while Claude is writing.
+    /// </summary>
+    public static List<StreamMessage> ParseFileFromOffset(string jsonlPath, long byteOffset)
+    {
+        FileLog.Write($"[StreamMessageParser] ParseFileFromOffset: {jsonlPath}, offset={byteOffset}");
+        var messages = new List<StreamMessage>();
+
+        if (!File.Exists(jsonlPath))
+        {
+            FileLog.Write("[StreamMessageParser] ParseFileFromOffset: file not found");
+            return messages;
+        }
+
+        try
+        {
+            using var fs = new FileStream(jsonlPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            if (byteOffset > 0 && byteOffset <= fs.Length)
+                fs.Seek(byteOffset, SeekOrigin.Begin);
+            using var reader = new StreamReader(fs);
+
+            int lineNum = 0;
+            string? line;
+            while ((line = reader.ReadLine()) != null)
+            {
+                if (!string.IsNullOrWhiteSpace(line))
+                {
+                    var msg = ParseLine(line, lineNum);
+                    if (msg != null)
+                        messages.Add(msg);
+                }
+                lineNum++;
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[StreamMessageParser] ParseFileFromOffset FAILED: {ex.Message}");
+        }
+
+        FileLog.Write($"[StreamMessageParser] ParseFileFromOffset: parsed {messages.Count} messages");
+        return messages;
+    }
+
     internal static StreamMessage? ParseLine(string line, int lineNum)
     {
         try

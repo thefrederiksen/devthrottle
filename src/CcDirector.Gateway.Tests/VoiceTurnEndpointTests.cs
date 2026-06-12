@@ -279,7 +279,105 @@ public sealed class VoiceTurnEndpointTests : IAsyncLifetime
         Assert.NotNull(audioBase64);
     }
 
+    // ===== Test 6: consecutive turns must never replay a previous turn (issue #366) =====
+
+    /// <summary>
+    /// Regression test for issue #366: the endpoint snapshots the JSONL transcript
+    /// length before posting the turn's text and reads only assistant content
+    /// appended after that offset.
+    ///
+    /// Three turns against one session with a real (temp) JSONL transcript:
+    ///   Turn 1: the agent writes a reply containing FIRST marker -> spoken summary has it.
+    ///   Turn 2: the agent writes a reply containing SECOND marker -> spoken summary has
+    ///           the SECOND marker and never the first turn's content.
+    ///   Turn 3: the agent writes NOTHING during the turn (the exact #366 defect window:
+    ///           reply not yet in the transcript when the poll loop exits) -> the summary
+    ///           must not replay either previous turn's content.
+    /// Pre-#366 code read the last assistant message of the WHOLE file, so turn 3
+    /// would speak the second turn's reply again - this test fails on that code.
+    /// </summary>
+    [Fact]
+    public async Task VoiceTurn_TwoConsecutiveTurns_SecondTurnSpeaksCurrentReply()
+    {
+        const string firstMarker = "ZEBRAFIRST";
+        const string secondMarker = "ZEBRASECOND";
+
+        // Unique fake repo path -> unique folder under ~/.claude/projects we fully own.
+        var repoPath = @"C:\test\voice-turn-366-" + Guid.NewGuid().ToString("N");
+        var claudeSessionId = Guid.NewGuid().ToString();
+        var jsonlPath = CcDirector.Core.Claude.ClaudeSessionReader.GetJsonlPath(claudeSessionId, repoPath);
+        var projectDir = Path.GetDirectoryName(jsonlPath)!;
+        Directory.CreateDirectory(projectDir);
+        File.WriteAllText(jsonlPath, "");
+
+        try
+        {
+            var backend = new TranscriptWritingBackend(jsonlPath, new[]
+            {
+                $"{firstMarker} the first task is complete.",
+                $"{secondMarker} the second task is complete.",
+                // Turn 3 has NO scripted reply: the agent has not written anything
+                // to the transcript when the turn poll loop exits.
+            });
+            var session = new Session(
+                Guid.NewGuid(),
+                repoPath: repoPath,
+                workingDirectory: repoPath,
+                claudeArgs: null,
+                backend: backend,
+                claudeSessionId: claudeSessionId,
+                activityState: ActivityState.Idle,
+                createdAt: DateTimeOffset.UtcNow,
+                customName: "voice-turn-366-test",
+                customColor: null);
+            session.MarkRunning();
+            backend.Session = session;
+            _sm.AdoptSession(session);
+            var sid = session.Id.ToString();
+
+            using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(3));
+
+            // Turn 1: spoken summary reflects the first turn's reply.
+            var reply1 = await RunVoiceTurnAsync(sid, "do the first task", cts.Token);
+            Assert.Contains(firstMarker, reply1);
+
+            // Turn 2: spoken summary reflects THIS turn's reply, never the first turn's.
+            var reply2 = await RunVoiceTurnAsync(sid, "do the second task", cts.Token);
+            Assert.Contains(secondMarker, reply2);
+            Assert.DoesNotContain(firstMarker, reply2);
+
+            // Turn 3: nothing was written during the turn - no previous-turn content
+            // may leak into the spoken summary (the #366 stale replay).
+            var reply3 = await RunVoiceTurnAsync(sid, "and a third thing", cts.Token);
+            Assert.DoesNotContain(firstMarker, reply3);
+            Assert.DoesNotContain(secondMarker, reply3);
+        }
+        finally
+        {
+            try { Directory.Delete(projectDir, recursive: true); } catch { /* test cleanup */ }
+        }
+    }
+
     // ===== Helpers =============================================================
+
+    /// <summary>
+    /// POST one voice turn (JSON text path), stream the SSE events, and return the
+    /// final reply stage's summary. Asserts the reply stage exists.
+    /// </summary>
+    private async Task<string> RunVoiceTurnAsync(string sid, string text, CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"sessions/{sid}/voice-turn")
+        {
+            Content = new StringContent(JsonSerializer.Serialize(new { text }), Encoding.UTF8, "application/json"),
+        };
+        using var resp = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+
+        var events = await ReadSseStreamAsync(resp, ct);
+        var replyEvent = events.LastOrDefault(e => ReadStage(e) == "reply");
+        Assert.NotNull(replyEvent);
+        return ReadField(replyEvent!, "summary") ?? "";
+    }
 
     /// <summary>
     /// Create a minimal idle session backed by a stub backend. The QuickIdleBackend
@@ -474,6 +572,83 @@ public sealed class VoiceTurnEndpointTests : IAsyncLifetime
             // Fire-and-forget: after Session.SendTextAsync sets Working state (which happens
             // after we return), flip back to WaitingForInput to simulate an instant turn-end.
             // The 200ms delay ensures we run AFTER Session.SendTextAsync has set Working.
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(200);
+                Session?.ApplyTerminalActivityState(ActivityState.WaitingForInput);
+            });
+            return Task.CompletedTask;
+        }
+
+        public Task SendEnterAsync() => Task.CompletedTask;
+        public void Resize(short cols, short rows) { }
+        public Task GracefulShutdownAsync(int timeoutMs = 5000) => Task.CompletedTask;
+        public void Dispose() { }
+    }
+
+    /// <summary>
+    /// Stub backend for issue #366: behaves like QuickIdleBackend (flips the session
+    /// back to WaitingForInput shortly after SendTextAsync), but also appends one
+    /// scripted assistant reply per turn to a real JSONL transcript BEFORE the flip -
+    /// like a real agent writing its response. When the scripted replies run out, a
+    /// turn ends with NO new assistant content, reproducing the exact #366 defect
+    /// window (the agent has not written its reply when the poll loop exits).
+    /// </summary>
+    private sealed class TranscriptWritingBackend : ISessionBackend
+    {
+        private readonly string _jsonlPath;
+        private readonly Queue<string> _pendingReplies;
+
+        public Session? Session { get; set; }
+
+        public TranscriptWritingBackend(string jsonlPath, IEnumerable<string> replies)
+        {
+            _jsonlPath = jsonlPath;
+            _pendingReplies = new Queue<string>(replies);
+        }
+
+        public int ProcessId => 1;
+        public string Status => "TranscriptWriting";
+        public bool IsRunning => true;
+        public bool HasExited => false;
+        public CircularTerminalBuffer? Buffer => null;
+
+#pragma warning disable CS0067
+        public event Action<string>? StatusChanged;
+        public event Action<int>? ProcessExited;
+#pragma warning restore CS0067
+
+        public void Start(string executable, string args, string workingDir, short cols, short rows,
+            Dictionary<string, string>? environmentVars = null) { }
+        public void Write(byte[] data) { }
+
+        public Task SendTextAsync(string text)
+        {
+            // Append this turn's user prompt + assistant reply (when scripted) in the
+            // Claude Code JSONL shape, synchronously, so the transcript content is in
+            // place before the WaitingForInput flip ends the turn.
+            if (_pendingReplies.Count > 0)
+            {
+                var reply = _pendingReplies.Dequeue();
+                var userLine = JsonSerializer.Serialize(new
+                {
+                    type = "user",
+                    message = new { role = "user", content = text },
+                });
+                var assistantLine = JsonSerializer.Serialize(new
+                {
+                    type = "assistant",
+                    message = new
+                    {
+                        role = "assistant",
+                        content = new object[] { new { type = "text", text = reply } },
+                    },
+                });
+                File.AppendAllText(_jsonlPath, userLine + "\n" + assistantLine + "\n");
+            }
+
+            // Same instant-turn-end simulation as QuickIdleBackend: the 200ms delay
+            // ensures we run AFTER Session.SendTextAsync has set Working.
             _ = Task.Run(async () =>
             {
                 await Task.Delay(200);
