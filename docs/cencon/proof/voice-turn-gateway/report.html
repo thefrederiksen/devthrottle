@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #376 - Gateway async voice-turn submit/poll + TurnJobStore - Developer Agent Proof</title>
+<style>
+  body { font-family: "Segoe UI", Arial, sans-serif; background: #14181d; color: #d8dee6; margin: 0; padding: 32px; line-height: 1.5; }
+  .wrap { max-width: 1000px; margin: 0 auto; }
+  h1 { color: #6fc3ff; font-size: 1.5em; border-bottom: 2px solid #2a3340; padding-bottom: 8px; }
+  h2 { color: #8fd0a0; font-size: 1.15em; margin-top: 32px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #2a3340; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #1c232b; color: #9fb3c8; }
+  code, pre { font-family: Consolas, monospace; background: #1c232b; color: #c9e3a6; border-radius: 4px; }
+  code { padding: 1px 5px; }
+  pre { padding: 12px; overflow-x: auto; border: 1px solid #2a3340; }
+  .pass { color: #7ce38b; font-weight: bold; }
+  .fail { color: #ff8a8a; font-weight: bold; }
+  .note { background: #20262e; border-left: 4px solid #c9a227; padding: 10px 14px; margin: 14px 0; }
+  a { color: #6fc3ff; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Issue #376 - [Gateway] Add async voice-turn submit/poll endpoints and TurnJobStore</h1>
+
+<p><strong>Role:</strong> Developer Agent (CenCon Development Method) &nbsp;|&nbsp;
+<strong>Branch:</strong> <code>issue-376-gateway-voice-turn</code> &nbsp;|&nbsp;
+<strong>Date:</strong> 2026-06-12 &nbsp;|&nbsp;
+<strong>Live rig:</strong> isolated slot-8 Director (own worktree build <code>cc-director8.exe</code>,
+PID 79476, Control API 127.0.0.1:7884, launched via the per-slot scheduled task
+<code>cc-director8-launch</code> per <code>scripts/agent-session-isolation.ps1</code>) discovered
+ONLY by an isolated NEW-code Gateway (dev console host, 127.0.0.1:17878, isolated
+<code>CC_DIRECTOR_ROOT</code> + copied instance file, <code>CC_TURNBRIEFS=0</code>,
+<code>CC_GATEWAY_NO_TAILSCALE=1</code>) - the user's production fleet, serve table, and
+key vault were never touched. Everything was torn down afterwards (slot 8 freed,
+proof root deleted, test session killed).</p>
+
+<h2>What was implemented</h2>
+<ul>
+  <li><code>src/CcDirector.Gateway/Voice/GatewayTurnJobStore.cs</code> - in-memory
+      <code>TurnJob</code> store keyed by UUID <code>turn_id</code>; 10-minute TTL checked lazily
+      on read (plus an opportunistic sweep on create); thread-safe
+      (<code>ConcurrentDictionary</code> + per-job lock with snapshot reads). TurnJob fields:
+      TurnId, SessionId, Stage, Transcript, Summary, AudioBase64, ErrorMessage, CreatedAt, ExpiresAt.</li>
+  <li><code>src/CcDirector.Gateway/Api/GatewayVoiceTurnEndpoint.cs</code> -
+      <code>POST /sessions/{sid}/voice-turn/submit</code> (400 invalid guid, 404 unknown session,
+      410 exited session, 202 <code>{ turn_id, expires_at }</code>) and
+      <code>GET /sessions/{sid}/voice-turn/{turnId}</code> (404 unknown/expired, 200
+      <code>{ stage, transcript, summary, audioBase64, message }</code>). Submit buffers the body
+      (multipart audio/text or raw JSON), resolves the owning Director
+      (<code>SessionOwnerCache</code> fast path, else live fleet fan-out), and fires an unawaited
+      background task that drives the Director's existing SSE
+      <code>POST /sessions/{sid}/voice-turn</code>, mirroring every stage event
+      (submitted/transcribing/transcript/waiting/thinking/summarizing/reply/error) into the job.
+      The task ALWAYS lands the job terminal (reply or error) - a poll can never hang.</li>
+  <li>Wiring: <code>GatewayEndpoints.Map()</code> gained a <code>turnJobs</code> parameter;
+      <code>GatewayHost</code> registers <code>GatewayTurnJobStore</code> as the
+      <code>TurnJobs</code> singleton and passes it through.</li>
+  <li><code>src/CcDirector.Gateway.Tests/GatewayVoiceTurnAsyncTests.cs</code> - 11 integration
+      tests: real <code>ControlApiHost</code> + real <code>GatewayHost</code> on ephemeral ports,
+      isolated <code>_instancesDir</code> (the <code>WingmanAskForwardingTests</code> pattern),
+      stub <code>QuickIdleBackend</code>/<code>SlowIdleBackend</code> sessions (the
+      <code>VoiceTurnEndpointTests</code> pattern) - no live Claude/OpenAI calls.</li>
+</ul>
+
+<h2>Integration tests (dotnet test --filter GatewayVoiceTurnAsync)</h2>
+<table>
+  <tr><th>Test</th><th>Result</th></tr>
+  <tr><td>Submit_InvalidGuid_Returns400</td><td class="pass">PASS</td></tr>
+  <tr><td>Submit_UnknownSession_Returns404</td><td class="pass">PASS</td></tr>
+  <tr><td>Submit_ValidIdleSession_Returns202WithTurnId</td><td class="pass">PASS</td></tr>
+  <tr><td>Submit_TextBody_Returns202</td><td class="pass">PASS</td></tr>
+  <tr><td>Submit_SessionAlreadyExited_Returns404OrGone</td><td class="pass">PASS</td></tr>
+  <tr><td>Poll_UnknownTurnId_Returns404</td><td class="pass">PASS</td></tr>
+  <tr><td>Poll_ValidTurnId_WhileProcessing_ReturnsInProgressStage</td><td class="pass">PASS</td></tr>
+  <tr><td>Poll_ValidTurnId_AfterCompletion_ReturnsReplyStage</td><td class="pass">PASS</td></tr>
+  <tr><td>Poll_MultiplePolls_SameResult</td><td class="pass">PASS</td></tr>
+  <tr><td>Poll_ValidTurnId_AfterTTLExpiry_Returns404</td><td class="pass">PASS</td></tr>
+  <tr><td>Poll_DirectorUnreachable_ReturnsErrorStage</td><td class="pass">PASS</td></tr>
+</table>
+<pre>Passed!  - Failed:     0, Passed:    11, Skipped:     0, Total:    11, Duration: 14 s - CcDirector.Gateway.Tests.dll (net10.0)</pre>
+
+<p><code>dotnet build cc-director.sln</code>: <span class="pass">Build succeeded. 0 Warning(s), 0 Error(s).</span></p>
+
+<h2>Full Gateway.Tests regression run</h2>
+<pre>Failed!  - Failed:     2, Passed:   597, Skipped:     0, Total:   599, Duration: 2 m 32 s</pre>
+<div class="note">
+<strong>The 2 failures are PRE-EXISTING / environmental, not introduced by this change
+(verified, stated honestly):</strong>
+<ul>
+  <li><code>DictationEndpointTests.FullPipeline_transcribes_phase0_clip2_with_realtime_provider</code> -
+      a real-network OpenAI Realtime test. It fails <em>identically</em> on a clean
+      <code>origin/main</code> worktree (commit <code>708c250</code>, verified by running exactly
+      this test there: "expected at least 1 partial transcript, got 0"). Live-API behavior,
+      untouched by this diff.</li>
+  <li><code>DirectorEventsAndFactsTests.Facts_Proxy_ReturnsToolInventoryAndLauncherFact</code> -
+      timing-sensitive under load (a slot build was running concurrently during the suite run);
+      it <span class="pass">PASSES</span> when re-run in isolation on this branch.</li>
+</ul>
+This branch's diff touches only the five voice-turn files
+(<code>git diff main...HEAD --stat</code>: GatewayTurnJobStore.cs, GatewayVoiceTurnEndpoint.cs,
+GatewayEndpoints.cs, GatewayHost.cs, GatewayVoiceTurnAsyncTests.cs) - neither failing test's
+surface is in the diff.
+</div>
+
+<h2>Live curl trace: submit -&gt; poll -&gt; reply (real slot-8 Director + real Gateway)</h2>
+<p>A real ClaudeCode session (<code>3a50e27b-7822-4a3f-b7b8-1bf4a7558f8b</code>) was created on the
+slot-8 Director; the Gateway (127.0.0.1:17878, running THIS branch's code) drove the full turn.
+The Director resolved the production OpenAI key, so the reply carries REAL TTS audio.</p>
+
+<pre>$ curl -i -X POST "http://127.0.0.1:17878/sessions/3a50e27b-7822-4a3f-b7b8-1bf4a7558f8b/voice-turn/submit" \
+       -H "Content-Type: application/json" \
+       -d '{"text":"What is 2 plus 2? Reply with one short sentence only."}'
+HTTP/1.1 202 Accepted
+Content-Type: application/json; charset=utf-8
+
+{"turn_id":"53302715-9b53-4dca-a548-205d4090c6b0","expires_at":"2026-06-12T23:08:01.2506005Z"}
+
+$ # poll loop, 2s interval
+[18:58:14] poll 1: stage=thinking
+[18:58:17] poll 2: stage=thinking
+[18:58:19] poll 3: stage=thinking
+[18:58:21] poll 4: stage=thinking
+[18:58:23] poll 5: stage=thinking
+[18:58:26] poll 6: {"turn_id": "53302715-9b53-4dca-a548-205d4090c6b0", "stage": "reply",
+                    "transcript": null, "summary": "4.",
+                    "audioBase64": "//PkxABnNDoIAVjIAD7k4lXEFAGZBqQZAFxFNGXw... (12800 chars)",
+                    "message": null, "expires_at": "2026-06-12T23:08:01.2506005Z"}</pre>
+
+<p>Negative paths and idempotent re-poll, same rig:</p>
+<pre>$ curl -X POST .../sessions/not-a-guid/voice-turn/submit -d '{"text":"..."}'
+{"error":"invalid session id format"}            HTTP 400
+
+$ curl -X POST .../sessions/&lt;random-uuid&gt;/voice-turn/submit -d '{"text":"..."}'
+{"error":"session not found"}                    HTTP 404
+
+$ curl .../sessions/3a50e27b-.../voice-turn/&lt;random-uuid&gt;
+{"error":"turn not found or expired"}            HTTP 404
+
+$ curl .../sessions/3a50e27b-.../voice-turn/53302715-9b53-4dca-a548-205d4090c6b0   # second poll
+{"turn_id": "53302715-...", "stage": "reply", "transcript": null, "summary": "4.",
+ "audioBase64": "//PkxABnNDoIAVjIAD7k4lXE...", "message": null, ...}               HTTP 200 (identical)</pre>
+
+<h2>Acceptance criteria -&gt; proof</h2>
+<table>
+  <tr><th>Criterion</th><th>Proof</th></tr>
+  <tr><td>POST submit with unknown guid -&gt; 404 <code>{"error":"session not found"}</code></td>
+      <td>Test Submit_UnknownSession_Returns404 + live curl (404 above)</td></tr>
+  <tr><td>POST submit with non-guid -&gt; 400 <code>{"error":"invalid session id format"}</code></td>
+      <td>Test Submit_InvalidGuid_Returns400 + live curl (400 above)</td></tr>
+  <tr><td>POST submit valid idle session -&gt; 202 with UUID <code>turn_id</code> + ISO-8601 UTC <code>expires_at</code></td>
+      <td>Test Submit_ValidIdleSession_Returns202WithTurnId + live curl (202 above)</td></tr>
+  <tr><td>GET poll unknown turn id -&gt; 404 JSON</td>
+      <td>Test Poll_UnknownTurnId_Returns404 + live curl (404 above)</td></tr>
+  <tr><td>GET poll in-flight -&gt; 200 with in-progress stage</td>
+      <td>Test Poll_ValidTurnId_WhileProcessing_ReturnsInProgressStage + live polls 1-5 (stage=thinking)</td></tr>
+  <tr><td>GET poll after completion -&gt; <code>stage:"reply"</code>, non-null summary + audioBase64</td>
+      <td>Test Poll_ValidTurnId_AfterCompletion_ReturnsReplyStage (keyless: audioBase64="" but present) + live poll 6 (real audio, 12800 chars)</td></tr>
+  <tr><td>After simulated TTL expiry -&gt; 404</td>
+      <td>Test Poll_ValidTurnId_AfterTTLExpiry_Returns404 (injects 11-minutes-old CreatedAt via the documented test seam)</td></tr>
+  <tr><td>Director unreachable -&gt; submit 404/503; job polls land at <code>stage:"error"</code> with message</td>
+      <td>Tests Submit_UnknownSession_Returns404 (unregistered) + Poll_DirectorUnreachable_ReturnsErrorStage (registered-but-dead endpoint: 202 then error stage with message)</td></tr>
+  <tr><td><code>dotnet build cc-director.sln</code> 0 errors</td><td>Build output above</td></tr>
+  <tr><td><code>dotnet test --filter GatewayVoiceTurnAsync</code> all green</td><td>11/11 PASS above</td></tr>
+  <tr><td>HTML proof report committed</td><td>This file (committed to the PR branch)</td></tr>
+</table>
+
+<h2>CenCon impact</h2>
+<p>No architecture drift beyond what is already documented: this change IS Phase 2 of
+<code>docs/architecture/gateway/VOICE_TURN_ARCHITECTURE.md</code> (the Gateway owns the async
+voice-turn interface; the Director's SSE endpoint stays the worker, unchanged). No security-posture
+change: the new routes inherit the host-wide token middleware exactly like every other Gateway
+route; the dedicated bearer-token gate on these two routes is issue #369 (explicitly out of scope
+here and dependent on this issue). Affected containers: <code>CcDirector.Gateway</code>,
+<code>CcDirector.Gateway.Tests</code> - matching the issue's Affected Containers section.</p>
+
+<h2>Verdict</h2>
+<p class="pass">All acceptance criteria are met, the build is clean, the new tests are green,
+the live submit -&gt; poll -&gt; reply round-trip was proven against a real Director + Gateway,
+and the two unrelated suite failures are accounted for honestly. I believe this is finished.</p>
+
+</div>
+</body>
+</html>

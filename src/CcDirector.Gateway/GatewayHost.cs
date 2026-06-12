@@ -46,6 +46,14 @@ public sealed class GatewayHost : IAsyncDisposable
     /// </summary>
     public Events.DirectorEventLog DirectorEvents { get; } = new();
 
+    /// <summary>
+    /// Issue #376: the async voice-turn job cache (10-minute TTL). The submit endpoint creates
+    /// jobs here, a background task mirrors the owning Director's SSE stage events into them,
+    /// and the poll endpoint reads them - in-memory by design (a Gateway restart drops in-flight
+    /// turns and the phone re-submits).
+    /// </summary>
+    public Voice.GatewayTurnJobStore TurnJobs { get; } = new();
+
     /// <summary>When this host was constructed - the Cockpit Settings page reads it for uptime.</summary>
     public DateTime StartedAtUtc { get; } = DateTime.UtcNow;
 
@@ -382,7 +390,9 @@ public sealed class GatewayHost : IAsyncDisposable
             // proxy can return 503 (owner offline) rather than 404 for a session whose Director went dark.
             owners: SessionOwners,
             // Issue #330: doorbell event-vocabulary pings land in the per-director event ring.
-            directorEvents: DirectorEvents);
+            directorEvents: DirectorEvents,
+            // Issue #376: async voice-turn submit/poll rides the host-owned job store.
+            turnJobs: TurnJobs);
 
         // Issue #268: the two raw per-session WebSocket legs (live Terminal stream + dictation)
         // proxied through the Gateway so a remote Cockpit talks same-origin to the Gateway and
