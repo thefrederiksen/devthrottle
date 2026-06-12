@@ -246,6 +246,7 @@ public class SessionViewModel : INotifyPropertyChanged
     private static readonly ISolidColorBrush CodexAgentBrush = new SolidColorBrush(Color.FromRgb(0x10, 0xA3, 0x7F));
     private static readonly ISolidColorBrush GeminiAgentBrush = new SolidColorBrush(Color.FromRgb(0xEA, 0x43, 0x35));
     private static readonly ISolidColorBrush OpenCodeAgentBrush = new SolidColorBrush(Color.FromRgb(0xF9, 0x73, 0x16));
+    private static readonly ISolidColorBrush RawCliAgentBrush = new SolidColorBrush(Color.FromRgb(0x6B, 0x72, 0x80));  // slate gray - neutral, not tied to any brand
 
     public string AgentLabel => Session.AgentKind switch
     {
@@ -253,6 +254,7 @@ public class SessionViewModel : INotifyPropertyChanged
         AgentKind.Codex => "Codex",
         AgentKind.Gemini => "Gemini",
         AgentKind.OpenCode => "OpenCode",
+        AgentKind.RawCli => "Custom CLI",
         _ => "Claude Code"
     };
 
@@ -262,6 +264,7 @@ public class SessionViewModel : INotifyPropertyChanged
         AgentKind.Codex => CodexAgentBrush,
         AgentKind.Gemini => GeminiAgentBrush,
         AgentKind.OpenCode => OpenCodeAgentBrush,
+        AgentKind.RawCli => RawCliAgentBrush,
         _ => ClaudeAgentBrush
     };
 

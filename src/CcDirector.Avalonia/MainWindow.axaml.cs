@@ -685,6 +685,32 @@ public partial class MainWindow : Window
         _ => new ClaudeAgent(_sessionManager.Options)
     };
 
+    /// <summary>Create a session using a pre-built <see cref="IAgent"/> (e.g. a
+    /// <see cref="RawCliAgent"/> constructed by the dialog).</summary>
+    private SessionViewModel? CreateSession(string repoPath, string? resumeSessionId, string? userArgs, IAgent agent, SessionType sessionType, Guid? groupId = null, string? groupRole = null, string? groupName = null)
+    {
+        FileLog.Write($"[MainWindow] CreateSession: repoPath={repoPath}, agent={agent.Kind}, exe={agent.ExecutablePath}, type={sessionType}, group={groupId?.ToString() ?? "none"}, resume={resumeSessionId ?? "null"}");
+        _lastSessionCreateError = null;
+        try
+        {
+            var session = _sessionManager.CreateSession(repoPath, agent, userArgs, SessionBackendType.ConPty, resumeSessionId, sessionType, groupId, groupRole, groupName);
+            FileLog.Write($"[MainWindow] CreateSession: session created, id={session.Id}, pid={session.ProcessId}");
+
+            var vm = new SessionViewModel(session);
+            _sessions.Add(vm);
+            SessionList.SelectedItem = vm;
+            FileLog.Write($"[MainWindow] CreateSession: added to UI");
+
+            return vm;
+        }
+        catch (Exception ex)
+        {
+            _lastSessionCreateError = ex.Message;
+            FileLog.Write($"[MainWindow] CreateSession FAILED: {ex.Message}");
+            return null;
+        }
+    }
+
     private SessionViewModel? CreateSession(string repoPath, string? resumeSessionId = null, string? claudeArgs = null, AgentKind agentKind = AgentKind.ClaudeCode, SessionType sessionType = SessionType.Developer, Guid? groupId = null, string? groupRole = null, string? groupName = null)
     {
         FileLog.Write($"[MainWindow] CreateSession: repoPath={repoPath}, agent={agentKind}, type={sessionType}, group={groupId?.ToString() ?? "none"}, resume={resumeSessionId ?? "null"}, args={claudeArgs ?? "default"}");
@@ -2167,7 +2193,7 @@ public partial class MainWindow : Window
         var resumeSessionId = dialog.SelectedResumeSessionId;
         var agentKind = dialog.SelectedAgentKind;
 
-        // Build agent arguments. Claude flags don't apply to Pi.
+        // Build agent arguments. Claude flags don't apply to other agents.
         string agentArgs;
         if (agentKind == AgentKind.ClaudeCode)
         {
@@ -2183,22 +2209,50 @@ public partial class MainWindow : Window
             agentArgs = string.Empty;
         }
 
-        FileLog.Write($"[MainWindow] ShowNewSessionDialog: path={dialog.SelectedPath}, agent={agentKind}, resume={resumeSessionId ?? "null"}, bypassPermissions={dialog.BypassPermissions}, remoteControl={dialog.EnableRemoteControl}, wingmanEnabled={dialog.WingmanEnabled}");
+        // Build the IAgent. For RawCli, construct it directly from the dialog's custom fields.
+        IAgent agent;
+        if (agentKind == AgentKind.RawCli)
+        {
+            var customCmd = dialog.SelectedCustomCommand;
+            if (string.IsNullOrWhiteSpace(customCmd))
+            {
+                FileLog.Write("[MainWindow] ShowNewSessionDialog: RawCli selected but no command; aborting");
+                return;
+            }
+            agent = new RawCliAgent(customCmd, string.IsNullOrWhiteSpace(dialog.SelectedCustomArgs) ? null : dialog.SelectedCustomArgs);
+        }
+        else
+        {
+            agent = CreateAgent(agentKind);
+        }
+
+        FileLog.Write($"[MainWindow] ShowNewSessionDialog: path={dialog.SelectedPath}, agent={agentKind}, exe={agent.ExecutablePath}, resume={resumeSessionId ?? "null"}, bypassPermissions={dialog.BypassPermissions}, remoteControl={dialog.EnableRemoteControl}, wingmanEnabled={dialog.WingmanEnabled}");
 
         // Preflight: make sure the chosen agent's CLI actually exists before we try to spawn it.
-        // Without this, a missing binary (e.g. OpenCode not installed) makes CreateProcess fail
-        // with a cryptic Win32 error that gets swallowed, so the dialog just closes and "nothing
-        // happens". Resolve it up front and tell the user exactly what to install.
-        var agentExe = CreateAgent(agentKind).ExecutablePath;
+        // Without this, a missing binary makes CreateProcess fail with a cryptic Win32 error that
+        // gets swallowed, so the dialog just closes and "nothing happens". Resolve it up front and
+        // tell the user exactly what to fix. For RawCli, the exe is the user-supplied command.
+        var agentExe = agent.ExecutablePath;
         if (ExecutableResolver.Resolve(agentExe) is null)
         {
-            var (agentName, installHint) = AgentInstallInfo(agentKind);
+            string errorTitle;
+            string errorBody;
+            if (agentKind == AgentKind.RawCli)
+            {
+                errorTitle = "Command not found";
+                errorBody = $"CC Director could not find '{agentExe}' on PATH.\n\n"
+                    + "Make sure the command is installed and on your PATH, or supply an absolute path.";
+            }
+            else
+            {
+                var (agentName, installHint) = AgentInstallInfo(agentKind);
+                errorTitle = $"{agentName} is not installed";
+                errorBody = $"CC Director could not start a {agentName} session because its command line tool "
+                    + $"could not be found.\n\nLooked for: {agentExe}\n\n{installHint}\n\n"
+                    + "If it is installed in a non-standard location, set its path in config.json.";
+            }
             FileLog.Write($"[MainWindow] ShowNewSessionDialog: agent {agentKind} executable '{agentExe}' not found on PATH; aborting launch");
-            await MessageBox.ShowAsync(this,
-                $"{agentName} is not installed",
-                $"CC Director could not start a {agentName} session because its command line tool "
-                + $"could not be found.\n\nLooked for: {agentExe}\n\n{installHint}\n\n"
-                + "If it is installed in a non-standard location, set its path in config.json.");
+            await MessageBox.ShowAsync(this, errorTitle, errorBody);
             return;
         }
 
@@ -2211,7 +2265,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var vm = CreateSession(dialog.SelectedPath, resumeSessionId, agentArgs, agentKind, dialog.SelectedSessionType);
+        var vm = CreateSession(dialog.SelectedPath, resumeSessionId, agentArgs, agent, dialog.SelectedSessionType);
         if (vm == null)
         {
             FileLog.Write("[MainWindow] ShowNewSessionDialog: CreateSession returned null; showing failure dialog");
