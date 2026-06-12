@@ -122,8 +122,54 @@
                                      Content="OpenCode"
                                      Foreground="#CCCCCC" FontSize="14"
                                      VerticalAlignment="Center"
+                                     Margin="0,0,24,0"
                                      Tag="OpenCode"
                                      IsCheckedChanged="AgentRadio_CheckedChanged" />
+                        <RadioButton x:Name="AgentRadioRawCli" GroupName="Agent"
+                                     Content="Custom CLI"
+                                     Foreground="#CCCCCC" FontSize="14"
+                                     VerticalAlignment="Center"
+                                     Tag="RawCli"
+                                     IsCheckedChanged="AgentRadio_CheckedChanged"
+                                     ToolTip.Tip="Run an arbitrary command-line tool (aider, pwsh, etc.) in raw terminal mode" />
+                    </StackPanel>
+
+                    <!-- Custom CLI panel (issue #333): shown only when "Custom CLI" agent is selected.
+                         Command = executable path or bare command; Args = extra arguments. Both are
+                         carried on the session and reported in GET /sessions as the Agent fact. -->
+                    <StackPanel x:Name="CustomCliPanel" Orientation="Vertical" Margin="0,0,0,12"
+                                IsVisible="False">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Command:"
+                                       Foreground="#CCCCCC" FontSize="13"
+                                       VerticalAlignment="Center" Margin="0,0,12,0" Width="72" />
+                            <TextBox x:Name="CustomCommandBox" Grid.Column="1"
+                                     Background="#1E1E1E" Foreground="#CCCCCC"
+                                     BorderBrush="#3C3C3C" Padding="6,4"
+                                     VerticalContentAlignment="Center"
+                                     Watermark="e.g. pwsh  or  C:\Tools\aider.exe"
+                                     TextChanged="CustomCommandBox_TextChanged"
+                                     ToolTip.Tip="Executable to run: bare command name (resolved via PATH) or absolute path" />
+                        </Grid>
+                        <Grid Margin="0,6,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Arguments:"
+                                       Foreground="#AAAAAA" FontSize="13"
+                                       VerticalAlignment="Center" Margin="0,0,12,0" Width="72" />
+                            <TextBox x:Name="CustomArgsBox" Grid.Column="1"
+                                     Background="#1E1E1E" Foreground="#CCCCCC"
+                                     BorderBrush="#3C3C3C" Padding="6,4"
+                                     VerticalContentAlignment="Center"
+                                     Watermark="Optional extra arguments"
+                                     ToolTip.Tip="Optional arguments appended to the command" />
+                        </Grid>
                     </StackPanel>
 
                     <!-- Session-type dropdown (issue #211, redesigned to a ComboBox in #254):

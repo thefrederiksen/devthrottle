@@ -22,5 +22,13 @@ public enum AgentKind
     Gemini = 3,
 
     /// <summary>opencode CLI (the <c>opencode</c> binary from opencode.ai).</summary>
-    OpenCode = 4
+    OpenCode = 4,
+
+    /// <summary>
+    /// User-supplied arbitrary CLI (aider, plain pwsh, or any other command).
+    /// The session runs in raw terminal mode; no Claude-specific interpretation
+    /// (turn detection, wingman, transcript) is applied. The actual executable
+    /// and arguments are carried on the session, not on this enum value.
+    /// </summary>
+    RawCli = 5
 }

@@ -9,12 +9,28 @@ public sealed class NewSessionRequest
     public string RepoPath { get; set; } = "";
 
     /// <summary>
-    /// Which agent CLI to launch. Valid values: "ClaudeCode" (default), "Pi", "Codex", "Gemini".
+    /// Which agent CLI to launch. Valid values: "ClaudeCode" (default), "Pi", "Codex",
+    /// "Gemini", "OpenCode", "RawCli". When "RawCli" is specified, <see cref="Command"/>
+    /// must also be set to the executable to run.
     /// </summary>
     public string Agent { get; set; } = "ClaudeCode";
 
     /// <summary>Optional extra arguments to pass to the agent CLI.</summary>
     public string? Args { get; set; }
+
+    /// <summary>
+    /// For <see cref="Agent"/> = "RawCli": the executable to run (e.g. "pwsh", "aider",
+    /// or an absolute path). Resolved against PATH+PATHEXT before spawning; a path that
+    /// cannot be resolved fails loudly at launch. Ignored for all other agent kinds.
+    /// </summary>
+    public string? Command { get; set; }
+
+    /// <summary>
+    /// For <see cref="Agent"/> = "RawCli": optional arguments appended to
+    /// <see cref="Command"/> before any <see cref="Args"/>. Ignored for all other
+    /// agent kinds.
+    /// </summary>
+    public string? CommandArgs { get; set; }
 
     /// <summary>
     /// The session's declared purpose (issue #211). Valid values: "Developer" (default),

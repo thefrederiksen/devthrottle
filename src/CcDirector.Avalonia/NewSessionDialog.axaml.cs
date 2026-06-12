@@ -391,6 +391,18 @@ public partial class NewSessionDialog : Window
     public string? SelectedHandoverPath { get; private set; }
 
     /// <summary>
+    /// When <see cref="SelectedAgentKind"/> is <see cref="AgentKind.RawCli"/>, the
+    /// command (executable path or bare command name) the user typed. Null otherwise.
+    /// </summary>
+    public string? SelectedCustomCommand { get; private set; }
+
+    /// <summary>
+    /// When <see cref="SelectedAgentKind"/> is <see cref="AgentKind.RawCli"/>, the
+    /// optional extra arguments the user typed. Null otherwise.
+    /// </summary>
+    public string? SelectedCustomArgs { get; private set; }
+
+    /// <summary>
     /// Non-null when the user chose the GitHub (Remote) tab and clicked Start. The
     /// caller (MainWindow) creates a GitHub Actions session from this instead of a
     /// local one. SelectedPath stays null in that case.
@@ -412,6 +424,7 @@ public partial class NewSessionDialog : Window
             if (AgentRadioCodex?.IsChecked == true) return AgentKind.Codex;
             if (AgentRadioGemini?.IsChecked == true) return AgentKind.Gemini;
             if (AgentRadioOpenCode?.IsChecked == true) return AgentKind.OpenCode;
+            if (AgentRadioRawCli?.IsChecked == true) return AgentKind.RawCli;
             return AgentKind.ClaudeCode;
         }
     }
@@ -558,19 +571,35 @@ public partial class NewSessionDialog : Window
             // to avoid running this twice per click.
             if (sender is not RadioButton rb || rb.IsChecked != true) return;
 
+            var agentKind = SelectedAgentKind;
+
             // BypassPermissions / RemoteControl are Claude-specific flags. Disable them
-            // when the user picks Pi so the UI doesn't mislead.
-            var isClaude = SelectedAgentKind == AgentKind.ClaudeCode;
+            // when the user picks a non-Claude agent so the UI does not mislead.
+            var isClaude = agentKind == AgentKind.ClaudeCode;
             if (BypassPermissionsCheckBox is not null)
                 BypassPermissionsCheckBox.IsEnabled = isClaude;
             if (RemoteControlCheckBox is not null)
                 RemoteControlCheckBox.IsEnabled = isClaude;
-            FileLog.Write($"[NewSessionDialog] AgentRadio_CheckedChanged: agent={SelectedAgentKind}");
+
+            // Show the custom-CLI command/args panel only when "Custom CLI" is selected.
+            if (CustomCliPanel is not null)
+                CustomCliPanel.IsVisible = agentKind == AgentKind.RawCli;
+
+            // Refresh the Start button - it is disabled when Custom CLI is chosen but
+            // the Command box is empty (validated inside UpdateActionButton).
+            UpdateActionButton();
+
+            FileLog.Write($"[NewSessionDialog] AgentRadio_CheckedChanged: agent={agentKind}");
         }
         catch (Exception ex)
         {
             FileLog.Write($"[NewSessionDialog] AgentRadio_CheckedChanged FAILED: {ex.Message}");
         }
+    }
+
+    private void CustomCommandBox_TextChanged(object? sender, TextChangedEventArgs e)
+    {
+        UpdateActionButton();
     }
 
     private async Task LoadSessionHistoryAsync()
@@ -652,7 +681,11 @@ public partial class NewSessionDialog : Window
             // In Group mode the button reflects how many sessions get created (issue #259).
             var group = SelectedGroupDefinition;
             BtnAction.Content = group is not null ? $"Start {group.Members.Count} Sessions" : "Start Session";
-            var isEnabled = !string.IsNullOrWhiteSpace(PathInput.Text);
+            // For Custom CLI, also require a non-empty Command before enabling Start.
+            var hasPath = !string.IsNullOrWhiteSpace(PathInput.Text);
+            var isRawCli = SelectedAgentKind == AgentKind.RawCli;
+            var hasCommand = !isRawCli || !string.IsNullOrWhiteSpace(CustomCommandBox?.Text);
+            var isEnabled = hasPath && hasCommand;
             BtnAction.IsEnabled = isEnabled;
             BtnAction.Background = isEnabled ? NewSessionButtonBrush : DisabledButtonBrush;
             BtnAction.Foreground = isEnabled ? EnabledTextBrush : DisabledTextBrush;
@@ -970,7 +1003,24 @@ public partial class NewSessionDialog : Window
                 return;
             }
 
-            FileLog.Write($"[NewSessionDialog] BtnAction_Click: Starting new session at {SelectedPath}");
+            // Capture custom CLI inputs when the RawCli agent is selected.
+            if (SelectedAgentKind == AgentKind.RawCli)
+            {
+                SelectedCustomCommand = CustomCommandBox?.Text?.Trim();
+                SelectedCustomArgs = CustomArgsBox?.Text?.Trim();
+                if (string.IsNullOrWhiteSpace(SelectedCustomCommand))
+                {
+                    FileLog.Write("[NewSessionDialog] BtnAction_Click: No command specified for Custom CLI session");
+                    return;
+                }
+            }
+            else
+            {
+                SelectedCustomCommand = null;
+                SelectedCustomArgs = null;
+            }
+
+            FileLog.Write($"[NewSessionDialog] BtnAction_Click: Starting new session at {SelectedPath}, agent={SelectedAgentKind}, customCmd={SelectedCustomCommand ?? "(none)"}");
             Close(true);
         }
         else if (MainTabs.SelectedIndex == 1)

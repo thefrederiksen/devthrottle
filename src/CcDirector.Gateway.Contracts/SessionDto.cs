@@ -12,7 +12,7 @@ public sealed class SessionDto
     /// <summary>Which Director owns this session. Empty in Director-local responses.</summary>
     public string DirectorId { get; set; } = "";
 
-    /// <summary>Agent CLI kind: ClaudeCode, Pi, Codex, Gemini.</summary>
+    /// <summary>Agent CLI kind: ClaudeCode, Pi, Codex, Gemini, OpenCode, RawCli.</summary>
     public string Agent { get; set; } = "";
 
     /// <summary>The session's declared purpose (issue #211): Implement / Discuss /
