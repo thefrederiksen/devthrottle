@@ -18,9 +18,10 @@ public class ClaudeSummarizer : IResponseSummarizer
     private string? _unavailableReason;
 
     /// <summary>
-    /// The prompt template for summarization.
+    /// The prompt template for summarization. Internal so tests can assert the
+    /// prompt allows non-Latin input (issue #367).
     /// </summary>
-    private const string SummarizationPrompt = """
+    internal const string SummarizationPrompt = """
         You are turning a coding agent's written reply into words a person will
         hear out loud, probably while driving. Your job is FIDELITY, not brevity:
         the listener must hear the agent's actual answer, not a looser version of
@@ -35,21 +36,29 @@ public class ClaudeSummarizer : IResponseSummarizer
         - Speak for the ear: do not read code, commands, file paths, function
           names, or symbols out loud. When code matters, say in plain words what
           it does or would do.
+        - The reply may be in ANY language or script (Korean, Japanese, Arabic,
+          and so on). Non-Latin and other Unicode characters are valid content,
+          never encoding corruption. Summarize faithfully in the same language
+          the reply is written in; never refuse or say the text cannot be read.
         Output ONLY the spoken version, nothing else.
         """;
 
     /// <summary>
     /// The prompt template for periodic progress notes during a long turn. The
     /// input is a raw, noisy terminal tail; the job is to extract intent.
+    /// Internal so tests can assert the prompt allows non-Latin input (issue #367).
     /// </summary>
-    private const string ProgressPrompt = """
+    internal const string ProgressPrompt = """
         Below is the recent terminal output of a coding agent that is STILL working
         on a task. In one or two short, calm spoken sentences, tell a person who is
         listening while driving what the agent appears to be doing right now. Speak
         in plain concepts only: no code, commands, file paths, function names, or
-        symbols. Begin as if continuing to wait, for example "Still going" or
-        "Still working". If you genuinely cannot tell what it is doing, say only
-        that it is still working. Output ONLY the spoken update, nothing else.
+        symbols. The output may be in any language or script; non-Latin Unicode
+        characters are valid content, never encoding corruption - describe the work
+        in the same language, and never refuse. Begin as if continuing to wait, for
+        example "Still going" or "Still working". If you genuinely cannot tell what
+        it is doing, say only that it is still working. Output ONLY the spoken
+        update, nothing else.
         """;
 
     /// <inheritdoc />
@@ -172,6 +181,12 @@ public class ClaudeSummarizer : IResponseSummarizer
     /// </summary>
     private static async Task<string> RunClaudeAsync(string prompt, string input, CancellationToken cancellationToken)
     {
+        // UTF-8 on all redirected pipes (issue #367): without this, Windows
+        // defaults redirected stdin/stdout to the legacy console code page,
+        // which destroys non-Latin scripts (Korean, Japanese, ...) into "?"
+        // mojibake before the model ever sees them - the model then reports
+        // the text as unreadable corruption and the spoken summary is lost.
+        var utf8NoBom = new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
         var psi = new ProcessStartInfo
         {
             FileName = ClaudeExecutable,
@@ -179,6 +194,9 @@ public class ClaudeSummarizer : IResponseSummarizer
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            StandardInputEncoding = utf8NoBom,
+            StandardOutputEncoding = utf8NoBom,
+            StandardErrorEncoding = utf8NoBom,
             UseShellExecute = false,
             CreateNoWindow = true
         };
@@ -256,9 +274,11 @@ public class ClaudeSummarizer : IResponseSummarizer
 
     /// <summary>
     /// Clean up text for speech synthesis.
-    /// Removes markdown formatting, code blocks, etc.
+    /// Removes markdown formatting, code blocks, etc. Operates only on markdown
+    /// syntax characters - all scripts (Latin or not) pass through untouched.
+    /// Internal so tests can prove non-Latin input is not dropped (issue #367).
     /// </summary>
-    private static string CleanupForSpeech(string text)
+    internal static string CleanupForSpeech(string text)
     {
         // Remove code blocks
         text = System.Text.RegularExpressions.Regex.Replace(text, @"```[\s\S]*?```", "");

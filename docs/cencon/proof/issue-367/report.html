@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Proof - Issue #367: Non-Latin script refusal in ClaudeSummarizer</title>
+<style>
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: #1e1e1e; color: #cccccc; margin: 0; padding: 2rem; line-height: 1.5; }
+  .wrap { max-width: 960px; margin: 0 auto; }
+  h1 { color: #ffffff; font-size: 1.5rem; border-bottom: 2px solid #007acc; padding-bottom: .5rem; }
+  h2 { color: #4fc1ff; font-size: 1.15rem; margin-top: 2rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #3c3c3c; padding: .5rem .75rem; text-align: left; vertical-align: top; }
+  th { background: #252526; color: #ffffff; }
+  .pass { color: #4ec9b0; font-weight: bold; }
+  pre { background: #0d0d0d; color: #d4d4d4; padding: 1rem; overflow-x: auto; border: 1px solid #3c3c3c; border-radius: 4px; font-size: .85rem; }
+  code { background: #252526; padding: .1rem .3rem; border-radius: 3px; font-size: .9em; }
+  .meta { color: #808080; font-size: .85rem; }
+  .verdict { background: #16331f; border: 1px solid #4ec9b0; border-radius: 4px; padding: 1rem; margin-top: 2rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Proof - Issue #367: [Voice] Fix non-Latin script refusal in ClaudeSummarizer</h1>
+<p class="meta">Developer Agent - 2026-06-12 - Branch <code>issue-367-non-latin</code> - PR #380 - Container: CcDirector.Core</p>
+
+<h2>What was implemented</h2>
+<p>Voice turns whose agent reply contained non-Latin script (Korean, Japanese, Arabic, ...) came back as a spoken refusal ("the text cannot be read") instead of a summary. Two defects in <code>src/CcDirector.Core/Voice/Services/ClaudeSummarizer.cs</code> were fixed:</p>
+<table>
+<tr><th>Defect</th><th>Fix</th></tr>
+<tr>
+  <td><strong>Console-code-page mojibake on the CLI pipes.</strong> <code>RunClaudeAsync</code> redirected the <code>claude</code> CLI's stdin/stdout/stderr without setting encodings. On Windows the redirected pipes default to the legacy console code page, which destroys non-Latin code points into <code>?</code> before the model ever sees them - the model then reports the text as unreadable corruption. This was the de-facto "pre-processing that flags non-ASCII code points as invalid" named by the issue.</td>
+  <td><code>StandardInputEncoding</code>, <code>StandardOutputEncoding</code>, and <code>StandardErrorEncoding</code> are now BOM-less UTF-8, so all scripts reach the model intact.</td>
+</tr>
+<tr>
+  <td><strong>Prompts never authorized non-Latin input</strong>, so the model had no instruction to summarize a non-English reply rather than refuse.</td>
+  <td><code>SummarizationPrompt</code> and <code>ProgressPrompt</code> now explicitly state: input may be in ANY language or script, non-Latin Unicode is valid content (never encoding corruption), summarize faithfully in the source language, and never refuse. Neither prompt contains any instruction to reject, flag, or replace non-ASCII characters.</td>
+</tr>
+</table>
+<p><code>CleanupForSpeech</code> and the prompt constants changed from <code>private</code> to <code>internal</code> so <code>CcDirector.Core.Tests</code> can prove the behavior (<code>InternalsVisibleTo</code> already declared in CcDirector.Core.csproj). Out-of-scope files (<code>VoiceTurnEndpoint.cs</code>, <code>TtsService.cs</code>, Gateway) untouched.</p>
+
+<h2>Acceptance criteria - proof for each</h2>
+<table>
+<tr><th>Criterion</th><th>Proof</th><th>Result</th></tr>
+<tr>
+  <td>Korean string ("&#50504;&#45397;&#54616;&#49464;&#50836;, ...") through <code>CleanupForSpeech</code> is not reduced to an empty or near-empty string</td>
+  <td>Test <code>ClaudeSummarizer_NonLatinInput_IsNotDropped</code> asserts the result is non-blank AND equals the full original Korean sentence. PASSED (see test output below).</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>The summarizer prompt does not contain instructions to reject, flag, or replace non-ASCII characters</td>
+  <td>Tests <code>SummarizationPrompt_AllowsNonLatinInput_NoRejectionInstructions</code> and <code>ProgressPrompt_AllowsNonLatinInput_NoRejectionInstructions</code> assert the prompts contain the explicit language-allowance text and contain no "reject"/"invalid"/"ASCII" instructions. PASSED.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td><code>dotnet build cc-director.sln</code> succeeds with 0 errors</td>
+  <td>Full-solution build output: <code>Build succeeded. 0 Warning(s) 0 Error(s)</code> (Time Elapsed 00:00:16.17).</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td><code>dotnet test --filter ClaudeSummarizer</code> passes (existing tests unaffected, new test added)</td>
+  <td>5/5 passed (full log: <code>dotnet-test-output.txt</code> beside this report). Whole <code>CcDirector.Core.Tests.Voice</code> namespace also re-run: 86/86 passed - no existing test affected.</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>dotnet test output (proof target)</h2>
+<pre>
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v2.8.2+699d445a1a (64-bit .NET 10.0.9)
+[xUnit.net 00:00:00.06]   Discovering: CcDirector.Core.Tests
+[xUnit.net 00:00:00.18]   Discovered:  CcDirector.Core.Tests
+[xUnit.net 00:00:00.18]   Starting:    CcDirector.Core.Tests
+[xUnit.net 00:00:00.22]   Finished:    CcDirector.Core.Tests
+  Passed CcDirector.Core.Tests.Voice.ClaudeSummarizerTests.CleanupForSpeech_JapaneseInput_IsNotDropped [4 ms]
+  Passed CcDirector.Core.Tests.Voice.ClaudeSummarizerTests.ClaudeSummarizer_NonLatinInput_IsNotDropped [&lt; 1 ms]
+  Passed CcDirector.Core.Tests.Voice.ClaudeSummarizerTests.CleanupForSpeech_NonLatinWithMarkdown_KeepsTextRemovesMarkdown [&lt; 1 ms]
+  Passed CcDirector.Core.Tests.Voice.ClaudeSummarizerTests.ProgressPrompt_AllowsNonLatinInput_NoRejectionInstructions [6 ms]
+  Passed CcDirector.Core.Tests.Voice.ClaudeSummarizerTests.SummarizationPrompt_AllowsNonLatinInput_NoRejectionInstructions [&lt; 1 ms]
+
+Test Run Successful.
+Total tests: 5
+     Passed: 5
+ Total time: 0.5925 Seconds
+</pre>
+
+<h2>CenCon impact</h2>
+<p>No drift. Internal fix inside the existing CcDirector.Core voice service; no container, interface, or security-posture change. <code>review-code</code> self-review: PASS (0 blocking, 0 warnings, PII scan clean, CenCon docs current, security profile within drift threshold).</p>
+
+<div class="verdict">
+<strong>Developer Agent verdict:</strong> All four acceptance criteria are met with committed, passing tests. I believe this is finished.
+</div>
+
+</div>
+</body>
+</html>
