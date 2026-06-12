@@ -30,6 +30,7 @@
     <Compile Include="..\CcDirectorClient\Voice\FleetParser.cs" Link="Voice\FleetParser.cs" />
     <Compile Include="..\CcDirectorClient\Voice\SessionFilter.cs" Link="Voice\SessionFilter.cs" />
     <Compile Include="..\CcDirectorClient\Voice\ChatTurnResult.cs" Link="Voice\ChatTurnResult.cs" />
+    <Compile Include="..\CcDirectorClient\Voice\VoiceTurnResults.cs" Link="Voice\VoiceTurnResults.cs" />
     <Compile Include="..\CcDirectorClient\Voice\ConductorState.cs" Link="Voice\ConductorState.cs" />
     <Compile Include="..\CcDirectorClient\Voice\RawTerminalPage.cs" Link="Voice\RawTerminalPage.cs" />
     <Compile Include="..\CcDirectorClient\Voice\TurnBrief.cs" Link="Voice\TurnBrief.cs" />

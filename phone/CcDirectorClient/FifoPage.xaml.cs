@@ -92,7 +92,8 @@ public partial class FifoPage : ContentPage
         TokenEntry.Text = Preferences.Get(PrefToken, "");
 
         // Configure the shared voice control to run in queue mode.
-        Voice.Configure(_recorder, _tts, _foreground, () => TokenEntry.Text ?? "", _audioCue);
+        Voice.Configure(_recorder, _tts, _foreground, () => TokenEntry.Text ?? "", _audioCue,
+            gatewayUrlProvider: () => (ServerEntry.Text ?? "").Trim());
         Voice.ShowSkip = true;
         Voice.ExitButtonText = "< Exit FIFO";
         Voice.ReadyActionsLine = "Ask Agent, Skip, or Hold";

@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Proof - Issue #378: Phone voice-turn URLs swap from Director to Gateway</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background: #0f1420; color: #dde3ee; margin: 0; padding: 32px; }
+  h1 { color: #5fd08a; font-size: 22px; }
+  h2 { color: #8ab4f8; font-size: 17px; margin-top: 28px; border-bottom: 1px solid #2a3349; padding-bottom: 4px; }
+  .meta { color: #8a93a8; font-size: 13px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 13.5px; }
+  th, td { border: 1px solid #2a3349; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #1a2235; color: #aebadd; }
+  .pass { color: #5fd08a; font-weight: 600; }
+  .pend { color: #e8b339; font-weight: 600; }
+  pre { background: #131a2b; border: 1px solid #2a3349; padding: 12px; overflow-x: auto; font-size: 12px; color: #c7d0e3; }
+  code { background: #1a2235; padding: 1px 5px; border-radius: 3px; font-size: 12.5px; }
+  .note { background: #2a2410; border: 1px solid #5c4d1a; padding: 12px; border-radius: 4px; margin: 12px 0; }
+</style>
+</head>
+<body>
+
+<h1>Proof - Issue #378: [Voice] Phone app: swap voice-turn URLs from Director to Gateway</h1>
+<p class="meta">Developer Agent | 2026-06-12 | Branch <code>issue-378-phone-gateway-urls</code> | PR #383 | Depends on #376 (merged, commit ead9299)</p>
+
+<h2>What was implemented</h2>
+<p>
+The phone walkie-talkie agent turn now submits and polls voice turns on the <strong>Gateway</strong>
+(<code>POST /sessions/{sid}/voice-turn/submit</code> + <code>GET /sessions/{sid}/voice-turn/{turnId}</code>,
+added by #376) instead of addressing the owning Director directly. The Gateway base URL comes from
+the phone's own settings (the <code>gateway_url</code> preference used by every page for the roster),
+so the DoR question in the issue resolves to: <strong>no session-DTO change needed</strong>.
+</p>
+<p>
+Porting note (recorded for QA honesty): the <code>SubmitVoiceTurnAsync</code>/<code>PollVoiceTurnAsync</code>
+methods the issue names existed only on the unmerged branch
+<code>issue-347-voice-dictation-recording-indicator</code> (commit <code>044e1c3</code> - the build the
+deployed phone currently runs). Main never had them. This change ports that submit/poll design into
+main's evolved phone code and points it at the Gateway, per
+<code>docs/architecture/gateway/VOICE_TURN_ARCHITECTURE.md</code> Phase 3.
+</p>
+
+<h2>Files changed</h2>
+<table>
+<tr><th>File</th><th>Change</th></tr>
+<tr><td>phone/CcDirectorClient/Voice/VoiceTurnResults.cs (new)</td><td>Dependency-free parsers for the Gateway wire shapes. Submit response is snake_case (<code>turn_id</code>/<code>expires_at</code>) - a casual case-insensitive deserialize would miss it; pinned by tests.</td></tr>
+<tr><td>phone/CcDirectorClient/Voice/DirectorVoiceClient.cs</td><td><code>SubmitVoiceTurnAsync</code> (multipart audio POST) + <code>PollVoiceTurnAsync</code>, both taking the GATEWAY base URL; bearer token attached as on every other call.</td></tr>
+<tr><td>phone/CcDirectorClient/Voice/VoiceConversation.cs</td><td><code>SpeakTurnAsync</code> agent path = submit once + poll every 1.5s; reply audio arrives base64 in the poll result and plays directly (no separate /tts call). Wingman path stays Director-direct. Dead wait/follow/summarize helpers removed (server-side pipeline owns them now). Ctor takes the Gateway base URL.</td></tr>
+<tr><td>phone/CcDirectorClient/TalkPage.xaml.cs</td><td><code>RunVoiceTurnAsync</code> constructs the conversation with the Gateway URL (the page's server setting).</td></tr>
+<tr><td>phone/CcDirectorClient/Controls/VoiceSessionView.xaml.cs</td><td><code>Configure()</code> gains an optional <code>gatewayUrlProvider</code>; the walkie-talkie path passes it through.</td></tr>
+<tr><td>phone/CcDirectorClient/FifoPage.xaml.cs</td><td>Passes the Gateway URL provider in its <code>Configure</code> call.</td></tr>
+<tr><td>phone/CcDirectorClient.Tests/* </td><td>Links VoiceTurnResults.cs; adds VoiceTurnResultTests (11 tests).</td></tr>
+</table>
+
+<h2>Acceptance criteria - status</h2>
+<table>
+<tr><th>Criterion</th><th>Status</th><th>Evidence</th></tr>
+<tr>
+  <td>Phone submits to <code>&lt;gateway-url&gt;/sessions/{sid}/voice-turn/submit</code></td>
+  <td class="pass">CODE + TESTS</td>
+  <td><code>DirectorVoiceClient.SubmitVoiceTurnAsync</code> builds exactly this URL from the Gateway base; live Director-log confirmation is the on-device step below.</td>
+</tr>
+<tr>
+  <td>Phone polls <code>&lt;gateway-url&gt;/sessions/{sid}/voice-turn/{turnId}</code></td>
+  <td class="pass">CODE + TESTS</td>
+  <td><code>DirectorVoiceClient.PollVoiceTurnAsync</code> + the 1.5s loop in <code>VoiceConversation.SpeakTurnAsync</code>; Gateway contract pinned by <code>VoiceTurnResultTests</code> (phone side) and <code>GatewayVoiceTurnAsyncTests</code> (server side, 11/11 green on this branch).</td>
+</tr>
+<tr>
+  <td>Complete voice turn end-to-end on the test device</td>
+  <td class="pend">PENDING HARDWARE</td>
+  <td>No Android device attached/reachable from this machine (see adb output below). Not faked.</td>
+</tr>
+<tr>
+  <td><code>dotnet build</code> (MAUI Android) 0 errors</td>
+  <td class="pass">PASS</td>
+  <td>Build output below: <code>0 Error(s)</code>; no new CS warnings (remaining warnings are pre-existing NU1608 package-constraint notes).</td>
+</tr>
+<tr>
+  <td>Deployed + tested on physical device via scripts/deploy-phone.ps1</td>
+  <td class="pend">PENDING HARDWARE</td>
+  <td>QA runbook below.</td>
+</tr>
+</table>
+
+<h2>Build proof (Android target)</h2>
+<pre>
+&gt; dotnet build phone\CcDirectorClient\CcDirectorClient.csproj -f net10.0-android
+    92 Warning(s)   (all pre-existing NU1608 AndroidX package-constraint warnings; zero CS warnings)
+    0 Error(s)
+Time Elapsed 00:01:25.20
+</pre>
+
+<h2>Unit test proof</h2>
+<pre>
+&gt; dotnet test phone\CcDirectorClient.Tests --filter FullyQualifiedName~VoiceTurnResultTests
+Passed!  - Failed: 0, Passed: 11, Skipped: 0, Total: 11
+
+&gt; dotnet test phone\CcDirectorClient.Tests      (full suite)
+Failed!  - Failed: 5, Passed: 104, Skipped: 0, Total: 109
+  (the 5 failures are all ConductorStateTests and fail IDENTICALLY on a clean
+   worktree of main @ ead9299 - pre-existing, unrelated to this change)
+
+&gt; dotnet test src\CcDirector.Gateway.Tests --filter FullyQualifiedName~GatewayVoiceTurnAsync
+Passed!  - Failed: 0, Passed: 11, Skipped: 0, Total: 11   (server-side contract green on this branch)
+</pre>
+
+<h2>Why on-device e2e is pending (verified, not assumed)</h2>
+<pre>
+&gt; adb devices
+List of devices attached
+                                  (empty - no USB or WiFi adb device reachable)
+
+&gt; GET http://localhost:7878/sessions/{random-guid}/voice-turn/{random-guid}   (production Gateway on this machine)
+HTTP 404  {"error":"session not found across any director"}
+</pre>
+<div class="note">
+That 404 body comes from the generic <code>/sessions/{sid}/**</code> catch-all forwarder, NOT from
+<code>GatewayVoiceTurnEndpoint</code> (which answers <code>{"error":"turn not found or expired"}</code>).
+The running production Gateway therefore predates today's #376 merge and does not yet map the
+voice-turn routes. <strong>QA must deploy a post-#376 Gateway build before the live test.</strong>
+</div>
+
+<h2>QA runbook to finish verification</h2>
+<ol>
+  <li>Deploy a Gateway build at or after commit <code>ead9299</code> (post-#376) to the Gateway host; verify its own log maps the voice-turn routes (probe: <code>GET /sessions/&lt;any-guid&gt;/voice-turn/&lt;any-guid&gt;</code> must answer <code>{"error":"turn not found or expired"}</code>).</li>
+  <li>Deploy this branch's app to the test phone: <code>scripts\deploy-phone.ps1 -Phone &lt;ip:port&gt;</code> (wireless debugging on, same tailnet).</li>
+  <li>Open a wingman-enabled session, Voice tab, record a question, submit.</li>
+  <li>Confirm: Gateway log shows <code>[GatewayVoiceTurn] POST /sessions/{sid}/voice-turn/submit from &lt;phone-ip&gt;</code> and repeated phone polls; the owning Director's log shows the SSE voice-turn request arriving from the GATEWAY's address, not the phone's; the spoken summary plays back on the phone.</li>
+</ol>
+
+<h2>CenCon impact</h2>
+<p>
+No architecture drift beyond what <code>VOICE_TURN_ARCHITECTURE.md</code> already documents as the target
+state (Phase 3 of its implementation plan - this change IS that phase). No security-posture change:
+the phone uses the same bearer-token mechanism against the same Gateway it already talks to for the
+roster; per-call tokens unchanged. (#369 adds the Gateway-side token enforcement separately.)
+</p>
+
+<h2>Verdict</h2>
+<p>
+Code change complete, Android build clean, both sides of the wire contract pinned by green tests.
+<strong>I believe this is finished</strong> at the level achievable on this machine; the on-device
+end-to-end run is pending hardware (no test device attached) plus a post-#376 Gateway deploy, and is
+handed to QA with the runbook above. Nothing was faked.
+</p>
+
+</body>
+</html>

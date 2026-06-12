@@ -482,11 +482,12 @@ public partial class TalkPage : ContentPage
         VoiceStatusLabel.Text = "Tap Record and talk to the agent.";
     }
 
-    // Transcribe the clip, wait until the session is ready, send the question, follow the
-    // turn to completion, summarize via the wingman into plain spoken prose, then speak the
-    // summary and show the raw reply on screen. The foreground service stays up for the whole
-    // turn so capture + playback survive a screen-off.
-    // Status line cycles: Transcribing -> Sending -> Thinking -> Summarizing -> Speaking.
+    // Submit the clip to the GATEWAY's async voice-turn pipeline (issue #378): the Gateway
+    // drives the owning Director server-side (transcribe, wait for the session, run the
+    // turn, summarize, TTS) and the phone polls for the result, so the round-trip survives
+    // a brief signal drop. The foreground service stays up for the whole turn so capture +
+    // playback survive a screen-off.
+    // Status line cycles: Transcribing -> Waiting -> Thinking -> Summarizing -> Speaking.
     private async Task RunVoiceTurnAsync(SessionInfo session, UtteranceAudio audio)
     {
         var gate = OfflineGuard.Check(DeviceOnline, "send your voice message");
@@ -495,7 +496,10 @@ public partial class TalkPage : ContentPage
         _voiceTurnBusy = true;
         VoiceRecordButton.IsEnabled = false;
 
-        var convo = new VoiceConversation(new DirectorVoiceClient(TokenEntry.Text ?? ""), _tts);
+        // The voice turn submits/polls on the GATEWAY (its address is the page's server
+        // setting - the same one the roster comes from), never on a Director directly.
+        var convo = new VoiceConversation(
+            new DirectorVoiceClient(TokenEntry.Text ?? ""), _tts, (ServerEntry.Text ?? "").Trim());
         _voiceTurnCts?.Cancel();
         _voiceTurnCts = new CancellationTokenSource();
         var cts = _voiceTurnCts;

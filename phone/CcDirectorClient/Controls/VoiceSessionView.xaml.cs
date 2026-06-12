@@ -38,6 +38,9 @@ public partial class VoiceSessionView : ContentView
     // The gateway token is read fresh from Preferences on every operation that needs
     // it, so the control does not need to be re-configured when the user changes it.
     private Func<string> _tokenProvider = () => "";
+    // The Gateway base URL, read fresh the same way. Required by the walkie-talkie
+    // agent turn, which submits/polls voice turns on the Gateway (issue #378).
+    private Func<string> _gatewayUrlProvider = () => "";
 
     // The most recent spoken clip for the current session (briefing or wingman answer),
     // kept so Replay can re-play it (issue #148). Cleared whenever the session changes
@@ -117,19 +120,21 @@ public partial class VoiceSessionView : ContentView
 
     /// <summary>
     /// Hand the control the services it needs (recorder, TTS, voice foreground service,
-    /// a way to read the current gateway token, and optional audio cues). The MAUI XAML
-    /// loader builds the control with a parameterless constructor, so the host calls this
+    /// a way to read the current gateway token, optional audio cues, and a way to read
+    /// the Gateway base URL for the walkie-talkie agent turn). The MAUI XAML loader
+    /// builds the control with a parameterless constructor, so the host calls this
     /// once after instantiation; everything else flows through it.
     /// </summary>
     public void Configure(IUtteranceRecorder recorder, IReplySpeaker tts,
                           IVoiceForeground foreground, Func<string> tokenProvider,
-                          IAudioCue? audioCue = null)
+                          IAudioCue? audioCue = null, Func<string>? gatewayUrlProvider = null)
     {
         _recorder = recorder;
         _tts = tts;
         _foreground = foreground;
         _tokenProvider = tokenProvider ?? (() => "");
         _audioCue = audioCue;
+        _gatewayUrlProvider = gatewayUrlProvider ?? (() => "");
     }
 
     /// <summary>
@@ -370,11 +375,13 @@ public partial class VoiceSessionView : ContentView
         SetBusy(true);
         _turnCts?.Cancel();
         _turnCts = new CancellationTokenSource();
-        var convo = new VoiceConversation(new DirectorVoiceClient(_tokenProvider()), _tts);
+        var convo = new VoiceConversation(
+            new DirectorVoiceClient(_tokenProvider()), _tts, _gatewayUrlProvider());
         try
         {
-            // Walkie-talkie mode (single-session host): run the full wait-send-follow-
-            // summarize-speak loop so the agent's reply is read back aloud as plain prose.
+            // Walkie-talkie mode (single-session host): submit the turn to the Gateway's
+            // async voice-turn pipeline and poll until the reply audio is back (issue
+            // #378), so the agent's reply is read back aloud as plain prose.
             // FIFO mode (queue host): deliver and move on without waiting for the reply.
             if (WalkieTalkieMode && !_recordingForWingman)
             {
