@@ -95,17 +95,9 @@
                     <div class="right-empty-sub">Pick a session on the left to drive it: live terminal, screenshots, queue, and the composer.</div>
                 </div>
             }
-            else if (string.IsNullOrWhiteSpace(Selected.TailnetEndpoint))
-            {
-                <div class="detail-head">
-                    <span class="detail-dot" style="background:@DotColor(SessionOrdering.EffectiveColor(Selected))"></span>
-                    <span class="detail-name">@SessionTitle(Selected)</span>
-                    <span class="detail-state">@(Selected.AssessedState ?? Selected.ActivityState)</span>
-                </div>
-                <div class="right-empty">
-                    <div class="right-empty-sub">This session's Director has no tailnet endpoint, so it can't be driven over Tailscale. (Restart that Director with the current build so it registers a reachable https endpoint.)</div>
-                </div>
-            }
+            @* Issue #372: the old "no tailnet endpoint" dead-end branch is gone - every session
+               leg (terminal WS, screenshots, REST verbs) rides same-origin through the Gateway
+               now, so a loopback-only Director is fully drivable. *@
             else
             {
                 <div class="detail-head">
@@ -191,7 +183,7 @@
                             @* Lazy: the stream socket only opens when the Terminal tab is opened,
                                so flipping through briefs never pays the replay cost. *@
                             <div class="term-wrap">
-                                <TerminalPane @key="Selected.SessionId" SessionId="@Selected.SessionId" DirectorBase="@Selected.TailnetEndpoint" RowState="@(Selected.AssessedState ?? Selected.ActivityState)" />
+                                <TerminalPane @key="Selected.SessionId" SessionId="@Selected.SessionId" RowState="@(Selected.AssessedState ?? Selected.ActivityState)" />
                             </div>
                         }
                         else if (_wingmanEnabled)
@@ -213,7 +205,6 @@
                                         </div>
                                     }
                                     <BriefPane @key="Selected.SessionId" SessionId="@Selected.SessionId"
-                                               DirectorBase="@Selected.TailnetEndpoint"
                                                ActivityState="@Selected.ActivityState"
                                                BriefingState="@Selected.BriefingState"
                                                OnOpenTerminal="@(() => SetCenterTab("term"))"
@@ -837,7 +828,7 @@
                 <div class="modal-head">Fan-out a prompt to multiple sessions</div>
                 <div class="modal-body">
                     <div class="fanout-list">
-                        @foreach (var s in _sessions.Where(s => !string.IsNullOrWhiteSpace(s.TailnetEndpoint)))
+                        @foreach (var s in _sessions)
                         {
                             var sid = s.SessionId;
                             <label class="fanout-item">
@@ -1060,8 +1051,7 @@
     private async Task QuickReplyAsync(string text)
     {
         var sel = Selected;
-        var dir = DirBase;
-        if (sel is null || string.IsNullOrWhiteSpace(dir) || _quickReplying) return;
+        if (sel is null || _quickReplying) return;
         _quickReplying = true;
         _quickReplyNotice = null;
         try
@@ -1314,18 +1304,8 @@
         Log.LogInformation(
             "Cockpit action=select-session source={Source} sid={Sid} dir={Dir}",
             source, sessionId, picked?.TailnetEndpoint ?? "(none)");
-        // Blank-terminal failure mode (issue #199 / #198): a selected session whose Director
-        // advertised no reachable tailnet endpoint cannot be driven over Tailscale - the detail
-        // pane shows the "no tailnet endpoint" guard and the live terminal (TerminalPane) never
-        // mounts, so the user faces the silent ungovernable terminal we could not previously
-        // diagnose. This WARNING is emitted on the selection funnel (which every source - rail,
-        // needs-you nav, deep-link, quick-reply advance - routes through), so the degraded state
-        // is visible in the persisted log the moment the user lands on such a session, rather than
-        // hidden behind a render branch that short-circuits before any terminal logging runs.
-        if (picked is not null && string.IsNullOrWhiteSpace(picked.TailnetEndpoint))
-            Log.LogWarning(
-                "Cockpit empty DirectorBase for sid={Sid} source={Source} (rowState={RowState}); session has no tailnet endpoint, live terminal cannot connect - blank-terminal failure mode",
-                sessionId, source, picked.AssessedState ?? picked.ActivityState);
+        // Issue #372: a missing tailnet endpoint is no longer a failure mode - every session
+        // leg rides same-origin through the Gateway - so the old blank-terminal WARNING is gone.
         _selectedId = sessionId;
         // Keep the address bar deep-linkable (/cockpit/{sid}) without adding history entries.
         // OnParametersSetAsync guards on SidParam != _selectedId, so this never re-enters.
@@ -1354,12 +1334,10 @@
         if (CenterTab == "brief") await LoadWingmanAsync();
     }
 
-    private string? DirBase => Selected?.TailnetEndpoint;
-
     private async Task LoadQueueAsync()
     {
-        var sel = Selected; var dir = sel?.TailnetEndpoint;
-        if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
+        var sel = Selected;
+        if (sel is null) return;
         try
         {
             // Short cap so a hung /queue on the selected Director can't stall the poll loop for
@@ -1372,15 +1350,15 @@
         catch (Exception ex) { Log.LogDebug(ex, "LoadQueue failed"); }
     }
 
-    // Each action captures the selected session + its endpoint into locals BEFORE awaiting.
-    // `Selected`/`DirBase` are computed properties over `_sessions`, which the 2s poll loop
+    // Each action captures the selected session into a local BEFORE awaiting.
+    // `Selected` is a computed property over `_sessions`, which the 2s poll loop
     // replaces wholesale; re-reading them across an await can return null mid-action and throw
     // a spurious NRE that surfaces as a misleading error banner. Capture once, use the locals.
     private async Task SendNow()
     {
-        var sel = Selected; var dir = sel?.TailnetEndpoint;
-        if (sel is null || string.IsNullOrWhiteSpace(_compose) || string.IsNullOrWhiteSpace(dir)) return;
-        Log.LogInformation("Cockpit action=send sid={Sid} dir={Dir} chars={Chars}", sel.SessionId, dir, _compose.Length);
+        var sel = Selected;
+        if (sel is null || string.IsNullOrWhiteSpace(_compose)) return;
+        Log.LogInformation("Cockpit action=send sid={Sid} chars={Chars}", sel.SessionId, _compose.Length);
         await Act(async () =>
         {
             await Director.SendPromptAsync(sel.SessionId, _compose, _cts.Token);
@@ -1390,9 +1368,9 @@
 
     private async Task QueueIt()
     {
-        var sel = Selected; var dir = sel?.TailnetEndpoint;
-        if (sel is null || string.IsNullOrWhiteSpace(_compose) || string.IsNullOrWhiteSpace(dir)) return;
-        Log.LogInformation("Cockpit action=queue sid={Sid} dir={Dir} chars={Chars}", sel.SessionId, dir, _compose.Length);
+        var sel = Selected;
+        if (sel is null || string.IsNullOrWhiteSpace(_compose)) return;
+        Log.LogInformation("Cockpit action=queue sid={Sid} chars={Chars}", sel.SessionId, _compose.Length);
         await Act(async () =>
         {
             _queue = await Director.EnqueueAsync(sel.SessionId, _compose, _cts.Token);
@@ -1402,43 +1380,43 @@
 
     private async Task SendQueued(string itemId)
     {
-        var sel = Selected; var dir = sel?.TailnetEndpoint;
-        if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
+        var sel = Selected;
+        if (sel is null) return;
         await Act(async () => _queue = await Director.SendQueueItemAsync(sel.SessionId, itemId, _cts.Token));
     }
 
     private async Task RemoveQueued(string itemId)
     {
-        var sel = Selected; var dir = sel?.TailnetEndpoint;
-        if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
+        var sel = Selected;
+        if (sel is null) return;
         await Act(async () => _queue = await Director.DeleteQueueItemAsync(sel.SessionId, itemId, _cts.Token));
     }
 
     private async Task MoveQueuedUp(string itemId)
     {
-        var sel = Selected; var dir = sel?.TailnetEndpoint;
-        if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
+        var sel = Selected;
+        if (sel is null) return;
         await Act(async () => _queue = await Director.MoveQueueItemUpAsync(sel.SessionId, itemId, _cts.Token));
     }
 
     private async Task MoveQueuedDown(string itemId)
     {
-        var sel = Selected; var dir = sel?.TailnetEndpoint;
-        if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
+        var sel = Selected;
+        if (sel is null) return;
         await Act(async () => _queue = await Director.MoveQueueItemDownAsync(sel.SessionId, itemId, _cts.Token));
     }
 
     private async Task ClearQueue()
     {
-        var sel = Selected; var dir = sel?.TailnetEndpoint;
-        if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
+        var sel = Selected;
+        if (sel is null) return;
         await Act(async () => _queue = await Director.ClearQueueAsync(sel.SessionId, _cts.Token));
     }
 
     private async Task PopQueued(string itemId, string text)
     {
-        var sel = Selected; var dir = sel?.TailnetEndpoint;
-        if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
+        var sel = Selected;
+        if (sel is null) return;
         _compose = (_compose ?? "") + text;
         await Act(async () => _queue = await Director.DeleteQueueItemAsync(sel.SessionId, itemId, _cts.Token));
     }
@@ -1457,8 +1435,8 @@
 
     private async Task SaveEditQueue(string itemId)
     {
-        var sel = Selected; var dir = sel?.TailnetEndpoint;
-        if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
+        var sel = Selected;
+        if (sel is null) return;
         var text = _editingQueueText;
         _editingQueueId = null;
         _editingQueueText = "";
@@ -1494,36 +1472,36 @@
 
     private async Task Interrupt()
     {
-        var sel = Selected; var dir = sel?.TailnetEndpoint;
-        if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
-        Log.LogInformation("Cockpit action=interrupt sid={Sid} dir={Dir}", sel.SessionId, dir);
+        var sel = Selected;
+        if (sel is null) return;
+        Log.LogInformation("Cockpit action=interrupt sid={Sid}", sel.SessionId);
         await Act(() => Director.InterruptAsync(sel.SessionId, _cts.Token));
         if (_actError is null) ShowActionStatus("interrupted");
     }
 
     private async Task Escape()
     {
-        var sel = Selected; var dir = sel?.TailnetEndpoint;
-        if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
-        Log.LogInformation("Cockpit action=escape sid={Sid} dir={Dir}", sel.SessionId, dir);
+        var sel = Selected;
+        if (sel is null) return;
+        Log.LogInformation("Cockpit action=escape sid={Sid}", sel.SessionId);
         await Act(() => Director.EscapeAsync(sel.SessionId, _cts.Token));
         if (_actError is null) ShowActionStatus("turn stopped");
     }
 
     private async Task ClearContext()
     {
-        var sel = Selected; var dir = sel?.TailnetEndpoint;
-        if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
-        Log.LogInformation("Cockpit action=clear-context sid={Sid} dir={Dir}", sel.SessionId, dir);
+        var sel = Selected;
+        if (sel is null) return;
+        Log.LogInformation("Cockpit action=clear-context sid={Sid}", sel.SessionId);
         await Act(() => Director.ClearContextAsync(sel.SessionId, _cts.Token));
         if (_actError is null) ShowActionStatus("context cleared");
     }
 
     private async Task ShowHistory()
     {
-        var sel = Selected; var dir = sel?.TailnetEndpoint;
-        if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
-        Log.LogInformation("Cockpit action=history sid={Sid} dir={Dir}", sel.SessionId, dir);
+        var sel = Selected;
+        if (sel is null) return;
+        Log.LogInformation("Cockpit action=history sid={Sid}", sel.SessionId);
         await Act(() => Director.HistoryPickerAsync(sel.SessionId, _cts.Token));
         if (_actError is null) ShowActionStatus("history picker opened (Esc closes)");
     }
@@ -1554,8 +1532,8 @@
     // PTY) - the same end state as tapping a gallery thumbnail. A trailing space separates images.
     private async Task OnDropImages(InputFileChangeEventArgs e)
     {
-        var sel = Selected; var dir = sel?.TailnetEndpoint;
-        if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
+        var sel = Selected;
+        if (sel is null) return;
         var files = e.GetMultipleFiles(10);
         var total = files.Count;
         var sent = 0;
@@ -1565,8 +1543,8 @@
             index++;
             // One INFO line per attachment (name + size), per the issue's composer-Attach action.
             Log.LogInformation(
-                "Cockpit action=attach sid={Sid} dir={Dir} name={Name} bytes={Bytes}",
-                sel.SessionId, dir, f.Name, f.Size);
+                "Cockpit action=attach sid={Sid} name={Name} bytes={Bytes}",
+                sel.SessionId, f.Name, f.Size);
             try
             {
                 // Optimistic status: render BEFORE the upload await so a large image on a slow
@@ -1631,8 +1609,8 @@
 
     private async Task OpenDictate()
     {
-        if (Selected is null || string.IsNullOrWhiteSpace(DirBase) || _dictating) return;
-        Log.LogInformation("Cockpit action=speak-start sid={Sid} dir={Dir}", Selected.SessionId, DirBase);
+        if (Selected is null || _dictating) return;
+        Log.LogInformation("Cockpit action=speak-start sid={Sid}", Selected.SessionId);
         try
         {
             _dictating = true;
@@ -1770,8 +1748,8 @@
 
     private async Task LoadScreenshotsAsync()
     {
-        var sel = Selected; var dir = sel?.TailnetEndpoint;
-        if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
+        var sel = Selected;
+        if (sel is null) return;
         _shotsBusy = true;
         _shotsError = null;
         await InvokeAsync(StateHasChanged);
@@ -1779,7 +1757,7 @@
         {
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
             cts.CancelAfter(TimeSpan.FromSeconds(10));
-            var r = await Director.GetScreenshotsAsync(dir!, ShotsFetchCount, cts.Token);
+            var r = await Director.GetScreenshotsAsync(sel.SessionId, ShotsFetchCount, cts.Token);
             _shots = r.Items;
             // Old Directors ignore ?count and report Total=0: everything came back, so the
             // list itself is the total.
@@ -1848,11 +1826,11 @@
 
     private async Task DeleteScreenshot(string fileName)
     {
-        var sel = Selected; var dir = sel?.TailnetEndpoint;
-        if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
+        var sel = Selected;
+        if (sel is null) return;
         try
         {
-            await Director.DeleteScreenshotAsync(dir!, fileName, _cts.Token);
+            await Director.DeleteScreenshotAsync(sel.SessionId, fileName, _cts.Token);
             _shots = _shots.Where(s => s.FileName != fileName).ToList();
         }
         catch (Exception ex)
@@ -1888,8 +1866,8 @@
     // ===== Session Story column (Wingman center tab): headline + tokens + turn history + recap =====
     private async Task LoadWingmanAsync()
     {
-        var sel = Selected; var dir = sel?.TailnetEndpoint;
-        if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
+        var sel = Selected;
+        if (sel is null) return;
         _awareError = null;
         try
         {
@@ -2014,8 +1992,8 @@
 
     private async Task SendBriefFeedback()
     {
-        var sel = Selected; var dir = DirBase;
-        if (sel is null || string.IsNullOrWhiteSpace(dir) || string.IsNullOrWhiteSpace(_briefFeedbackNote)) return;
+        var sel = Selected;
+        if (sel is null || string.IsNullOrWhiteSpace(_briefFeedbackNote)) return;
         _briefFeedbackBusy = true;
         _briefFeedbackStatus = null;
         try
@@ -2157,15 +2135,7 @@
     private async Task OnRailMenuAction(SessionRail.MenuActionArgs a)
     {
         var s = a.Session;
-        var dir = s.TailnetEndpoint;
-        Log.LogInformation(
-            "Cockpit action=kebab kebab={Kebab} sid={Sid} dir={Dir}",
-            a.Action, s.SessionId, string.IsNullOrWhiteSpace(dir) ? "(none)" : dir);
-        if (string.IsNullOrWhiteSpace(dir))
-        {
-            ShowRailNotice("This session has no reachable Director endpoint.");
-            return;
-        }
+        Log.LogInformation("Cockpit action=kebab kebab={Kebab} sid={Sid}", a.Action, s.SessionId);
         try
         {
             switch (a.Action)
@@ -2283,7 +2253,7 @@
 
     private async Task SaveRename()
     {
-        if (Selected is null || string.IsNullOrWhiteSpace(DirBase)) { _renaming = false; return; }
+        if (Selected is null) { _renaming = false; return; }
         var sid = Selected.SessionId;
         var name = _renameText.Trim();
         await Act(async () =>
@@ -2298,7 +2268,7 @@
     // happened - this is the committed click, through the SAME path as the kebab Close. -----
     private async Task CloseSelectedFromBriefAsync()
     {
-        if (Selected is null || string.IsNullOrWhiteSpace(DirBase)) return;
+        if (Selected is null) return;
         var s = Selected;
         Log.LogInformation("Cockpit: closing sid={Sid} ({Title}) on wingman mission-complete approval", s.SessionId, SessionTitle(s));
         await Act(async () =>
@@ -2313,7 +2283,7 @@
     // ----- kill -----
     private async Task KillSelected()
     {
-        if (Selected is null || string.IsNullOrWhiteSpace(DirBase)) return;
+        if (Selected is null) return;
         var sid = Selected.SessionId;
         await Act(async () =>
         {
@@ -2515,27 +2485,16 @@
 
     private void CloseSettings() => _showSettings = false;
 
-    // Resolve a Director's reachable base URL. Prefer its cross-machine TailnetEndpoint, but
-    // fall back to the ControlEndpoint when that is null/empty - the contract documents that
-    // FSW-discovered (same-machine) Directors have a null TailnetEndpoint and the ControlEndpoint
-    // must be used instead (DirectorDto.cs). Without this fallback, Settings was unusable for the
-    // common loopback case ("that Director has no reachable endpoint"), even though the session
-    // DTOs already carry the same control-endpoint fallback for the terminal/Send/queue paths.
-    private string? SettingsEndpointFor(string directorId)
-    {
-        var d = _directors.FirstOrDefault(x => x.DirectorId == directorId);
-        if (d is null) return null;
-        return !string.IsNullOrWhiteSpace(d.TailnetEndpoint) ? d.TailnetEndpoint : d.ControlEndpoint;
-    }
-
     private async Task LoadSettings()
     {
+        // Issue #372 slice 3: settings are routed by DIRECTOR id through the Gateway
+        // (/directors/{id}/settings) - no endpoint resolution here; the Gateway answers 503
+        // with a clear message if the Director is unreachable.
         _setError = null; _setStatus = null; _settingsJson = "";
-        var ep = SettingsEndpointFor(_setDirectorId);
-        if (string.IsNullOrWhiteSpace(ep)) { _setError = "that Director has no reachable endpoint"; return; }
+        if (string.IsNullOrWhiteSpace(_setDirectorId)) { _setError = "no Director selected"; return; }
         try
         {
-            var raw = await Director.GetSettingsAsync(ep!, _cts.Token);
+            var raw = await Director.GetSettingsAsync(_setDirectorId, _cts.Token);
             try
             {
                 var node = System.Text.Json.Nodes.JsonNode.Parse(raw);
@@ -2548,14 +2507,13 @@
 
     private async Task SaveSettings()
     {
-        var ep = SettingsEndpointFor(_setDirectorId);
-        if (string.IsNullOrWhiteSpace(ep)) { _setError = "that Director has no reachable endpoint"; return; }
-        Log.LogInformation("Cockpit action=settings-save director={Director} dir={Dir}", _setDirectorId, ep);
+        if (string.IsNullOrWhiteSpace(_setDirectorId)) { _setError = "no Director selected"; return; }
+        Log.LogInformation("Cockpit action=settings-save director={Director}", _setDirectorId);
         _acting = true; _setError = null; _setStatus = null;
         try
         {
             System.Text.Json.JsonDocument.Parse(_settingsJson); // validate before sending
-            await Director.PutSettingsAsync(ep!, _settingsJson, _cts.Token);
+            await Director.PutSettingsAsync(_setDirectorId, _settingsJson, _cts.Token);
             _setStatus = "saved; the Director re-applied its settings";
         }
         catch (System.Text.Json.JsonException) { _setError = "not valid JSON - fix it before saving"; }
@@ -2575,14 +2533,13 @@
 
     private async Task OpenAwareness()
     {
-        if (Selected is null || string.IsNullOrWhiteSpace(DirBase)) return;
+        if (Selected is null) return;
         _showAwareness = true;
         _awareError = null;
         _recap = null;
         _git = null;
         _turns = new();
         _awareTitle = SessionTitle(Selected);
-        var dir = DirBase!;
         var sid = Selected.SessionId;
         try
         {
@@ -2599,7 +2556,7 @@
 
     private async Task GenerateRecap()
     {
-        if (Selected is null || string.IsNullOrWhiteSpace(DirBase)) return;
+        if (Selected is null) return;
         _recapBusy = true;
         _awareError = null;
         await InvokeAsync(StateHasChanged);
@@ -2624,7 +2581,7 @@
         _fanoutResults = new();
         _fanoutText = "";
         _fanoutSelected = new();
-        if (Selected is not null && !string.IsNullOrWhiteSpace(Selected.TailnetEndpoint))
+        if (Selected is not null)
             _fanoutSelected.Add(Selected.SessionId);
     }
 
@@ -2646,18 +2603,12 @@
         await InvokeAsync(StateHasChanged);
         try
         {
-            // Group the fleet-wide selection by owning Director endpoint - /fanout-local is
-            // per-Director (its session ids must be local), so we call it once per Director.
-            var groups = _sessions
-                .Where(s => _fanoutSelected.Contains(s.SessionId) && !string.IsNullOrWhiteSpace(s.TailnetEndpoint))
-                .GroupBy(s => s.TailnetEndpoint!);
-            var all = new List<FanoutResult>();
-            foreach (var g in groups)
-            {
-                var ids = g.Select(s => s.SessionId).ToList();
-                var resp = await Director.FanoutAsync(g.Key, ids, _fanoutText, _cts.Token);
-                if (resp?.Results is not null) all.AddRange(resp.Results);
-            }
+            // Issue #372 slice 3: ONE call to the Gateway's fleet-wide /fanout - it resolves each
+            // session's owning Director itself, so no per-Director grouping (and no
+            // TailnetEndpoint dependency) here anymore.
+            var ids = _fanoutSelected.ToList();
+            var resp = await Director.FanoutAsync(ids, _fanoutText, _cts.Token);
+            var all = resp?.Results ?? new List<FanoutResult>();
             _fanoutResults = all;
             if (all.Count > 0 && all.All(r => r.Error is null)) _fanoutText = "";
         }
@@ -2686,12 +2637,11 @@
 
     private async Task OpenHandover()
     {
-        if (Selected is null || string.IsNullOrWhiteSpace(DirBase)) return;
+        if (Selected is null) return;
         _showHandover = true;
         _handoverContext = null;
         _hoError = null; _hoStatus = null;
         _hoMode = "new"; _hoRepoPath = ""; _hoToSessionId = ""; _hoExtra = ""; _hoArchive = true; _hoAgent = "ClaudeCode";
-        var dir = DirBase!;
         var sid = Selected.SessionId;
         try
         {

@@ -148,11 +148,7 @@
                         <h2>On screen now</h2>
                         <a href="/cockpit/@s.SessionId">Open the terminal &rarr;</a>
                     </div>
-                    @if (string.IsNullOrWhiteSpace(s.TailnetEndpoint))
-                    {
-                        <div class="dash-quiet">This session's Director has no tailnet endpoint, so the screen can't be read from here.</div>
-                    }
-                    else if (_screenTail is null)
+                    @if (_screenTail is null)
                     {
                         <div class="dash-quiet">Reading the screen...</div>
                     }
@@ -194,7 +190,7 @@
                     <div class="dash-sec-head"><h2>Git</h2></div>
                     @if (_git is null)
                     {
-                        <div class="dash-quiet">@(string.IsNullOrWhiteSpace(s.TailnetEndpoint) ? "Unavailable (no Director endpoint)." : "Loading...")</div>
+                        <div class="dash-quiet">Loading...</div>
                     }
                     else if (_git.Status != "ok")
                     {
@@ -219,7 +215,7 @@
                     <div class="dash-sec-head"><h2>Tokens</h2></div>
                     @if (_usage is null)
                     {
-                        <div class="dash-quiet">@(string.IsNullOrWhiteSpace(s.TailnetEndpoint) ? "Unavailable (no Director endpoint)." : "Loading...")</div>
+                        <div class="dash-quiet">Loading...</div>
                     }
                     else
                     {

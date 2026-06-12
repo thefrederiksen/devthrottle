@@ -105,6 +105,51 @@ public sealed class SessionHttpProxyRoundTripTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
     }
 
+    // ----- Issue #372 slice 3: screenshots list/delete + director-scoped settings -----
+
+    [Fact]
+    public async Task Screenshot_list_forwards_to_the_directors_machine_wide_screenshots()
+    {
+        var resp = await _http.GetAsync("sessions/http-session-1/screenshots?count=5");
+
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        var body = await resp.Content.ReadAsStringAsync();
+        Assert.Equal("{\"items\":[]}", body);
+        // The sid-scoped Gateway path lands on the Director's machine-wide /screenshots,
+        // with the ?count query carried through.
+        Assert.Equal("GET /screenshots?count=5", _director.LastRequest);
+    }
+
+    [Fact]
+    public async Task Screenshot_delete_forwards_as_DELETE_to_the_directors_screenshots_file()
+    {
+        var resp = await _http.DeleteAsync("sessions/http-session-1/screenshots/file?name=a%20b.png");
+
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        Assert.Equal("DELETE /screenshots/file?name=a b.png", _director.LastRequest);
+    }
+
+    [Fact]
+    public async Task Director_settings_round_trip_by_director_id()
+    {
+        var get = await _http.GetAsync($"directors/{_director.DirectorId}/settings");
+        Assert.Equal(HttpStatusCode.OK, get.StatusCode);
+        Assert.Equal("{\"voice\":{}}", await get.Content.ReadAsStringAsync());
+        Assert.Equal("GET /settings", _director.LastRequest);
+
+        var put = await _http.PutAsync($"directors/{_director.DirectorId}/settings",
+            new StringContent("{\"voice\":{\"rate\":2}}", System.Text.Encoding.UTF8, "application/json"));
+        Assert.Equal(HttpStatusCode.OK, put.StatusCode);
+        Assert.Equal("PUT /settings {\"voice\":{\"rate\":2}}", _director.LastRequest);
+    }
+
+    [Fact]
+    public async Task Unknown_director_id_is_404_for_settings()
+    {
+        var resp = await _http.GetAsync("directors/no-such-director/settings");
+        Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
+    }
+
     private static int FreePort()
     {
         using var l = new TcpListener(IPAddress.Loopback, 0);
@@ -165,6 +210,30 @@ public sealed class SessionHttpProxyRoundTripTests : IAsyncLifetime
 
             _app.MapPost("/sessions/{sid}/history-picker", (string sid) =>
                 Results.Json(new { error = "not supported" }, statusCode: StatusCodes.Status409Conflict));
+
+            // Issue #372 slice 3 legs: machine-wide screenshots + Director settings.
+            _app.MapGet("/screenshots", (HttpContext ctx) =>
+            {
+                LastRequest = $"GET /screenshots{ctx.Request.QueryString.Value}";
+                return Results.Text("{\"items\":[]}", "application/json");
+            });
+            _app.MapDelete("/screenshots/file", (string name) =>
+            {
+                LastRequest = $"DELETE /screenshots/file?name={name}";
+                return Results.Json(new { deleted = true });
+            });
+            _app.MapGet("/settings", () =>
+            {
+                LastRequest = "GET /settings";
+                return Results.Text("{\"voice\":{}}", "application/json");
+            });
+            _app.MapPut("/settings", async (HttpContext ctx) =>
+            {
+                using var reader = new StreamReader(ctx.Request.Body);
+                var body = await reader.ReadToEndAsync();
+                LastRequest = $"PUT /settings {body}";
+                return Results.Json(new { applied = true });
+            });
 
             await _app.StartAsync();
         }

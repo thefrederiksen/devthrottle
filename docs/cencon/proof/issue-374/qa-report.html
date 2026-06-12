@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Report - Issue #374 / PR #375</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem auto; max-width: 1100px; color: #1b2733; line-height: 1.5; }
+  h1 { font-size: 1.5rem; border-bottom: 3px solid #0b6e4f; padding-bottom: .4rem; }
+  h2 { font-size: 1.15rem; margin-top: 2rem; color: #0b3d5c; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: .92rem; }
+  th, td { border: 1px solid #c8d1da; padding: .45rem .6rem; text-align: left; vertical-align: top; }
+  th { background: #eef3f7; }
+  .pass { background: #e6f4ea; color: #137333; font-weight: 600; white-space: nowrap; }
+  .verdict { font-size: 1.2rem; font-weight: 700; color: #137333; background: #e6f4ea; border: 2px solid #137333; padding: .6rem 1rem; display: inline-block; margin: 1rem 0; }
+  code, pre { font-family: Consolas, monospace; background: #f4f6f8; border-radius: 3px; }
+  code { padding: 0 .25rem; }
+  pre { padding: .7rem; overflow-x: auto; border: 1px solid #dde4ea; font-size: .82rem; }
+  .meta td:first-child { font-weight: 600; width: 220px; }
+  .note { background: #fff8e6; border-left: 4px solid #c9a227; padding: .5rem .8rem; margin: .6rem 0; font-size: .9rem; }
+</style>
+</head>
+<body>
+
+<h1>QA Verification Report - Issue #374 (PR #375)</h1>
+
+<table class="meta">
+  <tr><td>Issue</td><td>#374 - #372 slice 3: route Director-scoped Cockpit calls (screenshots list/delete, settings, fanout) through the Gateway</td></tr>
+  <tr><td>PR / branch / commit</td><td>#375 / <code>374-slice3-director-scoped-via-gateway</code> / <code>6be4fd8</code></td></tr>
+  <tr><td>QA identity</td><td>Independent QA Agent (CenCon method). Did NOT write the code; verified from a fresh detached worktree at the PR commit.</td></tr>
+  <tr><td>Date</td><td>2026-06-12</td></tr>
+  <tr><td>Build</td><td><code>CcDirector.Cockpit</code>, <code>CcDirector.Gateway</code>, <code>CcDirector.Gateway.Tests</code> all built from the worktree at 6be4fd8: <strong>0 warnings, 0 errors</strong> each.</td></tr>
+  <tr><td>Test run (QA-run, not dev-claimed)</td><td><code>dotnet test --filter "SessionHttpProxyRoundTripTests|SessionWsProxyEndpointsTests|ScreenshotProxyRoundTripTests|BrowserPageRoutesTests"</code> = <strong>Passed 44, Failed 0, Skipped 0</strong> (11 s). Includes the 4 new slice-3 round-trip tests.</td></tr>
+</table>
+
+<div class="verdict">VERDICT: PASS - 6/6 acceptance criteria verified independently</div>
+
+<h2>Criterion-by-criterion</h2>
+<table>
+  <tr><th style="width:42%">Acceptance criterion (from issue #374)</th><th style="width:7%">Result</th><th>Expected vs Actual (QA evidence)</th></tr>
+
+  <tr>
+    <td><strong>AC1.</strong> <code>DirectorClient</code> contains no method taking a Director base URL; no <code>TailnetEndpoint</code>/<code>ControlEndpoint</code> used as an HTTP base anywhere in the Cockpit (display-only references fine).</td>
+    <td class="pass">PASS</td>
+    <td><em>Expected:</em> zero HTTP-base usages. <em>Actual:</em> grep of <code>src/CcDirector.Cockpit/</code> at 6be4fd8: no <code>directorBase</code> parameter remains; the absolute-URL helper <code>Url(directorBase, path)</code> is deleted; the only <code>new Uri(...)</code> calls are the Gateway/GitHub BaseAddress in <code>Program.cs</code>. All 15 remaining <code>TailnetEndpoint/ControlEndpoint</code> hits judged individually: 4 log-format args (Cockpit.razor 1306/1681/2301/2475), 1 clipboard handover text (2160), display rows on DirectorDetail/Directors/SessionDetail pages, and comments. None is dialed.</td>
+  </tr>
+
+  <tr>
+    <td><strong>AC2.</strong> <code>GET /sessions/{sid}/screenshots?count=N</code> returns the owning Director's screenshot metadata; <code>DELETE /sessions/{sid}/screenshots/file?name=...</code> forwards as DELETE.</td>
+    <td class="pass">PASS</td>
+    <td><em>Expected:</em> list forwards to Director machine-wide <code>/screenshots</code> with count carried; delete forwards method+name. <em>Actual (tests, QA-run):</em> <code>Screenshot_list_forwards_to_the_directors_machine_wide_screenshots</code> asserts stub Director saw <code>GET /screenshots?count=5</code>; <code>Screenshot_delete_forwards_as_DELETE_to_the_directors_screenshots_file</code> asserts <code>DELETE /screenshots/file?name=a b.png</code> (URL-encoded name decoded correctly). <em>Actual (live, read-only):</em> <code>GET 127.0.0.1:7878/sessions/c7f2f2e0.../screenshots?count=2</code> = 200 with <code>total: 1871</code> and exactly 2 items from the real screenshots folder. Gateway log shows <code>leg=shots ... query=?count=2 ... resolved director=c99a103c... -&gt; http://127.0.0.1:7883/screenshots</code>. DELETE deliberately NOT live-fired (real folder).</td>
+  </tr>
+
+  <tr>
+    <td><strong>AC3.</strong> <code>GET</code>/<code>PUT /directors/{id}/settings</code> round-trips to that Director's <code>/settings</code>; unknown Director id is 404.</td>
+    <td class="pass">PASS</td>
+    <td><em>Expected:</em> registry lookup by id, forward to <code>/settings</code>, 404 unknown. <em>Actual (tests, QA-run):</em> <code>Director_settings_round_trip_by_director_id</code> asserts GET body <code>{"voice":{}}</code> with stub seeing <code>GET /settings</code>, and PUT body forwarded verbatim (<code>PUT /settings {"voice":{"rate":2}}</code>); <code>Unknown_director_id_is_404_for_settings</code> = 404. <em>Actual (live, read-only):</em> <code>GET 127.0.0.1:7878/directors/c99a103c.../settings</code> = 200 real settings JSON (alpha_mode, screenshots.source_directory, ...); <code>GET /directors/no-such-id/settings</code> = 404 <code>{"error":"no such director"}</code>. Log shows <code>leg=dirsettings director=c99a103c... method=GET</code> and <code>leg=dirsettings director=no-such-id</code> for both probes. PUT verified by test only (no live settings write against the production fleet).</td>
+  </tr>
+
+  <tr>
+    <td><strong>AC4.</strong> <code>DoFanout</code> makes one Gateway <code>/fanout</code> call (no per-Director grouping, no <code>TailnetEndpoint</code> filter on the selection list).</td>
+    <td class="pass">PASS</td>
+    <td><em>Expected:</em> single fleet-wide call. <em>Actual (code review at 6be4fd8; live fanout deliberately NOT fired per constraint):</em> <code>DoFanout</code> body is <code>var ids = _fanoutSelected.ToList(); var resp = await Director.FanoutAsync(ids, _fanoutText, _cts.Token);</code> - the GroupBy(TailnetEndpoint) loop is deleted. Dialog list is <code>@foreach (var s in _sessions)</code> with no endpoint filter; <code>OpenFanout</code> pre-selects the selected session without an endpoint check. <code>FanoutAsync</code> posts <code>{ sessionIds, text, appendEnter = true, waitForIdle = false }</code> to relative <code>"fanout"</code> = the Gateway's pre-existing <code>POST /fanout</code> (GatewayEndpoints.cs:1202), whose <code>FanoutRequest</code> contract carries exactly those fields; the response is deserialized into the SAME shared <code>CcDirector.Gateway.Contracts.FanoutResponse</code> type the Gateway serializes, so shapes match by construction.</td>
+  </tr>
+
+  <tr>
+    <td><strong>AC5.</strong> A session whose <code>TailnetEndpoint</code> is blank renders the full detail pane (no dead-end branch) and its handlers do not early-return.</td>
+    <td class="pass">PASS</td>
+    <td><em>Expected:</em> dead-end branch gone, no blank-endpoint early returns. <em>Actual (code review at 6be4fd8):</em> the <code>else if (string.IsNullOrWhiteSpace(Selected.TailnetEndpoint))</code> "no tailnet endpoint" pane is removed from Cockpit.razor's center pane; the render path goes straight from "no selection" to the full detail head. All ~17 handlers (SendNow, QueueIt, SendQueued, RemoveQueued, MoveQueuedUp/Down, ClearQueue, PopQueued, SaveEditQueue, Interrupt, Escape, ClearContext, ShowHistory, OnDropImages, OpenDictate, LoadScreenshots, DeleteScreenshot, LoadWingman, SendBriefFeedback, QuickReply, SaveRename, CloseSelectedFromBrief, KillSelected, OpenAwareness, GenerateRecap, OpenHandover) now guard only on <code>Selected is null</code> - zero <code>string.IsNullOrWhiteSpace(dir)</code> early-returns remain. The kebab guard with <code>ShowRailNotice("no reachable Director endpoint")</code> is gone; <code>SessionDetail.razor</code>'s two "Unavailable (no Director endpoint)" branches are gone. Corroboration that the blank-endpoint case is real and works: ALL live local Directors register with <code>tailnetEndpoint: null</code>, and the live Gateway resolved and served their sessions' legs in this verification.</td>
+  </tr>
+
+  <tr>
+    <td><strong>AC6.</strong> Route precedence intact: explicit WS/stream/dictate/screenshot routes and browser pages still win over the catch-all (existing test suites green).</td>
+    <td class="pass">PASS</td>
+    <td><em>Expected:</em> all 4 suites green. <em>Actual (QA-run):</em> 44/44 passed across <code>SessionHttpProxyRoundTripTests</code> + <code>SessionWsProxyEndpointsTests</code> + <code>ScreenshotProxyRoundTripTests</code> + <code>BrowserPageRoutesTests</code>. Precedence reasoning checked by hand: ASP.NET literal segments beat the <code>{**rest}</code> catch-all, so the new <code>GET /sessions/{sid}/screenshots</code> wins for GET (proven: the test's forward landed on the Director's <code>/screenshots</code>, not <code>/sessions/{sid}/screenshots</code>); <code>/directors/{id}/settings</code> shares no template with any GatewayEndpoints route (closest are <code>/directors/{id}/repos|facts|events|...</code> - all different literals); the browser-page middleware only intercepts GET+text/html paths of 1-2 segments, so the new 3-segment API routes are untouched.</td>
+  </tr>
+</table>
+
+<h2>Adversarial review findings (none blocking)</h2>
+<table>
+  <tr><th style="width:32%">Question</th><th>Finding</th></tr>
+  <tr>
+    <td>Screenshots-file route changed <code>MapGet</code> to <code>Map</code> (any method) - safe?</td>
+    <td>Safe. No other route exists at that template, so nothing is shadowed. Side effect: a POST/PUT to <code>/sessions/{sid}/screenshots/file</code> now forwards to the Director's <code>/screenshots/file</code> with that method instead of the catch-all path - the Director rejects unsupported methods either way, and the surface sits behind the same Gateway auth middleware (mapped after <code>AuthMiddleware</code> when <code>AuthEnabled</code>).</td>
+  </tr>
+  <tr>
+    <td><code>/directors/{id}/settings</code> is <code>Map</code> (any method) - does a stray POST/DELETE do damage?</td>
+    <td>It forwards the method to the Director's <code>/settings</code>, which only maps GET/PUT - other verbs 404/405 on the Director. Equivalent posture to the pre-existing session catch-all. Behind the same auth gate.</td>
+  </tr>
+  <tr>
+    <td>Registration order: <code>dirsettings</code> is mapped after the session catch-all - order dependency?</td>
+    <td>None. ASP.NET endpoint routing is precedence-based, not registration-order-based, and <code>/directors/...</code> shares no overlap with <code>/sessions/...</code> templates.</td>
+  </tr>
+  <tr>
+    <td>Were any removed <code>TailnetEndpoint</code> guards load-bearing beyond the endpoint check?</td>
+    <td>No. Each removed guard was purely "is the Director's address non-blank" - a reachability proxy that the Gateway now owns (404 unknown / 503 unreachable with a message the Cockpit's <code>Act()</code> error banner surfaces). The <code>Selected is null</code> half of every guard is retained. The removed blank-terminal WARNINGs (issue #199) documented a failure mode that no longer exists; <code>RowState</code> is still carried into TerminalPane connect logging.</td>
+  </tr>
+  <tr>
+    <td>Error semantics regression?</td>
+    <td>None found. <code>dirsettings</code>: 404 unknown id, 503 no-endpoint, 503 forwarder-error guarded by <code>!ctx.Response.HasStarted</code> - identical to the session legs. Settings page now reports "no Director selected" instead of the misleading "no reachable endpoint" for the empty-id case.</td>
+  </tr>
+  <tr>
+    <td>Relative-URI resolution of the new <code>sessions/{sid}/screenshots</code> / <code>directors/{id}/settings</code> paths against BaseAddress?</td>
+    <td>Same pattern as every pre-existing session-scoped call (<code>sessions/{sid}/git</code> etc.) that already works in production; live probes through port 7878 confirm resolution end-to-end.</td>
+  </tr>
+</table>
+
+<h2>Live corroboration trace (read-only, production Gateway pid 9568 port 7878)</h2>
+<pre>GET /directors                                      -> 200 (3 directors; local ones have tailnetEndpoint: null)
+GET /directors/c99a103c-.../settings                -> 200 real settings JSON
+GET /directors/no-such-id/settings                  -> 404 {"error":"no such director"}
+GET /sessions/c7f2f2e0-.../screenshots?count=2      -> 200 {"directory":"D:\\...\\Screenshots","total":1871,"items":[2 items]}
+
+Gateway log (director-2026-06-12-9568.log), QA's own probes visible:
+16:46:03.997 [SessionWsProxy] open leg=dirsettings director=c99a103c-... method=GET client=127.0.0.1
+16:46:06.349 [SessionWsProxy] open leg=dirsettings director=no-such-id method=GET client=127.0.0.1
+16:46:15.532 [SessionWsProxy] open leg=shots sid=c7f2f2e0-... query=?count=2 client=127.0.0.1
+16:46:15.566 [SessionWsProxy] leg=shots sid=c7f2f2e0-... resolved director=c99a103c-... -> http://127.0.0.1:7883/screenshots
+16:46:15.567 [SessionWsProxy] close leg=shots sid=c7f2f2e0-... director=c99a103c-...</pre>
+
+<div class="note">Per the QA constraints: fanout was NOT live-fired (it prompts real sessions), DELETE was NOT fired at the real screenshots folder, and settings PUT was NOT written to a production Director. Those legs are covered by the QA-run round-trip suite against an isolated GatewayHost with a stub Director.</div>
+
+<p><em>Standalone QA: verdict is flow:done; merge is a human decision.</em></p>
+
+</body>
+</html>

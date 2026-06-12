@@ -17,9 +17,8 @@
 
 @code {
     [Parameter] public string SessionId { get; set; } = "";
-    [Parameter] public string DirectorBase { get; set; } = "";   // e.g. https://host:7887
-    // The owning session's activity/assessed state, logged with the empty-DirectorBase WARNING
-    // (issue #199) so the blank-terminal trace carries the session's state at connect time.
+    // The owning session's activity/assessed state, carried into connect-time logging so a
+    // blank-terminal trace (issue #199) shows what state the session was in.
     [Parameter] public string RowState { get; set; } = "";
 
     private ElementReference _host;
@@ -32,21 +31,11 @@
         // Connect as soon as we have a valid SessionId - NOT only on firstRender. The pane is
         // keyed by SessionId, so a Gateway restart can mount it before the session envelope is
         // populated; gating the single connect on firstRender (issue #198) left the pane blank
-        // forever because the keyed instance is never recreated to retrigger it. The stream URL
-        // is same-origin (#268) and needs only SessionId - DirectorBase is no longer required to
-        // connect (it is still used for the keystroke leg in OnInput). Guard on _connectedSid so
-        // we connect exactly once per session, with a retry on a later render if the attempt throws.
+        // forever because the keyed instance is never recreated to retrigger it. Both legs are
+        // same-origin through the Gateway (#268 stream, #372 keystrokes) and need only SessionId.
+        // Guard on _connectedSid so we connect exactly once per session, with a retry on a later
+        // render if the attempt throws.
         if (string.IsNullOrEmpty(SessionId) || _connectedSid == SessionId) return;
-
-        // Blank-terminal failure mode (issue #199 / #198): an empty DirectorBase means this
-        // session's Director advertised no reachable endpoint, so the keystroke leg can never
-        // connect and the pane is the silent blank terminal we could not previously diagnose.
-        // The stream leg is same-origin and only needs SessionId, so we still attempt it - but
-        // this WARNING makes the degraded state visible in the persisted log instead of guesswork.
-        if (string.IsNullOrEmpty(DirectorBase))
-            Log.LogWarning(
-                "TerminalPane empty DirectorBase for sid={Sid} (rowState={RowState}); keystroke leg disabled, stream leg attempted same-origin",
-                SessionId, RowState);
 
         _connectedSid = SessionId;
         try
@@ -54,8 +43,8 @@
             _selfRef = DotNetObjectReference.Create(this);
             _module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/cockpit-terminal.js");
             var wsUrl = CockpitWsUrls.Stream(Nav.BaseUri, SessionId);
-            Log.LogInformation("TerminalPane connect attempt sid={Sid} dir={Dir} wsUrl={WsUrl}",
-                SessionId, string.IsNullOrEmpty(DirectorBase) ? "(none)" : DirectorBase, wsUrl);
+            Log.LogInformation("TerminalPane connect attempt sid={Sid} rowState={RowState} wsUrl={WsUrl}",
+                SessionId, RowState, wsUrl);
             await _module.InvokeVoidAsync("connect", SessionId, _host, wsUrl, _selfRef);
             Log.LogInformation("TerminalPane connect dispatched sid={Sid} wsUrl={WsUrl}", SessionId, wsUrl);
         }
