@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #368</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem auto; max-width: 900px; color: #222; }
+  h1 { border-bottom: 2px solid #5319e7; padding-bottom: 0.3rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: 0.5rem 0.7rem; text-align: left; vertical-align: top; }
+  th { background: #f3f0fa; }
+  .pass { color: #1a7f37; font-weight: bold; }
+  pre { background: #f6f8fa; padding: 0.8rem; overflow-x: auto; border: 1px solid #ddd; font-size: 0.85rem; }
+  .verdict { background: #e6f4ea; border: 2px solid #1a7f37; padding: 1rem; font-size: 1.1rem; font-weight: bold; }
+  .meta { color: #555; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #368</h1>
+<p class="meta">
+  Issue: [Voice] Fix backtick content deletion in ClaudeSummarizer CleanupForSpeech<br>
+  PR: #381 (branch issue-368-backtick, head 5a31d95, base = origin/main 4bc2f82)<br>
+  QA Agent run: 2026-06-12, independent verification (developer artifacts NOT reused;
+  all tests and builds executed fresh by QA on its own checkout of the PR branch).
+</p>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+  <tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (QA-run evidence)</th><th>Verdict</th></tr>
+  <tr>
+    <td>1</td>
+    <td>CleanupForSpeech("Enable session `my-session` is done") contains "my-session"</td>
+    <td>Identifier preserved in output</td>
+    <td>Test ClaudeSummarizer_BacktickIdentifier_IsPreserved PASSED (Assert.Contains("my-session", result)) - run by QA, see test output below</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td>CleanupForSpeech("Set `wingmanEnabled=False`") contains "wingmanEnabled=False"</td>
+    <td>Key=value preserved in output</td>
+    <td>Test ClaudeSummarizer_BacktickKeyValue_IsPreserved PASSED (Assert.Contains("wingmanEnabled=False", result))</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td>Backtick markers removed (no backtick characters in output)</td>
+    <td>Output contains no backtick character</td>
+    <td>Both inline tests assert Assert.DoesNotContain backtick in result; both PASSED. Source regex replaces the markers with capture group $1 only.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td>Triple-backtick code blocks still stripped entirely (existing behavior unaffected)</td>
+    <td>Code block content removed; surrounding prose kept</td>
+    <td>Test ClaudeSummarizer_TripleBacktickCodeBlock_IsStripped PASSED (asserts "var x = 1;" and "csharp" gone, "Here is the fix:" and "Done." kept). Source inspection confirms the code-block rule (```[\s\S]*?```) runs BEFORE the inline rule, so fenced content never reaches the keep-inner-text regex.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>5</td>
+    <td>dotnet build cc-director.sln succeeds with 0 errors</td>
+    <td>Build succeeded, 0 errors</td>
+    <td>QA build on PR branch: "Build succeeded. 0 Warning(s) 0 Error(s)"</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>6</td>
+    <td>dotnet test --filter ClaudeSummarizer passes (existing tests unaffected, new tests added)</td>
+    <td>All tests pass; 5 pre-existing #367 tests unaffected; required new tests present</td>
+    <td>QA test run: Failed: 0, Passed: 8, Skipped: 0, Total: 8. Both proof-target test names present and passing (see list below).</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>QA-run test output (detailed names)</h2>
+<pre>
+Passed CcDirector.Core.Tests.Voice.ClaudeSummarizerTests.ClaudeSummarizer_BacktickIdentifier_IsPreserved [5 ms]
+Passed CcDirector.Core.Tests.Voice.ClaudeSummarizerTests.CleanupForSpeech_JapaneseInput_IsNotDropped [&lt; 1 ms]
+Passed CcDirector.Core.Tests.Voice.ClaudeSummarizerTests.ClaudeSummarizer_NonLatinInput_IsNotDropped [&lt; 1 ms]
+Passed CcDirector.Core.Tests.Voice.ClaudeSummarizerTests.CleanupForSpeech_NonLatinWithMarkdown_KeepsTextRemovesMarkdown [&lt; 1 ms]
+Passed CcDirector.Core.Tests.Voice.ClaudeSummarizerTests.ClaudeSummarizer_TripleBacktickCodeBlock_IsStripped [6 ms]
+Passed CcDirector.Core.Tests.Voice.ClaudeSummarizerTests.ProgressPrompt_AllowsNonLatinInput_NoRejectionInstructions [&lt; 1 ms]
+Passed CcDirector.Core.Tests.Voice.ClaudeSummarizerTests.ClaudeSummarizer_BacktickKeyValue_IsPreserved [&lt; 1 ms]
+Passed CcDirector.Core.Tests.Voice.ClaudeSummarizerTests.SummarizationPrompt_AllowsNonLatinInput_NoRejectionInstructions [&lt; 1 ms]
+
+Passed!  - Failed: 0, Passed: 8, Skipped: 0, Total: 8, Duration: 13 ms - CcDirector.Core.Tests.dll (net10.0)
+</pre>
+
+<h2>QA-run build output (tail)</h2>
+<pre>
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+</pre>
+
+<h2>Fix inspection (the actual change, verified in source on the PR branch)</h2>
+<pre>
+// Remove code blocks
+text = Regex.Replace(text, @"```[\s\S]*?```", "");
+
+// Strip inline-code backtick markers but KEEP the inner text (issue #368):
+text = Regex.Replace(text, @"`([^`]+)`", "$1");     // was: replace with ""
+</pre>
+<p>Scope check: diff vs origin/main touches only ClaudeSummarizer.cs (regex + comment) and
+ClaudeSummarizerTests.cs (3 new tests) plus developer proof artifacts. Nothing out-of-scope
+(no VoiceTurnEndpoint, no Gateway, no Phone changes) - matches the issue's Out list.</p>
+
+<h2>Regression and method checks</h2>
+<ul>
+  <li>All 5 pre-existing #367 ClaudeSummarizer tests still pass (run by QA).</li>
+  <li>Full solution build clean (0 warnings, 0 errors).</li>
+  <li>CenCon: no architecture/security change (single regex in CcDirector.Core); no DT rule touched; no doc drift.</li>
+  <li>No fallback programming introduced; change is a targeted root-cause fix.</li>
+</ul>
+
+<div class="verdict">VERIFIED - all acceptance criteria met. QA verdict: PASS.</div>
+</body>
+</html>

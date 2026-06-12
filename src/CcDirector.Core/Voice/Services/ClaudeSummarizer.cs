@@ -283,8 +283,11 @@ public class ClaudeSummarizer : IResponseSummarizer
         // Remove code blocks
         text = System.Text.RegularExpressions.Regex.Replace(text, @"```[\s\S]*?```", "");
 
-        // Remove inline code
-        text = System.Text.RegularExpressions.Regex.Replace(text, @"`[^`]+`", "");
+        // Strip inline-code backtick markers but KEEP the inner text (issue #368):
+        // identifiers like `sessionName` are the answer's content and must be
+        // spoken, not deleted. Code BLOCKS (``` fences) are removed entirely by
+        // the rule above, which runs first.
+        text = System.Text.RegularExpressions.Regex.Replace(text, @"`([^`]+)`", "$1");
 
         // Remove markdown links, keeping text
         text = System.Text.RegularExpressions.Regex.Replace(text, @"\[([^\]]+)\]\([^)]+\)", "$1");
