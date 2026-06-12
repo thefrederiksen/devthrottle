@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #376 - Gateway async voice-turn submit/poll</title>
+<style>
+  body { background: #0f1318; color: #d8dee6; font-family: "Segoe UI", Arial, sans-serif; margin: 0; padding: 32px; line-height: 1.5; }
+  h1 { color: #e8eef5; font-size: 22px; border-bottom: 2px solid #2a3340; padding-bottom: 10px; }
+  h2 { color: #c9d4e0; font-size: 17px; margin-top: 30px; }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; }
+  th, td { border: 1px solid #2a3340; padding: 8px 12px; text-align: left; font-size: 14px; vertical-align: top; }
+  th { background: #1a212b; color: #aebbcb; }
+  code, pre { font-family: Consolas, monospace; background: #161c24; border-radius: 4px; }
+  code { padding: 1px 5px; font-size: 13px; }
+  pre { padding: 12px 14px; overflow-x: auto; font-size: 13px; border: 1px solid #232b36; }
+  .pass { color: #7ce38b; font-weight: bold; }
+  .fail { color: #ff8a8a; font-weight: bold; }
+  .verdict { background: #14241a; border: 1px solid #2f5c3a; border-radius: 6px; padding: 14px 18px; margin: 22px 0; font-size: 15px; }
+  .note { background: #20262e; border-left: 4px solid #c9a227; padding: 10px 14px; margin: 14px 0; font-size: 14px; }
+</style>
+</head>
+<body>
+
+<h1>QA Proof Report - Issue #376: [Gateway] Async voice-turn submit/poll endpoints + TurnJobStore</h1>
+
+<p>
+<strong>Date:</strong> 2026-06-12 &nbsp;|&nbsp;
+<strong>QA Agent:</strong> independent verification (fresh context, never saw the Developer's work) &nbsp;|&nbsp;
+<strong>PR:</strong> #382 (<code>issue-376-gateway-voice-turn</code>, head <code>724d4ac</code>, base = current <code>main</code> at <code>708c250</code>)
+</p>
+
+<div class="verdict">
+<span class="pass">VERIFIED - all acceptance criteria met.</span>
+All 11 named integration tests pass when run by QA. Solution builds clean (0 warnings, 0 errors).
+Full Gateway.Tests regression: 598/599 in the QA run; the single failure reproduces identically on
+clean <code>main</code> (verified independently by QA, not taken from the Developer's report).
+Code review against the issue's acceptance criteria found no defects.
+</div>
+
+<h2>1. Focused test run (run BY QA, not reused from the Developer)</h2>
+<p>Command: <code>dotnet test src\CcDirector.Gateway.Tests --filter GatewayVoiceTurnAsync</code></p>
+<table>
+<tr><th>Test</th><th>QA result</th></tr>
+<tr><td>Submit_InvalidGuid_Returns400</td><td class="pass">PASS</td></tr>
+<tr><td>Submit_UnknownSession_Returns404</td><td class="pass">PASS</td></tr>
+<tr><td>Submit_ValidIdleSession_Returns202WithTurnId</td><td class="pass">PASS</td></tr>
+<tr><td>Submit_TextBody_Returns202</td><td class="pass">PASS</td></tr>
+<tr><td>Submit_SessionAlreadyExited_Returns404OrGone</td><td class="pass">PASS</td></tr>
+<tr><td>Poll_UnknownTurnId_Returns404</td><td class="pass">PASS</td></tr>
+<tr><td>Poll_ValidTurnId_WhileProcessing_ReturnsInProgressStage</td><td class="pass">PASS</td></tr>
+<tr><td>Poll_ValidTurnId_AfterCompletion_ReturnsReplyStage</td><td class="pass">PASS</td></tr>
+<tr><td>Poll_MultiplePolls_SameResult</td><td class="pass">PASS</td></tr>
+<tr><td>Poll_ValidTurnId_AfterTTLExpiry_Returns404</td><td class="pass">PASS</td></tr>
+<tr><td>Poll_DirectorUnreachable_ReturnsErrorStage</td><td class="pass">PASS</td></tr>
+</table>
+<pre>Passed!  - Failed:     0, Passed:    11, Skipped:     0, Total:    11, Duration: 14 s - CcDirector.Gateway.Tests.dll (net10.0)</pre>
+
+<h2>2. Build gate</h2>
+<p><code>dotnet build cc-director.sln</code> on the PR branch:
+<span class="pass">Build succeeded. 0 Warning(s), 0 Error(s).</span></p>
+
+<h2>3. Full Gateway.Tests regression sweep (QA run)</h2>
+<pre>Failed!  - Failed:     1, Passed:   598, Skipped:     0, Total:   599, Duration: 2 m 19 s</pre>
+<p>The one failure:
+<code>DictationEndpointTests.FullPipeline_transcribes_phase0_clip2_with_realtime_provider</code>
+(a real-network OpenAI Realtime test).</p>
+<div class="note">
+<strong>Pre-existing claim VERIFIED INDEPENDENTLY by QA:</strong> QA checked out clean
+<code>main</code> (<code>708c250</code>) and ran exactly this test there - it
+<span class="fail">FAILS</span> identically on main, so it is environmental and not introduced
+by this change. The Developer's second flaky test
+(<code>DirectorEventsAndFactsTests.Facts_Proxy_ReturnsToolInventoryAndLauncherFact</code>)
+<span class="pass">PASSED</span> in the QA full-suite run, consistent with the
+"environmental/flaky" characterization. Neither touches the files in this diff.
+</div>
+
+<h2>4. Code review vs the issue's acceptance criteria</h2>
+<table>
+<tr><th>Acceptance criterion</th><th>Where verified</th><th>Verdict</th></tr>
+<tr><td>POST submit with non-Guid sid -&gt; 400 <code>{"error":"invalid session id format"}</code></td>
+    <td><code>GatewayVoiceTurnEndpoint</code> Guid.TryParse gate (first check) + test Submit_InvalidGuid_Returns400</td>
+    <td class="pass">PASS</td></tr>
+<tr><td>POST submit unknown session -&gt; 404 <code>{"error":"session not found"}</code></td>
+    <td>Owner-cache miss + fleet fan-out miss path + test Submit_UnknownSession_Returns404</td>
+    <td class="pass">PASS</td></tr>
+<tr><td>POST submit valid idle session -&gt; 202 with UUID <code>turn_id</code> + ISO 8601 UTC <code>expires_at</code></td>
+    <td>202 path returns <code>{ turn_id, expires_at }</code> (DateTime.UtcNow + 10 min, serialized ISO 8601 Z) + test Submit_ValidIdleSession_Returns202WithTurnId (asserts UUID parse and ~10-min expiry)</td>
+    <td class="pass">PASS</td></tr>
+<tr><td>GET poll unknown turn id -&gt; 404 JSON</td>
+    <td>Store miss (or sid mismatch) -&gt; 404 + test Poll_UnknownTurnId_Returns404</td>
+    <td class="pass">PASS</td></tr>
+<tr><td>GET poll in-flight -&gt; 200 with in-progress stage</td>
+    <td>SlowIdleBackend pins the turn Working; test Poll_ValidTurnId_WhileProcessing_ReturnsInProgressStage asserts stage in the documented vocabulary</td>
+    <td class="pass">PASS</td></tr>
+<tr><td>GET poll after completion -&gt; <code>stage:"reply"</code>, non-null <code>summary</code> and <code>audioBase64</code> (empty string OK keyless)</td>
+    <td><code>TurnJob.SetReply</code> coerces both to non-null; test Poll_ValidTurnId_AfterCompletion_ReturnsReplyStage</td>
+    <td class="pass">PASS</td></tr>
+<tr><td>TTL expiry (job aged 11 min via test seam) -&gt; 404</td>
+    <td>Lazy expiry in <code>GatewayTurnJobStore.Get</code> (expired job removed on read) + opportunistic sweep on Create; test Poll_ValidTurnId_AfterTTLExpiry_Returns404 uses <code>OverrideCreatedAtForTest</code></td>
+    <td class="pass">PASS</td></tr>
+<tr><td>Director unreachable -&gt; submit 404/503; poll lands <code>{"stage":"error","message":"..."}</code></td>
+    <td>Unregistered Director -&gt; 404 (Submit_UnknownSession_Returns404); registered-but-dead endpoint -&gt; 202 then background task error stage with message (Poll_DirectorUnreachable_ReturnsErrorStage); no-dialable-endpoint -&gt; 503 in code</td>
+    <td class="pass">PASS</td></tr>
+<tr><td>Idempotent polls (repeat polls return the same cached result)</td>
+    <td>Poll reads a lock-serialized <code>Snapshot()</code>, no state mutation on read (except lazy expiry); test Poll_MultiplePolls_SameResult</td>
+    <td class="pass">PASS</td></tr>
+<tr><td><code>dotnet build cc-director.sln</code> 0 errors</td><td>Section 2</td><td class="pass">PASS</td></tr>
+<tr><td><code>dotnet test --filter GatewayVoiceTurnAsync</code> all green</td><td>Section 1 (11/11)</td><td class="pass">PASS</td></tr>
+<tr><td>HTML proof report committed at <code>docs/cencon/proof/voice-turn-gateway/report.html</code></td>
+    <td>Present on the PR branch (commit <code>724d4ac</code>); lists all 11 tests by name with PASS, the build line, the full-suite result, and a live curl submit-&gt;202-&gt;poll-&gt;reply trace - consistent with everything QA observed independently</td>
+    <td class="pass">PASS</td></tr>
+</table>
+
+<h2>5. Method / regression checks</h2>
+<ul>
+<li><strong>Thread safety:</strong> <code>TurnJob</code> serializes all writes and the snapshot read
+on one private lock; pollers always consume <code>Snapshot()</code>, never fields piecemeal. The
+store is a <code>ConcurrentDictionary</code>. No torn reads possible.</li>
+<li><strong>Background task always terminal:</strong> <code>RunTurnAsync</code> is a task entry
+point owning its try-catch (per CodingStyle: try-catch at entry points only); every exit path lands
+the job in <code>reply</code> or <code>error</code> - a poll can never hang forever.</li>
+<li><strong>No fallback programming:</strong> failures surface as explicit 4xx/5xx JSON or the
+job's error stage with the real message; nothing silently degrades.</li>
+<li><strong>Enterprise logging:</strong> FileLog entries on submit, accept, poll-miss, expiry,
+background start/terminal/failure - all tagged <code>[GatewayVoiceTurn]</code> /
+<code>[GatewayTurnJobStore]</code>.</li>
+<li><strong>Wiring:</strong> <code>GatewayHost.TurnJobs</code> singleton passed through
+<code>GatewayEndpoints.Map(..., turnJobs:)</code> as an optional parameter (old callers unaffected);
+specific literal routes win over the #372 catch-all session forwarder - proven live by the passing
+integration tests, which run with the full route table mapped.</li>
+<li><strong>Scope respected:</strong> no changes to the Director's SSE endpoint,
+<code>VoiceTurnEndpoint.cs</code>, or <code>ClaudeSummarizer.cs</code>; diff touches only the
+6 files declared in the issue.</li>
+<li><strong>Adjacent surfaces:</strong> full Gateway.Tests sweep shows no new failures
+(Section 3).</li>
+</ul>
+
+<h2>Verdict</h2>
+<p class="pass">VERIFIED - all acceptance criteria met. PASS. Authorized squash-merge of PR #382
+follows per the implementation-loop QA contract (DECIDED D5).</p>
+
+</body>
+</html>
