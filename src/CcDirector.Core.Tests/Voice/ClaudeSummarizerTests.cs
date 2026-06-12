@@ -49,6 +49,42 @@ public sealed class ClaudeSummarizerTests
     }
 
     [Fact]
+    public void ClaudeSummarizer_BacktickIdentifier_IsPreserved()
+    {
+        // Issue #368: inline-backtick identifiers are the content of the answer
+        // (session names, flag values) - the markers go, the text stays.
+        var result = ClaudeSummarizer.CleanupForSpeech("Enable session `my-session` is done");
+
+        Assert.Contains("my-session", result);
+        Assert.DoesNotContain("`", result);
+    }
+
+    [Fact]
+    public void ClaudeSummarizer_BacktickKeyValue_IsPreserved()
+    {
+        var result = ClaudeSummarizer.CleanupForSpeech("Set `wingmanEnabled=False`");
+
+        Assert.Contains("wingmanEnabled=False", result);
+        Assert.DoesNotContain("`", result);
+    }
+
+    [Fact]
+    public void ClaudeSummarizer_TripleBacktickCodeBlock_IsStripped()
+    {
+        // Code blocks are not speakable - they are still removed entirely,
+        // including their content.
+        var input = "Here is the fix:\n```csharp\nvar x = 1;\n```\nDone.";
+
+        var result = ClaudeSummarizer.CleanupForSpeech(input);
+
+        Assert.DoesNotContain("var x = 1;", result);
+        Assert.DoesNotContain("csharp", result);
+        Assert.DoesNotContain("`", result);
+        Assert.Contains("Here is the fix:", result);
+        Assert.Contains("Done.", result);
+    }
+
+    [Fact]
     public void SummarizationPrompt_AllowsNonLatinInput_NoRejectionInstructions()
     {
         // The prompt must explicitly authorize any language/script...
