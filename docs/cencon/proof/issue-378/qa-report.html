@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Report - Issue #378: Phone voice-turn URLs swap to Gateway</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem auto; max-width: 980px; color: #1a1a1a; line-height: 1.5; }
+  h1 { border-bottom: 3px solid #2b6cb0; padding-bottom: .4rem; }
+  h2 { color: #2b6cb0; margin-top: 2rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #cbd5e0; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #edf2f7; }
+  .pass { color: #276749; font-weight: bold; }
+  .carve { color: #975a16; font-weight: bold; }
+  code, pre { background: #f7fafc; border: 1px solid #e2e8f0; border-radius: 4px; font-family: Consolas, monospace; font-size: .9em; }
+  code { padding: 0 .25em; }
+  pre { padding: .7rem; overflow-x: auto; }
+  .verdict { background: #f0fff4; border: 2px solid #276749; border-radius: 6px; padding: 1rem 1.4rem; margin: 1.5rem 0; }
+  .warn { background: #fffaf0; border: 2px solid #975a16; border-radius: 6px; padding: 1rem 1.4rem; margin: 1.5rem 0; }
+</style>
+</head>
+<body>
+
+<h1>QA Report - Issue #378</h1>
+<p><strong>Issue:</strong> [Voice] Phone app: swap voice-turn URLs from Director to Gateway<br>
+<strong>PR:</strong> #383 (branch <code>issue-378-phone-gateway-urls</code>, head commit <code>91133a7</code>)<br>
+<strong>QA Agent run:</strong> 2026-06-12, independent verification on the QA machine (fresh checkout of the PR branch; builds and tests run by QA, not reused from the Developer)</p>
+
+<div class="verdict">
+<strong>VERDICT: PASS</strong> - every criterion verifiable on this machine is independently green.
+The on-device live e2e (criteria requiring a physical Android phone and a deployed post-#376 Gateway)
+is <strong>CARVED OUT as PENDING HARDWARE</strong> - see the loud carve-out section below. The merged
+code is safe to ship: this PR touches ONLY phone-app code plus proof; the Director's existing SSE
+voice-turn endpoint is untouched, so phones running old builds keep working unchanged.
+</div>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (QA-verified)</th><th>Result</th></tr>
+<tr>
+  <td>1</td>
+  <td>Phone submits to <code>&lt;gateway-url&gt;/sessions/{sid}/voice-turn/submit</code></td>
+  <td>Submit goes to the Gateway URL, never a Director address; Director log shows the request arriving from the Gateway</td>
+  <td>CODE: <code>VoiceConversation.SpeakTurnAsync</code> agent path calls <code>SubmitVoiceTurnAsync(_gatewayBaseUrl, ...)</code> (VoiceConversation.cs:105-106); <code>_gatewayBaseUrl</code> comes from the page's <code>gateway_url</code> setting (TalkPage.xaml.cs:501-502 passes <code>ServerEntry.Text</code>; VoiceSessionView.xaml.cs:378-379 passes <code>_gatewayUrlProvider()</code> wired by FifoPage.xaml.cs:95-96). An empty gateway URL throws a clear error (VoiceConversation.cs:98-100) - no fallback to a Director address. LIVE log check: pending hardware.</td>
+  <td><span class="pass">PASS (code)</span> / <span class="carve">live: pending hardware</span></td>
+</tr>
+<tr>
+  <td>2</td>
+  <td>Phone polls <code>&lt;gateway-url&gt;/sessions/{sid}/voice-turn/{turnId}</code></td>
+  <td>Poll loop hits the Gateway every ~1.5s until a terminal stage</td>
+  <td>CODE: poll loop calls <code>PollVoiceTurnAsync(_gatewayBaseUrl, session.SessionId, submit.TurnId)</code> at a 1500 ms cadence until stage <code>reply</code>/<code>error</code> (VoiceConversation.cs:113-149). The ONLY callers of Submit/Poll are this Gateway-URL path - zero <code>TailnetEndpoint</code> usage on the agent voice-turn path (verified by repo-wide grep). LIVE log check: pending hardware.</td>
+  <td><span class="pass">PASS (code)</span> / <span class="carve">live: pending hardware</span></td>
+</tr>
+<tr>
+  <td>3</td>
+  <td>Complete voice turn end-to-end on the test device (mic -&gt; spoken summary)</td>
+  <td>Live run on a physical Android phone</td>
+  <td><code>adb devices</code> on this machine returns an EMPTY list (no device attached); the production Gateway also runs a pre-#376 build. The live run was NOT performed and is NOT claimed.</td>
+  <td><span class="carve">CARVED OUT - pending hardware</span></td>
+</tr>
+<tr>
+  <td>4</td>
+  <td><code>dotnet build</code> (MAUI Android) succeeds with 0 errors</td>
+  <td>0 errors</td>
+  <td>QA ran <code>dotnet build phone\CcDirectorClient\CcDirectorClient.csproj -f net10.0-android</code> on the PR branch: <strong>Build succeeded, 0 Error(s)</strong> (92 pre-existing NU1608 AndroidX version-constraint warnings, unrelated to this change).</td>
+  <td><span class="pass">PASS</span></td>
+</tr>
+<tr>
+  <td>5</td>
+  <td>Deployed and tested on the physical device via <code>scripts/deploy-phone.ps1</code></td>
+  <td>APK deployed to the phone</td>
+  <td>No device attached (<code>adb devices</code> empty) - cannot deploy honestly.</td>
+  <td><span class="carve">CARVED OUT - pending hardware</span></td>
+</tr>
+</table>
+
+<h2>Wire-contract verification (both sides, run by QA)</h2>
+<table>
+<tr><th>Check</th><th>Command</th><th>Result</th></tr>
+<tr>
+  <td>Phone-side parsers pin the Gateway shapes</td>
+  <td><code>dotnet test phone\CcDirectorClient.Tests\...csproj --filter VoiceTurnResultTests</code></td>
+  <td><span class="pass">11/11 passed</span> (7 methods, 11 cases). Pins the snake_case submit body (<code>turn_id</code>/<code>expires_at</code>), missing-turn-id throw, unparseable expiry tolerance, reply stage carrying <code>summary</code>+<code>audioBase64</code>, error stage carrying <code>message</code>, all five progress stages, and missing-stage -&gt; "unknown".</td>
+</tr>
+<tr>
+  <td>Gateway-side endpoint contract (#376)</td>
+  <td><code>dotnet test src\CcDirector.Gateway.Tests\...csproj --filter GatewayVoiceTurnAsyncTests</code></td>
+  <td><span class="pass">11/11 passed</span>.</td>
+</tr>
+<tr>
+  <td>Shapes actually match (source-level cross-check)</td>
+  <td>Read of <code>GatewayVoiceTurnEndpoint.cs</code> vs <code>VoiceTurnResults.cs</code></td>
+  <td><span class="pass">MATCH</span>. Gateway 202: <code>{ turn_id, expires_at }</code> (GatewayVoiceTurnEndpoint.cs:101) = exactly what <code>ParseSubmit</code> reads. Gateway poll 200: <code>{ turn_id, stage, transcript, summary, audioBase64, message, expires_at }</code> (lines 115-124) = exactly what <code>ParsePoll</code> reads. The phone's multipart field name <code>"audio"</code> is what the Gateway's <code>VoiceTurnInput.ReadAsync</code> looks for (<code>form.Files.GetFile("audio")</code>, line 303).</td>
+</tr>
+</table>
+
+<h2>Regression / safety sweep</h2>
+<table>
+<tr><th>Check</th><th>Result</th></tr>
+<tr><td>Full solution build on the PR branch: <code>dotnet build cc-director.sln</code></td><td><span class="pass">Build succeeded, 0 Warning(s), 0 Error(s)</span></td></tr>
+<tr><td>PR diff scope (git diff main...PR --stat)</td><td><span class="pass">Phone code + tests + proof only</span> - no <code>src/</code> files touched. The Director's SSE endpoint <code>POST /sessions/{sid}/voice-turn</code> (src/CcDirector.ControlApi/VoiceTurnEndpoint.cs) is UNCHANGED, so phones on old builds keep working - verified in code, not just claimed.</td></tr>
+<tr><td>No leftover <code>TailnetEndpoint</code> on the agent voice-turn path</td><td><span class="pass">Confirmed by grep.</span> Remaining <code>TailnetEndpoint</code> uses are the intentionally Director-direct paths: wingman ask, transcribe-to-textbox dictation, FIFO deliver, briefing/recap/TTS utilities, terminal mirror - all explicitly out of scope per the issue.</td></tr>
+<tr><td>No fallback programming</td><td><span class="pass">PASS</span> - missing gateway URL throws with a clear setup instruction (VoiceConversation.cs:98-100); malformed 202 throws (VoiceTurnResults.ParseSubmit) instead of polling an empty id.</td></tr>
+<tr><td>CenCon method / DT rules</td><td><span class="pass">No violation found.</span> No new endpoints, no auth change, architecture doc (VOICE_TURN_ARCHITECTURE.md Phase 3) referenced by the change.</td></tr>
+</table>
+
+<div class="warn">
+<h2 style="margin-top:0">LOUD CARVE-OUT: on-device e2e is PENDING HARDWARE</h2>
+<p>Acceptance criteria 1 (live Director-log proof), 2 (live Gateway-log proof), 3 (full voice turn on
+the phone) and 5 (deploy via <code>scripts/deploy-phone.ps1</code>) require a physical Android device
+and a deployed post-#376 Gateway. QA honestly verified that <strong>no device is attached</strong>
+(<code>adb devices</code> -&gt; empty list) and the production Gateway still runs a pre-#376 build.
+These steps were NOT performed and are NOT claimed.</p>
+<p><strong>Follow-up required when hardware is available:</strong> follow the Developer's QA runbook in
+<code>docs/cencon/proof/issue-378/report.html</code>: (1) deploy a post-#376 Gateway build,
+(2) <code>scripts\deploy-phone.ps1 -Phone &lt;ip:port&gt;</code>, (3) record a voice turn on a
+wingman-enabled session and confirm the Gateway log line
+<code>[GatewayVoiceTurn] POST /sessions/{sid}/voice-turn/submit from &lt;phone-ip&gt;</code> plus repeated
+phone polls, the Director seeing the turn arrive from the GATEWAY address, and the spoken summary
+playing on the phone. This note is also posted on the issue.</p>
+<p><strong>Why PASS anyway:</strong> everything verifiable on this machine is independently green, the
+wire contract is pinned by tests on BOTH sides and cross-checked in source, and shipping the merge
+cannot break any running phone: the phone APK only changes when explicitly deployed, and the old
+Director SSE path is untouched.</p>
+</div>
+
+<h2>Evidence log (commands run by QA on the PR branch)</h2>
+<pre>
+git checkout issue-378-phone-gateway-urls   # head 91133a7, up to date with origin
+adb devices                                  # -> "List of devices attached" (EMPTY - no device)
+dotnet build phone\CcDirectorClient\CcDirectorClient.csproj -f net10.0-android
+                                             # -> Build succeeded. 92 Warning(s) (pre-existing NU1608), 0 Error(s)
+dotnet test phone\CcDirectorClient.Tests --filter VoiceTurnResultTests
+                                             # -> Passed! Failed: 0, Passed: 11, Total: 11
+dotnet test src\CcDirector.Gateway.Tests --filter GatewayVoiceTurnAsyncTests
+                                             # -> Passed! Failed: 0, Passed: 11, Total: 11
+dotnet build cc-director.sln                 # -> Build succeeded. 0 Warning(s), 0 Error(s)
+</pre>
+
+<p><strong>VERIFIED - all acceptance criteria met that are verifiable on this machine; on-device
+criteria explicitly carved out as pending hardware and tracked on the issue.</strong></p>
+
+</body>
+</html>
