@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Proof - Issue #368: Backtick content deletion in ClaudeSummarizer CleanupForSpeech</title>
+<style>
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: #1e1e1e; color: #cccccc; margin: 0; padding: 2rem; line-height: 1.5; }
+  h1, h2 { color: #ffffff; }
+  h1 { border-bottom: 2px solid #007acc; padding-bottom: .5rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #3c3c3c; padding: .5rem .75rem; text-align: left; vertical-align: top; }
+  th { background: #252526; color: #ffffff; }
+  code, pre { font-family: Consolas, monospace; background: #252526; color: #d7ba7d; }
+  code { padding: .1rem .3rem; border-radius: 3px; }
+  pre { padding: 1rem; overflow-x: auto; border: 1px solid #3c3c3c; border-radius: 4px; }
+  .pass { color: #4ec94e; font-weight: bold; }
+  .meta { color: #888888; font-size: .9rem; }
+  .verdict { background: #252526; border-left: 4px solid #4ec94e; padding: 1rem; margin: 1.5rem 0; }
+</style>
+</head>
+<body>
+<h1>Proof Report - Issue #368</h1>
+<p class="meta">
+  Issue: <a href="https://github.com/thefrederiksen/cc-director/issues/368" style="color:#3794ff">#368 [Voice] Fix backtick content deletion in ClaudeSummarizer CleanupForSpeech</a><br>
+  PR: <a href="https://github.com/thefrederiksen/cc-director/pull/381" style="color:#3794ff">#381</a> (branch <code>issue-368-backtick</code>)<br>
+  Date: 2026-06-12 | Agent: Developer Agent (CenCon Development Method)
+</p>
+
+<h2>What was implemented</h2>
+<p>
+<code>CleanupForSpeech</code> in <code>src/CcDirector.Core/Voice/Services/ClaudeSummarizer.cs</code>
+deleted inline-backtick spans <em>including their content</em>, so spoken voice confirmations lost
+the identifier they were confirming (session names, flag values). The inline-code regex now strips
+only the backtick markers and keeps the inner text:
+</p>
+<pre>- text = Regex.Replace(text, @"`[^`]+`", "");
++ text = Regex.Replace(text, @"`([^`]+)`", "$1");</pre>
+<p>
+Triple-backtick code blocks are still removed entirely (unspeakable content); that rule runs first
+in the method and is unchanged.
+</p>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+  <tr><th>Criterion</th><th>Expected</th><th>Actual</th><th>Proof</th></tr>
+  <tr>
+    <td>CleanupForSpeech("Enable session `my-session` is done") contains "my-session"</td>
+    <td>Identifier preserved</td>
+    <td class="pass">PASS</td>
+    <td>Test <code>ClaudeSummarizer_BacktickIdentifier_IsPreserved</code> (dotnet-test-output.txt)</td>
+  </tr>
+  <tr>
+    <td>CleanupForSpeech("Set `wingmanEnabled=False`") contains "wingmanEnabled=False"</td>
+    <td>Key=value preserved</td>
+    <td class="pass">PASS</td>
+    <td>Test <code>ClaudeSummarizer_BacktickKeyValue_IsPreserved</code></td>
+  </tr>
+  <tr>
+    <td>No backtick characters in the output</td>
+    <td>Markers stripped</td>
+    <td class="pass">PASS</td>
+    <td><code>Assert.DoesNotContain("`", result)</code> in all three new tests</td>
+  </tr>
+  <tr>
+    <td>Triple-backtick code blocks still stripped entirely</td>
+    <td>Block content removed, surrounding prose kept</td>
+    <td class="pass">PASS</td>
+    <td>Test <code>ClaudeSummarizer_TripleBacktickCodeBlock_IsStripped</code></td>
+  </tr>
+  <tr>
+    <td>dotnet build cc-director.sln succeeds with 0 errors</td>
+    <td>Build succeeded, 0 errors</td>
+    <td class="pass">PASS (0 warnings, 0 errors)</td>
+    <td>dotnet-build-output.txt</td>
+  </tr>
+  <tr>
+    <td>dotnet test --filter ClaudeSummarizer passes, existing tests unaffected</td>
+    <td>All pass</td>
+    <td class="pass">PASS (8/8: 3 new + 5 existing #367 tests)</td>
+    <td>dotnet-test-output.txt</td>
+  </tr>
+</table>
+
+<h2>Test output (dotnet-test-output.txt excerpt)</h2>
+<pre>Passed CcDirector.Core.Tests.Voice.ClaudeSummarizerTests.ClaudeSummarizer_BacktickIdentifier_IsPreserved [5 ms]
+Passed CcDirector.Core.Tests.Voice.ClaudeSummarizerTests.ClaudeSummarizer_BacktickKeyValue_IsPreserved [&lt; 1 ms]
+Passed CcDirector.Core.Tests.Voice.ClaudeSummarizerTests.ClaudeSummarizer_TripleBacktickCodeBlock_IsStripped [6 ms]
+Passed CcDirector.Core.Tests.Voice.ClaudeSummarizerTests.ClaudeSummarizer_NonLatinInput_IsNotDropped [&lt; 1 ms]
+Passed CcDirector.Core.Tests.Voice.ClaudeSummarizerTests.CleanupForSpeech_JapaneseInput_IsNotDropped [&lt; 1 ms]
+Passed CcDirector.Core.Tests.Voice.ClaudeSummarizerTests.CleanupForSpeech_NonLatinWithMarkdown_KeepsTextRemovesMarkdown [&lt; 1 ms]
+Passed CcDirector.Core.Tests.Voice.ClaudeSummarizerTests.SummarizationPrompt_AllowsNonLatinInput_NoRejectionInstructions [&lt; 1 ms]
+Passed CcDirector.Core.Tests.Voice.ClaudeSummarizerTests.ProgressPrompt_AllowsNonLatinInput_NoRejectionInstructions [&lt; 1 ms]
+
+Test Run Successful.
+Total tests: 8
+     Passed: 8</pre>
+
+<h2>CenCon impact</h2>
+<p>No drift. Single regex change inside <code>CcDirector.Core</code> (container unchanged), no
+architecture or security posture change. Code review (review-code skill) passed: 0 blocking,
+0 warnings, 0 PII findings.</p>
+
+<h2>Verdict</h2>
+<div class="verdict">
+  <strong class="pass">I believe this is finished.</strong> Every acceptance criterion is met and
+  proven by unit tests committed to the PR branch; the full solution builds clean. The proof target
+  is library-level (pure static text helper), so dotnet test output is the proof artifact - no UI
+  surface or running Director involved.
+</div>
+</body>
+</html>

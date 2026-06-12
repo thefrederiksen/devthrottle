@@ -1,0 +1,35 @@
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  CcDirector.AgentBrain -> D:\ReposFred\cc-director\src\CcDirector.AgentBrain\bin\Debug\net10.0\CcDirector.AgentBrain.dll
+  CcDirector.Gateway.Contracts -> D:\ReposFred\cc-director\src\CcDirector.Gateway.Contracts\bin\Debug\net10.0\CcDirector.Gateway.Contracts.dll
+  CcDirector.Terminal.Core -> D:\ReposFred\cc-director\src\CcDirector.Terminal.Core\bin\Debug\net10.0\CcDirector.Terminal.Core.dll
+  CcClick -> D:\ReposFred\cc-director\src\CcClick\bin\Debug\net10.0-windows\CcClick.dll
+  CcDirector.Core -> D:\ReposFred\cc-director\src\CcDirector.Core\bin\Debug\net10.0\CcDirector.Core.dll
+  CcDirector.Setup.Engine -> D:\ReposFred\cc-director\tools\cc-director-setup-engine\bin\Debug\net10.0\CcDirector.Setup.Engine.dll
+  CcDirector.Terminal.Avalonia -> D:\ReposFred\cc-director\src\CcDirector.Terminal.Avalonia\bin\Debug\net10.0\CcDirector.Terminal.Avalonia.dll
+  CcDirector.Engine -> D:\ReposFred\cc-director\src\CcDirector.Engine\bin\Debug\net10.0\CcDirector.Engine.dll
+  CcDirector.HostedAgent -> D:\ReposFred\cc-director\src\CcDirector.HostedAgent\bin\Debug\net10.0\CcDirector.HostedAgent.dll
+  CcDirector.VoskStt -> D:\ReposFred\cc-director\src\CcDirector.VoskStt\bin\Debug\net10.0-windows\CcDirector.VoskStt.dll
+  CcDirector.ContentWriter -> D:\ReposFred\cc-director\src\CcDirector.ContentWriter\bin\Debug\net10.0-windows\CcDirector.ContentWriter.dll
+  CcDirector.CliExplorer -> D:\ReposFred\cc-director\src\CcDirector.CliExplorer\bin\Debug\net10.0-windows\CcDirector.CliExplorer.dll
+  CcDirector.Cockpit -> D:\ReposFred\cc-director\src\CcDirector.Cockpit\bin\Debug\net10.0\cc-director-cockpit.dll
+  CcDirector.Core.Tests -> D:\ReposFred\cc-director\src\CcDirector.Core.Tests\bin\Debug\net10.0\CcDirector.Core.Tests.dll
+  CcDirector.DocumentLibrary -> D:\ReposFred\cc-director\src\CcDirector.DocumentLibrary\bin\Debug\net10.0-windows\CcDirector.DocumentLibrary.dll
+  CcDirector.Terminal -> D:\ReposFred\cc-director\src\CcDirector.Terminal\bin\Debug\net10.0-windows\CcDirector.Terminal.dll
+  CcDirector.Engine.Tests -> D:\ReposFred\cc-director\src\CcDirector.Engine.Tests\bin\Debug\net10.0\CcDirector.Engine.Tests.dll
+  CcDirector.HostedAgent.Tests -> D:\ReposFred\cc-director\src\CcDirector.HostedAgent.Tests\bin\Debug\net10.0\CcDirector.HostedAgent.Tests.dll
+  CcDirector.Cockpit.Tests -> D:\ReposFred\cc-director\src\CcDirector.Cockpit.Tests\bin\Debug\net10.0\CcDirector.Cockpit.Tests.dll
+  CcDirector.AgentBrain.Panel -> D:\ReposFred\cc-director\src\CcDirector.AgentBrain.Panel\bin\Debug\net10.0\agent-brain-panel.dll
+  CcDirector.ControlApi -> D:\ReposFred\cc-director\src\CcDirector.ControlApi\bin\Debug\net10.0\CcDirector.ControlApi.dll
+  CcDirector.Launcher -> D:\ReposFred\cc-director\src\CcDirector.Launcher\bin\Debug\net10.0-windows\cc-launcher.dll
+  CcDirector.Gateway -> D:\ReposFred\cc-director\src\CcDirector.Gateway\bin\Debug\net10.0\CcDirector.Gateway.dll
+  CcDirector.Launcher.Tests -> D:\ReposFred\cc-director\src\CcDirector.Launcher.Tests\bin\Debug\net10.0-windows\CcDirector.Launcher.Tests.dll
+  CcDirector.Gateway.Tests -> D:\ReposFred\cc-director\src\CcDirector.Gateway.Tests\bin\Debug\net10.0\CcDirector.Gateway.Tests.dll
+  CcDirector.GatewayApp -> D:\ReposFred\cc-director\src\CcDirector.GatewayApp\bin\Debug\net10.0-windows\cc-director-gateway.dll
+  CcDirector.Avalonia -> D:\ReposFred\cc-director\src\CcDirector.Avalonia\bin\Debug\net10.0\cc-director.dll
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:27.32
