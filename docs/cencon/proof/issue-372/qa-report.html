@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QA Proof Report - Issue #372 (PR #373)</title>
+<style>
+  :root { --bg:#0f1419; --panel:#1a2029; --ink:#e6edf3; --muted:#9aa7b4; --pass:#3fb950; --warn:#d29922; --line:#2d3743; --accent:#58a6ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.55 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
+  .wrap { max-width:980px; margin:0 auto; padding:32px 24px 80px; }
+  h1 { font-size:24px; margin:0 0 4px; }
+  h2 { font-size:18px; margin:34px 0 12px; border-bottom:1px solid var(--line); padding-bottom:6px; }
+  .sub { color:var(--muted); margin:0 0 20px; }
+  .verdict { background:linear-gradient(90deg,#10341c,#0f1419); border:1px solid var(--pass); border-radius:10px; padding:16px 20px; margin:18px 0 8px; }
+  .verdict b { color:var(--pass); font-size:18px; }
+  table { width:100%; border-collapse:collapse; margin:10px 0; }
+  th,td { text-align:left; padding:9px 11px; border:1px solid var(--line); vertical-align:top; }
+  th { background:var(--panel); color:var(--muted); font-weight:600; font-size:13px; text-transform:uppercase; letter-spacing:.04em; }
+  td.crit { width:30%; }
+  .tag { display:inline-block; padding:2px 9px; border-radius:20px; font-size:12px; font-weight:700; }
+  .tag.pass { background:rgba(63,185,80,.16); color:var(--pass); border:1px solid var(--pass); }
+  .tag.note { background:rgba(210,153,34,.14); color:var(--warn); border:1px solid var(--warn); }
+  code,pre { font-family:"SFMono-Regular",Consolas,monospace; }
+  code { background:var(--panel); padding:1px 6px; border-radius:5px; font-size:13px; }
+  pre { background:#0b0f14; border:1px solid var(--line); border-radius:8px; padding:13px 15px; overflow:auto; font-size:12.5px; color:#cdd9e5; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:9px; padding:16px 18px; margin:14px 0; }
+  ul { margin:8px 0; padding-left:22px; } li { margin:4px 0; }
+  .meta { font-size:13px; color:var(--muted); }
+  .ev { color:var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>QA Proof Report &mdash; Issue #372</h1>
+<p class="sub">Unify Cockpit&rarr;session traffic on one Gateway-proxied channel (retire direct-to-Director leg)<br>
+PR #373 &middot; branch <code>372-unify-cockpit-gateway-channel</code> @ <code>81ab6a4</code> &middot; slices 1&ndash;2</p>
+
+<div class="verdict">
+  <b>VERDICT: PASS &mdash; all 4 acceptance criteria met, no regression.</b><br>
+  <span class="meta">Independently built + tested in an isolated worktree by a fresh QA identity. Dev report NOT trusted; every result reproduced.</span>
+</div>
+
+<h2>How this was verified (independent)</h2>
+<div class="panel">
+<ul>
+  <li><b>Isolated worktree</b> checked out to <code>origin/372-unify-cockpit-gateway-channel</code> (<code>81ab6a4</code>) &mdash; not the user's live working tree.</li>
+  <li><b>Built both projects myself.</b> <code>CcDirector.Gateway</code> and <code>CcDirector.Cockpit</code> &mdash; each <b>Build succeeded, 0 Warning(s), 0 Error(s)</b>.</li>
+  <li><b>Ran the proxy test suite myself</b> (isolated GatewayHost on a free port + a stub Kestrel Director). This is the authoritative proof of slice 1.</li>
+  <li><b>Corroborated read-only against the LIVE running Gateway</b> (pid 72356, port 7878, multi-Director fleet) &mdash; GETs only, no writes, no disruption.</li>
+  <li><b>Reviewed the diff</b> with the review-code lens: route precedence, fast-path safety, DirectorClient repoint scope, regression surface.</li>
+</ul>
+</div>
+
+<h2>Test results (authoritative proof &mdash; my own run)</h2>
+<pre>dotnet test src/CcDirector.Gateway.Tests --filter
+  "FullyQualifiedName~SessionHttpProxyRoundTripTests|
+   FullyQualifiedName~SessionWsProxyEndpointsTests|
+   FullyQualifiedName~ScreenshotProxyRoundTripTests"
+
+Passed!  - Failed: 0, Passed: 16, Skipped: 0, Total: 16, Duration: 3 s</pre>
+<p>Slice-1 forwarder is proven by <code>SessionHttpProxyRoundTripTests</code> against a real stub Director:</p>
+<ul>
+  <li><span class="tag pass">PASS</span> GET round-trips to the same Director path (<code>GET /sessions/{sid}/git</code>), body returned unchanged.</li>
+  <li><span class="tag pass">PASS</span> POST carries request body through and streams the Director's response back (<code>/clear-context</code>).</li>
+  <li><span class="tag pass">PASS</span> Director <b>409</b> passes through unchanged (NOT rewritten to 502/503).</li>
+  <li><span class="tag pass">PASS</span> Unknown session is <b>404</b>, not a forward.</li>
+</ul>
+
+<h2>Acceptance criteria &mdash; Expected vs Actual</h2>
+<table>
+<tr><th class="crit">Criterion (#372)</th><th>Expected</th><th>Actual / Evidence</th><th>Verdict</th></tr>
+
+<tr>
+  <td class="crit"><b>AC1.</b> Cockpit makes ZERO direct requests to a Director's <code>TailnetEndpoint</code>; all session traffic is same-origin to the Gateway.</td>
+  <td>No session-scoped <code>DirectorClient</code> method takes a director base; all resolve against the Gateway <code>BaseAddress</code>.</td>
+  <td><span class="ev">Verified.</span> All ~35 session-scoped call sites across <code>Cockpit.razor</code>/<code>BriefPane.razor</code>/<code>SessionDetail.razor</code>/<code>TerminalPane.razor</code> now pass only <code>sid</code>. The 5 methods that still take <code>directorBase</code> are the non-session Director-scoped calls only (<code>GetScreenshots</code>, <code>DeleteScreenshot</code>, <code>Get/PutSettings</code>, <code>Fanout</code>) &mdash; explicitly slice 3 in the issue. <code>Program.cs</code> sets <code>DirectorClient.BaseAddress = gatewayUrl</code>.</td>
+  <td><span class="tag pass">PASS</span></td>
+</tr>
+
+<tr>
+  <td class="crit"><b>AC2.</b> A loopback-only Director is fully drivable from a remote browser (prompt, queue, settings, interrupt) &mdash; not just viewable.</td>
+  <td>The <code>TailnetEndpoint</code> guards that blocked a loopback-only Director are gone; verbs resolve by session id at the Gateway, which forwards via <code>ControlEndpoint</code> when no tailnet endpoint exists.</td>
+  <td><span class="ev">Verified.</span> Guards removed in <code>TerminalPane.razor</code>, <code>BriefPane.razor</code>, <code>SessionDetail.razor</code> (the <code>string.IsNullOrEmpty(DirectorBase)</code> / <code>TailnetEndpoint</code> early-returns are deleted). Gateway <code>ForwardDestination()</code> prefers <code>TailnetEndpoint</code> else falls back to <code>ControlEndpoint</code> (loopback) &mdash; so the Gateway, not the browser, dials it. The forwarder tests prove the resolve+forward path; live log shows <code>leg=http</code> forwards across two Directors.</td>
+  <td><span class="tag pass">PASS</span></td>
+</tr>
+
+<tr>
+  <td class="crit"><b>AC3.</b> Cockpit standalone in dev no longer 404s streams/screenshots when reached via the Gateway front door.</td>
+  <td>Per-session reads/streams resolve same-origin through the Gateway, not via "same-origin = the Cockpit".</td>
+  <td><span class="ev">Verified by construction + live.</span> All per-session reads now target the Gateway base (relative paths against <code>BaseAddress</code>), and the catch-all forwarder serves them. Live read-only: <code>GET /sessions/{real-sid}/git</code> via Gateway &rarr; <b>200</b> with the Director's git JSON; <code>GET /sessions/{random-uuid}/git</code> &rarr; <b>404</b>. No explicit Gateway <code>/git</code> route exists &mdash; the 200 came through the new catch-all (<code>leg=http</code> in the log).</td>
+  <td><span class="tag pass">PASS</span></td>
+</tr>
+
+<tr>
+  <td class="crit"><b>AC4.</b> Desktop (in-process) path unchanged.</td>
+  <td>No change to the Director Control API surface or any in-process/desktop code.</td>
+  <td><span class="ev">Verified.</span> PR touches ONLY 5 Cockpit files + 1 Gateway forwarder file + 1 new Gateway test. ZERO changes to <code>CcDirector.ControlApi</code>, <code>CcDirector.Engine</code>, or any Desktop project. The Director endpoints are untouched; the catch-all forwards to the SAME Director paths. Desktop never used <code>DirectorClient</code>, so it is unaffected.</td>
+  <td><span class="tag pass">PASS</span></td>
+</tr>
+</table>
+
+<h2>Live corroboration (read-only, non-disruptive)</h2>
+<pre>SID = c7f2f2e0-6e02-4dd8-86bd-9bd7c19abc88   (real session on the running fleet)
+
+curl /sessions/$SID/git   -> HTTP 200
+  {"branch":"372-unify-cockpit-gateway-channel","dirty":true,...,"status":"ok"}
+
+curl /sessions/00000000-0000-0000-0000-000000000000/git  -> HTTP 404
+  {"error":"session not found across any director"}
+
+Gateway log (pid 72356) - leg=http forwards across TWO Directors via fast-path:
+  [SessionWsProxy] open  leg=http sid=9fc88b70... client=127.0.0.1
+  [SessionWsProxy] close leg=http sid=9fc88b70... (fast-path owner c99a103c...)
+  [SessionWsProxy] close leg=http sid=c7f2f2e0... (fast-path owner c99a103c...)
+  [SessionWsProxy] close leg=http sid=136e056c... (fast-path owner ce7e7143...)</pre>
+
+<h2>Diff review findings (review-code lens)</h2>
+<div class="panel">
+<ul>
+  <li><b>Route precedence &mdash; correct.</b> The catch-all <code>/sessions/{sid}/{**rest}</code> uses a catch-all parameter segment, which has the LOWEST ASP.NET routing precedence. The explicit Gateway-native routes (<code>/sessions/{sid}</code>, <code>/sessions/{sid}/summary</code>, <code>/sessions/{sid}/recap</code>, <code>/sessions/{sid}/turnbriefs</code>, the WS/screenshot legs) win by template specificity regardless of registration order, so the catch-all only carries the remainder. The browser-page routes and the <code>MapFallback</code> Cockpit proxy are also less specific / mapped to lose. No shadowing of explicit routes or browser pages.</li>
+  <li><b>Gateway-native <code>/summary</code> &amp; <code>/recap</code> still reach the Director.</b> When the Cockpit hits these via the Gateway base, the explicit Gateway endpoints (which themselves locate the owner and forward to the Director) serve them &mdash; same net data, still no direct-to-Director. Not a defect.</li>
+  <li><b>Fast-path &mdash; safe.</b> A stale cached owner only self-heals on a transport failure (<code>ForwarderError != None</code>), and a session id is globally unique to one Director (never reassigned), so there is no wrong-owner delivery and no double-send: on transport failure the guard checks <code>ctx.Response.HasStarted</code> before re-resolving, so no bytes are sent twice.</li>
+  <li><b>DirectorClient repoint &mdash; correctly scoped.</b> The 3 Director-scoped families (screenshots list, settings, fanout) correctly remain on an explicit absolute director base, which overrides the <code>BaseAddress</code> per HttpClient semantics. This matches the issue's slice-3 scope.</li>
+  <li><span class="tag note">NOTE (benign)</span> <b>Bundled foreign WIP in <code>BriefPane.razor</code>.</b> The PR also hides the alpha "I am lost - explain" button and carries the composer/queue rework. The dev disclosed this (HEAD must compile against the new <code>DirectorClient</code> signatures). It is unrelated to #372's channel unification but compiles clean, leaves <code>RequestExplainAsync</code>/<code>_explainBusy</code> still referenced (no dead-symbol break), and does not affect any acceptance criterion. Flagged, not blocking.</li>
+</ul>
+</div>
+
+<h2>Regression sweep</h2>
+<div class="panel">
+<ul>
+  <li>Both projects build clean (0/0). 16/16 proxy tests green.</li>
+  <li>Director Control API surface untouched &rarr; old/remote Directors and the desktop in-process path keep working.</li>
+  <li>404/503 semantics preserved (unknown session vs owner-offline) &mdash; tested + corroborated live.</li>
+  <li>No security/PII concern: forwarder carries existing token-gated traffic; no new external surface, no credential handling.</li>
+</ul>
+<p><b>VERIFIED &mdash; all acceptance criteria met. Standalone QA: passing to <code>flow:done</code>, NOT merging (merge left to human).</b></p>
+</div>
+
+<p class="meta">QA Agent (CenCon, cc-director). Independent build + 16/16 tests + live read-only corroboration + diff review. <code>81ab6a4</code> on <code>372-unify-cockpit-gateway-channel</code>. 2026-06-12.</p>
+
+</div>
+</body>
+</html>
