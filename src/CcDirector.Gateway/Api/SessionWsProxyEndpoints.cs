@@ -64,9 +64,19 @@ internal static class SessionWsProxyEndpoints
         // Screenshot bytes (issue #317): plain HTTP forward (no WS upgrade) to the owning
         // Director's machine-wide /screenshots/file . The ?name=... query carries through via
         // RewritePathTransformer; the response (image bytes + content type) streams back as-is.
-        app.MapGet("/sessions/{sid}/screenshots/file", async (string sid, HttpContext ctx) =>
+        // Issue #372 slice 3: Map (not MapGet) so DELETE /sessions/{sid}/screenshots/file also
+        // forwards - the Cockpit's gallery Del button no longer dials the Director directly.
+        app.Map("/sessions/{sid}/screenshots/file", async (string sid, HttpContext ctx) =>
         {
             await ProxyAsync(ctx, sid, "shot", "/screenshots/file", registry, client, proxy, owners);
+        });
+
+        // Screenshot LIST (issue #372 slice 3): the folder is machine-wide on the Director
+        // (/screenshots), but the Cockpit always asks in the context of a selected session, so the
+        // session id is the routing key. ?count=N carries through.
+        app.MapGet("/sessions/{sid}/screenshots", async (string sid, HttpContext ctx) =>
+        {
+            await ProxyAsync(ctx, sid, "shots", "/screenshots", registry, client, proxy, owners);
         });
 
         // Issue #372: generic per-session HTTP forward. ANY method on /sessions/{sid}/{**rest} that
@@ -84,6 +94,37 @@ internal static class SessionWsProxyEndpoints
             // cached owner before a fleet fan-out. The WS/screenshot legs are long-lived/low-frequency
             // and keep the plain resolve.
             await ProxyAsync(ctx, sid, "http", directorPath, registry, client, proxy, owners, fastPath: true);
+        });
+
+        // Issue #372 slice 3: DIRECTOR-scoped settings (GET reads, PUT writes-and-reapplies-live).
+        // The routing key is the Director id, not a session id, so resolution is a plain registry
+        // lookup - no ownership fan-out. 404 for an unknown Director id; a failed forward is 503
+        // exactly like the session legs. This retires the Cockpit settings page's last
+        // direct-to-Director call.
+        app.Map("/directors/{id}/settings", async (string id, HttpContext ctx) =>
+        {
+            FileLog.Write($"[SessionWsProxy] open leg=dirsettings director={id} method={ctx.Request.Method} client={ctx.Connection.RemoteIpAddress}");
+            var d = registry.Get(id);
+            if (d is null)
+            {
+                ctx.Response.StatusCode = StatusCodes.Status404NotFound;
+                await ctx.Response.WriteAsJsonAsync(new { error = "no such director" });
+                return;
+            }
+            var destination = ForwardDestination(d);
+            if (destination is null)
+            {
+                ctx.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+                await ctx.Response.WriteAsJsonAsync(new { error = "director has no reachable endpoint" });
+                return;
+            }
+            var error = await proxy.ForwardAsync(ctx, destination, "/settings");
+            if (error != ForwarderError.None && !ctx.Response.HasStarted)
+            {
+                FileLog.Write($"[SessionWsProxy] leg=dirsettings director={id} -> 503 (forwarder error {error})");
+                ctx.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+                await ctx.Response.WriteAsJsonAsync(new { error = $"director unreachable ({error})" });
+            }
         });
     }
 

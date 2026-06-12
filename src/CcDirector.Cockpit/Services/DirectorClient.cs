@@ -54,15 +54,13 @@ public sealed class ScreenshotsResponse
 }
 
 /// <summary>
-/// Drives a single session's write/act/read path. Issue #372: every PER-SESSION verb now goes to
-/// the local GATEWAY (this client's BaseAddress), which resolves the owning Director by session id
-/// and reverse-proxies to it (CcDirector.Gateway SessionWsProxyEndpoints). The Cockpit never dials
-/// a Director address directly, so a Director that advertises only a loopback endpoint is still
-/// fully drivable and there is one reachability/trust story (the Gateway), not two.
-///
-/// The few DIRECTOR-scoped paths that are not session-scoped (the screenshots folder, the
-/// Director's settings, and same-Director fanout) still take an explicit <c>directorBase</c> -
-/// they have no session id for the Gateway to resolve an owner from. Those are the next slice.
+/// Drives a single session's write/act/read path. Issue #372: EVERY call goes to the local
+/// GATEWAY (this client's BaseAddress) - session-scoped verbs are resolved to the owning Director
+/// by session id, the screenshots folder rides the selected session's id, Director settings ride
+/// the Director id (/directors/{id}/settings), and fanout uses the Gateway's own fleet-wide
+/// /fanout. The Cockpit never dials a Director address directly, so a Director that advertises
+/// only a loopback endpoint is still fully drivable and there is one reachability/trust story
+/// (the Gateway), not two.
 /// </summary>
 public sealed class DirectorClient
 {
@@ -74,12 +72,6 @@ public sealed class DirectorClient
         _http = http;
         _log = log;
     }
-
-    // Absolute URL builder for the DIRECTOR-scoped calls that still target a Director base directly
-    // (screenshots folder, settings, fanout). Session-scoped calls below use relative paths so they
-    // resolve against the Gateway BaseAddress instead.
-    private static Uri Url(string directorBase, string path) =>
-        new(new Uri(directorBase.TrimEnd('/') + "/"), path.TrimStart('/'));
 
     public async Task SendPromptAsync(string sid, string text, CancellationToken ct = default)
     {
@@ -206,27 +198,30 @@ public sealed class DirectorClient
     // ===== Screenshots gallery (folder lives on the Director's machine) =====
 
     /// <summary>
-    /// List the screenshots in the Director's screenshots folder, newest first
-    /// (<c>GET /screenshots</c>). The folder is per-machine, not per-session, so this still takes
-    /// the Director base directly (issue #372: no session id for the Gateway to resolve an owner
-    /// from - moving this onto the Gateway is the next slice). The image bytes themselves are
-    /// loaded by the browser SAME-ORIGIN via the Gateway's per-session proxy
-    /// (<c>CockpitShotUrls.Screenshot</c>, issue #317); this call returns just metadata + labels.
+    /// List the screenshots in the owning Director's screenshots folder, newest first. The folder
+    /// is per-machine on the Director, but the Cockpit always asks in the context of the selected
+    /// session, so the session id is the routing key: the Gateway forwards
+    /// <c>GET /sessions/{sid}/screenshots</c> to the Director's machine-wide <c>/screenshots</c>
+    /// (issue #372 slice 3). The image bytes themselves are loaded by the browser SAME-ORIGIN via
+    /// the Gateway's per-session proxy (<c>CockpitShotUrls.Screenshot</c>, issue #317); this call
+    /// returns just metadata + labels.
     /// <paramref name="count"/> caps the items (the folder can hold thousands); &lt;=0 fetches
     /// everything. Old Directors ignore the param and return all items with Total=0.
     /// </summary>
-    public async Task<ScreenshotsResponse> GetScreenshotsAsync(string directorBase, int count = 0, CancellationToken ct = default)
+    public async Task<ScreenshotsResponse> GetScreenshotsAsync(string sid, int count = 0, CancellationToken ct = default)
     {
-        var path = count > 0 ? $"screenshots?count={count}" : "screenshots";
-        var r = await _http.GetFromJsonAsync<ScreenshotsResponse>(Url(directorBase, path), ct);
+        var path = count > 0 ? $"sessions/{sid}/screenshots?count={count}" : $"sessions/{sid}/screenshots";
+        var r = await _http.GetFromJsonAsync<ScreenshotsResponse>(path, ct);
         return r ?? new ScreenshotsResponse();
     }
 
-    /// <summary>Delete one screenshot file from the Director's disk (<c>DELETE /screenshots/file</c>).</summary>
-    public async Task DeleteScreenshotAsync(string directorBase, string fileName, CancellationToken ct = default)
+    /// <summary>Delete one screenshot file from the owning Director's disk
+    /// (<c>DELETE /sessions/{sid}/screenshots/file</c>, forwarded to the Director's
+    /// <c>DELETE /screenshots/file</c>).</summary>
+    public async Task DeleteScreenshotAsync(string sid, string fileName, CancellationToken ct = default)
     {
-        _log.LogDebug("DeleteScreenshot file={File}", fileName);
-        var resp = await _http.DeleteAsync(Url(directorBase, $"screenshots/file?name={Uri.EscapeDataString(fileName)}"), ct);
+        _log.LogDebug("DeleteScreenshot sid={Sid} file={File}", sid, fileName);
+        var resp = await _http.DeleteAsync($"sessions/{sid}/screenshots/file?name={Uri.EscapeDataString(fileName)}", ct);
         resp.EnsureSuccessStatusCode();
     }
 
@@ -290,17 +285,19 @@ public sealed class DirectorClient
         return body.NewIssueUrl;
     }
 
-    /// <summary>Read a Director's raw settings JSON (<c>GET /settings</c>). Director-scoped (no
-    /// session id), so it still targets the Director base directly (issue #372: next slice).</summary>
-    public async Task<string> GetSettingsAsync(string directorBase, CancellationToken ct = default)
-        => await _http.GetStringAsync(Url(directorBase, "settings"), ct);
+    /// <summary>Read a Director's raw settings JSON. Routed by DIRECTOR id: the Gateway forwards
+    /// <c>GET /directors/{id}/settings</c> to that Director's <c>/settings</c> (issue #372
+    /// slice 3) - no Director address needed.</summary>
+    public async Task<string> GetSettingsAsync(string directorId, CancellationToken ct = default)
+        => await _http.GetStringAsync($"directors/{directorId}/settings", ct);
 
-    /// <summary>Write a Director's settings (<c>PUT /settings</c>) - the Director re-applies live.</summary>
-    public async Task PutSettingsAsync(string directorBase, string json, CancellationToken ct = default)
+    /// <summary>Write a Director's settings (<c>PUT /directors/{id}/settings</c>, forwarded to the
+    /// Director's <c>PUT /settings</c>) - the Director re-applies live.</summary>
+    public async Task PutSettingsAsync(string directorId, string json, CancellationToken ct = default)
     {
-        _log.LogDebug("PutSettings len={Len}", json.Length);
+        _log.LogDebug("PutSettings director={Director} len={Len}", directorId, json.Length);
         using var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
-        var resp = await _http.PutAsync(Url(directorBase, "settings"), content, ct);
+        var resp = await _http.PutAsync($"directors/{directorId}/settings", content, ct);
         resp.EnsureSuccessStatusCode();
     }
 
@@ -405,15 +402,16 @@ public sealed class DirectorClient
         => await _http.GetFromJsonAsync<GitSnapshot>($"sessions/{sid}/git", ct);
 
     /// <summary>
-    /// Broadcast a prompt to several sessions on ONE Director (<c>POST /fanout-local</c>). The
-    /// session ids must all belong to <paramref name="directorBase"/>; the Cockpit groups a
-    /// fleet-wide selection by Director and calls this once per Director. Director-scoped (issue
-    /// #372: next slice). <c>waitForIdle:false</c> returns as soon as the text is delivered.
+    /// Broadcast a prompt to several sessions anywhere on the fleet via the Gateway's own
+    /// <c>POST /fanout</c> (issue #372 slice 3): the Gateway resolves each session's owning
+    /// Director itself, so the Cockpit no longer groups the selection by Director or dials
+    /// <c>/fanout-local</c> on each one. <c>waitForIdle:false</c> returns as soon as the text is
+    /// delivered, so the UI does not block.
     /// </summary>
-    public async Task<FanoutResponse?> FanoutAsync(string directorBase, List<string> sessionIds, string text, CancellationToken ct = default)
+    public async Task<FanoutResponse?> FanoutAsync(List<string> sessionIds, string text, CancellationToken ct = default)
     {
         _log.LogDebug("Fanout count={Count} len={Len}", sessionIds.Count, text.Length);
-        var resp = await _http.PostAsJsonAsync(Url(directorBase, "fanout-local"),
+        var resp = await _http.PostAsJsonAsync("fanout",
             new { sessionIds, text, appendEnter = true, waitForIdle = false }, ct);
         resp.EnsureSuccessStatusCode();
         return await resp.Content.ReadFromJsonAsync<FanoutResponse>(cancellationToken: ct);
