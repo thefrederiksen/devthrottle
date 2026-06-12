@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Report - Issue #367 - Non-Latin script refusal in ClaudeSummarizer</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem auto; max-width: 960px; color: #1a1a2e; line-height: 1.5; }
+  h1 { border-bottom: 3px solid #0f3460; padding-bottom: .4rem; }
+  h2 { color: #0f3460; margin-top: 2rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #c8c8d0; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #0f3460; color: #fff; }
+  .pass { background: #e6f4ea; color: #137333; font-weight: 700; }
+  .verdict { background: #137333; color: #fff; padding: 1rem 1.4rem; font-size: 1.2rem; font-weight: 700; border-radius: 6px; margin: 1.5rem 0; }
+  pre { background: #f4f4f8; border: 1px solid #d8d8e0; padding: .8rem; overflow-x: auto; font-size: .85rem; }
+  code { background: #f0f0f5; padding: .1rem .3rem; border-radius: 3px; }
+  .meta td:first-child { font-weight: 600; width: 220px; }
+</style>
+</head>
+<body>
+<h1>QA Verification Report - Issue #367</h1>
+<p><strong>[Voice] Fix non-Latin script refusal in ClaudeSummarizer</strong></p>
+
+<table class="meta">
+  <tr><td>Issue</td><td>#367 (thefrederiksen/cc-director)</td></tr>
+  <tr><td>PR</td><td>#380, branch <code>issue-367-non-latin</code>, HEAD <code>8b13870</code></td></tr>
+  <tr><td>QA performed</td><td>2026-06-12 (UTC), independent context - dev report not trusted, all checks re-run by QA</td></tr>
+  <tr><td>Method</td><td>Fresh pull of <code>main</code> + checkout of PR branch; code inspection of the fix and diff vs main; full solution build; test runs executed by QA. Verification surface is unit-test/code-level (the issue's Proof Target is passing <code>dotnet test</code> output), so no Director slot/launch was required.</td></tr>
+  <tr><td>Raw evidence</td><td><code>docs/cencon/proof/issue-367/qa-test-output.txt</code> (QA-captured build + test output)</td></tr>
+</table>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+  <tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (QA-observed)</th><th>Verdict</th></tr>
+  <tr>
+    <td>1</td>
+    <td>Korean test string (the flagged-turn sentence) passed through <code>CleanupForSpeech</code> is not reduced to an empty or near-empty string</td>
+    <td>Content survives pre-processing</td>
+    <td><code>ClaudeSummarizer_NonLatinInput_IsNotDropped</code> PASSED. The test asserts <code>Assert.Equal(korean, result)</code> - the full Korean sentence survives byte-for-byte, stronger than "not near-empty". Japanese variant (<code>CleanupForSpeech_JapaneseInput_IsNotDropped</code>) and markdown-wrapped Korean (<code>CleanupForSpeech_NonLatinWithMarkdown_KeepsTextRemovesMarkdown</code>) also PASSED. QA inspected <code>CleanupForSpeech</code>: it operates only on markdown syntax characters (regex on backticks, brackets, asterisks, underscores, hashes, whitespace) - no code-point filtering exists.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td>Summarizer prompt contains no instructions to reject, flag, or replace non-ASCII characters</td>
+    <td>No rejection language; faithful source-language summary mandated</td>
+    <td>QA read both prompts in <code>ClaudeSummarizer.cs</code>. <code>SummarizationPrompt</code> states the reply may be in ANY language or script, that non-Latin Unicode is valid content and never encoding corruption, and mandates summarizing faithfully in the same language, never refusing. <code>ProgressPrompt</code> has the equivalent clause. Two prompt tests (<code>SummarizationPrompt_AllowsNonLatinInput_NoRejectionInstructions</code>, <code>ProgressPrompt_AllowsNonLatinInput_NoRejectionInstructions</code>) assert absence of reject/invalid/ASCII instructions - both PASSED.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td><code>dotnet build cc-director.sln</code> succeeds with 0 errors</td>
+    <td>Build succeeded, 0 errors</td>
+    <td>QA ran it on the PR branch: <strong>Build succeeded. 0 Warning(s), 0 Error(s)</strong>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td><code>dotnet test --filter ClaudeSummarizer</code> passes; existing tests unaffected, new test added</td>
+    <td>All filter tests pass; no regression</td>
+    <td>QA ran it: <strong>5/5 PASSED</strong> (new file <code>ClaudeSummarizerTests.cs</code>, including the proof target). Regression sweep: full Voice namespace <strong>86/86 PASSED</strong>, full solution builds clean.</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Root-cause review (code inspection)</h2>
+<p>The actual corruption source was not an explicit validation guard: <code>RunClaudeAsync</code> redirected the claude CLI's stdin/stdout/stderr without specifying encodings, so Windows applied the legacy console code page and mangled non-Latin scripts into "?" before the model saw them. The fix sets BOM-less UTF-8 on <code>StandardInputEncoding</code>, <code>StandardOutputEncoding</code>, and <code>StandardErrorEncoding</code>. Combined with the prompt mandate (criterion 2), this addresses both the data path and the model behavior. The issue's stated assumption (defect in pre-processing or prompt text in ClaudeSummarizer.cs) holds - no guard exists elsewhere in the pipeline for this defect class.</p>
+
+<h2>Scope and method checks</h2>
+<ul>
+  <li>PR diff vs main touches only <code>src/CcDirector.Core/Voice/Services/ClaudeSummarizer.cs</code>, the new test file, and proof artifacts. Out-of-scope files (<code>VoiceTurnEndpoint.cs</code>, <code>TtsService.cs</code>, Gateway) are untouched - confirmed from the PR file list and <code>git diff main...HEAD --stat</code>.</li>
+  <li>Visibility widening (<code>private</code> to <code>internal</code>) for <code>CleanupForSpeech</code> and the prompt constants is test-access only; <code>InternalsVisibleTo</code> already present. No public API change.</li>
+  <li>No CenCon blocking security rule touched; no architecture/security change requiring docs updates.</li>
+  <li>PR reported MERGEABLE against current main.</li>
+</ul>
+
+<h2>QA-captured evidence</h2>
+<pre>--- dotnet build cc-director.sln (tail) ---
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+--- dotnet test --filter ClaudeSummarizer (per-test) ---
+  Passed CcDirector.Core.Tests.Voice.ClaudeSummarizerTests.CleanupForSpeech_JapaneseInput_IsNotDropped
+  Passed CcDirector.Core.Tests.Voice.ClaudeSummarizerTests.ClaudeSummarizer_NonLatinInput_IsNotDropped
+  Passed CcDirector.Core.Tests.Voice.ClaudeSummarizerTests.CleanupForSpeech_NonLatinWithMarkdown_KeepsTextRemovesMarkdown
+  Passed CcDirector.Core.Tests.Voice.ClaudeSummarizerTests.ProgressPrompt_AllowsNonLatinInput_NoRejectionInstructions
+  Passed CcDirector.Core.Tests.Voice.ClaudeSummarizerTests.SummarizationPrompt_AllowsNonLatinInput_NoRejectionInstructions
+
+--- Voice namespace regression ---
+Passed!  - Failed: 0, Passed: 86, Skipped: 0, Total: 86</pre>
+
+<div class="verdict">VERIFIED - all acceptance criteria met. 4/4 PASS. Issue #367 approved for merge.</div>
+
+</body>
+</html>

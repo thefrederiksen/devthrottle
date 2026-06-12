@@ -1,0 +1,19 @@
+=== QA independent verification - issue #367 / PR #380 ===
+Date: 2026-06-12T22:23:10Z  Branch: issue-367-non-latin  HEAD: 8b13870
+
+--- dotnet build cc-director.sln (tail) ---
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:02.48
+
+--- dotnet test --filter ClaudeSummarizer (per-test) ---
+  Passed CcDirector.Core.Tests.Voice.ClaudeSummarizerTests.CleanupForSpeech_JapaneseInput_IsNotDropped [6 ms]
+  Passed CcDirector.Core.Tests.Voice.ClaudeSummarizerTests.ClaudeSummarizer_NonLatinInput_IsNotDropped [< 1 ms]
+  Passed CcDirector.Core.Tests.Voice.ClaudeSummarizerTests.CleanupForSpeech_NonLatinWithMarkdown_KeepsTextRemovesMarkdown [1 ms]
+  Passed CcDirector.Core.Tests.Voice.ClaudeSummarizerTests.ProgressPrompt_AllowsNonLatinInput_NoRejectionInstructions [8 ms]
+  Passed CcDirector.Core.Tests.Voice.ClaudeSummarizerTests.SummarizationPrompt_AllowsNonLatinInput_NoRejectionInstructions [< 1 ms]
+
+--- Voice namespace regression ---
+Passed!  - Failed:     0, Passed:    86, Skipped:     0, Total:    86, Duration: 171 ms - CcDirector.Core.Tests.dll (net10.0)
