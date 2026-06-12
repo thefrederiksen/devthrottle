@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #366 - Voice-turn stale transcript fix</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem auto; max-width: 960px; color: #1a1a1a; line-height: 1.5; }
+  h1 { border-bottom: 3px solid #0b6e4f; padding-bottom: .4rem; }
+  h2 { color: #0b6e4f; margin-top: 2rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #f0f5f3; }
+  .pass { color: #0b6e4f; font-weight: bold; }
+  .fail { color: #b00020; font-weight: bold; }
+  code, pre { background: #f6f6f6; border: 1px solid #e0e0e0; border-radius: 4px; font-family: Consolas, monospace; }
+  code { padding: .1rem .3rem; }
+  pre { padding: .8rem; overflow-x: auto; font-size: .85rem; }
+  .verdict { background: #e6f4ee; border: 2px solid #0b6e4f; padding: 1rem; font-size: 1.1rem; margin-top: 2rem; }
+  .meta { color: #555; font-size: .9rem; }
+</style>
+</head>
+<body>
+
+<h1>QA Proof Report - Issue #366</h1>
+<p class="meta">
+  Issue: [Voice] Fix stale transcript: voice-turn endpoint speaks previous-turn content<br>
+  PR: #379 (branch <code>issue-366-stale-transcript</code>, head <code>e607b9f</code>, fix commit <code>e781b11</code>)<br>
+  QA Agent: independent verification in an isolated git worktree (never touched the developer's binaries or shared tree)<br>
+  Date: 2026-06-12 | Verifier: QA Agent (CenCon Development Method)
+</p>
+
+<h2>Verification method</h2>
+<p>
+All verification was performed from a fresh isolated <code>git worktree</code> checkout of the PR branch.
+The acceptance criteria for this issue are build/test contracts (the proof target is the named regression
+test passing), so verification = independent build + independent test runs + code inspection + a vacuity
+check proving the new test fails on pre-fix code.
+</p>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (QA-observed)</th><th>Verdict</th></tr>
+<tr>
+  <td>1</td>
+  <td>Two consecutive voice turns: second turn's spoken summary reflects the second turn's reply, not the first turn's</td>
+  <td>Regression test asserts turn 2 summary contains the turn-2 marker and NOT the turn-1 marker; turn 3 (no reply written during the turn - the exact defect window) contains neither prior marker</td>
+  <td><code>VoiceTurn_TwoConsecutiveTurns_SecondTurnSpeaksCurrentReply</code> ran by QA: <strong>Passed [2 s]</strong>. Test inspected: 3 turns against one session with a real temp JSONL transcript via <code>TranscriptWritingBackend</code>; assertions match the criterion exactly. Vacuity check: with ONLY <code>VoiceTurnEndpoint.cs</code> reverted to pre-fix main (<code>cbea886</code>), the same test <strong>FAILS</strong> with <code>Assert.DoesNotContain() Failure: Sub-string found</code> (stale prior-turn content spoken) - so the test genuinely detects the defect</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td><code>ReadLastAssistantText</code> (or replacement) uses a post-send byte offset filter; no pre-turn assistant content can leak</td>
+  <td>JSONL byte length snapshotted immediately before <code>SendTextAsync</code>; only content at/after that offset read for the summary</td>
+  <td>Code inspected in diff <code>cbea886..e781b11</code>: <code>SnapshotTranscriptLength(session)</code> (uses <code>new FileInfo(jsonl).Length</code>) is called immediately before <code>await session.SendTextAsync(inputText)</code>; <code>ReadLastAssistantText</code> replaced by <code>ReadNewAssistantText(session, offsetBefore)</code> which calls new <code>StreamMessageParser.ParseFileFromOffset(jsonl, offsetBefore)</code> (seeks to the offset, <code>FileShare.ReadWrite</code>, falls back to start only when the offset exceeds the current file length, i.e. the file was replaced and all content is new). Scope respected: no changes to Gateway async pipeline, <code>ClaudeSummarizer.cs</code>, or <code>TtsService.cs</code></td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>3</td>
+  <td><code>dotnet build cc-director.sln</code> succeeds with 0 errors</td>
+  <td>Build succeeded, 0 errors</td>
+  <td>QA ran the build in the isolated worktree: <strong>Build succeeded. 0 Warning(s), 0 Error(s)</strong> (31.3 s)</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>4</td>
+  <td><code>dotnet test --filter VoiceTurn</code> passes (existing tests unaffected, new regression test added)</td>
+  <td>All VoiceTurn-filtered tests green, including the new test</td>
+  <td>QA ran: Gateway.Tests VoiceTurn filter = <strong>9/9 Passed</strong> (8 pre-existing + 1 new); Core.Tests VoiceTurn filter = <strong>5/5 Passed</strong></td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Proof target</h2>
+<pre>Passed CcDirector.Gateway.Tests.VoiceTurnEndpointTests.VoiceTurn_TwoConsecutiveTurns_SecondTurnSpeaksCurrentReply [2 s]
+     Passed: 1</pre>
+
+<h2>Vacuity check (test fails on pre-fix code)</h2>
+<pre># git checkout cbea886 -- src/CcDirector.ControlApi/VoiceTurnEndpoint.cs  (pre-fix endpoint only)
+[xUnit.net] Assert.DoesNotContain() Failure: Sub-string found
+Failed CcDirector.Gateway.Tests.VoiceTurnEndpointTests.VoiceTurn_TwoConsecutiveTurns_SecondTurnSpeaksCurrentReply [2 s]
+Test Run Failed.  Failed: 1
+# file restored to PR head, solution rebuilt, test green again</pre>
+
+<h2>Regression sweep</h2>
+<table>
+<tr><th>Suite</th><th>Result</th><th>Notes</th></tr>
+<tr><td>CcDirector.Gateway.Tests (full, 588 tests)</td><td>587 passed / 1 failed</td>
+    <td>Sole failure: <code>DictationEndpointTests.FullPipeline_transcribes_phase0_clip2_with_realtime_provider</code> ("expected at least 1 partial transcript, got 0"). <strong>Proven pre-existing:</strong> QA rebuilt and ran the same test on <code>origin/main</code> (<code>cbea886</code>) in the same environment - it fails identically there. Environmental (realtime transcription provider), unrelated to the VoiceTurn change; PR touches no dictation code.</td></tr>
+<tr><td>CcDirector.Core.Tests (full, 1857 tests)</td><td>1855 passed / 0 failed / 2 skipped</td><td>Covers the <code>StreamMessage.cs</code> change (new <code>ParseFileFromOffset</code>); zero failures.</td></tr>
+</table>
+
+<h2>Method checks</h2>
+<ul>
+  <li>Issue scope respected (In/Out list): only <code>VoiceTurnEndpoint.cs</code>, <code>StreamMessage.cs</code> (new public parser entry point required because <code>ParseLine</code> is internal to Core), and the test file changed in src/.</li>
+  <li>Enterprise logging present on both new methods (<code>FileLog.Write</code> entry + FAILED paths).</li>
+  <li>No security-sensitive surface touched; no CenCon doc update required (no architecture change - same containers, same data flow, read path narrowed).</li>
+  <li>No fallback-programming violation: the offset-beyond-EOF fallback reads from start because ALL content is then genuinely new (file replaced) - documented in code, not a problem-hiding fallback.</li>
+</ul>
+
+<div class="verdict">
+<strong>VERDICT: VERIFIED - all acceptance criteria met.</strong> 4/4 criteria PASS with independent QA-produced proof.
+The regression test is genuine (fails on pre-fix code), the build is clean, and the only full-suite failure is a
+proven pre-existing environmental dictation test failure also present on main.
+</div>
+
+</body>
+</html>
