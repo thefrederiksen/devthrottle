@@ -638,14 +638,23 @@ body{background:var(--panel);color:var(--text);
 
 .composer{display:flex;gap:10px;align-items:flex-end;padding:12px 14px;border-radius:8px}
 .composer textarea{flex:1;background:#1e1e1e;color:var(--text);border:1px solid var(--border);
-  border-radius:8px;padding:9px 11px;font-family:inherit;font-size:14px;resize:none;height:46px}
+  border-radius:8px;padding:9px 11px;font-family:inherit;font-size:14px;resize:none;
+  overflow-y:hidden}
 .composer textarea:focus{outline:none;border-color:var(--accent)}
 /* Hidden file sink that composer image-drops are routed into (cockpit-composer-drop.js). */
 .composer-drop-input{display:none}
 /* Highlight the composer while an image is dragged over it. */
 .composer.drag-over{outline:2px dashed var(--accent);outline-offset:2px;background:rgba(59,130,246,.06)}
 .composer.drag-over textarea{border-color:var(--accent)}
-.composer-btns{display:flex;gap:8px}
+.composer-btns{display:flex;flex-direction:column;gap:4px}
+.composer-btns .btn{width:80px;height:30px;padding:0;font-size:13px;font-weight:600;text-align:center}
+/* Driver action bar (capability-driven), mirrors the desktop SessionActionBar. Sits directly
+   above the composer; one button per verb the selected session's driver declares. */
+.action-bar{display:flex;align-items:center;gap:6px;padding:6px 14px 0;flex-wrap:wrap}
+.action-bar .btn.act{height:24px;padding:0 10px;font-size:11px;font-weight:400;border-radius:3px}
+.action-bar .btn.act.stop{background:#7A2D2D;color:#fff;border-color:#7A2D2D;font-weight:600}
+.action-bar .btn.act.stop:hover{filter:brightness(1.15);color:#fff;border-color:#7A2D2D}
+.action-status{color:#888;font-size:11px;margin-left:4px}
 .btn{background:var(--button);color:var(--text);border:1px solid var(--border);border-radius:8px;
   padding:9px 16px;font-size:13px;cursor:pointer;white-space:nowrap}
 .btn:hover{border-color:var(--accent);color:var(--accent)}

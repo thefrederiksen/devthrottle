@@ -101,6 +101,16 @@ public sealed class DirectorClient
     public async Task EscapeAsync(string directorBase, string sid, CancellationToken ct = default)
         => (await _http.PostAsync(Url(directorBase, $"sessions/{sid}/escape"), null, ct)).EnsureSuccessStatusCode();
 
+    // Reset the conversation context in place (/clear for Claude, /new for pi). Only meaningful
+    // for drivers that declare the ClearContext capability; the action bar gates the button on it.
+    public async Task ClearContextAsync(string directorBase, string sid, CancellationToken ct = default)
+        => (await _http.PostAsync(Url(directorBase, $"sessions/{sid}/clear-context"), null, ct)).EnsureSuccessStatusCode();
+
+    // Open the tool's in-terminal history/rewind picker (Claude's double-Esc). Gated on the
+    // History capability - a visible-terminal feature, only meaningful with the terminal on screen.
+    public async Task HistoryPickerAsync(string directorBase, string sid, CancellationToken ct = default)
+        => (await _http.PostAsync(Url(directorBase, $"sessions/{sid}/history-picker"), null, ct)).EnsureSuccessStatusCode();
+
     public async Task<List<QueueItem>> GetQueueAsync(string directorBase, string sid, CancellationToken ct = default)
     {
         var r = await _http.GetFromJsonAsync<QueueResponse>(Url(directorBase, $"sessions/{sid}/queue"), ct);
@@ -127,6 +137,38 @@ public sealed class DirectorClient
     public async Task<List<QueueItem>> SendQueueItemAsync(string directorBase, string sid, string itemId, CancellationToken ct = default)
     {
         var resp = await _http.PostAsync(Url(directorBase, $"sessions/{sid}/queue/{itemId}/send"), null, ct);
+        resp.EnsureSuccessStatusCode();
+        var r = await resp.Content.ReadFromJsonAsync<QueueResponse>(cancellationToken: ct);
+        return r?.Items ?? new List<QueueItem>();
+    }
+
+    public async Task<List<QueueItem>> EditQueueItemAsync(string directorBase, string sid, string itemId, string text, CancellationToken ct = default)
+    {
+        var resp = await _http.PatchAsJsonAsync(Url(directorBase, $"sessions/{sid}/queue/{itemId}"), new { text }, ct);
+        resp.EnsureSuccessStatusCode();
+        var r = await resp.Content.ReadFromJsonAsync<QueueResponse>(cancellationToken: ct);
+        return r?.Items ?? new List<QueueItem>();
+    }
+
+    public async Task<List<QueueItem>> MoveQueueItemUpAsync(string directorBase, string sid, string itemId, CancellationToken ct = default)
+    {
+        var resp = await _http.PostAsync(Url(directorBase, $"sessions/{sid}/queue/{itemId}/move-up"), null, ct);
+        resp.EnsureSuccessStatusCode();
+        var r = await resp.Content.ReadFromJsonAsync<QueueResponse>(cancellationToken: ct);
+        return r?.Items ?? new List<QueueItem>();
+    }
+
+    public async Task<List<QueueItem>> MoveQueueItemDownAsync(string directorBase, string sid, string itemId, CancellationToken ct = default)
+    {
+        var resp = await _http.PostAsync(Url(directorBase, $"sessions/{sid}/queue/{itemId}/move-down"), null, ct);
+        resp.EnsureSuccessStatusCode();
+        var r = await resp.Content.ReadFromJsonAsync<QueueResponse>(cancellationToken: ct);
+        return r?.Items ?? new List<QueueItem>();
+    }
+
+    public async Task<List<QueueItem>> ClearQueueAsync(string directorBase, string sid, CancellationToken ct = default)
+    {
+        var resp = await _http.DeleteAsync(Url(directorBase, $"sessions/{sid}/queue"), ct);
         resp.EnsureSuccessStatusCode();
         var r = await resp.Content.ReadFromJsonAsync<QueueResponse>(cancellationToken: ct);
         return r?.Items ?? new List<QueueItem>();

@@ -27,8 +27,8 @@
 
         <span class="topbar-right">
             <button class="btn tb" @onclick="OpenNewSession" title="Start a new session on any Director">+ New session</button>
-            <button class="btn tb" @onclick="OpenFanout" title="Broadcast a prompt to several sessions">Fan-out</button>
-            <button class="btn tb" @onclick="OpenSettings" title="Edit a Director's settings">Settings</button>
+            <button class="btn tb" @onclick="OpenFanout" title="Broadcast a prompt to several sessions" style="display:none">Fan-out</button>
+            <button class="btn tb" @onclick="OpenSettings" title="Edit a Director's settings" style="display:none">Settings</button>
             <span class="gw" title="Gateway base URL">@Gateway.BaseUrl</span>
             <span class="ver" title="@VersionFull">@VersionDisplay</span>
             <span class="refreshed">@(_lastRefresh is null ? "connecting..." : $"updated {_lastRefresh:HH:mm:ss}")</span>
@@ -152,7 +152,7 @@
                     <span class="detail-actions">
                         @if (!_renaming)
                         {
-                            <button class="btn tb" @onclick="OpenAwareness" title="Recap + turn summaries for this session">What's happening</button>
+                            <button class="btn tb" @onclick="OpenAwareness" title="Recap + turn summaries for this session" style="display:none">What's happening</button>
                             <button class="btn tb" @onclick="OpenHandover" title="Hand this session's context to another session">Handover</button>
                             <button class="btn tb" @onclick="StartRename" title="Rename this session">Rename</button>
                         }
@@ -376,31 +376,46 @@
                         }
 
                         <div class="detail-dock">
-                            @* ---- Composer: Speak / Send / Queue + Interrupt / Esc ---- *@
+                            @* ---- Driver action bar: Stop / Interrupt / Clear context / History,
+                                 rendered from the SELECTED session's driver capabilities (verbatim -
+                                 a verb the tool lacks is simply absent, never guessed). Mirrors the
+                                 desktop SessionActionBar; sits directly above the composer. ---- *@
+                            <div class="action-bar">
+                                @if (HasCap("Cancel"))
+                                {
+                                    <button class="btn act stop" @onclick="Escape" disabled="@_acting"
+                                            title="Stop the current turn (the driver's soft cancel - Esc for Claude and pi)">Stop</button>
+                                }
+                                @if (HasCap("Interrupt"))
+                                {
+                                    <button class="btn act" @onclick="Interrupt" disabled="@_acting"
+                                            title="Hard interrupt (Ctrl+C) - stronger than Stop">Interrupt</button>
+                                }
+                                @if (HasCap("ClearContext"))
+                                {
+                                    <button class="btn act" @onclick="ClearContext" disabled="@_acting"
+                                            title="Reset the conversation in place (/clear for Claude, /new for pi) - the process keeps running">Clear context</button>
+                                }
+                                @if (HasCap("History"))
+                                {
+                                    <button class="btn act" @onclick="ShowHistory" disabled="@_acting"
+                                            title="Open the in-terminal history picker (Claude's double-Esc)">History</button>
+                                }
+                                @if (!string.IsNullOrEmpty(_actionStatus))
+                                {
+                                    <span class="action-status">@_actionStatus</span>
+                                }
+                            </div>
+                            @* ---- Composer: Send / Speak / Queue ---- *@
                             <div class="composer">
                                 <textarea @ref="_composerEl" @bind="_compose" @bind:event="oninput" @onkeydown="OnComposerKey"
-                                          placeholder="Message this session... (Enter to send, Shift+Enter for newline; drop an image here)"></textarea>
-                                @* Drag an image straight onto the composer (desktop parity with the
-                                   prompt-box drop). A document-level handler (cockpit-composer-drop.js)
-                                   routes images dropped on .composer into this hidden input, which runs
-                                   the same OnDropImages upload+inject path - so it works even when the
-                                   right Screenshots panel is collapsed. Text drops fall through to the
-                                   textarea's native behaviour. *@
+                                          rows="3"
+                                          placeholder="Type a message... (Ctrl+Enter to send, Ctrl+Shift+Enter to queue)"></textarea>
                                 <InputFile OnChange="OnDropImages" multiple accept="image/*" class="composer-drop-input" />
                                 <div class="composer-btns">
-                                    @* Attach an image from THIS device (phone photo / local file not yet on the
-                                       Director): upload it, then drop the saved path into the prompt. This is a
-                                       message-composition action, so it lives in the composer - not the gallery.
-                                       The native file input is hidden behind the styled label (no "Choose Files"). *@
-                                    <label class="btn attach" title="Attach an image from this device">
-                                        <InputFile OnChange="OnDropImages" multiple accept="image/*" />
-                                        Attach
-                                    </label>
-                                    <button class="btn speak @(_dictating ? "on" : "")" @onclick="OpenDictate" title="Dictate" disabled="@_dictating">Speak</button>
                                     <button class="btn send" @onclick="SendNow" disabled="@(_acting || string.IsNullOrWhiteSpace(_compose))">Send</button>
+                                    <button class="btn speak @(_dictating ? "on" : "")" @onclick="OpenDictate" title="Dictate" disabled="@_dictating">Speak</button>
                                     <button class="btn queue" @onclick="QueueIt" disabled="@(_acting || string.IsNullOrWhiteSpace(_compose))">Queue</button>
-                                    <button class="btn danger" @onclick="Interrupt" title="Ctrl+C">Interrupt</button>
-                                    <button class="btn danger" @onclick="Escape" title="Esc">Esc</button>
                                 </div>
                             </div>
                             @if (!string.IsNullOrEmpty(_shotStatus))
@@ -431,7 +446,6 @@
                             <div class="right-tabs">
                                 <button class="right-tab @(_rightTab == "shots" ? "on" : "")" @onclick='() => SetRightTab("shots")'>Screenshots</button>
                                 <button class="right-tab @(_rightTab == "queue" ? "on" : "")" @onclick='() => SetRightTab("queue")'>Queue@(_queue.Count > 0 ? $" ({_queue.Count})" : "")</button>
-                                <button class="right-tab @(_rightTab == "director" ? "on" : "")" @onclick='() => SetRightTab("director")'>Director</button>
                                 <button class="right-collapse" title="Hide panel" @onclick="ToggleRight">&raquo;</button>
                             </div>
 
@@ -505,40 +519,52 @@
                                 else if (_rightTab == "queue")
                                 {
                                     <div class="rightpanel-head">
-                                        <span class="rightpanel-title">QUEUE (@_queue.Count)</span>
+                                        <span class="rightpanel-title">@(_queue.Count == 0 ? "QUEUE" : $"QUEUE ({_queue.Count})")</span>
+                                        @if (_queue.Count > 0)
+                                        {
+                                            <button class="linkbtn" @onclick="ClearQueue" title="Clear all queued prompts">Clear</button>
+                                        }
                                     </div>
                                     <div class="queue">
                                         @if (_queue.Count == 0)
                                         {
-                                            <div class="queue-empty">Nothing queued. Type a message and hit Queue to stage it here.</div>
+                                            <div class="queue-empty">No queued prompts</div>
                                         }
                                         else
                                         {
-                                            @foreach (var q in _queue)
+                                            @for (int qi = 0; qi < _queue.Count; qi++)
                                             {
-                                                <div class="queue-item">
-                                                    <span class="queue-text">@q.Text</span>
-                                                    <button class="qbtn" title="Send now" @onclick="() => SendQueued(q.Id)">send</button>
-                                                    <button class="qbtn qdel" title="Remove" @onclick="() => RemoveQueued(q.Id)">&times;</button>
+                                                var q = _queue[qi];
+                                                var idx = qi + 1;
+                                                var isFirst = qi == 0;
+                                                var isLast = qi == _queue.Count - 1;
+                                                var isEditing = _editingQueueId == q.Id;
+                                                <div class="queue-item" @key="q.Id">
+                                                    <div class="queue-item-top">
+                                                        <span class="queue-idx">@idx</span>
+                                                        <span class="queue-text">@q.Text</span>
+                                                    </div>
+                                                    <div class="queue-btns">
+                                                        <button class="qbtn" title="Move up" disabled="@(isFirst || _acting)" @onclick="() => MoveQueuedUp(q.Id)">/\</button>
+                                                        <button class="qbtn" title="Move down" disabled="@(isLast || _acting)" @onclick="() => MoveQueuedDown(q.Id)">\/</button>
+                                                        <button class="qbtn" title="Edit text" @onclick="() => StartEditQueue(q.Id, q.Text)">Edit</button>
+                                                        <button class="qbtn" title="Remove from queue and paste into composer" @onclick="() => PopQueued(q.Id, q.Text)">Pop</button>
+                                                        <button class="qbtn qdel" title="Remove" @onclick="() => RemoveQueued(q.Id)">&times;</button>
+                                                    </div>
+                                                    @if (isEditing)
+                                                    {
+                                                        <div class="queue-edit">
+                                                            <textarea class="queue-edit-box" @bind="_editingQueueText" rows="3"></textarea>
+                                                            <div class="queue-edit-btns">
+                                                                <button class="qbtn" @onclick="() => SaveEditQueue(q.Id)">Save</button>
+                                                                <button class="qbtn" @onclick="CancelEditQueue">Cancel</button>
+                                                            </div>
+                                                        </div>
+                                                    }
                                                 </div>
                                             }
                                         }
                                     </div>
-                                }
-                                @* ================= Director tab ================= *@
-                                else if (_rightTab == "director")
-                                {
-                                    <div class="rightpanel-head">
-                                        <span class="rightpanel-title">DIRECTOR</span>
-                                    </div>
-                                    <dl class="dir-info">
-                                        <dt>Machine</dt><dd>@Selected.MachineName</dd>
-                                        <dt>Director ID</dt><dd class="mono">@Selected.DirectorId</dd>
-                                        <dt>Endpoint</dt><dd class="mono">@Selected.TailnetEndpoint</dd>
-                                        <dt>Agent</dt><dd>@Selected.Agent</dd>
-                                        <dt>Activity</dt><dd>@Selected.ActivityState</dd>
-                                        <dt>Repo</dt><dd class="mono">@Selected.RepoPath</dd>
-                                    </dl>
                                 }
                             </div>
                         }
@@ -1260,6 +1286,8 @@
     // ----- selection + composer/queue/screenshots state -----
     private string _compose = "";
     private List<QueueItem> _queue = new();
+    private string? _editingQueueId;
+    private string _editingQueueText = "";
     private bool _acting;
     private string? _actError;
     private string? _shotStatus;
@@ -1386,12 +1414,91 @@
         await Act(async () => _queue = await Director.DeleteQueueItemAsync(dir!, sel.SessionId, itemId, _cts.Token));
     }
 
+    private async Task MoveQueuedUp(string itemId)
+    {
+        var sel = Selected; var dir = sel?.TailnetEndpoint;
+        if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
+        await Act(async () => _queue = await Director.MoveQueueItemUpAsync(dir!, sel.SessionId, itemId, _cts.Token));
+    }
+
+    private async Task MoveQueuedDown(string itemId)
+    {
+        var sel = Selected; var dir = sel?.TailnetEndpoint;
+        if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
+        await Act(async () => _queue = await Director.MoveQueueItemDownAsync(dir!, sel.SessionId, itemId, _cts.Token));
+    }
+
+    private async Task ClearQueue()
+    {
+        var sel = Selected; var dir = sel?.TailnetEndpoint;
+        if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
+        await Act(async () => _queue = await Director.ClearQueueAsync(dir!, sel.SessionId, _cts.Token));
+    }
+
+    private async Task PopQueued(string itemId, string text)
+    {
+        var sel = Selected; var dir = sel?.TailnetEndpoint;
+        if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
+        _compose = (_compose ?? "") + text;
+        await Act(async () => _queue = await Director.DeleteQueueItemAsync(dir!, sel.SessionId, itemId, _cts.Token));
+    }
+
+    private void StartEditQueue(string itemId, string currentText)
+    {
+        _editingQueueId = itemId;
+        _editingQueueText = currentText;
+    }
+
+    private void CancelEditQueue()
+    {
+        _editingQueueId = null;
+        _editingQueueText = "";
+    }
+
+    private async Task SaveEditQueue(string itemId)
+    {
+        var sel = Selected; var dir = sel?.TailnetEndpoint;
+        if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
+        var text = _editingQueueText;
+        _editingQueueId = null;
+        _editingQueueText = "";
+        await Act(async () => _queue = await Director.EditQueueItemAsync(dir!, sel.SessionId, itemId, text, _cts.Token));
+    }
+
+    // The selected session's driver capabilities drive the action bar: one button per verb
+    // the driver declares (Cancel/Interrupt/ClearContext/History), rendered verbatim - a verb
+    // the tool lacks is simply absent. Mirrors the desktop SessionActionBar reading
+    // Session.Driver.Capabilities; the names come over the wire in SessionDto.DriverCapabilities.
+    private bool HasCap(string capability)
+        => Selected?.DriverCapabilities?.Contains(capability) == true;
+
+    // Transient note beside the action bar (e.g. "context cleared"); the bar is not a log, so
+    // it fades after a few seconds. Mirrors the desktop SessionActionBar's ActionStatus text.
+    private string? _actionStatus;
+    private CancellationTokenSource? _actionStatusCts;
+
+    private void ShowActionStatus(string text)
+    {
+        _actionStatus = text;
+        _actionStatusCts?.Cancel();
+        _actionStatusCts = new CancellationTokenSource();
+        var token = _actionStatusCts.Token;
+        _ = Task.Run(async () =>
+        {
+            try { await Task.Delay(TimeSpan.FromSeconds(5), token); }
+            catch (TaskCanceledException) { return; }
+            _actionStatus = null;
+            await InvokeAsync(StateHasChanged);
+        });
+    }
+
     private async Task Interrupt()
     {
         var sel = Selected; var dir = sel?.TailnetEndpoint;
         if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
         Log.LogInformation("Cockpit action=interrupt sid={Sid} dir={Dir}", sel.SessionId, dir);
         await Act(() => Director.InterruptAsync(dir!, sel.SessionId, _cts.Token));
+        if (_actError is null) ShowActionStatus("interrupted");
     }
 
     private async Task Escape()
@@ -1400,12 +1507,42 @@
         if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
         Log.LogInformation("Cockpit action=escape sid={Sid} dir={Dir}", sel.SessionId, dir);
         await Act(() => Director.EscapeAsync(dir!, sel.SessionId, _cts.Token));
+        if (_actError is null) ShowActionStatus("turn stopped");
+    }
+
+    private async Task ClearContext()
+    {
+        var sel = Selected; var dir = sel?.TailnetEndpoint;
+        if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
+        Log.LogInformation("Cockpit action=clear-context sid={Sid} dir={Dir}", sel.SessionId, dir);
+        await Act(() => Director.ClearContextAsync(dir!, sel.SessionId, _cts.Token));
+        if (_actError is null) ShowActionStatus("context cleared");
+    }
+
+    private async Task ShowHistory()
+    {
+        var sel = Selected; var dir = sel?.TailnetEndpoint;
+        if (sel is null || string.IsNullOrWhiteSpace(dir)) return;
+        Log.LogInformation("Cockpit action=history sid={Sid} dir={Dir}", sel.SessionId, dir);
+        await Act(() => Director.HistoryPickerAsync(dir!, sel.SessionId, _cts.Token));
+        if (_actError is null) ShowActionStatus("history picker opened (Esc closes)");
     }
 
     private async Task OnComposerKey(KeyboardEventArgs e)
     {
-        if (e.Key == "Enter" && !e.ShiftKey)
+        // Ctrl+Shift+Enter = Queue (mirrors desktop Ctrl+Shift+Enter)
+        if (e.Key == "Enter" && e.CtrlKey && e.ShiftKey)
+        {
+            await QueueIt();
+            return;
+        }
+        // Ctrl+Enter = Send (mirrors desktop Ctrl+Enter)
+        if (e.Key == "Enter" && e.CtrlKey)
+        {
             await SendNow();
+            return;
+        }
+        // Plain Enter = newline (default textarea behavior - do nothing here)
     }
 
     // The composer textarea, so screenshot inserts land at the caret (web equivalent of the
