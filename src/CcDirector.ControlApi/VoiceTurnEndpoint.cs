@@ -24,7 +24,9 @@ namespace CcDirector.ControlApi;
 ///   5. Call the ClaudeSummarizer to produce 2-3 sentences of plain spoken prose.
 ///   6. Synthesize via TtsService and return audio bytes in the reply event.
 ///   7. If summarizer or TTS unavailable, fall back to SpokenText from the last
-///      JSONL assistant message, synthesize that, and return it - never goes silent.
+///      JSONL assistant message of THIS turn (the transcript length is snapshotted
+///      before the text is posted, and only content appended after that offset is
+///      read - issue #366), synthesize that, and return it - never goes silent.
 ///
 /// Response: Server-Sent Events (text/event-stream). One data: JSON per stage, then
 /// a final {"stage":"reply","summary":"...","audioBase64":"..."}. On any terminal
@@ -184,7 +186,12 @@ internal static class VoiceTurnEndpoint
                 }
 
                 // --- step 3: post text to the session ---
-                FileLog.Write($"[VoiceTurnEndpoint] sid={guid}: sending text len={inputText.Length}");
+                // Snapshot the transcript length BEFORE sending so the reply read
+                // after the turn only sees assistant text appended for THIS turn.
+                // Without this, a turn whose reply has not been written yet would
+                // replay the PREVIOUS turn's output (issue #366).
+                var offsetBefore = SnapshotTranscriptLength(session);
+                FileLog.Write($"[VoiceTurnEndpoint] sid={guid}: sending text len={inputText.Length}, transcriptOffsetBefore={offsetBefore}");
                 try
                 {
                     await session.SendTextAsync(inputText);
@@ -222,7 +229,7 @@ internal static class VoiceTurnEndpoint
                 // --- step 5: summarize the reply ---
                 await EmitAsync(new { stage = "summarizing" });
 
-                var rawReply = ReadLastAssistantText(session);
+                var rawReply = ReadNewAssistantText(session, offsetBefore);
                 string summary;
                 try
                 {
@@ -358,25 +365,57 @@ internal static class VoiceTurnEndpoint
     }
 
     /// <summary>
-    /// Read the last assistant text block from the session's linked JSONL transcript.
-    /// Returns empty string when the session is unlinked or the file is not there yet.
+    /// Snapshot the byte length of the session's linked JSONL transcript.
+    /// Taken immediately before SendTextAsync so <see cref="ReadNewAssistantText"/>
+    /// can restrict the reply read to content appended during THIS turn (issue #366).
+    /// Returns 0 when the session is unlinked or the file does not exist yet
+    /// (then everything in the file is new).
     /// </summary>
-    private static string ReadLastAssistantText(Session session)
+    private static long SnapshotTranscriptLength(Session session)
     {
         try
         {
-            if (string.IsNullOrEmpty(session.ClaudeSessionId)) return "";
-            var jsonl = Core.Claude.ClaudeSessionReader.GetJsonlPath(session.ClaudeSessionId, session.RepoPath);
-            if (!File.Exists(jsonl)) return "";
-            var messages = Core.Claude.StreamMessageParser.ParseFile(jsonl);
+            var jsonl = GetTranscriptPath(session);
+            return jsonl is not null && File.Exists(jsonl) ? new FileInfo(jsonl).Length : 0L;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[VoiceTurnEndpoint] SnapshotTranscriptLength FAILED: {ex.Message}");
+            return 0L;
+        }
+    }
+
+    /// <summary>
+    /// Read the last assistant text block appended to the session's linked JSONL
+    /// transcript at or after <paramref name="offsetBefore"/> (the byte length
+    /// snapshotted before the turn's text was sent). Assistant content written
+    /// for PREVIOUS turns sits below the offset and is never returned, so a turn
+    /// whose reply has not been written yet yields "" instead of replaying the
+    /// previous turn's output (issue #366). Returns empty string when the session
+    /// is unlinked or the file is not there yet.
+    /// </summary>
+    private static string ReadNewAssistantText(Session session, long offsetBefore)
+    {
+        try
+        {
+            var jsonl = GetTranscriptPath(session);
+            if (jsonl is null || !File.Exists(jsonl)) return "";
+            var messages = Core.Claude.StreamMessageParser.ParseFileFromOffset(jsonl, offsetBefore);
             var summary = Core.Claude.SummaryBuilder.Build(messages);
             return summary.LastAssistantText ?? "";
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[VoiceTurnEndpoint] ReadLastAssistantText FAILED: {ex.Message}");
+            FileLog.Write($"[VoiceTurnEndpoint] ReadNewAssistantText FAILED: {ex.Message}");
             return "";
         }
+    }
+
+    /// <summary>Path of the session's linked JSONL transcript, or null when unlinked.</summary>
+    private static string? GetTranscriptPath(Session session)
+    {
+        if (string.IsNullOrEmpty(session.ClaudeSessionId)) return null;
+        return Core.Claude.ClaudeSessionReader.GetJsonlPath(session.ClaudeSessionId, session.RepoPath);
     }
 
     /// <summary>

@@ -1,0 +1,31 @@
+Regression proof for issue #366
+================================
+
+To prove the new test actually catches the defect, the two production files
+(src/CcDirector.ControlApi/VoiceTurnEndpoint.cs and
+src/CcDirector.Core/Claude/StreamMessage.cs) were temporarily reverted to
+origin/main (pre-fix code) while keeping the new test, then the test was run:
+
+  git checkout origin/main -- src/CcDirector.ControlApi/VoiceTurnEndpoint.cs src/CcDirector.Core/Claude/StreamMessage.cs
+  dotnet build src/CcDirector.Gateway.Tests/CcDirector.Gateway.Tests.csproj
+  dotnet test src/CcDirector.Gateway.Tests/CcDirector.Gateway.Tests.csproj --filter VoiceTurn_TwoConsecutiveTurns --no-build
+
+Output (verbatim):
+
+[xUnit.net 00:00:03.12]     CcDirector.Gateway.Tests.VoiceTurnEndpointTests.VoiceTurn_TwoConsecutiveTurns_SecondTurnSpeaksCurrentReply [FAIL]
+  Failed CcDirector.Gateway.Tests.VoiceTurnEndpointTests.VoiceTurn_TwoConsecutiveTurns_SecondTurnSpeaksCurrentReply [2 s]
+  Error Message:
+   Assert.DoesNotContain() Failure: Sub-string found
+         (pos 0)
+String: "ZEBRASECOND the second task is complete."
+Found:  "ZEBRASECOND"
+  Stack Trace:
+     at CcDirector.Gateway.Tests.VoiceTurnEndpointTests.VoiceTurn_TwoConsecutiveTurns_SecondTurnSpeaksCurrentReply() in src\CcDirector.Gateway.Tests\VoiceTurnEndpointTests.cs:line 353
+
+Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1, Duration: 2 s - CcDirector.Gateway.Tests.dll (net10.0)
+
+Interpretation: on pre-fix code, turn 3 (during which the agent wrote NOTHING
+to the transcript) spoke the SECOND turn's reply ("ZEBRASECOND the second task
+is complete.") - the exact stale-replay defect reported in #366. The fixed
+files were then restored (git checkout HEAD -- <files>) and the full VoiceTurn
+suite passes 14/14 (see test-output-*.txt).

@@ -1,0 +1,9 @@
+  Passed CcDirector.Core.Tests.Voice.VoiceTurnLogTests.WriteInbound_WritesAudioAndTranscripts [31 ms]
+  Passed CcDirector.Core.Tests.Voice.VoiceTurnLogTests.WriteInbound_PurgesDirectoriesOlderThanRetention [3 ms]
+  Passed CcDirector.Core.Tests.Voice.VoiceTurnLogTests.AttachOutbound_DoesNotCrossSessions [14 ms]
+  Passed CcDirector.Core.Tests.Voice.VoiceTurnLogTests.AttachOutbound_AttachesToNewestPendingInboundForSession [31 ms]
+  Passed CcDirector.Core.Tests.Voice.VoiceTurnLogTests.AttachOutbound_NoPendingInbound_WritesStandalone [3 ms]
+Test Run Successful.
+Total tests: 5
+     Passed: 5
+ Total time: 0.6229 Seconds
