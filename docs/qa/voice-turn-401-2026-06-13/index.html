@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QA Report - Phone Voice Mode 401 Regression (2026-06-13)</title>
+<style>
+  :root {
+    --bg: #0E1320; --panel: #151B2B; --panel2: #1B2336; --line: #2A3348;
+    --text: #E6EAF2; --muted: #9AA6BE; --accent: #2B6CB0; --teal: #38B2AC;
+    --green: #5FD08A; --red: #E5484D; --amber: #E8B339;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.55; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 32px 24px 80px; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  h2 { font-size: 19px; margin: 36px 0 12px; padding-bottom: 6px;
+    border-bottom: 1px solid var(--line); }
+  .sub { color: var(--muted); font-size: 14px; margin-bottom: 24px; }
+  .verdict { background: var(--panel); border: 1px solid var(--line);
+    border-left: 4px solid var(--green); border-radius: 10px; padding: 16px 18px; }
+  .verdict b { color: var(--green); }
+  .pill { display: inline-block; font-size: 12px; font-weight: 600;
+    padding: 2px 10px; border-radius: 999px; vertical-align: middle; }
+  .pill.pass { background: rgba(95,208,138,.15); color: var(--green); border: 1px solid var(--green); }
+  .pill.fail { background: rgba(229,72,77,.15); color: var(--red); border: 1px solid var(--red); }
+  p { margin: 10px 0; }
+  code, .mono { font-family: "Cascadia Code", Consolas, monospace; font-size: 13px; }
+  .mono { background: var(--panel2); border: 1px solid var(--line);
+    border-radius: 6px; padding: 1px 6px; color: #CBD5E8; }
+  pre { background: #0A0E17; border: 1px solid var(--line); border-radius: 8px;
+    padding: 14px 16px; overflow-x: auto; font-family: "Cascadia Code", Consolas, monospace;
+    font-size: 12.5px; color: #CBD5E8; }
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 14px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; }
+  td.r { color: var(--red); font-weight: 600; }
+  td.g { color: var(--green); font-weight: 600; }
+  .shots { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin: 16px 0; }
+  .shot { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 10px; }
+  .shot img { width: 100%; border-radius: 6px; display: block; border: 1px solid var(--line); }
+  .shot .cap { font-size: 13px; color: var(--muted); margin-top: 8px; }
+  .shot .cap b { color: var(--text); }
+  ul { margin: 10px 0; padding-left: 22px; }
+  li { margin: 5px 0; }
+  .note { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--amber);
+    border-radius: 10px; padding: 14px 16px; }
+  .note b { color: var(--amber); }
+  .kv { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 4px 18px; margin: 16px 0; }
+  .kv div { display: flex; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+  .kv div:last-child { border-bottom: 0; }
+  .kv span:first-child { width: 160px; color: var(--muted); flex: none; }
+  @media (max-width: 720px) { .shots { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>QA Report: Phone Voice Mode 401 Regression</h1>
+  <div class="sub">CC Director Client (Android) &middot; 2026-06-13 &middot; verified on device</div>
+
+  <div class="verdict">
+    <b>VERDICT: PASS</b> <span class="pill pass">FIXED</span><br>
+    The "voice-turn/submit failed: 401 missing or invalid token" error is resolved.
+    The phone now authenticates to the Gateway and completes a full voice turn
+    end-to-end (record -&gt; submit -&gt; transcribe -&gt; agent reply), verified live
+    on the Samsung Galaxy Z Flip.
+  </div>
+
+  <div class="kv">
+    <div><span>Device</span><span>Samsung Galaxy Z Flip (SM-F721W) &middot; com.ccdirector.client</span></div>
+    <div><span>Gateway</span><span>https://soren-north.taildb08ed.ts.net (token-gated voice-turn, issue #369/#384)</span></div>
+    <div><span>Session under test</span><span>cc-director - voice mobile (OLD) &middot; bc3a6aa1-5727-4fac-8b8f-d3c07c758e9b</span></div>
+    <div><span>Tester</span><span>Claude Code (agent) over ADB + Gateway REST</span></div>
+  </div>
+
+  <h2>1. Symptom</h2>
+  <p>On the Voice tab, recording a turn produced a white "Voice error" dialog:
+  <span class="mono">voice-turn/submit failed: 401 {"error":"missing or invalid token"}</span>.
+  Gateway log confirmed the rejection of the phone's requests:</p>
+  <pre>2026-06-13 05:31:58 [GatewayVoiceTurn] POST /sessions/bc3a6aa1.../voice-turn/submit from 100.86.144.11
+2026-06-13 05:31:58 [GatewayVoiceTurn] submit sid=bc3a6aa1...: missing or invalid token from 100.86.144.11 -> 401
+2026-06-13 05:33:03 [GatewayVoiceTurn] submit sid=bc3a6aa1...: missing or invalid token from 100.86.144.11 -> 401</pre>
+
+  <h2>2. Root Cause</h2>
+  <p>The phone's stored Gateway credentials were half-configured: the URL was set but the
+  token was <b>empty</b>. The phone sent no <span class="mono">Authorization: Bearer</span>
+  header, so the Gateway's voice-turn auth gate (added in issue #369/#384) correctly rejected
+  it with 401. Dump of the device's saved preferences:</p>
+  <pre>&lt;map&gt;
+    &lt;string name="gateway_url"&gt;https://soren-north.taildb08ed.ts.net&lt;/string&gt;
+    &lt;string name="gateway_token"&gt;&lt;/string&gt;   &lt;!-- EMPTY: never paired --&gt;
+&lt;/map&gt;</pre>
+  <p>This is a runtime <i>unpaired</i> state, not a code defect: before #384 the voice-turn
+  endpoints required no token, so an unpaired phone still worked. After #384 the token is
+  mandatory, and the only supported ways to supply it are the QR pairing flow (issue #386)
+  or the manual token field. The pairing/auth code itself is correct.</p>
+
+  <h2>3. Fix Applied</h2>
+  <ul>
+    <li><b>Paired the phone:</b> wrote the Gateway's real token into the device's
+    <span class="mono">gateway_token</span> preference (the same value the "Connect a phone"
+    QR encodes), so the phone now sends <span class="mono">Authorization: Bearer &lt;token&gt;</span>.</li>
+    <li><b>Granted microphone permission</b> (<span class="mono">android.permission.RECORD_AUDIO</span>)
+    so the first Record tap no longer stalls on the OS permission prompt.</li>
+  </ul>
+
+  <h2>4. Verification A &mdash; Auth gate (HTTP, no session side-effects)</h2>
+  <p>Submitting to a throwaway GUID isolates the auth check from session processing.
+  The flow is token-check -&gt; GUID-parse -&gt; resolve-owner, so a 404 (not 401) means
+  the token was accepted.</p>
+  <table>
+    <tr><th>Request</th><th>Result</th><th>Meaning</th></tr>
+    <tr><td>No Authorization header</td><td class="r">401 missing or invalid token</td><td>Reproduces the bug</td></tr>
+    <tr><td>Correct Bearer token</td><td class="g">404 session not found</td><td>Token ACCEPTED (404 only because GUID is fake)</td></tr>
+    <tr><td>Wrong Bearer token</td><td class="r">401 missing or invalid token</td><td>Auth correctly rejects</td></tr>
+  </table>
+
+  <h2>5. Verification B &mdash; Full voice turn from the phone</h2>
+  <p>Driving the actual app: opened the session, Voice tab, tapped Record, then Submit.
+  The Gateway accepted the phone's request (HTTP 202) and the turn ran to a terminal
+  <span class="mono">reply</span> stage:</p>
+  <pre>2026-06-13 05:53:07 [GatewayVoiceTurn] POST /sessions/bc3a6aa1.../voice-turn/submit from 100.86.144.11
+2026-06-13 05:53:07 [GatewayVoiceTurn] submit sid=bc3a6aa1...: accepted turnId=35329d98-..., director=https://soren-north...:7883
+2026-06-13 05:53:07 [GatewayVoiceTurn] RunTurnAsync: turnId=35329d98-... (processing started)
+
+poll -> stage=reply  transcript='. . . . .'  summary='Done.'</pre>
+  <p>The 401 is gone; the phone now authenticates and the async submit/poll pipeline returns
+  a real agent reply. (The transcript shows only dots because the QA clip was ~1s of silence
+  &mdash; the agent cannot speak into the phone. With real speech, "YOU SAID" shows the
+  spoken words.)</p>
+
+  <h2>6. Screenshots</h2>
+  <div class="shots">
+    <div class="shot"><img src="img/01-original-401.png" alt="original 401 error">
+      <div class="cap"><b>Before:</b> the reported 401 "missing or invalid token" Voice error.</div></div>
+    <div class="shot"><img src="img/03-roster-paired.png" alt="roster">
+      <div class="cap"><b>After pairing:</b> session roster loads cleanly over the Gateway.</div></div>
+    <div class="shot"><img src="img/02-voice-ready.png" alt="voice tab ready">
+      <div class="cap"><b>Voice tab:</b> "Tap Record and talk to the agent." No error.</div></div>
+    <div class="shot"><img src="img/04-recording.png" alt="recording">
+      <div class="cap"><b>Recording:</b> mic active, RECORDING 0:01, Submit / Cancel.</div></div>
+    <div class="shot"><img src="img/05-transcribing.png" alt="transcribing">
+      <div class="cap"><b>Submitted (202):</b> "Transcribing..." &mdash; past the auth gate, pipeline running.</div></div>
+    <div class="shot"><img src="img/06-reply.png" alt="agent reply">
+      <div class="cap"><b>Reply:</b> YOU SAID / AGENT "Done." &mdash; full turn complete.</div></div>
+  </div>
+
+  <h2>7. UX hardening &mdash; empty-token pairing prompt <span class="pill pass">IMPLEMENTED</span></h2>
+  <p>When <span class="mono">gateway_token</span> is empty, the Voice tab now detects the unpaired
+  state <i>before</i> recording, so a turn can no longer fail with a raw
+  <span class="mono">401 missing or invalid token</span> after the user has spoken. Changes in
+  <span class="mono">TalkPage.xaml.cs</span>:</p>
+  <ul>
+    <li>The idle Voice status now reads <b>"Not connected. Tap Record to pair this phone with a
+    Gateway."</b> while unpaired.</li>
+    <li>Tapping Record while unpaired opens a <b>"Connect this phone"</b> dialog
+    (<b>Scan QR code</b> / <b>Not now</b>) instead of recording. "Scan QR code" runs the same
+    pairing flow as the roster button (issue #386), refactored into a shared
+    <span class="mono">ScanPairingQrAsync()</span>.</li>
+    <li>Once a token is present, behaviour is unchanged.</li>
+  </ul>
+  <div class="shots">
+    <div class="shot"><img src="img/07-unpaired-voice.png" alt="unpaired voice tab">
+      <div class="cap"><b>Unpaired:</b> "Not connected. Tap Record to pair this phone with a Gateway."</div></div>
+    <div class="shot"><img src="img/08-pair-dialog.png" alt="connect this phone dialog">
+      <div class="cap"><b>Record tap (unpaired):</b> "Connect this phone" prompt &mdash; Scan QR code / Not now. No 401.</div></div>
+  </div>
+  <p class="sub" style="margin-top:14px">Verified live on device: built and fast-deployed, phone set
+  to an empty token, both states confirmed, then re-paired. The token-restored phone still completes
+  full voice turns (sections 4&ndash;5).</p>
+
+</div>
+</body>
+</html>
