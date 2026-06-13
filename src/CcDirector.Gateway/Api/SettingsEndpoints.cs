@@ -21,6 +21,9 @@ namespace CcDirector.Gateway.Api;
 ///   GET  /gateway/settings        -> { version, state, port, uptimeSeconds, directors, mode,
 ///                                       cockpit:{port,up,url}, brain:{...}, autostart:{supported,enabled} }
 ///   POST /gateway/brain/restart   -> { ok, brain:{...} } (restarts the warm brain, issue #184)
+///   PUT  /gateway/brain/config    body { "tool": str, "model": str } -> { tool, model } (issue #393)
+///   GET  /gateway/wingman         -> { enabled } (issue #185)
+///   PUT  /gateway/wingman         body { "enabled": bool } -> { enabled }
 ///   PUT  /gateway/autostart       body { "enabled": bool } -> { supported, enabled }
 /// </summary>
 internal static class SettingsEndpoints
@@ -81,6 +84,48 @@ internal static class SettingsEndpoints
         app.MapGet("/gateway/wingman", () =>
             Results.Json(new { enabled = !GatewayTurnBriefAgent.Disabled }));
 
+        // Persist the brain tool + model choice (issue #393). Both are Gateway-level settings in
+        // config.json, the same store the existing brain_model uses, so the choice applies fleet-wide
+        // without editing any Director. The running brain is unaffected until the next Gateway restart
+        // (the supervisor's driver/options are fixed at host construction) - same as brain_model.
+        app.MapPut("/gateway/brain/config", async (HttpContext ctx) =>
+        {
+            try
+            {
+                var body = await JsonSerializer.DeserializeAsync<BrainConfigBody>(
+                    ctx.Request.Body, JsonOpts, ctx.RequestAborted);
+                if (body is null)
+                    return Results.BadRequest(new { error = "body { \"tool\": \"<AgentKind>\", \"model\": \"<model>\" } is required" });
+
+                if (string.IsNullOrWhiteSpace(body.Tool))
+                    return Results.BadRequest(new { error = "tool is required" });
+                if (!Enum.TryParse<Core.Agents.AgentKind>(body.Tool.Trim(), ignoreCase: true, out var tool)
+                    || !Core.Configuration.BrainToolConfig.IsHostable(tool))
+                {
+                    var allowed = string.Join(", ", Core.Configuration.BrainToolConfig.BrainHostableTools);
+                    return Results.BadRequest(new { error = $"tool must be a brain-hostable agent tool (one of: {allowed})" });
+                }
+
+                if (string.IsNullOrWhiteSpace(body.Model))
+                    return Results.BadRequest(new { error = "model is required (a model alias or id)" });
+                var model = body.Model.Trim();
+
+                Core.Configuration.CcDirectorConfigService.MergePatch(
+                    new System.Text.Json.Nodes.JsonObject
+                    {
+                        ["brain_tool"] = tool.ToString(),
+                        ["brain_model"] = model,
+                    });
+                FileLog.Write($"[SettingsEndpoints] brain config set: tool={tool}, model={model}");
+                return Results.Json(new { tool = tool.ToString(), model });
+            }
+            catch (JsonException ex)
+            {
+                FileLog.Write($"[SettingsEndpoints] PUT /gateway/brain/config bad JSON: {ex.Message}");
+                return Results.BadRequest(new { error = "invalid JSON" });
+            }
+        });
+
         // Write wingman state to config.json. The running pipeline is unaffected until restart.
         app.MapPut("/gateway/wingman", async (HttpContext ctx) =>
         {
@@ -140,6 +185,10 @@ internal static class SettingsEndpoints
         var health = await brain.GetHealthAsync();
         return new
         {
+            tool = host.BrainTool.ToString(),
+            // The tools the brain can be set to, in display order (issue #393). Today only Claude
+            // Code's driver can host a brain; the list grows as new hostable drivers land.
+            tools = Core.Configuration.BrainToolConfig.BrainHostableTools.Select(t => t.ToString()).ToArray(),
             model = host.BrainModel,
             sessionId = brain.SessionId,
             pid = brain.ProcessId,
@@ -180,4 +229,5 @@ internal static class SettingsEndpoints
 
     private sealed record AutostartBody(bool Enabled);
     private sealed record WingmanBody(bool Enabled);
+    private sealed record BrainConfigBody(string? Tool, string? Model);
 }

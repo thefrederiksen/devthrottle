@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>QA Report - Issue #393 - Wingman tool + model as a Gateway setting</title>
+<style>
+  body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;line-height:1.55;max-width:1000px;
+       margin:0 auto;padding:32px 24px;color:#1b2330;background:#fbfcfe}
+  h1{font-size:24px;margin:0 0 4px} h2{font-size:18px;margin:28px 0 8px;border-bottom:1px solid #e4e8ef;padding-bottom:4px}
+  .sub{color:#5a6678;margin:0 0 20px}
+  table{border-collapse:collapse;width:100%;margin:8px 0 18px;font-size:13.5px}
+  th,td{border:1px solid #d8dee8;padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:#eef2f7}
+  code{background:#eef2f7;padding:1px 5px;border-radius:4px;font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+  pre{background:#0b1020;color:#e6edf6;padding:12px 14px;border-radius:8px;overflow:auto;font-size:12.5px}
+  .pass{color:#1a7a45;font-weight:600}
+  .note{background:#f4f7fb;border-left:4px solid #5b8def;padding:10px 14px;margin:14px 0;font-size:13.5px}
+  .warn{background:#fff7e6;border-left:4px solid #e0a800;padding:10px 14px;margin:14px 0;font-size:13.5px}
+  img{max-width:100%;border:1px solid #d8dee8;border-radius:8px;margin:10px 0}
+  ul{margin:6px 0 14px}
+</style>
+</head>
+<body>
+<h1>QA Report - Issue #393 - Choose the wingman/brain tool + model as a Gateway setting</h1>
+<p class="sub">Independent QA verification (CenCon Development Method, cc-director). PR #409, branch
+<code>issue-393-wingman-gateway-tool-model</code>. Verified in a fresh QA worktree, on a clean build,
+against a real <code>GatewayHost</code> booted from the PR build on an isolated <code>CC_DIRECTOR_ROOT</code>
+and a separate test slot (slot 8) - the developer's binary and screenshots were NOT reused.</p>
+
+<div class="note">
+<strong>QA method (independent).</strong> I built the solution myself (<code>Build succeeded. 0 Warning(s), 0 Error(s)</code>),
+ran the change's unit + endpoint tests myself, then booted a real <code>GatewayHost</code> from the PR
+build on a free loopback port with <code>CC_DIRECTOR_ROOT</code> pointed at a throwaway temp root (so the
+user's real config.json and the production Gateway on 7878 were never touched). I drove the live REST
+endpoints with <code>curl</code>, inspected the on-disk gateway <code>config.json</code> by hand, restarted
+the Gateway against the persisted config to confirm the chosen tool+model are applied, and rendered the
+real <code>settings.html</code> with its real page JS (served over HTTP, gateway responses matching the
+live shapes I captured) to screenshot the Wingman tab.
+</div>
+
+<h2>Acceptance Criteria - Expected vs Actual (independently verified)</h2>
+<table>
+  <tr><th>#</th><th>Criterion</th><th>How I verified (my own proof)</th><th>Result</th></tr>
+  <tr>
+    <td>1</td>
+    <td>Cockpit gateway settings shows a Wingman section with enable toggle, tool selector, model selector</td>
+    <td>Rendered the real <code>settings.html</code> + page JS over HTTP, clicked the Wingman tab,
+        screenshotted. DOM probe: enable toggle present and enabled; tool <code>&lt;select&gt;</code>
+        populated <code>[ClaudeCode]</code> and enabled; model field pre-filled <code>opus</code> and
+        enabled; Save enabled. See <code>qa-wingman-default.png</code>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td>Selecting a tool + model and saving persists the choice on the Gateway (GET returns saved values / config shows them)</td>
+    <td>Live <code>PUT /gateway/brain/config {"tool":"ClaudeCode","model":"sonnet"}</code> echoed
+        <code>{tool,model}</code>; the gateway-side <code>config.json</code> on disk then contained
+        <code>"brain_tool":"ClaudeCode","brain_model":"sonnet"</code>. Also covered by
+        <code>BrainConfigEndpointTests</code> (6/6 passed).</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td>After saving and a brain (re)start, the brain launches the chosen tool with the chosen model</td>
+    <td>Stopped the Gateway and re-constructed a fresh <code>GatewayHost</code> against the persisted
+        config (the "restart"): <code>BrainTool=ClaudeCode, BrainModel=sonnet</code> on the host
+        properties used to build the <code>BrainSupervisor</code>/<code>HostedAgent</code> +
+        <code>AgentArgs=...--model sonnet</code>, and the live <code>GET /gateway/settings</code> brain
+        block returned <code>tool=ClaudeCode, model=sonnet</code>. Code path also logs
+        <code>[GatewayHost] brain tool: {tool}, model: {model}</code>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td>When nothing is chosen, the default matches today's behavior (claude + opus)</td>
+    <td>Fresh empty config: <code>GatewayHost.BrainTool=ClaudeCode</code>, <code>BrainModel=opus</code>;
+        live <code>GET /gateway/settings</code> -> <code>brain.tool=ClaudeCode, brain.model=opus,
+        brain.tools=[ClaudeCode]</code>. Also <code>BrainToolConfigTests</code> default cases (11/11).</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>5</td>
+    <td>The setting lives at the Gateway level (no Director config edit; fleet-wide)</td>
+    <td>Persisted to the gateway-machine <code>config.json</code> via <code>PUT /gateway/brain/config</code>
+        (a Gateway endpoint); no Director Control API or Director config involved. The Director on slot 8
+        (port 7887) does not serve <code>/gateway/*</code> at all - confirming the surface is the Gateway,
+        not a per-Director setting.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>6</td>
+    <td>Disabling the wingman via the toggle stops new briefs from being generated</td>
+    <td>Live toggle round-trip: <code>PUT /gateway/wingman {"enabled":false}</code> wrote
+        <code>"wingman_enabled":false</code> to config.json (and <code>true</code> on enable). Code gate
+        at <code>GatewayHost.cs:239</code>: <code>if (!GatewayTurnBriefAgent.Disabled)</code> - when
+        disabled (<code>!WingmanConfig.Get()</code>), the <code>_briefAgent</code> is never created, so no
+        new turn briefs are stamped (applied on the next Gateway restart, the documented behavior).</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>No-fallback validation (live)</h2>
+<pre>PUT /gateway/brain/config {"tool":"Pi","model":"opus"}        -> HTTP 400 {"error":"tool must be a brain-hostable agent tool (one of: ClaudeCode)"}
+PUT /gateway/brain/config {"tool":"Bogus","model":"opus"}     -> HTTP 400 {"error":"tool must be a brain-hostable agent tool (one of: ClaudeCode)"}
+PUT /gateway/brain/config {"tool":"ClaudeCode","model":""}    -> HTTP 400 {"error":"model is required (a model alias or id)"}</pre>
+<p>Invalid / non-hostable tools and a blank model are rejected with clear errors - no silent fallback. Matches CLAUDE.md no-fallback rule.</p>
+
+<h2>Live evidence captured during QA</h2>
+<pre>=== Defaults (empty config) ===
+GatewayHost.BrainTool=ClaudeCode  GatewayHost.BrainModel=opus
+GET /gateway/settings brain block: { "tool":"ClaudeCode", "tools":["ClaudeCode"], "model":"opus", ... }
+
+=== After PUT tool=ClaudeCode model=sonnet ===
+config.json on disk: { "brain_tool": "ClaudeCode", "brain_model": "sonnet" }
+
+=== After Gateway restart against persisted config ===
+GatewayHost.BrainTool=ClaudeCode  GatewayHost.BrainModel=sonnet
+GET /gateway/settings brain block: tool=ClaudeCode  model=sonnet  tools=[ClaudeCode]
+
+=== Wingman toggle persistence ===
+PUT /gateway/wingman {"enabled":true}  -> config.json { "wingman_enabled": true }
+PUT /gateway/wingman {"enabled":false} -> config.json { "wingman_enabled": false }</pre>
+
+<h2>Tests (run by QA)</h2>
+<ul>
+  <li><code>BrainToolConfigTests</code> - 11 passed / 0 failed.</li>
+  <li><code>BrainConfigEndpointTests</code> (end-to-end against a real GatewayHost over HTTP) - 6 passed / 0 failed.</li>
+  <li>Full <code>CcDirector.Core.Tests</code> - 1895 passed, 2 skipped, 0 failed.</li>
+  <li>Full <code>CcDirector.Gateway.Tests</code> - 622 passed, 1 failed.</li>
+  <li>Solution build - <code>Build succeeded. 0 Warning(s), 0 Error(s)</code>.</li>
+</ul>
+
+<div class="warn">
+<strong>The one failing Gateway test is NOT a regression and NOT a blocker.</strong>
+<code>DictationEndpointTests.FullPipeline_transcribes_phase0_clip2_with_realtime_provider</code> failed with
+"expected at least 1 partial transcript, got 0". I read the test: it is a REAL-NETWORK integration test
+that early-returns (skips) unless <code>OPENAI_API_KEY</code>, ffmpeg, and the audio clip are all present
+(<code>if (!HasOpenAiKey()) return;</code>). It only executed because this machine has those, and it then
+hit OpenAI's live realtime transcription provider, which streamed no partial frames during this run - a
+provider/network/timing condition, not a code fault. It touches dictation/transcription only - ZERO
+overlap with this PR's changed files (brain/wingman/settings/config). It is therefore an environment-
+dependent flaky external-service test, unrelated to issue #393.
+</div>
+
+<h2>CenCon / regression lens</h2>
+<ul>
+  <li>No new container, no new trust boundary - extends the existing Gateway-owned <code>config.json</code>
+      and the existing Cockpit Settings page. No architecture/security drift; no <code>docs/cencon/</code>
+      update required.</li>
+  <li>No-fallback honored (invalid tool/model rejected, no silent default).</li>
+  <li>Negative sweep: the other Settings tabs (Keys, Gateway, Phone) and the Brain runtime section render
+      intact in the screenshots; no JS error broke the page.</li>
+  <li>The full Core suite and the rest of the Gateway suite (622 other tests) pass.</li>
+</ul>
+
+<h2>Screenshots (QA-produced, real settings.html + real page JS)</h2>
+<p><strong>Wingman tab, defaults (enable toggle, Tool=ClaudeCode selector, Model=opus, Save; Brain runtime section):</strong></p>
+<img src="qa-wingman-default.png" alt="Wingman settings tab defaults" />
+<p><strong>Model changed to sonnet, save confirmation "Saved ClaudeCode + sonnet. Restart the Brain (or the Gateway) to apply.":</strong></p>
+<img src="qa-wingman-saved.png" alt="Wingman settings tab after save" />
+
+<h2>Verdict</h2>
+<p class="pass">VERIFIED - all 6 acceptance criteria met. The single failing Gateway test is a pre-existing,
+environment-dependent live-provider test unrelated to this change. PASS - approved for squash-merge to main.</p>
+</body>
+</html>

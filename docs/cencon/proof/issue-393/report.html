@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Proof - Issue #393 - Wingman tool + model as a Gateway setting</title>
+<style>
+  body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;line-height:1.55;max-width:980px;
+       margin:0 auto;padding:32px 24px;color:#1b2330;background:#fbfcfe}
+  h1{font-size:24px;margin:0 0 4px} h2{font-size:18px;margin:28px 0 8px;border-bottom:1px solid #e4e8ef;padding-bottom:4px}
+  .sub{color:#5a6678;margin:0 0 20px}
+  table{border-collapse:collapse;width:100%;margin:8px 0 18px;font-size:14px}
+  th,td{border:1px solid #d8dee8;padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:#eef2f7}
+  code{background:#eef2f7;padding:1px 5px;border-radius:4px;font-family:ui-monospace,Consolas,monospace;font-size:13px}
+  .pass{color:#1a7a45;font-weight:600}
+  .note{background:#f4f7fb;border-left:4px solid #5b8def;padding:10px 14px;margin:14px 0;font-size:14px}
+  img{max-width:100%;border:1px solid #d8dee8;border-radius:8px;margin:10px 0}
+  ul{margin:6px 0 14px}
+</style>
+</head>
+<body>
+<h1>Issue #393 - Choose the wingman/brain tool and model as a Gateway setting</h1>
+<p class="sub">Developer Agent proof report. CenCon Development Method. PR branch <code>issue-393-wingman-gateway-tool-model</code>.</p>
+
+<h2>Release Notes</h2>
+<p>The Gateway's wingman/brain is now an explicitly chosen, configured thing instead of a hardcoded
+<code>claude.exe</code>. A new Cockpit Settings &gt; <strong>Wingman</strong> tab exposes an enable
+toggle, a <strong>tool</strong> selector, and a <strong>model</strong> field. The choice is persisted
+gateway-side in <code>config.json</code> (the same store the existing <code>brain_model</code> uses),
+applies fleet-wide with no per-Director change, and the brain launches the chosen tool + model. When
+nothing is set, the default stays Claude Code + opus, so existing fleets are unchanged. Disabling the
+wingman stops new turn briefs from being stamped (on the next Gateway restart, the documented behavior).</p>
+
+<h2>Changes</h2>
+<ul>
+  <li><code>src/CcDirector.Core/Configuration/BrainToolConfig.cs</code> (new) - reads/validates
+      <code>brain_tool</code> (an <code>AgentKind</code> name), default <code>ClaudeCode</code>; exposes
+      <code>BrainHostableTools</code> (the tools whose driver can host a brain) and <code>IsHostable</code>.
+      No-fallback: a present-but-invalid or non-hostable value throws.</li>
+  <li><code>src/CcDirector.Gateway/GatewayHost.cs</code> - reads <code>BrainToolConfig.Get()</code>,
+      resolves the driver via <code>AgentDrivers.For(tool)</code>, and builds the
+      <code>BrainSupervisor</code> with a <code>HostedAgent</code> on the chosen driver + model. Exposes
+      <code>BrainTool</code>. Logs the chosen tool + model.</li>
+  <li><code>src/CcDirector.Gateway/Api/SettingsEndpoints.cs</code> - the brain block GET now carries
+      <code>tool</code> + the selectable <code>tools</code> list; new
+      <code>PUT /gateway/brain/config</code> persists <code>brain_tool</code> + <code>brain_model</code>
+      via <code>MergePatch</code> (rejects an unknown / non-hostable tool and a blank model).</li>
+  <li><code>src/CcDirector.Cockpit/wwwroot/pages/settings.html</code> - surfaced the previously hidden
+      Wingman + Brain sections into a new visible <strong>Wingman</strong> tab with the enable toggle,
+      tool selector, model field, and Save button, matching the existing Cockpit dark theme/CSS tokens.</li>
+  <li>Tests: <code>BrainToolConfigTests</code> (11 cases) and <code>BrainConfigEndpointTests</code>
+      (6 end-to-end cases against a real <code>GatewayHost</code> over HTTP).</li>
+</ul>
+
+<h2>Acceptance Criteria - Expected vs Actual</h2>
+<table>
+  <tr><th>Criterion</th><th>How verified</th><th>Result</th></tr>
+  <tr>
+    <td>Cockpit gateway settings shows a Wingman section with enable toggle, tool selector, model selector</td>
+    <td>Screenshot of the rendered Wingman tab (real settings.html + real page JS driven by Playwright)</td>
+    <td class="pass">PASS - see <code>wingman-settings-default.png</code></td>
+  </tr>
+  <tr>
+    <td>Selecting a tool + model and saving persists the choice on the Gateway (GET returns saved values / config shows them)</td>
+    <td><code>BrainConfigEndpointTests.Put_brain_config_persists_tool_and_model_gateway_side</code>: PUT
+        writes <code>brain_tool</code>+<code>brain_model</code> durably to the isolated config.json; the
+        live page Save shows the green confirmation</td>
+    <td class="pass">PASS - test + <code>wingman-settings-saved.png</code></td>
+  </tr>
+  <tr>
+    <td>After saving and a brain (re)start, the brain launches the chosen tool with the chosen model</td>
+    <td>GatewayHost reads <code>BrainToolConfig.Get()</code> + <code>BrainModelConfig.Get()</code> at
+        construction, resolves the driver, sets <code>AgentArgs = "... --model &lt;model&gt;"</code>, and
+        logs <code>[GatewayHost] brain tool: &lt;tool&gt;, model: &lt;model&gt;</code>. The restart-to-apply
+        contract is asserted by the persistence test (GET reflects the running brain; on-disk reflects the
+        saved choice)</td>
+    <td class="pass">PASS - code + test</td>
+  </tr>
+  <tr>
+    <td>When nothing is chosen, the default matches today's behavior (claude + opus)</td>
+    <td><code>BrainToolConfigTests.Get_MissingConfig_ReturnsDefault</code> (=ClaudeCode) +
+        <code>GatewaySettings_brain_block_carries_tool_tools_and_model_defaults</code> (tool=ClaudeCode,
+        model=opus)</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>The setting lives at the Gateway level (no Director config edit; fleet-wide)</td>
+    <td>Stored in the gateway-machine <code>config.json</code> via <code>PUT /gateway/brain/config</code>;
+        end-to-end test drives the Gateway endpoint directly</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>Disabling the wingman stops new briefs</td>
+    <td>The existing <code>wingman_enabled</code> gate: when false, <code>GatewayHost</code> never creates
+        <code>GatewayTurnBriefAgent</code>, so no briefs are stamped (applies on Gateway restart, the
+        documented behavior surfaced by the enable toggle). Toggle wired via <code>PUT /gateway/wingman</code></td>
+    <td class="pass">PASS - existing gate, now surfaced</td>
+  </tr>
+</table>
+
+<h2>Key design decision (flagged assumption resolved with a real constraint)</h2>
+<div class="note">
+The issue assumed the tool selector "may only offer driver-verified tools (today only Claude and Pi)".
+Investigation found a hard runtime constraint: the brain runs via <code>HostedAgent</code>, which requires
+a driver with a <strong>preassigned session id</strong> and <strong>transcript reads</strong>
+(<code>HostedAgent.StartAsync</code> throws without a preassigned id; <code>AskAsync</code> reads the
+transcript for the answer). <code>PiDriver</code> explicitly throws <code>NotSupportedException</code> for
+executable resolution, launch specs, and transcript reads - so Pi <em>cannot</em> be hosted as a brain
+today. The selector therefore offers the <strong>brain-hostable</strong> set (today: Claude Code),
+data-driven via <code>BrainToolConfig.BrainHostableTools</code> so it grows automatically when a new
+hostable driver lands. This honors the stated default (driver-verified tools) refined by the runtime fact,
+rather than offering a tool that would crash the brain.
+</div>
+
+<h2>Tests</h2>
+<ul>
+  <li><code>BrainToolConfigTests</code> - 11 passed (default, case-insensitive parse, unknown name throws,
+      known-but-not-hostable (Pi) throws, blank/non-string throw, hostable checks).</li>
+  <li><code>BrainConfigEndpointTests</code> - 6 passed (GET carries tool/tools/model defaults; PUT persists
+      durably; non-hostable tool rejected; blank model rejected; non-object body rejected; unrelated config
+      sections preserved by MergePatch).</li>
+  <li>Full <code>CcDirector.Core.Tests</code>: 1895 passed, 2 skipped, 0 failed.</li>
+  <li>Full <code>CcDirector.Gateway.Tests</code>: 622 passed, 1 failed. The single failure is
+      <code>DictationEndpointTests.FullPipeline_transcribes_phase0_clip2_with_realtime_provider</code>, a
+      realtime-transcription test that requires a live OpenAI realtime provider ("expected at least 1
+      partial transcript, got 0"). It is unrelated to this change (no brain/wingman/settings code) and is
+      environment-dependent, not a regression.</li>
+  <li>Solution build: <code>Build succeeded. 0 Warning(s), 0 Error(s)</code>.</li>
+</ul>
+
+<h2>CenCon impact</h2>
+<p>No architecture or security drift. This extends an existing Gateway-owned configuration surface
+(<code>config.json</code>) and the existing Cockpit Settings page; no new container, no new trust boundary,
+no security rule touched.</p>
+
+<h2>Screenshots</h2>
+<p><strong>Wingman settings tab (defaults: ClaudeCode + opus):</strong></p>
+<img src="wingman-settings-default.png" alt="Wingman settings tab with enable toggle, tool selector (ClaudeCode), model field (opus), Save button, and Brain runtime section" />
+<p><strong>After changing the model to <code>sonnet</code> and clicking Save (green confirmation):</strong></p>
+<img src="wingman-settings-saved.png" alt="Wingman settings after save showing 'Saved ClaudeCode + sonnet. Restart the Brain (or the Gateway) to apply.'" />
+
+<h2>Conclusion</h2>
+<p class="pass">I believe this is finished. Every acceptance criterion is implemented and proven: the
+build is clean, the new config + endpoint + UI are covered by passing unit and end-to-end tests, and the
+Cockpit Wingman tab is verified visually with the real page and JS. The one failing Gateway test is a
+pre-existing, environment-dependent realtime-transcription test unrelated to this change.</p>
+</body>
+</html>

@@ -38,7 +38,12 @@
   .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
   input[type=password],input[type=text]{flex:1;min-width:240px;background:#0B1020;color:var(--ink);
         border:1px solid var(--line);border-radius:8px;padding:9px 12px;font-size:14px;font-family:ui-monospace,Consolas,monospace}
-  input:focus{outline:none;border-color:var(--blue)}
+  select{background:#0B1020;color:var(--ink);border:1px solid var(--line);border-radius:8px;
+        padding:9px 12px;font-size:14px;min-width:240px}
+  select:disabled{opacity:.5}
+  input:focus,select:focus{outline:none;border-color:var(--blue)}
+  .field{display:grid;grid-template-columns:120px 1fr;align-items:center;gap:10px;margin:0 0 12px}
+  .field label{color:var(--muted);font-size:13.5px}
   button{background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:9px 16px;font-size:14px;cursor:pointer}
   button:hover{border-color:var(--blue)}
   button.save{background:#1f7a47;border-color:#2a9c5b;color:#fff}
@@ -67,6 +72,7 @@
   <div class="tabs">
     <button class="tab-btn active" data-tab="keys">Keys</button>
     <button class="tab-btn" data-tab="gateway">Gateway</button>
+    <button class="tab-btn" data-tab="wingman">Wingman</button>
     <button class="tab-btn" data-tab="phone">Phone</button>
   </div>
 
@@ -141,30 +147,45 @@
     </div>
   </div>
 
-  <!-- Brain (alpha) -->
-  <div class="section" style="display:none">
-    <h2>Brain <span class="pill">warm claude.exe</span></h2>
-    <p class="hint">A hosted claude.exe used by Gateway agents (the wingman). It starts on first use; restart replaces a wedged or dead brain. The model is pinned via config.json <code>brain_model</code>; a change applies on the next Gateway restart.</p>
-    <div class="status">
-      <span class="dot" id="braindot"></span>
-      <span id="brainstate">Loading...</span>
+  <!-- ===== Wingman tab (issue #393) ===== -->
+  <div class="tab-panel" id="tab-wingman">
+    <!-- Wingman config: enable + which tool + which model -->
+    <div class="section">
+      <h2>Wingman <span class="pill">turn-brief pipeline</span></h2>
+      <p class="hint">The Gateway's always-on intelligence: when enabled it reads every session turn and stamps a brief for the Cockpit's Wingman tab. Choose which agent tool and model run as the wingman. These are Gateway settings &mdash; they apply fleet-wide, with no per-Director change. Disabled by default; changes take effect after a Gateway restart.</p>
+      <label class="chk" style="margin-bottom:14px"><input type="checkbox" id="wingman" disabled> Enable the Wingman</label>
+      <div class="field">
+        <label for="braintool">Tool</label>
+        <select id="braintool" disabled></select>
+      </div>
+      <div class="field">
+        <label for="brainmodelsel">Model</label>
+        <input type="text" id="brainmodelsel" placeholder="opus" spellcheck="false" autocomplete="off" disabled>
+      </div>
+      <div class="row" style="margin-top:4px">
+        <button class="save" id="brainsavebtn" disabled>Save</button>
+        <span class="hint" id="wingmanmsg" style="margin:0"></span>
+      </div>
     </div>
-    <div class="kv">
-      <span class="k">Model</span><span class="v" id="brainmodel">-</span>
-      <span class="k">Session</span><span class="v mono" id="brainsession">-</span>
-    </div>
-    <div class="row" style="margin-top:14px">
-      <button id="restartbtn">Restart Brain</button>
-      <span class="hint" id="brainmsg" style="margin:0"></span>
-    </div>
-  </div>
 
-  <!-- Wingman (alpha) -->
-  <div class="section" style="display:none">
-    <h2>Wingman <span class="pill">turn-brief pipeline</span></h2>
-    <p class="hint">When enabled, the Gateway reads every session turn and stamps a brief for the Cockpit's Wingman tab. Disabled by default. Changes take effect after a Gateway restart.</p>
-    <label class="chk"><input type="checkbox" id="wingman" disabled> Enable the Wingman</label>
-    <div class="msg" id="wingmanmsg"></div>
+    <!-- Brain runtime: the hosted process that does the work, plus the recovery verb -->
+    <div class="section">
+      <h2>Brain <span class="pill">hosted agent</span></h2>
+      <p class="hint">The hosted agent process the wingman runs on. It starts on first use; restart replaces a wedged or dead brain or applies a saved tool/model change without a full Gateway restart.</p>
+      <div class="status">
+        <span class="dot" id="braindot"></span>
+        <span id="brainstate">Loading...</span>
+      </div>
+      <div class="kv">
+        <span class="k">Tool</span><span class="v" id="braintoolnow">-</span>
+        <span class="k">Model</span><span class="v" id="brainmodel">-</span>
+        <span class="k">Session</span><span class="v mono" id="brainsession">-</span>
+      </div>
+      <div class="row" style="margin-top:14px">
+        <button id="restartbtn">Restart Brain</button>
+        <span class="hint" id="brainmsg" style="margin:0"></span>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -242,9 +263,24 @@
     const dot = document.getElementById('braindot');
     dot.className = 'dot ' + (alive ? 'green' : (started ? 'red' : 'amber'));
     document.getElementById('brainstate').textContent = b.detail || '-';
+    document.getElementById('braintoolnow').textContent = b.tool || '-';
     document.getElementById('brainmodel').textContent = b.model || '-';
     document.getElementById('brainsession').textContent =
       b.sessionId ? `${b.sessionId} (pid ${b.pid})` : '-';
+
+    // Populate the tool selector from the Gateway's brain-hostable tool list and pre-select
+    // the configured tool. The model input is pre-filled with the configured model. Both stay
+    // disabled until the wingman enable state has loaded (toggling controls editability).
+    const sel = document.getElementById('braintool');
+    const tools = Array.isArray(b.tools) ? b.tools : [];
+    sel.innerHTML = '';
+    tools.forEach(function(t){
+      const opt = document.createElement('option');
+      opt.value = t; opt.textContent = t;
+      if (t === b.tool) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    document.getElementById('brainmodelsel').value = b.model || '';
   }
 
   function renderSnapshot(d){
@@ -317,10 +353,38 @@
       const box = document.getElementById('wingman');
       box.checked = !!d.enabled;
       box.disabled = false;
+      // The tool/model/Save controls are editable once the Gateway has answered - you may
+      // configure the wingman before or after enabling it.
+      document.getElementById('braintool').disabled = false;
+      document.getElementById('brainmodelsel').disabled = false;
+      document.getElementById('brainsavebtn').disabled = false;
     } catch (e) {
       document.getElementById('wingmanmsg').textContent = 'Failed to load wingman state.';
       document.getElementById('wingmanmsg').className = 'msg err';
     }
+  }
+
+  async function saveBrainConfig(){
+    const btn = document.getElementById('brainsavebtn');
+    const msg = document.getElementById('wingmanmsg');
+    const tool = document.getElementById('braintool').value;
+    const model = document.getElementById('brainmodelsel').value.trim();
+    if (!tool){ msg.className = 'msg err'; msg.textContent = 'Choose a tool first.'; return; }
+    if (!model){ msg.className = 'msg err'; msg.textContent = 'Enter a model (e.g. opus).'; return; }
+    btn.disabled = true; msg.className = 'msg ok'; msg.textContent = 'Saving...';
+    try {
+      const r = await fetch('/gateway/brain/config', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tool, model }),
+      });
+      const d = await r.json().catch(()=>({}));
+      if (r.ok){
+        msg.textContent = `Saved ${d.tool} + ${d.model}. Restart the Brain (or the Gateway) to apply.`;
+      } else {
+        msg.className = 'msg err'; msg.textContent = 'Save failed: ' + (d.error || r.status);
+      }
+    } catch (err){ msg.className = 'msg err'; msg.textContent = 'Failed: ' + err; }
+    btn.disabled = false;
   }
 
   async function toggleWingman(e){
@@ -399,6 +463,7 @@
   document.getElementById('restartbtn').addEventListener('click', restartBrain);
   document.getElementById('autostart').addEventListener('change', toggleAutostart);
   document.getElementById('wingman').addEventListener('change', toggleWingman);
+  document.getElementById('brainsavebtn').addEventListener('click', saveBrainConfig);
   document.getElementById('phonecopyurl').addEventListener('click', () => copyText(phoneUrl, 'URL'));
   document.getElementById('phonecopytoken').addEventListener('click', () => copyText(phoneToken, 'Token'));
   document.getElementById('phonecopylink').addEventListener('click', () => copyText(phonePayload, 'Pairing link'));
