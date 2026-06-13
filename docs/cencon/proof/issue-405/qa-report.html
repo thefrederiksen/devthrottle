@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof - Issue #405 Voice client resilience</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 980px; margin: 2rem auto; padding: 0 1rem; color: #1a1a2e; }
+  h1 { border-bottom: 3px solid #5319e7; padding-bottom: .4rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .55rem .7rem; text-align: left; vertical-align: top; font-size: .92rem; }
+  th { background: #f0ecfb; }
+  .pass { color: #0a7d33; font-weight: bold; }
+  .verdict { background: #eafbe8; border: 2px solid #0a7d33; padding: 1rem; border-radius: 6px; margin: 1.5rem 0; font-size: 1.05rem; }
+  code { background: #f4f4f8; padding: .1rem .35rem; border-radius: 3px; font-size: .85rem; }
+  pre { background: #1a1a2e; color: #e8e8f0; padding: .8rem; border-radius: 6px; overflow-x: auto; font-size: .82rem; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #405</h1>
+<p><strong>[Voice] Client resilience: poll-loop + submit retry/backoff (survive spotty data)</strong></p>
+<p>PR #410, branch <code>issue-405-voice-resilience</code> @ <code>2a26467</code>. Independently verified by the QA Agent in an isolated worktree
+(<code>D:\ReposFred\cc-director-wt-405</code>). The QA session is a different identity from the Developer session (SOC 2 separation of duties); the
+Developer's report and screenshots were treated as context only, not proof.</p>
+
+<h2>How verified</h2>
+<p>This is a phone-client logic change (xUnit tests + MAUI Android build) - no Director/Control API needed. QA checked out the PR branch into its own
+worktree, read the changed code to confirm the poll loop and submit now retry transient failures, stop on terminal stages, and respect a TTL-aligned
+deadline, then built and ran the tests itself.</p>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (QA-run)</th><th>Verdict</th></tr>
+<tr>
+  <td>1</td>
+  <td>A transient poll failure (network error / 5xx) does NOT end the turn; the loop retries and completes once the cached reply is available.</td>
+  <td>Loop tolerates one drop, re-polls, returns the reply.</td>
+  <td><code>Poll_ThrowsOnceThenSucceeds_TurnCompletes</code> and <code>Poll_TransientServerErrorThenReply_Completes</code> PASS - both assert 2 poll calls (retried) and a final reply. Code: <code>VoiceTurnRunner.PollToCompletionAsync</code> catches transient (HttpRequestException / 5xx <code>VoiceTurnHttpException</code> / TaskCanceledException) and <code>continue</code>s with backoff.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td>A transient submit failure is retried (bounded) before the turn is surfaced as failed; the clip is not discarded on first failure.</td>
+  <td>Submit retried up to the budget, succeeds on retry; fails cleanly only after budget.</td>
+  <td><code>Submit_ThrowsOnceThenSucceeds_ReturnsTurnId</code>, <code>Submit_ServerError5xx_IsRetried</code>, <code>Submit_ThrowsPastBudget_FailsCleanly</code> PASS. <code>SubmitAttempts=4</code> bounded loop with backoff; failure message "please try again".</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>3</td>
+  <td>Gives up only at a deadline aligned with the server job TTL or on a terminal stage; an expired 404 surfaces a clear "please resend", not an unhandled exception.</td>
+  <td>Deadline = ~10 min (server TTL); 404 -> clean VoiceTurnExpiredException; error/410 stop immediately.</td>
+  <td><code>OverallDeadline = TimeSpan.FromMinutes(10)</code> (matches Gateway job TTL). <code>Poll_ThrowsRepeatedlyPastDeadline_FailsCleanly</code> (VoiceTurnTimeoutException), <code>Poll_Expired404_SurfacesPleaseResend_NotUnhandled</code> ("send it again"), <code>Poll_ErrorStage_StopsImmediately</code> (1 poll call), <code>Poll_SessionGone410_StopsImmediately</code> all PASS.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>4</td>
+  <td>Unit tests with a fake voice client cover: poll throws once then succeeds; poll throws repeatedly past deadline; error stage stops immediately; submit throws once then succeeds.</td>
+  <td>All four scenarios covered by tests against a fake IVoiceTurnChannel.</td>
+  <td>11 <code>VoiceTurnRunnerTests</code> against a scripted fake channel + injected virtual clock (instant). All four scenarios present and PASS.</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>QA-run evidence</h2>
+<p><strong>Targeted test run (PR branch):</strong></p>
+<pre>dotnet test CcDirectorClient.Tests/CcDirectorClient.Tests.csproj --filter VoiceTurnRunnerTests
+Passed!  - Failed: 0, Passed: 11, Skipped: 0, Total: 11, Duration: 74 ms</pre>
+
+<p><strong>Full test project (PR branch):</strong></p>
+<pre>Failed! - Failed: 5, Passed: 132, Skipped: 0, Total: 137
+(the 5 failures are all in ConductorStateTests)</pre>
+
+<p><strong>MAUI Android app build (PR branch):</strong></p>
+<pre>dotnet build CcDirectorClient/CcDirectorClient.csproj -c Debug
+104 Warning(s) / 0 Error(s)   (warnings are pre-existing package/obsolete-API noise)</pre>
+
+<h2>Regression / pre-existing-failure check (Developer claim independently verified)</h2>
+<p>The Developer claimed the 5 <code>ConductorStateTests</code> failures are pre-existing on clean <code>main</code>, not a regression from #405. QA verified this
+independently by running those tests on a clean <code>main</code> checkout (commit <code>11fe600</code>, clean working tree):</p>
+<pre>dotnet test CcDirectorClient.Tests/CcDirectorClient.Tests.csproj --filter ConductorStateTests   # on main
+Failed! - Failed: 5, Passed: 2, Skipped: 0, Total: 7</pre>
+<p>The SAME 5 tests fail identically on clean <code>main</code> (same assertion mismatches Expected 1/2 vs Actual 0, same NullReferenceExceptions).
+<code>ConductorStateTests.cs</code> is NOT in PR #410's changed-file set. <strong>Confirmed pre-existing - not a regression introduced by #405.</strong></p>
+
+<h2>Method / CenCon check</h2>
+<p>Client-side resilience only: no new Gateway endpoints, no new data flows, no security-relevant change. No DT-* blocking rule touched. No
+<code>docs/cencon/</code> architecture/security doc update required.</p>
+
+<div class="verdict">VERIFIED - all 4 acceptance criteria met. 11/11 new VoiceTurnRunnerTests pass; MAUI app builds 0 errors; the only test failures are pre-existing
+ConductorStateTests confirmed failing identically on clean main. No regression. PASS.</div>
+</body>
+</html>

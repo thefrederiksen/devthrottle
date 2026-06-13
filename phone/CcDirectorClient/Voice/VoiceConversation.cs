@@ -11,9 +11,6 @@ namespace CcDirectorClient.Voice;
 /// </summary>
 public sealed class VoiceConversation
 {
-    /// <summary>Cadence of the Gateway voice-turn poll loop (~1.5s; cheap cache reads).</summary>
-    private const int VoiceTurnPollMs = 1_500;
-
     // FIFO delivery: we deliberately do NOT wait for the agent's turn - the point of FIFO
     // is to deposit the answer and move on. The /chat call sends the text to the PTY before
     // it begins polling, so a short timeout returns right after delivery (status "working"),
@@ -23,18 +20,25 @@ public sealed class VoiceConversation
     private readonly DirectorVoiceClient _client;
     private readonly IReplySpeaker _tts;
     private readonly string _gatewayBaseUrl;
+    private readonly VoiceTurnRetryPolicy _retryPolicy;
 
     /// <summary>
     /// <paramref name="gatewayBaseUrl"/> is the Gateway's base URL (the same address
     /// the roster comes from) - required by <see cref="SpeakTurnAsync"/>'s agent path,
     /// which submits/polls the voice turn on the Gateway (issue #378). Hosts that only
     /// use the Director-direct members (FIFO deliver, briefing, one-off lines) may omit it.
+    /// <paramref name="retryPolicy"/> tunes the agent path's submit-retry + poll-backoff
+    /// loop (issue #405); production omits it to take the resilient defaults (~1.5s cadence,
+    /// backoff to ~5s, ~10-minute deadline aligned with the Gateway job TTL).
     /// </summary>
-    public VoiceConversation(DirectorVoiceClient client, IReplySpeaker tts, string gatewayBaseUrl = "")
+    public VoiceConversation(
+        DirectorVoiceClient client, IReplySpeaker tts, string gatewayBaseUrl = "",
+        VoiceTurnRetryPolicy? retryPolicy = null)
     {
         _client = client;
         _tts = tts;
         _gatewayBaseUrl = (gatewayBaseUrl ?? "").TrimEnd('/');
+        _retryPolicy = retryPolicy ?? VoiceTurnRetryPolicy.Default;
     }
 
     /// <summary>Status callback so the UI can show what is happening at each step.</summary>
@@ -99,36 +103,33 @@ public sealed class VoiceConversation
             throw new InvalidOperationException(
                 "gateway URL is not configured - set the Gateway address in settings to run a voice turn");
 
-        // Submit once: the Gateway queues the turn and answers 202 with a turn id
-        // immediately, so the phone is free while the Director does the work.
+        // Submit once, with bounded retry: the Gateway queues the turn and answers 202 with a
+        // turn id, so the phone is free while the Director does the work. A drop mid-upload is
+        // retried with backoff (issue #405) rather than losing the recorded clip on the first
+        // failure.
         onUpdate?.Invoke(new TurnUpdate("transcribing", "Sending to the gateway..."));
-        var submit = await _client.SubmitVoiceTurnAsync(
+        var runner = new VoiceTurnRunner(_client, _retryPolicy);
+        var submit = await runner.SubmitAsync(
             _gatewayBaseUrl, session.SessionId, audio.Bytes, audio.Mime, ct);
         ClientLog.Write($"[VoiceConversation] SpeakTurn: submitted turnId={submit.TurnId}");
 
-        // Poll the Gateway's job cache until the turn lands in a terminal stage.
+        // Poll the Gateway's job cache until the turn lands in a terminal stage. The runner
+        // tolerates transient drops (network error, 5xx, timeout) by re-polling with backoff
+        // and gives up only at the server-TTL deadline or on a terminal condition (issue #405).
         // Stage vocabulary: submitted, transcribing, transcript, waiting, thinking,
         // summarizing, reply (terminal), error (terminal).
-        var lastStage = "";
-        while (true)
-        {
-            ct.ThrowIfCancellationRequested();
-            await Task.Delay(TimeSpan.FromMilliseconds(VoiceTurnPollMs), ct);
-
-            var poll = await _client.PollVoiceTurnAsync(
-                _gatewayBaseUrl, session.SessionId, submit.TurnId, ct);
-
-            if (!string.Equals(poll.Stage, lastStage, StringComparison.Ordinal))
+        var poll = await runner.PollToCompletionAsync(
+            _gatewayBaseUrl, session.SessionId, submit.TurnId,
+            onStage: p =>
             {
-                lastStage = poll.Stage;
-                switch (poll.Stage)
+                switch (p.Stage)
                 {
                     case "transcribing":
                         onUpdate?.Invoke(new TurnUpdate("transcribing", "Transcribing..."));
                         break;
                     case "transcript":
-                        if (!string.IsNullOrWhiteSpace(poll.Transcript))
-                            onUpdate?.Invoke(new TurnUpdate("transcript", poll.Transcript));
+                        if (!string.IsNullOrWhiteSpace(p.Transcript))
+                            onUpdate?.Invoke(new TurnUpdate("transcript", p.Transcript));
                         break;
                     case "waiting":
                         onUpdate?.Invoke(new TurnUpdate("waiting", "Waiting for the session to be ready..."));
@@ -140,33 +141,27 @@ public sealed class VoiceConversation
                         onUpdate?.Invoke(new TurnUpdate("summarizing", "Summarizing..."));
                         break;
                 }
-            }
+            },
+            ct: ct);
 
-            if (string.Equals(poll.Stage, "error", StringComparison.Ordinal))
-                throw new InvalidOperationException($"gateway voice turn failed: {poll.Error ?? "unknown error"}");
+        var summary = poll.Summary ?? "";
+        onUpdate?.Invoke(new TurnUpdate("reply", summary));
 
-            if (!string.Equals(poll.Stage, "reply", StringComparison.Ordinal))
-                continue;
-
-            var summary = poll.Summary ?? "";
-            onUpdate?.Invoke(new TurnUpdate("reply", summary));
-
-            // "speaking" fires before playback begins so the status label reads
-            // "Speaking..." only while audio is actually playing. The Gateway returns
-            // the reply audio with the result; audioBase64 is empty (never null) when
-            // the Director has no TTS key, in which case the on-screen summary is the
-            // whole reply.
-            onUpdate?.Invoke(new TurnUpdate("speaking", "Speaking..."));
-            if (!string.IsNullOrWhiteSpace(poll.AudioBase64))
-            {
-                var mp3 = Convert.FromBase64String(poll.AudioBase64);
-                if (mp3.Length > 0)
-                    await _tts.PlayAsync(mp3, ct);
-            }
-
-            ClientLog.Write($"[VoiceConversation] SpeakTurn done: turnId={submit.TurnId}, summaryChars={summary.Length}");
-            return summary;
+        // "speaking" fires before playback begins so the status label reads
+        // "Speaking..." only while audio is actually playing. The Gateway returns
+        // the reply audio with the result; audioBase64 is empty (never null) when
+        // the Director has no TTS key, in which case the on-screen summary is the
+        // whole reply.
+        onUpdate?.Invoke(new TurnUpdate("speaking", "Speaking..."));
+        if (!string.IsNullOrWhiteSpace(poll.AudioBase64))
+        {
+            var mp3 = Convert.FromBase64String(poll.AudioBase64);
+            if (mp3.Length > 0)
+                await _tts.PlayAsync(mp3, ct);
         }
+
+        ClientLog.Write($"[VoiceConversation] SpeakTurn done: turnId={submit.TurnId}, summaryChars={summary.Length}");
+        return summary;
     }
 
     /// <summary>

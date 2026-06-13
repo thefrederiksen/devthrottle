@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Issue #405 - Voice client resilience: poll-loop + submit retry/backoff</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 2rem auto; max-width: 60rem; color: #1a1a1a; line-height: 1.5; padding: 0 1rem; }
+  h1 { font-size: 1.5rem; border-bottom: 2px solid #2563eb; padding-bottom: .4rem; }
+  h2 { font-size: 1.15rem; margin-top: 2rem; color: #1e3a8a; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #cbd5e1; padding: .5rem .6rem; text-align: left; vertical-align: top; font-size: .92rem; }
+  th { background: #eff6ff; }
+  code { background: #f1f5f9; padding: .1rem .3rem; border-radius: 3px; font-size: .88rem; }
+  pre { background: #0f172a; color: #e2e8f0; padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: .82rem; }
+  .pass { color: #15803d; font-weight: 600; }
+  .note { background: #fffbeb; border-left: 4px solid #f59e0b; padding: .6rem .9rem; margin: 1rem 0; }
+  .done { background: #ecfdf5; border-left: 4px solid #10b981; padding: .8rem 1rem; margin: 1.5rem 0; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<h1>Issue #405 - [Voice] Client resilience: poll-loop + submit retry/backoff (survive spotty data)</h1>
+
+<p><strong>Branch:</strong> <code>issue-405-voice-resilience</code> &nbsp;|&nbsp;
+<strong>Surface:</strong> phone client (.NET MAUI), <code>phone/CcDirectorClient</code> &nbsp;|&nbsp;
+<strong>Proof type:</strong> xUnit unit tests against a fake voice-turn channel (pure-logic phone-client change - no Director slot needed).</p>
+
+<h2>What was implemented</h2>
+<p>The Gateway async voice-turn pipeline is designed to survive a signal drop (submit once,
+the Gateway caches the result ~10 min, the phone just polls), but the client did not implement
+that resilience: a single dropped poll or submit threw straight out of the turn. This change
+makes the client live up to the design.</p>
+
+<ul>
+  <li><strong>New resilient seam</strong> <code>VoiceTurnRunner</code> holding the submit-retry +
+      poll-retry/backoff/deadline loop, depending only on a new <code>IVoiceTurnChannel</code>
+      interface (implemented by <code>DirectorVoiceClient</code> over real HTTP). The clock and the
+      inter-poll delay are injected (<code>VoiceTurnRetryPolicy</code>) so the loop is MAUI-free and
+      timer-free and unit-tested off-device with instant waits.</li>
+  <li><strong>Poll retry/backoff:</strong> each poll is wrapped; a transient failure (network error,
+      5xx, request timeout) waits a backoff (1.5s steady -> up to ~5s) and re-polls rather than
+      throwing out of the loop.</li>
+  <li><strong>Deadline aligned with the server TTL:</strong> the loop gives up only at an overall
+      ~10-minute deadline (<code>VoiceTurnTimeoutException</code>) or on a terminal stage.</li>
+  <li><strong>Transient vs terminal classification:</strong> a 5xx is transient; the <code>error</code>
+      stage and a <code>410 Gone</code> (session exited) stop immediately; a <code>404</code> after
+      holding a valid turn id is a clean <code>VoiceTurnExpiredException</code> ("please resend"),
+      never an unhandled crash. <code>DirectorVoiceClient.PollVoiceTurnAsync</code> now throws
+      <code>VoiceTurnHttpException</code> carrying the status code so the runner can classify.</li>
+  <li><strong>Submit retry:</strong> <code>VoiceTurnRunner.SubmitAsync</code> retries a bounded number
+      of times (default 4) with backoff before surfacing a failure, so a drop mid-upload does not
+      discard the recorded clip.</li>
+  <li><code>VoiceConversation.SpeakTurnAsync</code> now delegates its agent path to the runner,
+      keeping the same <code>onUpdate</code> stage callbacks and reply-audio playback.</li>
+</ul>
+
+<h2>Acceptance criteria -&gt; proof</h2>
+<table>
+  <tr><th>Criterion (from the issue)</th><th>How the code satisfies it</th><th>Proving test (PASS)</th></tr>
+  <tr>
+    <td>A transient poll failure does NOT end the turn; the loop retries and completes once the cached reply is available.</td>
+    <td>Poll wrapped in try/catch; transient failure -&gt; backoff + re-poll; reply stage returns.</td>
+    <td class="pass">Poll_ThrowsOnceThenSucceeds_TurnCompletes; Poll_TransientServerErrorThenReply_Completes</td>
+  </tr>
+  <tr>
+    <td>A transient submit failure is retried (bounded) before the turn is surfaced as failed.</td>
+    <td><code>SubmitAsync</code> retries up to <code>SubmitAttempts</code> with backoff; clip re-sent.</td>
+    <td class="pass">Submit_ThrowsOnceThenSucceeds_ReturnsTurnId; Submit_ServerError5xx_IsRetried; Submit_ThrowsPastBudget_FailsCleanly</td>
+  </tr>
+  <tr>
+    <td>The loop gives up only at a deadline aligned with the server job TTL, or on a terminal stage; an expired-turn 404 surfaces a clear "please resend", not an unhandled exception.</td>
+    <td>Overall ~10-min deadline -&gt; <code>VoiceTurnTimeoutException</code>; 404 -&gt; <code>VoiceTurnExpiredException</code> ("send it again").</td>
+    <td class="pass">Poll_ThrowsRepeatedlyPastDeadline_FailsCleanly; Poll_Expired404_SurfacesPleaseResend_NotUnhandled</td>
+  </tr>
+  <tr>
+    <td>Unit tests cover: poll throws once then succeeds; poll throws repeatedly past the deadline; error stage stops immediately; submit throws once then succeeds.</td>
+    <td>All four required cases plus 410-gone, cancellation, and once-per-stage callback coverage.</td>
+    <td class="pass">All 11 VoiceTurnRunnerTests (see run below); Poll_ErrorStage_StopsImmediately; Poll_SessionGone410_StopsImmediately</td>
+  </tr>
+</table>
+
+<h2>Test run (primary proof)</h2>
+<pre>
+dotnet test CcDirectorClient.Tests --filter VoiceTurnRunnerTests
+
+  Passed Poll_Cancelled_ThrowsOperationCanceled
+  Passed Poll_SessionGone410_StopsImmediately
+  Passed Poll_ErrorStage_StopsImmediately
+  Passed Poll_TransientServerErrorThenReply_Completes
+  Passed Poll_ThrowsOnceThenSucceeds_TurnCompletes
+  Passed Submit_ThrowsPastBudget_FailsCleanly
+  Passed Poll_ThrowsRepeatedlyPastDeadline_FailsCleanly
+  Passed Submit_ServerError5xx_IsRetried
+  Passed Poll_Expired404_SurfacesPleaseResend_NotUnhandled
+  Passed Submit_ThrowsOnceThenSucceeds_ReturnsTurnId
+  Passed Poll_FiresOnStageOncePerDistinctStage
+
+Passed!  - Failed: 0, Passed: 11, Skipped: 0, Total: 11
+</pre>
+
+<p><strong>Test project build:</strong> <span class="pass">Build succeeded. 0 Warning(s), 0 Error(s).</span><br>
+<strong>MAUI app build</strong> (<code>CcDirectorClient.csproj</code>, net10.0-android):
+<span class="pass">0 Error(s)</span> - the only warnings are pre-existing Android SDK/NuGet version
+warnings unrelated to these files.</p>
+
+<div class="note">
+<strong>Pre-existing baseline note:</strong> The full test project shows 5 failing tests in
+<code>ConductorStateTests</code>. These were verified to fail identically on clean <code>main</code>
+(same 5, same assertions) BEFORE this change - they are a pre-existing baseline issue, NOT a
+regression from #405. This change adds 11 new passing tests and introduces 0 new failures.
+</div>
+
+<h2>CenCon impact</h2>
+<p>No architecture or security drift. This is a client-side resilience change within the existing
+phone voice-turn pipeline; it adds no new endpoints, no new data flows, and touches no security
+control (DT-01..DT-NN). No <code>docs/cencon/</code> manifest update required.</p>
+
+<h2>Files changed</h2>
+<ul>
+  <li><code>phone/CcDirectorClient/Voice/VoiceTurnRunner.cs</code> (new) - resilient submit + poll loop</li>
+  <li><code>phone/CcDirectorClient/Voice/IVoiceTurnChannel.cs</code> (new) - the testable seam</li>
+  <li><code>phone/CcDirectorClient/Voice/VoiceTurnRetryPolicy.cs</code> (new) - injectable backoff/clock/delay</li>
+  <li><code>phone/CcDirectorClient/Voice/VoiceTurnHttpException.cs</code> (new) - status-carrying exception (5xx/404/410)</li>
+  <li><code>phone/CcDirectorClient/Voice/VoiceTurnTerminalExceptions.cs</code> (new) - timeout + expired terminal types</li>
+  <li><code>phone/CcDirectorClient/Voice/VoiceConversation.cs</code> - agent path delegates to the runner</li>
+  <li><code>phone/CcDirectorClient/Voice/DirectorVoiceClient.cs</code> - implements <code>IVoiceTurnChannel</code>; poll throws status-carrying exception</li>
+  <li><code>phone/CcDirectorClient.Tests/VoiceTurnRunnerTests.cs</code> (new) - 11 tests</li>
+  <li><code>phone/CcDirectorClient.Tests/CcDirectorClient.Tests.csproj</code> - link-include the new pure-logic files</li>
+</ul>
+
+<div class="done">I believe this is finished. All four required test cases (and three extra) pass, both the test project and the MAUI app build clean, and there is no CenCon drift.</div>
+
+</body>
+</html>

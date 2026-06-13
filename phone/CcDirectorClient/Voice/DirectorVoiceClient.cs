@@ -41,7 +41,7 @@ public sealed record BufferSlice(string Text, long NewCursor);
 /// the phone sounds identical to the web instead of falling back to a robotic
 /// on-device engine.
 /// </summary>
-public sealed class DirectorVoiceClient
+public sealed class DirectorVoiceClient : IVoiceTurnChannel
 {
     private static readonly JsonSerializerOptions Json = new()
     {
@@ -220,10 +220,11 @@ public sealed class DirectorVoiceClient
     /// <summary>
     /// Poll the GATEWAY for the result of a previously submitted voice turn
     /// (GET {gatewayBase}/sessions/{sid}/voice-turn/{turnId}). Answered from the
-    /// Gateway's job cache - no Director call. Call every ~1.5 seconds until
-    /// <see cref="VoiceTurnPollResult.Stage"/> is "reply" or "error". Throws on HTTP
-    /// failure (including the 404 for an unknown/expired turn id) so the caller
-    /// surfaces the real reason.
+    /// Gateway's job cache - no Director call. Driven by <see cref="VoiceTurnRunner"/>, which
+    /// polls on a steady cadence and tolerates a transient drop. On a non-2xx response this
+    /// throws <see cref="VoiceTurnHttpException"/> carrying the status code so the runner can
+    /// classify it - a 5xx is transient (re-poll), a 404 is an expired/unknown turn, a 410 is
+    /// a gone session.
     /// </summary>
     public async Task<VoiceTurnPollResult> PollVoiceTurnAsync(
         string gatewayBase, string sessionId, string turnId, CancellationToken ct = default)
@@ -233,7 +234,7 @@ public sealed class DirectorVoiceClient
         var resp = await http.GetAsync($"{b}/sessions/{sessionId}/voice-turn/{turnId}", ct);
         var body = await resp.Content.ReadAsStringAsync(ct);
         if (!resp.IsSuccessStatusCode)
-            throw new HttpRequestException($"voice-turn poll failed: {(int)resp.StatusCode} {body}");
+            throw new VoiceTurnHttpException(resp.StatusCode, $"voice-turn poll failed: {(int)resp.StatusCode} {body}");
         return VoiceTurnResults.ParsePoll(body);
     }
 
