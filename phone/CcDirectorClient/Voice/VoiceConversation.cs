@@ -70,10 +70,16 @@ public sealed class VoiceConversation
     /// transcript, waiting, thinking, summarizing, reply, speaking). Returns the final
     /// spoken summary text. Throws on submit/poll failure or a terminal error stage so
     /// the caller can surface the real error.
+    /// <paramref name="onTurnSubmitted"/> fires with the turn id the instant submit returns,
+    /// so the caller can persist the in-flight turn and resume polling it after an app
+    /// restart/background/crash (issue #406). <paramref name="onTurnTerminal"/> fires once the
+    /// turn reaches ANY terminal outcome (reply, error, expired, or session gone) so the caller
+    /// can clear that persisted turn - it must no longer be resumed.
     /// </summary>
     public async Task<string> SpeakTurnAsync(
         SessionInfo session, UtteranceAudio audio,
-        Action<TurnUpdate>? onUpdate = null, CancellationToken ct = default, bool forceWingman = false)
+        Action<TurnUpdate>? onUpdate = null, CancellationToken ct = default, bool forceWingman = false,
+        Action<string>? onTurnSubmitted = null, Action? onTurnTerminal = null)
     {
         ClientLog.Write($"[VoiceConversation] SpeakTurn: session={session.DisplayName}, forceWingman={forceWingman}");
 
@@ -113,36 +119,98 @@ public sealed class VoiceConversation
             _gatewayBaseUrl, session.SessionId, audio.Bytes, audio.Mime, ct);
         ClientLog.Write($"[VoiceConversation] SpeakTurn: submitted turnId={submit.TurnId}");
 
+        // Persist the in-flight turn the instant submit returns (issue #406): if the app is
+        // killed/backgrounded/crashes during the poll below, the caller can reload this turn id
+        // and resume polling the reply the Gateway already cached, instead of abandoning it.
+        onTurnSubmitted?.Invoke(submit.TurnId);
+
+        return await PollAndSpeakAsync(runner, session.SessionId, submit.TurnId, onUpdate, onTurnTerminal, ct);
+    }
+
+    /// <summary>
+    /// Resume polling a turn that was submitted on a PREVIOUS app run and persisted (issue #406):
+    /// the Gateway still has the cached result (within its ~10-minute job TTL), so this reuses the
+    /// SAME hardened poll loop as a fresh turn (<see cref="VoiceTurnRunner.PollToCompletionAsync"/>)
+    /// to deliver the reply - it does not reinvent the loop. <paramref name="onTurnTerminal"/> fires
+    /// on any terminal outcome (reply, error, expired, gone) so the caller clears the persisted turn.
+    /// Throws the same terminal exceptions as a fresh turn (e.g. <see cref="VoiceTurnExpiredException"/>
+    /// when the cached turn has since expired) so the caller can surface a clear message.
+    /// </summary>
+    public Task<string> ResumeTurnAsync(
+        string sessionId, string turnId,
+        Action<TurnUpdate>? onUpdate = null, Action? onTurnTerminal = null, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId))
+            throw new ArgumentException("session id is required", nameof(sessionId));
+        if (string.IsNullOrWhiteSpace(turnId))
+            throw new ArgumentException("turn id is required", nameof(turnId));
+        if (string.IsNullOrWhiteSpace(_gatewayBaseUrl))
+            throw new InvalidOperationException(
+                "gateway URL is not configured - set the Gateway address in settings to resume a voice turn");
+
+        ClientLog.Write($"[VoiceConversation] ResumeTurn: sid={sessionId}, turnId={turnId}");
+        var runner = new VoiceTurnRunner(_client, _retryPolicy);
+        return PollAndSpeakAsync(runner, sessionId, turnId, onUpdate, onTurnTerminal, ct);
+    }
+
+    /// <summary>
+    /// Poll the Gateway's job cache until the turn lands in a terminal stage, surface progress
+    /// via <paramref name="onUpdate"/>, then speak the reply audio. Shared by the fresh-turn and
+    /// resume paths so both run the identical hardened loop (issue #405) and identical playback.
+    /// <paramref name="onTurnTerminal"/> fires on every terminal outcome - the normal reply AND
+    /// the terminal failures the runner throws (error stage, 404 expired, 410 gone, deadline) -
+    /// so the caller always clears the persisted in-flight turn (issue #406).
+    /// </summary>
+    private async Task<string> PollAndSpeakAsync(
+        VoiceTurnRunner runner, string sessionId, string turnId,
+        Action<TurnUpdate>? onUpdate, Action? onTurnTerminal, CancellationToken ct)
+    {
         // Poll the Gateway's job cache until the turn lands in a terminal stage. The runner
         // tolerates transient drops (network error, 5xx, timeout) by re-polling with backoff
         // and gives up only at the server-TTL deadline or on a terminal condition (issue #405).
         // Stage vocabulary: submitted, transcribing, transcript, waiting, thinking,
         // summarizing, reply (terminal), error (terminal).
-        var poll = await runner.PollToCompletionAsync(
-            _gatewayBaseUrl, session.SessionId, submit.TurnId,
-            onStage: p =>
-            {
-                switch (p.Stage)
+        VoiceTurnPollResult poll;
+        try
+        {
+            poll = await runner.PollToCompletionAsync(
+                _gatewayBaseUrl, sessionId, turnId,
+                onStage: p =>
                 {
-                    case "transcribing":
-                        onUpdate?.Invoke(new TurnUpdate("transcribing", "Transcribing..."));
-                        break;
-                    case "transcript":
-                        if (!string.IsNullOrWhiteSpace(p.Transcript))
-                            onUpdate?.Invoke(new TurnUpdate("transcript", p.Transcript));
-                        break;
-                    case "waiting":
-                        onUpdate?.Invoke(new TurnUpdate("waiting", "Waiting for the session to be ready..."));
-                        break;
-                    case "thinking":
-                        onUpdate?.Invoke(new TurnUpdate("thinking", "Thinking..."));
-                        break;
-                    case "summarizing":
-                        onUpdate?.Invoke(new TurnUpdate("summarizing", "Summarizing..."));
-                        break;
-                }
-            },
-            ct: ct);
+                    switch (p.Stage)
+                    {
+                        case "transcribing":
+                            onUpdate?.Invoke(new TurnUpdate("transcribing", "Transcribing..."));
+                            break;
+                        case "transcript":
+                            if (!string.IsNullOrWhiteSpace(p.Transcript))
+                                onUpdate?.Invoke(new TurnUpdate("transcript", p.Transcript));
+                            break;
+                        case "waiting":
+                            onUpdate?.Invoke(new TurnUpdate("waiting", "Waiting for the session to be ready..."));
+                            break;
+                        case "thinking":
+                            onUpdate?.Invoke(new TurnUpdate("thinking", "Thinking..."));
+                            break;
+                        case "summarizing":
+                            onUpdate?.Invoke(new TurnUpdate("summarizing", "Summarizing..."));
+                            break;
+                    }
+                },
+                ct: ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // A terminal failure (error stage, expired 404, session gone 410, deadline) ends this
+            // turn for good - clear the persisted in-flight turn so it is never resumed again.
+            // A cancellation is NOT terminal (the user navigated away mid-turn): leave the persisted
+            // turn so the next launch can resume it within the TTL.
+            onTurnTerminal?.Invoke();
+            throw;
+        }
+
+        // Reply is the normal terminal stage: clear the persisted in-flight turn.
+        onTurnTerminal?.Invoke();
 
         var summary = poll.Summary ?? "";
         onUpdate?.Invoke(new TurnUpdate("reply", summary));
@@ -160,7 +228,7 @@ public sealed class VoiceConversation
                 await _tts.PlayAsync(mp3, ct);
         }
 
-        ClientLog.Write($"[VoiceConversation] SpeakTurn done: turnId={submit.TurnId}, summaryChars={summary.Length}");
+        ClientLog.Write($"[VoiceConversation] PollAndSpeak done: turnId={turnId}, summaryChars={summary.Length}");
         return summary;
     }
 

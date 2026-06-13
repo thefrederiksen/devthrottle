@@ -45,6 +45,9 @@
     <Compile Include="..\CcDirectorClient\Voice\IAudioCue.cs" Link="Voice\IAudioCue.cs" />
     <Compile Include="..\CcDirectorClient\Voice\NullAudioCue.cs" Link="Voice\NullAudioCue.cs" />
     <Compile Include="..\CcDirectorClient\Voice\PairingLink.cs" Link="Voice\PairingLink.cs" />
+    <Compile Include="..\CcDirectorClient\Voice\IKeyValueStore.cs" Link="Voice\IKeyValueStore.cs" />
+    <Compile Include="..\CcDirectorClient\Voice\InFlightVoiceTurn.cs" Link="Voice\InFlightVoiceTurn.cs" />
+    <Compile Include="..\CcDirectorClient\Voice\InFlightTurnStore.cs" Link="Voice\InFlightTurnStore.cs" />
   </ItemGroup>
 
 </Project>
