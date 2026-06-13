@@ -33,6 +33,15 @@ public partial class TalkPage : ContentPage
     private readonly IVoiceForeground _foreground;
     private readonly IAudioCue _audioCue;
 
+    // Persists the single in-flight voice turn so a reply the Gateway already cached
+    // (~10-minute TTL) is not lost when the app is killed/backgrounded/crashes mid-turn,
+    // and can be resumed on the next launch (issue #406).
+    private readonly InFlightTurnStore _inFlightTurns = new(new PreferencesKeyValueStore());
+
+    // Guards the resume-on-appearing path so it runs at most once per app foreground and
+    // never overlaps a fresh turn already running.
+    private bool _resumeAttempted;
+
     private SessionInfo? _selected;
 
     // True while the app is in the background (Waze etc.). Speech that the
@@ -95,9 +104,107 @@ public partial class TalkPage : ContentPage
         VoiceStopSpeakingButton.IsVisible = _tts.IsPlaying;
         _ = LoadRosterAsync();
 
+        // Resume a voice turn that was in flight when the app was last killed/backgrounded
+        // (issue #406): the Gateway still has the reply cached within its job TTL.
+        _ = TryResumeInFlightTurnAsync();
+
         // Returning from background onto an open session's Wingman tab: resume the brief
         // poll that OnDisappearing stopped.
         if (_selected is not null && _activeTab == "wingman") StartWingmanBriefPoll();
+    }
+
+    // ===== resume an in-flight voice turn (issue #406) =====================
+    // On app launch / foreground, if a turn was persisted on submit and is still inside the
+    // Gateway job TTL, reuse the SAME hardened poll loop to deliver the reply; if it is past
+    // the TTL, discard it with a plain message instead of polling a guaranteed 404.
+
+    private async Task TryResumeInFlightTurnAsync()
+    {
+        // At most one resume attempt per foreground, and never while a fresh turn is running.
+        if (_resumeAttempted || _voiceTurnBusy) return;
+        _resumeAttempted = true;
+
+        InFlightVoiceTurn? pending;
+        try
+        {
+            pending = _inFlightTurns.Load();
+        }
+        catch (Exception ex)
+        {
+            ClientLog.Write($"[TalkPage] TryResumeInFlightTurn load FAILED: {ex.Message}");
+            return;
+        }
+        if (pending is null) return;
+
+        // Past the Gateway job TTL: the cached reply is gone, so polling it would just 404.
+        // Discard it and tell the user plainly rather than chasing an expired turn.
+        if (!pending.IsWithinTtl(DateTimeOffset.UtcNow, InFlightTurnStore.ResumeWindow))
+        {
+            ClientLog.Write($"[TalkPage] TryResumeInFlightTurn: turn {pending.TurnId} past TTL (submittedAt={pending.SubmittedAt:O}) - discarding");
+            _inFlightTurns.Clear();
+            VoiceStatusLabel.Text = "The last voice turn expired before it could be delivered. Tap Record to try again.";
+            return;
+        }
+
+        ClientLog.Write($"[TalkPage] TryResumeInFlightTurn: resuming sid={pending.SessionId}, turnId={pending.TurnId}");
+        await ResumeVoiceTurnAsync(pending);
+    }
+
+    // Resume polling the persisted turn through VoiceConversation.ResumeTurnAsync, which reuses
+    // the #405 hardened poll loop. Mirrors RunVoiceTurnAsync's UI plumbing; clears the persisted
+    // turn on any terminal outcome (the conversation fires onTurnTerminal for reply/error/expired/gone).
+    private async Task ResumeVoiceTurnAsync(InFlightVoiceTurn pending)
+    {
+        var gate = OfflineGuard.Check(DeviceOnline, "resume your last voice message");
+        if (!gate.Allowed) { VoiceStatusLabel.Text = gate.Message; return; }
+
+        _voiceTurnBusy = true;
+        VoiceRecordButton.IsEnabled = false;
+        _foreground.Start();
+        VoiceStatusLabel.Text = "Reconnecting to your last voice message...";
+
+        var convo = new VoiceConversation(
+            new DirectorVoiceClient(TokenEntry.Text ?? ""), _tts, (ServerEntry.Text ?? "").Trim());
+        _voiceTurnCts?.Cancel();
+        _voiceTurnCts = new CancellationTokenSource();
+        var cts = _voiceTurnCts;
+        try
+        {
+            string rawReply = await convo.ResumeTurnAsync(
+                pending.SessionId, pending.TurnId,
+                onUpdate: u => MainThread.BeginInvokeOnMainThread(() => ApplyVoiceTurnUpdate(u)),
+                onTurnTerminal: () => _inFlightTurns.Clear(),
+                ct: cts.Token);
+
+            if (!string.IsNullOrWhiteSpace(rawReply))
+            {
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+                    VoiceReplyLabel.Text = rawReply;
+                    VoiceReplyCard.IsVisible = true;
+                });
+            }
+            VoiceStatusLabel.Text = "Tap Record to reply.";
+        }
+        catch (OperationCanceledException)
+        {
+            // The user navigated away while we were resuming. The turn is NOT cleared on cancel,
+            // so a later launch can still resume it within the TTL.
+            VoiceStatusLabel.Text = "Tap Record and talk to the agent.";
+        }
+        catch (Exception ex)
+        {
+            // Terminal failures already cleared the persisted turn inside ResumeTurnAsync.
+            VoiceStatusLabel.Text = "";
+            await DisplayAlert("Voice error", ex.Message, "OK");
+        }
+        finally
+        {
+            _audioCue.StopThinking();
+            _voiceTurnBusy = false;
+            VoiceRecordButton.IsEnabled = true;
+            _foreground.Stop();
+        }
     }
 
     protected override void OnDisappearing()
@@ -609,48 +716,14 @@ public partial class TalkPage : ContentPage
         try
         {
             string rawReply = await convo.SpeakTurnAsync(session, audio,
-                onUpdate: u =>
-                {
-                    // Route each stage to the appropriate UI element on the main thread.
-                    MainThread.BeginInvokeOnMainThread(() =>
-                    {
-                        switch (u.Stage)
-                        {
-                            case "transcribing":
-                                VoiceStatusLabel.Text = "Transcribing...";
-                                break;
-                            case "transcript":
-                                VoiceYouLabel.Text = u.Text;
-                                VoiceYouCard.IsVisible = true;
-                                VoiceReplyCard.IsVisible = false;
-                                break;
-                            case "waiting":
-                                VoiceStatusLabel.Text = "Waiting for session to finish...";
-                                break;
-                            case "thinking":
-                                VoiceStatusLabel.Text = "Thinking...";
-                                _audioCue.PlaySent();
-                                _audioCue.StartThinking();
-                                break;
-                            case "summarizing":
-                                VoiceStatusLabel.Text = "Summarizing...";
-                                break;
-                            case "reply":
-                                _audioCue.StopThinking();
-                                _audioCue.PlayReply();
-                                VoiceReplyLabel.Text = u.Text;
-                                VoiceReplyCard.IsVisible = true;
-                                break;
-                            case "speaking":
-                                VoiceStatusLabel.Text = "Speaking...";
-                                break;
-                            default:
-                                VoiceStatusLabel.Text = u.Text;
-                                break;
-                        }
-                    });
-                },
-                ct: cts.Token);
+                onUpdate: u => MainThread.BeginInvokeOnMainThread(() => ApplyVoiceTurnUpdate(u)),
+                ct: cts.Token,
+                // Persist the in-flight turn the instant submit returns, and clear it on any
+                // terminal outcome - so a kill/background/crash mid-turn can be resumed on the
+                // next launch (issue #406). Latest wins: a new submit replaces an older turn.
+                onTurnSubmitted: turnId => _inFlightTurns.Save(
+                    new InFlightVoiceTurn(session.SessionId, turnId, DateTimeOffset.UtcNow)),
+                onTurnTerminal: () => _inFlightTurns.Clear());
 
             if (!string.IsNullOrWhiteSpace(rawReply))
             {
@@ -678,6 +751,47 @@ public partial class TalkPage : ContentPage
             _voiceTurnBusy = false;
             VoiceRecordButton.IsEnabled = true;
             _foreground.Stop();
+        }
+    }
+
+    // Route one voice-turn stage update to the right UI element. Called on the main thread by
+    // both the fresh-turn (RunVoiceTurnAsync) and the resume (ResumeVoiceTurnAsync) paths so the
+    // status line and cards behave identically whichever path drove the turn (issue #406).
+    private void ApplyVoiceTurnUpdate(VoiceConversation.TurnUpdate u)
+    {
+        switch (u.Stage)
+        {
+            case "transcribing":
+                VoiceStatusLabel.Text = "Transcribing...";
+                break;
+            case "transcript":
+                VoiceYouLabel.Text = u.Text;
+                VoiceYouCard.IsVisible = true;
+                VoiceReplyCard.IsVisible = false;
+                break;
+            case "waiting":
+                VoiceStatusLabel.Text = "Waiting for session to finish...";
+                break;
+            case "thinking":
+                VoiceStatusLabel.Text = "Thinking...";
+                _audioCue.PlaySent();
+                _audioCue.StartThinking();
+                break;
+            case "summarizing":
+                VoiceStatusLabel.Text = "Summarizing...";
+                break;
+            case "reply":
+                _audioCue.StopThinking();
+                _audioCue.PlayReply();
+                VoiceReplyLabel.Text = u.Text;
+                VoiceReplyCard.IsVisible = true;
+                break;
+            case "speaking":
+                VoiceStatusLabel.Text = "Speaking...";
+                break;
+            default:
+                VoiceStatusLabel.Text = u.Text;
+                break;
         }
     }
 

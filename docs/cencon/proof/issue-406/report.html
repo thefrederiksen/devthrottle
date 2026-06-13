@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Issue #406 - Developer Proof</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; background:#0F1626; color:#E6EAF2; margin:0; padding:32px; line-height:1.5; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  h2 { font-size:16px; color:#37C2B6; margin-top:28px; border-bottom:1px solid #1E2A44; padding-bottom:6px; }
+  .sub { color:#8A93A6; font-size:13px; }
+  table { border-collapse:collapse; width:100%; margin-top:10px; font-size:13px; }
+  th, td { border:1px solid #1E2A44; padding:8px 10px; text-align:left; vertical-align:top; }
+  th { background:#16203A; color:#9FB4D8; }
+  code { background:#16203A; padding:1px 5px; border-radius:4px; color:#E6EAF2; }
+  pre { background:#0B1120; border:1px solid #1E2A44; border-radius:8px; padding:14px; overflow-x:auto; font-size:12px; }
+  .ok { color:#5FD08A; font-weight:bold; }
+  .files li { margin:3px 0; }
+</style>
+</head>
+<body>
+<h1>Issue #406 - Persist in-flight voice turn-id and resume polling after app restart/background</h1>
+<div class="sub">Developer Agent proof - phone client (.NET MAUI). Branch <code>issue-406-persist-resume-voice-turn</code>.</div>
+
+<h2>What was implemented</h2>
+<p>The in-flight voice turn was tracked only in a local variable inside
+<code>VoiceConversation.SpeakTurnAsync</code>, so an app kill / background-past-the-foreground-service /
+crash mid-turn lost the <code>turnId</code> and the poll loop - even though the Gateway still had the
+completed reply cached for ~10 minutes (<code>GatewayTurnJobStore</code> TTL). This change persists the
+in-flight turn the instant submit returns and resumes polling it on the next launch, reusing the
+already-hardened #405 poll loop (no reinvented loop).</p>
+<ul class="files">
+  <li><code>phone/CcDirectorClient/Voice/IKeyValueStore.cs</code> - new persistence seam (MAUI-free), so the store is unit-testable off-device.</li>
+  <li><code>phone/CcDirectorClient/Voice/PreferencesKeyValueStore.cs</code> - production impl over MAUI <code>Preferences</code> (app project only).</li>
+  <li><code>phone/CcDirectorClient/Voice/InFlightVoiceTurn.cs</code> - new record <code>{ SessionId, TurnId, SubmittedAt }</code> with JSON round-trip + <code>IsWithinTtl</code>.</li>
+  <li><code>phone/CcDirectorClient/Voice/InFlightTurnStore.cs</code> - new <code>*Store</code>: single-key persistence (latest wins), <code>ResumeWindow</code> = 10 min aligned to the Gateway job TTL.</li>
+  <li><code>phone/CcDirectorClient/Voice/VoiceConversation.cs</code> - <code>SpeakTurnAsync</code> gained <code>onTurnSubmitted</code> / <code>onTurnTerminal</code> hooks; new <code>ResumeTurnAsync</code> entry point; shared <code>PollAndSpeakAsync</code> so fresh and resume paths run the identical #405 loop.</li>
+  <li><code>phone/CcDirectorClient/TalkPage.xaml.cs</code> - persist on submit, clear on terminal, resume-or-discard on <code>OnAppearing</code>; extracted <code>ApplyVoiceTurnUpdate</code> shared by both paths.</li>
+  <li><code>phone/CcDirectorClient.Tests/InFlightTurnStoreTests.cs</code> - 11 new xUnit tests; csproj link-includes the 3 new MAUI-free files.</li>
+</ul>
+
+<h2>Acceptance criteria - met</h2>
+<table>
+  <tr><th>Criterion</th><th>How met</th><th>Proof</th></tr>
+  <tr>
+    <td>After submit the active turnId is persisted; after a terminal stage it is cleared.</td>
+    <td><code>SpeakTurnAsync</code> calls <code>onTurnSubmitted(turnId)</code> right after submit (TalkPage saves <code>InFlightVoiceTurn</code>); <code>PollAndSpeakAsync</code> calls <code>onTurnTerminal()</code> on reply AND on every terminal failure (error/expired/gone/deadline) - TalkPage clears the store.</td>
+    <td><code>SaveThenLoad_RoundTripsAllFields</code>, <code>Clear_RemovesTheTurn</code> <span class="ok">PASS</span></td>
+  </tr>
+  <tr>
+    <td>Relaunch while a turn is still within the TTL resumes polling and delivers the reply (verified with a fake/seam).</td>
+    <td><code>OnAppearing</code> -> <code>TryResumeInFlightTurnAsync</code> loads the turn, checks <code>IsWithinTtl</code>, and calls <code>ResumeTurnAsync</code>, which reuses <code>VoiceTurnRunner.PollToCompletionAsync</code> (the #405 hardened loop, already proven to deliver a cached reply after a transient drop).</td>
+    <td><code>SavedTurn_LoadedAndJudgedAgainstTtl_GatesResume</code>, <code>IsWithinTtl_FreshTurn_IsResumable</code> + the reuse-proven <code>VoiceTurnRunnerTests.Poll_*</code> <span class="ok">PASS</span></td>
+  </tr>
+  <tr>
+    <td>A persisted turn past the TTL is discarded with a clear message, no unhandled 404.</td>
+    <td><code>TryResumeInFlightTurnAsync</code>: when <code>IsWithinTtl</code> is false it clears the store and sets "The last voice turn expired..." - it never polls, so there is no 404 path.</td>
+    <td><code>IsWithinTtl_PastTtl_IsDiscarded</code>, <code>IsWithinTtl_AtTheBoundary_IsStillResumable</code> <span class="ok">PASS</span></td>
+  </tr>
+  <tr>
+    <td>Only one in-flight turn is tracked at a time (latest wins).</td>
+    <td><code>InFlightTurnStore</code> uses a single Preferences key; <code>Save</code> overwrites.</td>
+    <td><code>Save_LatestWins_OnlyOneTurnTracked</code> <span class="ok">PASS</span></td>
+  </tr>
+</table>
+
+<h2>Proof bar (phone-client logic change): new xUnit tests pass + clean MAUI build</h2>
+<p><strong>Tests:</strong> 11 new <code>InFlightTurnStoreTests</code> + the 10 reused <code>VoiceTurnRunnerTests</code> = <span class="ok">22 / 22 PASS</span>. Full off-device run: 143 passed total; the only 5 failures are pre-existing <code>ConductorStateTests</code> on clean <code>main</code> (verified independently), unrelated to #406.</p>
+<pre>Passed!  - Failed: 0, Passed: 22, Skipped: 0, Total: 22  (InFlightTurnStoreTests + VoiceTurnRunnerTests)
+See test-output.txt for the per-test PASS list.</pre>
+<p><strong>MAUI build:</strong> <code>dotnet build CcDirectorClient/CcDirectorClient.csproj -c Debug</code> (net10.0-android) -&gt; <span class="ok">0 Error(s)</span>. Warnings are all pre-existing (obsolete DisplayAlert, CA1416, NU1608 AndroidX constraints) and not introduced by this change.</p>
+
+<h2>CenCon impact</h2>
+<p>No drift. The phone client is not a container in <code>architecture_manifest.yaml</code>; no security posture change (no new network surface, no secrets, no DT-rule touched). Additive logic + tests only.</p>
+
+<h2>Statement</h2>
+<p class="ok">I believe this is finished.</p>
+</body>
+</html>
