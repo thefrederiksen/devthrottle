@@ -5,6 +5,7 @@ using CcDirector.Core.Settings;
 
 namespace CcDirector.Core.Tests.Settings;
 
+[Collection("ConfigEnvSerial")]
 public class ToolDetectionServiceTests
 {
     [Fact]

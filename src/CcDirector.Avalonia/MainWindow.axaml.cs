@@ -2191,7 +2191,10 @@ public partial class MainWindow : Window
         var agentKind = dialog.SelectedAgentKind;
 
         // Build agent arguments. Claude flags don't apply to other agents.
-        string agentArgs;
+        // When the dialog specifies no Claude flags, pass null so the machine-level
+        // configured default command line (Tools page preset + default model, issue #391)
+        // applies instead of an empty override.
+        string? agentArgs;
         if (agentKind == AgentKind.ClaudeCode)
         {
             var claudeArgs = "";
@@ -2199,11 +2202,11 @@ public partial class MainWindow : Window
                 claudeArgs = "remote-control ";
             if (dialog.BypassPermissions)
                 claudeArgs += "--dangerously-skip-permissions ";
-            agentArgs = claudeArgs.Trim();
+            agentArgs = claudeArgs.Length > 0 ? claudeArgs.Trim() : null;
         }
         else
         {
-            agentArgs = string.Empty;
+            agentArgs = null;
         }
 
         // Build the IAgent. For RawCli, construct it directly from the dialog's custom fields.

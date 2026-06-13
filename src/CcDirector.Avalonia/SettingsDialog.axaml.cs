@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using Avalonia.Controls;
@@ -90,6 +92,8 @@ public partial class SettingsDialog : Window
             OpenAiKeyBox.Text = openAiKey;
             AlphaFeaturesCheck.IsChecked = _loadedAlpha;
             RawConfigBox.Text = raw;
+
+            LoadToolPresets();
 
             LoadingText.IsVisible = false;
             SettingsTabs.IsVisible = true;
@@ -261,13 +265,24 @@ public partial class SettingsDialog : Window
             var alpha = AlphaFeaturesCheck.IsChecked == true;
             var alphaChanged = alpha != _loadedAlpha;
 
-            if (patch.Count == 0 && !alphaChanged)
+            // Per-tool presets/model/enabled are persisted separately to config.json
+            // (agent.tools.<key>) - a machine-level write, never a gateway call. The snapshot
+            // is read on the UI thread; the disk write runs off it.
+            var presetSnapshot = SnapshotToolPresets();
+            var presetsChanged = await Task.Run(() => PersistToolPresets(presetSnapshot));
+
+            if (patch.Count == 0 && !alphaChanged && !presetsChanged)
             {
                 // Nothing changed - "Save and Close" just closes, same as Cancel.
                 FileLog.Write("[SettingsDialog] BtnSave_Click: no changes; closing");
                 Close();
                 return;
             }
+
+            // A Claude preset/model change must take effect for the next session without a
+            // restart, so recompute the running Claude default args from the saved config.
+            if (presetsChanged)
+                ApplyClaudePresetToRunningOptions();
 
             if (patch.Count > 0)
                 await Task.Run(() => CcDirectorConfigService.MergePatch(patch));
@@ -661,6 +676,119 @@ public partial class SettingsDialog : Window
         ToolDetectionService.SetConfiguredPath(AgentKind.Codex, options, codexPath);
         ToolDetectionService.SetConfiguredPath(AgentKind.Gemini, options, geminiPath);
         ToolDetectionService.SetConfiguredPath(AgentKind.OpenCode, options, openCodePath);
+    }
+
+    /// <summary>The control set for one tool's preset/model/enabled/override editors.</summary>
+    private readonly record struct ToolPresetControls(
+        AgentKind Tool, ComboBox Preset, TextBox Model, TextBox Override, CheckBox Enabled);
+
+    private ToolPresetControls[] PresetControls() => new[]
+    {
+        new ToolPresetControls(AgentKind.ClaudeCode, ClaudePresetCombo, ClaudeModelBox, ClaudeArgsOverrideBox, ClaudeEnabledCheck),
+        new ToolPresetControls(AgentKind.Pi, PiPresetCombo, PiModelBox, PiArgsOverrideBox, PiEnabledCheck),
+        new ToolPresetControls(AgentKind.Codex, CodexPresetCombo, CodexModelBox, CodexArgsOverrideBox, CodexEnabledCheck),
+        new ToolPresetControls(AgentKind.Gemini, GeminiPresetCombo, GeminiModelBox, GeminiArgsOverrideBox, GeminiEnabledCheck),
+        new ToolPresetControls(AgentKind.OpenCode, OpenCodePresetCombo, OpenCodeModelBox, OpenCodeArgsOverrideBox, OpenCodeEnabledCheck),
+    };
+
+    /// <summary>
+    /// Populate each tool section's command-line preset list (from the built-in catalog), and
+    /// fill the selected preset, default model, args override, and enabled flag from the
+    /// machine-level per-tool config in config.json (issue #391). A tool never configured shows
+    /// the catalog default - for Claude that is the Standard (non-skip-permissions) preset.
+    /// </summary>
+    private void LoadToolPresets()
+    {
+        FileLog.Write("[SettingsDialog] LoadToolPresets");
+        foreach (var c in PresetControls())
+        {
+            var entry = AgentToolCatalog.GetEntry(c.Tool);
+            var presetNames = entry.Presets.Select(p => p.Name).ToList();
+            c.Preset.ItemsSource = presetNames;
+
+            var config = AgentToolConfig.Load(c.Tool);
+            var index = presetNames.FindIndex(n => string.Equals(n, config.PresetName, StringComparison.OrdinalIgnoreCase));
+            c.Preset.SelectedIndex = index >= 0 ? index : 0;
+            c.Model.Text = config.DefaultModel;
+            c.Override.Text = config.ArgsOverride;
+            c.Enabled.IsChecked = config.Enabled;
+        }
+    }
+
+    /// <summary>
+    /// Read the per-tool editor controls into a list of <see cref="AgentToolConfig"/>. Must run on
+    /// the UI thread (it reads Avalonia control state); the actual disk write is done off-thread by
+    /// <see cref="PersistToolPresets"/>.
+    /// </summary>
+    private List<AgentToolConfig> SnapshotToolPresets()
+    {
+        var snapshot = new List<AgentToolConfig>();
+        foreach (var c in PresetControls())
+        {
+            snapshot.Add(new AgentToolConfig
+            {
+                Tool = c.Tool,
+                PresetName = c.Preset.SelectedItem as string ?? "",
+                DefaultModel = c.Model.Text?.Trim() ?? "",
+                ArgsOverride = c.Override.Text?.Trim() ?? "",
+                Enabled = c.Enabled.IsChecked == true,
+            });
+        }
+
+        return snapshot;
+    }
+
+    /// <summary>
+    /// Persist each tool's snapshot to the machine-level config.json (no gateway call). Returns
+    /// true if any tool's persisted config changed from what was on disk. Runs off the UI thread;
+    /// the snapshot is taken on the UI thread by <see cref="SnapshotToolPresets"/>.
+    /// </summary>
+    private static bool PersistToolPresets(List<AgentToolConfig> snapshot)
+    {
+        FileLog.Write("[SettingsDialog] PersistToolPresets");
+        var anyChanged = false;
+        foreach (var desired in snapshot)
+        {
+            var loaded = AgentToolConfig.Load(desired.Tool);
+            var presetName = string.IsNullOrEmpty(desired.PresetName) ? loaded.PresetName : desired.PresetName;
+
+            var changed = presetName != loaded.PresetName
+                || desired.DefaultModel != loaded.DefaultModel
+                || desired.ArgsOverride != loaded.ArgsOverride
+                || desired.Enabled != loaded.Enabled;
+            if (!changed)
+                continue;
+
+            new AgentToolConfig
+            {
+                Tool = desired.Tool,
+                PresetName = presetName,
+                DefaultModel = desired.DefaultModel,
+                ArgsOverride = desired.ArgsOverride,
+                Enabled = desired.Enabled,
+            }.Save();
+            anyChanged = true;
+        }
+
+        return anyChanged;
+    }
+
+    /// <summary>
+    /// Recompute the running Claude default args from the just-saved Claude per-tool config so a
+    /// new session launched without restart uses the configured preset and default model. Mirrors
+    /// the App startup wiring (App.ApplyConfiguredToolPresets) for the live options instance.
+    /// </summary>
+    private static void ApplyClaudePresetToRunningOptions()
+    {
+        FileLog.Write("[SettingsDialog] ApplyClaudePresetToRunningOptions");
+        var options = CurrentOptions();
+        var config = AgentToolConfig.Load(AgentKind.ClaudeCode);
+        var args = config.ResolveEffectiveArguments().Trim();
+        var model = config.DefaultModel?.Trim() ?? "";
+        if (model.Length > 0 && !args.Contains("--model", StringComparison.OrdinalIgnoreCase))
+            args = string.IsNullOrEmpty(args) ? $"--model {model}" : $"{args} --model {model}";
+        options.DefaultClaudeArgs = args;
+        FileLog.Write($"[SettingsDialog] ApplyClaudePresetToRunningOptions: defaultArgs='{args}'");
     }
 
     /// <summary>Reveal or mask the OpenAI key text. Default masked; "Show" reveals it for verification.</summary>

@@ -5,7 +5,14 @@ namespace CcDirector.Core.Configuration;
 public class AgentOptions
 {
     public string ClaudePath { get; set; } = "claude";
-    public string DefaultClaudeArgs { get; set; } = "--dangerously-skip-permissions";
+
+    /// <summary>
+    /// Default extra command-line arguments for Claude Code. The recommended default is the
+    /// STANDARD command line (no <c>--dangerously-skip-permissions</c>) so a freshly configured
+    /// Claude launches with the safe, permission-prompting behavior (issue #391). The
+    /// "Automatic (skip permissions)" preset is opt-in via the Tools page, never the default.
+    /// </summary>
+    public string DefaultClaudeArgs { get; set; } = "";
     public int DefaultBufferSizeBytes { get; set; } = 2_097_152; // 2 MB
     public int GracefulShutdownTimeoutSeconds { get; set; } = 5;
 

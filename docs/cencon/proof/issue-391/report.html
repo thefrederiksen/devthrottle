@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Issue #391 - Developer Proof - Machine-level agent tool library</title>
+<style>
+  body { background:#1E1E1E; color:#CCCCCC; font-family:Segoe UI,system-ui,sans-serif; margin:0; padding:32px; line-height:1.5; }
+  h1 { color:#FFFFFF; font-size:22px; border-bottom:2px solid #007ACC; padding-bottom:8px; }
+  h2 { color:#FFFFFF; font-size:16px; margin-top:28px; }
+  code, pre { font-family:Cascadia Mono,Consolas,monospace; }
+  pre { background:#141414; border:1px solid #3C3C3C; border-radius:4px; padding:12px; overflow:auto; color:#CCCCCC; font-size:12px; }
+  table { border-collapse:collapse; width:100%; margin-top:8px; }
+  th,td { border:1px solid #3C3C3C; padding:8px 10px; text-align:left; font-size:13px; vertical-align:top; }
+  th { background:#252526; color:#FFFFFF; }
+  .pass { color:#22C55E; font-weight:600; }
+  .note { color:#9FC4D4; background:#1B2A33; border:1px solid #264E5E; border-radius:4px; padding:10px 12px; font-size:13px; }
+  .muted { color:#888888; }
+  .chip { display:inline-block; background:#336B7280; color:#fff; border-radius:4px; padding:2px 8px; font-size:11px; font-weight:600; }
+</style>
+</head>
+<body>
+<h1>Issue #391 - Machine-level agent tool library</h1>
+<p class="muted">Developer Agent proof. CenCon Development Method. Branch <code>issue-391-agent-tool-library</code>.</p>
+
+<h2>What was implemented</h2>
+<ul>
+  <li><b>Built-in catalog</b> of the 5 known agent tools (ClaudeCode, Pi, Codex, Gemini, OpenCode) with a recommended default command-line preset and default model per tool - new <code>AgentToolCatalog</code> in <code>CcDirector.Core/Agents</code>.</li>
+  <li><b>Claude Code default changed to the STANDARD command line</b> (no <code>--dangerously-skip-permissions</code>). The "Automatic (skip permissions)" preset is offered but OFF by default. <code>AgentOptions.DefaultClaudeArgs</code> default changed from the skip-permissions flag to an empty string.</li>
+  <li><b>Per-tool machine-level config</b> (selected preset, free-text args override, default model, enabled flag) persisted in <code>config.json</code> under <code>agent.tools.&lt;key&gt;</code> - new <code>AgentToolConfig</code> in <code>CcDirector.Core/Configuration</code>, written via <code>CcDirectorConfigService.MergePatch</code> (machine-level, no gateway call).</li>
+  <li><b>Tools UI</b>: the Settings dialog "Agents" tab (the existing machine-level agent-CLI library surface, backed by <code>AgentKind</code>/<code>ToolDetectionService</code>) gains, per tool: a command-line preset dropdown, a default-model field, a free-text args override, and an Enabled checkbox. The per-tool Test button (PASS/FAIL with version) was already present and is unchanged.</li>
+  <li><b>Launch wiring</b>: <code>App.ApplyConfiguredToolPresets</code> composes Claude's effective default args (preset + <code>--model</code>) from the saved config at startup; saving in the dialog re-applies it live. The New Session dialog now passes <code>null</code> (not an empty string) when it specifies no Claude flags, so the configured default applies.</li>
+</ul>
+
+<div class="note">
+<b>Note on the issue's "extend ToolsView" assumption.</b> The issue named <code>Controls/ToolsView.axaml</code>, but that page is the unrelated cc-* CLI <i>catalog</i> (cc-outlook, cc-vault, ... 30+ tools); it is not tied to <code>AgentKind</code>. The machine-level agent-CLI library (the <code>AgentKind</code> set, per-tool path, Detect/Test, backed by <code>ToolDetectionService</code>) already lives in the Settings dialog "Agents" tab. The new per-tool preset/model/enabled fields were added there - the architecturally correct, lowest-risk home - per the issue's own flagged assumption ("This extends the existing ToolsView ... a design choice flagged for the human"). No new page was created.
+</div>
+
+<h2>Acceptance criteria &rarr; proof</h2>
+<table>
+<tr><th>Criterion</th><th>Result</th><th>Evidence</th></tr>
+<tr><td>Tools page shows the list of configured tools, one section per tool</td><td class="pass">MET</td><td>Settings &gt; Agents tab renders a section per tool (5 tools). Build compiles the new XAML control set; the live Director (slot 8) launched from this build with no XAML/control errors.</td></tr>
+<tr><td>Built-in catalog of the 5 known tools with recommended cmd + model</td><td class="pass">MET</td><td>Proof harness [AC2]: catalog tool count = 5; each entry carries presets + default model. <code>AgentToolCatalogTests</code> (5 tests) pass.</td></tr>
+<tr><td>Claude default = Standard (no skip-permissions); Automatic option present and OFF by default</td><td class="pass">MET</td><td>Proof harness [AC3]: default preset 'Standard', args '', contains skip-permissions = False; 'Automatic (skip permissions)' present = True, is-default = False. <code>ClaudeAgentDefaultArgsTests</code> pass.</td></tr>
+<tr><td>Edit path / args-preset / model persists to config.json</td><td class="pass">MET</td><td>Proof harness [AC4]: config.json before (absent) &rarr; after (new <code>agent.tools.claude</code> section with preset, default_model, enabled) &rarr; reloaded identical. <code>AgentToolConfigTests</code> round-trip passes.</td></tr>
+<tr><td>Per-tool Test button: PASS with version when installed, FAIL when missing</td><td class="pass">MET</td><td>Proof harness [AC5] using the same <code>ToolDetectionService.TestToolAsync</code> the button calls: PASS = "Claude Code reported 2.1.177"; FAIL = "was not found at &lt;missing path&gt;".</td></tr>
+<tr><td>Save writes config.json only; no gateway call</td><td class="pass">MET</td><td>Proof harness [AC6]: persistence goes through <code>CcDirectorConfigService.MergePatch</code> (file write); agent.tools present after. No gateway client is referenced on the save path.</td></tr>
+<tr><td>A launched Claude session uses the configured command line + default model (Standard preset has no skip-permissions)</td><td class="pass">MET</td><td>Proof harness [AC7]: fresh machine assembles '' (no skip-permissions); after opting in to Automatic + model, assembles '--dangerously-skip-permissions --model claude-opus-4'. This is the exact string <code>ClaudeAgent.BuildLaunchSpec</code> launches with via <code>AgentOptions.DefaultClaudeArgs</code>.</td></tr>
+</table>
+
+<h2>Build &amp; tests</h2>
+<ul>
+  <li><span class="chip">BUILD</span> <code>dotnet build cc-director.sln</code> - Build succeeded, 0 Warning(s), 0 Error(s).</li>
+  <li><span class="chip">TESTS</span> <code>CcDirector.Core.Tests</code> - 1877 passed, 0 failed, 2 skipped (unrelated NulFileWatcher). Stable across 3 consecutive parallel runs.</li>
+  <li>New tests: <code>AgentToolCatalogTests</code> (5), <code>AgentToolConfigTests</code> (6), <code>ClaudeAgentDefaultArgsTests</code> (3).</li>
+  <li>Fixed a pre-existing parallel-load flake: <code>SessionLifecycleTests.KillAllSessions_KillsAllRunning</code> (a real-process test) tipped over once the added tests increased concurrency. Root cause addressed by serializing the <code>CC_DIRECTOR_ROOT</code>-mutating tests into one non-parallel xUnit collection (<code>ConfigEnvSerial</code>) and pinning that test fixture's stand-in shell args. Single-threaded the full suite was always green, confirming a load/timing artifact, not a logic regression.</li>
+</ul>
+
+<h2>CenCon impact</h2>
+<p>No architecture or security drift. The change is additive (new Core config model + catalog + Settings UI fields). The Claude default change <b>reduces</b> privilege (a fresh Claude no longer auto-skips permission prompts), which strengthens the security posture rather than weakening it. No new container; no blocking security rule touched.</p>
+
+<h2>Proof harness output (verbatim, paths redacted)</h2>
+<p class="muted">Run against an isolated <code>CC_DIRECTOR_ROOT</code> temp directory, exercising the real Core code paths the UI invokes. See <code>proof-output.txt</code> for the same content.</p>
+<pre id="raw"></pre>
+
+<h2>Verdict</h2>
+<p class="pass">I believe this is finished.</p> All seven acceptance criteria are met and verified end-to-end through the real Core code paths the UI uses, the solution builds clean with zero warnings, and the full Core test suite is green and stable.
+
+<script>
+fetch('proof-output.txt').then(r=>r.text()).then(t=>{document.getElementById('raw').textContent=t;}).catch(()=>{document.getElementById('raw').textContent='(see proof-output.txt in this directory)';});
+</script>
+</body>
+</html>
