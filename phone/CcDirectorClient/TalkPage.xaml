@@ -55,6 +55,14 @@
 
                 <!-- Gateway settings (out of the way; pre-filled) -->
                 <Label Text="Gateway settings" FontSize="13" FontAttributes="Bold" TextColor="#5A6378" Margin="0,12,0,0" />
+
+                <!-- Scan the Cockpit "Connect a phone" QR to fill both fields in one tap (issue
+                     #386). The manual Entry fields below stay as a fallback. -->
+                <Button x:Name="ScanQrButton" Text="Scan QR to connect"
+                        BackgroundColor="#2B6CB0" TextColor="White" HeightRequest="48"
+                        CornerRadius="12" FontAttributes="Bold" Clicked="OnScanQrClicked" />
+                <Label x:Name="ScanStatusLabel" Text="" FontSize="12" TextColor="#8A93A6" IsVisible="False" />
+
                 <Entry x:Name="ServerEntry" Placeholder="https://gateway-host.ts.net"
                        TextColor="#A9B4C8" PlaceholderColor="#5A6378" BackgroundColor="#0F1626"
                        Unfocused="OnCredsChanged" />

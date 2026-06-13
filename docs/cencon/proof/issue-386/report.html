@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Issue #386 - Developer Agent Proof Report</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; background: #0B1020; color: #E6EAF2;
+         font-family: "Segoe UI", system-ui, -apple-system, sans-serif; line-height: 1.5; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 28px 22px 64px; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  h2 { font-size: 19px; margin: 30px 0 10px; border-bottom: 1px solid #1E2A44; padding-bottom: 6px; }
+  h3 { font-size: 15px; margin: 18px 0 6px; color: #9FB4D8; }
+  .sub { color: #8A93A6; font-size: 13px; margin-bottom: 18px; }
+  code, pre { font-family: Consolas, "Courier New", monospace; }
+  pre { background: #06090F; border: 1px solid #1E2A44; border-radius: 8px;
+        padding: 12px 14px; overflow-x: auto; font-size: 12.5px; color: #C9D4E6; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13.5px; }
+  th, td { border: 1px solid #1E2A44; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #141B2E; color: #9FB4D8; }
+  .pass { color: #5FD08A; font-weight: bold; }
+  .pending { color: #E8B339; font-weight: bold; }
+  .card { background: #0F1626; border: 1px solid #1E2A44; border-radius: 12px;
+          padding: 14px 16px; margin: 12px 0; }
+  .pill { display: inline-block; background: #15291C; color: #5FD08A; border: 1px solid #5FD08A;
+          border-radius: 20px; padding: 2px 10px; font-size: 11px; font-weight: bold; }
+  .pill.warn { background: #2A2206; color: #E8B339; border-color: #E8B339; }
+  ul { margin: 6px 0; padding-left: 22px; }
+  li { margin: 3px 0; }
+  .files li { font-family: Consolas, monospace; font-size: 12.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Issue #386 - [Voice] Phone app: scan the pairing QR to auto-fill Gateway URL + token</h1>
+  <div class="sub">Developer Agent proof report &middot; branch <code>issue-386-phone-qr-scan</code> &middot;
+    container <code>phone/CcDirectorClient</code> (.NET MAUI Android)</div>
+
+  <div class="card">
+    <strong>Summary.</strong> Added a "Scan QR to connect" button to the phone Talk page's
+    Gateway-settings section. Tapping it requests the camera, opens a ZXing.Net.MAUI camera QR
+    scanner, parses the Gateway's <code>ccdirector://pair?u=&amp;t=</code> pairing deep link
+    (the exact inverse of the merged #385 <code>PairingPayload.Build</code>), writes the decoded
+    <code>gateway_url</code> / <code>gateway_token</code> prefs, mirrors them into the visible
+    ServerEntry / TokenEntry fields, normalizes a trailing slash, and triggers the existing
+    roster-reload reconnect path. Manual entry stays as the fallback. Malformed / non-pairing
+    QRs show a clear message and leave the prefs untouched; a denied camera permission shows a
+    clear message and returns to settings without crashing.
+  </div>
+
+  <h2>Acceptance criteria</h2>
+  <table>
+    <tr><th>#</th><th>Criterion</th><th>Status</th><th>Evidence</th></tr>
+    <tr>
+      <td>1</td>
+      <td>Tapping "Scan QR to connect" opens a live camera scanner view.</td>
+      <td class="pending">CODE DONE / device run PENDING</td>
+      <td><code>OnScanQrClicked</code> requests <code>Permissions.Camera</code> then pushes
+        <code>QrScanPage</code> (hosts <code>CameraBarcodeReaderView</code>). On-screen capture is
+        part of the supervisor's hardware run (see runbook).</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>A valid QR sets both prefs AND updates the visible fields.</td>
+      <td class="pending">CODE DONE / device run PENDING</td>
+      <td>On <code>PairingLink.Parse(...).Ok</code>, <code>OnScanQrClicked</code> writes
+        <code>Preferences.Set(gateway_url/gateway_token)</code> and sets
+        <code>ServerEntry.Text</code> / <code>TokenEntry.Text</code>; logs a redacted line via
+        <code>ClientLog</code>. Parser proven by unit tests below.</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td>LIVE: after a scan a voice turn succeeds end-to-end (submit non-401, reply spoken).</td>
+      <td class="pending">PENDING supervisor hardware run</td>
+      <td>Requires a physical Android device scanning a real Cockpit QR + a person speaking.
+        Hardware + human-in-the-loop, handled by the supervisor exactly as #378's on-device test
+        was. RUNBOOK below. NOT faked.</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td>Malformed / non-pairing QR -> clear message, prefs untouched.</td>
+      <td class="pass">DONE (unit-proven)</td>
+      <td><code>PairingLink.Parse</code> returns <code>Ok=false</code> with the message
+        "Not a CC Director pairing code..." for wrong scheme/host or missing/empty
+        <code>u</code>/<code>t</code>; <code>OnScanQrClicked</code> then shows the message and
+        returns WITHOUT calling <code>Preferences.Set</code>. 10 rejection tests pass.</td>
+    </tr>
+    <tr>
+      <td>5</td>
+      <td>Denied camera permission -> clear message, no crash.</td>
+      <td class="pass">DONE (code)</td>
+      <td><code>OnScanQrClicked</code> checks <code>status != Granted</code> first, shows the
+        "Camera access is needed..." status + alert, and returns to settings. The scanner page is
+        never pushed, so there is no camera-less crash path.</td>
+    </tr>
+    <tr>
+      <td>6</td>
+      <td><code>dotnet build ... -f net10.0-android</code> -> 0 errors.</td>
+      <td class="pass">DONE</td>
+      <td>Build output below: <code>Build succeeded. 0 Error(s)</code>.</td>
+    </tr>
+  </table>
+
+  <h2>Criterion 6 - Android build (0 errors)</h2>
+  <pre>$ dotnet build phone\CcDirectorClient\CcDirectorClient.csproj -f net10.0-android
+
+  CcDirectorClient -> ...\bin\Debug\net10.0-android\com.ccdirector.client.dll
+  CcDirectorClient -> ...\bin\Debug\net10.0-android\com.ccdirector.client-Signed.apk
+
+Build succeeded.
+    0 Error(s)
+
+Time Elapsed 00:01:10
+</pre>
+  <p class="sub">Warnings present are all pre-existing and unrelated: <code>CS0618</code>
+    DisplayAlert-obsolete (throughout the existing TalkPage handlers), <code>CA1416</code>
+    foreground-service platform guards, and <code>NU1608</code> transitive Xamarin.AndroidX
+    version constraints. No new errors or new warnings from this change.</p>
+
+  <h2>Parser unit tests (the <code>ccdirector://pair</code> contract)</h2>
+  <p>New pure-logic class <code>Voice/PairingLink.cs</code> is the exact inverse of the merged
+    #385 <code>CcDirector.Gateway.Util.PairingPayload.Build</code>. The test class builds its
+    inputs the same way the Gateway mints them (<code>Uri.EscapeDataString</code>) so the round
+    trip is proven, not guessed. Valid, malformed, URL-encoded-values, and trailing-slash cases
+    are all covered.</p>
+  <pre>$ dotnet test phone\CcDirectorClient.Tests --filter PairingLinkTests
+
+  Passed  Parse_ValidCode_ReturnsDecodedUrlAndToken
+  Passed  Parse_RoundTripsTheGatewayPayloadExactly
+  Passed  Parse_UrlEncodedValues_AreFullyDecoded
+  Passed  Parse_TrailingSlashOnUrl_IsNormalizedOff
+  Passed  Parse_MultipleTrailingSlashes_AllTrimmed
+  Passed  Parse_NoTrailingSlash_LeftAsIs
+  Passed  Parse_NullOrBlank_IsRejected(scanned: null)
+  Passed  Parse_NullOrBlank_IsRejected(scanned: "")
+  Passed  Parse_NullOrBlank_IsRejected(scanned: "   ")
+  Passed  Parse_WrongScheme_IsRejected
+  Passed  Parse_WrongHost_IsRejected
+  Passed  Parse_MissingUrl_IsRejected
+  Passed  Parse_MissingToken_IsRejected
+  Passed  Parse_EmptyUrlValue_IsRejected
+  Passed  Parse_EmptyTokenValue_IsRejected
+  Passed  Parse_PlainText_IsRejected
+  Passed  Parse_SchemeIsCaseInsensitive
+
+Passed!  - Failed: 0, Passed: 17, Skipped: 0, Total: 17
+</pre>
+  <p class="sub">Note: the test project has 5 PRE-EXISTING unrelated failures in
+    <code>ConductorStateTests</code> (last touched in commit 0b07080, before this work). All 17
+    new <code>PairingLinkTests</code> pass.</p>
+
+  <h2>Files changed</h2>
+  <ul class="files">
+    <li>NEW phone/CcDirectorClient/Voice/PairingLink.cs - pure-logic deep-link parser (MAUI-free, link-included into tests)</li>
+    <li>NEW phone/CcDirectorClient/QrScanPage.xaml(.cs) - modal camera scanner (single-shot, ZXing CameraBarcodeReaderView)</li>
+    <li>NEW phone/CcDirectorClient.Tests/PairingLinkTests.cs - 17 tests</li>
+    <li>MOD phone/CcDirectorClient/TalkPage.xaml - "Scan QR to connect" button + status label in Gateway-settings</li>
+    <li>MOD phone/CcDirectorClient/TalkPage.xaml.cs - OnScanQrClicked: permission, scan, parse, apply prefs + fields, reconnect</li>
+    <li>MOD phone/CcDirectorClient/MauiProgram.cs - .UseBarcodeReader()</li>
+    <li>MOD phone/CcDirectorClient/CcDirectorClient.csproj - ZXing.Net.MAUI + .Controls 0.8.2 (net10.0-android36.0)</li>
+    <li>MOD phone/CcDirectorClient/Platforms/Android/AndroidManifest.xml - CAMERA permission + optional camera feature</li>
+    <li>MOD phone/CcDirectorClient.Tests/CcDirectorClient.Tests.csproj - link PairingLink.cs</li>
+  </ul>
+
+  <h2>CenCon impact</h2>
+  <p>No drift. <code>phone/CcDirectorClient</code> is the MAUI Android client, not a
+    <code>CcDirector.*</code> server container in <code>architecture_manifest.yaml</code>, and no
+    blocking security rule (DT-01..DT-NN) is touched. The pairing contract itself was set by the
+    merged #385 Gateway slice; this slice only consumes it on the phone. A scanned token is never
+    logged in full (<code>ClientLog</code> records only its length).</p>
+
+  <h2 class="pending">Criterion 3 - on-device RUNBOOK (PENDING supervisor hardware run)</h2>
+  <p>This is a HARDWARE + human-in-the-loop test: a physical Android device scanning a real QR,
+    and a person speaking. No <code>adb</code> device was reachable from the developer context
+    (<code>adb devices</code> -> empty), so the device deploy was not attempted here. The
+    supervisor performs the run below. The on-screen captures for criteria 1, 2, 4, and 5 are
+    produced during this same run (they need the live camera + a real QR), and are listed as the
+    device-dependent artifacts the supervisor adds.</p>
+
+  <div class="card">
+    <h3>1. Deploy this branch to the device</h3>
+    <pre>$env:ADB = "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe"
+&amp; $env:ADB devices            # confirm exactly one device/emulator is listed
+git checkout issue-386-phone-qr-scan
+dotnet build phone\CcDirectorClient\CcDirectorClient.csproj -f net10.0-android `
+  -t:Run -p:AndroidAttachDebugger=false   # builds + installs + launches on the attached device</pre>
+
+    <h3>2. Show the pairing QR from the Cockpit</h3>
+    <ul>
+      <li>On a desktop/laptop on the same tailnet, open the Gateway front door:
+        <code>https://&lt;gateway-front-door&gt;/</code> (the Cockpit).</li>
+      <li>Open the "Connect a phone" panel (the #385 display half). It renders
+        <code>GET /pair/qr.png</code> - the QR encoding
+        <code>ccdirector://pair?u=&lt;front-door&gt;&amp;t=&lt;gateway-token&gt;</code>.</li>
+    </ul>
+
+    <h3>3. Scan on the phone (criteria 1, 2, 4, 5 captures)</h3>
+    <ul>
+      <li>In the app, Sessions screen -&gt; scroll to "Gateway settings" -&gt; tap
+        <strong>Scan QR to connect</strong>. <span class="pill warn">capture 1</span> camera
+        scanner opens.</li>
+      <li>Point at the Cockpit QR. The fields populate; the status reads
+        "Paired with https://&lt;front-door&gt;. Reconnecting..." and the roster reloads.
+        <span class="pill warn">capture 2</span> populated ServerEntry/TokenEntry. Confirm the
+        pref write in the log: <code>[TalkPage] Paired via QR: gateway_url=... (token N chars)</code>
+        in <code>client-YYYY-MM-DD.log</code>.</li>
+      <li>Negative path: scan any non-pairing QR (e.g. a plain URL). Expect the alert "Not a
+        pairing code" and the existing fields UNCHANGED.
+        <span class="pill warn">capture 4</span>.</li>
+      <li>Permission path: revoke camera permission (Android Settings -&gt; Apps -&gt; CC Director
+        Client -&gt; Permissions), tap the button again. Expect the "Camera needed" alert and a
+        return to settings, no crash. <span class="pill warn">capture 5</span>.</li>
+    </ul>
+
+    <h3>4. Live voice turn (criterion 3)</h3>
+    <ul>
+      <li>After a successful scan, open a session -&gt; Voice tab -&gt; Record, speak a short
+        prompt, Submit.</li>
+      <li><strong>Expected Gateway log line</strong> (in
+        <code>%LOCALAPPDATA%\cc-director\logs\director\director-&lt;date&gt;-&lt;GW_PID&gt;.log</code>),
+        showing the phone's IP and a NON-401 result:<br />
+        <code>POST /sessions/{sid}/voice-turn/submit from &lt;phone-ip&gt; -&gt; 202</code>
+        (the scanned token clears the #369 auth gate; a hand-typo would have been 401).</li>
+      <li><strong>Expected on device:</strong> the status line cycles Transcribing -&gt; Waiting
+        -&gt; Thinking -&gt; Summarizing -&gt; Speaking, the reply card fills, and the reply is
+        spoken aloud. <span class="pill warn">criterion 3 evidence</span> the non-401 log line +
+        a note that the spoken reply was heard.</li>
+    </ul>
+  </div>
+
+  <h2>Statement</h2>
+  <p>Criteria 4, 5, and 6 are fully done and proven in the developer context (build green +
+    17 parser tests). Criteria 1 and 2 are implemented in code and proven at the parser level;
+    their on-screen captures, plus criterion 3 (the live voice-turn-after-scan), are
+    <span class="pending">PENDING the supervisor's physical-device run</span> per the runbook
+    above - no <code>adb</code> device was reachable here and the live test needs a person
+    speaking. I believe the code half is finished.</p>
+
+</div>
+</body>
+</html>

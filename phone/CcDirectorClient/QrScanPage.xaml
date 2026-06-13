@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:zxing="clr-namespace:ZXing.Net.Maui.Controls;assembly=ZXing.Net.MAUI.Controls"
+             x:Class="CcDirectorClient.QrScanPage"
+             BackgroundColor="#0B1020"
+             Title="Scan QR to connect">
+
+    <!-- Camera fills the page; a header + cancel pill float on top. The reader is read-only
+         (no torch toggle) - the user points it at the Cockpit "Connect a phone" QR and the
+         first decoded barcode is returned. -->
+    <Grid RowDefinitions="*">
+
+        <zxing:CameraBarcodeReaderView x:Name="Reader" Grid.Row="0"
+                                       BarcodesDetected="OnBarcodesDetected"
+                                       VerticalOptions="Fill" HorizontalOptions="Fill" />
+
+        <!-- Header instruction. -->
+        <Border VerticalOptions="Start" Margin="16,40,16,0" Padding="16,12"
+                BackgroundColor="#CC0B1020" Stroke="#2A3550" StrokeShape="RoundRectangle 12">
+            <VerticalStackLayout Spacing="4">
+                <Label Text="Scan the pairing QR" FontSize="18" FontAttributes="Bold" TextColor="#E6EAF2" />
+                <Label x:Name="HintLabel"
+                       Text="Open the Cockpit &quot;Connect a phone&quot; panel and point the camera at the QR."
+                       FontSize="13" TextColor="#8A93A6" />
+            </VerticalStackLayout>
+        </Border>
+
+        <!-- Cancel pill (returns to settings without changing prefs). -->
+        <Button x:Name="CancelButton" Text="Cancel"
+                VerticalOptions="End" Margin="20,0,20,32" HeightRequest="52"
+                BackgroundColor="#1A2236" TextColor="#E6EAF2" CornerRadius="14"
+                Clicked="OnCancelClicked" />
+    </Grid>
+</ContentPage>

@@ -69,6 +69,9 @@
 		<PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
 		<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />
 		<PackageReference Include="Xamarin.AndroidX.Work.Runtime" Version="2.11.2" />
+		<!-- Issue #386: camera QR scanner for phone pairing. 0.8.2 targets net10.0-android36.0. -->
+		<PackageReference Include="ZXing.Net.MAUI" Version="0.8.2" />
+		<PackageReference Include="ZXing.Net.MAUI.Controls" Version="0.8.2" />
 	</ItemGroup>
 
 </Project>
