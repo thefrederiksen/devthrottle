@@ -30,25 +30,7 @@ internal static class AuthMiddleware
 
         if (PublicPaths.Contains(path)) { await next(); return; }
 
-        // Bearer
-        if (ctx.Request.Headers.TryGetValue("Authorization", out var header))
-        {
-            var raw = header.ToString();
-            const string prefix = "Bearer ";
-            if (raw.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-            {
-                var provided = raw.Substring(prefix.Length).Trim();
-                if (string.Equals(provided, cfg.Token, StringComparison.Ordinal))
-                {
-                    await next();
-                    return;
-                }
-            }
-        }
-
-        // Cookie
-        if (ctx.Request.Cookies.TryGetValue(CookieName, out var cookieValue) &&
-            string.Equals(cookieValue, cfg.Token, StringComparison.Ordinal))
+        if (HasValidToken(ctx, cfg.Token))
         {
             await next();
             return;
@@ -65,6 +47,32 @@ internal static class AuthMiddleware
         ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
         ctx.Response.ContentType = "application/json; charset=utf-8";
         await ctx.Response.WriteAsync("{\"error\":\"missing or invalid token\"}");
+    }
+
+    /// <summary>
+    /// The Gateway's one token check (Bearer header OR the <see cref="CookieName"/> cookie,
+    /// ordinal compare against the per-machine gateway token). Used by the global middleware
+    /// above and by endpoints that must stay token-gated even when the global middleware is
+    /// off (issue #369: the voice-turn submit/poll surface in production mode).
+    /// </summary>
+    public static bool HasValidToken(HttpContext ctx, string token)
+    {
+        // Bearer
+        if (ctx.Request.Headers.TryGetValue("Authorization", out var header))
+        {
+            var raw = header.ToString();
+            const string prefix = "Bearer ";
+            if (raw.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                var provided = raw.Substring(prefix.Length).Trim();
+                if (string.Equals(provided, token, StringComparison.Ordinal))
+                    return true;
+            }
+        }
+
+        // Cookie
+        return ctx.Request.Cookies.TryGetValue(CookieName, out var cookieValue) &&
+               string.Equals(cookieValue, token, StringComparison.Ordinal);
     }
 
     public sealed class RequireToken

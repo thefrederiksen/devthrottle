@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #369: require API key on Gateway voice-turn endpoints</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem auto; max-width: 1000px; color: #1a202c; line-height: 1.5; }
+  h1 { border-bottom: 3px solid #2b6cb0; padding-bottom: .4rem; }
+  h2 { color: #2b6cb0; margin-top: 2rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #cbd5e0; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #edf2f7; }
+  .pass { color: #276749; font-weight: bold; }
+  .verdict { background: #f0fff4; border: 2px solid #276749; padding: 1rem 1.4rem; margin: 1.5rem 0; font-size: 1.1rem; }
+  code, pre { background: #f7fafc; border: 1px solid #e2e8f0; border-radius: 4px; font-family: Consolas, monospace; font-size: .9rem; }
+  code { padding: .1rem .3rem; }
+  pre { padding: .8rem; overflow-x: auto; }
+  .meta { color: #4a5568; font-size: .9rem; }
+</style>
+</head>
+<body>
+
+<h1>QA Proof Report - Issue #369</h1>
+<p class="meta">
+  Issue: <strong>Security: require API key on Gateway voice-turn endpoints</strong><br>
+  PR: #384 (branch <code>issue-369-voice-turn-auth</code>, head 160ca79, base = current main 246d439)<br>
+  QA Agent: independent verification, 2026-06-12/13. Nothing from the Developer report was trusted;
+  every result below was reproduced by the QA seat with its own builds, test runs, and curl traffic.
+</p>
+
+<div class="verdict">VERIFIED - all acceptance criteria met. 4/4 criteria PASS, design scrutiny PASS,
+regression sweep PASS, full solution build clean. Recommendation: merge.</div>
+
+<h2>1. Acceptance criteria - Expected vs Actual</h2>
+<table>
+  <tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (QA-observed)</th><th>Verdict</th></tr>
+  <tr>
+    <td>1</td>
+    <td><code>POST /sessions/{sid}/voice-turn/submit</code> without a valid token returns 401</td>
+    <td>401 Unauthorized, no token / wrong token</td>
+    <td>Real <code>curl.exe</code> against a real <code>GatewayHost</code> booted by QA in PRODUCTION
+        auth mode (<code>authEnabled=false</code>, global middleware OFF): no token -&gt; <code>HTTP/1.1 401</code>
+        with body <code>{"error":"missing or invalid token"}</code>; wrong token -&gt; 401.
+        Unit tests <code>Submit_MissingToken_Returns401</code> and <code>Submit_InvalidToken_Returns401</code> green.
+        Full trace: <code>qa-curl-trace.txt</code> (this directory).</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td><code>GET /sessions/{sid}/voice-turn/{turnId}</code> without a valid token returns 401</td>
+    <td>401 Unauthorized, even for a REAL turn id</td>
+    <td>QA curl: poll of a genuinely-created turn id with no token -&gt; 401; wrong token -&gt; 401;
+        wrong cookie -&gt; 401. The gate sits BEFORE the job lookup, so turn existence never leaks.
+        Tests <code>Poll_MissingToken_Returns401</code> / <code>Poll_InvalidToken_Returns401</code> green.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td>Phone app with a valid token succeeds end-to-end</td>
+    <td>Authenticated submit -&gt; 202 + turn_id; poll -&gt; 200 + stage; full turn reaches reply</td>
+    <td>QA curl with <code>Authorization: Bearer &lt;token&gt;</code>: submit -&gt; <code>202 Accepted</code>
+        with <code>turn_id</code>; poll -&gt; <code>200 OK</code> with <code>stage</code>.
+        Phone code verified: <code>phone/CcDirectorClient/Voice/DirectorVoiceClient.cs</code> -
+        <code>NewClient()</code> (line 58-67) attaches <code>Authorization: Bearer</code> and BOTH
+        <code>SubmitVoiceTurnAsync</code> and <code>PollVoiceTurnAsync</code> use it.
+        <code>GatewayVoiceTurnAsyncTests</code> default client authenticates exactly like the phone and
+        the full 202 -&gt; reply path passes (16/16). Phone wire-contract parsing tests
+        (<code>VoiceTurnResultTests</code>, merged #378): 11/11 green.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td>Existing authenticated Gateway endpoints are unaffected</td>
+    <td>No behavior change outside the two voice-turn routes</td>
+    <td><code>AuthMiddleware</code> diff vs main reviewed line-by-line: pure extraction of the
+        existing bearer-or-cookie logic into <code>HasValidToken</code>; <code>Run</code> behavior
+        identical. Full <code>Gateway.Tests</code>: 603 passed / 1 failed - and QA reproduced the SAME
+        single failure (<code>DictationEndpointTests.FullPipeline_transcribes_phase0_clip2_with_realtime_provider</code>,
+        "expected at least 1 partial transcript, got 0") on CLEAN MAIN, confirming it is pre-existing
+        and unrelated.</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>2. Design scrutiny: endpoint-level enforcement vs global middleware</h2>
+<p>The Developer enforced the token AT THE ENDPOINT on the grounds that production gateways run
+<code>authEnabled=false</code>. QA scrutinized and CONFIRMED this design call:</p>
+<ul>
+  <li><strong>Holds in production mode.</strong> Both production construction sites -
+      <code>GatewayTrayController.StartHostAsync</code> (<code>new GatewayHost(_port)</code>) and
+      <code>GatewayWorker.ExecuteAsync</code> - pass <code>token: null</code>, so
+      <code>GatewayHost.Token = GatewayAuth.LoadOrCreate()</code>: a 32-byte crypto-random token that
+      can never be empty (empty/missing file regenerates). That token is what <code>Map</code> closes
+      over, and the check runs inside the handler regardless of <code>authEnabled</code>. QA's own
+      harness booted the real <code>GatewayHost</code> with <code>authEnabled=false</code> and observed
+      the 401s directly.</li>
+  <li><strong>Consistent with other protected routes.</strong> The endpoints reuse the exact
+      <code>AuthMiddleware.HasValidToken</code> (Bearer header OR <code>cc-gateway-token</code> cookie,
+      Ordinal compare) the global middleware uses - one mechanism, one error body. The cookie path was
+      verified accepted (<code>Submit_GatewayCookie_IsAcceptedLikeOtherProtectedRoutes</code>).
+      Note: in production the OTHER routes are unprotected (middleware off) - these two routes are now
+      strictly stronger, which is precisely the issue's intent.</li>
+  <li><strong>No token-comparison weakness found.</strong> QA added 4 adversarial probes beyond the
+      Developer's trace (see <code>qa-curl-trace.txt</code>, QA-EXTRA sections):
+      EMPTY bearer (<code>Authorization: Bearer </code>) -&gt; 401 (no empty-token bypass);
+      case-variant token (<code>PROOF-TOKEN-369</code>) -&gt; 401 (Ordinal, case-sensitive);
+      empty cookie value -&gt; 401; wrong cookie -&gt; 401.
+      The compare is not constant-time, but that is byte-identical to the pre-existing global
+      middleware - consistent, not a regression (noted as a possible future hardening, non-blocking).</li>
+  <li><strong>No existence leak.</strong> The auth gate runs before any session/turn lookup on both
+      routes, so an unauthenticated caller cannot probe which sessions or turn ids exist.</li>
+</ul>
+
+<h2>3. QA-executed evidence (independent)</h2>
+<table>
+  <tr><th>Check</th><th>Command</th><th>Result</th></tr>
+  <tr><td>Voice-turn test filter (PR branch)</td>
+      <td><code>dotnet test src/CcDirector.Gateway.Tests --filter "FullyQualifiedName~GatewayVoiceTurnAsync"</code></td>
+      <td class="pass">16/16 passed (incl. the 5 auth tests)</td></tr>
+  <tr><td>Full Gateway.Tests (PR branch)</td>
+      <td><code>dotnet test src/CcDirector.Gateway.Tests</code></td>
+      <td class="pass">603 passed / 1 failed (pre-existing live-OpenAI dictation flake)</td></tr>
+  <tr><td>Flake claim verified on clean main</td>
+      <td><code>git checkout main; dotnet test ... --filter "...FullPipeline_transcribes_phase0_clip2..."</code></td>
+      <td class="pass">Fails IDENTICALLY on main ("expected at least 1 partial transcript, got 0") - pre-existing confirmed</td></tr>
+  <tr><td>Full solution build (PR branch)</td>
+      <td><code>dotnet build cc-director.sln</code></td>
+      <td class="pass">Build succeeded. 0 Warning(s), 0 Error(s)</td></tr>
+  <tr><td>Live curl reproduction + QA extras</td>
+      <td>QA-built harness: real GatewayHost, authEnabled=false, real curl.exe over loopback</td>
+      <td class="pass">ALL ASSERTIONS PASSED (11 original + 4 QA-EXTRA) - <code>qa-curl-trace.txt</code></td></tr>
+  <tr><td>Phone wire-contract tests (#378)</td>
+      <td><code>dotnet test phone/CcDirectorClient.Tests --filter "FullyQualifiedName~VoiceTurnResultTests"</code></td>
+      <td class="pass">11/11 passed</td></tr>
+  <tr><td>Committed dev proof consistency</td>
+      <td>Compared <code>curl-trace.txt</code> (committed) against QA's own run</td>
+      <td class="pass">Consistent: same status codes, same bodies, same shapes</td></tr>
+</table>
+
+<p class="meta">Note: <code>phone/CcDirectorClient.Tests</code> has 5 failing <code>ConductorStateTests</code>
+(FIFO queue logic) unrelated to this change - the PR diff touches zero phone files
+(<code>git diff main..HEAD --stat</code> shows only the 7 Gateway/test/proof files), so those failures
+are pre-existing on main by construction. The voice-turn-relevant phone tests are green.</p>
+
+<h2>4. Regression and method sweep</h2>
+<ul>
+  <li>Nothing adjacent broke: full Gateway.Tests delta vs main is zero (same single pre-existing failure on both).</li>
+  <li>Rejections are logged (<code>FileLog</code> line per 401 with route, sid, and remote IP) - enterprise logging rule met.</li>
+  <li>No fallback programming: missing/invalid token fails explicitly with a clear error body; no degraded path.</li>
+  <li>Tests added for the new behavior (5 auth tests) including the negative cases - testing rule met.</li>
+  <li>No CenCon blocking security rule violated; the change closes a documented unauthenticated-tailnet exposure.</li>
+</ul>
+
+<div class="verdict">VERDICT: PASS. All 4 acceptance criteria verified with QA-owned proof.
+Squash-merge authorized under the implementation-loop (DECIDED D5).</div>
+
+</body>
+</html>

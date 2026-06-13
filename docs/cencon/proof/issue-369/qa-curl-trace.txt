@@ -1,0 +1,136 @@
+GATEWAY: real GatewayHost, PRODUCTION auth mode (authEnabled=false -> global middleware OFF)
+LISTENING: http://127.0.0.1:52918  (loopback, Tailscale disabled, isolated instances dir)
+TOKEN: proof-token-369
+
+SETUP: POST /directors/register -> 201 Created (fake owning Director 437dcdba...)
+SETUP: session 5682f81d-430a-4fca-addb-0011c7d1f5d5 owner-cached to that Director
+
+=== AC1: submit, NO token ===
+$ curl -s -i -X POST http://127.0.0.1:52918/sessions/5682f81d-430a-4fca-addb-0011c7d1f5d5/voice-turn/submit -H "Content-Type: application/json" -d "{\"text\":\"hello\"}"
+HTTP/1.1 401 Unauthorized
+Content-Type: application/json; charset=utf-8
+Date: Sat, 13 Jun 2026 00:05:32 GMT
+Server: Kestrel
+Transfer-Encoding: chunked
+
+{"error":"missing or invalid token"}
+
+    ASSERT PASS: submit without token answers 401
+
+    ASSERT PASS: 401 body names the reason
+
+=== AC1b: submit, WRONG token ===
+$ curl -s -i -X POST http://127.0.0.1:52918/sessions/5682f81d-430a-4fca-addb-0011c7d1f5d5/voice-turn/submit -H "Authorization: Bearer wrong-token" -H "Content-Type: application/json" -d "{\"text\":\"hello\"}"
+HTTP/1.1 401 Unauthorized
+Content-Type: application/json; charset=utf-8
+Date: Sat, 13 Jun 2026 00:05:32 GMT
+Server: Kestrel
+Transfer-Encoding: chunked
+
+{"error":"missing or invalid token"}
+
+    ASSERT PASS: submit with wrong token answers 401
+
+=== AC3: submit, VALID Bearer token ===
+$ curl -s -i -X POST http://127.0.0.1:52918/sessions/5682f81d-430a-4fca-addb-0011c7d1f5d5/voice-turn/submit -H "Authorization: Bearer proof-token-369" -H "Content-Type: application/json" -d "{\"text\":\"hello\"}"
+HTTP/1.1 202 Accepted
+Content-Type: application/json; charset=utf-8
+Date: Sat, 13 Jun 2026 00:05:32 GMT
+Server: Kestrel
+Transfer-Encoding: chunked
+
+{"turn_id":"23bd6855-f555-4efe-97c9-17e0a955f906","expires_at":"2026-06-13T00:15:33.2185127Z"}
+
+    ASSERT PASS: submit with valid token answers 202 Accepted
+
+    ASSERT PASS: 202 body carries turn_id
+
+    turn_id = 23bd6855-f555-4efe-97c9-17e0a955f906
+
+=== AC2: poll, NO token ===
+$ curl -s -i http://127.0.0.1:52918/sessions/5682f81d-430a-4fca-addb-0011c7d1f5d5/voice-turn/23bd6855-f555-4efe-97c9-17e0a955f906
+HTTP/1.1 401 Unauthorized
+Content-Type: application/json; charset=utf-8
+Date: Sat, 13 Jun 2026 00:05:32 GMT
+Server: Kestrel
+Transfer-Encoding: chunked
+
+{"error":"missing or invalid token"}
+
+    ASSERT PASS: poll without token answers 401
+
+=== AC2b: poll, WRONG token ===
+$ curl -s -i http://127.0.0.1:52918/sessions/5682f81d-430a-4fca-addb-0011c7d1f5d5/voice-turn/23bd6855-f555-4efe-97c9-17e0a955f906 -H "Authorization: Bearer wrong-token"
+HTTP/1.1 401 Unauthorized
+Content-Type: application/json; charset=utf-8
+Date: Sat, 13 Jun 2026 00:05:32 GMT
+Server: Kestrel
+Transfer-Encoding: chunked
+
+{"error":"missing or invalid token"}
+
+    ASSERT PASS: poll with wrong token answers 401
+
+=== AC3b: poll, VALID Bearer token ===
+$ curl -s -i http://127.0.0.1:52918/sessions/5682f81d-430a-4fca-addb-0011c7d1f5d5/voice-turn/23bd6855-f555-4efe-97c9-17e0a955f906 -H "Authorization: Bearer proof-token-369"
+HTTP/1.1 200 OK
+Content-Type: application/json; charset=utf-8
+Date: Sat, 13 Jun 2026 00:05:32 GMT
+Server: Kestrel
+Transfer-Encoding: chunked
+
+{"turn_id":"23bd6855-f555-4efe-97c9-17e0a955f906","stage":"submitted","transcript":null,"summary":null,"audioBase64":null,"message":null,"expires_at":"2026-06-13T00:15:33.2185127Z"}
+
+    ASSERT PASS: poll with valid token answers 200
+
+    ASSERT PASS: 200 body carries the job stage
+
+=== QA-EXTRA: submit, EMPTY Bearer token ===
+$ curl -s -i -X POST http://127.0.0.1:52918/sessions/5682f81d-430a-4fca-addb-0011c7d1f5d5/voice-turn/submit -H "Authorization: Bearer " -H "Content-Type: application/json" -d "{\"text\":\"hello\"}"
+HTTP/1.1 401 Unauthorized
+Content-Type: application/json; charset=utf-8
+Date: Sat, 13 Jun 2026 00:05:32 GMT
+Server: Kestrel
+Transfer-Encoding: chunked
+
+{"error":"missing or invalid token"}
+
+    ASSERT PASS: submit with EMPTY bearer token answers 401
+
+=== QA-EXTRA: submit, case-variant token ===
+$ curl -s -i -X POST http://127.0.0.1:52918/sessions/5682f81d-430a-4fca-addb-0011c7d1f5d5/voice-turn/submit -H "Authorization: Bearer PROOF-TOKEN-369" -H "Content-Type: application/json" -d "{\"text\":\"hello\"}"
+HTTP/1.1 401 Unauthorized
+Content-Type: application/json; charset=utf-8
+Date: Sat, 13 Jun 2026 00:05:32 GMT
+Server: Kestrel
+Transfer-Encoding: chunked
+
+{"error":"missing or invalid token"}
+
+    ASSERT PASS: submit with case-variant token answers 401
+
+=== QA-EXTRA: submit, empty gateway cookie ===
+$ curl -s -i -X POST http://127.0.0.1:52918/sessions/5682f81d-430a-4fca-addb-0011c7d1f5d5/voice-turn/submit -H "Cookie: cc-gateway-token=" -H "Content-Type: application/json" -d "{\"text\":\"hello\"}"
+HTTP/1.1 401 Unauthorized
+Content-Type: application/json; charset=utf-8
+Date: Sat, 13 Jun 2026 00:05:32 GMT
+Server: Kestrel
+Transfer-Encoding: chunked
+
+{"error":"missing or invalid token"}
+
+    ASSERT PASS: submit with empty cookie value answers 401
+
+=== QA-EXTRA: poll, wrong cookie ===
+$ curl -s -i http://127.0.0.1:52918/sessions/5682f81d-430a-4fca-addb-0011c7d1f5d5/voice-turn/23bd6855-f555-4efe-97c9-17e0a955f906 -H "Cookie: cc-gateway-token=wrong-token"
+HTTP/1.1 401 Unauthorized
+Content-Type: application/json; charset=utf-8
+Date: Sat, 13 Jun 2026 00:05:32 GMT
+Server: Kestrel
+Transfer-Encoding: chunked
+
+{"error":"missing or invalid token"}
+
+    ASSERT PASS: poll with wrong cookie answers 401
+
+ALL ASSERTIONS PASSED.

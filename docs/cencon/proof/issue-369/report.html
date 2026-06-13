@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Proof - Issue #369: Security: require API key on Gateway voice-turn endpoints</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background: #0f1420; color: #dde3ee; margin: 0; padding: 32px; }
+  h1 { color: #5fd08a; font-size: 22px; }
+  h2 { color: #8ab4f8; font-size: 17px; margin-top: 28px; border-bottom: 1px solid #2a3349; padding-bottom: 4px; }
+  .meta { color: #8a93a8; font-size: 13px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 13.5px; }
+  th, td { border: 1px solid #2a3349; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #1a2235; color: #aebadd; }
+  .pass { color: #5fd08a; font-weight: 600; }
+  pre { background: #131a2b; border: 1px solid #2a3349; padding: 12px; overflow-x: auto; font-size: 12px; color: #c7d0e3; }
+  code { background: #1a2235; padding: 1px 5px; border-radius: 3px; font-size: 12.5px; }
+  .note { background: #2a2410; border: 1px solid #5c4d1a; padding: 12px; border-radius: 4px; margin: 12px 0; }
+</style>
+</head>
+<body>
+
+<h1>Proof - Issue #369: Security: require API key on Gateway voice-turn endpoints</h1>
+<p class="meta">Developer Agent | 2026-06-12 | Branch <code>issue-369-voice-turn-auth</code> | Depends on #376 (merged, ead9299) and verified against #378 (merged, 246d439)</p>
+
+<h2>What was implemented</h2>
+<p>
+The Gateway's async voice-turn routes (<code>POST /sessions/{sid}/voice-turn/submit</code> and
+<code>GET /sessions/{sid}/voice-turn/{turnId}</code>, added by #376) are now token-gated with the
+Gateway's <strong>existing</strong> auth mechanism: <code>AuthMiddleware</code>'s Bearer-header-or-cookie
+check against the per-machine gateway token. No new auth scheme was invented - the exact validation
+logic was extracted from <code>AuthMiddleware.Run</code> into <code>AuthMiddleware.HasValidToken</code>
+and reused verbatim by both voice-turn handlers.
+</p>
+<p>
+<strong>Why endpoint-level enforcement matters:</strong> the production Gateway
+(<code>GatewayTrayController.StartHostAsync</code> and the dev <code>GatewayWorker</code>) constructs
+<code>GatewayHost</code> with <code>authEnabled: false</code>, so the global <code>AuthMiddleware</code>
+pipeline never runs in production - the voice-turn routes were reachable over the tailnet with no
+credentials at all (the exact exposure the issue describes). The gate now sits inside the handlers
+themselves, so it holds in production mode; when <code>authEnabled</code> is true the global middleware
+runs first and the endpoint check is a harmless second validation of the same token.
+</p>
+<p>
+<strong>Phone compatibility (verified, not assumed):</strong>
+<code>phone/CcDirectorClient/Voice/DirectorVoiceClient.NewClient()</code> (lines 58-67, merged in #378)
+sets <code>Authorization: Bearer &lt;token&gt;</code> on every client it hands to
+<code>SubmitVoiceTurnAsync</code>/<code>PollVoiceTurnAsync</code>, so a phone with its token configured
+keeps working unchanged. The cookie path (<code>cc-gateway-token</code>, the Cockpit browser mechanism)
+is accepted too, because the reused check is bearer-OR-cookie - identical to every other protected route.
+</p>
+
+<h2>Files changed</h2>
+<table>
+<tr><th>File</th><th>Change</th></tr>
+<tr><td>src/CcDirector.Gateway/Util/AuthMiddleware.cs</td><td>Pure refactor: bearer-or-cookie validation extracted into <code>HasValidToken(HttpContext, string)</code>; <code>Run</code> now calls it. Behavior unchanged.</td></tr>
+<tr><td>src/CcDirector.Gateway/Api/GatewayVoiceTurnEndpoint.cs</td><td>Both handlers check <code>AuthMiddleware.HasValidToken</code> FIRST (before any session/turn lookup, so 401 never leaks existence) and answer <code>401 {"error":"missing or invalid token"}</code> (same body as the middleware) with a FileLog line on rejection.</td></tr>
+<tr><td>src/CcDirector.Gateway.Tests/GatewayVoiceTurnAsyncTests.cs</td><td>Default test client now authenticates with <code>Bearer test-token</code> (like the phone); 5 new tests: <code>Submit_MissingToken_Returns401</code>, <code>Submit_InvalidToken_Returns401</code>, <code>Poll_MissingToken_Returns401</code>, <code>Poll_InvalidToken_Returns401</code>, <code>Submit_GatewayCookie_IsAcceptedLikeOtherProtectedRoutes</code>. Gateway stays <code>authEnabled: false</code>, proving the endpoint gate stands alone in production mode.</td></tr>
+</table>
+
+<h2>Acceptance criteria - status</h2>
+<table>
+<tr><th>Criterion</th><th>Status</th><th>Evidence</th></tr>
+<tr>
+  <td>1. Submit without a valid token returns 401</td>
+  <td class="pass">PASS</td>
+  <td><code>curl-trace.txt</code> AC1 + AC1b (no token / wrong token, both <code>HTTP/1.1 401</code> with <code>{"error":"missing or invalid token"}</code>) against a real GatewayHost in production auth mode; tests <code>Submit_MissingToken_Returns401</code>, <code>Submit_InvalidToken_Returns401</code>.</td>
+</tr>
+<tr>
+  <td>2. Poll without a valid token returns 401</td>
+  <td class="pass">PASS</td>
+  <td><code>curl-trace.txt</code> AC2 + AC2b - a REAL turn id (created with the valid token) still answers 401 without one; tests <code>Poll_MissingToken_Returns401</code>, <code>Poll_InvalidToken_Returns401</code>.</td>
+</tr>
+<tr>
+  <td>3. Valid token succeeds end-to-end</td>
+  <td class="pass">PASS</td>
+  <td><code>curl-trace.txt</code> AC3 (submit with <code>Authorization: Bearer</code> -&gt; <code>202 Accepted</code> + <code>turn_id</code>) and AC3b (poll -&gt; <code>200</code> + stage). The full 202-to-reply pipeline against a real Director runs in <code>GatewayVoiceTurnAsyncTests</code>, where EVERY request now carries the Bearer token exactly as the phone sends it - 16/16 green (<code>test-output.txt</code>). Phone header verified in <code>DirectorVoiceClient.NewClient()</code>.</td>
+</tr>
+<tr>
+  <td>4. Existing authenticated Gateway endpoints are unaffected</td>
+  <td class="pass">PASS</td>
+  <td><code>AuthMiddleware</code> change is a pure extract-method refactor; full Gateway.Tests suite: 603/604 passed - the single failure (<code>DictationEndpointTests.FullPipeline_transcribes_phase0_clip2_with_realtime_provider</code>) was re-run on a clean <code>origin/main</code> worktree and fails identically there (pre-existing live-OpenAI flake, unrelated).</td>
+</tr>
+</table>
+
+<h2>Proof artifacts (this directory)</h2>
+<table>
+<tr><th>File</th><th>What it shows</th></tr>
+<tr><td><code>curl-trace.txt</code></td><td>The full curl trace: six real <code>curl.exe</code> requests (separate OS process) against a real <code>GatewayHost</code> launched in production auth mode (<code>authEnabled=false</code>, Tailscale off, isolated instances dir) - 401 without/with-wrong token on both routes, 202 + 200 with the valid Bearer token. All assertions PASS.</td></tr>
+<tr><td><code>proof-harness.cs</code></td><td>The harness that launched the Gateway and drove curl (the issue-273 precedent; run via a temp net10.0 console referencing CcDirector.Gateway).</td></tr>
+<tr><td><code>test-output.txt</code></td><td><code>GatewayVoiceTurnAsync</code> filter: 16/16 passed (11 pre-existing, now authenticated + 5 new auth tests).</td></tr>
+</table>
+
+<div class="note">
+<strong>Why the proof Gateway is harness-hosted rather than an isolation-script slot:</strong> the
+per-session isolation script (<code>agent-session-isolation.ps1</code>) launches a <em>Director</em>,
+not a Gateway; a raw <code>dotnet run</code> Gateway would load the REAL per-machine token, discover
+the user's real Directors, and touch the Tailscale serve table. The harness boots the same
+<code>GatewayHost</code> class the tray runs, in the same production auth mode, on loopback with
+<code>CC_GATEWAY_NO_TAILSCALE=1</code> and an isolated instances dir - the established proof pattern
+from issue #273 - and every traced request is genuine <code>curl.exe</code>. Nothing on the machine
+was touched and no user process was started or stopped.
+</div>
+
+<h2>Build and regression</h2>
+<pre>dotnet build cc-director.sln   ->  Build succeeded. 0 Warning(s), 0 Error(s)
+dotnet test CcDirector.Gateway.Tests (full)  ->  Failed: 1, Passed: 603 of 604
+  (the 1 failure is pre-existing on clean origin/main: live realtime-transcription flake, unrelated)
+dotnet test --filter GatewayVoiceTurnAsync   ->  16/16 passed</pre>
+
+<h2>CenCon impact</h2>
+<p>
+No drift. This implements the posture already documented in
+<code>docs/architecture/gateway/VOICE_TURN_ARCHITECTURE.md</code> ("Auth (bearer token) - Gateway -
+Same token mechanism as other protected routes") and strengthens the security profile's stated
+invariant that the Gateway surface is gated by the per-machine bearer token.
+</p>
+
+<h2>Statement</h2>
+<p><strong>I believe this is finished.</strong> All four acceptance criteria are met with committed
+tests and a real curl trace; the only red test in the suite is demonstrably pre-existing on main.</p>
+
+</body>
+</html>
