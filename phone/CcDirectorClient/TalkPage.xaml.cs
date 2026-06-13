@@ -216,6 +216,71 @@ public partial class TalkPage : ContentPage
         Preferences.Set(PrefToken, (TokenEntry.Text ?? "").Trim());
     }
 
+    // ===== Scan QR to connect (issue #386) =================================
+    // Reads the Gateway "Connect a phone" QR (ccdirector://pair?u=&t=) and fills both
+    // gateway_url + gateway_token in one tap, removing the hand-typed-token 401s. The manual
+    // Entry fields stay as a fallback; nothing here changes them until a VALID code is scanned.
+
+    private async void OnScanQrClicked(object? sender, EventArgs e)
+    {
+        // Request the camera at scan time (criterion 5: a clear message on denial, no crash).
+        var status = await Permissions.RequestAsync<Permissions.Camera>();
+        if (status != PermissionStatus.Granted)
+        {
+            ShowScanStatus("Camera access is needed to scan the pairing QR. Enable it in Settings, "
+                + "or type the Gateway URL and token below.");
+            await DisplayAlert("Camera needed",
+                "CC Director Client needs camera access to scan the pairing QR. You can still type "
+                + "the Gateway URL and token by hand below.", "OK");
+            return;
+        }
+
+        string? scanned;
+        try
+        {
+            var scanner = new QrScanPage();
+            await Navigation.PushModalAsync(scanner);
+            scanned = await scanner.ScannedAsync;
+        }
+        catch (Exception ex)
+        {
+            ClientLog.Write($"[TalkPage] OnScanQrClicked scanner FAILED: {ex.Message}");
+            ShowScanStatus("Could not open the camera scanner.");
+            await DisplayAlert("Scanner error", ex.Message, "OK");
+            return;
+        }
+
+        // User cancelled / backed out of the scanner: leave the prefs and fields as they were.
+        if (scanned is null) return;
+
+        var parsed = PairingLink.Parse(scanned);
+        if (!parsed.Ok)
+        {
+            // Criterion 4: a non-pairing or malformed QR shows a clear message and does NOT
+            // overwrite the saved gateway_url / gateway_token.
+            ShowScanStatus(parsed.Error);
+            await DisplayAlert("Not a pairing code", parsed.Error, "OK");
+            return;
+        }
+
+        // Valid code: write both prefs, mirror them into the visible fields, and reconnect.
+        Preferences.Set(PrefServer, parsed.Url);
+        Preferences.Set(PrefToken, parsed.Token);
+        ServerEntry.Text = parsed.Url;
+        TokenEntry.Text = parsed.Token;
+        ClientLog.Write($"[TalkPage] Paired via QR: gateway_url={parsed.Url} (token {parsed.Token.Length} chars)");
+        ShowScanStatus($"Paired with {parsed.Url}. Reconnecting...");
+
+        // Trigger the existing reconnect/refresh path so the roster loads against the new Gateway.
+        await LoadRosterAsync();
+    }
+
+    private void ShowScanStatus(string message)
+    {
+        ScanStatusLabel.Text = message;
+        ScanStatusLabel.IsVisible = !string.IsNullOrWhiteSpace(message);
+    }
+
     // ===== single-session talk =============================================
 
     private void EnterTalk(SessionInfo session)

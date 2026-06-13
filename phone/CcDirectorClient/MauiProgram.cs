@@ -1,6 +1,7 @@
 using CcDirectorClient.Recording;
 using CcDirectorClient.Voice;
 using Microsoft.Extensions.Logging;
+using ZXing.Net.Maui.Controls;
 
 namespace CcDirectorClient;
 
@@ -29,6 +30,9 @@ public static class MauiProgram
 		var builder = MauiApp.CreateBuilder();
 		builder
 			.UseMauiApp<App>()
+			// Issue #386: the phone-pairing QR scanner (ZXing.Net.MAUI). Registers the
+			// CameraBarcodeReaderView handler used by QrScanPage.
+			.UseBarcodeReader()
 			.ConfigureFonts(fonts =>
 			{
 				fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");

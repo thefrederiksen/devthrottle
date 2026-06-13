@@ -39,6 +39,7 @@
     <Compile Include="..\CcDirectorClient\Voice\LastClipCache.cs" Link="Voice\LastClipCache.cs" />
     <Compile Include="..\CcDirectorClient\Voice\IAudioCue.cs" Link="Voice\IAudioCue.cs" />
     <Compile Include="..\CcDirectorClient\Voice\NullAudioCue.cs" Link="Voice\NullAudioCue.cs" />
+    <Compile Include="..\CcDirectorClient\Voice\PairingLink.cs" Link="Voice\PairingLink.cs" />
   </ItemGroup>
 
 </Project>
