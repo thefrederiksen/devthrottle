@@ -145,6 +145,9 @@
                         <TextBlock Classes="sectionTitle" Text="Agent tools" />
                         <TextBlock Classes="hint" Text="The machine-level library of agent CLI tools CC Director can launch. Each tool has a recommended command-line preset, a default model, and an Enabled flag. Use Detect to find common installs, Test to run a safe version check, or Browse to select an executable. Claude Code defaults to the Standard command line (permission prompts on); the Automatic (skip permissions) preset is off by default." />
                         <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
+                            <Button x:Name="RunWizardButton" Classes="dialogButton" Content="Detection wizard..."
+                                    Width="150" Click="BtnRunWizard_Click"
+                                    ToolTip.Tip="Scan this machine for known tools and add the ones it finds with their recommended settings" />
                             <Button x:Name="DetectAllToolsButton" Classes="dialogButton" Content="Detect All"
                                     Width="120" Click="BtnDetectAllTools_Click" />
                             <Button x:Name="TestAllToolsButton" Classes="dialogButton" Content="Test All"

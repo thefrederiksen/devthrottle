@@ -504,6 +504,38 @@ public partial class SettingsDialog : Window
     private async void BtnBrowseOpenCode_Click(object? sender, RoutedEventArgs e) =>
         await BrowseToolAsync("Select OpenCode executable", OpenCodePathBox, OpenCodeStatus);
 
+    /// <summary>
+    /// Re-run the first-run tool-detection wizard on demand (issue #392). Opens the same wizard
+    /// that auto-opens on a fresh machine; on accept it writes the selected tools to config.json,
+    /// so we reload this page's path boxes and presets to show the newly-added tools.
+    /// </summary>
+    private async void BtnRunWizard_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write("[SettingsDialog] BtnRunWizard_Click");
+        RunWizardButton.IsEnabled = false;
+        try
+        {
+            var options = CurrentOptions();
+            var dialog = new ToolDetectionWizardDialog(options);
+            var accepted = await dialog.ShowDialog<bool?>(this);
+            if (accepted == true)
+            {
+                await LoadAsync();
+                ShowAgentToolsStatus("Detection wizard finished. The tools it added are shown above.", error: false);
+                FileLog.Write("[SettingsDialog] BtnRunWizard_Click: wizard accepted; reloaded page");
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[SettingsDialog] BtnRunWizard_Click FAILED: {ex.Message}");
+            ShowAgentToolsStatus($"Detection wizard failed: {ex.Message}", error: true);
+        }
+        finally
+        {
+            RunWizardButton.IsEnabled = true;
+        }
+    }
+
     private async void BtnDetectAllTools_Click(object? sender, RoutedEventArgs e)
     {
         FileLog.Write("[SettingsDialog] BtnDetectAllTools_Click");

@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof - Issue #392 First-run tool-detection wizard</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background:#1e1e1e; color:#d4d4d4; margin:0; padding:24px; line-height:1.5; }
+  h1 { color:#fff; font-size:22px; border-bottom:2px solid #007acc; padding-bottom:8px; }
+  h2 { color:#4ec9b0; font-size:16px; margin-top:28px; }
+  table { border-collapse:collapse; width:100%; margin:12px 0; }
+  th, td { border:1px solid #3c3c3c; padding:8px 10px; text-align:left; vertical-align:top; font-size:13px; }
+  th { background:#252526; color:#9cdcfe; }
+  .pass { color:#22c55e; font-weight:bold; }
+  .fail { color:#f87171; font-weight:bold; }
+  code, pre { background:#0d0d0d; color:#ce9178; padding:2px 5px; border-radius:3px; font-family:Consolas, monospace; font-size:12px; }
+  pre { padding:12px; overflow-x:auto; white-space:pre-wrap; }
+  .meta { color:#888; font-size:12px; }
+  img { max-width:520px; border:1px solid #3c3c3c; margin:8px 0; display:block; }
+  .verdict { background:#0d2a14; border:1px solid #22c55e; padding:14px; border-radius:6px; font-size:15px; margin-top:24px; }
+  .note { color:#dcb67a; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #392: First-run tool-detection wizard</h1>
+<p class="meta">
+  PR #408 | branch <code>issue-392-tool-detection-wizard</code> | commit <code>532c342</code><br>
+  QA performed independently by the QA Agent in an isolated worktree (detached HEAD at the PR commit) on slot 8,
+  launched via the per-slot scheduled task <code>cc-director8-launch</code> (clean parentage, CLAUDE.md rule 0b).
+  Machine: SOREN_NORTH. Date: 2026-06-13.
+</p>
+
+<h2>Method</h2>
+<ul>
+  <li>Own checkout: <code>D:\ReposFred\cc-director-qa-392</code> (detached HEAD @ 532c342). The developer's binaries/screenshots were NOT reused for the verdict; they appear only as corroborating context.</li>
+  <li>Built the solution clean (<code>dotnet build cc-director.sln</code>: 0 warnings, 0 errors) and the slot-8 exe.</li>
+  <li>Ran the new unit tests (7/7) and the full Core test suite (1884 passed, 0 failed, 2 unrelated skips).</li>
+  <li>Live-launched the Director twice via the scheduled task and read the runtime trace from the Director log.</li>
+  <li>Produced an INDEPENDENT <code>config.json</code> artifact via the real Core code path (<code>ToolDetectionWizardModel.AcceptSelected</code> against an isolated <code>CC_DIRECTOR_ROOT</code>), deselecting a tool, to prove the persisted result.</li>
+  <li>Backed up and restored the user's shared <code>config.json</code> so the live first-run test left the environment untouched.</li>
+</ul>
+<p class="note">Visual note: the QA session's interactive desktop (RDP session 2) was disconnected during the run, so GDI screen capture returned blank. Live behavior was therefore proven from the Director log trace and Win32 window enumeration (authoritative runtime evidence), and the developer's connected-session screenshots are shown as corroboration that independently matches the log results.</p>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (my evidence)</th><th>Result</th></tr>
+
+<tr>
+  <td>1</td>
+  <td>On a machine with no tools configured, launching the Director shows the wizard automatically.</td>
+  <td>Wizard auto-opens on first run.</td>
+  <td>Shared config had no <code>agent.tools</code> -&gt; live log (PID 43848): <code>IsFirstRun: result=True</code> then <code>OpenToolDetectionWizardAsync</code> + <code>ToolDetectionWizardDialog Constructor</code>. Win32 enumeration found a visible window titled "Set up agent tools".</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>2</td>
+  <td>The wizard scans and lists every known catalog tool with a found / not-found status.</td>
+  <td>All 5 catalog tools listed, each with found/not-found.</td>
+  <td>Live log: <code>ScanSuggestions</code> emitted one line per tool (ClaudeCode, Pi, Codex, Gemini, OpenCode) and <code>ScanAsync: found=5, total=5</code>. My not-found harness (empty PATH + fake exe paths) returned all 5 with a genuine mix: Claude/Codex <code>Found=False</code> with "was not found" message; Pi/Gemini/OpenCode <code>Found=True</code>.</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>3</td>
+  <td>Found tools pre-checked + pre-filled with recommended command line and default model; not-found shown but not auto-added.</td>
+  <td>Found = checked/enabled with Standard preset; not-found = shown, unchecked, disabled.</td>
+  <td>Code (<code>BuildRows</code>): <code>IsChecked = s.Found</code>, <code>IsEnabled = s.Found</code>; found rows render Path/Command line/Default model; not-found rows render the detection message. <code>AcceptSelected</code> only writes <code>Check.IsChecked == true</code> rows, so a not-found (Found=false, unchecked) tool can never be auto-added. Recommended preset is always "Standard". Corroborated by the connected-session screenshot.</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>4</td>
+  <td>User can deselect a suggested tool before accepting; a deselected tool is NOT written to config.</td>
+  <td>Deselected tool absent from config.json.</td>
+  <td>My independent harness deselected Codex and accepted Claude+Pi via the real <code>AcceptSelected</code>. Resulting <code>config.json</code> (<a href="qa-config-after-accept.json">qa-config-after-accept.json</a>) contains <code>agent.tools.claude</code> and <code>agent.tools.pi</code> only - <strong>no codex key</strong>. Console: <code>Tools written = 2</code>.</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>5</td>
+  <td>Accepting writes selected tools to machine-level config.json; they appear on the Tools page.</td>
+  <td>Tools persisted under <code>agent.tools.&lt;key&gt;</code> (machine-level, no gateway).</td>
+  <td>My config artifact shows each accepted tool under <code>agent.tools.&lt;key&gt;</code> with <code>preset/args_override/default_model/enabled</code>, plus <code>agent.&lt;key&gt;_path</code>. <code>Save()</code>/<code>MergePatch</code> is a local machine write (no network/gateway). Settings &gt; Agents reads from the same <code>AgentToolConfig.Load</code>, and the re-run handler calls <code>LoadAsync()</code> after accept to refresh the page.</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>6</td>
+  <td>Wizard does not re-trigger on the next launch once configured; re-openable manually from the Tools page.</td>
+  <td>No auto-open when tools configured; manual re-run entry point present.</td>
+  <td>Injected an <code>agent.tools</code> section, relaunched (PID 41212): live log <code>IsFirstRun: result=False</code> + <code>MaybeShowToolDetectionWizard: tools already configured; not auto-opening</code> (no <code>OpenToolDetectionWizardAsync</code>). Win32 enumeration: "PASS: no 'Set up agent tools' wizard window open on second launch". Re-run entry point: Settings &gt; Agents "Detection wizard..." button (<code>RunWizardButton</code> -&gt; <code>BtnRunWizard_Click</code> opens the same dialog), compiled and present in the build.</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>7</td>
+  <td>No tool auto-added with <code>--dangerously-skip-permissions</code>; suggested Claude uses the standard command line.</td>
+  <td>Claude preset "Standard"; effective args never contain the skip flag.</td>
+  <td>My harness: <code>Claude preset = Standard</code>, <code>Claude effective args = ''</code>, <code>Claude args contains skip-perms = False</code>, <code>Claude enabled = True</code>. Catalog: <code>DefaultPreset</code> is index 0 = Standard (empty args); the "Automatic (skip permissions)" preset is present but never the default.</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Independent config.json artifact (deselect + no skip-permissions)</h2>
+<pre>{
+  "agent": {
+    "tools": {
+      "claude": { "preset": "Standard", "args_override": "", "default_model": "", "enabled": true },
+      "pi":     { "preset": "Standard", "args_override": "", "default_model": "", "enabled": true }
+    },
+    "claude_path": "C:\\Users\\USER\\.local\\bin\\claude.EXE",
+    "pi_path": "D:\\Tools\\Pi\\pi.exe"
+  }
+}
+</pre>
+<p class="meta">Codex was deselected and is absent. Claude preset = Standard (no <code>--dangerously-skip-permissions</code>).</p>
+
+<h2>Build &amp; tests</h2>
+<ul>
+  <li><code>dotnet build cc-director.sln</code> -&gt; Build succeeded, 0 Warning(s), 0 Error(s).</li>
+  <li>New wizard tests: <code>ToolDetectionWizardModelTests</code> -&gt; Passed 7, Failed 0.</li>
+  <li>Full Core suite -&gt; Passed 1884, Failed 0, Skipped 2 (unrelated NulFileWatcher).</li>
+</ul>
+
+<h2>Regression &amp; CenCon checks</h2>
+<ul>
+  <li>Negative sweep: full Core suite green; no adjacent breakage. Reuses existing <code>ToolDetectionService</code> (no new detector).</li>
+  <li>Machine-level config write only (no gateway/network call) - no new security surface; no DT rule touched.</li>
+  <li>No architecture/security change requiring <code>docs/cencon/</code> updates.</li>
+  <li>ASCII-only output throughout; no Unicode/emoji introduced.</li>
+</ul>
+
+<h2>Corroborating developer screenshots (context, not the verdict basis)</h2>
+<img src="img/01-wizard-autoopen.png" alt="Wizard auto-open, 5 of 5 found, Standard">
+<img src="img/02-codex-deselected.png" alt="Codex deselected">
+
+<div class="verdict">VERIFIED - all 7 acceptance criteria met. PASS.</div>
+</body>
+</html>

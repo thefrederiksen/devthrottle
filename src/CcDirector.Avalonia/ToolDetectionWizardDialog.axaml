@@ -1,0 +1,74 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="CcDirector.Avalonia.ToolDetectionWizardDialog"
+        Title="Set up agent tools"
+        Width="640" Height="600"
+        MinWidth="540" MinHeight="440"
+        WindowStartupLocation="CenterOwner"
+        CanResize="True"
+        Background="#252526">
+
+    <Window.Styles>
+        <Style Selector="TextBlock.sectionTitle">
+            <Setter Property="Foreground" Value="#CCCCCC" />
+            <Setter Property="FontSize" Value="16" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="TextBlock.hint">
+            <Setter Property="Foreground" Value="#888888" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style Selector="Button.dialogButton">
+            <Setter Property="Height" Value="30" />
+            <Setter Property="MinWidth" Value="100" />
+            <Setter Property="Padding" Value="14,0" />
+            <Setter Property="Background" Value="#3C3C3C" />
+            <Setter Property="Foreground" Value="#CCCCCC" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Button.primaryButton">
+            <Setter Property="Height" Value="30" />
+            <Setter Property="MinWidth" Value="160" />
+            <Setter Property="Padding" Value="14,0" />
+            <Setter Property="Background" Value="#007ACC" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+    </Window.Styles>
+
+    <Grid Margin="16" RowDefinitions="Auto,Auto,Auto,*,Auto,Auto">
+        <TextBlock Grid.Row="0" Classes="sectionTitle" Text="Set up agent tools"
+                   Margin="0,0,0,6" />
+
+        <TextBlock Grid.Row="1" Classes="hint" Margin="0,0,0,8"
+                   Text="CC Director scanned this machine for the agent CLIs it knows about. The tools it found are pre-selected with their recommended command line and default model. Uncheck any you do not want, then click Add selected tools. You can change everything later on the Agents tab in Settings." />
+
+        <TextBlock Grid.Row="2" x:Name="ScanStatusText"
+                   Text="Scanning for installed agent tools..."
+                   Foreground="#888888" FontSize="12" FontStyle="Italic"
+                   Margin="0,0,0,8" />
+
+        <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,14,0">
+            <StackPanel x:Name="ToolListPanel" Spacing="8" />
+        </ScrollViewer>
+
+        <TextBlock Grid.Row="4" x:Name="ResultStatusText"
+                   Text="" Foreground="#888888" FontSize="11"
+                   TextWrapping="Wrap" Margin="0,8,0,0" IsVisible="False" />
+
+        <StackPanel Grid.Row="5" Orientation="Horizontal"
+                    HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button x:Name="AcceptButton" Classes="primaryButton" Content="Add selected tools"
+                    IsDefault="True" IsEnabled="False" Click="BtnAccept_Click" />
+            <Button x:Name="CancelButton" Content="Skip for now" Classes="dialogButton" Width="120" Margin="8,0,0,0"
+                    IsCancel="True" Click="BtnCancel_Click" />
+        </StackPanel>
+    </Grid>
+</Window>
