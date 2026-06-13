@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA proof - issue #385 (Phone-pairing QR)</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 980px; margin: 24px auto; padding: 0 18px; color: #1b1f24; line-height: 1.5; }
+  h1 { font-size: 22px; border-bottom: 2px solid #5319e7; padding-bottom: 6px; }
+  h2 { font-size: 16px; margin-top: 28px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+  th, td { border: 1px solid #d0d7de; padding: 7px 9px; text-align: left; vertical-align: top; }
+  th { background: #f3f0fb; }
+  .pass { color: #0a7c2f; font-weight: 700; }
+  .fail { color: #b91c1c; font-weight: 700; }
+  code, pre { background: #f4f4f6; border-radius: 4px; padding: 1px 5px; font-family: Consolas, monospace; font-size: 12px; }
+  pre { padding: 10px; overflow-x: auto; }
+  img { max-width: 360px; border: 1px solid #d0d7de; border-radius: 8px; display: block; margin: 8px 0; }
+  .verdict { background: #e8f6ec; border: 1px solid #0a7c2f; border-radius: 8px; padding: 12px 16px; margin: 22px 0; font-weight: 700; color: #0a7c2f; }
+  .note { background: #fff8e6; border: 1px solid #d9a400; border-radius: 6px; padding: 8px 12px; font-size: 13px; }
+</style>
+</head>
+<body>
+<h1>QA proof - issue #385: Phone-pairing QR (Gateway /pair/qr.png + Cockpit "Connect a phone")</h1>
+<p><strong>PR:</strong> #387 &nbsp; <strong>Branch:</strong> <code>issue-385-pairing-qr</code> &nbsp;
+   <strong>QA box:</strong> soren-north &nbsp; <strong>Verified independently</strong> (QA identity, not the developer's binary or screenshots).</p>
+
+<p class="note"><strong>Token redaction:</strong> Live verification used the REAL <code>gateway-token.txt</code> on this box.
+   The real token was confirmed byte-for-byte against the decoded QR (see criterion 2) but is NOT written into any committed
+   file. The committed QR image and screenshot below were regenerated with the placeholder <code>REDACTED_GATEWAY_TOKEN</code>.</p>
+
+<h2>How QA verified (independent method)</h2>
+<ul>
+  <li>Checked out PR branch <code>issue-385-pairing-qr</code> in an isolated git worktree; base <code>main</code> pulled current first.</li>
+  <li>Booted a real in-process <code>GatewayHost</code> with the REAL token from <code>GatewayAuth.LoadOrCreate()</code> and the live
+      <code>TailscaleIdentity.TryGetFrontDoorBaseUrl()</code>, then hit the live <code>/pair/qr.png</code> and <code>/pair/payload</code> over HTTP.</li>
+  <li>Decoded the returned PNG with <strong>OpenCV's QRCodeDetector</strong> (an independent decoder, not QRCoder) and diffed the
+      decoded string against the live payload and against the on-disk token file.</li>
+  <li>Rendered the actual Cockpit <code>settings.html</code> "Phone" tab driven by the live Gateway responses and screenshotted it.</li>
+  <li>Built <code>cc-director.sln</code> and ran the pairing tests + the full Gateway.Tests suite.</li>
+</ul>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (QA)</th><th>Result</th></tr>
+
+<tr>
+  <td>1</td>
+  <td>GET /pair/qr.png (token-protected) -> 200 image/png, body decodes as a QR</td>
+  <td>200, Content-Type image/png, valid QR</td>
+  <td>Live: <code>QR_STATUS=200</code>, <code>QR_CONTENT_TYPE=image/png</code>, 937-byte PNG (488x488). OpenCV decoded it successfully.
+      No-token request -> <code>401</code>; wrong-token -> <code>401</code> (token gate, same Bearer-or-cookie check as #369 voice-turn routes).</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>2</td>
+  <td>Decoded payload exactly <code>ccdirector://pair?u=&lt;X&gt;&amp;t=&lt;Y&gt;</code>; X = front-door URL, Y = byte-for-byte the gateway token</td>
+  <td>u decodes to TryGetFrontDoorBaseUrl(); t decodes to gateway-token.txt</td>
+  <td>OpenCV-decoded QR =
+      <pre>ccdirector://pair?u=https%3A%2F%2Fsoren-north.taildb08ed.ts.net&amp;t=&lt;REAL_TOKEN&gt;</pre>
+      <code>u</code> URL-decodes to <code>https://soren-north.taildb08ed.ts.net</code> (= live front door).
+      <code>t</code> URL-decodes to the live token, which compared <strong>byte-for-byte equal</strong> to
+      <code>%LOCALAPPDATA%\cc-director\config\director\gateway-token.txt</code>
+      (python: <code>QR token == gateway-token.txt (byte-for-byte): True</code>).</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>3</td>
+  <td>Front-door null -> clear 4xx/5xx naming the missing front door, NEVER a placeholder QR</td>
+  <td>503 with a message naming the Tailscale front door; no QR emitted</td>
+  <td>By code inspection of <code>GatewayPairingEndpoint.Map</code>: the null/whitespace front-door branch returns
+      <code>503</code> with the <code>FrontDoorMissing</code> message ("...Tailscale front-door URL unavailable...")
+      <em>before</em> <code>PairingPayload.Build</code> or any PNG render is reached - the QR branch is unreachable when the front door is null.
+      Reinforced by unit test <code>Build_MissingGatewayUrl_Throws_NoPlaceholder</code> (the pure builder throws on null/empty/whitespace,
+      never returns a placeholder). The endpoint integration test asserts the 503-naming-front-door path on no-Tailscale hosts.
+      (This box has Tailscale up, so the live run exercised the 200 path; the null path is proven by inspection + tests.)</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>4</td>
+  <td>Cockpit "Connect a phone" panel renders the QR img + raw URL + token text</td>
+  <td>Panel shows QR image, Gateway URL, token</td>
+  <td>Drove the real <code>settings.html</code> "Phone" tab against the live Gateway responses. Panel rendered:
+      status "Ready to pair", the QR <code>&lt;img&gt;</code> (naturalWidth/Height 488x488 - the real QR actually loaded),
+      "Gateway URL" = <code>https://soren-north.taildb08ed.ts.net</code>, "Token" text, and Copy URL / Copy token / Copy pairing link buttons.
+      Screenshot below (token redacted to <code>REDACTED_GATEWAY_TOKEN</code>).</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>5</td>
+  <td>dotnet build cc-director.sln 0 errors; payload-builder unit test passes</td>
+  <td>Build succeeds; unit tests green</td>
+  <td><code>dotnet build cc-director.sln</code> -> <strong>Build succeeded. 0 Warning(s) 0 Error(s)</strong>.
+      <code>dotnet test --filter ~Pairing</code> -> <strong>Passed! Failed: 0, Passed: 13</strong>
+      (9 PairingPayload builder tests incl. reserved-char URL-encoding + no-placeholder throws, 4 endpoint tests incl. 401-without-token).</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Regression sweep</h2>
+<p>Full <code>CcDirector.Gateway.Tests</code> suite: <strong>616 passed, 1 failed</strong>.
+   The single failure is <code>DictationEndpointTests.FullPipeline_transcribes_phase0_clip2_with_realtime_provider</code>
+   ("expected at least 1 partial transcript, got 0") - a live-transcription test needing a real realtime provider not present in this
+   environment. <strong>Verified PRE-EXISTING:</strong> the identical test fails the same way on clean <code>main</code> (HEAD <code>fb42337</code>),
+   before this PR. NOT a regression introduced by #385.</p>
+
+<h2>Security / method review</h2>
+<ul>
+  <li>Both <code>/pair/qr.png</code> and <code>/pair/payload</code> are token-gated via <code>AuthMiddleware.HasValidToken</code> -
+      the same Bearer-or-cookie ordinal check used by the #369 voice-turn routes - enforced inside the endpoint so the gate holds
+      even when the global auth middleware is off (production tray Gateway runs authEnabled=false). No-token and wrong-token both
+      return 401 (verified live).</li>
+  <li>No real token leaks into any committed file: the developer's and QA's committed images/JSON use placeholders; the live token
+      was only ever held in memory / compared at runtime.</li>
+  <li>No-fallback rule honoured: null front door -> hard 503, never a placeholder QR.</li>
+</ul>
+
+<h2>Evidence: Cockpit "Connect a phone" panel (token redacted)</h2>
+<img src="qa-connect-a-phone.png" alt="QA screenshot of the Connect a phone panel">
+
+<div class="verdict">VERIFIED - all 5 acceptance criteria met. No regressions attributable to this PR.</div>
+
+</body>
+</html>
