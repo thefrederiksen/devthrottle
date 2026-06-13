@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA proof - issue #406 (persist + resume in-flight voice turn)</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; background:#0F1626; color:#E6EAF2; margin:0; padding:32px; line-height:1.5; }
+  h1 { font-size:22px; } h2 { font-size:16px; color:#37C2B6; margin-top:28px; }
+  .verdict { background:#0E1B14; border:1px solid #5FD08A; border-radius:10px; padding:14px 18px; font-weight:bold; color:#5FD08A; }
+  table { border-collapse:collapse; width:100%; margin-top:10px; }
+  th, td { border:1px solid #1E2A44; padding:8px 10px; text-align:left; vertical-align:top; font-size:13px; }
+  th { background:#15203A; color:#9FB4D8; }
+  .pass { color:#5FD08A; font-weight:bold; } .mut { color:#8A93A6; }
+  code { background:#15203A; padding:1px 5px; border-radius:4px; font-size:12px; }
+</style>
+</head>
+<body>
+<h1>QA proof report - issue #406</h1>
+<p class="mut">[Voice] Persist in-flight voice turn-id and resume polling after app restart/background &middot;
+PR #411 &middot; branch <code>issue-406-persist-resume-voice-turn</code> &middot; QA verified independently 2026-06-13.</p>
+
+<div class="verdict">VERIFIED - all acceptance criteria met.</div>
+
+<h2>How QA verified (independent, not the developer's binary)</h2>
+<ul>
+  <li>Checked out the PR branch into a clean isolated worktree; built and ran the tests myself.</li>
+  <li>Read the changed source to confirm the wiring, not just the test names.</li>
+  <li><b>Test project</b> <code>CcDirectorClient.Tests</code> (pure net10.0): targeted run of the new + reused
+      suites = <span class="pass">22/22 PASS</span> (11 new <code>InFlightTurnStoreTests</code> + reused
+      <code>VoiceTurnRunnerTests</code>). Full suite = 143 passed / 5 failed.</li>
+  <li><b>MAUI app build</b> <code>CcDirectorClient.csproj -f net10.0-android</code> = <span class="pass">0 Errors</span>
+      (98 warnings, all pre-existing CA1416 / NU1608 dependency noise, none from #406 files).</li>
+  <li><b>The 5 failing <code>ConductorStateTests</code> are pre-existing on clean main</b> - independently
+      reproduced on a fresh <code>origin/main</code> worktree (same 5 fail there; 132 pass). They are the FIFO
+      queue / conductor cursor logic, unrelated to voice-turn persistence, and do not gate this issue.</li>
+</ul>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>Criterion</th><th>Expected</th><th>Actual (QA observed)</th><th>Result</th></tr>
+
+<tr>
+  <td>(a) After submit, active turnId is persisted; after a terminal stage it is cleared.</td>
+  <td>Submit persists <code>{sessionId,turnId,submittedAt}</code>; reply/error/expired/gone clears it.</td>
+  <td><code>TalkPage.RunVoiceTurnAsync</code> wires <code>onTurnSubmitted -&gt; _inFlightTurns.Save(...)</code> and
+      <code>onTurnTerminal -&gt; _inFlightTurns.Clear()</code>. <code>VoiceConversation</code> fires submit the instant
+      submit returns (line 125) and fires terminal on BOTH the normal reply (line 213) and every terminal failure
+      via the poll-loop catch (line 208). Tests <code>SaveThenLoad_RoundTripsAllFields</code>,
+      <code>Clear_RemovesTheTurn</code> PASS.</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>(b) Relaunch within the TTL resumes polling and delivers the reply, reusing the #405 hardened loop.</td>
+  <td>On OnAppearing, a persisted in-TTL turn resumes via the SAME #405 loop (not reinvented) and plays/shows the reply.</td>
+  <td><code>OnAppearing -&gt; TryResumeInFlightTurnAsync -&gt; ResumeVoiceTurnAsync -&gt; VoiceConversation.ResumeTurnAsync</code>,
+      which calls the shared <code>PollAndSpeakAsync -&gt; VoiceTurnRunner.PollToCompletionAsync</code>. QA confirmed
+      <code>VoiceTurnRunner.cs</code> is <b>unchanged by this PR</b> (empty diff vs main) - genuine reuse. Tests
+      <code>IsWithinTtl_FreshTurn_IsResumable</code>, <code>IsWithinTtl_AtTheBoundary_IsStillResumable</code>,
+      <code>SavedTurn_LoadedAndJudgedAgainstTtl_GatesResume</code> PASS.</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>(c) A persisted turn past the TTL is discarded with a clear message, no unhandled 404.</td>
+  <td>Past-TTL turn cleared with a plain message; never polled.</td>
+  <td><code>TryResumeInFlightTurnAsync</code>: when <code>!IsWithinTtl(...)</code> it calls <code>_inFlightTurns.Clear()</code>,
+      sets the status to "The last voice turn expired before it could be delivered. Tap Record to try again.", and
+      returns BEFORE any poll - so no guaranteed-404 request is ever made. Test <code>IsWithinTtl_PastTtl_IsDiscarded</code> PASS.</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>(d) Only one in-flight turn is tracked at a time (latest wins).</td>
+  <td>A new submit replaces any older turn; one slot only.</td>
+  <td><code>InFlightTurnStore.Save</code> overwrites the single <code>PrefKey</code> ("inflight_voice_turn"); there is no
+      second slot. Test <code>Save_LatestWins_OnlyOneTurnTracked</code> PASS.</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Regression / method sweep</h2>
+<ul>
+  <li>New seam <code>IKeyValueStore</code> + <code>PreferencesKeyValueStore</code> keeps MAUI types out of the testable
+      logic; corrupt/missing-field blobs return null (treated as "nothing in flight", not a crash) - covered by tests.</li>
+  <li>Cancellation (user navigates away mid-turn) deliberately does NOT clear the persisted turn, so a later launch can
+      still resume within the TTL - verified in <code>PollAndSpeakAsync</code> (cancel rethrows without firing onTurnTerminal).</li>
+  <li>No adjacent behaviour changed: <code>VoiceTurnRunner</code>, the wingman path, and FIFO delivery are untouched.</li>
+  <li>CenCon: phone client is not an <code>architecture_manifest.yaml</code> container; no security posture change - no drift.</li>
+</ul>
+
+<p class="mut">VERIFIED - all 4 acceptance criteria met; MAUI build clean (0 errors); #406 + reused #405 tests 22/22.
+Pre-existing 5 ConductorStateTests failures confirmed on clean main, not introduced by this PR.</p>
+</body>
+</html>
