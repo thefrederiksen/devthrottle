@@ -18,6 +18,12 @@ public class SessionLifecycleTests : IDisposable
         var options = new AgentOptions
         {
             ClaudePath = TestShell.Path,
+            // The cmd.exe / sh stand-in must stay alive for the lifecycle assertions
+            // (status Running after create, then killed). Production's DefaultClaudeArgs is
+            // now empty (issue #391), under which the bare stand-in shell exits immediately,
+            // so pin an arg here that keeps it running - this test exercises kill/lifecycle,
+            // not the production default.
+            DefaultClaudeArgs = "--dangerously-skip-permissions",
             DefaultBufferSizeBytes = 65536,
             GracefulShutdownTimeoutSeconds = 2
         };

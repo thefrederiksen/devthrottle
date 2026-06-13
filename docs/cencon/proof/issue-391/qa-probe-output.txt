@@ -1,0 +1,50 @@
+==== AC2: built-in catalog of the 5 known tools ====
+  ClaudeCode   display='Claude Code' defaultModel='' presets: Standard=[] | Automatic (skip permissions)=[--dangerously-skip-permissions]
+  Pi           display='Pi' defaultModel='' presets: Standard=[]
+  Codex        display='Codex' defaultModel='' presets: Standard=[]
+  Gemini       display='Gemini' defaultModel='' presets: Standard=[]
+  OpenCode     display='OpenCode' defaultModel='' presets: Standard=[]
+  catalog count = 5
+
+==== AC3: Claude default preset is Standard (NO skip-permissions); Automatic present but not default ====
+  default preset name      = Standard
+  default preset args      = ''
+  default contains skip?   = False
+  Automatic preset present = True
+  AgentOptions.DefaultClaudeArgs default = ''
+
+==== AC4 + AC6: edit fields -> persist to config.json (machine-level, MergePatch) ====
+  config.json path = C:\Users\soren\AppData\Local\Temp\qa391-probe-root\config\config.json
+  exists           = True
+  ---- config.json contents (AFTER save) ----
+{
+  "agent": {
+    "tools": {
+      "claude": {
+        "preset": "Automatic (skip permissions)",
+        "args_override": "",
+        "default_model": "claude-opus-4-8",
+        "enabled": false
+      }
+    }
+  }
+}
+  reloaded preset  = Automatic (skip permissions)
+  reloaded model   = claude-opus-4-8
+  reloaded enabled = False
+  reloaded effArgs = '--dangerously-skip-permissions'
+
+==== AC7: launched Claude command line follows preset (Standard => NO skip-permissions) ====
+  Standard effective args   = ''
+  assembled command line    = 'claude --session-id 6a27d9ef-0e92-4535-b02d-481b5d2b12d9'
+  contains skip-permissions = False
+
+==== Automatic preset opt-in DOES propagate skip-permissions (negative control) ====
+  Automatic assembled line  = 'claude --dangerously-skip-permissions --session-id 793a607f-c1ce-4582-8ccd-5d24fe04adf5'
+  contains skip-permissions = True
+
+==== AC5: per-tool Test button -> ToolDetectionService.TestToolAsync PASS (version) / FAIL (error) ====
+  FAIL test (missing exe): Ok=False version='' message='Claude Code was not found at C:\Users\soren\AppData\Local\Temp\no-such-claude-xyz.exe.'
+  PASS test ('claude'):    Ok=True version='2.1.177 (Claude Code)' message='OK: Claude Code reported 2.1.177 (Claude Code).'
+
+==== PROBE COMPLETE ====
