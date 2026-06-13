@@ -221,7 +221,23 @@ public partial class TalkPage : ContentPage
     // gateway_url + gateway_token in one tap, removing the hand-typed-token 401s. The manual
     // Entry fields stay as a fallback; nothing here changes them until a VALID code is scanned.
 
-    private async void OnScanQrClicked(object? sender, EventArgs e)
+    private async void OnScanQrClicked(object? sender, EventArgs e) => await ScanPairingQrAsync();
+
+    /// <summary>
+    /// True once this phone is paired: it has a Gateway token. The voice-turn endpoints are
+    /// token-gated (issue #369/#384), so an empty token means every turn would fail with a raw
+    /// "401 missing or invalid token" - hence the guard in <see cref="OnVoiceRecordClicked"/>.
+    /// </summary>
+    private bool IsPaired => !string.IsNullOrWhiteSpace(TokenEntry.Text);
+
+    /// <summary>
+    /// Run the pairing-QR scan flow (issue #386) and apply a valid code. Returns true when a
+    /// valid code was scanned and the gateway_url + gateway_token prefs were written. Shared by
+    /// the roster "Scan QR" button and the Voice tab's "not paired" prompt, so both pair the
+    /// same way. Never throws to the caller: camera denial, a cancelled scan, a scanner failure,
+    /// and a malformed code each surface a clear message and return false.
+    /// </summary>
+    private async Task<bool> ScanPairingQrAsync()
     {
         // Request the camera at scan time (criterion 5: a clear message on denial, no crash).
         var status = await Permissions.RequestAsync<Permissions.Camera>();
@@ -232,7 +248,7 @@ public partial class TalkPage : ContentPage
             await DisplayAlert("Camera needed",
                 "CC Director Client needs camera access to scan the pairing QR. You can still type "
                 + "the Gateway URL and token by hand below.", "OK");
-            return;
+            return false;
         }
 
         string? scanned;
@@ -244,14 +260,14 @@ public partial class TalkPage : ContentPage
         }
         catch (Exception ex)
         {
-            ClientLog.Write($"[TalkPage] OnScanQrClicked scanner FAILED: {ex.Message}");
+            ClientLog.Write($"[TalkPage] ScanPairingQrAsync scanner FAILED: {ex.Message}");
             ShowScanStatus("Could not open the camera scanner.");
             await DisplayAlert("Scanner error", ex.Message, "OK");
-            return;
+            return false;
         }
 
         // User cancelled / backed out of the scanner: leave the prefs and fields as they were.
-        if (scanned is null) return;
+        if (scanned is null) return false;
 
         var parsed = PairingLink.Parse(scanned);
         if (!parsed.Ok)
@@ -260,7 +276,7 @@ public partial class TalkPage : ContentPage
             // overwrite the saved gateway_url / gateway_token.
             ShowScanStatus(parsed.Error);
             await DisplayAlert("Not a pairing code", parsed.Error, "OK");
-            return;
+            return false;
         }
 
         // Valid code: write both prefs, mirror them into the visible fields, and reconnect.
@@ -273,6 +289,7 @@ public partial class TalkPage : ContentPage
 
         // Trigger the existing reconnect/refresh path so the roster loads against the new Gateway.
         await LoadRosterAsync();
+        return true;
     }
 
     private void ShowScanStatus(string message)
@@ -406,7 +423,11 @@ public partial class TalkPage : ContentPage
     {
         _voiceRecording = false;
         SetVoiceRecordingUi(false);
-        VoiceStatusLabel.Text = "Tap Record and talk to the agent.";
+        // Unpaired phones cannot talk (token-gated voice-turn): say so up front rather than
+        // letting the first Record tap end in a 401. Tapping Record then opens the pair prompt.
+        VoiceStatusLabel.Text = IsPaired
+            ? "Tap Record and talk to the agent."
+            : "Not connected. Tap Record to pair this phone with a Gateway.";
         VoiceYouCard.IsVisible = false;
         VoiceReplyCard.IsVisible = false;
         VoiceYouLabel.Text = "";
@@ -492,6 +513,23 @@ public partial class TalkPage : ContentPage
 
         if (!_voiceRecording)
         {
+            // Pairing guard: voice-turn is token-gated (issue #369/#384). An unpaired phone
+            // (empty gateway_token) would record, submit, and only THEN fail with a raw
+            // "401 missing or invalid token" - after the user has already spoken. Catch it up
+            // front and offer to pair, instead of surfacing the backend error.
+            if (!IsPaired)
+            {
+                ClientLog.Write("[TalkPage] OnVoiceRecordClicked: not paired (empty token) -> prompt to pair");
+                var scan = await DisplayAlert("Connect this phone",
+                    "This phone is not paired with a Gateway yet, so it cannot talk to the agent. "
+                    + "Open the Gateway's Cockpit, choose \"Connect a phone\", and scan the QR code "
+                    + "(or enter the Gateway token by hand on the Sessions screen).",
+                    "Scan QR code", "Not now");
+                if (scan)
+                    await ScanPairingQrAsync();
+                return;
+            }
+
             // Start capturing.
             var status = await Permissions.RequestAsync<Permissions.Microphone>();
             if (status != PermissionStatus.Granted)
