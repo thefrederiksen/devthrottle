@@ -283,6 +283,54 @@ public partial class MainWindow : Window
 
         WireGatewayIndicator();
         InitDirectorInfo();
+
+        MaybeShowToolDetectionWizard();
+    }
+
+    /// <summary>
+    /// On first run (no agent tools configured yet, issue #392), auto-open the tool-detection
+    /// wizard so a new user gets a near-zero-effort setup. Once any tool is configured the
+    /// wizard never auto-opens again - it can still be re-run on demand from Settings &gt; Agents.
+    /// Posted to the UI thread so it opens after the main window is shown.
+    /// </summary>
+    private void MaybeShowToolDetectionWizard()
+    {
+        FileLog.Write("[MainWindow] MaybeShowToolDetectionWizard");
+        try
+        {
+            if (!ToolDetectionWizardModel.IsFirstRun())
+            {
+                FileLog.Write("[MainWindow] MaybeShowToolDetectionWizard: tools already configured; not auto-opening");
+                return;
+            }
+
+            Dispatcher.UIThread.Post(async () =>
+            {
+                try
+                {
+                    await OpenToolDetectionWizardAsync();
+                }
+                catch (Exception ex)
+                {
+                    FileLog.Write($"[MainWindow] MaybeShowToolDetectionWizard open FAILED: {ex.Message}");
+                }
+            }, global::Avalonia.Threading.DispatcherPriority.Background);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] MaybeShowToolDetectionWizard FAILED: {ex.Message}");
+        }
+    }
+
+    /// <summary>Open the first-run tool-detection wizard modally over the main window.</summary>
+    internal async Task OpenToolDetectionWizardAsync()
+    {
+        FileLog.Write("[MainWindow] OpenToolDetectionWizardAsync");
+        var app = global::Avalonia.Application.Current as App;
+        var options = app?.SessionManager?.Options ?? app?.Options
+            ?? throw new InvalidOperationException("AgentOptions not loaded.");
+        var dialog = new ToolDetectionWizardDialog(options);
+        await dialog.ShowDialog<bool?>(this);
     }
 
     private void InitDirectorInfo()

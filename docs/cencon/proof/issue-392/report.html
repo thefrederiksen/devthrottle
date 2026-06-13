@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Issue #392 - First-run tool-detection wizard - Developer proof</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background:#1e1e1e; color:#cccccc; margin:0; padding:24px; }
+  h1 { color:#fff; font-size:22px; }
+  h2 { color:#fff; font-size:17px; margin-top:28px; border-bottom:1px solid #3c3c3c; padding-bottom:4px; }
+  table { border-collapse:collapse; width:100%; margin:12px 0; }
+  th,td { border:1px solid #3c3c3c; padding:8px 10px; text-align:left; vertical-align:top; font-size:13px; }
+  th { background:#252526; }
+  .pass { color:#22c55e; font-weight:bold; }
+  code { background:#252526; padding:1px 5px; border-radius:3px; font-family:Cascadia Mono, Consolas, monospace; }
+  img { max-width:680px; border:1px solid #3c3c3c; margin:8px 0; display:block; }
+  pre { background:#252526; padding:12px; border:1px solid #3c3c3c; overflow:auto; font-size:12px; }
+  .hint { color:#888; font-size:12px; }
+</style>
+</head>
+<body>
+<h1>Issue #392 - [Desktop] First-run tool-detection wizard</h1>
+<p>Developer Agent proof. A first-run wizard auto-opens on the Director desktop when no agent tools
+are configured, scans for known catalog tools via the existing <code>ToolDetectionService</code>,
+auto-suggests found tools pre-filled with the recommended Standard command line + default model
+(issue #391's catalog), lets the user deselect before accepting, writes accepted tools to the
+machine-level <code>config.json</code>, can be re-run from the Agents tab in Settings, does not
+re-trigger once configured, and never auto-adds <code>--dangerously-skip-permissions</code>.</p>
+
+<h2>What was implemented</h2>
+<ul>
+  <li><b>CcDirector.Core/Agents/ToolDetectionWizardModel.cs</b> (new) - UI-free engine:
+    <code>IsFirstRun()</code> (true when <code>agent.tools</code> is absent/empty in config.json),
+    <code>ScanSuggestions()</code> (one suggestion per catalog tool, reusing
+    <code>ToolDetectionService.DetectTool</code>), and <code>AcceptSelected()</code> (writes the
+    selected tools via <code>AgentToolConfig.FromCatalogDefaults().Save()</code> plus the detected
+    path under <code>agent.&lt;key&gt;_path</code>; never skip-permissions).</li>
+  <li><b>CcDirector.Avalonia/ToolDetectionWizardDialog.axaml(.cs)</b> (new) - the wizard window:
+    per-tool card with a found/not-found badge, a pre-checked checkbox for found tools, and the
+    recommended command line + model. Async scan, responsive UI, Add selected tools / Skip for now.</li>
+  <li><b>CcDirector.Avalonia/MainWindow.axaml.cs</b> - <code>MaybeShowToolDetectionWizard()</code> at
+    the end of <code>MainWindow_Loaded</code> auto-opens the wizard on first run only.</li>
+  <li><b>CcDirector.Avalonia/SettingsDialog.axaml(.cs)</b> - a "Detection wizard..." button on the
+    Agents tab re-runs the wizard on demand and reloads the page after accept.</li>
+  <li><b>CcDirector.Core.Tests/Agents/ToolDetectionWizardModelTests.cs</b> (new) - 7 unit tests.</li>
+</ul>
+
+<h2>Acceptance criteria - each met with proof</h2>
+<table>
+<tr><th>Criterion</th><th>Result</th><th>Proof</th></tr>
+<tr><td>On a machine with no tools configured, launching shows the wizard automatically.</td>
+    <td class="pass">PASS</td>
+    <td>Log: <code>IsFirstRun: result=True</code> -&gt; <code>ToolDetectionWizardDialog Constructor</code>. Screenshot 01.</td></tr>
+<tr><td>The wizard scans and lists every known catalog tool with a found / not-found status.</td>
+    <td class="pass">PASS</td>
+    <td>Log: <code>ScanAsync: found=5, total=5</code>. Screenshot 01 lists all 5 with FOUND badges.</td></tr>
+<tr><td>Found tools pre-checked + pre-filled with recommended command line + default model; not-found shown but not auto-added.</td>
+    <td class="pass">PASS</td>
+    <td>Screenshot 01 - each found card shows a checked box, "Command line: Standard", "Default model: (tool default)".</td></tr>
+<tr><td>The user can deselect a suggested tool before accepting; a deselected tool is NOT written to config.</td>
+    <td class="pass">PASS</td>
+    <td>Screenshot 02 (Codex unchecked). config-after-accept.json contains claude/pi/gemini/opencode but NOT codex.</td></tr>
+<tr><td>Accepting writes the selected tools to machine-level config.json, and they appear on the Tools page.</td>
+    <td class="pass">PASS</td>
+    <td>config-after-accept.json under <code>agent.tools</code>. Screenshot 03 - the Agents tab shows the added tools.</td></tr>
+<tr><td>The wizard does not re-trigger automatically on the next launch once tools are configured, and can be re-opened manually from the Tools page.</td>
+    <td class="pass">PASS</td>
+    <td>Second-launch log: <code>IsFirstRun: result=False</code> + <code>tools already configured; not auto-opening</code>. Screenshot 03 shows the "Detection wizard..." re-run button; invoking it re-opened the wizard (<code>wizard-reopened-from-settings=True</code>).</td></tr>
+<tr><td>No tool is auto-added with <code>--dangerously-skip-permissions</code>; suggested Claude uses the standard command line.</td>
+    <td class="pass">PASS</td>
+    <td>config-after-accept.json: Claude <code>"preset": "Standard"</code>, no skip-permissions anywhere. Unit test <code>AcceptSelected_Claude_NeverWritesSkipPermissions</code>.</td></tr>
+</table>
+
+<h2>Screenshot 01 - wizard auto-opens on first run (paths redacted)</h2>
+<img src="img/01-wizard-autoopen.png" alt="wizard auto-open" />
+
+<h2>Screenshot 02 - Codex deselected before accept (paths redacted)</h2>
+<img src="img/02-codex-deselected.png" alt="codex deselected" />
+
+<h2>Screenshot 03 - re-run button on Settings &gt; Agents + added tools (paths redacted)</h2>
+<img src="img/03-rerun-from-settings.png" alt="rerun from settings" />
+
+<h2>config.json after accept (redacted - local install paths replaced with USER)</h2>
+<p class="hint">Codex was deselected so it is absent. Claude is Standard (no skip-permissions). Local
+usernames in detected paths are redacted for this public repo; the live file held the real paths.</p>
+<pre>{
+  "agent": {
+    "tools": {
+      "claude":   { "preset": "Standard", "args_override": "", "default_model": "", "enabled": true },
+      "pi":       { "preset": "Standard", "args_override": "", "default_model": "", "enabled": true },
+      "gemini":   { "preset": "Standard", "args_override": "", "default_model": "", "enabled": true },
+      "opencode": { "preset": "Standard", "args_override": "", "default_model": "", "enabled": true }
+    },
+    "claude_path":   "C:\\Users\\USER\\.local\\bin\\claude.EXE",
+    "pi_path":       "D:\\Tools\\Pi\\pi.exe",
+    "gemini_path":   "C:\\Users\\USER\\AppData\\Roaming\\npm\\gemini.cmd",
+    "opencode_path": "C:\\Users\\USER\\AppData\\Roaming\\npm\\opencode.CMD"
+  }
+}</pre>
+
+<h2>Build and tests</h2>
+<ul>
+  <li><code>dotnet build cc-director.sln</code> - Build succeeded, 0 Warnings, 0 Errors (worktree).</li>
+  <li>7/7 new unit tests pass: <code>ToolDetectionWizardModelTests</code>.</li>
+  <li>Live verification on slot 8 (per-session isolation; clean <code>CC_DIRECTOR_ROOT</code> so it was a true first run), torn down after.</li>
+</ul>
+
+<h2>CenCon impact</h2>
+<p>No architecture or security drift. Reuses existing containers (CcDirector.Core, CcDirector.Avalonia)
+and the existing config writer; machine-level config write only, no new security surface, no gateway call.</p>
+
+<p><b>I believe this is finished.</b></p>
+</body>
+</html>
