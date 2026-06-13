@@ -1,0 +1,20 @@
+{
+  "agent": {
+    "tools": {
+      "claude": {
+        "preset": "Standard",
+        "args_override": "",
+        "default_model": "",
+        "enabled": true
+      },
+      "pi": {
+        "preset": "Standard",
+        "args_override": "",
+        "default_model": "",
+        "enabled": true
+      }
+    },
+    "claude_path": "C:\\Users\\USER\\.local\\bin\\claude.EXE",
+    "pi_path": "D:\\Tools\\Pi\\pi.exe"
+  }
+}
