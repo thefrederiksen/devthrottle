@@ -31,6 +31,11 @@
     <Compile Include="..\CcDirectorClient\Voice\SessionFilter.cs" Link="Voice\SessionFilter.cs" />
     <Compile Include="..\CcDirectorClient\Voice\ChatTurnResult.cs" Link="Voice\ChatTurnResult.cs" />
     <Compile Include="..\CcDirectorClient\Voice\VoiceTurnResults.cs" Link="Voice\VoiceTurnResults.cs" />
+    <Compile Include="..\CcDirectorClient\Voice\IVoiceTurnChannel.cs" Link="Voice\IVoiceTurnChannel.cs" />
+    <Compile Include="..\CcDirectorClient\Voice\VoiceTurnHttpException.cs" Link="Voice\VoiceTurnHttpException.cs" />
+    <Compile Include="..\CcDirectorClient\Voice\VoiceTurnTerminalExceptions.cs" Link="Voice\VoiceTurnTerminalExceptions.cs" />
+    <Compile Include="..\CcDirectorClient\Voice\VoiceTurnRetryPolicy.cs" Link="Voice\VoiceTurnRetryPolicy.cs" />
+    <Compile Include="..\CcDirectorClient\Voice\VoiceTurnRunner.cs" Link="Voice\VoiceTurnRunner.cs" />
     <Compile Include="..\CcDirectorClient\Voice\ConductorState.cs" Link="Voice\ConductorState.cs" />
     <Compile Include="..\CcDirectorClient\Voice\RawTerminalPage.cs" Link="Voice\RawTerminalPage.cs" />
     <Compile Include="..\CcDirectorClient\Voice\TurnBrief.cs" Link="Voice\TurnBrief.cs" />
