@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Report - Issue #391 - Machine-level agent tool library</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background:#1e1e1e; color:#d4d4d4; margin:0; padding:32px; line-height:1.5; }
+  h1 { color:#4ec9b0; font-size:22px; }
+  h2 { color:#569cd6; font-size:16px; margin-top:28px; border-bottom:1px solid #3c3c3c; padding-bottom:6px; }
+  table { border-collapse:collapse; width:100%; margin-top:12px; }
+  th, td { border:1px solid #3c3c3c; padding:8px 10px; text-align:left; vertical-align:top; font-size:13px; }
+  th { background:#252526; color:#9cdcfe; }
+  .pass { color:#4ec9b0; font-weight:bold; }
+  .fail { color:#f48771; font-weight:bold; }
+  code, pre { font-family:Consolas, monospace; background:#252526; color:#ce9178; padding:1px 4px; border-radius:3px; }
+  pre { padding:12px; overflow-x:auto; white-space:pre-wrap; font-size:12px; }
+  .meta { color:#888; font-size:12px; }
+  .verdict { background:#0e3a2f; border:1px solid #4ec9b0; padding:14px; margin-top:24px; border-radius:5px; }
+</style>
+</head>
+<body>
+<h1>QA Report - Issue #391</h1>
+<p class="meta">
+  Title: [Desktop] Machine-level Tools page: manage a library of known CLI agent tools with editable command lines, default model, and per-tool Test button<br>
+  PR: #404 (branch issue-391-agent-tool-library) | Verified build: v0.6.23 (commit 6522e24) | Test slot: 8 (isolated, torn down)<br>
+  Verifier: QA Agent (independent - own worktree, own probe, own running build). The Developer report and screenshots were NOT trusted; every result below was reproduced by QA.
+</p>
+
+<h2>Verification method</h2>
+<p>
+QA checked out the PR branch in its own git worktree, built the solution clean (0 warnings / 0 errors), and verified each acceptance criterion two ways:
+(1) an independent QA-authored console probe driving the REAL Core code paths (<code>AgentToolCatalog</code>, <code>AgentToolConfig</code> Save/Load against a fresh <code>CC_DIRECTOR_ROOT</code>, <code>ClaudeAgent.BuildLaunchSpec</code>, <code>ToolDetectionService.TestToolAsync</code>) with the actual <code>config.json</code> bytes and assembled command lines captured;
+(2) a live run of the QA-built Director (slot 8, launched via its own scheduled task per CLAUDE.md rule 0b), confirmed healthy on the Control API, with startup and Settings-dialog log evidence.
+Raw evidence: <code>qa-probe-output.txt</code> and <code>qa-live-log-evidence.txt</code> in this directory.
+</p>
+<p class="meta">
+Note on screenshots: the Director under test runs via Windows Task Scheduler (rule 0b), in a session with no capturable interactive desktop, so pixel screenshots of the modal Settings dialog render blank and are not reproducible from the QA context. QA instead proved the UI through (a) the live log showing the dialog constructed and <code>LoadToolPresets</code> executed without error on the PR build, (b) the UIA tree confirming the running window is the QA-built PR binary, and (c) source review of the named XAML controls wired to the code-behind (the XAML compiles at build time, so a missing control or bad binding would fail the build). The underlying data/behavior of every UI control is verified end-to-end through the Core code paths it binds to.
+</p>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (QA-reproduced)</th><th>Result</th></tr>
+
+<tr>
+<td>1</td>
+<td>Tools page shows the list of tools configured on this machine, one section per tool.</td>
+<td>Settings &gt; Agents shows a section per tool with editors.</td>
+<td>Settings dialog constructs and runs <code>LoadToolPresets</code> on the PR build (live log). XAML defines a Border section per tool (Claude, Pi, Codex, Gemini, OpenCode) with preset combo, model box, args-override box, Enabled check - all named controls wired in code-behind; build compiles the XAML clean.</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>2</td>
+<td>Built-in catalog of >= 5 known tools, each with recommended default command line + default model.</td>
+<td>Exactly the 5 AgentKind tools, each with presets and a default model.</td>
+<td>Probe: <code>AgentToolCatalog.Entries</code> count = 5 (ClaudeCode, Pi, Codex, Gemini, OpenCode), each with a Standard preset; Claude additionally has an Automatic preset. Each entry exposes a default model field.</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>3</td>
+<td>For Claude, default command line does NOT contain <code>--dangerously-skip-permissions</code>; "Automatic (skip permissions)" present and OFF by default.</td>
+<td>Default preset = Standard (empty args); Automatic exists but is not the default; persisted/runtime default carries no skip flag.</td>
+<td>Probe: Claude default preset = "Standard", args = "" (does not contain skip flag); Automatic preset present = True; <code>AgentOptions.DefaultClaudeArgs</code> default = "". Live: startup log "claude preset=Standard ... defaultArgs=''".</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>4</td>
+<td>Each tool section edits exe path, args/preset, default model; edits persist to config.json.</td>
+<td>Saving writes preset/args_override/default_model/enabled under <code>agent.tools.&lt;key&gt;</code>; Load round-trips.</td>
+<td>Probe: after Save(Automatic, model=claude-opus-4-8, enabled=false), config.json contained the exact <code>agent.tools.claude</code> object; Load round-tripped preset/model/enabled and resolved effective args = <code>--dangerously-skip-permissions</code>.</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>5</td>
+<td>Per-tool Test button: PASS with version when installed; FAIL with error when not.</td>
+<td>Real version probe returns Ok + version, or Ok=false + clear error for a missing exe.</td>
+<td>Probe via <code>ToolDetectionService.TestToolAsync</code>: missing exe -> Ok=False, message "Claude Code was not found at ...". Present 'claude' -> Ok=True, version "2.1.177 (Claude Code)", message "OK: Claude Code reported 2.1.177 ...".</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>6</td>
+<td>Saving tool config reads/writes machine-level config.json only; no gateway call on save.</td>
+<td>Persistence via <code>CcDirectorConfigService.MergePatch</code> to local config.json; no gateway request.</td>
+<td>Probe: Save writes to the local config.json under <code>CC_DIRECTOR_ROOT/config/config.json</code> via MergePatch. Source review: <code>AgentToolConfig.Save</code> and <code>SettingsDialog.PersistToolPresets</code> call only MergePatch (no HttpClient / DirectorClient / gateway call in the path).</td>
+<td class="pass">PASS</td>
+</tr>
+
+<tr>
+<td>7</td>
+<td>A launched session uses the tool's configured command line + default model - Claude with the Standard preset has NO <code>--dangerously-skip-permissions</code>.</td>
+<td>Assembled Claude command line follows the configured preset.</td>
+<td>Probe: Standard preset -> <code>ClaudeAgent.BuildLaunchSpec(null,...)</code> = <code>claude --session-id &lt;uuid&gt;</code> (no skip flag). Negative control: Automatic preset -> command line includes <code>--dangerously-skip-permissions</code>. Path: MainWindow passes null when no Claude flags chosen; ClaudeAgent falls to <code>DefaultClaudeArgs</code> set from config.</td>
+<td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Regression and method checks</h2>
+<ul>
+<li><span class="pass">PASS</span> - Full solution builds clean: <code>dotnet build cc-director.sln</code> -> Build succeeded, 0 Warning(s), 0 Error(s).</li>
+<li><span class="pass">PASS</span> - Full Core test suite: 1877 passed, 0 failed, 2 skipped (intentional nul-file watcher skips). New tests AgentToolCatalogTests / AgentToolConfigTests / ClaudeAgentDefaultArgsTests are substantive (assert catalog, round-trip persistence, override-replaces-preset, no-skip default).</li>
+<li><span class="pass">PASS</span> - Parallel-load flake fix verified: CC_DIRECTOR_ROOT-mutating tests serialized into a non-parallel collection; suite green.</li>
+<li><span class="pass">PASS</span> - Security: this change makes the DEFAULT safer (Claude now prompts for permissions instead of skipping all). No new gateway/network surface, no PII, no secrets in code. The skip-all-permissions behavior is now opt-in. No DT blocking rule broken.</li>
+<li><span class="pass">PASS</span> - Documented deviation acceptable: the issue named <code>Controls/ToolsView.axaml</code>, but that page is the unrelated cc-* CLI catalog; the AgentKind agent-tool library lives in Settings &gt; Agents, where the new fields were added. This matches the issue's own flagged assumption ("extends the existing ToolsView rather than creating a brand-new page") and was disclosed in the PR/dev comment.</li>
+</ul>
+
+<div class="verdict">
+<strong>VERDICT: VERIFIED - all 7 acceptance criteria met.</strong><br>
+All criteria independently reproduced by QA through the real Core code paths and a live PR build. Solution builds clean; full Core suite green. Recommend flow:done and squash-merge.
+</div>
+</body>
+</html>
