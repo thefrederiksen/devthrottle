@@ -20,6 +20,9 @@
     <!-- Direct HTTP forwarding (IHttpForwarder) for the one-URL front door: every request no
          explicit Gateway endpoint claims falls through to the loopback Cockpit. -->
     <PackageReference Include="Yarp.ReverseProxy" Version="2.2.0" />
+    <!-- Server-side QR generation for the phone-pairing QR (issue #385). PngByteQRCode renders
+         PNG bytes with no System.Drawing dependency, so it works cross-platform / headless. -->
+    <PackageReference Include="QRCoder" Version="1.8.0" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Issue #385 - Phone-pairing QR - Developer Proof</title>
+<style>
+  :root{--bg:#0B1020;--panel:#141B2E;--ink:#E6EAF2;--muted:#8A93A6;--line:#27324d;
+        --green:#5FD08A;--blue:#5B8DEF;--amber:#E8B339;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;line-height:1.55}
+  .wrap{max-width:980px;margin:0 auto;padding:32px 24px 80px}
+  h1{font-size:26px;margin:0 0 4px}
+  h2{font-size:18px;margin:28px 0 8px;color:var(--blue)}
+  .sub{color:var(--muted);margin:0 0 18px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin:0 0 16px}
+  code,.mono{font-family:ui-monospace,Consolas,monospace;font-size:13px}
+  pre{background:#0B1020;border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow:auto;font-size:12.5px}
+  table{width:100%;border-collapse:collapse;margin:8px 0}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top;font-size:13.5px}
+  th{color:var(--muted);font-weight:600}
+  .ok{color:var(--green);font-weight:600}
+  .pill{display:inline-block;font-size:11px;padding:2px 9px;border-radius:999px;background:#143226;color:var(--green);margin-left:6px}
+  img{max-width:100%;border:1px solid var(--line);border-radius:10px;background:#fff}
+  .note{color:var(--amber);font-size:12.5px}
+  .grid{display:grid;grid-template-columns:1fr 320px;gap:18px;align-items:start}
+  @media(max-width:760px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Issue #385 - Phone-pairing QR <span class="pill">Developer proof</span></h1>
+  <p class="sub">[Gateway] Encode Gateway URL + token, show on a Cockpit "Connect a phone" panel. Branch <code>issue-385-pairing-qr</code>.</p>
+
+  <div class="card">
+    <h2 style="margin-top:0">What was implemented</h2>
+    <ul>
+      <li><b>Pairing-payload builder</b> (<code>src/CcDirector.Gateway/Util/PairingPayload.cs</code>) - pure, unit-tested. Produces <code>ccdirector://pair?u=&lt;url&gt;&amp;t=&lt;token&gt;</code> with both query values URL-encoded.</li>
+      <li><b>Gateway endpoints</b> (<code>src/CcDirector.Gateway/Api/GatewayPairingEndpoint.cs</code>):
+        <ul>
+          <li><code>GET /pair/qr.png</code> -> 200 <code>image/png</code> QR of the pairing link; 503 when the front door is unavailable.</li>
+          <li><code>GET /pair/payload</code> -> the raw url/token/payload as JSON for the panel's copy-able fallback.</li>
+        </ul>
+        Both token-gated with the SAME Bearer-or-cookie convention as the voice-turn routes (reuse <code>AuthMiddleware.HasValidToken</code>; no new auth). Wired in <code>GatewayEndpoints.Map</code>.</li>
+      <li><b>Server-side QR</b> via <code>QRCoder</code> 1.8.0 (<code>PngByteQRCode</code>, no System.Drawing dependency).</li>
+      <li><b>Cockpit "Connect a phone" panel</b> - new <i>Phone</i> tab in <code>src/CcDirector.Cockpit/wwwroot/pages/settings.html</code>: renders the QR <code>&lt;img&gt;</code> plus the Gateway URL and token as copy-able text (Copy URL / Copy token / Copy pairing link).</li>
+      <li><b>No-fallback rule</b>: when <code>TailscaleIdentity.TryGetFrontDoorBaseUrl()</code> returns null the endpoint returns a clear 503 naming the missing Tailscale front door - never a placeholder QR.</li>
+    </ul>
+    <p class="note">Note on this report's values: the screenshot and standalone QR were generated against an isolated proof Gateway whose token was deliberately the non-secret string <code>PROOF_PLACEHOLDER_TOKEN_not_a_real_secret</code> (set via <code>CC_DIRECTOR_ROOT</code>), so no live bearer token is committed to this public repo. The byte-equality of the QR token against the real <code>gateway-token.txt</code> (criterion 2) was verified live separately and is recorded below with the real token value redacted.</p>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">Criterion 1 + 4 - QR endpoint &amp; Cockpit panel (live)</h2>
+    <div class="grid">
+      <div>
+        <p>The Cockpit Settings -> <b>Phone</b> tab, served through the Gateway front door, rendering the live QR plus the copy-able URL and token. <code>GET /pair/qr.png</code> returned <code>HTTP/1.1 200 OK</code>, <code>Content-Type: image/png</code>.</p>
+        <table>
+          <tr><th>Check</th><th>Result</th></tr>
+          <tr><td>GET /pair/qr.png status</td><td class="ok">200 image/png</td></tr>
+          <tr><td>PNG magic bytes</td><td class="mono">89 50 4E 47 (.PNG) - OK</td></tr>
+          <tr><td>Panel renders QR img</td><td class="ok">naturalWidth=488 (real image loaded)</td></tr>
+          <tr><td>Panel shows URL + token text</td><td class="ok">yes (+ 3 copy buttons)</td></tr>
+        </table>
+        <h3 style="font-size:14px;color:var(--muted)">Standalone QR (decodable)</h3>
+        <img src="pair-qr.png" alt="pairing QR" width="220" height="220">
+      </div>
+      <img src="connect-a-phone.png" alt="Connect a phone panel">
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">Criterion 2 - Decoded payload matches front-door + token (live, real values)</h2>
+    <p>Run against the real production Gateway (real token). The QR PNG was decoded with OpenCV's <code>QRCodeDetector</code> and the decoded <code>t</code> compared byte-for-byte to <code>%LOCALAPPDATA%\cc-director\config\director\gateway-token.txt</code>:</p>
+    <pre>DECODED: 'ccdirector://pair?u=https%3A%2F%2Fsoren-north.taildb08ed.ts.net&amp;t=&lt;REDACTED-43-char-token&gt;'
+u (decoded): https://soren-north.taildb08ed.ts.net      # == TailscaleIdentity.TryGetFrontDoorBaseUrl()
+t (decoded): &lt;REDACTED&gt;                                  # == contents of gateway-token.txt
+TOKEN BYTE-EQUAL: True
+URL == front-door: True</pre>
+    <p class="ok">Decoded payload is exactly <code>ccdirector://pair?u=&lt;front-door&gt;&amp;t=&lt;token&gt;</code>; u = the live front-door URL; t = byte-for-byte equal to gateway-token.txt.</p>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">Criterion 3 - Front-door-null error path (no placeholder QR)</h2>
+    <p>With the front-door URL forced null, <code>GET /pair/qr.png</code> returns a clear 503 JSON naming the missing Tailscale front door (captured live; identical message to the endpoint's <code>FrontDoorMissing</code> constant):</p>
+    <pre>HTTP/1.1 503 Service Unavailable
+Content-Type: application/json; charset=utf-8
+
+{"error":"Tailscale front-door URL unavailable - this machine has no MagicDNS identity
+(Tailscale not running or not logged in). The phone reaches the Gateway over the tailnet,
+so pairing needs the front door. Start Tailscale and reload."}</pre>
+    <p class="ok">No QR is emitted; the error names the missing front door. The unit tests <code>Build_MissingGatewayUrl_Throws_NoPlaceholder</code> and <code>QrPng_returns_png_or_clear_503_naming_the_front_door</code> lock this in.</p>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">Criterion 5 - Build clean + payload-builder unit tests pass</h2>
+    <p><code>dotnet build cc-director.sln</code> -> <b>Build succeeded. 0 Warning(s) 0 Error(s)</b> (TreatWarningsAsErrors=true).</p>
+    <pre>Passed  PairingPayloadTests.Build_TypicalFrontDoorAndToken_ProducesExactSchemeAndEncodedQuery
+Passed  PairingPayloadTests.Build_TokenWithReservedCharacters_EncodesThemSoTheQueryRoundTrips
+Passed  PairingPayloadTests.Build_UrlAndToken_BothDecodeBackToTheOriginalValues
+Passed  PairingPayloadTests.Build_MissingGatewayUrl_Throws_NoPlaceholder(url: "")
+Passed  PairingPayloadTests.Build_MissingGatewayUrl_Throws_NoPlaceholder(url: null)
+Passed  PairingPayloadTests.Build_MissingGatewayUrl_Throws_NoPlaceholder(url: "   ")
+Passed  PairingPayloadTests.Build_MissingToken_Throws(token: null)
+Passed  PairingPayloadTests.Build_MissingToken_Throws(token: "")
+Passed  PairingPayloadTests.Build_MissingToken_Throws(token: "   ")
+Passed  PairingEndpointTests.QrPng_without_token_returns_401
+Passed  PairingEndpointTests.Payload_without_token_returns_401
+Passed  PairingEndpointTests.QrPng_returns_png_or_clear_503_naming_the_front_door
+Passed  PairingEndpointTests.Payload_returns_the_builder_contract_or_clear_503
+
+Passed!  -  Failed: 0, Passed: 13, Skipped: 0, Total: 13</pre>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">CenCon impact</h2>
+    <p>No drift. The change adds a Gateway endpoint that reuses the existing token auth (<code>GatewayAuth</code> / <code>AuthMiddleware</code>) and the existing front-door resolver (<code>TailscaleIdentity</code>). No new trust boundary, no new secret storage, no container-model change. <code>architecture_manifest.yaml</code> (last_updated 2026-06-12) and <code>security_profile.yaml</code> (last_verified 2026-06-09, within the 30-day threshold) remain current.</p>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">Verdict</h2>
+    <p class="ok">All five acceptance criteria are met with live proof and passing tests. I believe this is finished.</p>
+  </div>
+</div>
+</body>
+</html>
