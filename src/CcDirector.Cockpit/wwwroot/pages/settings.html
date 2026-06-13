@@ -67,6 +67,7 @@
   <div class="tabs">
     <button class="tab-btn active" data-tab="keys">Keys</button>
     <button class="tab-btn" data-tab="gateway">Gateway</button>
+    <button class="tab-btn" data-tab="phone">Phone</button>
   </div>
 
   <!-- ===== Keys tab ===== -->
@@ -111,6 +112,32 @@
       <p class="hint">Registers a Run entry under HKCU so the Gateway starts in your session when you log in. The fleet only works while you are logged in, so this is per-user, never a machine service.</p>
       <label class="chk"><input type="checkbox" id="autostart" disabled> Start the Gateway when I log in</label>
       <div class="msg" id="autostartmsg"></div>
+    </div>
+  </div>
+
+  <!-- ===== Phone tab ===== -->
+  <div class="tab-panel" id="tab-phone">
+    <div class="section">
+      <h2>Connect a phone</h2>
+      <p class="hint">Scan this QR with the CC Director phone app to pair it with this Gateway. The code carries the Gateway address and access token, so there is nothing to type. The token is as sensitive as a password &mdash; only scan it on a screen you control.</p>
+      <div class="status">
+        <span class="dot" id="phonedot"></span>
+        <span id="phonestate">Loading...</span>
+      </div>
+      <div id="phoneqrwrap" style="display:none">
+        <img id="phoneqr" alt="Phone-pairing QR code" width="280" height="280"
+             style="display:block;background:#fff;border-radius:12px;padding:14px;margin:4px 0 18px">
+        <div class="kv">
+          <span class="k">Gateway URL</span><span class="v mono" id="phoneurl">-</span>
+          <span class="k">Token</span><span class="v mono" id="phonetoken" style="word-break:break-all">-</span>
+        </div>
+        <div class="row" style="margin-top:14px">
+          <button id="phonecopyurl">Copy URL</button>
+          <button id="phonecopytoken">Copy token</button>
+          <button id="phonecopylink">Copy pairing link</button>
+        </div>
+      </div>
+      <div class="msg" id="phonemsg"></div>
     </div>
   </div>
 
@@ -318,6 +345,52 @@
     } catch (err){ msg.className = 'msg err'; msg.textContent = 'Failed: ' + err; await loadWingman(); }
   }
 
+  // ===== Phone pairing (issue #385) =====
+  let phonePayload = '';
+  let phoneUrl = '';
+  let phoneToken = '';
+
+  function setPhoneMsg(text, ok){
+    const m = document.getElementById('phonemsg');
+    m.textContent = text || '';
+    m.className = 'msg ' + (ok ? 'ok' : 'err');
+  }
+
+  async function loadPhone(){
+    const dot = document.getElementById('phonedot');
+    const state = document.getElementById('phonestate');
+    const wrap = document.getElementById('phoneqrwrap');
+    try {
+      const r = await fetch('/pair/payload');
+      if (!r.ok){
+        const e = await r.json().catch(()=>({}));
+        dot.className = 'dot amber';
+        state.textContent = e.error || ('Pairing unavailable (HTTP ' + r.status + ')');
+        wrap.style.display = 'none';
+        return;
+      }
+      const d = await r.json();
+      phonePayload = d.payload; phoneUrl = d.url; phoneToken = d.token;
+      dot.className = 'dot green';
+      state.textContent = 'Ready to pair';
+      document.getElementById('phoneurl').textContent = d.url;
+      document.getElementById('phonetoken').textContent = d.token;
+      // Same-origin image; the gateway cookie carries auth automatically. Cache-bust so a
+      // re-shown tab re-renders rather than serving a stale image.
+      document.getElementById('phoneqr').src = '/pair/qr.png?t=' + Date.now();
+      wrap.style.display = 'block';
+      setPhoneMsg('', true);
+    } catch (e) {
+      dot.className = 'dot red';
+      state.textContent = 'Failed to load (is the Gateway running?)';
+    }
+  }
+
+  async function copyText(text, label){
+    try { await navigator.clipboard.writeText(text); setPhoneMsg(label + ' copied.', true); }
+    catch (e) { setPhoneMsg('Copy failed: ' + e, false); }
+  }
+
   document.getElementById('savebtn').addEventListener('click', saveKey);
   document.getElementById('delbtn').addEventListener('click', removeKey);
   document.getElementById('showbox').addEventListener('change', function(e) {
@@ -326,10 +399,14 @@
   document.getElementById('restartbtn').addEventListener('click', restartBrain);
   document.getElementById('autostart').addEventListener('change', toggleAutostart);
   document.getElementById('wingman').addEventListener('change', toggleWingman);
+  document.getElementById('phonecopyurl').addEventListener('click', () => copyText(phoneUrl, 'URL'));
+  document.getElementById('phonecopytoken').addEventListener('click', () => copyText(phoneToken, 'Token'));
+  document.getElementById('phonecopylink').addEventListener('click', () => copyText(phonePayload, 'Pairing link'));
 
   loadKey();
   loadSnapshot();
   loadWingman();
+  loadPhone();
 </script>
 </body>
 </html>

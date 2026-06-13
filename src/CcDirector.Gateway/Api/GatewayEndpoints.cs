@@ -54,6 +54,11 @@ internal static class GatewayEndpoints
         if (turnJobs is not null)
             GatewayVoiceTurnEndpoint.Map(app, turnJobs, registry, client, owners, token);
 
+        // Issue #385: phone-pairing QR (the Cockpit "Connect a phone" panel reads /pair/qr.png +
+        // /pair/payload). Token-gated like the voice-turn routes so the gate holds even when the
+        // global auth middleware is off (production tray Gateway runs authEnabled=false).
+        GatewayPairingEndpoint.Map(app, token);
+
         // Graceful exit for the self-update helper: answer first (so the caller gets its 200),
         // then hand off to the host's shutdown handler shortly after. 501 when the hosting
         // process wired no handler - this endpoint never half-stops the host on its own.
