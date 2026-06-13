@@ -696,6 +696,7 @@ public partial class App : Application
             }
 
             ApplyConfiguredToolPaths();
+            ApplyConfiguredToolPresets();
             ApplyConfiguredVoiceSettings();
         }
         catch (Exception ex)
@@ -750,6 +751,48 @@ public partial class App : Application
             FileLog.Write($"[App] ApplyConfiguredToolPaths FAILED: {ex.Message}");
             throw;
         }
+    }
+
+    /// <summary>
+    /// Apply the machine-level per-tool command-line preset and default model from
+    /// config.json (issue #391). The Tools page persists each tool's selected preset,
+    /// optional args override, and default model under <c>agent.tools.&lt;key&gt;</c>; this
+    /// resolves Claude Code's effective command line (preset/override plus <c>--model</c>
+    /// when a default model is set) into <see cref="AgentOptions.DefaultClaudeArgs"/>, which
+    /// is exactly what <see cref="CcDirector.Core.Agents.ClaudeAgent"/> launches with.
+    /// When no per-tool config exists the catalog default (Standard, no skip-permissions)
+    /// applies, so a fresh install never auto-skips permissions.
+    /// </summary>
+    private void ApplyConfiguredToolPresets()
+    {
+        FileLog.Write("[App] ApplyConfiguredToolPresets");
+        try
+        {
+            var claudeConfig = AgentToolConfig.Load(AgentKind.ClaudeCode);
+            Options.DefaultClaudeArgs = BuildClaudeDefaultArgs(claudeConfig);
+            FileLog.Write($"[App] ApplyConfiguredToolPresets: claude preset={claudeConfig.PresetName}, model={(string.IsNullOrWhiteSpace(claudeConfig.DefaultModel) ? "<none>" : claudeConfig.DefaultModel)}, defaultArgs='{Options.DefaultClaudeArgs}'");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[App] ApplyConfiguredToolPresets FAILED: {ex.Message}");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Compose Claude Code's effective default arguments from its per-tool config: the
+    /// effective preset/override arguments, plus a <c>--model &lt;model&gt;</c> flag when a
+    /// default model is configured and the args do not already pin a model.
+    /// </summary>
+    private static string BuildClaudeDefaultArgs(AgentToolConfig config)
+    {
+        var args = config.ResolveEffectiveArguments().Trim();
+
+        var model = config.DefaultModel?.Trim() ?? "";
+        if (model.Length > 0 && !args.Contains("--model", StringComparison.OrdinalIgnoreCase))
+            args = string.IsNullOrEmpty(args) ? $"--model {model}" : $"{args} --model {model}";
+
+        return args;
     }
 
     /// <summary>

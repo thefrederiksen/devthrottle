@@ -1,0 +1,16 @@
+QA live-run log evidence (slot 8, build v0.6.23 / 6522e24)
+============================================================
+
+[Startup] ApplyConfiguredToolPresets wires Claude default from config (Standard, no skip-permissions):
+2026-06-13 07:34:02.747 [App] ApplyConfiguredToolPresets
+2026-06-13 07:34:02.747 [AgentToolConfig] Load: tool=ClaudeCode
+2026-06-13 07:34:02.748 [AgentToolConfig] Load: tool=ClaudeCode, no persisted config; using catalog defaults
+2026-06-13 07:34:02.748 [App] ApplyConfiguredToolPresets: claude preset=Standard, model=<none>, defaultArgs=''
+2026-06-13 07:36:08.387 [AgentToolConfig] Load: tool=ClaudeCode
+2026-06-13 07:36:08.388 [AgentToolConfig] Load: tool=ClaudeCode, no persisted config; using catalog defaults
+
+[Settings dialog] opening Settings constructs the dialog and runs LoadToolPresets (per-tool preset/model/enabled/override editors):
+2026-06-13 07:36:08.358 [SettingsDialog] Constructor: initializing (directorPort=7886)
+2026-06-13 07:36:08.384 [SettingsDialog] LoadAsync: reading config.json
+2026-06-13 07:36:08.387 [SettingsDialog] LoadToolPresets
+2026-06-13 07:36:08.388 [SettingsDialog] LoadAsync: loaded

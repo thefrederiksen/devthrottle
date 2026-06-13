@@ -1,0 +1,66 @@
+==================================================================
+ ISSUE #391 PROOF HARNESS - agent tool library (Core code paths)
+==================================================================
+Isolated CC_DIRECTOR_ROOT = C:SERS<REDACTED>\AppData\Local\Temp\cc-director-proof-391\4dcc0f1d8f5541d69acc433455758c5a
+
+[AC2] Built-in catalog of known tools:
+  - ClaudeCode  default-preset='Standard'  presets: Standard=>'' | Automatic (skip permissions)=>'--dangerously-skip-permissions'
+  - Pi          default-preset='Standard'  presets: Standard=>''
+  - Codex       default-preset='Standard'  presets: Standard=>''
+  - Gemini      default-preset='Standard'  presets: Standard=>''
+  - OpenCode    default-preset='Standard'  presets: Standard=>''
+  Catalog tool count = 5 (expected 5)
+
+[AC3] Claude Code recommended default command line:
+  default preset      = 'Standard'
+  default preset args = ''
+  contains --dangerously-skip-permissions ? False  (expected False)
+  'Automatic (skip permissions)' preset present ? True  (expected True)
+  'Automatic' preset is the default ? False  (expected False - it is OFF by default)
+  'Automatic' preset args = '--dangerously-skip-permissions'
+
+[AC7-fresh] Fresh machine (no agent.tools in config.json):
+  loaded preset = 'Standard', enabled = True
+  assembled Claude default args = ''
+  contains --dangerously-skip-permissions ? False  (expected False)
+
+[AC4] config.json BEFORE edit:
+    (config.json does not exist yet)
+
+[AC4] Editing Claude: preset -> 'Automatic (skip permissions)', default model -> 'claude-opus-4', enabled -> false
+[AC4] config.json AFTER edit (note new agent.tools.claude section):
+    {
+      "agent": {
+        "tools": {
+          "claude": {
+            "preset": "Automatic (skip permissions)",
+            "args_override": "",
+            "default_model": "claude-opus-4",
+            "enabled": false
+          }
+        }
+      }
+    }
+
+[AC6] Persistence used CcDirectorConfigService.MergePatch into config.json only (machine-level, no gateway request).
+  agent.tools section now present in config.json ? True  (expected True)
+
+[AC4] Reloaded from config.json:
+  preset = 'Automatic (skip permissions)', default model = 'claude-opus-4', enabled = False
+
+[AC7-configured] Assembled Claude launch command line from the saved Automatic preset + model:
+  claude default args = '--dangerously-skip-permissions --model claude-opus-4'
+  contains --dangerously-skip-permissions ? True  (expected True - user opted in)
+  contains --model claude-opus-4 ? True  (expected True)
+
+[AC5] Per-tool Test (PASS for an installed CLI, FAIL for a missing path):
+  PASS case: path='C:SERS<REDACTED>\.local\bin\claude.EXE'
+    Ok = True  (expected True)
+    version/message = OK: Claude Code reported 2.1.177 (Claude Code).
+  FAIL case: path='C:SERS<REDACTED>\AppData\Local\Temp\a76094fa225b4909a28d6e8739dd68aa\no-such-tool.exe'
+    Ok = False  (expected False)
+    message = Claude Code was not found at C:SERS<REDACTED>\AppData\Local\Temp\a76094fa225b4909a28d6e8739dd68aa\no-such-tool.exe.
+
+==================================================================
+ PROOF COMPLETE
+==================================================================

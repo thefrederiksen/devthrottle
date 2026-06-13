@@ -143,7 +143,7 @@
                 <Grid RowDefinitions="Auto,*">
                     <StackPanel Grid.Row="0" Spacing="8" Margin="0,4,14,8">
                         <TextBlock Classes="sectionTitle" Text="Agent tools" />
-                        <TextBlock Classes="hint" Text="Configure the command-line tools CC Director can launch. Use Detect to find common installs, Test to run a safe version check, or Browse to select an executable." />
+                        <TextBlock Classes="hint" Text="The machine-level library of agent CLI tools CC Director can launch. Each tool has a recommended command-line preset, a default model, and an Enabled flag. Use Detect to find common installs, Test to run a safe version check, or Browse to select an executable. Claude Code defaults to the Standard command line (permission prompts on); the Automatic (skip permissions) preset is off by default." />
                         <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
                             <Button x:Name="DetectAllToolsButton" Classes="dialogButton" Content="Detect All"
                                     Width="120" Click="BtnDetectAllTools_Click" />
@@ -159,65 +159,135 @@
                         <StackPanel Spacing="8">
                         <Border Background="#1E1E1E" BorderBrush="#3C3C3C" BorderThickness="1" Padding="10">
                             <StackPanel Spacing="8">
-                                <TextBlock Text="Claude Code" Foreground="#CCCCCC" FontSize="13" FontWeight="SemiBold" />
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Grid.Column="0" Text="Claude Code" Foreground="#CCCCCC" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                    <CheckBox x:Name="ClaudeEnabledCheck" Grid.Column="1" Content="Enabled"
+                                              Foreground="#CCCCCC" FontSize="11" IsChecked="True" VerticalAlignment="Center"
+                                              ToolTip.Tip="Whether this tool is available for launching from this machine" />
+                                </Grid>
                                 <Grid ColumnDefinitions="*,Auto,Auto,Auto">
                                     <TextBox x:Name="ClaudePathBox" Grid.Column="0" Classes="settingsInput" Watermark="claude" />
                                     <Button x:Name="DetectClaudeButton" Grid.Column="1" Classes="dialogButton" Content="Detect" Margin="8,0,0,0" Click="BtnDetectClaude_Click" />
                                     <Button x:Name="TestClaudeButton" Grid.Column="2" Classes="dialogButton" Content="Test" Margin="8,0,0,0" Click="BtnTestClaude_Click" />
                                     <Button x:Name="BrowseClaudeButton" Grid.Column="3" Classes="dialogButton" Content="Browse..." Margin="8,0,0,0" Click="BtnBrowseClaude_Click" />
                                 </Grid>
+                                <Grid ColumnDefinitions="Auto,*,Auto,*">
+                                    <TextBlock Grid.Column="0" Classes="fieldLabel" Text="Command line" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                    <ComboBox x:Name="ClaudePresetCombo" Grid.Column="1"
+                                              Background="#1E1E1E" Foreground="#CCCCCC" HorizontalAlignment="Stretch"
+                                              ToolTip.Tip="Standard is the recommended default. Automatic skips all permission prompts (off by default)." />
+                                    <TextBlock Grid.Column="2" Classes="fieldLabel" Text="Default model" VerticalAlignment="Center" Margin="12,0,8,0" />
+                                    <TextBox x:Name="ClaudeModelBox" Grid.Column="3" Classes="settingsInput"
+                                             Watermark="(none - tool default)"
+                                             ToolTip.Tip="Passed as --model when set; leave blank for the tool's own default" />
+                                </Grid>
+                                <TextBox x:Name="ClaudeArgsOverrideBox" Classes="settingsInput"
+                                         Watermark="optional: free-text args that REPLACE the preset (advanced)"
+                                         ToolTip.Tip="When set, these args replace the selected preset's arguments" />
                                 <TextBlock x:Name="ClaudeStatus" Text="" Foreground="#888888" FontSize="11" TextWrapping="Wrap" IsVisible="False" />
                             </StackPanel>
                         </Border>
 
                         <Border Background="#1E1E1E" BorderBrush="#3C3C3C" BorderThickness="1" Padding="10">
                             <StackPanel Spacing="8">
-                                <TextBlock Text="Pi" Foreground="#CCCCCC" FontSize="13" FontWeight="SemiBold" />
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Grid.Column="0" Text="Pi" Foreground="#CCCCCC" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                    <CheckBox x:Name="PiEnabledCheck" Grid.Column="1" Content="Enabled"
+                                              Foreground="#CCCCCC" FontSize="11" IsChecked="True" VerticalAlignment="Center" />
+                                </Grid>
                                 <Grid ColumnDefinitions="*,Auto,Auto,Auto">
                                     <TextBox x:Name="PiPathBox" Grid.Column="0" Classes="settingsInput" Watermark="pi or D:\Tools\Pi\pi.exe" />
                                     <Button x:Name="DetectPiButton" Grid.Column="1" Classes="dialogButton" Content="Detect" Margin="8,0,0,0" Click="BtnDetectPi_Click" />
                                     <Button x:Name="TestPiButton" Grid.Column="2" Classes="dialogButton" Content="Test" Margin="8,0,0,0" Click="BtnTestPi_Click" />
                                     <Button x:Name="BrowsePiButton" Grid.Column="3" Classes="dialogButton" Content="Browse..." Margin="8,0,0,0" Click="BtnBrowsePi_Click" />
                                 </Grid>
+                                <Grid ColumnDefinitions="Auto,*,Auto,*">
+                                    <TextBlock Grid.Column="0" Classes="fieldLabel" Text="Command line" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                    <ComboBox x:Name="PiPresetCombo" Grid.Column="1"
+                                              Background="#1E1E1E" Foreground="#CCCCCC" HorizontalAlignment="Stretch" />
+                                    <TextBlock Grid.Column="2" Classes="fieldLabel" Text="Default model" VerticalAlignment="Center" Margin="12,0,8,0" />
+                                    <TextBox x:Name="PiModelBox" Grid.Column="3" Classes="settingsInput" Watermark="(none - tool default)" />
+                                </Grid>
+                                <TextBox x:Name="PiArgsOverrideBox" Classes="settingsInput"
+                                         Watermark="optional: free-text args that REPLACE the preset (advanced)" />
                                 <TextBlock x:Name="PiStatus" Text="" Foreground="#888888" FontSize="11" TextWrapping="Wrap" IsVisible="False" />
                             </StackPanel>
                         </Border>
 
                         <Border Background="#1E1E1E" BorderBrush="#3C3C3C" BorderThickness="1" Padding="10">
                             <StackPanel Spacing="8">
-                                <TextBlock Text="Codex" Foreground="#CCCCCC" FontSize="13" FontWeight="SemiBold" />
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Grid.Column="0" Text="Codex" Foreground="#CCCCCC" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                    <CheckBox x:Name="CodexEnabledCheck" Grid.Column="1" Content="Enabled"
+                                              Foreground="#CCCCCC" FontSize="11" IsChecked="True" VerticalAlignment="Center" />
+                                </Grid>
                                 <Grid ColumnDefinitions="*,Auto,Auto,Auto">
                                     <TextBox x:Name="CodexPathBox" Grid.Column="0" Classes="settingsInput" Watermark="codex" />
                                     <Button x:Name="DetectCodexButton" Grid.Column="1" Classes="dialogButton" Content="Detect" Margin="8,0,0,0" Click="BtnDetectCodex_Click" />
                                     <Button x:Name="TestCodexButton" Grid.Column="2" Classes="dialogButton" Content="Test" Margin="8,0,0,0" Click="BtnTestCodex_Click" />
                                     <Button x:Name="BrowseCodexButton" Grid.Column="3" Classes="dialogButton" Content="Browse..." Margin="8,0,0,0" Click="BtnBrowseCodex_Click" />
                                 </Grid>
+                                <Grid ColumnDefinitions="Auto,*,Auto,*">
+                                    <TextBlock Grid.Column="0" Classes="fieldLabel" Text="Command line" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                    <ComboBox x:Name="CodexPresetCombo" Grid.Column="1"
+                                              Background="#1E1E1E" Foreground="#CCCCCC" HorizontalAlignment="Stretch" />
+                                    <TextBlock Grid.Column="2" Classes="fieldLabel" Text="Default model" VerticalAlignment="Center" Margin="12,0,8,0" />
+                                    <TextBox x:Name="CodexModelBox" Grid.Column="3" Classes="settingsInput" Watermark="(none - tool default)" />
+                                </Grid>
+                                <TextBox x:Name="CodexArgsOverrideBox" Classes="settingsInput"
+                                         Watermark="optional: free-text args that REPLACE the preset (advanced)" />
                                 <TextBlock x:Name="CodexStatus" Text="" Foreground="#888888" FontSize="11" TextWrapping="Wrap" IsVisible="False" />
                             </StackPanel>
                         </Border>
 
                         <Border Background="#1E1E1E" BorderBrush="#3C3C3C" BorderThickness="1" Padding="10">
                             <StackPanel Spacing="8">
-                                <TextBlock Text="Gemini" Foreground="#CCCCCC" FontSize="13" FontWeight="SemiBold" />
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Grid.Column="0" Text="Gemini" Foreground="#CCCCCC" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                    <CheckBox x:Name="GeminiEnabledCheck" Grid.Column="1" Content="Enabled"
+                                              Foreground="#CCCCCC" FontSize="11" IsChecked="True" VerticalAlignment="Center" />
+                                </Grid>
                                 <Grid ColumnDefinitions="*,Auto,Auto,Auto">
                                     <TextBox x:Name="GeminiPathBox" Grid.Column="0" Classes="settingsInput" Watermark="gemini" />
                                     <Button x:Name="DetectGeminiButton" Grid.Column="1" Classes="dialogButton" Content="Detect" Margin="8,0,0,0" Click="BtnDetectGemini_Click" />
                                     <Button x:Name="TestGeminiButton" Grid.Column="2" Classes="dialogButton" Content="Test" Margin="8,0,0,0" Click="BtnTestGemini_Click" />
                                     <Button x:Name="BrowseGeminiButton" Grid.Column="3" Classes="dialogButton" Content="Browse..." Margin="8,0,0,0" Click="BtnBrowseGemini_Click" />
                                 </Grid>
+                                <Grid ColumnDefinitions="Auto,*,Auto,*">
+                                    <TextBlock Grid.Column="0" Classes="fieldLabel" Text="Command line" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                    <ComboBox x:Name="GeminiPresetCombo" Grid.Column="1"
+                                              Background="#1E1E1E" Foreground="#CCCCCC" HorizontalAlignment="Stretch" />
+                                    <TextBlock Grid.Column="2" Classes="fieldLabel" Text="Default model" VerticalAlignment="Center" Margin="12,0,8,0" />
+                                    <TextBox x:Name="GeminiModelBox" Grid.Column="3" Classes="settingsInput" Watermark="(none - tool default)" />
+                                </Grid>
+                                <TextBox x:Name="GeminiArgsOverrideBox" Classes="settingsInput"
+                                         Watermark="optional: free-text args that REPLACE the preset (advanced)" />
                                 <TextBlock x:Name="GeminiStatus" Text="" Foreground="#888888" FontSize="11" TextWrapping="Wrap" IsVisible="False" />
                             </StackPanel>
                         </Border>
 
                         <Border Background="#1E1E1E" BorderBrush="#3C3C3C" BorderThickness="1" Padding="10">
                             <StackPanel Spacing="8">
-                                <TextBlock Text="OpenCode" Foreground="#CCCCCC" FontSize="13" FontWeight="SemiBold" />
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Grid.Column="0" Text="OpenCode" Foreground="#CCCCCC" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                    <CheckBox x:Name="OpenCodeEnabledCheck" Grid.Column="1" Content="Enabled"
+                                              Foreground="#CCCCCC" FontSize="11" IsChecked="True" VerticalAlignment="Center" />
+                                </Grid>
                                 <Grid ColumnDefinitions="*,Auto,Auto,Auto">
                                     <TextBox x:Name="OpenCodePathBox" Grid.Column="0" Classes="settingsInput" Watermark="opencode" />
                                     <Button x:Name="DetectOpenCodeButton" Grid.Column="1" Classes="dialogButton" Content="Detect" Margin="8,0,0,0" Click="BtnDetectOpenCode_Click" />
                                     <Button x:Name="TestOpenCodeButton" Grid.Column="2" Classes="dialogButton" Content="Test" Margin="8,0,0,0" Click="BtnTestOpenCode_Click" />
                                     <Button x:Name="BrowseOpenCodeButton" Grid.Column="3" Classes="dialogButton" Content="Browse..." Margin="8,0,0,0" Click="BtnBrowseOpenCode_Click" />
                                 </Grid>
+                                <Grid ColumnDefinitions="Auto,*,Auto,*">
+                                    <TextBlock Grid.Column="0" Classes="fieldLabel" Text="Command line" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                    <ComboBox x:Name="OpenCodePresetCombo" Grid.Column="1"
+                                              Background="#1E1E1E" Foreground="#CCCCCC" HorizontalAlignment="Stretch" />
+                                    <TextBlock Grid.Column="2" Classes="fieldLabel" Text="Default model" VerticalAlignment="Center" Margin="12,0,8,0" />
+                                    <TextBox x:Name="OpenCodeModelBox" Grid.Column="3" Classes="settingsInput" Watermark="(none - tool default)" />
+                                </Grid>
+                                <TextBox x:Name="OpenCodeArgsOverrideBox" Classes="settingsInput"
+                                         Watermark="optional: free-text args that REPLACE the preset (advanced)" />
                                 <TextBlock x:Name="OpenCodeStatus" Text="" Foreground="#888888" FontSize="11" TextWrapping="Wrap" IsVisible="False" />
                             </StackPanel>
                         </Border>
