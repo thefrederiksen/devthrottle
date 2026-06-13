@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>QA Proof - Issue #386 (Phone QR scan to auto-fill Gateway URL + token)</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; background:#0B1020; color:#E6EAF2; margin:0; padding:32px; line-height:1.5; }
+  h1 { font-size:22px; border-bottom:1px solid #1E2A44; padding-bottom:12px; }
+  h2 { font-size:16px; color:#9FB4D8; margin-top:32px; }
+  table { border-collapse:collapse; width:100%; margin-top:12px; }
+  th, td { border:1px solid #1E2A44; padding:9px 11px; text-align:left; vertical-align:top; font-size:13px; }
+  th { background:#0F1626; color:#8A93A6; }
+  .pass { color:#5FD08A; font-weight:bold; }
+  .pending { color:#E8B339; font-weight:bold; }
+  code { background:#0F1626; padding:2px 5px; border-radius:4px; font-size:12px; }
+  .verdict { background:#0E1B14; border:1px solid #5FD08A; border-radius:12px; padding:16px; margin-top:28px; }
+  .note { background:#161E30; border:1px solid #2A3550; border-radius:12px; padding:14px; margin-top:16px; font-size:13px; }
+  .muted { color:#8A93A6; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #386</h1>
+<p class="muted">[Voice] Phone app: scan the pairing QR to auto-fill Gateway URL + token. PR #388, branch
+<code>issue-386-phone-qr-scan</code>. Independently verified by the QA Agent (separate identity from the
+Developer Agent) - the developer's report and screenshots were treated as context, not proof.</p>
+
+<div class="note">
+<strong>Verification environment.</strong> This is a .NET MAUI Android client (<code>phone/CcDirectorClient</code>),
+NOT a <code>CcDirector.*</code> server container, so the Control-API / running-Director verification flow does not
+apply. Machine-checkable criteria were verified by: (a) independent code review, (b) running the
+<code>PairingLinkTests</code> suite, (c) the Android <code>dotnet build</code>, and (d) the
+<code>cc-director.sln</code> build. The on-device, human-in-the-loop criterion 3 (a physical Android device
+scanning a real QR with a person speaking) is carved out for the supervisor's hardware run, exactly as
+issue #378's on-device test was handled. It was NOT faked.</p>
+</div>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (independently verified)</th><th>Result</th></tr>
+
+<tr>
+<td>1</td>
+<td>Tapping "Scan QR to connect" opens a live camera scanner.</td>
+<td>Button in the Gateway-settings section opens a camera scanner view.</td>
+<td>Code-verified: <code>TalkPage.xaml</code> adds <code>ScanQrButton</code> in the Gateway-settings section
+(above <code>ServerEntry</code>/<code>TokenEntry</code>); <code>OnScanQrClicked</code> requests the Camera
+permission then pushes <code>QrScanPage</code> (a modal <code>CameraBarcodeReaderView</code>, QR formats only).
+On-screen capture is part of the supervisor hardware run.</td>
+<td class="pass">PASS (code)</td>
+</tr>
+
+<tr>
+<td>2</td>
+<td>A valid <code>ccdirector://pair?u=&amp;t=</code> QR sets both prefs AND mirrors into the visible fields.</td>
+<td><code>gateway_url</code> + <code>gateway_token</code> prefs written to the decoded values; ServerEntry /
+TokenEntry updated to match; reconnect triggered.</td>
+<td>Code-verified: on <code>parsed.Ok</code> the handler sets both <code>Preferences</code>, mirrors them into
+<code>ServerEntry.Text</code>/<code>TokenEntry.Text</code>, then calls <code>LoadRosterAsync()</code> (the
+existing reconnect/refresh path). The parser is the <em>exact inverse</em> of the merged #385
+<code>PairingPayload.Build</code> (<code>Uri.UnescapeDataString</code> reverses <code>Uri.EscapeDataString</code>;
+scheme <code>ccdirector</code> + host <code>pair</code>). Proven by 17/17 passing parser tests incl. an exact
+round-trip test. On-screen field capture is part of the supervisor hardware run.</td>
+<td class="pass">PASS (code + tests)</td>
+</tr>
+
+<tr>
+<td>3</td>
+<td>After a real scan, a live voice turn succeeds end-to-end (submit non-401, audible reply).</td>
+<td>Gateway log shows the phone-IP voice-turn submit returning non-401; spoken reply heard on device.</td>
+<td><span class="pending">PENDING the supervisor's hardware run.</span> Requires a physical Android device,
+a real Cockpit QR, and a person speaking - hardware + human-in-the-loop, the same carve-out as #378's on-device
+test. NOT run by QA and NOT faked. The scanned-token path that feeds this is proven safe by the parser tests
+(the token survives the EscapeDataString -> Parse round trip unchanged, so the same 40-char token the Gateway
+mints reaches the prefs verbatim).</td>
+<td class="pending">CARVED OUT (hardware)</td>
+</tr>
+
+<tr>
+<td>4</td>
+<td>Malformed / non-pairing QR shows a clear message and does NOT overwrite the prefs.</td>
+<td>"Not a CC Director pairing code" message; <code>gateway_url</code>/<code>gateway_token</code> left intact.</td>
+<td>Code + tests verified: <code>PairingLink.Parse</code> returns <code>Ok=false</code> with empty Url/Token for
+wrong scheme, wrong host, missing <code>u</code>, missing <code>t</code>, empty <code>u</code>, empty
+<code>t</code>, plain text, and null/blank. <code>OnScanQrClicked</code> shows the message and
+<code>return</code>s <em>before</em> any <code>Preferences.Set</code>, so the prefs are untouched. 13 of the 17
+tests cover the rejection paths.</td>
+<td class="pass">PASS (code + tests)</td>
+</tr>
+
+<tr>
+<td>5</td>
+<td>Denied camera permission shows a clear message and returns without crashing.</td>
+<td>Clear message, back to settings, no crash.</td>
+<td>Code-verified: <code>OnScanQrClicked</code> checks <code>PermissionStatus.Granted</code>; on denial it sets
+<code>ScanStatusLabel</code> + shows a "Camera needed" alert and <code>return</code>s without launching the
+scanner. The scanner page itself resolves <code>null</code> on cancel / hardware-back / disappearing so the
+awaiter never hangs.</td>
+<td class="pass">PASS (code)</td>
+</tr>
+
+<tr>
+<td>6</td>
+<td><code>dotnet build ... -f net10.0-android</code> succeeds with 0 errors.</td>
+<td>Build succeeds, 0 errors.</td>
+<td>Independently run by QA: <code>0 Error(s)</code> (95 warnings, all pre-existing NU1608 transitive AndroidX
+version-constraint warnings, not introduced by this change).</td>
+<td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Contract cross-check (criterion 1/2): parser is the exact inverse of #385</h2>
+<table>
+<tr><th>#385 builder (<code>src/CcDirector.Gateway/Util/PairingPayload.cs</code>)</th><th>#386 parser (<code>phone/CcDirectorClient/Voice/PairingLink.cs</code>)</th></tr>
+<tr>
+<td><code>$"ccdirector://pair?u={Uri.EscapeDataString(url)}&amp;t={Uri.EscapeDataString(token)}"</code></td>
+<td>Matches scheme <code>ccdirector</code> + host <code>pair</code> (case-insensitive scheme), reads <code>u</code>/<code>t</code>,
+applies <code>Uri.UnescapeDataString</code> (exact inverse of <code>EscapeDataString</code>), normalizes a trailing slash
+off the URL (Assumption B2). Rejects anything missing either value.</td>
+</tr>
+</table>
+
+<h2>Regression / method sweep</h2>
+<ul>
+<li><span class="pass">Additive change.</span> The manual <code>ServerEntry</code>/<code>TokenEntry</code> entry path
+is unchanged (the constructor still seeds them from prefs; <code>OnCredsChanged</code>/<code>SaveCreds</code> still
+work). The scan button only writes prefs/fields on a <em>valid</em> code; a cancel or a malformed code leaves the
+existing manual flow exactly as it was.</li>
+<li><span class="pass">No server-side change.</span> The full PR diff touches only <code>phone/</code> files plus the
+proof directory - zero <code>CcDirector.*</code> / Gateway / Director / Cockpit code changed. The
+<code>cc-director.sln</code> build is <code>0 Error(s)</code>, confirming the server side is unaffected (the phone
+project is not in the sln).</li>
+<li><span class="pass">No secret committed.</span> Grep of the PR diff and the proof for a real-looking token found
+only test method names and placeholder test values (<code>abc123token</code>,
+<code>v1.aB3-_xYz9Qw0kP-token_value</code>). No real Gateway token anywhere.</li>
+<li><span class="pass">CAMERA permission + package.</span> <code>android.permission.CAMERA</code> is in
+<code>AndroidManifest.xml</code> (camera feature <code>required="false"</code> so the app still installs on a
+camera-less device); <code>ZXing.Net.MAUI</code> + <code>ZXing.Net.MAUI.Controls</code> 0.8.2 are referenced and
+<code>.UseBarcodeReader()</code> is registered in <code>MauiProgram.cs</code> per the package docs.</li>
+</ul>
+
+<div class="verdict">
+<strong>VERIFIED - every machine-checkable acceptance criterion is met (1, 2, 4, 5, 6 + both builds + 17/17
+parser tests), independently reproduced by QA.</strong> Criterion 3 (the live voice-turn after a real on-device
+scan) is honestly carved out as PENDING the supervisor's physical-device run - hardware + a person speaking,
+the same handling as #378's on-device test - and was NOT faked. The change is additive and cannot break the
+existing manual-entry path, and no server/Director/Gateway code changed. PASS.
+</div>
+
+<p class="muted" style="margin-top:24px;">QA Agent - CenCon Development Method. Token values shown are placeholders only.</p>
+</body>
+</html>
