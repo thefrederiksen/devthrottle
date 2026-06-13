@@ -121,19 +121,28 @@ public sealed class GatewayHost : IAsyncDisposable
         _cockpitProxyPort = cockpitProxyPort ?? Cockpit.CockpitSupervisor.ResolvePort();
         _serveProvisioner = new TailscaleServeProvisioner(Registry, Port, Cockpit.CockpitSupervisor.ResolvePort());
 
-        // The Gateway's in-process warm brain (issue #184): supervisor only - claude.exe
-        // spawns on first use (the brief agent's first ask, or Settings' Restart Brain).
-        // The model is PINNED (issue #204): the wingman is the product's one always-on
-        // intelligence point, so it runs the configured (default: smartest) model
-        // deliberately instead of inheriting whatever the account default happens to be.
+        // The Gateway's in-process warm brain (issue #184): supervisor only - the chosen
+        // tool spawns on first use (the brief agent's first ask, or Settings' Restart Brain).
+        // The tool and model are an EXPLICIT Gateway-level choice (issue #393, building on the
+        // pinned-model #204): the wingman is the product's one always-on intelligence point,
+        // so it runs the configured tool + model deliberately instead of a hardcoded claude.exe
+        // and the account-default model. Both default to claude + opus when unset, so existing
+        // fleets are unchanged. A config change applies on the next Gateway restart.
+        BrainTool = BrainToolConfig.Get();
         BrainModel = BrainModelConfig.Get();
-        FileLog.Write($"[GatewayHost] brain model: {BrainModel}");
-        Brain = new BrainSupervisor(new HostedAgentOptions
-        {
-            WorkingDirectory = Path.Combine(CcStorage.Root(), "brain"),
-            AgentArgs = $"{ClaudeDriver.DefaultArgs} --model {BrainModel}",
-            Log = FileLog.Write,
-        });
+        var brainDriver = AgentDrivers.For(BrainTool);
+        FileLog.Write($"[GatewayHost] brain tool: {BrainTool}, model: {BrainModel}");
+        Brain = new BrainSupervisor(
+            new HostedAgentOptions
+            {
+                WorkingDirectory = Path.Combine(CcStorage.Root(), "brain"),
+                AgentArgs = $"{ClaudeDriver.DefaultArgs} --model {BrainModel}",
+                Log = FileLog.Write,
+            },
+            // Host the chosen tool through its own driver. Only brain-hostable tools reach here
+            // (BrainToolConfig validates against BrainHostableTools, default ClaudeCode), so the
+            // driver is always one the hosted-agent path can drive.
+            agentFactory: o => new CcDirector.HostedAgent.HostedAgent(o, brainDriver));
         _turnBriefStore = new GatewayTurnBriefStore(turnBriefDirectory);
         // Production omits keyVaultPath for the shared default; tests pass an isolated path so
         // they never touch the real %LOCALAPPDATA% key store.
@@ -174,6 +183,11 @@ public sealed class GatewayHost : IAsyncDisposable
     /// Director dependency. Dormant until first use; RestartAsync is the recovery verb.
     /// </summary>
     public BrainSupervisor Brain { get; }
+
+    /// <summary>The agent tool the brain runs as (issue #393), resolved at construction from
+    /// config.json "brain_tool" (default: <see cref="BrainToolConfig.Default"/>, Claude Code).
+    /// A config change applies on the next Gateway restart.</summary>
+    public Core.Agents.AgentKind BrainTool { get; }
 
     /// <summary>The model the brain is pinned to (issue #204), resolved at construction
     /// from config.json "brain_model" (default: <see cref="BrainModelConfig.Default"/>).
