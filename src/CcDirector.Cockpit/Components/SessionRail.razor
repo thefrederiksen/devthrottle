@@ -68,7 +68,9 @@
                     {
                         <span class="tag tag-voice">voice</span>
                     }
-                    <span class="sess-dir">@ShortId(s.DirectorId)</span>
+                    @* Issue #237: show the Director's port (resolved from the registry by the
+                       session's DirectorId), not the GUID prefix. Full GUID stays in the title. *@
+                    <span class="sess-dir" title="@s.DirectorId">@PortLabelFor(s.DirectorId)</span>
                     @* Generic fallback pill when no brief exists (old Directors / brief
                        pending) - small enough to stay on the state line. *@
                     @if (SessionOrdering.EffectiveColor(s) == "red" && string.IsNullOrWhiteSpace(s.RailLine) && !s.OnHold)
@@ -164,8 +166,10 @@
                 <div class="triage-head err">UNREACHABLE <span class="triage-count">@Errors.Count</span></div>
                 @foreach (var e in Errors)
                 {
-                    <div class="dir-error" title="@e.Error">
-                        @MachineKey(e.MachineName) / director @ShortId(e.DirectorId) &mdash; @e.Error
+                    <div class="dir-error" title="@($"{e.DirectorId} - {e.Error}")">
+                        @* Issue #237: port when resolvable (registry lookup by DirectorId),
+                           else the GUID prefix - never blank. Full GUID in the title. *@
+                        @MachineKey(e.MachineName) / director @PortLabelFor(e.DirectorId) &mdash; @e.Error
                     </div>
                 }
             </div>
@@ -192,7 +196,10 @@
                 @foreach (var dir in machineSessions.GroupBy(s => s.DirectorId).OrderBy(g => g.Key))
                 {
                     <div class="dir-head">
-                        <span class="dir-head-label">director @ShortId(dir.Key)</span>
+                        @* Issue #237: label each Director by its port (short, restart-stable, maps
+                           to the slot convention) not the meaningless per-process GUID prefix. The
+                           full DirectorId stays in the tooltip; it remains the routing key below. *@
+                        <span class="dir-head-label" title="@dir.Key">director @PortLabelFor(dir.Key)</span>
                         @* Version + uptime from the Gateway's Director registry: makes a
                            stale pre-fix Director stand out without leaving the rail. *@
                         @if (DirectorFor(dir.Key) is { } meta)
@@ -215,8 +222,10 @@
 
                 @foreach (var e in machineErrors)
                 {
-                    <div class="dir-error" title="@e.Error">
-                        director @ShortId(e.DirectorId) &mdash; unreachable (@e.Error)
+                    <div class="dir-error" title="@($"{e.DirectorId} - {e.Error}")">
+                        @* Issue #237: port when resolvable (registry lookup by DirectorId),
+                           else the GUID prefix - never blank. Full GUID in the title. *@
+                        director @PortLabelFor(e.DirectorId) &mdash; unreachable (@e.Error)
                     </div>
                 }
             </div>
@@ -296,6 +305,41 @@
 
     private DirectorDto? DirectorFor(string directorId) =>
         Directors.FirstOrDefault(d => d.DirectorId == directorId);
+
+    /// <summary>Parses the port out of a Director endpoint URL ("http://127.0.0.1:7884" or
+    /// "http://host:7884/") - the short, restart-stable identifier a human knows (issue #237).
+    /// Returns "?" when the endpoint is empty or carries no port (caller decides the fallback).
+    /// Reference implementation: phone/CcDirectorClient/ExesPage.xaml.cs PortOf.</summary>
+    private static string PortOf(string? endpoint)
+    {
+        if (string.IsNullOrEmpty(endpoint)) return "?";
+        var m = System.Text.RegularExpressions.Regex.Match(endpoint, @":(\d+)/?$");
+        return m.Success ? m.Groups[1].Value : "?";
+    }
+
+    /// <summary>The port for a Director's registry entry: parsed from <see cref="DirectorDto.ControlEndpoint"/>,
+    /// falling back to <see cref="DirectorDto.TailnetEndpoint"/> when the control endpoint is empty
+    /// (cross-machine HTTP-registered Directors). Returns "?" when neither yields a port.</summary>
+    private static string PortOf(DirectorDto dir)
+    {
+        var port = PortOf(dir.ControlEndpoint);
+        if (port != "?") return port;
+        return PortOf(dir.TailnetEndpoint);
+    }
+
+    /// <summary>The rail label for a Director id: ":&lt;port&gt;" resolved from the Director registry,
+    /// or the GUID short-id when the Director is not (or no longer) in the registry, or its endpoints
+    /// carry no port. Used by the per-session span and the unreachable rows, which have no endpoint of
+    /// their own (issue #237). Never blank - always either a port or the prior GUID prefix.</summary>
+    private string PortLabelFor(string directorId)
+    {
+        if (DirectorFor(directorId) is { } dir)
+        {
+            var port = PortOf(dir);
+            if (port != "?") return $":{port}";
+        }
+        return ShortId(directorId);
+    }
 
     /// <summary>Version without build metadata: "0.6.7+41d82c4" -> "0.6.7". The full string
     /// stays available in the header tooltip via StartedAt anyway.</summary>

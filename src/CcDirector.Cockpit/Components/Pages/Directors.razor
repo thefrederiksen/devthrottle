@@ -49,7 +49,10 @@
                     <tr class="rowlink" @key="d.DirectorId" @onclick="() => Open(d)"
                         title="Director details">
                         <td><span class="cell-name">@d.MachineName</span> <span class="dim">@d.User</span></td>
-                        <td class="mono" title="@d.DirectorId">@ShortId(d.DirectorId) <span class="dim">pid @d.Pid</span></td>
+                        @* Issue #237: lead with the Director's port (short, restart-stable) not the
+                           per-process GUID prefix. The full DirectorId stays in the cell title and
+                           remains the row's routing key (Open / session filter both use it). *@
+                        <td class="mono" title="@d.DirectorId">@PortLabel(d) <span class="dim">pid @d.Pid</span></td>
                         <td class="mono">@d.Version</td>
                         <td class="dim">@(d.Source == "http" ? "push (http)" : "local (file)")</td>
                         <td class="mono cell-ellipsis" title="@(d.TailnetEndpoint ?? d.ControlEndpoint)">@(d.TailnetEndpoint ?? d.ControlEndpoint)</td>
@@ -154,6 +157,23 @@
     private void Open(DirectorDto d) => Nav.NavigateTo($"/directors/{Uri.EscapeDataString(d.DirectorId)}");
 
     private static string ShortId(string? id) => string.IsNullOrEmpty(id) ? "?" : id[..Math.Min(8, id.Length)];
+
+    /// <summary>The Director's display label: ":&lt;port&gt;" parsed from <see cref="DirectorDto.ControlEndpoint"/>
+    /// (falling back to <see cref="DirectorDto.TailnetEndpoint"/>), or the GUID short-id when no port can be
+    /// parsed - never blank (issue #237). The full DirectorId stays in the cell title and routing.</summary>
+    private static string PortLabel(DirectorDto d)
+    {
+        var port = PortOf(d.ControlEndpoint);
+        if (port == "?") port = PortOf(d.TailnetEndpoint);
+        return port == "?" ? ShortId(d.DirectorId) : $":{port}";
+    }
+
+    private static string PortOf(string? endpoint)
+    {
+        if (string.IsNullOrEmpty(endpoint)) return "?";
+        var m = System.Text.RegularExpressions.Regex.Match(endpoint, @":(\d+)/?$");
+        return m.Success ? m.Groups[1].Value : "?";
+    }
 
     /// <summary>Tooltip for the unreachable-by-name badge (issue #325): the Director is alive
     /// (heartbeating) - it is the advertised NAME that stopped answering - plus since-when and why.</summary>
