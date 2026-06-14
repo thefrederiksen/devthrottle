@@ -924,3 +924,46 @@ body{background:var(--panel);color:var(--text);
 .additem-src:focus,.additem-id:focus,.additem-area:focus{outline:none;border-color:var(--accent)}
 .items-note{margin:16px 2px 0;color:var(--text3);font-size:11.5px;line-height:1.5}
 .wingman-off-notice{display:flex;align-items:center;justify-content:center;flex:1;color:var(--text3);font-size:13px;letter-spacing:.02em}
+
+/* ===== Wingman Pipeline page (issue #239): read-only one-brain pipeline view ===== */
+.wq-loading{padding:40px;color:var(--muted);font-size:13px}
+.wq-grid{display:grid;grid-template-columns:repeat(2,minmax(320px,1fr));gap:14px;max-width:1100px;align-items:start}
+.wq-card{background:var(--sidebar);border:1px solid var(--border);border-radius:8px;padding:12px 14px}
+.wq-card-wide{grid-column:1 / -1}
+.wq-card-h{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text3);
+  margin-bottom:10px;display:flex;align-items:center;gap:8px}
+.wq-count{background:#404040;color:var(--text);border-radius:8px;padding:1px 7px;font-size:10px;font-weight:600}
+.wq-idle{color:var(--text3);font-style:italic;font-size:12.5px;padding:6px 2px}
+.mono,.wq-sid.mono{font-family:"Cascadia Mono",Consolas,monospace}
+
+.wq-inflight{display:flex;align-items:center;gap:10px;font-size:13px}
+.wq-elapsed{color:var(--text3);font-size:11.5px;margin-left:auto}
+.wq-kind{font-size:9px;font-weight:700;letter-spacing:.06em;border-radius:3px;padding:2px 6px;border:1px solid var(--border)}
+.wq-kind.brief{color:var(--blue);border-color:var(--blue)}
+.wq-kind.explain{color:var(--amber);border-color:var(--amber)}
+.wq-sid{font-size:12px;color:var(--text2)}
+
+.wq-queue{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.wq-queue li{display:flex;align-items:center;gap:10px;font-size:12.5px}
+.wq-pos{width:20px;text-align:right;color:var(--text3);font-size:11px;font-family:"Cascadia Mono",Consolas,monospace}
+
+.wq-brain{display:flex;flex-direction:column;gap:8px}
+.wq-brow{display:flex;align-items:center;gap:12px;font-size:12.5px}
+.wq-blbl{width:170px;color:var(--text3);flex:none}
+.wq-bval{color:var(--text2);display:flex;align-items:center;gap:8px}
+.wq-bval.bad{color:var(--red);font-weight:600}
+.wq-bval.amber{color:var(--amber)}
+.wq-dot{width:8px;height:8px;border-radius:50%;display:inline-block;background:var(--muted)}
+.wq-dot.ok{background:var(--green)} .wq-dot.off{background:var(--red)}
+.wq-warn{color:var(--red);font-size:11px;font-weight:600;border:1px solid var(--red);border-radius:3px;padding:1px 6px}
+
+.wq-recent{width:100%;border-collapse:collapse;font-size:12px}
+.wq-recent th{text-align:left;font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--text3);padding:6px 10px;border-bottom:1px solid var(--border)}
+.wq-recent td{padding:6px 10px;border-bottom:1px solid var(--border);color:var(--text2)}
+.wq-recent tr.degraded td{color:var(--amber)}
+.wq-q{font-size:10px;font-weight:700;letter-spacing:.05em;border-radius:3px;padding:1px 6px;border:1px solid var(--border)}
+.wq-q.ok{color:var(--green);border-color:var(--green)}
+.wq-q.bad{color:var(--red);border-color:var(--red)}
+
+.wq-note{margin:16px 2px 0;color:var(--text3);font-size:11.5px;line-height:1.5;max-width:1100px}

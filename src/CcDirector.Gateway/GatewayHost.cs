@@ -448,6 +448,26 @@ public sealed class GatewayHost : IAsyncDisposable
         // for status/brain; run mode + autostart come from SettingsHooks (GatewayApp-owned).
         SettingsEndpoints.Map(_app, this);
 
+        // The fleet-level wingman pipeline view (issue #239): GET /wingman/queue returns a
+        // read-only snapshot of the ONE-brain stamping machine - in-flight session, ordered
+        // queue, recent briefs, and brain health (incl. the poisoned-brain rejection counter
+        // that the 2026-06-07 outage hid). Snapshot supplier is null when the pipeline is
+        // disabled, so the endpoint answers an honest idle snapshot. Read-only - it never
+        // changes any queue state.
+        WingmanQueueEndpoints.Map(_app, _briefAgent is { } queueAgent
+            ? async () =>
+            {
+                var health = await Brain.GetHealthAsync();
+                return queueAgent.QueueSnapshot(new Contracts.WingmanBrainHealth
+                {
+                    Pid = Brain.ProcessId,
+                    Model = BrainModel,
+                    Alive = health.IsAlive,
+                    Status = health.Status,
+                });
+            }
+            : null);
+
         // Gateway-served turn briefs (issue #185): the Cockpit reads briefs from HERE; the
         // store serves even when the pipeline is disabled (read-only is always safe).
         // The explain trigger (#217) locates the owning Director across the fleet, then

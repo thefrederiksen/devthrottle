@@ -1,0 +1,241 @@
+@page "/wingman"
+@inject GatewayClient Gateway
+@inject ILogger<WingmanQueue> Log
+@implements IDisposable
+
+@* The fleet-level Wingman Pipeline page (issue #239): a READ-ONLY window onto the ONE-brain
+   stamping machine (GatewayTurnBriefAgent). It renders the GET /wingman/queue snapshot - the
+   in-flight session, the ordered queue behind it, recent briefs, and brain health - and refreshes
+   on the Cockpit's poll cadence so the queue and the poisoned-brain rejection counter are visible
+   at a glance, instead of needing log forensics. No buttons mutate queue state (read-only by
+   design). This is a DISTINCT surface from the per-session right-panel "Queue" tab (the prompt
+   composer queue). Style follows the neighboring Cockpit pages (app.css tokens). *@
+
+<PageTitle>CC Director - Wingman Pipeline</PageTitle>
+
+<div class="page wq-page">
+    <header class="page-head">
+        <h1>Wingman Pipeline</h1>
+        <span class="page-sub">the one warm brain, read-only</span>
+        <span class="page-refreshed">@(_lastRefresh is null ? "connecting..." : $"updated {_lastRefresh:HH:mm:ss}")</span>
+    </header>
+
+    @if (_error is not null)
+    {
+        <div class="page-banner-error">Gateway error: @_error</div>
+    }
+    else if (_snapshot is null)
+    {
+        <div class="wq-loading">Loading pipeline...</div>
+    }
+    else
+    {
+        <div class="wq-grid">
+            @* ---- in flight ---- *@
+            <section class="wq-card">
+                <div class="wq-card-h">In flight</div>
+                @if (_snapshot.InFlight is { } f)
+                {
+                    <div class="wq-inflight">
+                        <span class="wq-kind @KindClass(f.Kind)">@KindLabel(f.Kind)</span>
+                        <span class="wq-sid mono">@Short(f.SessionId)</span>
+                        <span class="wq-elapsed">reading @ElapsedText(f.ElapsedSeconds)</span>
+                    </div>
+                }
+                else
+                {
+                    <div class="wq-idle">Idle - the brain is not reading any session right now.</div>
+                }
+            </section>
+
+            @* ---- queue ---- *@
+            <section class="wq-card">
+                <div class="wq-card-h">Queue <span class="wq-count">@_snapshot.Queue.Count</span></div>
+                @if (_snapshot.Queue.Count == 0)
+                {
+                    <div class="wq-idle">Nothing waiting.</div>
+                }
+                else
+                {
+                    <ol class="wq-queue">
+                        @{ var pos = 0; }
+                        @foreach (var q in _snapshot.Queue)
+                        {
+                            pos++;
+                            <li @key="@($"{q.Kind}/{q.SessionId}/{pos}")">
+                                <span class="wq-pos">@pos</span>
+                                <span class="wq-kind @KindClass(q.Kind)">@KindLabel(q.Kind)</span>
+                                <span class="wq-sid mono">@Short(q.SessionId)</span>
+                            </li>
+                        }
+                    </ol>
+                }
+            </section>
+
+            @* ---- brain health ---- *@
+            <section class="wq-card">
+                <div class="wq-card-h">Brain health</div>
+                <div class="wq-brain">
+                    <div class="wq-brow">
+                        <span class="wq-blbl">Status</span>
+                        <span class="wq-bval">
+                            <span class="wq-dot @(_snapshot.Brain.Alive ? "ok" : "off")"></span>
+                            @(_snapshot.Brain.Alive ? "alive" : "not running") (@_snapshot.Brain.Status)
+                        </span>
+                    </div>
+                    <div class="wq-brow">
+                        <span class="wq-blbl">Model</span>
+                        <span class="wq-bval mono">@(string.IsNullOrWhiteSpace(_snapshot.Brain.Model) ? "(unset)" : _snapshot.Brain.Model)</span>
+                    </div>
+                    <div class="wq-brow">
+                        <span class="wq-blbl">PID</span>
+                        <span class="wq-bval mono">@(_snapshot.Brain.Pid > 0 ? _snapshot.Brain.Pid.ToString() : "-")</span>
+                    </div>
+                    <div class="wq-brow">
+                        <span class="wq-blbl">Consecutive rejections</span>
+                        <span class="wq-bval @RejectionClass()">
+                            @_snapshot.Brain.ConsecutiveRejections / @_snapshot.Brain.RejectionThreshold
+                            @if (_snapshot.Brain.ConsecutiveRejections >= _snapshot.Brain.RejectionThreshold)
+                            {
+                                <span class="wq-warn">poisoned - restarting</span>
+                            }
+                        </span>
+                    </div>
+                    <div class="wq-brow">
+                        <span class="wq-blbl">Recovery</span>
+                        <span class="wq-bval">@(_snapshot.Brain.RecoveryInFlight ? "restart in flight" : "idle")</span>
+                    </div>
+                    <div class="wq-brow">
+                        <span class="wq-blbl">Degraded (recent)</span>
+                        <span class="wq-bval @(_degradedCount > 0 ? "amber" : "")">@_degradedCount of @_snapshot.Recent.Count</span>
+                    </div>
+                </div>
+            </section>
+
+            @* ---- recent briefs ---- *@
+            <section class="wq-card wq-card-wide">
+                <div class="wq-card-h">Recent briefs <span class="wq-count">@_snapshot.Recent.Count</span></div>
+                @if (_snapshot.Recent.Count == 0)
+                {
+                    <div class="wq-idle">No briefs generated yet.</div>
+                }
+                else
+                {
+                    <table class="wq-recent">
+                        <thead>
+                            <tr>
+                                <th>Session</th>
+                                <th>Turn</th>
+                                <th>Generated</th>
+                                <th>Model</th>
+                                <th>Quality</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var r in _snapshot.Recent)
+                            {
+                                <tr @key="@($"{r.SessionId}/{r.TurnNumber}/{r.GeneratedAtUtc.Ticks}")" class="@(r.Degraded ? "degraded" : "")">
+                                    <td class="mono">@Short(r.SessionId)</td>
+                                    <td>@r.TurnNumber</td>
+                                    <td>@r.GeneratedAtUtc.ToLocalTime().ToString("HH:mm:ss")</td>
+                                    <td class="mono">@r.Model</td>
+                                    <td>
+                                        @if (r.Degraded)
+                                        {
+                                            <span class="wq-q bad">degraded</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="wq-q ok">ok</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </section>
+        </div>
+
+        <div class="wq-note">
+            One warm brain serves the whole fleet, reading one session at a time. This page is
+            read-only - it shows the pipeline, it never changes it. The per-session "Queue" tab in a
+            session view is a different thing (the prompt composer queue).
+        </div>
+    }
+</div>
+
+@code {
+    private WingmanQueueDto? _snapshot;
+    private DateTime? _lastRefresh;
+    private string? _error;
+    private int _degradedCount;
+    private readonly CancellationTokenSource _cts = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+        _ = PollLoopAsync();
+    }
+
+    private async Task PollLoopAsync()
+    {
+        // The pipeline moves on the order of seconds (a brief takes up to ~150s; turns end
+        // continuously). A 3s cadence keeps the in-flight/queue/recent live without hammering.
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(3));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(_cts.Token))
+                await RefreshAsync();
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private async Task RefreshAsync()
+    {
+        try
+        {
+            var snapshot = await Gateway.GetWingmanQueueAsync(_cts.Token);
+            _snapshot = snapshot;
+            _degradedCount = snapshot.Recent.Count(r => r.Degraded);
+            _error = null;
+            _lastRefresh = DateTime.Now;
+        }
+        catch (OperationCanceledException) { return; }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+            Log.LogWarning("Wingman pipeline refresh failed: {Error}", ex.Message);
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private string RejectionClass()
+    {
+        if (_snapshot is null) return "";
+        var b = _snapshot.Brain;
+        if (b.ConsecutiveRejections >= b.RejectionThreshold) return "bad";
+        return b.ConsecutiveRejections > 0 ? "amber" : "";
+    }
+
+    private static string KindLabel(string kind) =>
+        string.Equals(kind, "explain", StringComparison.OrdinalIgnoreCase) ? "EXPLAIN" : "BRIEF";
+
+    private static string KindClass(string kind) =>
+        string.Equals(kind, "explain", StringComparison.OrdinalIgnoreCase) ? "explain" : "brief";
+
+    private static string ElapsedText(double seconds)
+    {
+        if (seconds < 1) return "just now";
+        if (seconds < 60) return $"{(int)seconds}s";
+        return $"{(int)(seconds / 60)}m {(int)(seconds % 60)}s";
+    }
+
+    private static string Short(string value) => value.Length <= 8 ? value : value[..8];
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}
