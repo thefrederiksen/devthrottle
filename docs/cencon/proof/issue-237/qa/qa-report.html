@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #237 (Director port labels in the Cockpit)</title>
+<style>
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: #1e1e1e; color: #e0e0e0; margin: 0; padding: 32px; }
+  h1 { color: #fff; border-bottom: 2px solid #5319e7; padding-bottom: 8px; }
+  h2 { color: #9d7bff; margin-top: 32px; }
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; }
+  th, td { border: 1px solid #444; padding: 8px 12px; text-align: left; vertical-align: top; }
+  th { background: #2a2a2a; }
+  .pass { color: #22c55e; font-weight: bold; }
+  .fail { color: #f14c4c; font-weight: bold; }
+  code { background: #2a2a2a; padding: 2px 5px; border-radius: 3px; color: #9cdcfe; }
+  img { max-width: 440px; border: 1px solid #444; border-radius: 4px; display: block; margin: 8px 0; }
+  .verdict { background: #14331f; border: 1px solid #22c55e; padding: 16px; border-radius: 6px; margin-top: 32px; font-size: 1.1em; }
+  .meta { color: #888; font-size: 0.9em; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #237</h1>
+<p class="meta">
+  [Cockpit] Identify each Director in the rail by its port, not its GUID prefix<br>
+  PR #415 / branch <code>issue-237-director-port-label</code> / commit <code>c554cbb</code><br>
+  Verified independently by the QA Agent (CenCon Development Method). Built and run from an
+  isolated QA worktree on slot 8 (<code>cc-director8.exe</code>, Control API port 7893, full
+  GUID <code>834eaa1f-2688-4c76-86f9-9256e14631df</code>), launched + torn down per CLAUDE.md
+  rule 0/0b. Main build and slots 1-5 never touched.
+</p>
+
+<h2>Verification method</h2>
+<p>
+  Independent of the Developer Agent's report and screenshots. The QA proof artifacts here were
+  re-rendered from the genuine compiled <code>SessionRail</code> / <code>Directors</code> components
+  in the QA worktree (the bUnit proof-emit path with QA-controlled DTOs), then screenshotted with
+  headless Chrome so the actual pixels were read. The <code>[+]</code> navigation criterion was
+  verified at the code level against a live Director on slot 8.
+</p>
+<ul>
+  <li><code>dotnet build cc-director.sln</code> -> Build succeeded, 0 Warning(s), 0 Error(s).</li>
+  <li><code>dotnet build src/CcDirector.Cockpit/...</code> -> 0 Warning(s) (no new Cockpit warnings).</li>
+  <li><code>dotnet test src/CcDirector.Cockpit.Tests</code> -> 24 passed / 0 failed.</li>
+</ul>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (observed)</th><th>Result</th></tr>
+
+<tr>
+  <td>1</td>
+  <td>Tree header renders <code>director :&lt;port&gt;</code> for each Director, two distinct ports on one machine, no GUID prefix.</td>
+  <td><code>director :7884</code> and <code>director :7886</code>, no 8-hex prefix.</td>
+  <td>Rail tree shows <code>director :7884</code> and <code>director :7886</code> under <code>SOREN_NORTH</code>. No GUID prefix as label. See qa-rail-tree.png.</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>2</td>
+  <td>Header no longer displays the 8-char GUID prefix as primary label.</td>
+  <td>Header text matches <code>director :&lt;digits&gt;</code>, no hex prefix.</td>
+  <td>Grep of rendered markup: <code>director :7884</code> / <code>director :7886</code>; no <code>director &lt;hex8&gt;</code> as a <code>.dir-head-label</code>.</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>3</td>
+  <td>Triage <code>sess-dir</code> span shows <code>:&lt;port&gt;</code> resolved from the Directors registry.</td>
+  <td><code>:7884</code> / <code>:7886</code> per session.</td>
+  <td>Triage view shows <code>:7884</code>, <code>:7884</code>, <code>:7886</code> against the three sessions (registry lookup by DirectorId). See qa-rail-triage.png.</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>4</td>
+  <td>Unreachable rows show <code>:&lt;port&gt;</code> when resolvable, fall back to GUID prefix when not; never blank.</td>
+  <td>Port when the dead Director is still in the registry; GUID prefix when it is gone; never <code>:?</code> or blank.</td>
+  <td>Tree + triage unreachable row for a registry-missing dead Director renders <code>director deadbeef - unreachable ...</code> (GUID-prefix fallback, full GUID in title). bUnit test <code>UnreachableRow_ShowsPort_WhenDirectorStillInRegistry</code> proves the resolvable-port path (<code>:7884</code>); <code>...FallsBackToGuidPrefix...</code> proves no <code>:?</code>. Both green.</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>5</td>
+  <td>Full <code>DirectorId</code> remains visible: rail header carries the full GUID in a <code>title</code> tooltip; Directors / DirectorDetail still expose it.</td>
+  <td>Full GUID in header title; DirectorDetail shows full GUID.</td>
+  <td>Rendered markup: <code>&lt;span class="dir-head-label" title="a3a971fa-1111-2222-3333-444455556666"&gt;</code>. DirectorDetail header <code>title="@d.DirectorId"</code> + Registration body line 146 <code>&lt;dd&gt;@d.DirectorId&lt;/dd&gt;</code> (full GUID).</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>6</td>
+  <td>Directors.razor row leads with the port and keeps the full GUID in the cell <code>title</code>.</td>
+  <td>Row Director cell shows <code>:&lt;port&gt;</code>, title = full GUID.</td>
+  <td>Directors page rows lead with <code>:7884</code> / <code>:7886</code> (<code>pid ...</code> follows); cell <code>title="a3a971fa-...full-guid..."</code>. See qa-directors-page.png.</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>7</td>
+  <td><code>[+]</code> new-session and Director-open still navigate by the full <code>DirectorId</code>.</td>
+  <td>Navigation unchanged - routes by full GUID, not the port.</td>
+  <td>Code verified: rail <code>@onclick="() =&gt; OnNewSession.InvokeAsync(dir.Key)"</code> passes the full GUID; <code>Cockpit.OpenNewSessionFor</code> matches by <code>d.DirectorId == directorId</code> and stores the full GUID. <code>Directors.Open</code> -> <code>/directors/{d.DirectorId}</code> (full GUID). Only the displayed label changed. Live Director on slot 8 healthy (full GUID 834eaa1f...).</td>
+  <td class="pass">PASS</td>
+</tr>
+
+<tr>
+  <td>8</td>
+  <td><code>dotnet build cc-director.sln</code> succeeds, no new Cockpit warnings.</td>
+  <td>Build succeeded, 0 new warnings in CcDirector.Cockpit.</td>
+  <td>Solution build: Build succeeded, 0 Warning(s), 0 Error(s). Cockpit project build: 0 Warning(s).</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Screenshots (QA-rendered, real compiled components)</h2>
+<p><strong>Rail tree view</strong> - two Directors on one machine, distinct port labels, version/uptime + <code>[+]</code> intact, unreachable row falling back to GUID prefix:</p>
+<img src="qa-rail-tree.png" alt="QA rail tree view with port labels">
+
+<p><strong>Triage view</strong> - per-session <code>sess-dir</code> port labels and the unreachable row:</p>
+<img src="qa-rail-triage.png" alt="QA triage view with port labels">
+
+<p><strong>Directors page</strong> - rows leading with the port (markup-only render; app.css not inlined, so unstyled - the criterion is the text content, which is correct):</p>
+<img src="qa-directors-page.png" alt="QA Directors page with port labels">
+
+<h2>Regression / method sweep</h2>
+<ul>
+  <li>Negative sweep of every screenshot: no blank renders, no broken adjacent UI; machine grouping, session rows, version/uptime, kebab and <code>[+]</code> all intact.</li>
+  <li>No contract change (DTOs untouched), no Control API / Gateway route change - matches the issue's Out-of-scope list.</li>
+  <li>CenCon: no DT security rule affected; change is presentation-only in the <code>cockpit</code> container; no architecture/security manifest drift.</li>
+  <li>Full GUID preserved everywhere it is a routing/identity value; only the displayed label changed.</li>
+  <li>8 new bUnit tests render the genuine compiled components; 24/24 tests pass.</li>
+</ul>
+
+<div class="verdict">
+  VERIFIED - all 8 acceptance criteria met. No regressions. No CenCon violations.
+</div>
+
+</body>
+</html>
