@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Issue #412 - Cockpit Screenshots tab 503 - Developer proof</title>
+<style>
+  body { background:#1E1E1E; color:#CCCCCC; font-family:Segoe UI, system-ui, sans-serif; margin:0; padding:32px; line-height:1.5; }
+  h1 { font-size:22px; color:#fff; margin:0 0 4px; }
+  h2 { font-size:16px; color:#fff; margin:28px 0 8px; border-bottom:1px solid #3C3C3C; padding-bottom:4px; }
+  h3 { font-size:13px; color:#fff; margin:18px 0 6px; }
+  .sub { color:#888; font-size:13px; margin-bottom:20px; }
+  code, pre { font-family:Cascadia Mono, Consolas, monospace; }
+  pre { background:#252526; border:1px solid #3C3C3C; border-radius:6px; padding:10px 12px; overflow-x:auto; font-size:12px; color:#B8D4E8; }
+  table { border-collapse:collapse; width:100%; margin:10px 0; font-size:13px; }
+  th, td { border:1px solid #3C3C3C; padding:7px 10px; text-align:left; vertical-align:top; }
+  th { background:#252526; color:#fff; }
+  .pass { color:#22C55E; font-weight:600; }
+  img { max-width:760px; width:100%; border:1px solid #3C3C3C; border-radius:6px; display:block; margin:8px 0 4px; }
+  .cap { color:#888; font-size:12px; margin-bottom:14px; }
+  .tag { display:inline-block; background:#1B3A2A; color:#22C55E; border-radius:4px; padding:2px 8px; font-size:12px; }
+  .file { color:#F59E0B; }
+</style>
+</head>
+<body>
+<h1>Issue #412 &mdash; Cockpit Screenshots tab fails to load with 503 (raw exception string)</h1>
+<div class="sub">Developer Agent proof &middot; branch <code>issue-412-shots-503</code> &middot; <span class="tag">I believe this is finished</span></div>
+
+<h2>What was implemented</h2>
+<p>Two coordinated changes &mdash; a root-cause proxy fix and a graceful error UX:</p>
+<ol>
+  <li><b>Gateway root cause (<span class="file">src/CcDirector.Gateway/Api/SessionWsProxyEndpoints.cs</span>).</b>
+      The screenshot <code>shots</code> (list) and <code>shot</code> (bytes) legs now use <code>fastPath: true</code>, the
+      same resilient resolution the generic <code>/sessions/{sid}/{**rest}</code> leg uses. Previously these two legs ran a
+      fresh fleet fan-out (<code>LocateOwningDirectorAsync</code>) on every call, probing every Director with a 2s timeout;
+      whenever the owner's <code>GET /sessions/{sid}</code> ownership probe was momentarily slow/contended that resolve
+      returned null and the cached-owner branch answered a spurious <b>503</b> &mdash; even though the Director was perfectly
+      reachable for the screenshot forward itself. The fast path forwards straight to the cached owner and only re-resolves
+      live if the direct forward fails before any byte flows (self-healing), exactly like the terminal/queue/director legs.</li>
+  <li><b>Cockpit graceful UX (<span class="file">Services/DirectorClient.cs</span> + <span class="file">Components/Pages/Cockpit.razor</span>).</b>
+      <code>GetScreenshotsAsync</code> now inspects the HTTP status and, on a 503, throws a typed
+      <code>ScreenshotsDirectorOfflineException</code> instead of letting <code>GetFromJsonAsync</code> surface a raw
+      <code>HttpRequestException</code>. The Screenshots panel renders a human-readable message
+      &mdash; &ldquo;Screenshots unavailable &mdash; the Director running this session is offline.&rdquo; &mdash; with a
+      <b>Retry</b> action, and a generic load failure shows a plain message + Retry too. The raw
+      &ldquo;Response status code does not indicate success: 503&rdquo; string is never shown.</li>
+</ol>
+
+<h2>Acceptance criteria</h2>
+<table>
+  <tr><th>AC</th><th>Result</th><th>Proof</th></tr>
+  <tr><td><b>AC1</b> diagnosis pinned</td><td class="pass">PASS</td>
+      <td>The <code>leg=shots</code> Gateway log line names the 503 cause: reason <b>(c) forwarder error</b>
+      (<code>503 (forwarder error Request)</code>) &mdash; the owning Director <i>resolved</i> but the forward itself failed
+      transiently. See <span class="file">ac1-gateway-shots-leg.log</span> (captured from the user's REAL running Gateway and from this proof run).</td></tr>
+  <tr><td><b>AC2</b> loads when reachable</td><td class="pass">PASS</td>
+      <td><span class="file">02-session-selected.png</span> &mdash; tab populated, 3 thumbnails, no 503, no error banner, while the same session is reachable (terminal leg streaming).</td></tr>
+  <tr><td><b>AC3</b> count correct</td><td class="pass">PASS</td>
+      <td>Panel shows exactly 3 cards = the owning Director's folder (<code>total:3</code> in <code>GET /screenshots</code>). <span class="file">02-session-selected.png</span>.</td></tr>
+  <tr><td><b>AC4</b> graceful offline message</td><td class="pass">PASS</td>
+      <td><span class="file">05-offline-message.png</span> &mdash; with the session still selected and reachable for other legs, the screenshots leg 503s and the panel shows &ldquo;Screenshots unavailable &mdash; the Director running this session is offline. Retry&rdquo;, NOT the raw 503 string.</td></tr>
+  <tr><td><b>AC5</b> Retry recovers</td><td class="pass">PASS</td>
+      <td>Before: <span class="file">05-offline-message.png</span>; after clicking Retry with the leg restored: <span class="file">06-after-retry.png</span> &mdash; list reloaded, no page reload, no reselection.</td></tr>
+  <tr><td><b>AC6</b> no regression (View/Copy)</td><td class="pass">PASS</td>
+      <td>Loaded cards keep Insert / Copy / Del and clickable thumbnails (the <code>shot</code> bytes leg, also fastPath'd, served the <code>&lt;img&gt;</code>). <span class="file">06-after-retry.png</span>.</td></tr>
+</table>
+
+<h2>AC1 &mdash; the 503 cause, named</h2>
+<p>From the user's actual running Gateway (OLD plain-resolve path) &mdash; the owner resolved, the forward failed:</p>
+<pre>[SessionWsProxy] leg=shots sid=... resolved director=c99a103c... -> https://soren-north...:7883/screenshots
+[SessionWsProxy] leg=shots sid=... director=c99a103c... -> 503 (forwarder error Request)</pre>
+<p>From this proof run on the PATCHED Gateway &mdash; fast path forwards direct, self-heals to 503 when offline, recovers on Retry:</p>
+<pre>[SessionWsProxy] close leg=shots sid=proof-session-412 (fast-path owner 5a8691e7-...)         &lt;- reachable (AC2)
+[SessionWsProxy] leg=shots sid=proof-session-412 fast-path owner 5a8691e7-... failed (Request); re-resolving live
+[SessionWsProxy] leg=shots sid=proof-session-412 -> 503 (known owner 5a8691e7-... offline/unreachable)  &lt;- AC4
+[SessionWsProxy] close leg=shots sid=proof-session-412 (fast-path owner b372e8b1-...)         &lt;- recovered (AC5)</pre>
+
+<h2>AC2 / AC3 &mdash; populated, reachable, count correct</h2>
+<img src="02-session-selected.png" alt="screenshots tab populated" />
+<div class="cap">Screenshots tab shows 3 thumbnails (proof-3/2/1.png) with time labels, no error banner, session reachable.</div>
+
+<h2>AC4 &mdash; graceful offline message + Retry</h2>
+<img src="05-offline-message.png" alt="graceful offline message" />
+<div class="cap">Session still selected and reachable (1 session, green/IDLE) while only the screenshots leg 503s; panel shows the human-readable message + Retry, not the raw exception.</div>
+
+<h2>AC5 &mdash; Retry recovers the list</h2>
+<img src="06-after-retry.png" alt="after retry recovered" />
+<div class="cap">After restoring the leg and clicking Retry: the list is back, no page reload, no reselection.</div>
+
+<h2>Tests</h2>
+<p>New Gateway regression tests in <span class="file">src/CcDirector.Gateway.Tests/ScreenshotListProxyRoundTripTests.cs</span>:
+the screenshot LIST leg round-trips through the Gateway with <code>?count=</code> carried through, and an offline owner returns 503.
+Full Gateway screenshot+proxy suite: <b>44 passed, 0 failed</b>. Solution builds clean (<code>dotnet build cc-director.sln</code> &mdash; 0 errors).</p>
+
+<h2>CenCon impact</h2>
+<p>No architecture or security drift. The change tightens an existing proxy leg's resolution strategy (no new container, no new endpoint, no auth/trust change) and improves a Cockpit error message. No <code>docs/cencon/</code> update required.</p>
+
+<p><b>I believe this is finished.</b></p>
+</body>
+</html>

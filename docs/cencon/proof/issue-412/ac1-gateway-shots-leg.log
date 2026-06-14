@@ -1,0 +1,21 @@
+=== AC1: 503 cause from the user's REAL running Gateway (OLD plain-resolve path) ===
+The owning Director RESOLVED, but the forward itself failed -> 503 reason (c) forwarder error.
+2026-06-14 07:15:10.934 [SessionWsProxy] leg=shots sid=c748027a-5b94-4356-a26c-af08906ee738 resolved director=c99a103c-143d-4427-9188-7b16a93768ab -> https://soren-north.taildb08ed.ts.net:7883/screenshots
+2026-06-14 07:15:10.936 [SessionWsProxy] leg=shots sid=c748027a-5b94-4356-a26c-af08906ee738 director=c99a103c-143d-4427-9188-7b16a93768ab -> 503 (forwarder error Request)
+2026-06-14 07:15:51.608 [SessionWsProxy] leg=shots sid=269e6a0d-347c-4e02-ba2a-1c2480cfd707 resolved director=c99a103c-143d-4427-9188-7b16a93768ab -> https://soren-north.taildb08ed.ts.net:7883/screenshots
+2026-06-14 07:15:51.612 [SessionWsProxy] leg=shots sid=269e6a0d-347c-4e02-ba2a-1c2480cfd707 director=c99a103c-143d-4427-9188-7b16a93768ab -> 503 (forwarder error Request)
+2026-06-14 07:15:55.995 [SessionWsProxy] leg=shots sid=269e6a0d-347c-4e02-ba2a-1c2480cfd707 resolved director=c99a103c-143d-4427-9188-7b16a93768ab -> https://soren-north.taildb08ed.ts.net:7883/screenshots
+2026-06-14 07:15:55.999 [SessionWsProxy] leg=shots sid=269e6a0d-347c-4e02-ba2a-1c2480cfd707 director=c99a103c-143d-4427-9188-7b16a93768ab -> 503 (forwarder error Request)
+
+=== Patched Gateway (this proof run) - fastPath forwards direct to the cached owner, self-heals to 503 when offline, recovers on Retry ===
+/c/Users/soren/AppData/Local/cc-director/logs/director/director-2026-06-14-14884.log:2026-06-14 08:05:42.484 [SessionWsProxy] open leg=shots sid=proof-session-412 query=?count=100 client=127.0.0.1
+/c/Users/soren/AppData/Local/cc-director/logs/director/director-2026-06-14-14884.log:2026-06-14 08:05:42.488 [SessionWsProxy] close leg=shots sid=proof-session-412 (fast-path owner 5a8691e7-9ad2-4c44-90dd-152e400a5f0d)
+/c/Users/soren/AppData/Local/cc-director/logs/director/director-2026-06-14-14884.log:2026-06-14 08:06:07.190 [SessionWsProxy] open leg=shots sid=proof-session-412 query=?count=100 client=127.0.0.1
+/c/Users/soren/AppData/Local/cc-director/logs/director/director-2026-06-14-14884.log:2026-06-14 08:06:09.217 [SessionWsProxy] leg=shots sid=proof-session-412 fast-path owner 5a8691e7-9ad2-4c44-90dd-152e400a5f0d failed (Request); re-resolving live
+/c/Users/soren/AppData/Local/cc-director/logs/director/director-2026-06-14-14884.log:2026-06-14 08:06:11.222 [SessionWsProxy] leg=shots sid=proof-session-412 -> 503 (known owner 5a8691e7-9ad2-4c44-90dd-152e400a5f0d offline/unreachable)
+/c/Users/soren/AppData/Local/cc-director/logs/director/director-2026-06-14-29620.log:2026-06-14 08:07:33.207 [SessionWsProxy] open leg=shots sid=proof-session-412 query=?count=100 client=127.0.0.1
+/c/Users/soren/AppData/Local/cc-director/logs/director/director-2026-06-14-29620.log:2026-06-14 08:07:33.210 [SessionWsProxy] close leg=shots sid=proof-session-412 (fast-path owner b372e8b1-e5a5-4fb8-9ccf-f2e1fbc67f72)
+/c/Users/soren/AppData/Local/cc-director/logs/director/director-2026-06-14-29620.log:2026-06-14 08:07:42.377 [SessionWsProxy] open leg=shots sid=proof-session-412 query=?count=100 client=127.0.0.1
+/c/Users/soren/AppData/Local/cc-director/logs/director/director-2026-06-14-29620.log:2026-06-14 08:07:42.378 [SessionWsProxy] close leg=shots sid=proof-session-412 (fast-path owner b372e8b1-e5a5-4fb8-9ccf-f2e1fbc67f72)
+/c/Users/soren/AppData/Local/cc-director/logs/director/director-2026-06-14-29620.log:2026-06-14 08:08:02.859 [SessionWsProxy] open leg=shots sid=proof-session-412 query=?count=100 client=127.0.0.1
+/c/Users/soren/AppData/Local/cc-director/logs/director/director-2026-06-14-29620.log:2026-06-14 08:08:02.860 [SessionWsProxy] close leg=shots sid=proof-session-412 (fast-path owner b372e8b1-e5a5-4fb8-9ccf-f2e1fbc67f72)

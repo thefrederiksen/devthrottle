@@ -66,17 +66,26 @@ internal static class SessionWsProxyEndpoints
         // RewritePathTransformer; the response (image bytes + content type) streams back as-is.
         // Issue #372 slice 3: Map (not MapGet) so DELETE /sessions/{sid}/screenshots/file also
         // forwards - the Cockpit's gallery Del button no longer dials the Director directly.
+        // Issue #412: fastPath like the generic /sessions/{sid}/{**rest} leg - resolve the owner
+        // from the cache and forward straight to it, falling back to the live fleet fan-out only
+        // when the cached forward fails before any byte flows. The plain fan-out resolve used a 2s
+        // probe to EVERY Director and returned a spurious 503 whenever the owner's GET /sessions/{sid}
+        // probe was momentarily slow/contended, even though the Director was perfectly reachable for
+        // the screenshot forward itself.
         app.Map("/sessions/{sid}/screenshots/file", async (string sid, HttpContext ctx) =>
         {
-            await ProxyAsync(ctx, sid, "shot", "/screenshots/file", registry, client, proxy, owners);
+            await ProxyAsync(ctx, sid, "shot", "/screenshots/file", registry, client, proxy, owners, fastPath: true);
         });
 
         // Screenshot LIST (issue #372 slice 3): the folder is machine-wide on the Director
         // (/screenshots), but the Cockpit always asks in the context of a selected session, so the
         // session id is the routing key. ?count=N carries through.
+        // Issue #412: fastPath (see /screenshots/file above) so this leg resolves the owner the same
+        // resilient way as every other per-session verb instead of a fresh fan-out that 503s on a
+        // transiently slow ownership probe while the Director is reachable.
         app.MapGet("/sessions/{sid}/screenshots", async (string sid, HttpContext ctx) =>
         {
-            await ProxyAsync(ctx, sid, "shots", "/screenshots", registry, client, proxy, owners);
+            await ProxyAsync(ctx, sid, "shots", "/screenshots", registry, client, proxy, owners, fastPath: true);
         });
 
         // Issue #372: generic per-session HTTP forward. ANY method on /sessions/{sid}/{**rest} that
