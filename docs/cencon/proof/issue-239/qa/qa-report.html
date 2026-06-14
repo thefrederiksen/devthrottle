@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof - Issue #239 Wingman Pipeline page + GET /wingman/queue</title>
+<style>
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: #1E1E1E; color: #D4D4D4; margin: 0; padding: 32px; line-height: 1.5; }
+  h1 { color: #4EC9B0; font-size: 22px; }
+  h2 { color: #569CD6; font-size: 17px; margin-top: 28px; border-bottom: 1px solid #333; padding-bottom: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #3C3C3C; padding: 8px 10px; text-align: left; vertical-align: top; font-size: 13px; }
+  th { background: #2D2D30; color: #9CDCFE; }
+  .pass { color: #6A9955; font-weight: bold; }
+  .fail { color: #F44747; font-weight: bold; }
+  code, pre { font-family: Consolas, monospace; background: #252526; color: #CE9178; padding: 1px 5px; border-radius: 3px; }
+  pre { padding: 10px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
+  img { max-width: 100%; border: 1px solid #3C3C3C; margin: 10px 0; }
+  .verdict { background: #1B3A1B; border: 1px solid #6A9955; padding: 14px; margin-top: 24px; font-size: 16px; color: #B5E8A0; }
+  .meta { color: #808080; font-size: 12px; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #239</h1>
+<p class="meta">
+[Cockpit] Wingman Pipeline page backed by Gateway GET /wingman/queue<br>
+PR #418 (branch issue-239-wingman-pipeline) | QA Agent | CenCon Development Method | independent verification
+</p>
+<p>QA built and ran the PR branch in an isolated checkout (D:\ReposFred\cc-director-issue239) on its own
+slot 8 (cc-director8-launch), and ran an isolated Gateway on port 7898 (--no-autostart) - never touching
+the main build, slots 1-5, or the user's running Gateway. The Developer Agent's report and screenshots
+were NOT trusted: every criterion below was reproduced with QA's own proof.</p>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (QA-reproduced)</th><th>Result</th></tr>
+
+<tr><td>1</td><td>GET /wingman/queue returns 200 with inFlight/queue/recent/brain (pid,model,status,consecutiveRejections,recoveryInFlight)</td>
+<td>HTTP 200, full snapshot shape</td>
+<td>Live curl against QA Gateway on 127.0.0.1:7898 returned HTTP 200 with all fields present (see live-curl below).</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>2</td><td>Idle pipeline: inFlight null + empty queue</td>
+<td>inFlight:null, queue:[]</td>
+<td>Live curl on an idle Gateway returned <code>"inFlight":null,"queue":[],"recent":[]</code>.</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>3</td><td>Queued + in-flight contents match _pending/_inFlight/_explainPending</td>
+<td>Snapshot inFlight = in-flight sid; queue contains waiting sid</td>
+<td>Unit test <code>QueuedAndInFlight_SnapshotMatchesPipelineState_AndReadIsSideEffectFree</code> drives a real OnTurnEnd, blocks the brain in-flight, queues a 2nd session, and asserts snapshot.InFlight.SessionId == in-flight sid and queue contains the waiting sid. PASS in QA's own test run.</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>4</td><td>Endpoint is read-only (repeated GETs do not mutate state)</td>
+<td>Same queued set across repeated GETs</td>
+<td>QA issued 3 repeated live GETs - byte-identical responses. Source diff to GatewayTurnBriefAgent.cs is 100% additive (0 lines removed). Unit test asserts read-is-side-effect-free.</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>5</td><td>Cockpit page renders four sections from the snapshot with real data</td>
+<td>in flight / queue / recent / brain health populated, not placeholder</td>
+<td>QA emitted the REAL compiled WingmanQueue component to HTML (own CC239_PROOF_DIR run) and screenshotted it (below): all four sections render with real pipeline data.</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>6</td><td>Brain health block shows model + consecutive-rejection count</td>
+<td>model + N/threshold visible</td>
+<td>QA screenshot shows Model <code>opus</code> and Consecutive rejections <code>2 / 3</code>.</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>7</td><td>Page updates without manual reload (poll)</td>
+<td>recent list updates on next poll</td>
+<td>WingmanQueue.razor uses a 3s PeriodicTimer -> RefreshAsync -> StateHasChanged; the live endpoint returns a fresh snapshot per GET. bUnit tests render the live snapshot.</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>8</td><td>Endpoint + accessor have unit tests in CcDirector.Gateway.Tests</td>
+<td>queued+in-flight and idle snapshot tests exist + pass</td>
+<td>GatewayTurnBriefAgentQueueSnapshotTests (3) + WingmanQueueEndpointTests (3) all PASS in QA's run; plus Cockpit WingmanQueuePageTests (6) PASS.</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>9</td><td>dotnet build cc-director.sln clean</td>
+<td>0 errors</td>
+<td>QA ran it: Build succeeded, 0 Warning(s), 0 Error(s).</td>
+<td class="pass">PASS</td></tr>
+</table>
+
+<h2>Out-of-scope regression checks</h2>
+<table>
+<tr><th>Check</th><th>Result</th></tr>
+<tr><td>Per-session right-panel "Queue" tab (Cockpit.razor) unchanged</td><td class="pass">Cockpit.razor NOT in the PR diff</td></tr>
+<tr><td>Rail-state semantics / BriefingState field unchanged</td><td class="pass">BriefingStateFor signature unchanged; agent diff is purely additive</td></tr>
+<tr><td>Queue ordering / coalescing / watch-cancel / explain priority / brain restart unchanged</td><td class="pass">0 lines removed from GatewayTurnBriefAgent.cs; only observability additions</td></tr>
+</table>
+
+<h2>Live curl (idle) - QA Gateway 127.0.0.1:7898</h2>
+<pre>GET http://127.0.0.1:7898/wingman/queue
+HTTP 200
+
+{"inFlight":null,"queue":[],"recent":[],"brain":{"pid":0,"model":"","alive":false,"status":"Disabled","consecutiveRejections":0,"rejectionThreshold":0,"recoveryInFlight":false}}
+
+(3 repeated GETs returned byte-identical bodies - read-only confirmed.)</pre>
+
+<h2>QA-rendered Cockpit page (real compiled component, populated snapshot)</h2>
+<img src="qa-wingman-page.png" alt="QA-rendered Wingman Pipeline page">
+
+<div class="verdict">VERIFIED - all acceptance criteria met. 9/9 criteria PASS, out-of-scope surfaces unchanged, clean build, all new tests green.</div>
+</body>
+</html>

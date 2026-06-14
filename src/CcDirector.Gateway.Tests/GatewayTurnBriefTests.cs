@@ -626,3 +626,161 @@ public sealed class GatewayTurnBriefAgentTests : IDisposable
         Assert.Null(_store.Latest(_sid));
     }
 }
+
+// ============================================================================
+// GatewayTurnBriefAgent.QueueSnapshot - the #239 read-only pipeline observability
+// accessor: idle => empty snapshot; queued + in-flight => the live pipeline; and
+// repeated reads never mutate queue state.
+// ============================================================================
+public sealed class GatewayTurnBriefAgentQueueSnapshotTests : IDisposable
+{
+    private const string Endpoint = "http://127.0.0.1:9";
+    private readonly string _dir = Path.Combine(Path.GetTempPath(), "gw-queue-snap-tests", Guid.NewGuid().ToString("N"));
+    private readonly GatewayTurnBriefStore _store;
+    private readonly SlowBrain _brain = new();
+
+    public GatewayTurnBriefAgentQueueSnapshotTests()
+    {
+        _store = new GatewayTurnBriefStore(_dir);
+    }
+
+    public void Dispose()
+    {
+        try { Directory.Delete(_dir, recursive: true); } catch (IOException) { }
+    }
+
+    // A brain whose ask blocks on a gate the test releases, so a brief can be held in flight
+    // deterministically while the snapshot is read.
+    private sealed class SlowBrain : IAgentBrain
+    {
+        public string? SessionId => "slow-brain-session";
+        public readonly SemaphoreSlim Release = new(0);
+        public int Asks;
+        public string ReplyJson { get; set; } =
+            """{"headline":"Working the thing","intent":"intent","did":["did a thing"],"needsYou":null}""";
+
+        public async Task<AskResult> AskAsync(string prompt, CancellationToken ct = default)
+        {
+            Interlocked.Increment(ref Asks);
+            await Release.WaitAsync(ct);              // held until the test lets it finish
+            return new AskResult { Text = ReplyJson, ReplySeconds = 0.1 };
+        }
+
+        public Task CancelAsync(CancellationToken ct = default) => Task.CompletedTask;
+        public Task<ClearResult> ClearAsync(CancellationToken ct = default) => Task.FromResult(new ClearResult());
+        public Task RestartAsync(CancellationToken ct = default) => Task.CompletedTask;
+        public Task KillAsync(CancellationToken ct = default) => Task.CompletedTask;
+        public Task<BrainHealth> GetHealthAsync(CancellationToken ct = default)
+            => Task.FromResult(new BrainHealth { IsAlive = true });
+        public void Dispose() { }
+    }
+
+    private static List<TurnWidgetDto> Widgets(int turns)
+    {
+        var w = new List<TurnWidgetDto>();
+        for (var i = 0; i < turns; i++)
+        {
+            w.Add(new TurnWidgetDto { Kind = "UserMessage", Content = $"prompt {i}" });
+            w.Add(new TurnWidgetDto { Kind = "Text", Content = $"reply {i}" });
+        }
+        return w;
+    }
+
+    private GatewayTurnBriefAgent BuildAgent() => new(
+        _store,
+        _ => Task.FromResult<IAgentBrain>(_brain),
+        () => Task.CompletedTask,
+        (ep, sid, ct) => Task.FromResult<TurnsResponse?>(new TurnsResponse
+        {
+            SessionId = sid, Status = "ok", Widgets = Widgets(1),
+        }),
+        (ep, sid, ct) => Task.FromResult("the screen tail"),
+        settleDelay: TimeSpan.FromMilliseconds(5));
+
+    private static async Task WaitUntilAsync(Func<bool> condition, double timeoutSeconds = 5)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds);
+        while (!condition() && DateTime.UtcNow < deadline)
+            await Task.Delay(20);
+        Assert.True(condition(), "condition not reached within timeout");
+    }
+
+    [Fact]
+    public void IdleAgent_ProducesEmptySnapshot()
+    {
+        using var agent = BuildAgent();
+
+        var snap = agent.QueueSnapshot();
+
+        Assert.Null(snap.InFlight);
+        Assert.Empty(snap.Queue);
+        Assert.Empty(snap.Recent);
+        Assert.Equal(GatewayTurnBriefAgent.PoisonedBrainRejectionThreshold, snap.Brain.RejectionThreshold);
+        Assert.Equal(0, snap.Brain.ConsecutiveRejections);
+        Assert.False(snap.Brain.RecoveryInFlight);
+    }
+
+    [Fact]
+    public void IdleAgent_HostBrainHealthIsCarriedThrough()
+    {
+        // The host supplies pid/model/alive/status; the agent fills the rejection counter.
+        using var agent = BuildAgent();
+
+        var snap = agent.QueueSnapshot(new WingmanBrainHealth
+        {
+            Pid = 4242, Model = "opus", Alive = true, Status = "Running",
+        });
+
+        Assert.Equal(4242, snap.Brain.Pid);
+        Assert.Equal("opus", snap.Brain.Model);
+        Assert.True(snap.Brain.Alive);
+        Assert.Equal("Running", snap.Brain.Status);
+        Assert.Equal(GatewayTurnBriefAgent.PoisonedBrainRejectionThreshold, snap.Brain.RejectionThreshold);
+    }
+
+    [Fact]
+    public async Task QueuedAndInFlight_SnapshotMatchesPipelineState_AndReadIsSideEffectFree()
+    {
+        var inFlightSid = Guid.NewGuid().ToString();
+        var waitingSid = Guid.NewGuid().ToString();
+
+        using var agent = BuildAgent();
+
+        // First session goes in flight and BLOCKS in the brain's ask (gate not yet released).
+        agent.OnTurnEnd(new TurnEndSignal(inFlightSid, Endpoint));
+        await WaitUntilAsync(() => Volatile.Read(ref _brain.Asks) == 1);
+
+        // A second session queues behind it (the ONE brain is busy).
+        agent.OnTurnEnd(new TurnEndSignal(waitingSid, Endpoint));
+
+        await WaitUntilAsync(() =>
+        {
+            var s = agent.QueueSnapshot();
+            return s.InFlight?.SessionId == inFlightSid
+                && s.Queue.Any(q => q.SessionId == waitingSid);
+        });
+
+        var snap = agent.QueueSnapshot();
+        Assert.NotNull(snap.InFlight);
+        Assert.Equal(inFlightSid, snap.InFlight!.SessionId);
+        Assert.Equal("brief", snap.InFlight.Kind);
+        Assert.True(snap.InFlight.ElapsedSeconds >= 0);
+        var waiting = Assert.Single(snap.Queue, q => q.SessionId == waitingSid);
+        Assert.Equal("brief", waiting.Kind);
+
+        // Read-only: a repeated GET while no turn ends occur leaves the same set queued/in-flight.
+        var snap2 = agent.QueueSnapshot();
+        Assert.Equal(inFlightSid, snap2.InFlight!.SessionId);
+        Assert.Contains(snap2.Queue, q => q.SessionId == waitingSid);
+
+        // Let the in-flight brief finish so the recent ring records it.
+        _brain.Release.Release(10);
+        await WaitUntilAsync(() => _store.Latest(inFlightSid) is not null);
+        await WaitUntilAsync(() => agent.QueueSnapshot().Recent.Any(r => r.SessionId == inFlightSid));
+
+        var done = agent.QueueSnapshot();
+        var recent = Assert.Single(done.Recent, r => r.SessionId == inFlightSid);
+        Assert.False(recent.Degraded);
+        Assert.Equal(_store.Latest(inFlightSid)!.TurnNumber, recent.TurnNumber); // ring matches the stored brief
+    }
+}

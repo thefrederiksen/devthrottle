@@ -1,3 +1,5 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+body{background:#1E1E1E;margin:0;padding:16px;font-family:'Segoe UI',sans-serif;color:#CCCCCC}
 /* CC Director Cockpit - dark theme, aligned with docs/VisualStyle.md */
 :root{
   --panel:#1E1E1E; --sidebar:#252526; --button:#3C3C3C; --button-hover:#505050;
@@ -967,3 +969,52 @@ body{background:var(--panel);color:var(--text);
 .wq-q.bad{color:var(--red);border-color:var(--red)}
 
 .wq-note{margin:16px 2px 0;color:var(--text3);font-size:11.5px;line-height:1.5;max-width:1100px}
+
+</style></head><body>
+
+<div class="page wq-page"><header class="page-head"><h1>Wingman Pipeline</h1>
+        <span class="page-sub">the one warm brain, read-only</span>
+        <span class="page-refreshed">updated 10:49:04</span></header><div class="wq-grid"><section class="wq-card"><div class="wq-card-h">In flight</div><div class="wq-inflight"><span class="wq-kind brief">BRIEF</span>
+                        <span class="wq-sid mono">aaaa1111</span>
+                        <span class="wq-elapsed">reading 12s</span></div></section>
+
+            <section class="wq-card"><div class="wq-card-h">Queue <span class="wq-count">2</span></div><ol class="wq-queue"><li><span class="wq-pos">1</span>
+                                <span class="wq-kind explain">EXPLAIN</span>
+                                <span class="wq-sid mono">bbbb1111</span></li><li><span class="wq-pos">2</span>
+                                <span class="wq-kind brief">BRIEF</span>
+                                <span class="wq-sid mono">cccc1111</span></li></ol></section>
+
+            <section class="wq-card"><div class="wq-card-h">Brain health</div>
+                <div class="wq-brain"><div class="wq-brow"><span class="wq-blbl">Status</span>
+                        <span class="wq-bval"><span class="wq-dot ok"></span>
+                            alive (Running)
+                        </span></div>
+                    <div class="wq-brow"><span class="wq-blbl">Model</span>
+                        <span class="wq-bval mono">opus</span></div>
+                    <div class="wq-brow"><span class="wq-blbl">PID</span>
+                        <span class="wq-bval mono">4242</span></div>
+                    <div class="wq-brow"><span class="wq-blbl">Consecutive rejections</span>
+                        <span class="wq-bval amber">2 / 3</span></div>
+                    <div class="wq-brow"><span class="wq-blbl">Recovery</span>
+                        <span class="wq-bval">idle</span></div>
+                    <div class="wq-brow"><span class="wq-blbl">Degraded (recent)</span>
+                        <span class="wq-bval amber">1 of 2</span></div></div></section>
+
+            <section class="wq-card wq-card-wide"><div class="wq-card-h">Recent briefs <span class="wq-count">2</span></div><table class="wq-recent"><thead><tr><th>Session</th>
+                                <th>Turn</th>
+                                <th>Generated</th>
+                                <th>Model</th>
+                                <th>Quality</th></tr></thead>
+                        <tbody><tr class=""><td class="mono">aaaa1111</td>
+                                    <td>7</td>
+                                    <td>10:48:34</td>
+                                    <td class="mono">gateway-brain/opus</td>
+                                    <td><span class="wq-q ok">ok</span></td></tr><tr class="degraded"><td class="mono">bbbb1111</td>
+                                    <td>3</td>
+                                    <td>10:47:04</td>
+                                    <td class="mono">stub</td>
+                                    <td><span class="wq-q bad">degraded</span></td></tr></tbody></table></section></div><div class="wq-note">
+            One warm brain serves the whole fleet, reading one session at a time. This page is
+            read-only - it shows the pipeline, it never changes it. The per-session "Queue" tab in a
+            session view is a different thing (the prompt composer queue).
+        </div></div></body></html>

@@ -136,6 +136,18 @@ public sealed class GatewayClient
     }
 
     /// <summary>
+    /// A read-only snapshot of the ONE-brain wingman pipeline (<c>GET /wingman/queue</c>, issue #239):
+    /// in-flight session, ordered queue, recent briefs, and brain health. Throws on transport failure
+    /// (the Wingman Pipeline page surfaces it as a banner) so a dead Gateway never looks like an idle
+    /// pipeline.
+    /// </summary>
+    public async Task<WingmanQueueDto> GetWingmanQueueAsync(CancellationToken ct = default)
+    {
+        var snapshot = await _http.GetFromJsonAsync<WingmanQueueDto>("wingman/queue", ct);
+        return snapshot ?? throw new HttpRequestException("wingman/queue returned an empty body");
+    }
+
+    /// <summary>
     /// Gateway health summary (<c>GET /healthz</c>): version, server time, fleet counts.
     /// Throws on transport failure - the dashboard surfaces it as a banner.
     /// </summary>
