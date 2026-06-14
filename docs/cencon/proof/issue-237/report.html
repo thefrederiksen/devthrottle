@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #237 - Developer Proof - Identify each Director in the rail by its port</title>
+<style>
+  body{background:#1E1E1E;color:#CCCCCC;font-family:'Segoe UI',sans-serif;margin:0;padding:24px;line-height:1.5}
+  h1{font-size:22px;color:#fff;margin:0 0 4px}
+  h2{font-size:16px;color:#fff;border-bottom:1px solid #3C3C3C;padding-bottom:6px;margin-top:32px}
+  .sub{color:#888;font-size:13px;margin-bottom:20px}
+  table{border-collapse:collapse;width:100%;margin:12px 0;font-size:13px}
+  th,td{border:1px solid #3C3C3C;padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:#252526;color:#fff}
+  code{font-family:'Cascadia Mono',Consolas,monospace;background:#252526;padding:1px 5px;border-radius:3px;color:#9CDCFE}
+  .ok{color:#22C55E;font-weight:600}
+  img{max-width:100%;border:1px solid #3C3C3C;border-radius:4px;margin:8px 0;background:#1E1E1E}
+  .met{color:#22C55E}
+  ul{margin:8px 0}
+  .belief{background:#1B3A2A;border:1px solid #22C55E;border-radius:4px;padding:12px 16px;margin-top:24px;color:#CFE}
+</style>
+</head>
+<body>
+<h1>Issue #237 - Identify each Director in the Cockpit rail by its port, not its GUID prefix</h1>
+<div class="sub">Developer Agent proof - CenCon Development Method - thefrederiksen/cc-director</div>
+
+<h2>Release Notes</h2>
+<p>Each Director in the Cockpit session rail (and on the Directors / Director-detail pages) is now
+labelled by its <strong>port</strong> - e.g. <code>director :7884</code> - instead of the meaningless
+8-hex-char per-process Director GUID prefix (e.g. <code>director a3a971fa</code>). The port is short,
+stable across Director restarts, and maps directly to the slot convention (7879 = main build;
+7884/7886/7887... for slots), so the rail is now readable and Directors are easy to tell apart. The
+full <code>DirectorId</code> is preserved everywhere it was shown (now in a tooltip / detail body) and
+remains the routing key for every navigation.</p>
+
+<h2>Changes</h2>
+<ul>
+  <li><code>src/CcDirector.Cockpit/Components/SessionRail.razor</code> - added a shared
+      <code>PortOf(endpoint)</code> / <code>PortOf(DirectorDto)</code> helper plus
+      <code>PortLabelFor(directorId)</code> (registry lookup with GUID-prefix fallback). The Director
+      group header, the per-session <code>sess-dir</code> span (triage view), and both unreachable
+      rows (tree + triage) now render <code>:&lt;port&gt;</code>; the full GUID moved to the
+      <code>title</code> tooltip.</li>
+  <li><code>src/CcDirector.Cockpit/Components/Pages/Directors.razor</code> - the Director cell leads
+      with <code>:&lt;port&gt;</code> via a self-contained <code>PortLabel(d)</code> helper; the full
+      GUID stays in the cell <code>title</code>.</li>
+  <li><code>src/CcDirector.Cockpit/Components/Pages/DirectorDetail.razor</code> - the header leads with
+      <code>:&lt;port&gt;</code>; the full GUID stays in the header tooltip and the Registration body
+      (<code>Director id</code> row, unchanged).</li>
+  <li><code>src/CcDirector.Cockpit.Tests/SessionRailPortLabelTests.cs</code> - 8 bUnit tests rendering
+      the real compiled components (added the <code>bunit</code> package to the test project).</li>
+</ul>
+<p>No change to <code>CcDirector.Gateway.Contracts</code> DTOs, the Director Control API, or the
+Gateway aggregation routes. The port is derived from existing fields. Display-only change.</p>
+
+<h2>How to Test</h2>
+<ul>
+  <li>Build: <code>dotnet build cc-director.sln</code> -&gt; <span class="ok">Build succeeded, 0 Warning(s), 0 Error(s)</span>.</li>
+  <li>Render tests: <code>dotnet test src/CcDirector.Cockpit.Tests</code> -&gt; <span class="ok">24 passed (8 new + 16 existing)</span>.
+      The new tests render the genuine <code>SessionRail</code> and <code>Directors</code> components against
+      controlled DTOs and assert the exact rendered markup (the same HTML the browser receives).</li>
+  <li>Proof Director: a test Director was launched on isolated slot 8
+      (<code>scripts\agent-session-isolation.ps1</code>), built from this branch in its own worktree,
+      registered to the Gateway, and torn down after capture (slot 8 freed, worktree removed). The
+      visual artifacts below are the rendered output of the components compiled from this branch.</li>
+</ul>
+
+<h2>Acceptance Criteria - Expected vs Actual</h2>
+<table>
+<tr><th>Criterion</th><th>Expected</th><th>Actual (proof)</th></tr>
+<tr><td>Rail tree header shows <code>director :&lt;port&gt;</code>, two Directors with distinct ports, no hex prefix</td>
+    <td><code>director :7884</code> and <code>director :7886</code>, version/uptime intact</td>
+    <td class="met">MET - rail-tree-ports.png; <code>TreeHeader_RendersPortLabel_NotGuidPrefix</code></td></tr>
+<tr><td>Header no longer shows the 8-char GUID prefix as its primary label</td>
+    <td>No hex prefix in the header text</td>
+    <td class="met">MET - test asserts <code>DoesNotContain("a3a971fa"/"b7c44ee0")</code></td></tr>
+<tr><td>Triage per-session <code>sess-dir</code> span shows <code>:&lt;port&gt;</code> (resolved via the Directors registry)</td>
+    <td><code>:7884</code> / <code>:7886</code> per session</td>
+    <td class="met">MET - rail-triage-ports.png; <code>TriageSessionSpan_ShowsPort_ResolvedFromRegistry</code></td></tr>
+<tr><td>Unreachable rows (tree + triage) show <code>:&lt;port&gt;</code> when resolvable, GUID-prefix fallback otherwise (no silent blank)</td>
+    <td>Port when in registry; GUID prefix when the Director is gone</td>
+    <td class="met">MET - both screenshots show <code>director deadbeef</code> fallback; <code>UnreachableRow_ShowsPort_WhenDirectorStillInRegistry</code> + <code>UnreachableRow_FallsBackToGuidPrefix_WhenDirectorGoneFromRegistry</code></td></tr>
+<tr><td>Full <code>DirectorId</code> stays visible (rail header tooltip; Directors / DirectorDetail expose it)</td>
+    <td>Full GUID in <code>title</code> and detail body</td>
+    <td class="met">MET - <code>TreeHeader_CarriesFullGuid_InTitleTooltip</code>; Directors cell <code>title</code> = full GUID; DirectorDetail Registration body shows <code>Director id</code></td></tr>
+<tr><td>Directors page row leads with the port, full GUID in cell <code>title</code></td>
+    <td><code>:7884</code> / <code>:7886</code> leading, GUID tooltip</td>
+    <td class="met">MET - directors-page-ports.png; <code>DirectorsPage_RowLeadsWithPort_FullGuidInCellTitle</code></td></tr>
+<tr><td><code>[+]</code> new-session and Director-open still navigate by full <code>DirectorId</code></td>
+    <td>Routing unchanged - uses full GUID</td>
+    <td class="met">MET - <code>OnNewSession.InvokeAsync(dir.Key)</code>, <code>Open(d)</code> and the session-filter links all still pass the full <code>DirectorId</code>; only the displayed label changed</td></tr>
+<tr><td><code>dotnet build cc-director.sln</code> succeeds, no new Cockpit warnings</td>
+    <td>0 warnings, 0 errors</td>
+    <td class="met">MET - Build succeeded, 0 Warning(s), 0 Error(s)</td></tr>
+</table>
+
+<h2>Visual Proof</h2>
+<p><strong>Rail tree view</strong> - <code>SOREN_NORTH</code> with two Directors, headers <code>director :7884</code>
+and <code>director :7886</code> (distinct ports, no GUID prefix), version/uptime and <code>[+]</code> intact,
+and an unreachable row falling back to <code>director deadbeef</code>:</p>
+<img src="rail-tree-ports.png" alt="Rail tree view with port labels">
+
+<p><strong>Rail triage view</strong> - the per-session <code>sess-dir</code> spans show <code>:7884</code> /
+<code>:7886</code> (registry-resolved), and the unreachable row shows the GUID-prefix fallback
+<code>director deadbeef</code>:</p>
+<img src="rail-triage-ports.png" alt="Rail triage view with per-session port labels">
+
+<p><strong>Directors page</strong> - the Director column leads with <code>:7884</code> / <code>:7886</code>
+(the full GUID is in the cell tooltip):</p>
+<img src="directors-page-ports.png" alt="Directors page rows leading with port">
+
+<p>The raw rendered component HTML is also committed as <code>rail-rendered.html</code> and
+<code>rail-rendered-triage.html</code> (the genuine markup the browser receives, captured directly from
+the compiled <code>SessionRail</code> component).</p>
+
+<h2>CenCon Impact</h2>
+<p>No drift. No container boundary, contract DTO, Control API, or Gateway route changed - this is a
+display-only change inside the <code>cockpit</code> container (<code>CcDirector.Cockpit</code>). No
+blocking security rule (DT-*) is affected. The full <code>DirectorId</code> remains the routing/identity
+key everywhere.</p>
+
+<div class="belief">I believe this is finished. Every acceptance criterion is met with proof, the full
+solution builds clean (0 warnings / 0 errors), and 24 Cockpit tests pass (8 new bUnit tests rendering the
+real components). The isolated test Director on slot 8 was launched and torn down per CLAUDE.md rule 0/0b -
+the main build and slots 1-5 were never touched.</div>
+
+</body>
+</html>
