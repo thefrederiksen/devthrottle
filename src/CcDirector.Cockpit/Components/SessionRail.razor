@@ -77,6 +77,16 @@
                     {
                         <span class="needs-pill">needs you</span>
                     }
+                    @* Issue #218: how long this session has been waiting (NEEDS YOU). The
+                       Gateway stamps NeedsYouSince the moment EffectiveColor becomes red and
+                       clears it when it leaves red, so the label only shows on red rows and is
+                       absent (not "0s") on active/blue/briefing sessions. now-NeedsYouSince is
+                       recomputed each 2s roster refresh, so it ticks up while the session stays
+                       red. *@
+                    @if (SessionOrdering.EffectiveColor(s) == "red" && s.NeedsYouSince is { } since)
+                    {
+                        <span class="needs-wait" title="Waiting for you since @since.ToLocalTime():HH:mm:ss">@Waiting(since)</span>
+                    }
                 </span>
                 @* The wingman's railLine: WHAT the session wants, not just that it wants
                    something (TURN_BRIEFING.md). Rendered UNDER the name/state so it never
@@ -355,6 +365,21 @@
         return up.TotalDays >= 1 ? $"{(int)up.TotalDays}d {up.Hours}h"
              : up.TotalHours >= 1 ? $"{(int)up.TotalHours}h {up.Minutes}m"
              : $"{up.Minutes}m";
+    }
+
+    /// <summary>Issue #218: compact elapsed-waiting label for a NEEDS YOU session, from the
+    /// Gateway-owned <see cref="SessionDto.NeedsYouSince"/> UTC stamp. Same compact style as
+    /// <see cref="Uptime"/> ("2d 4h" / "1h 16m" / "12m") but seconds-aware for sub-minute waits
+    /// ("12s") so a freshly-red session shows a meaningful value rather than "0m". Recomputed on
+    /// every roster refresh (the Cockpit's 2s poll), so it ticks up while the session stays red.</summary>
+    private static string Waiting(DateTime sinceUtc)
+    {
+        var w = DateTime.UtcNow - sinceUtc.ToUniversalTime();
+        if (w < TimeSpan.Zero) w = TimeSpan.Zero;
+        return w.TotalDays >= 1 ? $"{(int)w.TotalDays}d {w.Hours}h"
+             : w.TotalHours >= 1 ? $"{(int)w.TotalHours}h {w.Minutes}m"
+             : w.TotalMinutes >= 1 ? $"{(int)w.TotalMinutes}m"
+             : $"{(int)w.TotalSeconds}s";
     }
 
     // Verbatim render of the Director-authored StatusColor. Never derived from other fields.

@@ -228,6 +228,106 @@ public sealed class SessionsAggregationTests : IAsyncLifetime
         Assert.Equal("b", s.SessionId);
     }
 
+    // ---------- NeedsYouSince stamping (issue #218) ----------
+
+    [Fact]
+    public async Task NeedsYouSince_is_nonNull_for_red_and_null_for_nonRed()
+    {
+        var fake = await StartFake("M", "u", new[]
+        {
+            Sample("red1", "ClaudeCode", "r", "WaitingForInput", "red"),
+            Sample("blue1", "ClaudeCode", "r", "Working", "blue"),
+        });
+        await Register(fake);
+
+        var sessions = await GetSessions();
+        var red = Assert.Single(sessions, s => s.SessionId == "red1");
+        var blue = Assert.Single(sessions, s => s.SessionId == "blue1");
+        Assert.NotNull(red.NeedsYouSince);
+        Assert.Null(blue.NeedsYouSince);
+    }
+
+    [Fact]
+    public async Task NeedsYouSince_is_within_5s_of_entry()
+    {
+        var fake = await StartFake("M", "u", new[]
+        {
+            Sample("red1", "ClaudeCode", "r", "WaitingForInput", "red"),
+        });
+        await Register(fake);
+
+        var before = DateTime.UtcNow;
+        var sessions = await GetSessions();
+        var after = DateTime.UtcNow;
+
+        var red = Assert.Single(sessions);
+        Assert.NotNull(red.NeedsYouSince);
+        // Stamped at the moment the aggregation observed it red: within the poll window.
+        Assert.InRange(red.NeedsYouSince!.Value, before.AddSeconds(-5), after.AddSeconds(5));
+    }
+
+    [Fact]
+    public async Task NeedsYouSince_is_stable_across_polls_while_red()
+    {
+        var fake = await StartFake("M", "u", new[]
+        {
+            Sample("red1", "ClaudeCode", "r", "WaitingForInput", "red"),
+        });
+        await Register(fake);
+
+        var first = Assert.Single(await GetSessions()).NeedsYouSince;
+        await Task.Delay(50);
+        var second = Assert.Single(await GetSessions()).NeedsYouSince;
+
+        Assert.NotNull(first);
+        Assert.NotNull(second);
+        // Must not advance while the session stays red (AC: byte-identical).
+        Assert.Equal(first!.Value, second!.Value);
+    }
+
+    [Fact]
+    public async Task NeedsYouSince_resets_strictly_later_after_leaving_and_re_entering_red()
+    {
+        var session = Sample("flip", "ClaudeCode", "r", "WaitingForInput", "red");
+        var fake = await StartFake("M", "u", new[] { session });
+        await Register(fake);
+
+        // Episode 1: red.
+        var first = Assert.Single(await GetSessions()).NeedsYouSince;
+        Assert.NotNull(first);
+
+        // A new turn starts: leaves red -> NeedsYouSince must go null.
+        session.StatusColor = "blue";
+        session.ActivityState = "Working";
+        var between = Assert.Single(await GetSessions()).NeedsYouSince;
+        Assert.Null(between);
+
+        await Task.Delay(50);
+
+        // Episode 2: returns to red -> a strictly-later stamp than episode 1.
+        session.StatusColor = "red";
+        session.ActivityState = "WaitingForInput";
+        var second = Assert.Single(await GetSessions()).NeedsYouSince;
+        Assert.NotNull(second);
+        Assert.True(second!.Value > first!.Value,
+            $"second episode stamp {second.Value:o} must be strictly later than first {first.Value:o}");
+    }
+
+    [Fact]
+    public async Task NeedsYouSince_is_null_while_briefing_overlay_keeps_effective_color_off_red()
+    {
+        // A raw-red session that is still being briefed presents as effective YELLOW (not red),
+        // so the waiting clock must not start - briefing time is not waiting time. We assert the
+        // contract directly via SessionOrdering (the same fold the Gateway uses): with
+        // BriefingState="Briefing" + raw red, EffectiveColor is "yellow", so isRed is false and
+        // NeedsYouSince stays null. (The Gateway's briefStampFor only runs with briefing enabled;
+        // here we prove the EffectiveColor gate the stamp keys off.)
+        var briefing = Sample("briefing1", "ClaudeCode", "r", "WaitingForInput", "red");
+        briefing.BriefingState = "Briefing";
+        Assert.Equal("yellow", SessionOrdering.EffectiveColor(briefing));
+        Assert.NotEqual("red", SessionOrdering.EffectiveColor(briefing));
+    }
+
     // ---------- owner-cache pruning on observed exit (issue #291) ----------
 
     [Fact]
