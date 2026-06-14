@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #182 - Developer Agent Proof Report</title>
+<style>
+  body { font-family: Segoe UI, system-ui, sans-serif; background:#1E1E1E; color:#CCCCCC; margin:0; padding:32px; line-height:1.5; }
+  h1 { color:#fff; font-size:22px; border-bottom:2px solid #007ACC; padding-bottom:8px; }
+  h2 { color:#fff; font-size:16px; margin-top:28px; }
+  code { font-family: Cascadia Mono, Consolas, monospace; background:#252526; padding:2px 6px; border-radius:3px; color:#D7BA7D; }
+  pre { background:#252526; padding:12px; border-radius:5px; overflow-x:auto; font-family: Cascadia Mono, Consolas, monospace; font-size:13px; }
+  table { border-collapse:collapse; width:100%; margin:12px 0; }
+  th, td { border:1px solid #3C3C3C; padding:8px 10px; text-align:left; vertical-align:top; }
+  th { background:#252526; color:#fff; }
+  .pass { color:#22C55E; font-weight:600; }
+  .muted { color:#888; }
+  img { max-width:100%; border:1px solid #3C3C3C; border-radius:5px; margin:8px 0; }
+  .verdict { background:#1B3A2A; border:1px solid #22C55E; padding:14px; border-radius:5px; margin-top:24px; }
+</style>
+</head>
+<body>
+<h1>Issue #182 - Fleet "Open session" deep-links into the Cockpit session view</h1>
+<p class="muted">Developer Agent (CenCon Development Method) &middot; branch <code>issue-182-fleet-open-cockpit</code> &middot; 2026-06-14</p>
+
+<h2>What was implemented</h2>
+<p>The <code>/fleet</code> live-session card's "Open session" link used <code>SessionDto.ViewUrl</code>,
+which points at the Director's embedded troubleshooting page
+<code>https://&lt;tailnet&gt;/sessions/&lt;sid&gt;/view?gw=...</code>. Per the one-URL plan
+(<code>docs/plans/one-url-cockpit.md</code>) the Cockpit is the single driving UI behind the Gateway
+front door, so the link now deep-links to <code>/cockpit/{sessionId}</code> - the same route the Home
+page's needs-you hotlist (<code>Home.razor</code> <code>OpenSession</code>) already uses. The Cockpit
+route <code>@page "/cockpit/{SidParam}"</code> selects the session on load via
+<code>OnParametersSetAsync -&gt; OnSelect(SidParam, "deep-link")</code>. No new mechanism was invented;
+the route param already existed.</p>
+
+<h2>Change (single file)</h2>
+<p><code>src/CcDirector.Cockpit/Components/Pages/Fleet.razor</code> - the live-card anchor:</p>
+<pre>- @if (!string.IsNullOrWhiteSpace(s.ViewUrl))
+- {
+-   &lt;a class="fl-open" href="@s.ViewUrl"&gt;Open session &amp;rarr;&lt;/a&gt;
+- }
++ @if (!string.IsNullOrWhiteSpace(s.SessionId))
++ {
++   &lt;a class="fl-open" href="@($"/cockpit/{s.SessionId}")"&gt;Open session &amp;rarr;&lt;/a&gt;
++ }</pre>
+<p><code>SessionDto.ViewUrl</code> is unchanged on the Gateway/Director; the embedded <code>/view</code>
+page stays as a direct-URL troubleshooting hatch (matches the issue's recommended Assumption).</p>
+
+<h2>Acceptance criteria - proof</h2>
+<table>
+<tr><th>Criterion</th><th>Expected</th><th>Actual (proven)</th><th>Result</th></tr>
+<tr>
+  <td>AC1 - live-card anchor href is <code>/cockpit/&lt;sid&gt;</code>, not <code>/view</code></td>
+  <td>Rendered <code>a.fl-open</code> href = <code>/cockpit/&lt;sessionId&gt;</code></td>
+  <td>DOM read of hydrated <code>/fleet</code>: all 3 <code>a.fl-open</code> anchors =
+      <code>/cockpit/c748027a...</code>, <code>/cockpit/269e6a0d...</code>,
+      <code>/cockpit/2567412a-1c1b-47e1-941b-b69af4638339</code></td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>AC2 - clicking navigates to <code>/cockpit/&lt;sid&gt;</code></td>
+  <td>URL bar shows that path</td>
+  <td>After click, <code>location.pathname == /cockpit/2567412a-1c1b-47e1-941b-b69af4638339</code></td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>AC3 - Cockpit opens with that session selected (rail + right pane) and the deep-link log fires</td>
+  <td><code>SelectedSessionId == sessionId</code>; brief/detail shown; <code>OnSelect(..., "deep-link")</code> log</td>
+  <td>Rail row <code>D:/ReposFred/cc-director-wt/issue-182</code> carries <code>sess-selected</code>;
+      right pane header shows that exact session. Cockpit log:<br>
+      <code>[Cockpit] action=select-session source=deep-link sid=2567412a-1c1b-47e1-941b-b69af4638339</code></td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>AC4 - no live fleet "Open session" link points at <code>/view</code></td>
+  <td>Grep of rendered <code>/fleet</code> for <code>/view</code> returns no live-card matches</td>
+  <td>DOM read: <code>viewLinks: []</code> - zero anchors containing <code>/view</code> on the page</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>AC5 - <code>dotnet build cc-director.sln</code> succeeds, no new warnings</td>
+  <td>Build succeeded, 0 warnings, 0 errors</td>
+  <td><code>Build succeeded. 0 Warning(s) 0 Error(s)</code></td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>AC6 - interrupted card "Restore -&gt; Open session" and empty-state unchanged</td>
+  <td>No regression</td>
+  <td>No edit to interrupted/empty-state code; INTERRUPTED section renders Restore/Dismiss
+      unchanged (see fleet screenshots)</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Before - what the card pointed at (s.ViewUrl)</h2>
+<p>The session created for this proof returned this <code>viewUrl</code> from the Director Control API
+(the value the card USED to use):</p>
+<pre>"viewUrl":"https://soren-north.taildb08ed.ts.net:7890/sessions/2567412a-1c1b-47e1-941b-b69af4638339/view?gw=http%3A%2F%2Flocalhost%3A7878"</pre>
+<p>After the change the same card's anchor instead resolves to
+<code>/cockpit/2567412a-1c1b-47e1-941b-b69af4638339</code>.</p>
+
+<h2>After - live fleet cards (each "Open session" -&gt; /cockpit/&lt;sid&gt;)</h2>
+<img src="after-fleet-livecards.png" alt="Fleet live cards with Open session buttons">
+<p class="muted">The bottom "SOREN_NORTH &middot; soren &middot; 3 sessions" group holds the live cards; each blue
+"Open session -&gt;" button is one of the verified <code>/cockpit/&lt;sid&gt;</code> anchors. The INTERRUPTED
+section above keeps its Restore/Dismiss buttons (AC6).</p>
+
+<h2>After - Cockpit reached by clicking "Open session", that session selected</h2>
+<img src="after-cockpit-selected.png" alt="Cockpit at /cockpit/sid with the session selected">
+<p class="muted">URL <code>/cockpit/2567412a-...</code>; left-rail row
+<code>D:/ReposFred/cc-director-wt/issue-182</code> is selected; right pane shows that session's header and
+composer. The "stream lost, reconnecting" notice is only the terminal stream from the isolated test
+Director - selection and deep-link are what AC3 asserts.</p>
+
+<h2>CenCon impact</h2>
+<p>No drift. <code>SessionDto.ViewUrl</code> and the Gateway/Director that compute it are unchanged; no
+architecture (<code>architecture_manifest.yaml</code>) or security (<code>security_profile.yaml</code>)
+change. Single-anchor client-side repoint within the Cockpit (Fleet Dashboard) container.</p>
+
+<h2>How it was proven (isolation)</h2>
+<p>Built per-session-isolated on slot 8 from worktree
+<code>D:\ReposFred\cc-director-wt\issue-182</code> (commit <code>c33131a</code>) and launched a test
+Director (PID 36036, Control API port 7890) via the <code>cc-director8-launch</code> scheduled task
+(<code>scripts/agent-session-isolation.ps1</code>). The Cockpit was run from my branch build output
+(<code>bin/Debug/.../cc-director-cockpit.exe</code>, port 7491) and rendered in an isolated
+cc-playwright connection; the live anchors and selection were read from the hydrated DOM and the
+Cockpit log. The main build and slots 1-5 were never touched.</p>
+
+<div class="verdict">
+<strong>I believe this is finished.</strong> All six acceptance criteria are met and proven in the
+running app from this branch's build.
+</div>
+</body>
+</html>
