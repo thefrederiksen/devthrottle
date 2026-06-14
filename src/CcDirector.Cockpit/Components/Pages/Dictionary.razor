@@ -1,0 +1,298 @@
+@page "/dictionary"
+@inject GatewayClient Gateway
+@inject ILogger<Dictionary> Log
+
+@* The dictation Dictionary editor (issue #183), ported 1:1 from the static
+   wwwroot/pages/dictionary.html into a Blazor page. Same behavior: edit vocabulary chips,
+   the common-mistranscriptions term->variant map, and per-profile cleanup toggles, with a
+   dirty-state Save that PUTs the whole glossary and re-renders the returned dictionary.
+   The "default" profile is undeletable. Visual parity in Dictionary.razor.css (navy palette). *@
+
+<PageTitle>Dictionary - CC Director</PageTitle>
+
+<div class="dc-root">
+<div class="dc-wrap">
+  <div class="dc-top">
+    <h1>Dictionary</h1>
+    <a class="dc-back" href="/">&larr; Dashboard</a>
+  </div>
+  <p class="dc-sub">The Gateway is the single source of truth for this glossary. It is used by <strong>phone-recording transcription</strong> and by <strong>live dictation/Speak on every Director</strong> connected to this Gateway. Edits apply on the next recording or dictation - no file copying.</p>
+
+  @if (_dict is null)
+  {
+    <p class="dc-loading">@(_error ?? "Loading dictionary...")</p>
+  }
+  else
+  {
+    <div class="dc-saverow">
+      <div></div>
+      <div class="dc-saveactions">
+        <span class="dc-savemsg">@_saveMsg</span>
+        <button class="dc-save" @onclick="Save" disabled="@(!_dirty || _saving)">Save</button>
+      </div>
+    </div>
+
+    @* ---- Vocabulary ---- *@
+    <div class="dc-section">
+      <h2>Vocabulary</h2>
+      <p class="dc-hint">Terms biased into speech-to-text.</p>
+      <div class="dc-chips">
+        @foreach (var (term, i) in _dict.Vocabulary.Select((t, i) => (t, i)))
+        {
+          <span class="dc-chip">
+            @term
+            <button class="dc-x" type="button" title="Remove" @onclick="() => RemoveVocab(i)">x</button>
+          </span>
+        }
+        <input class="dc-addbox" placeholder="+ add term" @bind="_newVocab" @bind:event="oninput"
+               @onkeydown="AddVocabKey" />
+      </div>
+    </div>
+
+    @* ---- Common mistranscriptions ---- *@
+    <div class="dc-section">
+      <h2>Common mistranscriptions</h2>
+      <p class="dc-hint">Correct term &larr; wrong spellings seen in practice. Fed to the cleanup pass.</p>
+      <div>
+        @if (_dict.CommonMistranscriptions.Count == 0)
+        {
+          <p class="dc-empty">No correction patterns yet.</p>
+        }
+        else
+        {
+          @foreach (var term in _dict.CommonMistranscriptions.Keys.ToList())
+          {
+            <div class="dc-mrow">
+              <div class="dc-mterm">
+                <button class="dc-x" type="button" title="Remove term" @onclick="() => RemoveTerm(term)">x</button>
+                <span class="dc-name">@term</span>
+                <span class="dc-arrow">&larr;</span>
+              </div>
+              <div class="dc-mvariants">
+                <div class="dc-chips">
+                  @foreach (var (variant, vi) in _dict.CommonMistranscriptions[term].Select((v, vi) => (v, vi)))
+                  {
+                    <span class="dc-chip">
+                      @variant
+                      <button class="dc-x" type="button" title="Remove" @onclick="() => RemoveVariant(term, vi)">x</button>
+                    </span>
+                  }
+                  <input class="dc-addbox dc-variant-add" placeholder="+ wrong spelling"
+                         value="@GetVariantDraft(term)"
+                         @oninput="e => SetVariantDraft(term, e.Value?.ToString())"
+                         @onkeydown="e => AddVariantKey(e, term)" />
+                </div>
+              </div>
+            </div>
+          }
+        }
+      </div>
+      <div class="dc-addterm-row">
+        <input class="dc-addbox dc-addterm" placeholder="+ add a term to correct"
+               @bind="_newTerm" @bind:event="oninput" @onkeydown="AddTermKey" />
+      </div>
+    </div>
+
+    @* ---- Profiles ---- *@
+    <div class="dc-section">
+      <h2>Profiles</h2>
+      <p class="dc-hint">Cleanup behavior per context.</p>
+      <div class="dc-profiles">
+        @if (_dict.Profiles.Count == 0)
+        {
+          <p class="dc-empty">No profiles. A "default" profile is created automatically on save.</p>
+        }
+        else
+        {
+          @foreach (var pname in _dict.Profiles.Keys.ToList())
+          {
+            <div class="dc-pcard">
+              <div class="dc-pname">
+                <span>@pname</span>
+                @if (!string.Equals(pname, "default", StringComparison.OrdinalIgnoreCase))
+                {
+                  <button class="dc-x" type="button" title="Remove profile" @onclick="() => RemoveProfile(pname)">x</button>
+                }
+              </div>
+              <label class="dc-plabel">
+                <input type="checkbox" checked="@_dict.Profiles[pname].CleanupEnabled"
+                       @onchange="e => ToggleCleanup(pname, e)" />
+                apply dictionary corrections
+              </label>
+              <p class="dc-empty">When enabled, only dictionary terms are corrected. Your words are never reworded, summarized, or edited.</p>
+            </div>
+          }
+        }
+      </div>
+      <div class="dc-addprofile">
+        <input class="dc-addbox" placeholder="+ new profile name"
+               @bind="_newProfile" @bind:event="oninput" @onkeydown="AddProfileKey" />
+      </div>
+    </div>
+  }
+</div>
+</div>
+
+@code {
+    private DictionaryDto? _dict;
+    private string? _error;
+    private bool _dirty;
+    private bool _saving;
+    private string _saveMsg = "";
+
+    private string _newVocab = "";
+    private string _newTerm = "";
+    private string _newProfile = "";
+    // Per-term draft text for the "+ wrong spelling" inputs (keyed by term).
+    private readonly Dictionary<string, string> _variantDrafts = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _dict = await Gateway.GetDictionaryAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = "Failed to load. Is the Gateway running?";
+            Log.LogWarning("Dictionary load failed: {Error}", ex.Message);
+        }
+    }
+
+    private void MarkDirty()
+    {
+        _dirty = true;
+        _saveMsg = "";
+    }
+
+    // ---- vocabulary ----
+
+    private void AddVocabKey(KeyboardEventArgs e)
+    {
+        if (e.Key != "Enter") return;
+        var v = (_newVocab ?? "").Trim();
+        _newVocab = "";
+        if (v.Length == 0 || _dict is null) return;
+        if (!_dict.Vocabulary.Contains(v)) _dict.Vocabulary.Add(v);
+        MarkDirty();
+    }
+
+    private void RemoveVocab(int i)
+    {
+        if (_dict is null || i < 0 || i >= _dict.Vocabulary.Count) return;
+        _dict.Vocabulary.RemoveAt(i);
+        MarkDirty();
+    }
+
+    // ---- mistranscriptions ----
+
+    private void AddTermKey(KeyboardEventArgs e)
+    {
+        if (e.Key != "Enter") return;
+        var name = (_newTerm ?? "").Trim();
+        _newTerm = "";
+        if (name.Length == 0 || _dict is null) return;
+        if (!_dict.CommonMistranscriptions.ContainsKey(name))
+            _dict.CommonMistranscriptions[name] = new List<string>();
+        MarkDirty();
+    }
+
+    private void RemoveTerm(string term)
+    {
+        if (_dict is null) return;
+        _dict.CommonMistranscriptions.Remove(term);
+        _variantDrafts.Remove(term);
+        MarkDirty();
+    }
+
+    private string GetVariantDraft(string term) =>
+        _variantDrafts.TryGetValue(term, out var v) ? v : "";
+
+    private void SetVariantDraft(string term, string? value) => _variantDrafts[term] = value ?? "";
+
+    private void AddVariantKey(KeyboardEventArgs e, string term)
+    {
+        if (e.Key != "Enter" || _dict is null) return;
+        var v = GetVariantDraft(term).Trim();
+        _variantDrafts[term] = "";
+        if (v.Length == 0) return;
+        if (!_dict.CommonMistranscriptions.TryGetValue(term, out var variants)) return;
+        if (!variants.Contains(v)) variants.Add(v);
+        MarkDirty();
+    }
+
+    private void RemoveVariant(string term, int vi)
+    {
+        if (_dict is null) return;
+        if (!_dict.CommonMistranscriptions.TryGetValue(term, out var variants)) return;
+        if (vi < 0 || vi >= variants.Count) return;
+        variants.RemoveAt(vi);
+        MarkDirty();
+    }
+
+    // ---- profiles ----
+
+    private void AddProfileKey(KeyboardEventArgs e)
+    {
+        if (e.Key != "Enter") return;
+        var name = (_newProfile ?? "").Trim();
+        _newProfile = "";
+        if (name.Length == 0 || _dict is null) return;
+        if (!_dict.Profiles.ContainsKey(name))
+            _dict.Profiles[name] = new DictionaryProfileDto { CleanupEnabled = true };
+        MarkDirty();
+    }
+
+    private void RemoveProfile(string pname)
+    {
+        if (_dict is null) return;
+        if (string.Equals(pname, "default", StringComparison.OrdinalIgnoreCase)) return;
+        _dict.Profiles.Remove(pname);
+        MarkDirty();
+    }
+
+    private void ToggleCleanup(string pname, ChangeEventArgs e)
+    {
+        if (_dict is null || !_dict.Profiles.TryGetValue(pname, out var p)) return;
+        p.CleanupEnabled = e.Value is bool b && b;
+        MarkDirty();
+    }
+
+    // ---- save ----
+
+    private async Task Save()
+    {
+        if (_dict is null || !_dirty) return;
+        _saving = true;
+        _saveMsg = "saving...";
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            _dict = await Gateway.SaveDictionaryAsync(_dict);
+            _dirty = false;
+            _saveMsg = "Saved";
+            _variantDrafts.Clear();
+            _ = ClearSaveMsgLater();
+        }
+        catch (Exception ex)
+        {
+            _saveMsg = "save failed: " + ex.Message;
+            Log.LogWarning("Dictionary save failed: {Error}", ex.Message);
+        }
+        finally
+        {
+            _saving = false;
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ClearSaveMsgLater()
+    {
+        await Task.Delay(4000);
+        if (_saveMsg == "Saved")
+        {
+            _saveMsg = "";
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+}

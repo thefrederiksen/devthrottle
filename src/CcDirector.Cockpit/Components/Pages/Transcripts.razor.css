@@ -1,0 +1,73 @@
+/* The Voice Recorder page, ported 1:1 from the static wwwroot/pages/transcripts.html palette (navy).
+   Scoped CSS isolation (issue #183); same visual style as the static page it replaces. */
+
+.ts-root {
+    height: 100%;
+    overflow: auto;
+    background: #0B1020;
+    color: #E6EAF2;
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.5;
+}
+
+.ts-wrap { max-width: 900px; margin: 0 auto; padding: 28px 20px 80px; }
+.ts-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.ts-top h1 { font-size: 26px; margin: 0; }
+.ts-topactions { display: flex; align-items: center; gap: 14px; }
+.ts-back { color: #5B8DEF; text-decoration: none; font-size: 14px; }
+.ts-ghost {
+    background: transparent; border: 1px solid #27324d; color: #E6EAF2;
+    border-radius: 8px; padding: 6px 12px; font-size: 13px; cursor: pointer;
+}
+.ts-ghost:hover { border-color: #5B8DEF; }
+.ts-agentmsg { color: #5FD08A; font-size: 12.5px; }
+.ts-sub { color: #8A93A6; font-size: 14px; margin: 0 0 22px; }
+
+.ts-card { background: #141B2E; border: 1px solid #27324d; border-radius: 14px; padding: 16px 18px; margin: 12px 0; }
+.ts-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; }
+.ts-title { font-size: 16px; font-weight: 600; }
+.ts-subtitle { color: #E6EAF2; opacity: .8; font-size: 13.5px; margin-top: 1px; }
+.ts-meta { color: #8A93A6; font-size: 13px; margin-top: 3px; }
+
+.ts-badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.ts-b-uploaded { background: rgba(95,208,138,.16); color: #5FD08A; border: 1px solid rgba(95,208,138,.4); }
+.ts-b-other { background: rgba(232,179,57,.14); color: #E8B339; border: 1px solid rgba(232,179,57,.4); }
+.ts-b-vault { background: rgba(91,141,239,.16); color: #5B8DEF; border: 1px solid rgba(91,141,239,.4); }
+.ts-badges { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+
+.ts-body { margin-top: 14px; }
+.ts-controls { display: flex; gap: 10px; margin-bottom: 12px; align-items: center; flex-wrap: wrap; }
+
+/* Buttons */
+.ts-controls button, .ts-save {
+    background: #1B2540; color: #E6EAF2; border: 1px solid #27324d;
+    border-radius: 8px; padding: 8px 14px; font-size: 14px; cursor: pointer;
+}
+.ts-controls button:hover:not(:disabled), .ts-save:hover:not(:disabled) { border-color: #5B8DEF; }
+.ts-play { background: #1f7a47 !important; border-color: #2a9c5b !important; color: #fff !important; }
+.ts-danger { background: #3a1418 !important; border-color: #7a2429 !important; color: #f0b4b6 !important; }
+.ts-danger:hover:not(:disabled) { border-color: #E5484D !important; }
+.ts-controls button:disabled, .ts-save:disabled { opacity: .45; cursor: default; }
+.ts-controls button:disabled:hover { border-color: #27324d; }
+
+.ts-copied { color: #5FD08A; font-size: 12.5px; margin-left: 8px; }
+.ts-nowplaying { color: #5FD08A; font-size: 12.5px; margin-left: 8px; }
+.ts-vaultmsg { color: #5FD08A; font-size: 12.5px; margin-left: 8px; }
+.ts-savemsg { color: #5FD08A; font-size: 12.5px; margin-left: 8px; }
+
+.ts-details { background: #0d1426; border: 1px solid #27324d; border-radius: 10px; padding: 14px; margin-bottom: 12px; }
+.ts-fld { display: block; margin-bottom: 10px; }
+.ts-lbl { display: block; color: #8A93A6; font-size: 12px; margin-bottom: 4px; }
+.ts-details input, .ts-details textarea {
+    width: 100%; background: #0B1020; color: #E6EAF2; border: 1px solid #27324d;
+    border-radius: 8px; padding: 8px 10px; font-size: 14px; font-family: inherit;
+}
+.ts-details input:focus, .ts-details textarea:focus { outline: none; border-color: #5B8DEF; }
+.ts-details textarea { min-height: 64px; resize: vertical; }
+
+.ts-transcript {
+    white-space: pre-wrap; background: #0d1426; border: 1px solid #27324d;
+    border-radius: 10px; padding: 14px; font-size: 14px; color: #cdd6e6;
+    max-height: 380px; overflow: auto;
+}
+.ts-empty { color: #8A93A6; text-align: center; padding: 60px 0; }
