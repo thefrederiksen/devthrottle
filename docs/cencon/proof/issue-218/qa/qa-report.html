@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof Report - Issue #218 (NeedsYouSince waiting duration)</title>
+<style>
+  body{font-family:'Segoe UI',Arial,sans-serif;background:#1b1b1b;color:#e6e6e6;margin:0;padding:28px;line-height:1.5}
+  h1{font-size:22px;margin:0 0 4px}
+  h2{font-size:16px;margin:28px 0 8px;color:#9ecbff}
+  .meta{color:#9a9a9a;font-size:13px;margin-bottom:20px}
+  .verdict{display:inline-block;background:#16341a;border:1px solid #2e8b3a;color:#7fe08a;
+    padding:6px 12px;border-radius:6px;font-weight:600;margin:8px 0}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:13px}
+  th,td{border:1px solid #3a3a3a;padding:8px 10px;vertical-align:top;text-align:left}
+  th{background:#262626}
+  .pass{color:#7fe08a;font-weight:600}
+  code{background:#262626;padding:1px 5px;border-radius:4px;font-family:Consolas,monospace}
+  img{max-width:430px;border:1px solid #3a3a3a;border-radius:6px;display:block;margin:8px 0}
+  .note{background:#2a2410;border:1px solid #6b5a1e;color:#e0d49a;padding:10px 12px;border-radius:6px;font-size:13px}
+  .ev{font-family:Consolas,monospace;font-size:12px;color:#bcbcbc;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #218</h1>
+<div class="meta">[Cockpit] Show waiting duration on each NEEDS YOU session (server-stamped NeedsYouSince)<br>
+PR #416 / branch <code>issue-218-needsyou-since</code> @ 4039687 &middot; QA Agent &middot; 2026-06-14 &middot; reproduced independently, dev report NOT trusted</div>
+
+<div class="verdict">VERIFIED - all 9 acceptance criteria met</div>
+
+<h2>How QA verified (independent reproduction)</h2>
+<ul>
+  <li>Built <code>cc-director.sln</code> from the PR branch in an isolated worktree: <b>Build succeeded, 0 Warning(s), 0 Error(s)</b>.</li>
+  <li>Allocated isolated <b>slot 8</b> via <code>agent-session-isolation.ps1</code>, built+launched a slot-8 Director via the per-slot scheduled task, then tore it down (no other slot/build touched).</li>
+  <li><b>AC1</b> read directly from source.</li>
+  <li><b>AC2-5, AC9</b> proven with QA's OWN live HTTP probe: a standalone harness boots the real <code>GatewayHost</code> Kestrel + <code>GatewayEndpoints.Map</code> + <code>NeedsYouClock</code> on a free port, registers a fake Director serving red/blue/flip sessions, and curls the real <code>GET /sessions</code> JSON. Independent of any dev artifact.</li>
+  <li><b>AC6-8</b> proven with QA's OWN genuine compiled-component renders of the real <code>SessionRail</code> (bUnit), wrapped in the real <code>app.css</code>, screenshotted headless at t0 and t+120s.</li>
+  <li>Regression sweep: Cockpit suite 30/30 pass; Gateway suite 636/637 (the one failure is the pre-existing, unrelated <code>DictationEndpointTests.FullPipeline...realtime_provider</code> environmental test - <code>DictationEndpointTests.cs</code> is NOT touched by this PR).</li>
+</ul>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (QA evidence)</th><th>Result</th></tr>
+
+<tr><td>1</td><td>SessionDto has nullable <code>DateTime? NeedsYouSince</code> (UTC), default null, XML-doc says Gateway-owned, marks entry into red.</td>
+<td>Field present + documented.</td>
+<td>SessionDto.cs lines 98-108: <code>public DateTime? NeedsYouSince { get; set; }</code> with XML-doc "Gateway-owned ... ENTERED the red / NEEDS-YOU effective state ... cleared to null when it leaves red".</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>2</td><td>In Gateway <code>/sessions</code>, red session has non-null NeedsYouSince; non-red has null.</td>
+<td>red != null, blue == null.</td>
+<td class="ev">red1 effColor=red NeedsYouSince=2026-06-14T13:57:42.0855536Z
+blue1 effColor=blue NeedsYouSince=null</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>3</td><td>NeedsYouSince within 5s of entry.</td>
+<td>|stamp - wall| &lt; 5s.</td>
+<td class="ev">wall poll1 = 13:57:42.066Z, red1 stamp = 13:57:42.085Z -> delta ~19ms &lt;&lt; 5s.</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>4</td><td>NeedsYouSince stable (byte-identical) across polls while red.</td>
+<td>poll1 == poll2.</td>
+<td class="ev">poll1=2026-06-14T13:57:42.0855536Z  poll2(+6s)=2026-06-14T13:57:42.0855536Z  identical=True</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>5</td><td>Resets later on red->leave->red; goes null in between, second stamp strictly later.</td>
+<td>mid==null, second &gt; first.</td>
+<td class="ev">flip first=13:57:42.0864212Z  mid(blue)=null  back(red)=13:57:49.3107452Z  strictlyLater=True</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>6</td><td>Cockpit NEEDS YOU rows show an elapsed-duration label from NeedsYouSince.</td>
+<td>Label on each red row.</td>
+<td>Rendered markup: <code>&lt;span class="needs-wait"&gt;1m&lt;/span&gt;</code>, <code>...&gt;12s&lt;</code>. See qa-rail-t0.png (NEEDS YOU rows show "1m" / "12s").</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>7</td><td>Displayed elapsed increases on successive refreshes while red.</td>
+<td>t+30s value larger.</td>
+<td>Same two sessions at +120s render "3m" / "2m" vs t0 "1m" / "12s" - strictly larger. See qa-rail-t0.png vs qa-rail-t120.png.</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>8</td><td>Label absent (not "0s"/stale) for non-NEEDS-YOU sessions.</td>
+<td>Blue/active row has no label.</td>
+<td>Render gated on <code>EffectiveColor=="red" &amp;&amp; NeedsYouSince is {}</code>; the blue "cockpit-port-label" row emits zero <code>.needs-wait</code> spans (count==2 for the 2 red rows only). Visible in both screenshots.</td>
+<td class="pass">PASS</td></tr>
+
+<tr><td>9</td><td>Briefing/Explaining overlay time not counted: raw-red but briefing -> NeedsYouSince null.</td>
+<td>EffectiveColor!=red while briefing -> null.</td>
+<td class="ev">raw StatusColor=red + BriefingState="Briefing" -> SessionOrdering.EffectiveColor = "yellow" (not red) -> stamp keys off EffectiveColor, so null. Stamping runs AFTER BriefingState is set in the fanout.</td>
+<td class="pass">PASS</td></tr>
+</table>
+
+<h2>Proof: Cockpit triage view t0</h2>
+<img src="qa-rail-t0.png" alt="triage t0: NEEDS YOU 1m/12s, ACTIVE blue no label">
+
+<h2>Proof: same sessions +120s (ticks up)</h2>
+<img src="qa-rail-t120.png" alt="triage t+120s: NEEDS YOU 3m/2m">
+
+<h2>Regression / method sweep</h2>
+<ul>
+  <li>Cockpit.Tests: <b>30/30 pass</b>.</li>
+  <li>Gateway.Tests: <b>636/637 pass</b>; sole failure = pre-existing environmental <code>DictationEndpointTests.FullPipeline_transcribes_phase0_clip2_with_realtime_provider</code> (needs a live realtime transcription provider), unrelated to this PR (Dictation source untouched).</li>
+  <li>Change is additive (nullable DTO field, back-compat) - no security/PII surface, no DT rule implicated, no fallback programming; <code>NeedsYouClock</code> logs set/clear via FileLog.</li>
+</ul>
+
+<div class="note"><b>QA note (non-blocking, not an AC):</b> the hover <code>title</code> tooltip on the label renders as
+<code>"Waiting for you since 2026-06-14 9:56:43 AM:HH:mm:ss"</code> - the Razor inline format
+<code>@since.ToLocalTime():HH:mm:ss</code> emits a localized datetime followed by the literal text <code>:HH:mm:ss</code>.
+The VISIBLE label (the AC-relevant value "1m"/"12s"/etc.) is correct; only the tooltip suffix is cosmetic.
+No acceptance criterion covers the tooltip, so this does not fail the issue - flagged for a future tidy.</div>
+
+<p class="verdict">VERIFIED - all acceptance criteria met. Merging to main (squash) per QA Agent Step 3a inside implementation-loop.</p>
+</body>
+</html>

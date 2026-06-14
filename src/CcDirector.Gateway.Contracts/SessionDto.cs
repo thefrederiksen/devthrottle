@@ -95,6 +95,18 @@ public sealed class SessionDto
     /// FIFO / voice. Null when nothing is needed or no brief exists.</summary>
     public string? RailLine { get; set; }
 
+    /// <summary>
+    /// Issue #218: UTC timestamp the session ENTERED the red / NEEDS-YOU effective state
+    /// (<see cref="SessionOrdering.EffectiveColor"/> == "red"). Gateway-owned: stamped by the
+    /// Gateway during the /sessions aggregation the first refresh the session presents red,
+    /// held stable while it stays red, and cleared to null when it leaves red. Drives the
+    /// Cockpit's "how long has this been waiting" triage label. Null whenever the session is
+    /// not red (including while the wingman is still briefing/explaining - effective yellow/
+    /// orange is not yet waiting time). In-memory only (like AssessedState): a Gateway restart
+    /// re-derives it on the next red transition. Always null in Director-local responses.
+    /// </summary>
+    public DateTime? NeedsYouSince { get; set; }
+
     /// <summary>Backend type: ConPty / UnixPty / Pipe / Studio / Embedded.</summary>
     public string BackendType { get; set; } = "";
 

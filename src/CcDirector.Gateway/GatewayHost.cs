@@ -85,6 +85,8 @@ public sealed class GatewayHost : IAsyncDisposable
     private readonly WorkListStore _workLists;
     private readonly Running.WorkListRunnerManager _runnerManager = new();
     private readonly SessionAssessments _assessments = new();
+    // Issue #218: Gateway-owned clock for when each session entered the red / NEEDS-YOU state.
+    private readonly NeedsYouClock _needsYouClock = new();
     private GatewayTurnBriefAgent? _briefAgent;
     private TurnEndWatcher? _turnEndWatcher;
     private AdvertisedEndpointMonitor? _endpointMonitor;
@@ -388,6 +390,8 @@ public sealed class GatewayHost : IAsyncDisposable
             briefStampFor: _briefAgent is { } stampAgent
                 ? sid => (stampAgent.BriefingStateFor(sid), _turnBriefStore.Latest(sid)?.NeedsYou?.RailLine)
                 : null,
+            // Issue #218: stamp the Gateway-owned NeedsYouSince entry clock onto each session.
+            needsYouStampFor: (sid, isRed) => _needsYouClock.Stamp(sid, isRed),
             // Issue #212 W3: enrich the Interrupted sessions list from the durable brief store. Always
             // available (read-only is safe even with briefing disabled), and the brief survives
             // the Director that died - which is exactly when we need it.
