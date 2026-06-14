@@ -1,4 +1,4 @@
-@* Gateway-wide session rail with two layouts (ViewMode):
+@* Gateway-wide session rail with three layouts (ViewMode):
 
    "tree"   - Machine -> Director -> Sessions. Sessions keep their owning Director's
               desktop order (SortOrder), so they hold a stable slot and don't reshuffle.
@@ -9,6 +9,12 @@
               (StatusColor "red") at the top, ON HOLD (user/agent parked) at the bottom,
               everything else in between. The owning Director short-id is shown per row
               since the grouping is dropped here.
+
+   "repo"   - one group per repository across every machine/Director (issue #219): repo
+              headers sorted alphabetically (case-insensitive), each followed by that
+              repo's sessions in desktop order, then a "(no repo)" group last. Grouping by
+              repo drops the machine/Director context, so the owning Director short-id is
+              shown per row, exactly as in triage mode.
 
    StatusColor and OnHold are rendered verbatim from the Director; never derived. *@
 
@@ -185,6 +191,26 @@
             </div>
         }
     }
+    else if (ViewMode == "repo")
+    {
+        @* Issue #219: one group per repository across every machine/Director, headers
+           alphabetical (case-insensitive), "(no repo)" last; in-group desktop order keeps
+           rows from reshuffling on a color change. The grouping policy lives on
+           SessionOrdering so it is shared and unit-tested, never inline LINQ here. *@
+        @foreach (var group in SessionOrdering.InRepoGroups(Sessions))
+        {
+            <div class="repo-grp">
+                <div class="repo-head @(group.IsNoRepo ? "norepo" : "")">
+                    <span class="repo-name">@group.Name</span>
+                    <span class="repo-count">@group.Sessions.Count</span>
+                </div>
+                @foreach (var s in group.Sessions)
+                {
+                    @SessionRow(s)
+                }
+            </div>
+        }
+    }
     else
     {
         @foreach (var machine in Machines())
@@ -260,8 +286,9 @@
 
     [Parameter] public EventCallback<string> OnSelect { get; set; }
 
-    /// <summary>"tree" (Machine -> Director -> Sessions, desktop order) or "triage"
-    /// (needs-you first, on-hold last, flat across Directors).</summary>
+    /// <summary>"tree" (Machine -> Director -> Sessions, desktop order), "triage"
+    /// (needs-you first, on-hold last, flat across Directors), or "repo" (grouped by
+    /// repository across all machines, alphabetical, "(no repo)" last; issue #219).</summary>
     [Parameter] public string ViewMode { get; set; } = "tree";
 
     /// <summary>Raised with a Director id when the user clicks a Director's [+] to start

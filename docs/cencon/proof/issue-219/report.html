@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #219 - By-repo session rail view - Developer Agent proof</title>
+<style>
+  body{background:#1E1E1E;color:#CCCCCC;font-family:'Segoe UI',sans-serif;margin:0;padding:32px;line-height:1.55}
+  h1{font-size:22px;color:#fff;margin:0 0 4px}
+  h2{font-size:16px;color:#fff;margin:28px 0 10px;border-bottom:1px solid #3C3C3C;padding-bottom:6px}
+  .sub{color:#888;font-size:13px;margin-bottom:18px}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:13px}
+  th,td{border:1px solid #3C3C3C;padding:7px 10px;text-align:left;vertical-align:top}
+  th{background:#252526;color:#fff}
+  td.ok{color:#22C55E;font-weight:600;white-space:nowrap}
+  code{font-family:'Cascadia Mono',Consolas,monospace;background:#252526;padding:1px 5px;border-radius:3px;color:#CCC}
+  img{max-width:380px;border:1px solid #3C3C3C;border-radius:6px;margin:6px 18px 6px 0;vertical-align:top}
+  .shots{display:flex;flex-wrap:wrap;gap:8px}
+  .cap{font-size:12px;color:#888;max-width:380px}
+  pre{background:#252526;border:1px solid #3C3C3C;border-radius:6px;padding:12px;overflow:auto;font-size:12px;color:#CCC}
+  .verdict{background:#1B3A2A;border:1px solid #22C55E;border-radius:6px;padding:14px 16px;color:#fff;margin-top:24px}
+  ul{margin:6px 0}
+</style>
+</head>
+<body>
+
+<h1>Issue #219 - [Cockpit] By-repo session rail view</h1>
+<div class="sub">Developer Agent proof. Group sessions by repository, alphabetical, across machines. Build v0.6.23.</div>
+
+<h2>What was implemented</h2>
+<ul>
+  <li><b>Grouping policy (shared, unit-testable):</b> <code>SessionOrdering.InRepoGroups(...)</code> in
+      <code>CcDirector.Gateway.Contracts</code>, plus <code>RepoName(...)</code>, the <code>RepoGroup</code> record,
+      and the <code>NoRepoGroup</code> constant. The repo key is the normalized <code>RemoteRepo</code> leaf
+      (trimmed, trailing <code>.git</code> dropped, case-insensitive) when present, else the leaf folder of
+      <code>RepoPath</code> - so the same repo on two machines coalesces. In-group order is
+      <code>InDesktopOrder</code> (stable, never reshuffles on a color change). The "(no repo)" group is
+      appended last. No inline LINQ in the view (#196 convention).</li>
+  <li><b>Rail view:</b> a third <code>"repo"</code> branch in <code>SessionRail.razor</code> that iterates the
+      grouped output and emits a <code>repo-head</code> header + the existing shared <code>SessionRow</code> per
+      session.</li>
+  <li><b>Toggle + persistence:</b> a "Repo" button in the <code>view-toggle</code> in <code>Cockpit.razor</code>
+      (right of Tree/Triage), with the init-restore guard, the <code>SetViewMode</code> guard, and the
+      <code>_viewMode</code> comment all extended to accept <code>"repo"</code>; round-trips through the existing
+      <code>cockpit.viewMode</code> localStorage pref.</li>
+  <li><b>CSS:</b> <code>.repo-head</code> / <code>.repo-name</code> / <code>.repo-count</code> mirroring the
+      <code>triage-head</code> treatment, and <code>.rail.repo .sess-dir</code> so each row shows its owning
+      Director short-id (as in triage, unlike tree which hides it).</li>
+  <li><b>Tests:</b> 9 new <code>SessionOrdering</code> unit tests + 6 new bUnit rail-render tests.</li>
+</ul>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>Criterion</th><th>Expected</th><th>Actual (proof)</th><th>Status</th></tr>
+<tr><td>"Repo" toggle button present, right of Tree/Triage, gets <code>vt-on</code> when active</td>
+    <td>Three buttons Tree/Triage/Repo; Repo highlighted when selected</td>
+    <td>Live Cockpit shows <code>Tree , Triage , Repo(ON)</code>; rail class <code>rail repo</code> (live-toggle-repo-active.png)</td><td class="ok">PASS</td></tr>
+<tr><td>Clicking "Repo" sets <code>_viewMode="repo"</code> and renders repo-grouped layout</td>
+    <td>Rail switches to repo group headers</td>
+    <td>Click flipped <code>vt-on</code> to Repo and rail class to <code>rail repo</code> (live); group headers render (repo-view.png)</td><td class="ok">PASS</td></tr>
+<tr><td>Exactly one header per distinct repo, alphabetical case-insensitive</td>
+    <td>Headers A before B before Z, no duplicates</td>
+    <td>APPLE, CC-DIRECTOR, (NO REPO) in order (repo-view.png); unit test <code>InRepoGroups_HeadersAreAlphabetical_CaseInsensitive</code> (apple&lt;banana&lt;zebra)</td><td class="ok">PASS</td></tr>
+<tr><td>Within a group, desktop order; row does not move when only color changes</td>
+    <td>SortOrder order; a forced color change keeps the slot</td>
+    <td>cc-director-B (SortOrder 2) flips blue-&gt;red but stays below cc-director-A (repo-view.png vs repo-view-color-changed.png); tests <code>RepoView_RowOrder_IsDesktopOrder_NotAffectedByColor</code>, <code>InRepoGroups_WithinGroup_UsesDesktopOrder</code></td><td class="ok">PASS</td></tr>
+<tr><td>Every row shows the owning Director short-id (<code>sess-dir</code> visible)</td>
+    <td><code>sess-dir</code> shown as in triage, not hidden as in tree</td>
+    <td>Rows show <code>:7884</code>/<code>:7886</code> (repo-view.png); test <code>RepoView_EachRow_ShowsDirectorShortId</code> + CSS rule <code>.rail.repo .sess-dir</code></td><td class="ok">PASS</td></tr>
+<tr><td>Same repo on two machines/Directors under ONE header</td>
+    <td>One header, both sessions under it</td>
+    <td>CC-DIRECTOR (count 2) holds onA/MACHINE_A:7884 + onB/MACHINE_B:7886 (repo-view.png); tests <code>InRepoGroups_SameRepoAcrossMachines_CoalescesIntoOneGroup</code>, <code>RepoView_SameRepoAcrossMachines_UnderOneHeader</code></td><td class="ok">PASS</td></tr>
+<tr><td>Repo-less sessions under a single "(no repo)" group, after named repos</td>
+    <td>"(no repo)" rendered last</td>
+    <td>(NO REPO) group last (repo-view.png); tests <code>InRepoGroups_NoRepoGroup_IsPlacedLast</code>, <code>RepoView_NoRepoGroup_RenderedLast</code></td><td class="ok">PASS</td></tr>
+<tr><td>Logic is a public static member on <code>SessionOrdering</code>, covered by new tests</td>
+    <td><code>InRepoGroups</code> + the four assertions, <code>dotnet test</code> green</td>
+    <td><code>InRepoGroups</code> public static; 25 Gateway.Tests pass (16 prior + 9 new)</td><td class="ok">PASS</td></tr>
+<tr><td>Repo view persists across reload (<code>cockpit.viewMode</code> round-trips "repo")</td>
+    <td>After reload, Repo still active</td>
+    <td>localStorage <code>cockpit.viewMode == "repo"</code>; after full reload toggle restores to <code>Repo(ON)</code>, rail <code>rail repo</code> (live-toggle-repo-after-reload.png)</td><td class="ok">PASS</td></tr>
+<tr><td><code>dotnet build cc-director.sln</code> succeeds with no new warnings</td>
+    <td>Build succeeded, 0 warnings, 0 errors</td>
+    <td>Full-solution build: <code>Build succeeded. 0 Warning(s) 0 Error(s)</code></td><td class="ok">PASS</td></tr>
+</table>
+
+<h2>Live Cockpit - toggle + persistence (build v0.6.23)</h2>
+<p class="sub">The worktree Cockpit driven in a real browser. The "Repo" toggle is present right of Triage; clicking
+it activates it (<code>vt-on</code>) and a full page reload restores it from localStorage. (The rail roster is
+empty here only because this test harness points the Cockpit at a standalone Director, which returns a bare
+session array instead of the Gateway envelope - the toggle/persistence path is unaffected; the populated rail
+layout is proven below by genuine compiled-component renders.)</p>
+<div class="shots">
+  <div><img src="live-toggle-tree.png"><div class="cap">Default: Tree active, Triage and Repo present.</div></div>
+  <div><img src="live-toggle-repo-active.png"><div class="cap">After clicking Repo: Repo is <code>vt-on</code>, rail class <code>rail repo</code>.</div></div>
+  <div><img src="live-toggle-repo-after-reload.png"><div class="cap">After a full reload: Repo still active (cockpit.viewMode round-tripped "repo").</div></div>
+</div>
+
+<h2>Repo-grouped rail - genuine compiled-component render</h2>
+<p class="sub">The real <code>SessionRail</code> component rendered (bUnit) with the real <code>app.css</code>, then
+screenshot. Demonstrates alphabetical headers, cross-machine coalescing, per-row Director short-id, and
+the no-reshuffle-on-color-change guarantee.</p>
+<div class="shots">
+  <div><img src="repo-view.png"><div class="cap">APPLE (1), then CC-DIRECTOR (2) coalescing two Directors (:7884 MACHINE_A + :7886 MACHINE_B), then (NO REPO) (1) last. Each row shows its Director short-id.</div></div>
+  <div><img src="repo-view-color-changed.png"><div class="cap">Same roster, cc-director-B forced to red ("needs you"). It stays in its SortOrder slot below cc-director-A - the color change does not reorder rows.</div></div>
+</div>
+
+<h2><code>dotnet test</code> output</h2>
+<pre>SessionOrdering (CcDirector.Gateway.Tests):
+  Passed!  - Failed: 0, Passed: 25, Skipped: 0, Total: 25   (16 prior + 9 new repo-grouping tests)
+    RepoName_PrefersNormalizedRemote_LeafCaseInsensitiveDotGitStripped
+    RepoName_FallsBackToRepoPathLeaf_WhenNoRemote
+    RepoName_NoRemoteNoPath_IsNull
+    InRepoGroups_HeadersAreAlphabetical_CaseInsensitive
+    InRepoGroups_NoRepoGroup_IsPlacedLast
+    InRepoGroups_WithinGroup_UsesDesktopOrder
+    InRepoGroups_SameRepoAcrossMachines_CoalescesIntoOneGroup
+    InRepoGroups_DoesNotMutateInput
+
+SessionRailRepoView (CcDirector.Cockpit.Tests, bUnit - renders the real SessionRail):
+  Passed!  - Failed: 0, Passed: 6, Skipped: 0, Total: 6
+    RepoView_OneHeaderPerRepo_Alphabetical
+    RepoView_NoRepoGroup_RenderedLast
+    RepoView_EachRow_ShowsDirectorShortId
+    RepoView_SameRepoAcrossMachines_UnderOneHeader
+    RepoView_RowOrder_IsDesktopOrder_NotAffectedByColor
+    EmitProofArtifact_WhenProofDirSet  (emits the rendered-rail screenshots above)</pre>
+
+<h2>CenCon impact</h2>
+<p>No drift. No new <code>SessionDto</code> field and no Gateway/Director REST change - all data
+(<code>RepoPath</code>, <code>RemoteRepo</code>, <code>DirectorId</code>, <code>MachineName</code>) already existed.
+The change is client-side policy (Gateway.Contracts) plus a Cockpit-only view. No architecture_manifest or
+security_profile change; no blocking security rule touched.</p>
+
+<div class="verdict">I believe this is finished. Every acceptance criterion is met and proven (15 passing tests across two
+projects + live browser proof of the toggle/persistence + genuine compiled-component renders of the populated
+repo-grouped rail). Full-solution build is clean with zero warnings.</div>
+
+</body>
+</html>

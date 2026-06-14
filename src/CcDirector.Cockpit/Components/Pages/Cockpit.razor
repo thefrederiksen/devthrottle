@@ -68,6 +68,9 @@
                         <button class="@($"vt{(_viewMode == "triage" ? " vt-on" : "")}")"
                                 @onclick='() => SetViewMode("triage")'
                                 title="Needs-you first, on-hold last">Triage</button>
+                        <button class="@($"vt{(_viewMode == "repo" ? " vt-on" : "")}")"
+                                @onclick='() => SetViewMode("repo")'
+                                title="Grouped by repository across machines, alphabetical">Repo</button>
                     </div>
                     <button class="left-collapse" title="Collapse panel" @onclick="ToggleLeft">&laquo;</button>
                 </div>
@@ -1155,7 +1158,7 @@
             var changed = false;
             if (collapsed == "1" && !_leftCollapsed) { _leftCollapsed = true; changed = true; }
             // Pattern match narrows `mode` to non-null, so no null-forgiving operator is needed.
-            if (mode is "tree" or "triage" && mode != _viewMode) { _viewMode = mode; changed = true; }
+            if (mode is "tree" or "triage" or "repo" && mode != _viewMode) { _viewMode = mode; changed = true; }
             if (rightCollapsed == "1" && !_rightCollapsed) { _rightCollapsed = true; changed = true; }
             // "wingman" is intentionally absent: the Session Story moved into the Wingman
             // center tab, so a stale stored "wingman" pref falls back to the default.
@@ -1714,7 +1717,7 @@
 
     // ===== Left panel: collapse + view mode (persisted to localStorage) =====
     private bool _leftCollapsed;
-    private string _viewMode = "tree";   // "tree" | "triage"
+    private string _viewMode = "tree";   // "tree" | "triage" | "repo"
 
     private async Task ToggleLeft()
     {
@@ -2039,7 +2042,7 @@
 
     private async Task SetViewMode(string mode)
     {
-        if (mode != "tree" && mode != "triage") return;
+        if (mode != "tree" && mode != "triage" && mode != "repo") return;
         _viewMode = mode;
         await SavePref("cockpit.viewMode", mode);
     }
