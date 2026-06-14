@@ -1,0 +1,345 @@
+@page "/transcripts"
+@using CcDirector.Gateway.Contracts
+@inject GatewayClient Gateway
+@inject IJSRuntime JS
+@inject ILogger<Transcripts> Log
+@implements IAsyncDisposable
+
+@* The Voice Recorder page (issue #183), ported 1:1 from the static wwwroot/pages/transcripts.html
+   into a Blazor page. Same behavior: list recordings (title/subtitle/meta/badges), expand to read
+   the transcript, play audio segment-by-segment, Copy path, Save to vault, Delete, inline
+   Title/Subtitle/Summary editing, and Copy agent info. The /voice -> /transcripts redirect stays
+   on the Gateway/Program.cs. Visual parity in Transcripts.razor.css (navy palette). *@
+
+<PageTitle>Transcripts - CC Director</PageTitle>
+
+<div class="ts-root">
+<div class="ts-wrap">
+  <div class="ts-top">
+    <h1>Voice Recorder</h1>
+    <div class="ts-topactions">
+      <span class="ts-agentmsg">@_agentMsg</span>
+      <button class="ts-ghost" title="Copy API endpoint + directory + usage so an external agent can connect and process these transcripts"
+              @onclick="CopyAgentInfo">Copy agent info</button>
+      <a class="ts-back" href="/">&larr; Dashboard</a>
+    </div>
+  </div>
+  <p class="ts-sub">Recordings uploaded from the phone and transcribed. These are kept locally and are temporary. Use "Save to vault" to keep one permanently, or "Delete" to remove a transient transcript. Click one to read it or play the audio.</p>
+
+  @if (_items is null)
+  {
+    <p class="ts-empty">@(_error ?? "Loading...")</p>
+  }
+  else if (_items.Count == 0)
+  {
+    <p class="ts-empty">No recordings yet. Record something on the phone and it will appear here.</p>
+  }
+  else
+  {
+    @foreach (var item in _items)
+    {
+      var st = State(item.RecordingId);
+      var done = IsDone(item);
+      <div class="ts-card">
+        <div class="ts-row" @onclick="() => ToggleBody(item)">
+          <div>
+            <div class="ts-title">@item.Title</div>
+            @if (!string.IsNullOrWhiteSpace(item.Subtitle))
+            {
+              <div class="ts-subtitle">@item.Subtitle</div>
+            }
+            <div class="ts-meta">@FmtDate(item.StartedAt) &middot; @FmtDur(item.DurationMs) &middot; @item.Segments segment(s)</div>
+          </div>
+          <div class="ts-badges">
+            <span class="ts-badge @(done ? "ts-b-uploaded" : "ts-b-other")">@(done ? "transcribed" : item.State)</span>
+            @if (item.InVault)
+            {
+              <span class="ts-badge ts-b-vault">in vault</span>
+            }
+          </div>
+        </div>
+
+        @if (st.Open)
+        {
+          <div class="ts-body">
+            <div class="ts-controls">
+              <button class="ts-play" @onclick:stopPropagation="true" @onclick="() => PlayAudio(item)">Play audio</button>
+              <button class="ts-copy" @onclick:stopPropagation="true" @onclick="() => CopyPath(item)"
+                      disabled="@string.IsNullOrWhiteSpace(item.TranscriptPath)"
+                      title="@(string.IsNullOrWhiteSpace(item.TranscriptPath) ? "Path available once the recording is transcribed" : null)">Copy path</button>
+              <button class="ts-vault" @onclick:stopPropagation="true" @onclick="() => SaveToVault(item)"
+                      disabled="@(item.InVault || !done || st.Promoting)"
+                      title="@VaultTitle(item, done)">@(item.InVault ? "In vault" : "Save to vault")</button>
+              <button class="ts-danger" @onclick:stopPropagation="true" @onclick="() => DeleteRecording(item)">Delete</button>
+              <span class="ts-nowplaying">@st.NowPlaying</span>
+              <span class="ts-copied">@st.Copied</span>
+              <span class="ts-vaultmsg">@st.VaultMsg</span>
+            </div>
+            <div class="ts-details">
+              <label class="ts-fld"><span class="ts-lbl">Title</span>
+                <input type="text" @bind="st.EditTitle" @onclick:stopPropagation="true" /></label>
+              <label class="ts-fld"><span class="ts-lbl">Subtitle</span>
+                <input type="text" @bind="st.EditSubtitle" @onclick:stopPropagation="true" /></label>
+              <label class="ts-fld"><span class="ts-lbl">Summary</span>
+                <textarea @bind="st.EditSummary" @onclick:stopPropagation="true"></textarea></label>
+              <button class="ts-save" @onclick:stopPropagation="true" @onclick="() => SaveDetails(item)" disabled="@st.Saving">Save details</button>
+              <span class="ts-savemsg">@st.SaveMsg</span>
+            </div>
+            <div class="ts-transcript">@st.TranscriptText</div>
+          </div>
+        }
+      </div>
+    }
+  }
+</div>
+</div>
+
+@code {
+    private List<RecordingListItem>? _items;
+    private string? _error;
+    private string _agentMsg = "";
+    private DotNetObjectReference<Transcripts>? _selfRef;
+
+    // Per-recording view state (open/transcript/edit fields/transient messages), keyed by id.
+    private sealed class CardState
+    {
+        public bool Open;
+        public bool TranscriptLoaded;
+        public string TranscriptText = "Loading transcript...";
+        public string NowPlaying = "";
+        public string Copied = "";
+        public string VaultMsg = "";
+        public string SaveMsg = "";
+        public bool Saving;
+        public bool Promoting;
+        public string? EditTitle;
+        public string? EditSubtitle;
+        public string? EditSummary;
+    }
+    private readonly Dictionary<string, CardState> _state = new();
+    private CardState State(string id)
+    {
+        if (!_state.TryGetValue(id, out var s)) _state[id] = s = new CardState();
+        return s;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _selfRef = DotNetObjectReference.Create(this);
+        try
+        {
+            _items = await Gateway.GetRecordingsAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = "Failed to load. Is the Gateway running?";
+            Log.LogWarning("Recordings load failed: {Error}", ex.Message);
+        }
+    }
+
+    private static bool IsDone(RecordingListItem item) => item.State is "transcribed" or "filed";
+
+    private string? VaultTitle(RecordingListItem item, bool done)
+    {
+        if (item.InVault) return "Saved in the vault. The vault copy is kept even if you delete this transcript.";
+        if (!done) return "Available once the recording is transcribed";
+        return null;
+    }
+
+    // ---- expand / transcript ----
+
+    private async Task ToggleBody(RecordingListItem item)
+    {
+        var s = State(item.RecordingId);
+        if (s.Open) { s.Open = false; return; }
+        s.Open = true;
+        // Seed the edit fields from the current record (mirrors the static page).
+        s.EditTitle = item.Title ?? "";
+        s.EditSubtitle = item.Subtitle ?? "";
+        s.EditSummary = item.Summary ?? "";
+        if (!s.TranscriptLoaded)
+        {
+            if (item.HasTranscript)
+            {
+                var text = await Gateway.GetTranscriptAsync(item.RecordingId);
+                s.TranscriptText = text ?? "(transcript unavailable)";
+            }
+            else
+            {
+                s.TranscriptText = IsDone(item)
+                    ? "(no transcript text stored)"
+                    : $"Not transcribed yet (state: {item.State}).";
+            }
+            s.TranscriptLoaded = true;
+        }
+    }
+
+    // ---- audio ----
+
+    private async Task PlayAudio(RecordingListItem item)
+    {
+        await JS.InvokeVoidAsync("ccTools.playRecording", item.RecordingId, Math.Max(1, item.Segments), _selfRef);
+    }
+
+    /// <summary>Invoked from tool-pages.js as playback state changes.</summary>
+    [JSInvokable]
+    public async Task OnAudioState(string state)
+    {
+        // Find the card currently showing a playing label; for simplicity update all open cards'
+        // nowplaying label to the active state, matching the single-audio model of the static page.
+        var label = state switch
+        {
+            "playing" => " playing...",
+            "blocked" => " (tap again to play)",
+            "error" => " (playback error)",
+            _ => "",
+        };
+        foreach (var s in _state.Values)
+            s.NowPlaying = label;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    // ---- copy path ----
+
+    private async Task CopyPath(RecordingListItem item)
+    {
+        var s = State(item.RecordingId);
+        var path = item.TranscriptPath ?? "";
+        var ok = await JS.InvokeAsync<bool>("ccTools.copyText", path);
+        s.Copied = ok ? " copied: " + path : " " + path;
+        await InvokeAsync(StateHasChanged);
+        _ = ClearLater(() => s.Copied = "", 6000);
+    }
+
+    // ---- delete ----
+
+    private async Task DeleteRecording(RecordingListItem item)
+    {
+        var vaultNote = item.InVault ? "\n\nThis recording is saved in the vault; that copy is kept." : "";
+        var ok = await JS.InvokeAsync<bool>("ccTools.confirm",
+            $"Delete \"{item.Title}\"?\n\nThis removes the local transcript and its audio.{vaultNote}\n\nThis cannot be undone.");
+        if (!ok) return;
+        await JS.InvokeVoidAsync("ccTools.stopAudio");
+        try
+        {
+            await Gateway.DeleteRecordingAsync(item.RecordingId);
+            _items?.Remove(item);
+            _state.Remove(item.RecordingId);
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("ccTools.alert", "Delete failed: " + ex.Message);
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    // ---- promote to vault ----
+
+    private async Task SaveToVault(RecordingListItem item)
+    {
+        var s = State(item.RecordingId);
+        s.Promoting = true;
+        s.VaultMsg = " saving to vault...";
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            await Gateway.PromoteRecordingAsync(item.RecordingId);
+            ReplaceItem(item, item with { InVault = true });
+            s.VaultMsg = " saved to vault";
+            _ = ClearLater(() => s.VaultMsg = "", 5000);
+        }
+        catch (Exception ex)
+        {
+            s.VaultMsg = " save failed: " + ex.Message;
+        }
+        finally
+        {
+            s.Promoting = false;
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    // ---- inline details edit ----
+
+    private async Task SaveDetails(RecordingListItem item)
+    {
+        var s = State(item.RecordingId);
+        s.Saving = true;
+        s.SaveMsg = " saving...";
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            var updated = await Gateway.UpdateRecordingMetaAsync(
+                item.RecordingId, s.EditTitle, s.EditSubtitle, s.EditSummary);
+            ReplaceItem(item, updated);
+            s.SaveMsg = " saved";
+        }
+        catch (Exception ex)
+        {
+            s.SaveMsg = " save failed: " + ex.Message;
+        }
+        finally
+        {
+            s.Saving = false;
+            _ = ClearLater(() => s.SaveMsg = "", 5000);
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void ReplaceItem(RecordingListItem oldItem, RecordingListItem newItem)
+    {
+        if (_items is null) return;
+        var idx = _items.IndexOf(oldItem);
+        if (idx >= 0) _items[idx] = newItem;
+    }
+
+    // ---- agent info ----
+
+    private async Task CopyAgentInfo()
+    {
+        _agentMsg = " building...";
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            var text = await Gateway.GetAgentInfoAsync();
+            var ok = await JS.InvokeAsync<bool>("ccTools.copyText", text);
+            _agentMsg = ok ? " copied agent info to clipboard" : " clipboard blocked; see console";
+        }
+        catch (Exception ex)
+        {
+            _agentMsg = " failed: " + ex.Message;
+        }
+        await InvokeAsync(StateHasChanged);
+        _ = ClearLater(() => _agentMsg = "", 6000);
+    }
+
+    // ---- display helpers (mirroring transcripts.html) ----
+
+    private static string FmtDate(string iso)
+    {
+        return DateTime.TryParse(iso, null, System.Globalization.DateTimeStyles.RoundtripKind, out var dt)
+            ? dt.ToLocalTime().ToString("g")
+            : iso;
+    }
+
+    private static string FmtDur(long ms)
+    {
+        var s = (int)Math.Round(ms / 1000.0);
+        var m = s / 60;
+        var r = s % 60;
+        return $"{(m < 10 ? "0" : "")}{m}:{(r < 10 ? "0" : "")}{r}";
+    }
+
+    private async Task ClearLater(Action clear, int ms)
+    {
+        await Task.Delay(ms);
+        clear();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("ccTools.stopAudio"); } catch { /* circuit may be gone */ }
+        _selfRef?.Dispose();
+    }
+}

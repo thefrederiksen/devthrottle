@@ -96,9 +96,10 @@ IResult ServePage(string name)
         throw new InvalidOperationException($"Tool page missing from wwwroot: pages/{name}");
     return Results.File(file.CreateReadStream(), "text/html; charset=utf-8");
 }
-app.MapGet("/exes", () => ServePage("exes.html"));
-app.MapGet("/transcripts", () => ServePage("transcripts.html"));
-app.MapGet("/dictionary", () => ServePage("dictionary.html"));
+// /exes, /transcripts, /dictionary are now Blazor pages (issue #183): Components/Pages/
+// Exes.razor, Transcripts.razor, Dictionary.razor. Their static html + MapGet routes were
+// removed so the Blazor route is the only one serving each path. /keys and /settings stay
+// static this round. The /voice -> /transcripts redirect is preserved.
 app.MapGet("/keys", () => ServePage("keys.html"));
 app.MapGet("/settings", () => ServePage("settings.html"));
 app.MapGet("/voice", () => Results.Redirect("/transcripts"));

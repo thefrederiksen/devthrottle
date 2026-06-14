@@ -1,0 +1,125 @@
+/* The Exes page, ported 1:1 from the static wwwroot/pages/exes.html palette (VS Code dark).
+   Scoped CSS isolation (issue #183); same visual style as the static page it replaces. */
+
+.ex-root {
+    /* Fill the app shell's page slot and scroll inside it (the nav rail sits beside us). */
+    height: 100%;
+    overflow: auto;
+    background: #1e1e1e;
+    color: #dddddd;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 14px;
+}
+
+.ex-header {
+    padding: 10px 14px;
+    border-bottom: 1px solid #3c3c3c;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    background: #252526;
+    position: sticky; top: 0; z-index: 10;
+    flex-wrap: wrap;
+}
+.ex-header h1 { font-size: 14px; margin: 0; letter-spacing: 0.5px; font-weight: 700; }
+.ex-stats { color: #888888; font-size: 12px; }
+.ex-spacer { flex: 1; }
+.ex-link { color: #0e639c; text-decoration: none; font-size: 13px; padding: 6px 10px; border-radius: 6px; }
+.ex-link:hover { background: rgba(14,99,156,0.15); }
+.ex-link-accent { background: #0e639c; color: white; font-weight: 600; }
+.ex-link-accent:hover { background: #1177bb; }
+
+.ex-main { padding: 16px 14px 40px; max-width: 1100px; margin: 0 auto; }
+
+.ex-error {
+    margin: 0 0 14px 0; padding: 10px 12px;
+    background: rgba(244,71,71,0.10);
+    border: 1px solid rgba(244,71,71,0.4);
+    border-radius: 6px; color: #ef4444; font-size: 13px;
+    white-space: pre-wrap;
+}
+.ex-notice {
+    margin: 0 0 14px 0; padding: 10px 12px;
+    background: rgba(234,179,8,0.10);
+    border: 1px solid rgba(234,179,8,0.4);
+    border-radius: 6px; color: #eab308; font-size: 13px;
+}
+
+.ex-section {
+    font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;
+    color: #888888; font-weight: 700;
+    margin: 22px 0 10px; padding-bottom: 6px;
+    border-bottom: 1px solid #3c3c3c;
+}
+
+.ex-repo-root { color: #6a6a6a; font-size: 12px; font-family: "Cascadia Code", Consolas, monospace; }
+
+/* Director cards */
+.ex-dir {
+    background: #252526;
+    border: 1px solid #3c3c3c;
+    border-radius: 8px;
+    padding: 14px;
+    margin-bottom: 12px;
+}
+.ex-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ex-badge {
+    background: #0e639c; color: white;
+    border-radius: 6px; padding: 2px 9px;
+    font-size: 12px; font-weight: 700;
+}
+.ex-badge.ex-gray { background: #2d2d2e; color: #888888; border: 1px solid #3c3c3c; }
+.ex-meta { color: #888888; font-size: 12px; }
+.ex-meta b { color: #dddddd; font-weight: 600; }
+.ex-exe {
+    margin-top: 6px; color: #6a6a6a; font-size: 11px;
+    font-family: "Cascadia Code", Consolas, monospace;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.ex-btn {
+    display: inline-flex; align-items: center;
+    border: 0; border-radius: 6px; cursor: pointer;
+    padding: 6px 12px; font-size: 12px; font-weight: 600;
+    color: white; background: #0e639c;
+    text-decoration: none;
+}
+.ex-btn:hover { background: #1177bb; }
+.ex-btn.ex-danger { background: #ef4444; }
+.ex-btn.ex-danger:hover { background: #dc2626; }
+.ex-btn:disabled { opacity: 0.5; cursor: default; }
+
+.ex-sessions { margin-top: 10px; border-top: 1px solid #3c3c3c; padding-top: 8px; }
+.ex-none { color: #6a6a6a; font-size: 12px; font-style: italic; }
+.ex-sess {
+    display: flex; align-items: center; gap: 8px;
+    padding: 4px 0; font-size: 13px;
+}
+.ex-dot { flex-shrink: 0; width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 0 0 1px rgba(255,255,255,0.06); }
+.ex-dot.red { background: #ef4444; } .ex-dot.yellow { background: #eab308; }
+.ex-dot.green { background: #22c55e; } .ex-dot.blue { background: #3b82f6; }
+.ex-dot.unknown { background: #6a6a6a; }
+.ex-sname { font-weight: 600; }
+.ex-sname.ex-unnamed { font-style: italic; color: #888888; font-weight: 500; }
+.ex-sstate { color: #888888; font-size: 12px; }
+.ex-agent-pill {
+    background: #2d2d2e; color: #888888; border: 1px solid #3c3c3c;
+    border-radius: 10px; padding: 1px 7px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;
+}
+
+/* Slots */
+.ex-slots { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+.ex-slot {
+    background: #252526; border: 1px solid #3c3c3c; border-radius: 8px; padding: 14px;
+    display: flex; flex-direction: column; gap: 8px;
+}
+.ex-shead { display: flex; align-items: center; gap: 8px; }
+.ex-stitle { font-weight: 700; font-size: 14px; }
+.ex-status { font-size: 12px; }
+.ex-status.ex-built { color: #22c55e; }
+.ex-status.ex-running { color: #3b82f6; }
+.ex-status.ex-missing { color: #6a6a6a; }
+.ex-sub { color: #888888; font-size: 11px; }
+.ex-actions { display: flex; gap: 8px; margin-top: 4px; }
+
+.ex-empty { margin-top: 10px; color: #888888; }
