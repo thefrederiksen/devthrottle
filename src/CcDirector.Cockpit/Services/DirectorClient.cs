@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using CcDirector.Gateway.Contracts;
@@ -41,6 +42,18 @@ public sealed class GitHubUrlsResponse
 public sealed class ErrorResponse
 {
     public string? Error { get; set; }
+}
+
+/// <summary>
+/// Raised when a screenshots load fails because the owning Director is offline/unreachable
+/// (the Gateway answered 503 on the <c>shots</c> leg, issue #412). Distinct from a generic
+/// transport failure so the Cockpit can show the graceful "Director offline" message + Retry
+/// instead of dumping the raw HttpRequestException string.
+/// </summary>
+public sealed class ScreenshotsDirectorOfflineException : Exception
+{
+    public ScreenshotsDirectorOfflineException(string message, Exception? inner = null)
+        : base(message, inner) { }
 }
 
 /// <summary>The shape of GET /screenshots: the resolved folder + its image files, newest first.</summary>
@@ -211,7 +224,14 @@ public sealed class DirectorClient
     public async Task<ScreenshotsResponse> GetScreenshotsAsync(string sid, int count = 0, CancellationToken ct = default)
     {
         var path = count > 0 ? $"sessions/{sid}/screenshots?count={count}" : $"sessions/{sid}/screenshots";
-        var r = await _http.GetFromJsonAsync<ScreenshotsResponse>(path, ct);
+        var resp = await _http.GetAsync(path, ct);
+        // The Gateway's shots leg answers 503 when it knows the owning Director but cannot reach it
+        // for this call (issue #412): translate that into a typed "Director offline" signal so the
+        // Cockpit shows a human-readable message + Retry, never the raw HttpRequestException string.
+        if (resp.StatusCode == HttpStatusCode.ServiceUnavailable)
+            throw new ScreenshotsDirectorOfflineException("owning director offline (gateway 503 on shots leg)");
+        resp.EnsureSuccessStatusCode();
+        var r = await resp.Content.ReadFromJsonAsync<ScreenshotsResponse>(cancellationToken: ct);
         return r ?? new ScreenshotsResponse();
     }
 
