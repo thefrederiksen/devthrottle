@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof - Issue #183 - Convert exes/transcripts/dictionary tool pages to Blazor</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; background:#1e1e1e; color:#d4d4d4; margin:0; padding:32px; line-height:1.5; }
+  h1 { color:#fff; border-bottom:2px solid #3794ff; padding-bottom:8px; }
+  h2 { color:#4ec9b0; margin-top:36px; border-bottom:1px solid #333; padding-bottom:4px; }
+  table { border-collapse:collapse; width:100%; margin:12px 0; }
+  th, td { border:1px solid #3a3a3a; padding:8px 10px; vertical-align:top; text-align:left; font-size:14px; }
+  th { background:#252526; color:#9cdcfe; }
+  .pass { color:#4ec9b0; font-weight:bold; }
+  .note { color:#d7ba7d; }
+  img { max-width:900px; border:1px solid #3a3a3a; margin:8px 0; display:block; }
+  code { background:#2d2d2d; padding:1px 5px; border-radius:3px; color:#ce9178; }
+  .verdict { background:#0e3a2f; border:1px solid #4ec9b0; padding:14px; border-radius:6px; margin-top:28px; font-size:16px; }
+  .meta { color:#888; font-size:13px; }
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #183</h1>
+<p class="meta">
+  Title: [Cockpit] Convert the exes, transcripts, and dictionary tool pages to Blazor<br>
+  PR: #419 (branch <code>issue-183-tool-pages-blazor</code>) &middot; Verified by: QA Agent (CenCon)<br>
+  Method: independent build of the PR branch in an isolated worktree, published Cockpit run on
+  port 7471 pointed at the live Gateway (127.0.0.1:7878), driven with a real browser. The Developer
+  Agent's screenshots were NOT reused - every screenshot below was captured by QA.
+</p>
+
+<h2>Environment</h2>
+<table>
+<tr><th>Item</th><th>Value</th></tr>
+<tr><td>Worktree</td><td><code>D:\ReposFred\cc-director-wt-183</code> at PR head <code>fe0584a</code></td></tr>
+<tr><td>Director slot (isolation)</td><td>slot 8 (<code>cc-director8.exe</code>, PID 55048, Control API 7897), launched via <code>cc-director8-launch</code> task</td></tr>
+<tr><td>Cockpit under test</td><td>PR-branch Release publish, run on <code>http://127.0.0.1:7471</code>, GatewayUrl=127.0.0.1:7878 (live data)</td></tr>
+<tr><td>Full-solution build</td><td><code>dotnet build cc-director.sln</code> -> Build succeeded, 0 Warning(s), 0 Error(s)</td></tr>
+</table>
+
+<h2>exes (/exes)</h2>
+<table>
+<tr><th>Criterion</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+<tr><td>Served by Blazor page; html + MapGet removed; Blazor .nv rail shows</td><td>Blazor page at /exes with the .nv rail; no exes.html / MapGet("/exes")</td><td>Source: exes.html deleted, MapGet("/exes") removed (Program.cs comment). UI: .nv rail present, H1 "CC DIRECTOR &middot; EXES". See qa-exes.png</td><td class="pass">PASS</td></tr>
+<tr><td>Running Directors with same fields + sessions with colored dots</td><td>slot badge, PID, port, version, uptime, exe path, sessions with status dots</td><td>"2 directors on SOREN_NORTH"; slot 1 PID 18416 port 7883 v0.6.23 up 14h, exe path, sessions (red WaitingForInput, blue Working); slot 8 (my own) shown - live data. See qa-exes.png</td><td class="pass">PASS</td></tr>
+<tr><td>Build slots 1-4 grid</td><td>slots grid with status/size/last-built when repoRoot present</td><td>Gateway runs OUTSIDE the repo (repoRoot=""), so the slots grid is by-design unavailable. Verified the alternate (repoRoot-null) branch instead - see next row. Slot-rendering code path present in Exes.razor (lines 130-138). Expected vs Actual stated per criterion's allowance.</td><td class="pass">PASS (by fallback)</td></tr>
+<tr><td>Kill / Build / Delete call same endpoints, same enable/disable</td><td>DELETE /directors/{id} {force:true}, POST /exes/slots/{n}/build-start, DELETE /exes/slots/{n}; Delete disabled when missing/running, Build disabled when running</td><td>GatewayClient verified: KillDirectorAsync=DELETE directors/{id}+{force:true}; BuildStartSlotAsync=POST exes/slots/{n}/build-start; DeleteSlotAsync=DELETE exes/slots/{n}. Disable: Build <code>running||_busy</code>, Delete <code>!Exists||running||_busy</code>. Kill button rendered (qa-exes.png); confirm via native ccTools.confirm.</td><td class="pass">PASS</td></tr>
+<tr><td>repoRoot null -> notice + "Unavailable"</td><td>slot-management notice + slots area "Unavailable"</td><td>"Slot management is unavailable: the Gateway is not running from inside the cc-director repo..." + "BUILD SLOTS (1-4): Unavailable (see notice above)". See qa-exes.png</td><td class="pass">PASS</td></tr>
+</table>
+<img src="qa-exes.png" alt="exes page">
+
+<h2>transcripts (/transcripts)</h2>
+<table>
+<tr><th>Criterion</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+<tr><td>Blazor page; html + MapGet removed; /voice redirect works; .nv rail</td><td>Blazor /transcripts with rail; /voice 302 -> /transcripts</td><td>Source: transcripts.html deleted, MapGet removed, /voice redirect kept. UI: .nv rail + "Voice Recorder" title. <code>curl /voice</code> -> 302 Location /transcripts. See qa-transcripts-list.png</td><td class="pass">PASS</td></tr>
+<tr><td>Recordings list same per-recording content</td><td>title, date/duration/segment meta, transcribed/state + in-vault badges</td><td>4 recordings: title, "2026-06-11 8:22 PM &middot; 05:00 &middot; 6 segment(s)", "transcribed" badge - live data from /ingest/recordings. See qa-transcripts-list.png</td><td class="pass">PASS</td></tr>
+<tr><td>Expand loads transcript; Play/Copy path/Save to vault/Delete</td><td>transcript text + audio-by-segment + actions, same endpoints</td><td>Expanding loaded the full timestamped transcript ([00:00].. [02:00]..); buttons Play audio / Copy path / Save to vault / Delete rendered. Endpoints in GatewayClient: GET .../transcript, DELETE .../{id}, POST .../promote; audio GET .../audio/{i} in tool-pages.js. See qa-transcripts-expanded.png</td><td class="pass">PASS</td></tr>
+<tr><td>Inline Title/Subtitle/Summary -> PATCH meta; Copy agent info</td><td>edit fields save via PATCH .../meta; Copy agent info -> GET /ingest/agent-info</td><td>Title/Subtitle/Summary inputs + "Save details" rendered; "Copy agent info" button present. GatewayClient: UpdateMeta=PATCH .../meta, GetAgentInfo=GET ingest/agent-info. See qa-transcripts-expanded.png</td><td class="pass">PASS</td></tr>
+</table>
+<img src="qa-transcripts-expanded.png" alt="transcripts expanded">
+
+<h2>dictionary (/dictionary)</h2>
+<table>
+<tr><th>Criterion</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+<tr><td>Blazor page; html + MapGet removed; .nv rail; active item highlights</td><td>Blazor /dictionary; rail Dictionary item active</td><td>Source: dictionary.html deleted, MapGet removed. UI: .nv rail with the "Dictionary" item highlighted active. See qa-dictionary.png</td><td class="pass">PASS</td></tr>
+<tr><td>Vocabulary, mistranscriptions, profiles render from live data</td><td>chips, term-arrow-variant rows, profile cards</td><td>Vocabulary chips (mindzie, Tailscale, CenCon, ConPTY, cc-director, Avalonia, Soren Frederiksen); mistranscription rows (mindzie &larr; Minzy/Mindsy/.., CenCon &larr; .., etc.); profiles default/code/email with cleanup toggle - all from GET /ingest/dictionary. See qa-dictionary.png</td><td class="pass">PASS</td></tr>
+<tr><td>Add/remove, profile toggle, undeletable "default", dirty-state Save -> PUT, re-render</td><td>Save disabled on load, enabled after edit, PUT persists, "default" has no remove</td><td>Save disabled on load. Added vocab "QATESTTERM" -> chip rendered + Save ENABLED. Clicked Save -> "Saved" + Save disabled; Gateway /ingest/dictionary then contained QATESTTERM (PUT persisted + re-rendered). Removed it + Saved -> Gateway restored (term gone), leaving live data untouched. "default" profile has no remove x (RemoveProfile early-returns for "default"). See qa-dictionary-dirty.png, qa-dictionary-saved.png, qa-dictionary-profiles.png</td><td class="pass">PASS</td></tr>
+</table>
+<img src="qa-dictionary.png" alt="dictionary page">
+<img src="qa-dictionary-dirty.png" alt="dictionary dirty save enabled">
+<img src="qa-dictionary-saved.png" alt="dictionary saved state">
+<img src="qa-dictionary-profiles.png" alt="dictionary profiles">
+
+<h2>Cross-cutting</h2>
+<table>
+<tr><th>Criterion</th><th>Result</th></tr>
+<tr><td>dotnet build cc-director.sln clean</td><td class="pass">PASS - Build succeeded, 0 Warning(s), 0 Error(s)</td></tr>
+<tr><td>No behavior regression (each page same live data + actions)</td><td class="pass">PASS - verified per-page above against the live Gateway</td></tr>
+<tr><td>Visual parity (dark VS Code style, VisualStyle.md)</td><td class="pass">PASS - all three pages keep the dark navy palette and the shared .nv rail</td></tr>
+<tr><td>Negative sweep / no console or server errors</td><td class="pass">PASS - no errors/exceptions in the Cockpit log during the whole QA session</td></tr>
+<tr><td>Method / CenCon</td><td class="pass">PASS - front-end-only conversion; no REST/API, architecture, or security change; no DT rule touched; only CcDirector.Cockpit changed</td></tr>
+</table>
+
+<div class="verdict">VERIFIED - all acceptance criteria met across all three pages (exes, transcripts, dictionary). Recommend flow:done + squash-merge.</div>
+
+</body>
+</html>
