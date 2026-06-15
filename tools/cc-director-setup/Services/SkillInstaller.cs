@@ -47,7 +47,9 @@ public sealed class SkillInstaller
             var skillDir = Path.Combine(_skillsBaseDir, skill.Name);
             Directory.CreateDirectory(skillDir);
             var skillPath = Path.Combine(skillDir, "SKILL.md");
-            skill.Status = await DownloadSkillFileAsync(skillPath, $"skills/{skill.Name}/SKILL.md") ? "Done" : "Failed";
+            // The canonical skill tree is .claude/skills/<name>/ (issue #396 removed the stale root
+            // skills/ duplicate but left this download path pointing at it, which 404'd every install).
+            skill.Status = await DownloadSkillFileAsync(skillPath, $".claude/skills/{skill.Name}/SKILL.md") ? "Done" : "Failed";
         }
 
         var done = skillItems.Count(s => s.Status == "Done");
