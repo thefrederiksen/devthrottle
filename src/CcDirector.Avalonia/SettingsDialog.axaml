@@ -2,7 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="CcDirector.Avalonia.SettingsDialog"
         Title="CC Director Settings"
-        Width="1040" Height="860"
+        Width="1040" Height="1010"
         MinWidth="760" MinHeight="560"
         WindowStartupLocation="CenterOwner"
         CanResize="True"
@@ -155,7 +155,7 @@
                 <Grid RowDefinitions="Auto,*">
                     <StackPanel Grid.Row="0" Spacing="8" Margin="0,4,14,8">
                         <TextBlock Classes="sectionTitle" Text="Agent tools" />
-                        <TextBlock Classes="hint" Text="The machine-level library of agent CLI tools CC Director can launch. Each tool has a recommended command-line preset, a default model, and an Enabled flag. Use Detect to find common installs, Quick check to run a safe version check, Launch preview to watch the agent start up with the configured command line, or Browse to select an executable. The read-only strip under each tool shows exactly what launches. Claude Code now defaults to Automatic (skip permissions), which passes --dangerously-skip-permissions (this supersedes the safe Standard default chosen in issue #391); switch the Command line dropdown to Standard to restore permission prompts." />
+                        <TextBlock Classes="hint" Text="The machine-level library of agent CLI tools CC Director can launch. Each tool has a command-line preset, a default model, and an Enabled flag; the read-only strip under each tool shows exactly what launches. Use Detect / Browse to locate an executable, Quick check for a safe version probe, or Launch preview to watch the agent start. Claude Code now defaults to Automatic (skip permissions), which passes --dangerously-skip-permissions, superseding the safe Standard default from issue #391; switch the Command line dropdown to Standard to restore permission prompts." />
                         <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
                             <Button x:Name="RunWizardButton" Classes="dialogButton" Content="Detection wizard..."
                                     Width="150" Click="BtnRunWizard_Click"
@@ -171,9 +171,9 @@
                     </StackPanel>
 
                     <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,14,0">
-                        <StackPanel Spacing="8">
-                        <Border Background="#1E1E1E" BorderBrush="#3C3C3C" BorderThickness="1" Padding="10">
-                            <StackPanel Spacing="8">
+                        <StackPanel Spacing="6">
+                        <Border Background="#1E1E1E" BorderBrush="#3C3C3C" BorderThickness="1" Padding="8">
+                            <StackPanel Spacing="6">
                                 <Grid ColumnDefinitions="*,Auto">
                                     <TextBlock Grid.Column="0" Text="Claude Code" Foreground="#CCCCCC" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" />
                                     <CheckBox x:Name="ClaudeEnabledCheck" Grid.Column="1" Content="Enabled"
@@ -212,8 +212,8 @@
                             </StackPanel>
                         </Border>
 
-                        <Border Background="#1E1E1E" BorderBrush="#3C3C3C" BorderThickness="1" Padding="10">
-                            <StackPanel Spacing="8">
+                        <Border Background="#1E1E1E" BorderBrush="#3C3C3C" BorderThickness="1" Padding="8">
+                            <StackPanel Spacing="6">
                                 <Grid ColumnDefinitions="*,Auto">
                                     <TextBlock Grid.Column="0" Text="Pi" Foreground="#CCCCCC" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" />
                                     <CheckBox x:Name="PiEnabledCheck" Grid.Column="1" Content="Enabled"
@@ -247,8 +247,8 @@
                             </StackPanel>
                         </Border>
 
-                        <Border Background="#1E1E1E" BorderBrush="#3C3C3C" BorderThickness="1" Padding="10">
-                            <StackPanel Spacing="8">
+                        <Border Background="#1E1E1E" BorderBrush="#3C3C3C" BorderThickness="1" Padding="8">
+                            <StackPanel Spacing="6">
                                 <Grid ColumnDefinitions="*,Auto">
                                     <TextBlock Grid.Column="0" Text="Codex" Foreground="#CCCCCC" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" />
                                     <CheckBox x:Name="CodexEnabledCheck" Grid.Column="1" Content="Enabled"
@@ -282,8 +282,8 @@
                             </StackPanel>
                         </Border>
 
-                        <Border Background="#1E1E1E" BorderBrush="#3C3C3C" BorderThickness="1" Padding="10">
-                            <StackPanel Spacing="8">
+                        <Border Background="#1E1E1E" BorderBrush="#3C3C3C" BorderThickness="1" Padding="8">
+                            <StackPanel Spacing="6">
                                 <Grid ColumnDefinitions="*,Auto">
                                     <TextBlock Grid.Column="0" Text="Gemini" Foreground="#CCCCCC" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" />
                                     <CheckBox x:Name="GeminiEnabledCheck" Grid.Column="1" Content="Enabled"
@@ -317,8 +317,8 @@
                             </StackPanel>
                         </Border>
 
-                        <Border Background="#1E1E1E" BorderBrush="#3C3C3C" BorderThickness="1" Padding="10">
-                            <StackPanel Spacing="8">
+                        <Border Background="#1E1E1E" BorderBrush="#3C3C3C" BorderThickness="1" Padding="8">
+                            <StackPanel Spacing="6">
                                 <Grid ColumnDefinitions="*,Auto">
                                     <TextBlock Grid.Column="0" Text="OpenCode" Foreground="#CCCCCC" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" />
                                     <CheckBox x:Name="OpenCodeEnabledCheck" Grid.Column="1" Content="Enabled"
