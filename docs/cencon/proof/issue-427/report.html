@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Issue #427 - Voice: mobile detection - Developer Proof</title>
+<style>
+  :root{--panel:#1E1E1E;--sidebar:#252526;--text:#CCCCCC;--text2:#AAAAAA;--text3:#888888;
+    --accent:#007ACC;--border:#3C3C3C;--green:#22C55E;--red:#F14C4C;}
+  *{box-sizing:border-box}
+  body{background:var(--panel);color:var(--text);font-family:"Segoe UI",system-ui,sans-serif;
+    font-size:14px;line-height:1.5;margin:0;padding:28px 36px;max-width:1100px}
+  h1{font-size:22px;margin:0 0 4px}
+  h2{font-size:15px;text-transform:uppercase;letter-spacing:.06em;color:var(--text2);
+    border-bottom:1px solid var(--border);padding-bottom:6px;margin:28px 0 12px}
+  .sub{color:var(--text3);font-size:13px;margin-bottom:8px}
+  table{border-collapse:collapse;width:100%;font-size:13px;margin:8px 0}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);vertical-align:top}
+  th{color:var(--text3);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
+  .pass{color:var(--green);font-weight:600}
+  code{background:var(--sidebar);padding:1px 6px;border-radius:4px;font-family:"Cascadia Mono",Consolas,monospace;font-size:12.5px}
+  .shots{display:flex;gap:18px;flex-wrap:wrap;margin-top:10px}
+  .shot{background:var(--sidebar);border:1px solid var(--border);border-radius:8px;padding:10px}
+  .shot img{display:block;max-width:340px;border:1px solid var(--border);border-radius:4px}
+  .shot .cap{font-size:12px;color:var(--text2);margin-top:6px;max-width:340px}
+  .verdict{background:#10301a;border:1px solid var(--green);border-radius:8px;padding:14px 18px;
+    margin-top:24px;color:#9be7b4;font-size:15px}
+  ul{margin:6px 0 0 18px}
+</style>
+</head>
+<body>
+  <h1>Issue #427 - [cockpit] Voice: mobile detection - offer Voice Mode to phones</h1>
+  <div class="sub">Developer Agent proof. Branch <code>feat/427-voice-mobiledetect</code> (PR base
+    <code>feat/426-voice-offline2</code>, Option A - not merged). Surface: <code>CcDirector.Cockpit</code> (web dashboard).</div>
+
+  <h2>What was implemented</h2>
+  <p>On the Cockpit home, when the browser is a phone (mobile user-agent OR viewport width
+    &le; 720px) and the offer has not been dismissed, a prominent "Open Voice Mode" banner appears
+    that links to <code>/voice</code>. It is an <strong>offer, not a forced redirect</strong> (a
+    plain link with a full-document load; the user stays on the home page if they ignore it). The
+    banner carries a "Dismiss" button; dismissal is remembered in <code>localStorage</code>
+    (key <code>cockpit.voiceOffer.dismissed</code>) so it does not reappear in the same browser.
+    On desktop the banner never renders.</p>
+  <ul>
+    <li><code>wwwroot/js/cockpit-mobile.js</code> (new) - <code>cockpitMobile.evaluate()</code>
+      returns <code>{isMobile, dismissed}</code> (UA regex OR <code>innerWidth &le; 720</code>;
+      reads the localStorage flag); <code>cockpitMobile.dismiss()</code> sets the flag.</li>
+    <li><code>Components/App.razor</code> - loads the new script.</li>
+    <li><code>Components/Pages/Home.razor</code> - injects <code>IJSRuntime</code>, evaluates the
+      mobile state in <code>OnAfterRenderAsync(firstRender)</code>, renders the
+      <code>.voice-offer</code> banner conditionally, and persists dismissal via JS interop.</li>
+    <li><code>wwwroot/app.css</code> - <code>.voice-offer</code> styles using the existing Cockpit
+      design tokens (<code>--accent</code>, <code>--selected</code>, <code>--border</code>, etc.);
+      no hard-coded colors beyond the token-aligned white text.</li>
+  </ul>
+
+  <h2>Acceptance criteria - proof</h2>
+  <table>
+    <thead><tr><th>Criterion</th><th>Expected</th><th>Actual (measured)</th><th>Result</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Phone viewport / mobile UA shows an "Open Voice Mode" prompt linking to <code>/voice</code></td>
+        <td>Banner present, link href = <code>/voice</code></td>
+        <td><code>{present: true, href: "/voice", width: 390, uaMobile: true}</code></td>
+        <td class="pass">PASS</td>
+      </tr>
+      <tr>
+        <td>On desktop, the prompt does not appear</td>
+        <td>Banner absent at 1440px desktop UA</td>
+        <td><code>{present: false, width: 1440, uaMobile: false}</code></td>
+        <td class="pass">PASS</td>
+      </tr>
+      <tr>
+        <td>Dismissing is remembered (does not reappear next visit, same browser)</td>
+        <td>After Dismiss + page reload: banner absent; localStorage flag set</td>
+        <td>After reload <code>{present: false}</code>; <code>localStorage["cockpit.voiceOffer.dismissed"] = "1"</code></td>
+        <td class="pass">PASS</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>How it was verified</h2>
+  <p>Built the full solution (<code>dotnet build cc-director.sln</code> - Build succeeded, 0
+    warnings, 0 errors). Ran the Cockpit web app locally on <code>http://127.0.0.1:7461</code> and
+    drove it with Playwright over CDP (Brave launched by cc-playwright) using two emulated browser
+    contexts: a phone context (Android mobile UA, 390x844 viewport, <code>is_mobile</code>) and a
+    desktop context (Windows UA, 1440x900). Dismissal persistence was checked by clicking "Dismiss"
+    and reloading within the same browser context, then reading the localStorage flag.</p>
+
+  <h2>Screenshots</h2>
+  <div class="shots">
+    <div class="shot">
+      <img src="phone-prompt-shown.png" alt="Phone - prompt shown" />
+      <div class="cap">Phone viewport (390px, mobile UA): the "Voice Mode is built for phones"
+        banner with "Open Voice Mode" (-&gt; /voice) and "Dismiss".</div>
+    </div>
+    <div class="shot">
+      <img src="phone-dismissed-persisted.png" alt="Phone - dismissed, persisted across reload" />
+      <div class="cap">Same phone viewport after Dismiss + reload: banner gone (persisted via
+        localStorage).</div>
+    </div>
+    <div class="shot">
+      <img src="desktop-no-prompt.png" alt="Desktop - no prompt" />
+      <div class="cap">Desktop viewport (1440px, desktop UA): no banner - the normal dashboard.</div>
+    </div>
+  </div>
+
+  <h2>CenCon impact</h2>
+  <p>No drift. UI-only Cockpit enhancement: no new container in
+    <code>architecture_manifest.yaml</code>, no change to the security posture
+    (<code>security_profile.yaml</code>). No blocking security rule touched.</p>
+
+  <div class="verdict">I believe this is finished. All three acceptance criteria are met with
+    measured proof; the build is clean; the banner uses the Cockpit's design tokens and renders only
+    on phones; dismissal persists.</div>
+</body>
+</html>
