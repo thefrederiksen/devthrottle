@@ -45,10 +45,28 @@ public sealed class BundleRefreshGateTests : IDisposable
     }
 
     [Fact]
-    public async Task RefreshPythonTools_NoBundleInRelease_ReturnsNull()
+    public async Task RefreshPythonTools_NoBundleInRelease_NoneInstalled_ReturnsNull()
     {
+        // Nothing installed and no bundle in the release: genuinely nothing to do.
         var result = await new ToolUpdater(_layout).RefreshPythonToolsAsync(ReleaseWithoutBundle(), new ReleaseSource());
         Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task RefreshPythonTools_NoBundleInRelease_ButToolsInstalled_ReturnsNullGracefully()
+    {
+        // The packaging-regression case: tools ARE installed but the latest release ships no bundle.
+        // We cannot refresh from a missing bundle, so it returns null (and logs a WARNING) - it must not
+        // throw or attempt an install. The installed tools keep working untouched.
+        var im = InstalledManifest.Load(_layout);
+        im.Set(PythonToolsInstaller.ComponentId, "1.2.0");
+        im.Save(_layout);
+
+        var result = await new ToolUpdater(_layout).RefreshPythonToolsAsync(ReleaseWithoutBundle(), new ReleaseSource());
+
+        Assert.Null(result);
+        // The install was never attempted - the venv was not created.
+        Assert.False(Directory.Exists(_layout.PyenvDir));
     }
 
     [Fact]

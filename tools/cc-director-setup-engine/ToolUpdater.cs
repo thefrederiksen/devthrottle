@@ -78,17 +78,25 @@ public sealed class ToolUpdater
         ArgumentNullException.ThrowIfNull(release);
         ArgumentNullException.ThrowIfNull(source);
 
-        // PythonToolsInstaller.ToolsAsset/PythonAsset are OS-aware, so this works on Windows and macOS;
-        // a release that lacks this OS's bundle assets simply skips below (TryGetAsset returns null).
+        // PythonToolsInstaller.ToolsAsset/PythonAsset are OS-aware, so this works on Windows and macOS.
         var toolsAsset = release.Manifest.TryGetAsset(PythonToolsInstaller.ToolsAsset);
         var pyAsset = release.Manifest.TryGetAsset(PythonToolsInstaller.PythonAsset);
+        var installedVer = InstalledManifest.Load(_layout).Get(PythonToolsInstaller.ComponentId);
+
         if (toolsAsset is null || pyAsset is null)
         {
-            EngineLog.Write("[ToolUpdater] release has no Python tools bundle; skipping bundle refresh");
+            // No bundle for this OS in the release. Distinguish the two cases instead of skipping quietly:
+            // if tools ARE installed, the latest release dropping its bundle is a packaging REGRESSION worth
+            // surfacing loudly (the installed tools keep working; we just cannot refresh them from here).
+            // If nothing is installed, it is genuinely nothing to do. Either way there is no bundle to
+            // install from, so we return null - we never silently pretend a refresh happened.
+            if (installedVer is not null)
+                EngineLog.Write($"[ToolUpdater] WARNING: Python tools bundle ({installedVer}) is installed but the latest release has NO bundle asset ({PythonToolsInstaller.ToolsAsset}) for this OS - leaving tools as-is. This is likely a release packaging regression.");
+            else
+                EngineLog.Write("[ToolUpdater] no Python tools bundle in this release and none installed - nothing to do.");
             return null;
         }
 
-        var installedVer = InstalledManifest.Load(_layout).Get(PythonToolsInstaller.ComponentId);
         var needs = installedVer is null  // missing => migrate from per-tool exes
             || (VersionUtil.TryParse(installedVer) is { } iv
                 && VersionUtil.TryParse(toolsAsset.Version) is { } rv && rv > iv);
