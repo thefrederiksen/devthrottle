@@ -6,8 +6,13 @@
  * the Gateway front door (the page is served behind it), so the cc-gateway-token cookie
  * authenticates automatically - the same pattern keys.html/settings.html use.
  *
- * Offline-first (IndexedDB + background sync) is Slice 2; here the upload runs right after
- * the recording stops. The chunked upload contract is already resume-safe on the server.
+ * Offline-first part 1 (issue #425): the moment a recording stops, the audio blob + turn
+ * metadata are saved to IndexedDB (via VoiceDb in db.js) BEFORE any upload, and the page
+ * shows "Recording saved locally". The upload then reads the blob back from IndexedDB and
+ * each turn carries a status badge (Pending -> Uploading -> Uploaded, or Failed with a
+ * manual Retry). A Pending/Failed turn survives a page reload because it lives in
+ * IndexedDB. Service Worker / Background Sync / auto-sync / 30-min stale are part 2 (#426).
+ * The chunked upload contract is already resume-safe on the server.
  */
 (function () {
   "use strict";
@@ -206,6 +211,7 @@
     $("reply-box").textContent = "";
     setPlayable(null);
     loadHistory(s.sessionId);
+    loadOutbox(s.sessionId);
     show("session");
   }
 
@@ -404,8 +410,8 @@
     };
     mediaRecorder.onstop = function () {
       stream.getTracks().forEach(function (t) { t.stop(); });
-      uploadAndRun(recChunks, recMime).catch(function (e) {
-        setStage("Upload failed: " + e, "error");
+      saveLocallyThenUpload(recChunks, recMime).catch(function (e) {
+        setStage("Could not save the recording: " + e.message, "error");
         setSpeakUi(false);
       });
     };
@@ -429,53 +435,229 @@
     btn.classList.toggle("recording", isRecording);
   }
 
-  // ===== upload + turn (Slice 1: record-then-upload) =====
+  // ===== offline-first outbox (issue #425) =====
+  // The upload is no longer driven straight off the in-memory chunks. On stop we
+  // assemble the chunks into one Blob, persist it to IndexedDB with status "pending"
+  // (so the recording is safe the instant it stops), render an outbox row, THEN run the
+  // upload reading the blob back from IndexedDB. A failed turn keeps its blob and offers
+  // Retry; everything survives a page reload because it lives in IndexedDB.
   function mimeExtSafe(mime) { return (mime || "audio/webm").split(";")[0]; }
 
-  async function uploadAndRun(chunks, mime) {
+  // Chunk size for slicing the stored blob back into the ordered fragments the resumable
+  // upload expects. 256 KB keeps each PUT small and resume-friendly.
+  var UPLOAD_CHUNK_BYTES = 256 * 1024;
+
+  // Save the just-stopped recording locally first, then start its upload. This is the
+  // core promise: by the time we return from the write, the bytes are durable in
+  // IndexedDB, so we tell the user "saved locally" before any network call.
+  async function saveLocallyThenUpload(chunks, mime) {
     if (!current) return;
     if (!chunks.length) { setStage("Nothing recorded.", "error"); return; }
     var sid = current.sessionId;
-    var turnGuid = (crypto.randomUUID ? crypto.randomUUID() : fallbackGuid());
+    var localId = (crypto.randomUUID ? crypto.randomUUID() : fallbackGuid());
+    var blob = new Blob(chunks, { type: mimeExtSafe(mime) });
 
-    setStage("Saving recording...", "active");
+    var record = {
+      localId: localId,
+      sessionId: sid,
+      status: "pending",
+      createdAt: new Date().toISOString(),
+      mime: mimeExtSafe(mime),
+      blob: blob,
+      uploadId: null,
+      turnId: null,
+      error: null,
+    };
+    await VoiceDb.put(record); // durable BEFORE any upload
 
-    // 1) register the upload (Idempotency-Key = our turn id -> a retry never duplicates)
-    var reg = await api("/sessions/" + sid + "/voice-turn/upload", {
-      method: "POST",
-      headers: { "Idempotency-Key": turnGuid },
-    });
-    if (!reg.ok || !reg.data || !reg.data.upload_id) {
-      throw new Error("register " + reg.status);
-    }
-    var uploadId = reg.data.upload_id;
+    setStage("Recording saved locally.", "");
+    renderOutboxItem(record);
 
-    // 2) PUT each ordered fragment
-    setStage("Uploading...", "active");
-    for (var i = 0; i < chunks.length; i++) {
-      var buf = await chunks[i].arrayBuffer();
-      var put = await fetch("/sessions/" + sid + "/voice-turn/upload/" + uploadId + "/chunk/" + i, {
-        method: "PUT",
-        headers: authHeaders({ "Content-Type": "application/octet-stream" }),
-        body: buf,
+    // Fire the upload but do not let its rejection bubble up as a "could not save" error -
+    // the save already succeeded; an upload failure is shown on the row's own badge.
+    processOutboxItem(localId).catch(function () { /* surfaced on the row */ });
+  }
+
+  // Drive one stored turn through register -> chunk PUTs -> complete -> poll, updating its
+  // persisted status (and the row badge) at each phase. Reads the blob from IndexedDB so
+  // it works identically on first attempt and on a Retry after a reload. Reuses the stored
+  // uploadId on retry (the server's 409-resume contract makes re-PUTs idempotent).
+  async function processOutboxItem(localId) {
+    var rec = await VoiceDb.get(localId);
+    if (!rec) return; // already uploaded + removed
+    if (rec.status === "uploaded") return;
+
+    var sid = rec.sessionId;
+    try {
+      await setOutboxStatus(localId, "uploading");
+
+      // 1) register the upload once (Idempotency-Key = our local id -> a retry never
+      //    duplicates). Reuse a previously-registered uploadId on retry.
+      var uploadId = rec.uploadId;
+      if (!uploadId) {
+        var reg = await api("/sessions/" + sid + "/voice-turn/upload", {
+          method: "POST",
+          headers: { "Idempotency-Key": localId },
+        });
+        if (!reg.ok || !reg.data || !reg.data.upload_id) {
+          throw new Error("register " + reg.status);
+        }
+        uploadId = reg.data.upload_id;
+        rec = await VoiceDb.update(localId, { uploadId: uploadId });
+      }
+
+      // 2) PUT each ordered fragment, sliced from the stored blob.
+      var blob = rec.blob;
+      var total = Math.max(1, Math.ceil(blob.size / UPLOAD_CHUNK_BYTES));
+      for (var i = 0; i < total; i++) {
+        var slice = blob.slice(i * UPLOAD_CHUNK_BYTES, (i + 1) * UPLOAD_CHUNK_BYTES);
+        var buf = await slice.arrayBuffer();
+        var put = await fetch(
+          "/sessions/" + sid + "/voice-turn/upload/" + uploadId + "/chunk/" + i, {
+          method: "PUT",
+          headers: authHeaders({ "Content-Type": "application/octet-stream" }),
+          body: buf,
+        });
+        if (!put.ok) throw new Error("chunk " + i + " -> " + put.status);
+      }
+
+      // 3) complete -> 202 { turn_id }  (409 would list missing chunks; we sent them all)
+      var comp = await api("/sessions/" + sid + "/voice-turn/upload/" + uploadId + "/complete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ totalChunks: total, mime: rec.mime }),
       });
-      if (!put.ok) throw new Error("chunk " + i + " -> " + put.status);
+      if (comp.status === 409) throw new Error("upload incomplete (server missing chunks)");
+      if (comp.status !== 202 || !comp.data || !comp.data.turn_id) {
+        throw new Error("complete " + comp.status + " " + (comp.data && comp.data.error || ""));
+      }
+
+      var turnId = comp.data.turn_id;
+      await VoiceDb.update(localId, { turnId: turnId });
+      await setOutboxStatus(localId, "uploaded");
+
+      // The bytes are now durable on the server - drop the local copy and clear the row.
+      await VoiceDb.remove(localId);
+      removeOutboxItem(localId);
+
+      await pollTurn(sid, turnId);
+    } catch (e) {
+      await VoiceDb.update(localId, { status: "failed", error: e.message })
+        .catch(function () { /* record may be gone; nothing to persist */ });
+      renderOutboxFromDb(localId);
+      throw e;
+    }
+  }
+
+  // Persist a status and reflect it on the row.
+  async function setOutboxStatus(localId, status) {
+    await VoiceDb.update(localId, { status: status, error: null });
+    renderOutboxFromDb(localId);
+  }
+
+  // Re-read one record and re-render its row (or remove the row if the record is gone).
+  async function renderOutboxFromDb(localId) {
+    var rec = await VoiceDb.get(localId);
+    if (!rec) { removeOutboxItem(localId); return; }
+    renderOutboxItem(rec);
+  }
+
+  // ===== outbox rendering (issue #425) =====
+  // The outbox lists the open session's locally-saved turns that are not yet durably on
+  // the server (pending / uploading / failed). An "uploaded" row is shown briefly then
+  // its record is removed; the durable reply appears in the history list above.
+  var OUTBOX_STATUS = {
+    pending:   { label: "Pending",   cls: "pending" },
+    uploading: { label: "Uploading", cls: "uploading" },
+    uploaded:  { label: "Uploaded",  cls: "uploaded" },
+    failed:    { label: "Failed",    cls: "failed" },
+  };
+
+  // Insert or update the row for one stored turn. Only rows for the currently-open
+  // session are shown (a row for another session is ignored here; it is read back when
+  // that session is opened).
+  function renderOutboxItem(rec) {
+    if (!current || rec.sessionId !== current.sessionId) return;
+    var list = $("outbox-list");
+    var existing = list.querySelector('[data-local-id="' + cssAttr(rec.localId) + '"]');
+    var li = existing || document.createElement("li");
+    li.setAttribute("data-local-id", rec.localId);
+    li.innerHTML = "";
+
+    var main = document.createElement("div");
+    main.className = "ob-main";
+
+    var top = document.createElement("div");
+    top.className = "ob-top";
+    var s = OUTBOX_STATUS[rec.status] || OUTBOX_STATUS.pending;
+    var badge = document.createElement("span");
+    badge.className = "ob-badge " + s.cls;
+    badge.textContent = s.label;
+    top.appendChild(badge);
+
+    var saved = document.createElement("span");
+    saved.className = "ob-saved";
+    saved.textContent = "Saved locally";
+    top.appendChild(saved);
+    main.appendChild(top);
+
+    var time = document.createElement("div");
+    time.className = "ob-time";
+    time.textContent = formatWhen(rec.createdAt);
+    main.appendChild(time);
+
+    if (rec.status === "failed" && rec.error) {
+      var err = document.createElement("div");
+      err.className = "ob-error";
+      err.textContent = rec.error;
+      main.appendChild(err);
     }
 
-    // 3) complete -> 202 { turn_id }  (409 would list missing chunks; we sent them all)
-    var comp = await api("/sessions/" + sid + "/voice-turn/upload/" + uploadId + "/complete", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ totalChunks: chunks.length, mime: mimeExtSafe(mime) }),
+    li.appendChild(main);
+
+    // Retry only on failure: re-runs the resumable upload from the stored blob.
+    if (rec.status === "failed") {
+      var retry = document.createElement("button");
+      retry.className = "secondary ob-retry";
+      retry.textContent = "Retry";
+      retry.addEventListener("click", function () {
+        retry.disabled = true;
+        processOutboxItem(rec.localId).catch(function () { /* surfaced on the row */ });
+      });
+      li.appendChild(retry);
+    }
+
+    if (!existing) list.insertBefore(li, list.firstChild);
+    updateOutboxEmpty();
+  }
+
+  function removeOutboxItem(localId) {
+    var list = $("outbox-list");
+    var li = list.querySelector('[data-local-id="' + cssAttr(localId) + '"]');
+    if (li) li.remove();
+    updateOutboxEmpty();
+  }
+
+  function updateOutboxEmpty() {
+    var list = $("outbox-list");
+    $("outbox-empty").classList.toggle("hidden", list.children.length > 0);
+  }
+
+  // On opening a session, read its locally-stored turns back from IndexedDB and render
+  // them - this is what makes a pending/failed turn survive a page reload. Any turn that
+  // is still "uploading" (e.g. the page was closed mid-upload) is treated as resumable:
+  // it is shown and its upload is kicked again from the stored blob.
+  async function loadOutbox(sid) {
+    var list = $("outbox-list");
+    list.innerHTML = "";
+    updateOutboxEmpty();
+    var rows = await VoiceDb.getAll();
+    rows.filter(function (r) { return r.sessionId === sid; }).forEach(function (rec) {
+      renderOutboxItem(rec);
+      if (rec.status === "uploading") {
+        processOutboxItem(rec.localId).catch(function () { /* surfaced on the row */ });
+      }
     });
-    if (comp.status === 409) {
-      throw new Error("upload incomplete (server missing chunks)");
-    }
-    if (comp.status !== 202 || !comp.data || !comp.data.turn_id) {
-      throw new Error("complete " + comp.status + " " + (comp.data && comp.data.error || ""));
-    }
-
-    await pollTurn(sid, comp.data.turn_id);
   }
 
   var STAGE_TEXT = {

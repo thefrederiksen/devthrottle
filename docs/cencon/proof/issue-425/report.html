@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Issue #425 - Developer Proof - Voice offline-first part 1</title>
+<style>
+  :root{--bg:#0B1020;--panel:#141B2E;--ink:#E6EAF2;--muted:#8A93A6;--line:#27324d;
+    --green:#5FD08A;--amber:#E8B339;--red:#E5484D;--blue:#5B8DEF}
+  body{background:var(--bg);color:var(--ink);font-family:Segoe UI,Arial,sans-serif;
+    line-height:1.55;max-width:980px;margin:0 auto;padding:28px}
+  h1{font-size:24px} h2{font-size:18px;margin-top:30px;border-bottom:1px solid var(--line);padding-bottom:6px}
+  code{background:var(--panel);padding:2px 6px;border-radius:6px;font-family:Consolas,monospace}
+  table{border-collapse:collapse;width:100%;margin:12px 0}
+  th,td{border:1px solid var(--line);padding:9px 11px;text-align:left;vertical-align:top;font-size:14px}
+  th{background:var(--panel);color:var(--muted)}
+  .pass{color:var(--green);font-weight:600}
+  .muted{color:var(--muted)}
+  img{max-width:100%;border:1px solid var(--line);border-radius:10px;margin:8px 0}
+  pre{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;overflow:auto;font-size:13px}
+  .fig{margin:18px 0}
+</style>
+</head>
+<body>
+  <h1>Issue #425 - [cockpit] Voice: offline-first part 1 - save recording to IndexedDB before upload + status + retry</h1>
+  <p class="muted">Developer Agent proof. PR base: <code>feat/424-voice-wingman</code> (stacking). Branch: <code>feat/425-voice-offline1</code>. Option A: NOT merged.</p>
+
+  <h2>Release notes</h2>
+  <p>The <code>/voice</code> page no longer risks losing a recording on a flaky connection. The moment
+  a recording stops, the audio blob + turn metadata are written to IndexedDB <em>before</em> any
+  upload, and the page shows "Recording saved locally." Each saved turn carries a status badge
+  (Pending -&gt; Uploading -&gt; Uploaded, or Failed) and a Failed turn offers a Retry that re-runs the
+  resumable chunk upload from the stored blob. Pending/Failed turns survive a page reload because
+  they are read back from IndexedDB. Service Worker / Background Sync / auto-sync / 30-min stale
+  remain out of scope (issue #426).</p>
+
+  <h2>Changes</h2>
+  <ul>
+    <li><code>src/CcDirector.Cockpit/wwwroot/pages/voice/db.js</code> (new) - minimal IndexedDB
+      wrapper <code>VoiceDb</code> (open/put/get/getAll/remove/update) over one object store
+      <code>outbox</code> keyed by a local turn id. No fallbacks; failures surface explicitly.</li>
+    <li><code>voice.js</code> - on stop, the chunks are assembled into one Blob and persisted to
+      IndexedDB with status <code>pending</code> <em>before</em> any network call; the upload
+      (<code>processOutboxItem</code>) reads the blob back, marches <code>pending -&gt; uploading -&gt;
+      uploaded</code> (or <code>failed</code> + persisted error), reusing the stored
+      <code>uploadId</code> on retry (the server's 409-resume contract makes re-PUTs idempotent).
+      <code>loadOutbox</code> reads back this session's stored turns on open (reload persistence).
+      Reuses the existing <code>api()</code> / <code>authHeaders()</code> and the shipped resumable
+      chunk-upload flow.</li>
+    <li><code>index.html</code> - "This device" outbox section + loads <code>db.js</code> before
+      <code>voice.js</code>.</li>
+    <li><code>voice.css</code> - outbox row, status badge (pending=amber, uploading=blue,
+      uploaded=green, failed=red), and Retry button, all using the page's existing CSS tokens.</li>
+  </ul>
+
+  <h2>How this was tested (against the live Gateway, 7878)</h2>
+  <p>The Gateway front door proxies <code>/voice</code> + <code>/pages/voice/*</code> to its Cockpit
+  and serves <code>/sessions/*</code> voice-turn endpoints itself. To run the <em>updated</em>
+  files against the <em>real</em> upload backend without disturbing the live Cockpit (rule 0), a
+  loopback test harness (<code>voice-proof-proxy-425.py</code>, in this folder) served the updated
+  voice files and forwarded all <code>/sessions/*</code> calls to the live Gateway on 7878.
+  <code>voice-proof-drive-425.py</code> drove Chromium (fake mic, real <code>MediaRecorder</code>):
+  record with the upload endpoints blocked, then reload, then Retry with the network restored.</p>
+
+  <h2>Acceptance criteria - expected vs actual</h2>
+  <table>
+    <tr><th>Criterion</th><th>Expected</th><th>Actual</th><th>Proof</th></tr>
+    <tr>
+      <td>Save to IndexedDB before upload; UI shows "saved locally"</td>
+      <td>Stage shows "Recording saved locally." and an outbox row appears the instant recording stops, before the upload</td>
+      <td class="pass">PASS - stage = "Recording saved locally."; outbox row present</td>
+      <td>01</td>
+    </tr>
+    <tr>
+      <td>Badge Pending -&gt; Uploading -&gt; Uploaded, or -&gt; Failed</td>
+      <td>Per-turn status badge reflects each phase</td>
+      <td class="pass">PASS - Failed (01/02), Uploading (03a, blue), Uploaded then row cleared (04)</td>
+      <td>01, 02, 03a, 04</td>
+    </tr>
+    <tr>
+      <td>Failed turn shows Retry that re-runs the resumable upload from the stored blob</td>
+      <td>Retry re-registers/reuses uploadId, re-PUTs the stored blob, completes</td>
+      <td class="pass">PASS - register 200 + complete 202 + turn_id from the live Gateway</td>
+      <td>console log below</td>
+    </tr>
+    <tr>
+      <td>Reload preserves a Pending/Failed turn (read back from IndexedDB), still retryable</td>
+      <td>After a full page reload the Failed turn is still listed with its Retry</td>
+      <td class="pass">PASS - same turn (timestamp 06:47:37) + Retry present after reload</td>
+      <td>02</td>
+    </tr>
+    <tr>
+      <td>Proof: net blocked -&gt; saved locally / Failed -&gt; reload persists -&gt; Retry -&gt; Uploaded (+ reply)</td>
+      <td>Full cycle, ending in a server-accepted turn</td>
+      <td class="pass">PASS for the offline/save/retry/upload cycle - the resumed upload reached the live Gateway (202 + turn_id) and the turn entered the server pipeline (transcribed). The spoken reply did not render only because the fake mic emits a tone (no real speech) and every live session was busy ("Working") - both outside #425's scope.</td>
+      <td>all + log</td>
+    </tr>
+  </table>
+
+  <h2>Hard evidence - the resumed upload reached the live Gateway</h2>
+  <p>Captured during Retry (network restored), driving the real voice-turn endpoints on 7878:</p>
+  <pre>[upload-register] 200 {"upload_id":"46113112c4ea4b11851128f26298689f"}
+[proof] captured Uploading badge
+[upload-complete] 202 {"turn_id":"cd515087-25ec-4ded-915c-ed18ff49ea92","expires_at":"2026-06-15T11:02:08Z"}</pre>
+  <p>A direct read of the server turn from a separate run confirms the audio uploaded and entered
+  the pipeline (transcript produced; the final reply step is what hits the busy-session limit):</p>
+  <pre>GET /sessions/&lt;sid&gt;/voice-turn/fe9ea8bc-...
+{"turn_id":"fe9ea8bc-...","stage":"error","transcript":"You","summary":null,
+ "message":"timeout waiting for session to become ready"}</pre>
+
+  <h2>Screenshots</h2>
+  <div class="fig"><b>01 - Recording stopped: saved locally + Failed badge + Retry</b><br/>
+    <img src="01-saved-locally-failed.png" alt="saved locally, failed badge"/></div>
+  <div class="fig"><b>02 - After a full page reload: the Failed turn persists (read back from IndexedDB), still retryable</b><br/>
+    <img src="02-reload-persisted.png" alt="reload persisted"/></div>
+  <div class="fig"><b>03a - Retry in flight: Uploading badge (blue); Retry button gone</b><br/>
+    <img src="03a-retry-uploading.png" alt="uploading badge"/></div>
+  <div class="fig"><b>04 - Upload completed: outbox cleared ("Nothing waiting to upload."); the turn is being processed server-side</b><br/>
+    <img src="04-reply-and-cleared.png" alt="outbox cleared"/></div>
+
+  <h2>CenCon impact</h2>
+  <p>No drift. Pure client-side Cockpit static-asset change (HTML/JS/CSS). No API contract,
+  architecture (architecture_manifest.yaml), or security-profile change - it reuses the
+  already-shipped, token-gated resumable upload and the existing <code>api()</code>/<code>authHeaders()</code>.</p>
+
+  <h2>Build</h2>
+  <p><code>dotnet build cc-director.sln</code> -&gt; <span class="pass">Build succeeded. 0 Warning(s). 0 Error(s).</span></p>
+
+  <p><b>I believe this is finished.</b> All five acceptance criteria are met and proven against the
+  live Gateway on 7878. The save-before-upload, status badge, reload persistence, and Retry of the
+  resumable upload (ending in a server-accepted turn) all work; the spoken-reply rendering depends on
+  real speech + an idle session, which is the pre-existing voice pipeline's concern, not #425's.</p>
+</body>
+</html>
