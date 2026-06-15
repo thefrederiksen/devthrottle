@@ -1,18 +1,8 @@
-         Failed to load prune package data from PrunePackageData folder, loading from targeting packs instead
-         Failed to load prune package data from PrunePackageData folder, loading from targeting packs instead
-         Failed to load prune package data from PrunePackageData folder, loading from targeting packs instead
-         Failed to load prune package data from PrunePackageData folder, loading from targeting packs instead
-         Failed to load prune package data from PrunePackageData folder, loading from targeting packs instead
-         Failed to load prune package data from PrunePackageData folder, loading from targeting packs instead
-         Failed to load prune package data from PrunePackageData folder, loading from targeting packs instead
-         Failed to load prune package data from PrunePackageData folder, loading from targeting packs instead
-         Failed to load prune package data from PrunePackageData folder, loading from targeting packs instead
-         Failed to load prune package data from PrunePackageData folder, loading from targeting packs instead
-  Passed CcDirector.Gateway.Tests.GatewayVoiceTurnAsyncTests.Audio_MissingToken_Returns401 [99 ms]
-  Passed CcDirector.Gateway.Tests.GatewayVoiceTurnAsyncTests.Poll_BackCompat_IncludeAudioFlag_StillReturnsBase64 [108 ms]
-  Passed CcDirector.Gateway.Tests.GatewayVoiceTurnAsyncTests.Audio_JobWithoutAudio_Returns404 [108 ms]
-  Passed CcDirector.Gateway.Tests.GatewayVoiceTurnAsyncTests.Audio_FullFetch_Returns200WithAllBytes [99 ms]
-  Passed CcDirector.Gateway.Tests.GatewayVoiceTurnAsyncTests.Audio_UnknownOrExpiredTurn_Returns404 [86 ms]
-  Passed CcDirector.Gateway.Tests.GatewayVoiceTurnAsyncTests.Poll_SlimByDefault_DoesNotCarryAudioBytes [98 ms]
-  Passed CcDirector.Gateway.Tests.GatewayVoiceTurnAsyncTests.Audio_RangeRequest_Returns206PartialContent [100 ms]
-  Passed CcDirector.Gateway.Tests.GatewayVoiceTurnAsyncTests.Audio_AfterTTLExpiry_Returns404 [83 ms]
+Issue #407 - automated test proof (captured 2026-06-15, branch issue-407-resumable-audio)
+Full-solution build: dotnet build cc-director.sln -> Build succeeded. 0 Warning(s) 0 Error(s)
+
+=== Server: CcDirector.Gateway.Tests (GatewayVoiceTurnAsyncTests, issue #407 + #376) ===
+Passed!  - Failed:     0, Passed:    24, Skipped:     0, Total:    24, Duration: 15 s - CcDirector.Gateway.Tests.dll (net10.0)
+
+=== Client: phone/CcDirectorClient.Tests (VoiceTurnRunnerTests + VoiceTurnResultTests, issue #407 + #405) ===
+Passed!  - Failed:     0, Passed:    31, Skipped:     0, Total:    31, Duration: 126 ms - CcDirectorClient.Tests.dll (net10.0)
