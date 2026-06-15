@@ -2,8 +2,10 @@
 
    "tree"   - Machine -> Director -> Sessions. Sessions keep their owning Director's
               desktop order (SortOrder), so they hold a stable slot and don't reshuffle.
-              Each Director carries a [+] to start a session on it. Unreachable Directors
-              are shown inline so a dead Director is never silently dropped.
+              Each Director carries a [+] to start a session on it. Every reachable Director
+              in the registry is shown - INCLUDING ones with zero sessions - because that
+              [+] is the only way to start the first session on a Director. Unreachable
+              Directors are shown inline so a dead Director is never silently dropped.
 
    "triage" - one flat priority list across every Director: sessions that NEED YOU
               (StatusColor "red") at the top, ON HOLD (user/agent parked) at the bottom,
@@ -19,7 +21,10 @@
    StatusColor and OnHold are rendered verbatim from the Director; never derived. *@
 
 <div class="rail @ViewMode">
-    @if (Sessions.Count == 0 && Errors.Count == 0)
+    @* Suppress the empty message in tree mode when idle Directors will still render (each
+       carries a [+] to start its first session). Other modes only group sessions, so an
+       empty roster there really is empty. *@
+    @if (Sessions.Count == 0 && Errors.Count == 0 && !(ViewMode == "tree" && Directors.Count > 0))
     {
         <div class="rail-empty">No sessions. The Gateway returned an empty roster.</div>
     }
@@ -229,28 +234,38 @@
                     }
                 </div>
 
-                @foreach (var dir in machineSessions.GroupBy(s => s.DirectorId).OrderBy(g => g.Key))
+                @* Every Director for this machine - those that own a session here UNION the
+                   registry's Directors that have none yet - so an idle Director still shows
+                   its [+] (the only way to start its first session). *@
+                @foreach (var dirId in DirectorIdsForMachine(machine, machineSessions, machineErrors))
                 {
+                    var dirSessions = machineSessions.Where(s => s.DirectorId == dirId).ToList();
                     <div class="dir-head">
                         @* Issue #237: label each Director by its port (short, restart-stable, maps
                            to the slot convention) not the meaningless per-process GUID prefix. The
                            full DirectorId stays in the tooltip; it remains the routing key below. *@
-                        <span class="dir-head-label" title="@dir.Key">director @PortLabelFor(dir.Key)</span>
+                        <span class="dir-head-label" title="@dirId">director @PortLabelFor(dirId)</span>
                         @* Version + uptime from the Gateway's Director registry: makes a
                            stale pre-fix Director stand out without leaving the rail. *@
-                        @if (DirectorFor(dir.Key) is { } meta)
+                        @if (DirectorFor(dirId) is { } meta)
                         {
                             <span class="dir-meta"
                                   title="@($"v{meta.Version}, started {meta.StartedAt.ToLocalTime():yyyy-MM-dd HH:mm}")">
                                 v@(ShortVersion(meta.Version)) up @Uptime(meta.StartedAt)
                             </span>
                         }
+                        @* An idle Director (registered, reachable, zero sessions) reads as empty
+                           without this hint - so a human knows the [+] is what it is for. *@
+                        @if (dirSessions.Count == 0)
+                        {
+                            <span class="dir-idle" title="This Director has no sessions yet">no sessions</span>
+                        }
                         <button type="button" class="dir-add"
                                 title="Start a new session on this Director"
-                                @onclick="() => OnNewSession.InvokeAsync(dir.Key)">+</button>
+                                @onclick="() => OnNewSession.InvokeAsync(dirId)">+</button>
                     </div>
 
-                    @foreach (var s in SessionOrdering.InDesktopOrder(dir))
+                    @foreach (var s in SessionOrdering.InDesktopOrder(dirSessions))
                     {
                         @SessionRow(s)
                     }
@@ -334,7 +349,29 @@
     {
         var fromSessions = Sessions.Select(s => MachineKey(s.MachineName));
         var fromErrors = Errors.Select(e => MachineKey(e.MachineName));
-        return fromSessions.Concat(fromErrors).Distinct().OrderBy(m => m);
+        // A machine whose only Directors are idle (registered, zero sessions, no error) has
+        // nothing in Sessions/Errors - include it so its Directors' [+] are still reachable.
+        var fromDirectors = Directors.Select(d => MachineKey(d.MachineName));
+        return fromSessions.Concat(fromErrors).Concat(fromDirectors).Distinct().OrderBy(m => m);
+    }
+
+    /// <summary>
+    /// The Director ids to render under a machine in tree mode: the Directors that own a
+    /// session here UNION the registry's Directors for this machine that have none yet, so an
+    /// idle Director still shows its [+] (the only way to start its first session). Directors
+    /// surfaced as unreachable (<paramref name="machineErrors"/>) are excluded - they get the
+    /// dedicated error row instead of an empty header. Ordered by the rail's port label so the
+    /// list is human-sorted and stable across refreshes.
+    /// </summary>
+    private IReadOnlyList<string> DirectorIdsForMachine(
+        string machine, List<SessionDto> machineSessions, List<MachineErrorDto> machineErrors)
+    {
+        var unreachable = machineErrors.Select(e => e.DirectorId).ToHashSet();
+        var ids = new HashSet<string>(machineSessions.Select(s => s.DirectorId));
+        foreach (var d in Directors.Where(d => MachineKey(d.MachineName) == machine))
+            ids.Add(d.DirectorId);
+        ids.ExceptWith(unreachable);
+        return ids.OrderBy(PortLabelFor, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
     private static string ShortId(string id) =>
