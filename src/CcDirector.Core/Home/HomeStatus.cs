@@ -61,17 +61,55 @@ public static class HomeStatusBuilder
         IReadOnlyList<AgentCliFact> agentClis,
         int toolsBuilt,
         int toolsTotal,
-        IReadOnlyList<string>? brokenTools = null)
+        IReadOnlyList<string>? brokenTools = null,
+        Tools.ToolHealthSummary? toolHealth = null)
     {
+        // When tool tests have run (toolHealth supplied) the tools row reflects pass/fail/not-built;
+        // before that it falls back to the cheap build-status check so the home renders immediately.
+        var toolsCheck = toolHealth is { } h
+            ? BuildToolsFromHealth(h)
+            : BuildTools(toolsBuilt, toolsTotal, brokenTools ?? Array.Empty<string>());
+
         var checks = new List<HomeCheck>
         {
             BuildAgentClis(agentClis),
-            BuildTools(toolsBuilt, toolsTotal, brokenTools ?? Array.Empty<string>()),
+            toolsCheck,
         };
 
         var readyCount = checks.Count(c => c.Level == HomeCheckLevel.Ok);
         var allReady = readyCount == checks.Count;
         return new HomeStatus(checks, allReady, readyCount, checks.Count);
+    }
+
+    /// <summary>
+    /// The cc-* tools row from actual test results. Shows the full breakdown ("24 pass · 1 fail ·
+    /// 4 not built") for transparency, but only ALARMS on a real problem - a built tool whose test
+    /// failed, or a broken (expected-but-missing) tool. Optional/never-installed tools are counted but
+    /// do not raise a warning (the caller surfaces them quietly in the all-clear summary). A broken
+    /// tool offers the one-click repair; a plain failure routes to the Tools page to investigate.
+    /// </summary>
+    private static HomeCheck BuildToolsFromHealth(Tools.ToolHealthSummary h)
+    {
+        if (h.Total == 0)
+            return new HomeCheck("cc-* tools", HomeCheckLevel.Ok, "no tools installed", HomeCheckAction.None);
+
+        var parts = new List<string> { $"{h.Pass} pass" };
+        if (h.Fail > 0) parts.Add($"{h.Fail} fail");
+        if (h.NotBuilt > 0) parts.Add($"{h.NotBuilt} not built");
+        var detail = string.Join(" · ", parts);
+
+        if (!h.HasProblem)
+            return new HomeCheck("cc-* tools", HomeCheckLevel.Ok, detail, HomeCheckAction.None);
+
+        if (h.Failing.Count > 0)
+        {
+            var shown = string.Join(", ", h.Failing.Take(3));
+            if (h.Failing.Count > 3) shown += $", +{h.Failing.Count - 3} more";
+            detail += $" - failing: {shown}";
+        }
+
+        var action = h.Broken > 0 ? HomeCheckAction.RepairTools : HomeCheckAction.OpenTools;
+        return new HomeCheck("cc-* tools", HomeCheckLevel.Warn, detail, action);
     }
 
     /// <summary>

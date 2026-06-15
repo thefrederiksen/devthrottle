@@ -677,9 +677,15 @@ public partial class MainWindow : Window
                 return (clis, built, total, missing);
             });
 
-            _lastHomeStatus = HomeStatusBuilder.Build(facts.clis, facts.built, facts.total, facts.missing);
+            _lastClis = facts.clis;
+            _lastBuildFacts = (facts.built, facts.total, facts.missing);
+            _lastHomeStatus = HomeStatusBuilder.Build(facts.clis, facts.built, facts.total, facts.missing, _lastToolHealth);
 
             ApplyHomeHealth();
+
+            // Run the tool checks in the background so the tools row shows real pass/fail/not-built
+            // instead of just build status. The home renders immediately; the breakdown fills in.
+            _ = RefreshToolHealthAsync();
 
             // Startup auto self-heal: if any EXPECTED tool is broken (installed but not runnable), repair
             // it automatically - no click needed. Guarded to fire at most once per run and never loop: a
@@ -731,7 +737,67 @@ public partial class MainWindow : Window
         finally
         {
             _repairingTools = false;
+            _lastToolHealth = null; // the tools changed - re-run the health check on the next refresh
             await RefreshHomeAsync();
+        }
+    }
+
+    // Cached so the background tool-health pass can rebuild the home status without re-detecting CLIs.
+    private List<AgentCliFact>? _lastClis;
+    private (int built, int total, List<string> missing)? _lastBuildFacts;
+    private CcDirector.Core.Tools.ToolHealthSummary? _lastToolHealth;
+    private bool _toolHealthRunning;
+
+    /// <summary>
+    /// Run every cc-* tool's checks off the UI thread and roll them up into pass/fail/not-built, then
+    /// re-apply the home status so the tools row shows the real breakdown (the screenshot complaint:
+    /// the home said "all systems go" while the Tools page showed a FAIL and not-built tools). Bounded
+    /// concurrency, guarded against pile-up. Auth-gated tools declare no smoke test, so this is just
+    /// their presence+version check; tools with a read-only smoke run that too.
+    /// </summary>
+    private async Task RefreshToolHealthAsync(bool force = false)
+    {
+        if (_toolHealthRunning) return;
+        if (_lastToolHealth is not null && !force) return; // computed once this session; reuse the cache
+        _toolHealthRunning = true;
+        try
+        {
+            var summary = await Task.Run(async () =>
+            {
+                var catalog = new ToolCatalogService().GetCatalog();
+                var runner = new ToolTestRunner();
+                using var gate = new System.Threading.SemaphoreSlim(Math.Max(1, Environment.ProcessorCount - 1));
+                var inputs = await Task.WhenAll(catalog.Select(async d =>
+                {
+                    if (!d.IsBuilt)
+                        return new CcDirector.Core.Tools.ToolHealthInput(d.Name, false, d.IsExpected, false);
+                    await gate.WaitAsync();
+                    try
+                    {
+                        var results = await runner.RunAllForToolAsync(d);
+                        return new CcDirector.Core.Tools.ToolHealthInput(d.Name, true, d.IsExpected, results.All(r => r.Passed));
+                    }
+                    finally { gate.Release(); }
+                }));
+                return CcDirector.Core.Tools.ToolHealthSummary.From(inputs);
+            });
+
+            _lastToolHealth = summary;
+            FileLog.Write($"[MainWindow] tool health: pass={summary.Pass}, fail={summary.Fail}, notBuilt={summary.NotBuilt}, broken={summary.Broken}");
+
+            if (_lastClis is { } clis && _lastBuildFacts is { } bf)
+            {
+                _lastHomeStatus = HomeStatusBuilder.Build(clis, bf.built, bf.total, bf.missing, summary);
+                ApplyHomeHealth();
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] RefreshToolHealthAsync FAILED: {ex.Message}");
+        }
+        finally
+        {
+            _toolHealthRunning = false;
         }
     }
 
@@ -750,6 +816,13 @@ public partial class MainWindow : Window
         var summary = gw.Contains("CONNECTED", StringComparison.OrdinalIgnoreCase)
             ? "Gateway connected - ready to work"
             : "Ready to start a session";
+        // When all tools pass, show the count (and any optional not-installed) quietly here rather than
+        // as an alarm, so a healthy machine reads "24 of 29 tools passing - 5 not installed".
+        if (_lastToolHealth is { } h && h.Total > 0)
+        {
+            summary = $"{h.Pass} of {h.Total} tools passing";
+            if (h.NotBuilt > 0) summary += $" - {h.NotBuilt} not installed";
+        }
         HomeView.SetStatus(status, healthy, _gatewayError, summary);
     }
 

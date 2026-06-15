@@ -1,6 +1,8 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using CcDirector.Core.Home;
+using CcDirector.Core.Tools;
 using Xunit;
 
 namespace CcDirector.Core.Tests.Home;
@@ -176,6 +178,46 @@ public class HomeStatusBuilderTests
         var tools = Row(status, "cc-* tools");
         Assert.Equal(HomeCheckLevel.Bad, tools.Level);
         Assert.Equal(HomeCheckAction.RepairTools, tools.Action);
+    }
+
+    // ---------- Test-result-driven tools row (pass/fail/not-built breakdown) ----------
+
+    [Fact]
+    public void Build_ToolHealthWithFailure_ShowsBreakdownWarnsAndRoutesToTools()
+    {
+        var health = new ToolHealthSummary(24, 1, 4,0, new[] { "cc-foo" });
+        var status = HomeStatusBuilder.Build(new[] { Cli("Claude Code", true, "2.1") }, 0, 0, null, health);
+
+        var tools = Row(status, "cc-* tools");
+        Assert.Equal(HomeCheckLevel.Warn, tools.Level);
+        Assert.Contains("24 pass", tools.Detail);
+        Assert.Contains("1 fail", tools.Detail);
+        Assert.Contains("4 not built", tools.Detail);
+        Assert.Contains("cc-foo", tools.Detail);
+        Assert.Equal(HomeCheckAction.OpenTools, tools.Action); // a plain failure routes to the Tools page
+        Assert.False(status.AllReady);
+    }
+
+    [Fact]
+    public void Build_ToolHealthAllPassWithOptionalNotBuilt_IsGreen()
+    {
+        var health = new ToolHealthSummary(24, 0, 4,0, Array.Empty<string>());
+        var status = HomeStatusBuilder.Build(new[] { Cli("Claude Code", true, "2.1") }, 0, 0, null, health);
+
+        var tools = Row(status, "cc-* tools");
+        Assert.Equal(HomeCheckLevel.Ok, tools.Level);   // optional not-built does not alarm
+        Assert.Equal(HomeCheckAction.None, tools.Action);
+    }
+
+    [Fact]
+    public void Build_ToolHealthBroken_OffersRepair()
+    {
+        var health = new ToolHealthSummary(24, 0, 1,1, Array.Empty<string>());
+        var status = HomeStatusBuilder.Build(new[] { Cli("Claude Code", true, "2.1") }, 0, 0, null, health);
+
+        var tools = Row(status, "cc-* tools");
+        Assert.Equal(HomeCheckLevel.Warn, tools.Level);
+        Assert.Equal(HomeCheckAction.RepairTools, tools.Action); // broken -> one-click Fix
     }
 
     [Fact]
