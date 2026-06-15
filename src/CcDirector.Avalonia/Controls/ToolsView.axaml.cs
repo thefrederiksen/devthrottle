@@ -75,6 +75,11 @@ public partial class ToolsView : UserControl
                 ? $"\nUnmanaged binaries (not in manifest): {string.Join(", ", unmanaged)}"
                 : "";
             ListSummary.Text = $"{built}/{_allItems.Count} built.{unmanagedNote}";
+
+            // Auto-run the checks once so built tools show PASS/FAIL right away instead of a wall of
+            // "untested" the user has to clear manually (the screenshot complaint). Fire-and-forget;
+            // chips update live off the UI thread, and the "Run All Tests" button reflects progress.
+            _ = RunAllAsync();
         }
         catch (Exception ex)
         {
@@ -161,6 +166,19 @@ public partial class ToolsView : UserControl
     private async void RunAllButton_Click(object? sender, RoutedEventArgs e)
     {
         FileLog.Write("[ToolsView] RunAllButton_Click");
+        await RunAllAsync();
+    }
+
+    /// <summary>
+    /// Run every tool's checks with bounded concurrency, updating the chips live. Used by the
+    /// "Run All Tests" button AND auto-triggered once when the catalog first loads, so a built tool
+    /// shows PASS/FAIL instead of a wall of "untested" the user must manually clear. Tools whose
+    /// smoke command needs credentials declare no smoke test, so this is just their presence+version
+    /// check; tools with a read-only smoke run that too. Re-entrancy is guarded by the button state.
+    /// </summary>
+    private async Task RunAllAsync()
+    {
+        if (!RunAllButton.IsEnabled) return; // a run is already in progress
         RunAllButton.IsEnabled = false;
         RunAllButton.Content = "Running...";
         try
