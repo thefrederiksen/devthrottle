@@ -57,6 +57,24 @@ public sealed class AgentToolConfig
         return entry.DefaultPreset.Arguments;
     }
 
+    /// <summary>
+    /// The full effective command-line arguments a real launch uses: the effective preset/override
+    /// arguments (<see cref="ResolveEffectiveArguments"/>) plus a <c>--model &lt;model&gt;</c> flag
+    /// when a default model is configured and the args do not already pin a model. This is the
+    /// single source of truth shared by the App launch wiring and the Agents-tab "what launches"
+    /// preview strip (issue #436), so the preview is always truthful.
+    /// </summary>
+    public string ResolveEffectiveCommandLineArguments()
+    {
+        var args = ResolveEffectiveArguments().Trim();
+
+        var model = DefaultModel?.Trim() ?? "";
+        if (model.Length > 0 && !args.Contains("--model", StringComparison.OrdinalIgnoreCase))
+            args = string.IsNullOrEmpty(args) ? $"--model {model}" : $"{args} --model {model}";
+
+        return args;
+    }
+
     /// <summary>The config.json key for a tool, e.g. <c>claude</c>, <c>pi</c>.</summary>
     public static string KeyFor(AgentKind tool) => tool switch
     {

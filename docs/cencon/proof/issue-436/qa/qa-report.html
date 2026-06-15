@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>QA Report - Issue #436 Agents tab redesign - FAILED</title>
+<style>
+  body { font-family: 'Segoe UI', Arial, sans-serif; background:#1e1e1e; color:#d4d4d4; margin:0; padding:24px; line-height:1.5; }
+  h1 { color:#fff; border-bottom:2px solid #007acc; padding-bottom:8px; }
+  h2 { color:#4ec9b0; margin-top:32px; }
+  .verdict-fail { background:#5a1d1d; border:1px solid #be3a3a; padding:12px 16px; border-radius:6px; font-size:18px; font-weight:bold; color:#ffb4b4; }
+  table { border-collapse:collapse; width:100%; margin:16px 0; }
+  th,td { border:1px solid #3c3c3c; padding:8px 10px; text-align:left; vertical-align:top; }
+  th { background:#252526; color:#9cdcfe; }
+  .pass { color:#6ac46a; font-weight:bold; }
+  .fail { color:#ff6b6b; font-weight:bold; }
+  code { background:#2d2d2d; padding:2px 5px; border-radius:3px; color:#ce9178; font-family:'Cascadia Mono',Consolas,monospace; }
+  img { max-width:1040px; width:100%; border:1px solid #3c3c3c; border-radius:4px; margin:8px 0; }
+  .meta { color:#888; font-size:13px; }
+  .defect { background:#3a2a1d; border:1px solid #8a6d3b; padding:12px 16px; border-radius:6px; }
+</style>
+</head>
+<body>
+<h1>QA Report - Issue #436: Agents tab redesign</h1>
+<p class="meta">
+  PR #440 - branch <code>issue-436-agents-tab-redesign</code> (HEAD 5d6cd9d)<br/>
+  Verified independently by the QA Agent in a freshly built, isolated test Director (slot 8, build v0.6.23).<br/>
+  Reference display: 1920 x 1080 (the issue's stated reference resolution). Dialog at default size 1040 x 860.<br/>
+  Date: 2026-06-15. Method: own build of the PR branch, launched via per-slot scheduled task, driven via UI Automation + Control API + Director logs.
+</p>
+
+<p class="verdict-fail">VERDICT: FAILED - AC1 not met. 10 of 11 acceptance criteria pass; AC1 (3 full cards without scrolling) fails on the reference 1920x1080 display at default size.</p>
+
+<div class="defect">
+<h2 style="margin-top:0;color:#e0a96d;">Defect (AC1)</h2>
+<p><b>Criterion:</b> "With the window at its default size on a 1920x1080 display, opening Settings -&gt; Agents shows <b>at least 3 full agent-tool cards without scrolling</b>." The issue's Assumptions explicitly note "the binding criterion is the 3-card rule."</p>
+<p><b>Expected:</b> 3 complete tool cards (e.g. Claude Code, Pi, Codex) fully visible without scrolling.</p>
+<p><b>Actual:</b> Only <b>2 full cards</b> (Claude Code, Pi) are fully visible at the default 1040x860 size on 1920x1080. The 3rd card (Codex) is clipped to just its header/Enabled row, and a vertical scrollbar is present in the Agents content area - the user must scroll to see the full 3rd card.</p>
+<p><b>Measurement (UI Automation bounding rectangles, dialog bottom = 1024 px):</b></p>
+<table>
+<tr><th>Card preview strip</th><th>Bottom (px)</th><th>Dialog bottom (px)</th><th>Fully visible?</th></tr>
+<tr><td>Claude Code (ClaudePreviewStrip)</td><td>635</td><td>1024</td><td class="pass">Yes</td></tr>
+<tr><td>Pi (PiPreviewStrip)</td><td>885</td><td>1024</td><td class="pass">Yes</td></tr>
+<tr><td>Codex (CodexPreviewStrip)</td><td>1135</td><td>1024</td><td class="fail">No (clipped, below viewport; also below the Save/Cancel bar)</td></tr>
+</table>
+<p>Note the Save and Cancel button bar occupies the lower ~60 px of the 860-px dialog, further reducing the usable card area. The expanded hint paragraph (lengthened for AC10) plus the toolbar (Detection wizard / Detect All / Test All) consume enough vertical space that the 3rd card does not fit at 860 px height.</p>
+<p><b>Repro:</b> Open the app on a 1920x1080 display -&gt; Settings -&gt; Agents tab. Observe only Claude Code and Pi are fully visible; Codex is cut off and the scrollbar is active.</p>
+<p><b>Suggested fix direction (developer's call):</b> increase the default dialog Height (and/or reduce vertical chrome: tighten the hint paragraph spacing or the toolbar) until 3 full cards fit at 1920x1080. The Width is fine; the Height (860) is the binding constraint.</p>
+<p>Evidence: see <code>ac5-quick-check.png</code> and <code>ac1-ac9-agents-standard-preserved.png</code> (Claude + Pi full, Codex header only, scrollbar visible at right).</p>
+</div>
+
+<h2>Acceptance criteria results</h2>
+<table>
+<tr><th>AC</th><th>Result</th><th>Expected vs Actual (independently verified)</th><th>Evidence</th></tr>
+
+<tr><td>AC1 - bigger dialog, 3+ full cards</td><td class="fail">FAIL</td>
+<td>Expected 3 full cards without scrolling at 1040x860 on 1920x1080. Actual: only 2 full cards (Claude, Pi); Codex clipped to header; scrollbar present. See defect above.</td>
+<td>ac1-ac9-agents-standard-preserved.png, ac5-quick-check.png</td></tr>
+
+<tr><td>AC2 - preview strip on every card</td><td class="pass">PASS</td>
+<td>Every card shows a read-only monospace "This is what launches:" strip beneath the Command line row. Verified strips present and populated for all five: Claude (<code>...claude.EXE</code>), Pi (<code>D:\Tools\Pi\pi.exe</code>), Codex, Gemini (<code>...gemini.cmd</code>), OpenCode (<code>...opencode.CMD</code>) via UIA value reads.</td>
+<td>ac1-ac9-agents-standard-preserved.png (Claude + Pi strips visible)</td></tr>
+
+<tr><td>AC3 - preview reflects preset</td><td class="pass">PASS</td>
+<td>Selecting "Automatic (skip permissions)" -&gt; strip = <code>C:\Users\soren\.local\bin\claude.EXE --dangerously-skip-permissions</code>. Selecting "Standard" -&gt; <code>C:\Users\soren\.local\bin\claude.EXE</code> (no flags). Updated live, no save/close.</td>
+<td>ac3-claude-automatic.png, ac1-ac9-agents-standard-preserved.png</td></tr>
+
+<tr><td>AC4 - preview reflects model + override</td><td class="pass">PASS</td>
+<td>Model "opus" -&gt; strip appends <code>--model opus</code>. Override "--foo bar --resume" -&gt; strip = <code>...claude.EXE --foo bar --resume --model opus</code> (override REPLACES preset args, matching ResolveEffectiveArguments). Live update.</td>
+<td>ac4-claude-model-override.png</td></tr>
+
+<tr><td>AC5 - Quick check unchanged</td><td class="pass">PASS</td>
+<td>"Quick check" on Claude ran the version probe; ClaudeStatus = <code>OK: Claude Code reported 2.1.177 (Claude Code).</code> Equivalent to the old Test.</td>
+<td>ac5-quick-check.png</td></tr>
+
+<tr><td>AC6 - Launch preview popup</td><td class="pass">PASS</td>
+<td>"Launch preview..." opened a popup showing (a) exact command <code>C:\Users\soren\.local\bin\claude.EXE --dangerously-skip-permissions</code> at the top, (b) a live terminal with Claude Code v2.1.177 actually running, (c) the permission-bypass indication <code>bypass permissions on (shift+tab to cycle)</code> visible.</td>
+<td>ac6-launch-preview.png</td></tr>
+
+<tr><td>AC7 - Launch preview teardown</td><td class="pass">PASS</td>
+<td><code>GET /sessions</code> returned <code>[]</code> during AND after the preview - no roster session added. Director log: <code>[LaunchPreviewDialog] TearDownAsync: throwaway process pid=44324 stopped and disposed</code>; pid 44324 confirmed no longer running after "Stop and close".</td>
+<td>Director log (director-2026-06-15-59304.log); Control API /sessions = []</td></tr>
+
+<tr><td>AC8 - Claude default is Automatic</td><td class="pass">PASS</td>
+<td>With <code>agent.tools.claude</code> removed from config.json and Director restarted, Claude loaded with Command line = "Automatic (skip permissions)" and strip = <code>...claude.EXE --dangerously-skip-permissions</code>. (Pi unchanged at "Standard" - only Claude's default changed.)</td>
+<td>ac8-unconfigured-claude-automatic.png</td></tr>
+
+<tr><td>AC9 - existing config preserved</td><td class="pass">PASS</td>
+<td>With config.json carrying <code>agent.tools.claude.preset = "Standard"</code>, Claude loaded as "Standard" with strip <code>C:\Users\soren\.local\bin\claude.EXE</code> (no skip-permissions). The new Automatic default did NOT overwrite the explicit saved choice.</td>
+<td>ac1-ac9-agents-standard-preserved.png</td></tr>
+
+<tr><td>AC10 - doc/hint accuracy</td><td class="pass">PASS</td>
+<td>AgentToolCatalog.cs XML doc comments updated: "Design decision (issue #436, supersedes issue #391): Claude Code's recommended default is now 'Automatic (skip permissions)'..." Agents-page hint text reads "Claude Code now defaults to Automatic (skip permissions), which passes --dangerously-skip-permissions (this supersedes the safe Standard default chosen in issue #391)..." - both reference #391. Verified in source diff and on-screen.</td>
+<td>Source diff (AgentToolCatalog.cs / SettingsDialog.axaml hint); hint visible in every screenshot</td></tr>
+
+<tr><td>AC11 - build + style</td><td class="pass">PASS</td>
+<td><code>dotnet build cc-director.sln</code> -&gt; Build succeeded, 0 Warning(s), 0 Error(s). Slot exe published clean. Agent-related Core tests: 55 passed / 0 failed. UI follows VisualStyle dark theme (#252526 strip, monospace Cascadia, consistent button styling).</td>
+<td>build output; dotnet test (55 passed)</td></tr>
+</table>
+
+<h2>Regression sweep</h2>
+<p>Negative sweep across every screenshot: other Settings tabs (Files, Gateway, Voice, Features, Advanced) unaffected; non-Claude cards still default to Standard; Detect/Browse still wire to the preview strip refresh; no console errors; the DRY refactor (App.BuildClaudeDefaultArgs -&gt; AgentToolConfig.ResolveEffectiveCommandLineArguments) preserves identical launch composition and is covered by new unit tests. No adjacent breakage observed. The DRY core refactor and the new throwaway-terminal pattern introduce no CenCon/security-rule regressions.</p>
+
+<h2>Conclusion</h2>
+<p class="verdict-fail">FAILED on AC1. 10/11 ACs verified PASS with independent proof. The single defect is the 3-full-cards-without-scrolling rule (the issue's explicitly binding criterion), which is not met at the default 1040x860 size on the reference 1920x1080 display - only 2 full cards fit. Returning to the Developer Agent (flow:qa-failed) to enlarge the default dialog height / reduce vertical chrome so the 3rd card fits.</p>
+</body>
+</html>

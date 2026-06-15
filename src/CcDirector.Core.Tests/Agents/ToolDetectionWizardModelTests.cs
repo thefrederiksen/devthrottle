@@ -70,15 +70,15 @@ public class ToolDetectionWizardModelTests
     }
 
     [Fact]
-    public void ScanSuggestions_FoundTool_CarriesRecommendedStandardPresetNotSkipPermissions()
+    public void ScanSuggestions_FoundClaude_CarriesRecommendedAutomaticPreset()
     {
         var model = new ToolDetectionWizardModel(new ToolDetectionService());
         var suggestions = model.ScanSuggestions(new AgentOptions());
 
         var claude = suggestions.Single(s => s.Tool == AgentKind.ClaudeCode);
-        // Regardless of whether Claude is installed on the build agent, the recommended preset is
-        // always the Standard one - the wizard never suggests skip-permissions.
-        Assert.Equal(AgentToolCatalog.StandardPresetName, claude.RecommendedPresetName);
+        // Issue #436 (supersedes #391): the wizard now recommends the catalog default, which for
+        // Claude is Automatic (skip permissions), so a freshly detected Claude defaults to it.
+        Assert.Equal(AgentToolCatalog.ClaudeAutomaticPresetName, claude.RecommendedPresetName);
     }
 
     [Fact]
@@ -113,7 +113,7 @@ public class ToolDetectionWizardModelTests
     }
 
     [Fact]
-    public void AcceptSelected_Claude_NeverWritesSkipPermissions()
+    public void AcceptSelected_Claude_WritesAutomaticDefaultPreset()
     {
         var old = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
         var root = NewRoot();
@@ -125,9 +125,11 @@ public class ToolDetectionWizardModelTests
                 new AcceptedToolSelection(AgentKind.ClaudeCode, "claude"),
             });
 
+            // Issue #436: accepting Claude from the wizard now writes the Automatic (skip
+            // permissions) catalog default, so a freshly configured Claude skips permissions.
             var loaded = AgentToolConfig.Load(AgentKind.ClaudeCode);
-            Assert.Equal(AgentToolCatalog.StandardPresetName, loaded.PresetName);
-            Assert.DoesNotContain(AgentToolCatalog.ClaudeSkipPermissionsArg, loaded.ResolveEffectiveArguments());
+            Assert.Equal(AgentToolCatalog.ClaudeAutomaticPresetName, loaded.PresetName);
+            Assert.Equal(AgentToolCatalog.ClaudeSkipPermissionsArg, loaded.ResolveEffectiveArguments());
             Assert.True(loaded.Enabled);
         }
         finally
