@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0B1020" />
+<title>Voice - CC Director</title>
+<link rel="stylesheet" href="/pages/voice/voice.css" />
+</head>
+<body>
+  <!-- Session list view -->
+  <section id="list-view" class="view">
+    <header class="bar">
+      <h1>Voice</h1>
+      <button id="refresh-btn" class="ghost" title="Refresh">Refresh</button>
+    </header>
+    <p id="list-status" class="status-line">Loading sessions...</p>
+    <ul id="session-list" class="sessions"></ul>
+  </section>
+
+  <!-- Single session voice view -->
+  <section id="session-view" class="view hidden">
+    <header class="bar">
+      <button id="back-btn" class="ghost">&larr; Back</button>
+      <h1 id="session-name" class="session-name">Session</h1>
+    </header>
+
+    <div class="session-meta">
+      <span id="session-state" class="pill">&mdash;</span>
+      <span id="session-repo" class="muted"></span>
+    </div>
+
+    <div class="stage" id="stage-line">Tap Speak and talk.</div>
+
+    <div class="controls">
+      <button id="speak-btn" class="primary big">Speak</button>
+      <button id="play-btn" class="secondary" disabled>Play reply</button>
+    </div>
+
+    <div class="reply" id="reply-box"></div>
+  </section>
+
+  <!-- The Gateway token is injected server-side by the /voice route (same box reads
+       gateway-token.txt) so the page can authenticate to the token-gated voice-turn
+       endpoints even when the Gateway runs with global auth off. -->
+  <script>window.__GW_TOKEN__ = "__GATEWAY_TOKEN__";</script>
+  <script src="/pages/voice/voice.js"></script>
+</body>
+</html>

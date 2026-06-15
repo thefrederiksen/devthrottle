@@ -196,3 +196,58 @@ File: `src/CcDirector.Core/Voice/Services/ClaudeSummarizer.cs`
    `GET .../voice-turn/{turnId}` on the Gateway.
 2. Phone already sends the token via `DirectorVoiceClient.NewClient()`
    (`Authorization: Bearer <token>`).
+
+---
+
+## Guaranteed audio-turn: resumable upload + durable reply
+
+**Status:** IMPLEMENTED (Gateway). The submit/poll surface above is the single-shot path; this
+section adds the *guarantee* the mobile-voice spec asks for: a clip that records locally is
+guaranteed to become an audio reply that **durably sits in the session** and is retrievable
+later, even if the phone drops signal mid-upload, retries, or the Gateway restarts.
+
+### Routes (all on the Gateway, all bearer-token gated)
+
+```
+POST /sessions/{sid}/voice-turn/upload                       -> 200 { upload_id }
+     Header: Idempotency-Key: <client turn GUID>   (doubles as the upload id)
+PUT  /sessions/{sid}/voice-turn/upload/{uploadId}/chunk/{i}  -> 200 { ok, index, bytes }
+     Body: raw chunk bytes;  Header: X-Chunk-Sha256 (optional, rejects corruption)
+POST /sessions/{sid}/voice-turn/upload/{uploadId}/complete   { totalChunks, mime }
+     -> 202 { turn_id, expires_at }   when all chunks present (turn starts in background)
+     -> 409 { status:"incomplete", missing:[...] }   resend only those, then complete again
+GET  /sessions/{sid}/voice-turn/{turn_id}        -> live job, else durable archive (archived:true)
+GET  /sessions/{sid}/voice-turn/{turn_id}/audio  -> audio/mpeg bytes (durable replay)
+GET  /sessions/{sid}/voice-turns?since=<iso>     -> completed turns for the session, newest first
+```
+
+### The guarantee chain
+
+- **Upload survives bad coverage** — chunks are buffered on the Gateway
+  (`VoiceUploadStore`): each lands on disk and *stays landed* (SHA-checked, idempotent), so a
+  dropped connection resumes at the next missing chunk. `complete` is 409-until-whole.
+- **Exactly-once** — the client's `Idempotency-Key` is the upload id. A retried `complete`
+  returns the SAME `turn_id` (live index in `GatewayTurnJobStore.FindTurnByUpload`, then the
+  durable `VoiceTurnArchive.FindByUpload` after the in-memory job expires) instead of starting a
+  duplicate turn.
+- **Reply is durable and addressable** — when the Director SSE worker emits its terminal
+  `reply`, the Gateway writes the summary + transcript + reply MP3 to `VoiceTurnArchive`
+  (`base/voice-turn-archive/<turnId>/`, 24-hour retention), keyed by `turn_id` and session.
+  Polls fall back to it after the 10-minute in-memory TTL, and `/audio` + `/voice-turns` read it.
+
+### Design note — why the Gateway buffers chunks (not the Director's `/voice/utterance`)
+
+The Director's `/voice/utterance/complete` transcribes and posts *text* to the session — a
+different flow that produces no audio reply. So the Gateway buffers the chunks itself and feeds
+the assembled clip into the existing async voice-turn worker. The resumable upload and the
+audio-reply turn become one pipeline behind a single Gateway URL, with no double-post.
+
+### Where each new piece lives
+
+| Concern | File |
+|---|---|
+| Resumable chunk staging (assemble-only) | `src/CcDirector.Gateway/Voice/VoiceUploadStore.cs` |
+| Durable reply archive + read-back | `src/CcDirector.Gateway/Voice/VoiceTurnArchive.cs` |
+| Upload/complete/audio/list routes + reply persistence | `src/CcDirector.Gateway/Api/GatewayVoiceTurnEndpoint.cs` |
+| Upload->turn idempotency index | `src/CcDirector.Gateway/Voice/GatewayTurnJobStore.cs` |
+| Storage roots | `CcStorage.VoiceTurnUploads()`, `CcStorage.VoiceTurnArchive()` |

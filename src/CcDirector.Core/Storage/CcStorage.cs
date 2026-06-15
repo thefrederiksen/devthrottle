@@ -74,6 +74,21 @@ public static class CcStorage
     public static string TurnReviewLogs() => Ensure(Path.Combine(Base(), "turn-review"));
 
     /// <summary>
+    /// Durable voice-turn archive (issue: guaranteed audio-turn): base/voice-turn-archive/&lt;turnId&gt;/.
+    /// Each completed async voice turn writes its result here - meta.json (session id, upload id,
+    /// stage, summary) plus reply.mp3 - so the reply "sits in the session" and is retrievable long
+    /// after the in-memory job cache TTL and across a Gateway restart. Owned by the Gateway.
+    /// </summary>
+    public static string VoiceTurnArchive() => Ensure(Path.Combine(Base(), "voice-turn-archive"));
+
+    /// <summary>
+    /// Resumable upload staging for the Gateway voice-turn front door: base/voice-turn-uploads/&lt;uploadId&gt;/.
+    /// Each chunk lands here as it arrives (SHA-checked, idempotent) and the dir is deleted once the
+    /// chunks are assembled and the turn has been started. Owned by the Gateway.
+    /// </summary>
+    public static string VoiceTurnUploads() => Ensure(Path.Combine(Base(), "voice-turn-uploads"));
+
+    /// <summary>
     /// "This brief is wrong" reports (TURN_BRIEFING.md D7): base/brief-feedback/. Each report
     /// stores the brief + the user's note as a labeled example that drives wingman prompt
     /// iteration. Written by the GATEWAY's feedback endpoint since issue #187. (The old
