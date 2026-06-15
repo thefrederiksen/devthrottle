@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QA Report (final) - Issue #407 reconciliation</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; line-height: 1.5; }
+  h1 { border-bottom: 3px solid #2d6cdf; padding-bottom: .4rem; }
+  h2 { margin-top: 2rem; color: #2d6cdf; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .6rem; text-align: left; vertical-align: top; font-size: .92rem; }
+  th { background: #f0f4fb; }
+  .pass { color: #137333; font-weight: 700; }
+  .verdict { background: #e6f4ea; border: 1px solid #137333; padding: 1rem; border-radius: 6px; font-size: 1.05rem; }
+  code { background: #f4f4f4; padding: .1rem .3rem; border-radius: 3px; font-size: .88rem; }
+  pre { background: #1e1e1e; color: #e8e8e8; padding: .8rem; border-radius: 6px; overflow-x: auto; font-size: .8rem; }
+  .meta { color: #555; font-size: .9rem; }
+</style>
+</head>
+<body>
+<h1>QA Report (final) - Issue #407: resumable reply-audio fetch, reconciled with #429</h1>
+<p class="meta">
+  Independent QA verification. Fresh context, own detached worktree at branch tip
+  <code>816c8db</code>, own clean build, own test runs, own live curl against a Gateway I launched
+  over loopback. The Developer's binary, screenshots, and report were NOT reused.
+  PR #446 &middot; branch <code>issue-407-resumable-audio</code>.
+</p>
+
+<h2>Reconciliation context</h2>
+<p>
+  PR #446 (#407: move reply audio out of the poll into a dedicated resumable fetch) had conflicted
+  with <code>main</code> because PR #429 (mobile Voice mode - guaranteed audio-turn backend, commit
+  <code>9c0073c</code>) rewrote the same voice-turn files. The Developer merged <code>origin/main</code>
+  into the branch and combined the two. This QA pass confirms <strong>BOTH features survive the merge
+  - neither side was silently dropped.</strong>
+</p>
+
+<h2>Build &amp; tests (re-run independently)</h2>
+<table>
+  <tr><th>Check</th><th>Command</th><th>Result</th><th></th></tr>
+  <tr><td>Full solution build</td><td><code>dotnet build cc-director.sln</code></td><td>Build succeeded, <strong>0 Warning(s) / 0 Error(s)</strong></td><td class="pass">PASS</td></tr>
+  <tr><td>Gateway voice-turn tests</td><td><code>--filter GatewayVoiceTurnAsyncTests</code></td><td><strong>30/30</strong> passed (covers #429 upload/durability + #407 slim/audio)</td><td class="pass">PASS</td></tr>
+  <tr><td>Phone client tests</td><td><code>--filter VoiceTurnRunnerTests|VoiceTurnResultTests</code></td><td><strong>31/31</strong> passed</td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>#407 acceptance criteria - live curl against a real GatewayHost (loopback :18407)</h2>
+<p class="meta">A real <code>GatewayHost</code> (real Kestrel) was launched on loopback, seeded with a 4096-byte
+  deterministic reply job (byte = <code>i % 256</code>) and a second reply job with no audio. Full curl
+  transcript: <code>docs/cencon/proof/issue-407/qa-reconcile-live-curl.txt</code>.</p>
+<table>
+  <tr><th>Criterion</th><th>Expected</th><th>Actual (live)</th><th></th></tr>
+  <tr><td>AC1 - slim poll carries no audio</td><td>poll small/constant; <code>audioBase64:null</code>, <code>audioReady:true</code>, <code>audioLength:4096</code></td><td>234-byte body; <code>audioBase64:null</code>, <code>audioReady:true</code>, <code>audioLength:4096</code></td><td class="pass">PASS</td></tr>
+  <tr><td>AC1b - back-compat inline audio</td><td><code>?includeAudio=1</code> -> inline base64</td><td>5696-byte body, <code>audioBase64</code> populated (vs 234 slim)</td><td class="pass">PASS</td></tr>
+  <tr><td>AC2 - GET /audio full</td><td>200, <code>audio/mpeg</code>, <code>Accept-Ranges: bytes</code>, 4096B</td><td>200, <code>Content-Type: audio/mpeg</code>, <code>Accept-Ranges: bytes</code>, <code>Content-Length: 4096</code></td><td class="pass">PASS</td></tr>
+  <tr><td>AC2b - Range resume</td><td><code>Range: bytes=1000-</code> -> 206, <code>Content-Range: bytes 1000-4095/4096</code>, tail byte-identical</td><td>206, <code>Content-Range: bytes 1000-4095/4096</code>, 3096B, resumed tail sha256 == full[1000:] sha256</td><td class="pass">PASS</td></tr>
+  <tr><td>AC2c - middle Range</td><td><code>bytes=1000-1999</code> -> 206 / 1000B</td><td>206, <code>Content-Range: bytes 1000-1999/4096</code>, 1000B</td><td class="pass">PASS</td></tr>
+  <tr><td>AC2d - unsatisfiable Range</td><td><code>bytes=99999-</code> -> 416</td><td>416 Range Not Satisfiable, <code>Content-Range: bytes */4096</code></td><td class="pass">PASS</td></tr>
+  <tr><td>AC3 - unknown/expired turn</td><td>404</td><td>404</td><td class="pass">PASS</td></tr>
+  <tr><td>AC3b - reply with no audio</td><td>/audio 404, but poll 200 <code>audioReady:false</code></td><td>/audio 404; poll 200 <code>audioReady:false, audioLength:0</code></td><td class="pass">PASS</td></tr>
+  <tr><td>AC4 - missing token</td><td>401</td><td>401</td><td class="pass">PASS</td></tr>
+  <tr><td>Reply plays end-to-end</td><td>no regression; multi-chunk reassembly byte-correct</td><td>client test <code>FetchAudio_MidDownloadDrop_ResumesFromOffset_NotRestart</code> + full-clip tests green</td><td class="pass">PASS</td></tr>
+  <tr><td>Server + client tests cover it</td><td>200/206/404/401/slim/back-compat + resume</td><td>covered by the 30 Gateway + 31 client tests above</td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>#429 not regressed (the reconciliation did not drop the guaranteed audio-turn backend)</h2>
+<p>The reconciled endpoint retains all of #429, verified by code review of
+  <code>GatewayVoiceTurnEndpoint.cs</code> and by its tests passing:</p>
+<table>
+  <tr><th>#429 feature</th><th>Evidence it survived</th><th></th></tr>
+  <tr><td>Resumable chunked upload (<code>upload</code> / <code>chunk/{i}</code> / <code>complete</code>)</td><td>Routes present; tests <code>Upload_MissingToken_Returns401</code>, <code>Complete_MissingChunk_Returns409_ThenResumeReturns202</code>, <code>Complete_RetriedSameUpload_ReturnsSameTurnId</code> pass</td><td class="pass">PASS</td></tr>
+  <tr><td>Durable <code>VoiceTurnArchive</code> (reply outlives TTL / Gateway restart)</td><td><code>PersistReplyIfComplete</code> on the turn worker; test <code>Poll_AfterTTLExpiry_ServedFromDurableArchive</code> passes; /audio falls back job-then-archive</td><td class="pass">PASS</td></tr>
+  <tr><td>Idempotent completion (live job + archive)</td><td><code>FindTurnByUpload</code> + <code>archive.FindByUpload</code> guard in the complete route</td><td class="pass">PASS</td></tr>
+  <tr><td><code>GET /voice-turns</code> list</td><td>Route present; test <code>VoiceTurns_ListsCompletedTurnForSession</code> passes</td><td class="pass">PASS</td></tr>
+  <tr><td>Single range-capable /audio served job-first then archive</td><td>One reconciled route (<code>Results.Bytes</code> + <code>enableRangeProcessing</code>); job-then-archive fallback verified live (206/416/404) and AC3b</td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>Regression sweep</h2>
+<p>No adjacent breakage: full solution builds with 0 warnings/0 errors; both targeted suites fully green;
+  the merged endpoint preserves #429's routes and #407's slim/range behavior simultaneously. The
+  architecture doc (<code>VOICE_TURN_ARCHITECTURE.md</code>) carries both sections and documents /audio
+  as range-capable, job-first then archive.</p>
+
+<div class="verdict">
+  <strong>VERIFIED - all acceptance criteria met.</strong> #407 (slim poll + dedicated resumable
+  range-capable /audio) and #429 (resumable upload + durable archive + /voice-turns) both survive the
+  reconciliation. PR #446 is mergeable with no conflict. Recommend merge.
+</div>
+</body>
+</html>

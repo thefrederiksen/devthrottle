@@ -98,4 +98,52 @@ public class VoiceTurnResultTests
 
         Assert.Equal("unknown", result.Stage);
     }
+
+    // ===== ParsePoll: slim poll (issue #407) ===============================
+
+    [Fact]
+    public void ParsePoll_SlimReply_CarriesAudioReadyAndLength_NoBytes()
+    {
+        // The new slim poll: it advertises that audio is ready and how long it is, but does NOT
+        // carry the base64 bytes (audioBase64 is null). The client fetches the audio separately.
+        var json = "{\"turn_id\":\"abc\",\"stage\":\"reply\",\"summary\":\"All done.\"," +
+                   "\"audioReady\":true,\"audioLength\":2158560,\"audioBase64\":null," +
+                   "\"message\":null,\"expires_at\":\"2026-06-12T23:30:00Z\"}";
+
+        var result = VoiceTurnResults.ParsePoll(json);
+
+        Assert.Equal("reply", result.Stage);
+        Assert.Equal("All done.", result.Summary);
+        Assert.True(result.AudioReady);
+        Assert.Equal(2158560, result.AudioLength);
+        Assert.Null(result.AudioBase64);   // slim - the bytes are not in the poll
+    }
+
+    [Fact]
+    public void ParsePoll_SlimReply_NoAudio_AudioReadyFalse()
+    {
+        // No TTS key: the reply has no audio, so audioReady is false and the client speaks the
+        // on-screen summary only.
+        var json = "{\"turn_id\":\"abc\",\"stage\":\"reply\",\"summary\":\"All done.\"," +
+                   "\"audioReady\":false,\"audioLength\":0,\"audioBase64\":null}";
+
+        var result = VoiceTurnResults.ParsePoll(json);
+
+        Assert.False(result.AudioReady);
+        Assert.Equal(0, result.AudioLength);
+    }
+
+    [Fact]
+    public void ParsePoll_BackCompat_InlineAudioBase64_NoAudioReadyField_InfersReady()
+    {
+        // An OLDER Gateway that still inlines audioBase64 and omits audioReady: the parser must
+        // still tell the caller a reply has audio (AudioReady inferred from non-empty base64) so
+        // the client plays the inline bytes without a second round-trip.
+        var json = "{\"turn_id\":\"abc\",\"stage\":\"reply\",\"summary\":\"ok\",\"audioBase64\":\"AAEC\"}";
+
+        var result = VoiceTurnResults.ParsePoll(json);
+
+        Assert.True(result.AudioReady);
+        Assert.Equal("AAEC", result.AudioBase64);
+    }
 }

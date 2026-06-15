@@ -216,8 +216,8 @@ PUT  /sessions/{sid}/voice-turn/upload/{uploadId}/chunk/{i}  -> 200 { ok, index,
 POST /sessions/{sid}/voice-turn/upload/{uploadId}/complete   { totalChunks, mime }
      -> 202 { turn_id, expires_at }   when all chunks present (turn starts in background)
      -> 409 { status:"incomplete", missing:[...] }   resend only those, then complete again
-GET  /sessions/{sid}/voice-turn/{turn_id}        -> live job, else durable archive (archived:true)
-GET  /sessions/{sid}/voice-turn/{turn_id}/audio  -> audio/mpeg bytes (durable replay)
+GET  /sessions/{sid}/voice-turn/{turn_id}        -> live job, else durable archive (archived:true); SLIM (#407)
+GET  /sessions/{sid}/voice-turn/{turn_id}/audio  -> audio/mpeg, range-capable; job-first then archive (#407)
 GET  /sessions/{sid}/voice-turns?since=<iso>     -> completed turns for the session, newest first
 ```
 
@@ -251,3 +251,33 @@ audio-reply turn become one pipeline behind a single Gateway URL, with no double
 | Upload/complete/audio/list routes + reply persistence | `src/CcDirector.Gateway/Api/GatewayVoiceTurnEndpoint.cs` |
 | Upload->turn idempotency index | `src/CcDirector.Gateway/Voice/GatewayTurnJobStore.cs` |
 | Storage roots | `CcStorage.VoiceTurnUploads()`, `CcStorage.VoiceTurnArchive()` |
+
+---
+
+## Phase 5 — Reply audio out of the poll (#407)
+
+The poll was returning the reply audio inline as a large base64 field, so a single status
+poll could carry ~3 MB; on spotty data a mid-poll drop failed the whole transfer and every
+retry re-downloaded the blob from scratch. This builds directly on the guaranteed audio-turn
+work above: the durable reply archive stays, but the heavy bytes leave the status poll and move
+to a dedicated, range-capable fetch.
+
+1. **Slim poll.** `GET /sessions/{sid}/voice-turn/{turnId}` now returns
+   `{ stage, transcript, summary, audioReady, audioLength, message, expires_at }` — small and
+   constant-size regardless of reply length. The audio bytes are NOT in the poll. The durable
+   archive-fallback poll (after the in-memory TTL, `archived:true`) is slim the same way. Back-compat
+   for one release: an older phone asks for the inline bytes with `?includeAudio=1` (or the
+   `X-Include-Audio: 1` header) and still receives `audioBase64`; otherwise it is `null`.
+2. **Dedicated, resumable audio fetch.** `GET /sessions/{sid}/voice-turn/{turnId}/audio` returns
+   the raw `audio/mpeg` bytes with HTTP range support (`enableRangeProcessing`) — a 200 for the
+   full body or a 206 Partial Content for a `Range` request — so a dropped audio download resumes
+   (re-requests only the missing tail) instead of restarting. It serves **job-first then the
+   durable archive**: the live job stores the decoded bytes once at the reply event
+   (`TurnJob.SetReply` / `GetAudioBytes`) for hot, no-re-decode range slices; once the in-memory
+   job has expired or the Gateway restarted, the same route replays the bytes from
+   `VoiceTurnArchive` (#429) so the reply still "sits in the session". 404 when neither has the
+   turn (unknown/expired) or it has no audio (no TTS key).
+3. **Phone.** Once the poll reports `audioReady`, `VoiceConversation` fetches the audio via
+   `VoiceTurnRunner.FetchAudioToCompletionAsync` (same retry/backoff/deadline policy as the poll
+   loop, #405), reassembling resumed slices, then plays. The inline `audioBase64` back-compat path
+   is still honored when an older Gateway sends it.

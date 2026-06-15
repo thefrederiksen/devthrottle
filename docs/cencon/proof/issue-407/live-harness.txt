@@ -1,0 +1,65 @@
+Issue #407 - LIVE running-app proof of the dedicated resumable audio endpoint
+Captured 2026-06-15 on SOREN_NORTH against a real GatewayHost built from branch
+issue-407-resumable-audio (tip after recovery + verification), booted on an isolated
+ephemeral loopback port with an isolated instances dir (no production gateway touched,
+no Director, no real session). A completed voice turn was seeded with 4096 deterministic
+audio bytes (value = i % 251) directly in the Gateway job store, then the live routes
+were exercised with curl.
+
+Slot/build context (per developer-agent skill + CLAUDE.md rule 0b): test slot 8 was
+allocated via scripts/agent-session-isolation.ps1, built from the worktree root via
+scripts/local-build-avalonia.ps1 -Slot 8 (cc-director8.exe, Build succeeded 0/0),
+launched via the cc-director8-launch scheduled task (PID 35380, Control API 7884), and
+torn down afterward (slot 8 free again). The audio endpoint itself lives on the Gateway,
+so the curl proof below ran against a standalone GatewayHost from the same branch build.
+
+===========================================================================
+1. FULL FETCH  ->  GET .../voice-turn/{turnId}/audio        EXPECT 200
+===========================================================================
+HTTP/1.1 200 OK
+Content-Length: 4096
+Content-Type: audio/mpeg
+Accept-Ranges: bytes
+downloaded bytes: 4096            (the whole clip)
+
+===========================================================================
+2. RANGE / RESUME  ->  same route + "Range: bytes=1000-"    EXPECT 206
+===========================================================================
+HTTP/1.1 206 Partial Content
+Content-Length: 3096
+Content-Type: audio/mpeg
+Content-Range: bytes 1000-4095/4096
+tail bytes: 3096                  (only the missing tail re-sent)
+RESUME BYTES MATCH: the 206 body == full[1000:] byte-for-byte (cmp clean) -
+  a resumed download reassembles the original clip with no corruption.
+
+===========================================================================
+3a. UNKNOWN / EXPIRED TURN  ->  audio route, bad turnId      EXPECT 404
+===========================================================================
+HTTP 404
+  (an expired job is removed on read, so it takes the same "unknown" -> 404 path)
+
+3b. MISSING TOKEN  ->  audio route, no Authorization         EXPECT 401
+===========================================================================
+HTTP 401
+
+===========================================================================
+4. SLIM POLL  ->  GET .../voice-turn/{turnId}    NO audio bytes in the JSON
+===========================================================================
+{"turn_id":"85eae623-...","stage":"reply","transcript":null,
+ "summary":"All done.","audioReady":true,"audioLength":4096,
+ "audioBase64":null,"message":null,"expires_at":"..."}
+  -> audioReady=true, audioLength=4096, audioBase64=NULL.
+     The poll advertises that audio is fetchable + how long it is, but carries
+     none of the bytes. Its size is small and constant regardless of reply length.
+
+===========================================================================
+5. BACK-COMPAT POLL  ->  GET .../voice-turn/{turnId}?includeAudio=1
+===========================================================================
+{"turn_id":"85eae623-...","stage":"reply",..."audioReady":true,
+ "audioLength":4096,"audioBase64":"AAECAwQFBgcICQoLDA0ODxAREhMU..."}
+  -> with the opt-in flag an older phone still receives the inline base64 bytes,
+     exactly as before (one-release back-compat).
+
+All five live cases matched the expected results. Endpoint verified end-to-end
+against the real GatewayHost from this branch.

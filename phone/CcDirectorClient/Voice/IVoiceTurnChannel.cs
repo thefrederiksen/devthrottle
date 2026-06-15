@@ -25,4 +25,16 @@ public interface IVoiceTurnChannel
     /// </summary>
     Task<VoiceTurnPollResult> PollVoiceTurnAsync(
         string gatewayBase, string sessionId, string turnId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Fetch the reply audio from the dedicated audio endpoint (issue #407), requesting the
+    /// bytes from <paramref name="fromByte"/> onward via an HTTP Range header so a resumed
+    /// download asks only for the missing tail. Returns the slice plus the total audio length
+    /// (so the runner knows when the whole clip is in hand). On a non-2xx response it throws
+    /// <see cref="VoiceTurnHttpException"/> carrying the status code so the runner can tell a
+    /// transient failure (network / 5xx) from a terminal one (404 expired / no audio); the
+    /// runner decides whether to retry/resume.
+    /// </summary>
+    Task<VoiceTurnAudioChunk> FetchVoiceTurnAudioAsync(
+        string gatewayBase, string sessionId, string turnId, long fromByte, CancellationToken ct = default);
 }

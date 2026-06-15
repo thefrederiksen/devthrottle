@@ -1,0 +1,44 @@
+===== ISSUE #407 RECONCILIATION - INDEPENDENT LIVE CURL (QA Agent) =====
+Gateway: real GatewayHost on http://127.0.0.1:18407 (loopback), token-gated
+Seeded reply job turnId=1fd94d1e-badc-4186-9409-698da0e46c2a with 4096 deterministic bytes (i % 256); noAudio turnId=476384f6-5754-4492-9cfb-536928ba8f95
+
+--- AC1: status poll is SLIM (no audio bytes) ---
+poll body (234 bytes): {"turn_id":"1fd94d1e-badc-4186-9409-698da0e46c2a","stage":"reply","transcript":null,"summary":"Live QA reply summary.","audioReady":true,"audioLength":4096,"audioBase64":null,"message":null,"expires_at":"2026-06-15T15:54:49.0391986Z"}
+EXPECT: audioBase64:null, audioReady:true, audioLength:4096, body small/constant
+
+--- AC1b: back-compat ?includeAudio=1 returns inline base64 ---
+includeAudio body size: 5696 bytes (vs slim 234); audioBase64 present prefix: "audioBase64":"AAECAwQFBgcICQoLDA0O...
+
+--- AC2: GET /audio full -> 200, audio/mpeg, Accept-Ranges: bytes ---
+HTTP/1.1 200 OK
+Content-Length: 4096
+Content-Type: audio/mpeg
+Accept-Ranges: bytes
+full body bytes=4096 sha256=c8f5d0341d54d951a71b136e6e2afcb14d11ed8489a7ae126a8fee0df6ecf193
+
+--- AC2b: Range bytes=1000- -> 206, Content-Range, resumed tail byte-identical ---
+HTTP/1.1 206 Partial Content
+Content-Length: 3096
+Content-Range: bytes 1000-4095/4096
+resumed tail bytes=3096 (expect 3096); tail sha=de1114a898d89b2cd6ef46c9e33cde3bdb0288c638a506e7cd52df9af2d6146a ; full[1000:] sha=de1114a898d89b2cd6ef46c9e33cde3bdb0288c638a506e7cd52df9af2d6146a ; match=YES
+
+--- AC2c: middle Range bytes=1000-1999 -> 206 / 1000 bytes ---
+HTTP/1.1 206 Partial Content
+Content-Length: 1000
+Content-Range: bytes 1000-1999/4096
+mid body bytes=1000 (expect 1000)
+
+--- AC2d: unsatisfiable Range bytes=99999- -> 416 ---
+HTTP/1.1 416 Range Not Satisfiable
+Content-Range: bytes */4096
+
+--- AC3: unknown turn -> 404 ---
+unknown-turn http=404 (expect 404)
+--- AC3b: no-audio job -> /audio 404 BUT poll 200 audioReady=false ---
+no-audio /audio http=404 (expect 404)
+no-audio poll: {"turn_id":"476384f6-5754-4492-9cfb-536928ba8f95","stage":"reply","transcript":null,"summary":"No audio reply.","audioReady":false,"audioLength":0,"audioBase64":null,"message":null,"expires_at":"2026-06-15T15:54:49.0398443Z"}
+
+--- AC4: missing token -> 401 ---
+no-token /audio http=401 (expect 401)
+
+===== END LIVE CURL =====

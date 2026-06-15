@@ -298,10 +298,12 @@ public sealed class GatewayVoiceTurnAsyncTests : IAsyncLifetime
         var root = doc.RootElement;
 
         Assert.Equal("reply", root.GetProperty("stage").GetString());
-        // Both fields must be PRESENT and non-null after completion; audioBase64 is the empty
-        // string in this keyless environment, which is the documented contract.
+        // Summary is present and non-null after completion. Issue #407: the slim poll no longer
+        // carries the audio bytes - audioBase64 is null and audioReady advertises availability
+        // instead. In this keyless environment there is no audio, so audioReady is false.
         Assert.NotNull(root.GetProperty("summary").GetString());
-        Assert.NotNull(root.GetProperty("audioBase64").GetString());
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("audioBase64").ValueKind);
+        Assert.False(root.GetProperty("audioReady").GetBoolean());
     }
 
     [Fact]
@@ -320,8 +322,11 @@ public sealed class GatewayVoiceTurnAsyncTests : IAsyncLifetime
             Assert.Equal("reply", second.RootElement.GetProperty("stage").GetString());
             Assert.Equal(first.RootElement.GetProperty("summary").GetString(),
                 second.RootElement.GetProperty("summary").GetString());
-            Assert.Equal(first.RootElement.GetProperty("audioBase64").GetString(),
-                second.RootElement.GetProperty("audioBase64").GetString());
+            // Slim poll (issue #407): repeated polls return the same readiness flag/length, not bytes.
+            Assert.Equal(first.RootElement.GetProperty("audioReady").GetBoolean(),
+                second.RootElement.GetProperty("audioReady").GetBoolean());
+            Assert.Equal(first.RootElement.GetProperty("audioLength").GetInt32(),
+                second.RootElement.GetProperty("audioLength").GetInt32());
         }
     }
 
@@ -368,6 +373,140 @@ public sealed class GatewayVoiceTurnAsyncTests : IAsyncLifetime
         Assert.Equal("error", doc.RootElement.GetProperty("stage").GetString());
         var message = doc.RootElement.GetProperty("message").GetString();
         Assert.False(string.IsNullOrEmpty(message), "error stage must carry a message");
+    }
+
+    // ===== Slim poll + dedicated audio endpoint (issue #407) ===================
+
+    /// <summary>Seed a completed turn with known audio bytes directly in the job store, so the
+    /// audio-endpoint tests are deterministic without a real TTS key. Returns (sid, turnId, bytes).</summary>
+    private (string sid, string turnId, byte[] audio) SeedReplyWithAudio(int audioLen = 4096)
+    {
+        var sid = Guid.NewGuid().ToString();
+        var audio = new byte[audioLen];
+        for (var i = 0; i < audioLen; i++) audio[i] = (byte)(i % 251);
+
+        var job = _gateway.TurnJobs.Create(sid);
+        job.SetReply("All done.", Convert.ToBase64String(audio));
+        return (sid, job.TurnId, audio);
+    }
+
+    [Fact]
+    public async Task Poll_SlimByDefault_DoesNotCarryAudioBytes()
+    {
+        // Acceptance criterion: the status poll no longer carries the audio bytes; it advertises
+        // readiness + length only, so its size is small and constant regardless of reply length.
+        var (sid, turnId, audio) = SeedReplyWithAudio(audioLen: 8192);
+
+        var (status, doc) = await PollAsync(sid, turnId);
+        using (doc)
+        {
+            Assert.Equal(HttpStatusCode.OK, status);
+            var root = doc.RootElement;
+            Assert.Equal("reply", root.GetProperty("stage").GetString());
+            Assert.True(root.GetProperty("audioReady").GetBoolean());
+            Assert.Equal(audio.Length, root.GetProperty("audioLength").GetInt32());
+            // audioBase64 must be null in the slim poll - the bytes are NOT here.
+            Assert.Equal(JsonValueKind.Null, root.GetProperty("audioBase64").ValueKind);
+        }
+    }
+
+    [Fact]
+    public async Task Poll_BackCompat_IncludeAudioFlag_StillReturnsBase64()
+    {
+        // Back-compat (one release): an older phone asks for the inline bytes with ?includeAudio=1
+        // and still receives audioBase64 exactly as before.
+        var (sid, turnId, audio) = SeedReplyWithAudio(audioLen: 512);
+
+        var resp = await _http.GetAsync($"sessions/{sid}/voice-turn/{turnId}?includeAudio=1");
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+        var b64 = doc.RootElement.GetProperty("audioBase64").GetString();
+        Assert.Equal(Convert.ToBase64String(audio), b64);
+    }
+
+    [Fact]
+    public async Task Audio_FullFetch_Returns200WithAllBytes()
+    {
+        var (sid, turnId, audio) = SeedReplyWithAudio();
+
+        var resp = await _http.GetAsync($"sessions/{sid}/voice-turn/{turnId}/audio");
+
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        Assert.Equal("audio/mpeg", resp.Content.Headers.ContentType?.MediaType);
+        var bytes = await resp.Content.ReadAsByteArrayAsync();
+        Assert.Equal(audio, bytes);
+        // The endpoint advertises range support so a client knows it can resume.
+        Assert.Contains(resp.Headers.AcceptRanges, r => string.Equals(r, "bytes", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task Audio_RangeRequest_Returns206PartialContent()
+    {
+        var (sid, turnId, audio) = SeedReplyWithAudio(audioLen: 4096);
+
+        using var req = new HttpRequestMessage(HttpMethod.Get, $"sessions/{sid}/voice-turn/{turnId}/audio");
+        req.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(1000, null); // resume from byte 1000
+        var resp = await _http.SendAsync(req);
+
+        Assert.Equal(HttpStatusCode.PartialContent, resp.StatusCode);
+        var cr = resp.Content.Headers.ContentRange;
+        Assert.NotNull(cr);
+        Assert.Equal(1000, cr!.From);
+        Assert.Equal(audio.Length - 1, cr.To);
+        Assert.Equal(audio.Length, cr.Length);
+
+        var tail = await resp.Content.ReadAsByteArrayAsync();
+        Assert.Equal(audio.Length - 1000, tail.Length);
+        Assert.Equal(audio[1000..], tail); // the resumed tail matches the original
+    }
+
+    [Fact]
+    public async Task Audio_UnknownOrExpiredTurn_Returns404()
+    {
+        var sid = Guid.NewGuid().ToString();
+        var resp = await _http.GetAsync($"sessions/{sid}/voice-turn/{Guid.NewGuid()}/audio");
+
+        Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task Audio_AfterTTLExpiry_Returns404()
+    {
+        // SeedReplyWithAudio seeds the job directly (it never runs through RunTurnAsync), so
+        // nothing is archived: once the in-memory job expires there is neither a live job nor a
+        // durable archive entry, and the reconciled job-then-archive audio endpoint 404s.
+        var (sid, turnId, _) = SeedReplyWithAudio();
+
+        var job = _gateway.TurnJobs.Get(turnId);
+        Assert.NotNull(job);
+        job!.OverrideCreatedAtForTest(DateTime.UtcNow.AddMinutes(-11), Voice.GatewayTurnJobStore.Ttl);
+
+        var resp = await _http.GetAsync($"sessions/{sid}/voice-turn/{turnId}/audio");
+        Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task Audio_JobWithoutAudio_Returns404()
+    {
+        // A job that reached reply with no audio (no TTS key): the audio endpoint has nothing to
+        // serve, so 404 - distinct from a slim poll that still returns 200 with audioReady=false.
+        var sid = Guid.NewGuid().ToString();
+        var job = _gateway.TurnJobs.Create(sid);
+        job.SetReply("All done.", audioBase64: "");
+
+        var resp = await _http.GetAsync($"sessions/{sid}/voice-turn/{job.TurnId}/audio");
+        Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task Audio_MissingToken_Returns401()
+    {
+        var (sid, turnId, _) = SeedReplyWithAudio();
+
+        using var anon = NewAnonymousClient();
+        var resp = await anon.GetAsync($"sessions/{sid}/voice-turn/{turnId}/audio");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, resp.StatusCode);
     }
 
     // ===== Resumable upload front door (guaranteed audio-turn) =====

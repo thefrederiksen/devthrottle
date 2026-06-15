@@ -1,0 +1,8 @@
+Issue #407 - automated test proof (captured 2026-06-15, branch issue-407-resumable-audio)
+Full-solution build: dotnet build cc-director.sln -> Build succeeded. 0 Warning(s) 0 Error(s)
+
+=== Server: CcDirector.Gateway.Tests (GatewayVoiceTurnAsyncTests, issue #407 + #376) ===
+Passed!  - Failed:     0, Passed:    24, Skipped:     0, Total:    24, Duration: 15 s - CcDirector.Gateway.Tests.dll (net10.0)
+
+=== Client: phone/CcDirectorClient.Tests (VoiceTurnRunnerTests + VoiceTurnResultTests, issue #407 + #405) ===
+Passed!  - Failed:     0, Passed:    31, Skipped:     0, Total:    31, Duration: 126 ms - CcDirectorClient.Tests.dll (net10.0)

@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Issue #407 - Developer Proof - Resumable reply-audio fetch</title>
+<style>
+  :root { --bg:#0f1115; --panel:#171a21; --ink:#e6e9ef; --muted:#9aa4b2; --ok:#3fb950; --line:#2a2f3a; --accent:#58a6ff; }
+  body { background:var(--bg); color:var(--ink); font:15px/1.55 -apple-system,Segoe UI,Roboto,Arial,sans-serif; margin:0; padding:32px; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  h2 { font-size:17px; margin:28px 0 10px; border-bottom:1px solid var(--line); padding-bottom:6px; }
+  .sub { color:var(--muted); margin:0 0 20px; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px 18px; margin:12px 0; }
+  table { border-collapse:collapse; width:100%; margin:8px 0; }
+  th,td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:600; font-size:13px; }
+  code,pre { font-family:Consolas,SFMono-Regular,Menlo,monospace; }
+  pre { background:#0b0d12; border:1px solid var(--line); border-radius:8px; padding:12px 14px; overflow:auto; font-size:13px; color:#cdd6e2; }
+  .ok { color:var(--ok); font-weight:600; }
+  .pill { display:inline-block; background:#16331f; color:var(--ok); border:1px solid #1f5130; border-radius:999px; padding:2px 10px; font-size:12px; font-weight:600; }
+  .muted { color:var(--muted); }
+  ul { margin:6px 0 6px 18px; }
+</style>
+</head>
+<body>
+  <h1>Issue #407 - Move reply audio out of the poll JSON into a dedicated resumable fetch</h1>
+  <p class="sub">Developer Agent proof &middot; branch <code>issue-407-resumable-audio</code> &middot; built on recovery checkpoint <code>d26e3db</code> &middot; captured 2026-06-15 on SOREN_NORTH &middot; <span class="pill">READY FOR QA</span></p>
+
+  <div class="panel">
+    <strong>Summary.</strong> The reply audio no longer rides inside the status poll. The poll is now <em>slim</em> -
+    it advertises <code>audioReady</code> / <code>audioLength</code> but carries no bytes - and a dedicated, resumable
+    endpoint <code>GET /sessions/{sid}/voice-turn/{turnId}/audio</code> serves the raw <code>audio/mpeg</code> with HTTP
+    range support (200 full / 206 partial / 404 unknown-or-expired). The phone fetches the audio separately with a
+    resume/retry loop that re-requests only the missing tail after a drop. The legacy inline <code>audioBase64</code> is
+    retained for one release behind an opt-in flag so older phones still work.
+  </div>
+
+  <h2>Acceptance criteria &rarr; how each is met &amp; proven</h2>
+  <table>
+    <tr><th>Criterion</th><th>How the code satisfies it</th><th>Proof</th></tr>
+    <tr>
+      <td>Status polls no longer carry audio bytes; response size small &amp; constant regardless of reply length.</td>
+      <td>Poll route returns <code>audioReady</code>/<code>audioLength</code> and a <code>null</code> <code>audioBase64</code> by default (<code>GatewayVoiceTurnEndpoint</code> + <code>TurnJobSnapshot</code>).</td>
+      <td>Live poll JSON shows <code>audioBase64:null</code> with a 4096-byte clip present. Unit: <code>Poll_SlimByDefault_DoesNotCarryAudioBytes</code>, <code>ParsePoll_SlimReply_CarriesAudioReadyAndLength_NoBytes</code>.</td>
+    </tr>
+    <tr>
+      <td>Reply audio fetched from a dedicated endpoint that supports range requests; an interrupted download resumes rather than restarts.</td>
+      <td>New audio route serves <code>Results.Bytes(..., enableRangeProcessing:true)</code> from the decoded byte cache; client <code>FetchAudioToCompletionAsync</code> resumes via a <code>Range</code> header from the byte count it already has.</td>
+      <td>Live: 200 full (4096B), 206 range <code>bytes 1000-4095/4096</code>, resumed tail == <code>full[1000:]</code> byte-for-byte. Unit: <code>Audio_RangeRequest_Returns206PartialContent</code>, <code>FetchAudio_MidDownloadDrop_ResumesFromOffset_NotRestart</code>.</td>
+    </tr>
+    <tr>
+      <td>A reply still plays end-to-end on the phone (no regression), single- and multi-chunk.</td>
+      <td><code>VoiceConversation.PollAndSpeakAsync</code> fetches audio from the dedicated endpoint when <code>audioReady</code>, then plays it; multi-chunk handled by the resume loop reassembling slices in order.</td>
+      <td>Unit: <code>FetchAudio_FullBodyInOneGo_ReturnsWholeClip</code> (single-chunk), <code>FetchAudio_MidDownloadDrop_ResumesFromOffset_NotRestart</code> (multi-chunk reassembly), <code>FetchAudio_EmptyClip_ReturnsEmpty_NoSpin</code> (no-TTS-key).</td>
+    </tr>
+    <tr>
+      <td>Server tests cover the audio endpoint (200 full, 206 range, 404 expired); client tests cover poll-then-fetch with a simulated mid-download drop + resume.</td>
+      <td>Added <code>GatewayVoiceTurnAsyncTests</code> audio cases and <code>VoiceTurnRunnerTests</code>/<code>VoiceTurnResultTests</code> audio cases.</td>
+      <td>Gateway.Tests 24/24 pass; client 31/31 pass (see below).</td>
+    </tr>
+    <tr>
+      <td>Back-compat: <code>audioBase64</code> retained for one release / gated so older phones still work.</td>
+      <td>Poll returns inline <code>audioBase64</code> only when the caller opts in via <code>?includeAudio=1</code> or <code>X-Include-Audio</code>; the parser also infers <code>AudioReady</code> from a non-empty <code>audioBase64</code> for an old Gateway.</td>
+      <td>Live: <code>?includeAudio=1</code> returns the base64 bytes. Unit: <code>Poll_BackCompat_IncludeAudioFlag_StillReturnsBase64</code>, <code>ParsePoll_BackCompat_InlineAudioBase64_NoAudioReadyField_InfersReady</code>.</td>
+    </tr>
+  </table>
+
+  <h2>Live running-app proof (real GatewayHost from this branch)</h2>
+  <p class="muted">Standalone GatewayHost from the branch build on an isolated ephemeral port, a seeded completed turn with 4096 deterministic bytes, exercised with curl. No production gateway, Director, or real session touched. Test slot 8 was allocated/built/launched/torn-down per CLAUDE.md rule 0b for the Director-side build verification.</p>
+  <pre>1. FULL FETCH    GET .../audio                  -&gt; HTTP/1.1 200 OK   audio/mpeg   Content-Length: 4096   Accept-Ranges: bytes
+2. RANGE/RESUME  GET .../audio  Range: bytes=1000- -&gt; HTTP/1.1 206 Partial Content   Content-Range: bytes 1000-4095/4096   3096 bytes
+                 RESUME BYTES MATCH: 206 body == full[1000:] (cmp clean, no corruption)
+3a. UNKNOWN/EXPIRED TURN                          -&gt; HTTP 404
+3b. MISSING TOKEN                                 -&gt; HTTP 401
+4. SLIM POLL     GET .../voice-turn/{turnId}      -&gt; { "stage":"reply","summary":"All done.",
+                                                       "audioReady":true,"audioLength":4096,"audioBase64":null }
+5. BACK-COMPAT   GET .../voice-turn/{turnId}?includeAudio=1
+                                                  -&gt; { ...,"audioReady":true,"audioLength":4096,"audioBase64":"AAECAwQF..." }</pre>
+  <p class="ok">All five live cases matched expectations. Full transcript: <code>docs/cencon/proof/issue-407/live-harness.txt</code>.</p>
+
+  <h2>Automated tests</h2>
+  <pre>Full-solution build: dotnet build cc-director.sln  -&gt;  Build succeeded.  0 Warning(s)  0 Error(s)
+
+Server  CcDirector.Gateway.Tests (GatewayVoiceTurnAsyncTests)
+        Passed!  - Failed: 0, Passed: 24, Skipped: 0, Total: 24
+
+Client  phone/CcDirectorClient.Tests (VoiceTurnRunnerTests + VoiceTurnResultTests)
+        Passed!  - Failed: 0, Passed: 31, Skipped: 0, Total: 31</pre>
+  <p class="muted">Note: the phone suite has 5 pre-existing failures in <code>ConductorStateTests</code> (FIFO red-session queue). Those files are byte-identical to <code>main</code> (empty <code>git diff main...HEAD</code> for the conductor files) and are unrelated to #407 - this change does not touch conductor logic. Full transcript: <code>docs/cencon/proof/issue-407/gateway-tests.txt</code>.</p>
+
+  <h2>CenCon impact</h2>
+  <p>No architecture or security-posture drift. This refines the existing Gateway voice-turn wire contract (issue #376 surface) by splitting the heavy audio transfer onto a dedicated route; both routes keep the same token gate (issue #369). The architecture note <code>docs/architecture/gateway/VOICE_TURN_ARCHITECTURE.md</code> was updated to describe the slim poll + audio endpoint.</p>
+
+  <p class="ok">I believe this is finished.</p>
+</body>
+</html>

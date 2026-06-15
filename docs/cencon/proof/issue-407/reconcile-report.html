@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #407 - Reconciliation with #429 - Developer Proof</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; color: #1a1a2e; line-height: 1.55; }
+  h1 { border-bottom: 3px solid #2d6cdf; padding-bottom: .4rem; }
+  h2 { margin-top: 2rem; color: #2d6cdf; }
+  code, pre { font-family: Consolas, monospace; }
+  pre { background: #0f1117; color: #d7dce3; padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: .85rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccd2e0; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #eef3fc; }
+  .pass { color: #117a3a; font-weight: 700; }
+  .tag { display: inline-block; background: #eef3fc; border: 1px solid #cdd; border-radius: 4px; padding: 0 .4rem; font-size: .8rem; }
+  .note { background: #fff8e6; border-left: 4px solid #e0a800; padding: .6rem 1rem; }
+</style>
+</head>
+<body>
+<h1>Issue #407 - Reconciliation with #429 (Developer Agent proof)</h1>
+<p><strong>Issue:</strong> #407 - Move reply audio out of the poll JSON into a dedicated resumable fetch.<br>
+<strong>PR:</strong> #446 &nbsp; <strong>Branch:</strong> <code>issue-407-resumable-audio</code></p>
+
+<p>The feature was already implemented and independently QA-verified on this branch. The only
+blocker was a merge conflict with <code>main</code>: PR #429 (commit <code>9c0073c</code>,
+"mobile Voice mode - guaranteed audio-turn backend") rewrote the same voice-turn files after this
+branch forked. This task reconciles the two evolutions <em>without dropping either side's intent</em>
+by merging <code>origin/main</code> into the branch and combining the changes.</p>
+
+<h2>What each side did</h2>
+<table>
+<tr><th>File</th><th>#429 (main) added</th><th>#407 (branch) added</th><th>Reconciled result</th></tr>
+<tr>
+  <td><code>GatewayVoiceTurnEndpoint.cs</code></td>
+  <td>Resumable upload routes (upload / chunk / complete), <code>ResolveDirectorEndpointAsync</code>,
+      archive-fallback poll, a <code>/audio</code> route served from the durable archive (<code>Results.File</code>, no range),
+      <code>/voice-turns</code> list, <code>RunTurnAsync</code> + <code>PersistReplyIfComplete</code> archive write.</td>
+  <td>Slim poll (<code>audioReady</code>/<code>audioLength</code>, <code>audioBase64=null</code> by default,
+      <code>?includeAudio=1</code> back-compat), a <code>/audio</code> route served from the live job with
+      <code>Results.Bytes(enableRangeProcessing:true)</code> (range/resume).</td>
+  <td>Kept ALL of #429. Made the poll slim (live-job AND archive-fallback branches).
+      Merged the two <code>/audio</code> routes into ONE range-capable route that serves
+      <strong>job-first, then the durable archive</strong> - so it resumes via HTTP Range AND
+      survives the in-memory TTL / a Gateway restart.</td>
+</tr>
+<tr>
+  <td><code>GatewayTurnJobStore.cs</code></td>
+  <td><code>UploadId</code>, <code>_byUpload</code> index, <code>FindTurnByUpload</code>, <code>Create(sid, uploadId)</code>.</td>
+  <td><code>_audioBytes</code> + <code>DecodeAudio</code> (decode once at reply), <code>GetAudioBytes</code>,
+      <code>AudioReady</code>/<code>AudioLength</code> on the snapshot.</td>
+  <td>Auto-merged cleanly (disjoint additions); has both feature sets.</td>
+</tr>
+<tr>
+  <td><code>GatewayVoiceTurnAsyncTests.cs</code></td>
+  <td>Isolated storage root; upload 401 / 409-resume / idempotent / unknown-session tests;
+      durable-archive poll + <code>/voice-turns</code> list tests.</td>
+  <td>Slim-poll, back-compat, audio full/range/404s/401 tests; two reply-poll assertion updates.</td>
+  <td>Kept BOTH full test sets (un-interleaved the conflicted region). 30 tests, all pass.
+      <code>Audio_AfterTTLExpiry</code> still 404s because <code>SeedReplyWithAudio</code> seeds the job
+      directly and never archives.</td>
+</tr>
+<tr>
+  <td><code>VOICE_TURN_ARCHITECTURE.md</code></td>
+  <td>"Guaranteed audio-turn" section (routes, guarantee chain, file map).</td>
+  <td>"Phase 5 - Reply audio out of the poll" section.</td>
+  <td>Kept both sections; corrected the <code>/audio</code> route description to "range-capable; job-first then archive".</td>
+</tr>
+</table>
+
+<div class="note"><strong>Honesty gate:</strong> this was a mechanical reconciliation, not a redesign.
+#429's <code>/audio</code> already served from the archive; #407's served from the job with range support.
+Combining them is a single route that prefers the hot live-job bytes (no base64 re-decode for range slices) and
+falls back to the durable archive - both contracts are satisfied, neither is dropped.</div>
+
+<h2>Acceptance criteria - proof</h2>
+<p>Build clean, both suites green, and the live audio endpoint proven against a real
+<code>GatewayHost</code> booted over loopback (real Kestrel stack, not the in-memory test harness).</p>
+<table>
+<tr><th>Criterion</th><th>Result</th></tr>
+<tr><td>Full solution build</td><td class="pass">Build succeeded - 0 Warning(s) / 0 Error(s)</td></tr>
+<tr><td>Gateway voice-turn suite (#429 + #407 combined)</td><td class="pass">30 / 30 passed</td></tr>
+<tr><td>Phone client voice-turn suite</td><td class="pass">31 / 31 passed</td></tr>
+<tr><td>AC1 - slim poll carries no audio (221-byte body, <code>audioReady</code>/<code>audioLength</code> only)</td><td class="pass">PASS</td></tr>
+<tr><td>AC1b - <code>?includeAudio=1</code> back-compat returns inline base64</td><td class="pass">PASS</td></tr>
+<tr><td>AC2 - <code>/audio</code> 200 full, <code>audio/mpeg</code>, <code>Accept-Ranges: bytes</code>, sha256 == seed</td><td class="pass">PASS</td></tr>
+<tr><td>AC2b - <code>Range: bytes=1000-</code> -> 206, <code>Content-Range bytes 1000-4095/4096</code>, tail byte-identical</td><td class="pass">PASS</td></tr>
+<tr><td>AC2c - middle range 1000-1999 -> 206, 1000B byte-identical</td><td class="pass">PASS</td></tr>
+<tr><td>AC2d - unsatisfiable range -> 416</td><td class="pass">PASS</td></tr>
+<tr><td>AC3 - unknown turn -> 404</td><td class="pass">PASS</td></tr>
+<tr><td>AC3b - reply with no audio: <code>/audio</code> 404 but poll 200 with <code>audioReady=false</code></td><td class="pass">PASS</td></tr>
+<tr><td>AC4 - missing token -> 401 on both routes</td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>Live curl output (real GatewayHost over loopback)</h2>
+<pre>
+=== Issue #407 live proof (reconciled with #429) ===
+GatewayHost listening on http://127.0.0.1:54239  (storage root isolated under temp)
+
+Seeded turn audioLen=4096 sha256=D67C656E01756650D77717B0839985A056EC28FFE174601D690FC407A2CEFFCA
+
+[PASS] AC1 slim poll: 200 stage=reply audioReady=True audioLength=4096 audioBase64=Null bodyBytes=221 (no audio in poll)
+[PASS] AC1b back-compat includeAudio=1: 200 inline audioBase64 matches original (5464 chars)
+[PASS] AC2 full fetch 200: 200 audio/mpeg 4096B Accept-Ranges=bytes sha256=D67C656E...A2CEFFCA (== seed)
+[PASS] AC2b range resume 206: 206 Content-Range bytes 1000-4095/4096 tail=3096B (== original[1000..])
+[PASS] AC2c middle range 1000-1999: 206 1000B byte-identical to original[1000..2000]
+[PASS] AC2d unsatisfiable range 416: 416 RequestedRangeNotSatisfiable
+[PASS] AC3 unknown turn 404: 404 NotFound
+[PASS] AC3b no-audio job: audio 404 but poll 200: audio=404 poll=200 audioReady=False
+[PASS] AC4 missing token 401 (audio + poll): audio=401 poll=401
+
+RESULT: 9 passed, 0 failed
+</pre>
+<p>Full transcript: <code>docs/cencon/proof/issue-407/reconcile-live-curl.txt</code>;
+build + test capture: <code>docs/cencon/proof/issue-407/reconcile-build-tests.txt</code>.</p>
+
+<h2>CenCon impact</h2>
+<p>No architecture or security-posture drift beyond what #407 and #429 already landed. The reconciled
+<code>/audio</code> route is the same bearer-token-gated Gateway surface; the architecture doc was updated
+to describe the combined job-first-then-archive, range-capable behavior.</p>
+
+<p><strong>I believe this reconciliation is finished:</strong> the branch is up to date with
+<code>origin/main</code>, builds clean, both suites are green, the live audio endpoint is proven, and
+neither #429's guaranteed-audio-turn backend nor #407's slim-poll + resumable-audio feature was dropped.</p>
+</body>
+</html>
