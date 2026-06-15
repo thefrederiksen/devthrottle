@@ -99,10 +99,43 @@ IResult ServePage(string name)
 // /exes, /transcripts, /dictionary are now Blazor pages (issue #183): Components/Pages/
 // Exes.razor, Transcripts.razor, Dictionary.razor. Their static html + MapGet routes were
 // removed so the Blazor route is the only one serving each path. /keys and /settings stay
-// static this round. The /voice -> /transcripts redirect is preserved.
+// static this round.
 app.MapGet("/keys", () => ServePage("keys.html"));
 app.MapGet("/settings", () => ServePage("settings.html"));
-app.MapGet("/voice", () => Results.Redirect("/transcripts"));
+// /voice is the mobile-first Voice Mode (offline-capable static PWA): a plain HTML+JS app
+// under wwwroot/pages/voice/ that records audio and drives the Gateway's voice-turn endpoints.
+// Static, NOT Blazor, because offline-first cannot depend on a live SignalR circuit.
+//
+// The voice-turn endpoints are token-gated even when the Gateway runs with global auth off
+// (issue #369), and the Gateway's cc-gateway-token cookie is only set via /login - which a
+// browser on an auth-off Gateway never hits. So we inject the per-machine Gateway token
+// (read from disk on this same box) into the page; voice.js sends it as a Bearer header. The
+// page is reachable only via the Gateway front door (Tailscale-authenticated tailnet, TLS),
+// the same trust boundary the phone app's bearer token already relies on.
+app.MapGet("/voice", () =>
+{
+    var file = app.Environment.WebRootFileProvider.GetFileInfo("pages/voice/index.html");
+    if (!file.Exists)
+        throw new InvalidOperationException("Voice page missing from wwwroot: pages/voice/index.html");
+    using var reader = new StreamReader(file.CreateReadStream());
+    var html = reader.ReadToEnd().Replace("__GATEWAY_TOKEN__", ReadGatewayToken());
+    return Results.Content(html, "text/html; charset=utf-8");
+});
+
+// Read the per-machine Gateway token written by the Gateway at
+// {root}\config\director\gateway-token.txt, where {root} is CC_DIRECTOR_ROOT or
+// %LOCALAPPDATA%\cc-director (the same resolution CcStorage uses; the Cockpit does not
+// reference CcDirector.Core, so the path is computed directly). Empty when absent: the page
+// still loads and shows a clear "not connected" state instead of failing to render.
+static string ReadGatewayToken()
+{
+    var root = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
+    if (string.IsNullOrEmpty(root))
+        root = System.IO.Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "cc-director");
+    var path = System.IO.Path.Combine(root, "config", "director", "gateway-token.txt");
+    return System.IO.File.Exists(path) ? System.IO.File.ReadAllText(path).Trim() : "";
+}
 
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();

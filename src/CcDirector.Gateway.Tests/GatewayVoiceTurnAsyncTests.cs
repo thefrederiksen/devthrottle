@@ -38,6 +38,12 @@ public sealed class GatewayVoiceTurnAsyncTests : IAsyncLifetime
     private GatewayHost _gateway = null!;
     private HttpClient _http = null!;
     private string? _originalEnv;
+    private string? _originalRoot;
+
+    // Isolated cc-director storage root so the durable voice-turn archive + upload staging this
+    // suite exercises never touch the developer's real %LOCALAPPDATA%\cc-director.
+    private readonly string _storageRoot =
+        Path.Combine(Path.GetTempPath(), "cc-storage-" + Guid.NewGuid().ToString("N"));
 
     // Isolated discovery dir: the test Director and Gateway find each other here, and a real
     // Director running on the dev machine can never leak into (or see) these test hosts.
@@ -49,6 +55,10 @@ public sealed class GatewayVoiceTurnAsyncTests : IAsyncLifetime
         // Remove OPENAI_API_KEY so TTS/transcription take the no-key path deterministically.
         _originalEnv = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
         Environment.SetEnvironmentVariable("OPENAI_API_KEY", null);
+
+        // Isolate storage BEFORE the Gateway starts so its archive/upload stores bind the temp root.
+        _originalRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
+        Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _storageRoot);
 
         _sm = new SessionManager(new AgentOptions { OpenAiKey = null });
         _director = new ControlApiHost(_sm, "1.0.0-test", () => Task.CompletedTask, useEphemeralPort: true,
@@ -86,7 +96,10 @@ public sealed class GatewayVoiceTurnAsyncTests : IAsyncLifetime
         await _director.StopAsync();
         _sm.Dispose();
         Environment.SetEnvironmentVariable("OPENAI_API_KEY", _originalEnv);
+        Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _originalRoot);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); }
+        catch { /* test cleanup, ignore */ }
+        try { if (Directory.Exists(_storageRoot)) Directory.Delete(_storageRoot, true); }
         catch { /* test cleanup, ignore */ }
     }
 
@@ -357,7 +370,164 @@ public sealed class GatewayVoiceTurnAsyncTests : IAsyncLifetime
         Assert.False(string.IsNullOrEmpty(message), "error stage must carry a message");
     }
 
+    // ===== Resumable upload front door (guaranteed audio-turn) =====
+
+    [Fact]
+    public async Task Upload_MissingToken_Returns401()
+    {
+        var sid = AdoptQuickIdleSession();
+        using var anon = NewAnonymousClient();
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"sessions/{sid}/voice-turn/upload");
+        req.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString());
+        var resp = await anon.SendAsync(req);
+        Assert.Equal(HttpStatusCode.Unauthorized, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task Complete_MissingChunk_Returns409_ThenResumeReturns202()
+    {
+        var sid = AdoptQuickIdleSession();
+        var uploadId = await RegisterUploadAsync(sid, Guid.NewGuid().ToString());
+
+        // Land chunks 0 and 2, deliberately skip 1.
+        Assert.Equal(HttpStatusCode.OK, (await PutChunkAsync(sid, uploadId, 0, Bytes("AAA"))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await PutChunkAsync(sid, uploadId, 2, Bytes("CCC"))).StatusCode);
+
+        var incomplete = await CompleteUploadAsync(sid, uploadId, totalChunks: 3);
+        Assert.Equal(HttpStatusCode.Conflict, incomplete.StatusCode);
+        using (var doc = JsonDocument.Parse(await incomplete.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal("incomplete", doc.RootElement.GetProperty("status").GetString());
+            var missing = doc.RootElement.GetProperty("missing").EnumerateArray().Select(e => e.GetInt32()).ToArray();
+            Assert.Equal(new[] { 1 }, missing);
+        }
+
+        // Resume: send only the missing chunk, then complete succeeds with a turn_id.
+        Assert.Equal(HttpStatusCode.OK, (await PutChunkAsync(sid, uploadId, 1, Bytes("BBB"))).StatusCode);
+        var ok = await CompleteUploadAsync(sid, uploadId, totalChunks: 3);
+        Assert.Equal(HttpStatusCode.Accepted, ok.StatusCode);
+        using (var doc = JsonDocument.Parse(await ok.Content.ReadAsStringAsync()))
+            Assert.True(Guid.TryParse(doc.RootElement.GetProperty("turn_id").GetString(), out _));
+    }
+
+    [Fact]
+    public async Task Complete_RetriedSameUpload_ReturnsSameTurnId()
+    {
+        // A retried completion (the phone resent after a flaky 202) must NOT start a second turn.
+        var sid = AdoptQuickIdleSession();
+        var uploadId = await RegisterUploadAsync(sid, Guid.NewGuid().ToString());
+        await PutChunkAsync(sid, uploadId, 0, Bytes("AAA"));
+
+        var first = await CompleteUploadAsync(sid, uploadId, totalChunks: 1);
+        Assert.Equal(HttpStatusCode.Accepted, first.StatusCode);
+        var turnId1 = JsonDocument.Parse(await first.Content.ReadAsStringAsync()).RootElement.GetProperty("turn_id").GetString();
+
+        var second = await CompleteUploadAsync(sid, uploadId, totalChunks: 1);
+        Assert.Equal(HttpStatusCode.Accepted, second.StatusCode);
+        var turnId2 = JsonDocument.Parse(await second.Content.ReadAsStringAsync()).RootElement.GetProperty("turn_id").GetString();
+
+        Assert.Equal(turnId1, turnId2);
+    }
+
+    [Fact]
+    public async Task Complete_UnknownSession_Returns404()
+    {
+        var sid = AdoptQuickIdleSession();
+        var uploadId = await RegisterUploadAsync(sid, Guid.NewGuid().ToString());
+        await PutChunkAsync(sid, uploadId, 0, Bytes("AAA"));
+
+        // Complete against a DIFFERENT, unknown session id (the upload exists; the session does not).
+        var bogus = Guid.NewGuid().ToString();
+        var resp = await CompleteUploadAsync(bogus, uploadId, totalChunks: 1);
+        Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
+    }
+
+    // ===== Durability: the reply "sits in the session" past TTL =====
+
+    [Fact]
+    public async Task Poll_AfterTTLExpiry_ServedFromDurableArchive()
+    {
+        var sid = AdoptQuickIdleSession();
+        var turnId = await SubmitTextTurnAsync(sid, "What is 2 + 2?");
+        using (var done = await PollUntilTerminalAsync(sid, turnId))
+            Assert.Equal("reply", done.RootElement.GetProperty("stage").GetString());
+
+        // Expire the in-memory job; the durable archive must still serve the reply.
+        var job = _gateway.TurnJobs.Get(turnId);
+        Assert.NotNull(job);
+        job!.OverrideCreatedAtForTest(DateTime.UtcNow.AddMinutes(-11), Voice.GatewayTurnJobStore.Ttl);
+
+        using var archived = await PollArchivedAsync(sid, turnId);
+        Assert.Equal("reply", archived.RootElement.GetProperty("stage").GetString());
+        Assert.True(archived.RootElement.GetProperty("archived").GetBoolean());
+    }
+
+    [Fact]
+    public async Task VoiceTurns_ListsCompletedTurnForSession()
+    {
+        var sid = AdoptQuickIdleSession();
+        var turnId = await SubmitTextTurnAsync(sid, "What is 2 + 2?");
+        (await PollUntilTerminalAsync(sid, turnId)).Dispose();
+
+        // The archive write happens in RunTurnAsync's finally, just after the reply event; retry
+        // briefly until the durable list reflects it.
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (true)
+        {
+            var resp = await _http.GetAsync($"sessions/{sid}/voice-turns");
+            Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+            using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+            var ids = doc.RootElement.GetProperty("turns").EnumerateArray()
+                .Select(t => t.GetProperty("turn_id").GetString()).ToList();
+            if (ids.Contains(turnId)) break;
+            Assert.True(DateTime.UtcNow < deadline, "completed turn never appeared in /voice-turns");
+            await Task.Delay(250);
+        }
+    }
+
     // ===== Helpers =============================================================
+
+    private static byte[] Bytes(string s) => Encoding.UTF8.GetBytes(s);
+
+    /// <summary>POST the upload-register route with an Idempotency-Key; returns the upload_id.</summary>
+    private async Task<string> RegisterUploadAsync(string sid, string idempotencyKey)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"sessions/{sid}/voice-turn/upload");
+        req.Headers.Add("Idempotency-Key", idempotencyKey);
+        var resp = await _http.SendAsync(req);
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+        var uploadId = doc.RootElement.GetProperty("upload_id").GetString();
+        Assert.NotNull(uploadId);
+        return uploadId!;
+    }
+
+    private Task<HttpResponseMessage> PutChunkAsync(string sid, string uploadId, int index, byte[] bytes)
+    {
+        var req = new HttpRequestMessage(HttpMethod.Put, $"sessions/{sid}/voice-turn/upload/{uploadId}/chunk/{index}")
+        {
+            Content = new ByteArrayContent(bytes),
+        };
+        return _http.SendAsync(req);
+    }
+
+    private Task<HttpResponseMessage> CompleteUploadAsync(string sid, string uploadId, int totalChunks)
+        => _http.PostAsJsonAsync($"sessions/{sid}/voice-turn/upload/{uploadId}/complete",
+            new { totalChunks, mime = "audio/webm" });
+
+    /// <summary>Poll until the durable-archive fallback serves the turn (200), or the deadline.</summary>
+    private async Task<JsonDocument> PollArchivedAsync(string sid, string turnId)
+    {
+        var until = DateTime.UtcNow.AddSeconds(10);
+        while (true)
+        {
+            var (status, doc) = await PollAsync(sid, turnId);
+            if (status == HttpStatusCode.OK) return doc;
+            doc.Dispose();
+            Assert.True(DateTime.UtcNow < until, $"archived turn {turnId} not served before deadline (status {status})");
+            await Task.Delay(250);
+        }
+    }
 
     /// <summary>POST a JSON text turn to the Gateway submit route; asserts 202 and returns turn_id.</summary>
     private async Task<string> SubmitTextTurnAsync(string sid, string text)
