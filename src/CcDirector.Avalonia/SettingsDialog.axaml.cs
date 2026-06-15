@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
@@ -9,6 +10,7 @@ using Avalonia.Platform.Storage;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Settings;
+using CcDirector.Core.Storage;
 using CcDirector.Core.Utilities;
 
 namespace CcDirector.Avalonia;
@@ -42,7 +44,6 @@ public partial class SettingsDialog : Window
     private string _loadedCodexPath = "";
     private string _loadedGeminiPath = "";
     private string _loadedOpenCodePath = "";
-    private string _loadedOpenAiKey = "";
     private bool _loadedAlpha;
 
     public SettingsDialog() : this(null, 0, null) { }
@@ -66,7 +67,7 @@ public partial class SettingsDialog : Window
         FileLog.Write("[SettingsDialog] LoadAsync: reading config.json");
         try
         {
-            var (screenshots, url, advertised, token, claudePath, piPath, codexPath, geminiPath, openCodePath, openAiKey, raw) = await Task.Run(ReadConfigSnapshot);
+            var (screenshots, url, advertised, token, claudePath, piPath, codexPath, geminiPath, openCodePath) = await Task.Run(ReadConfigSnapshot);
 
             _loadedScreenshots = screenshots;
             _loadedGatewayUrl = url;
@@ -77,7 +78,6 @@ public partial class SettingsDialog : Window
             _loadedCodexPath = codexPath;
             _loadedGeminiPath = geminiPath;
             _loadedOpenCodePath = openCodePath;
-            _loadedOpenAiKey = openAiKey;
             _loadedAlpha = AlphaMode.IsEnabled;
 
             ScreenshotsDirBox.Text = screenshots;
@@ -89,9 +89,7 @@ public partial class SettingsDialog : Window
             CodexPathBox.Text = codexPath;
             GeminiPathBox.Text = geminiPath;
             OpenCodePathBox.Text = openCodePath;
-            OpenAiKeyBox.Text = openAiKey;
             AlphaFeaturesCheck.IsChecked = _loadedAlpha;
-            RawConfigBox.Text = raw;
 
             LoadToolPresets();
 
@@ -107,13 +105,12 @@ public partial class SettingsDialog : Window
         }
     }
 
-    /// <summary>Read config off the UI thread. Returns the current field values + pretty raw JSON.</summary>
-    private static (string Screenshots, string Url, string Advertised, string Token, string ClaudePath, string PiPath, string CodexPath, string GeminiPath, string OpenCodePath, string OpenAiKey, string Raw) ReadConfigSnapshot()
+    /// <summary>Read config off the UI thread. Returns the current field values.</summary>
+    private static (string Screenshots, string Url, string Advertised, string Token, string ClaudePath, string PiPath, string CodexPath, string GeminiPath, string OpenCodePath) ReadConfigSnapshot()
     {
         var root = CcDirectorConfigService.ReadRaw();
         var gateway = root["gateway"] as JsonObject;
         var agent = root["agent"] as JsonObject ?? root["Agent"] as JsonObject;
-        var voice = root["Voice"] as JsonObject ?? root["voice"] as JsonObject;
         var options = (global::Avalonia.Application.Current as App)?.SessionManager?.Options
             ?? (global::Avalonia.Application.Current as App)?.Options
             ?? new AgentOptions();
@@ -134,10 +131,8 @@ public partial class SettingsDialog : Window
         var codexPath = GetTool("codex_path", "CodexPath", options.CodexPath);
         var geminiPath = GetTool("gemini_path", "GeminiPath", options.GeminiPath);
         var openCodePath = GetTool("opencode_path", "OpenCodePath", options.OpenCodePath);
-        var openAiKey = Get(voice, "OpenAiKey");
-        var raw = root.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
 
-        return (screenshots, url, advertised, token, claudePath, piPath, codexPath, geminiPath, openCodePath, openAiKey, raw);
+        return (screenshots, url, advertised, token, claudePath, piPath, codexPath, geminiPath, openCodePath);
     }
 
     /// <summary>
@@ -219,7 +214,6 @@ public partial class SettingsDialog : Window
             var codexPath = CodexPathBox.Text?.Trim() ?? "";
             var geminiPath = GeminiPathBox.Text?.Trim() ?? "";
             var openCodePath = OpenCodePathBox.Text?.Trim() ?? "";
-            var openAiKey = OpenAiKeyBox.Text?.Trim() ?? "";
 
             // Build a patch with ONLY the sections the user changed, so we touch nothing else.
             var patch = new JsonObject();
@@ -258,10 +252,6 @@ public partial class SettingsDialog : Window
                 };
             }
 
-            var voiceChanged = openAiKey != _loadedOpenAiKey;
-            if (voiceChanged)
-                patch["Voice"] = new JsonObject { ["OpenAiKey"] = openAiKey };
-
             var alpha = AlphaFeaturesCheck.IsChecked == true;
             var alphaChanged = alpha != _loadedAlpha;
 
@@ -296,13 +286,7 @@ public partial class SettingsDialog : Window
             if (toolsChanged)
                 ApplyToolPathsToRunningOptions(claudePath, piPath, codexPath, geminiPath, openCodePath);
 
-            // Apply the key to the running options so Speak/dictation works without a restart.
-            // The dictation endpoint reads ResolveOpenAiKey() per connection off this same
-            // AgentOptions instance, so the Cockpit Speak button on this Director picks it up too.
-            if (voiceChanged)
-                ApplyOpenAiKeyToRunningOptions(openAiKey);
-
-            FileLog.Write($"[SettingsDialog] BtnSave_Click: saved sections={patch.Count}, gatewayChanged={gatewayChanged}, toolsChanged={toolsChanged}, voiceChanged={voiceChanged}, alphaChanged={alphaChanged}");
+            FileLog.Write($"[SettingsDialog] BtnSave_Click: saved sections={patch.Count}, gatewayChanged={gatewayChanged}, toolsChanged={toolsChanged}, alphaChanged={alphaChanged}");
 
             // Re-register with the gateway live so a URL/endpoint/token change takes effect now.
             if (gatewayChanged && _reapplyGateway is not null)
@@ -328,11 +312,7 @@ public partial class SettingsDialog : Window
             _loadedCodexPath = codexPath;
             _loadedGeminiPath = geminiPath;
             _loadedOpenCodePath = openCodePath;
-            _loadedOpenAiKey = openAiKey;
             _loadedAlpha = alpha;
-            RawConfigBox.Text = await Task.Run(() =>
-                CcDirectorConfigService.ReadRaw().ToJsonString(
-                    new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
 
             // Saved cleanly - closing the dialog is the user's confirmation it worked.
             FileLog.Write("[SettingsDialog] BtnSave_Click: saved; closing");
@@ -924,23 +904,22 @@ public partial class SettingsDialog : Window
         FileLog.Write($"[SettingsDialog] ApplyClaudePresetToRunningOptions: defaultArgs='{args}'");
     }
 
-    /// <summary>Reveal or mask the OpenAI key text. Default masked; "Show" reveals it for verification.</summary>
-    private void ShowKeyCheck_Changed(object? sender, RoutedEventArgs e)
-    {
-        OpenAiKeyBox.RevealPassword = ShowKeyCheck.IsChecked == true;
-    }
-
     /// <summary>
-    /// Push the entered OpenAI key onto the running AgentOptions so the voice mode and the
-    /// dictation pipeline pick it up immediately, without restarting the Director. An empty
-    /// box clears the key (the pipeline then falls back to the OPENAI_API_KEY environment
-    /// variable via <see cref="AgentOptions.ResolveOpenAiKey"/>).
+    /// Open the CC Director config.json in the OS default handler. If the file does not exist
+    /// yet (nothing has been saved on this machine), report it clearly instead of crashing.
     /// </summary>
-    private static void ApplyOpenAiKeyToRunningOptions(string openAiKey)
+    private void BtnOpenConfig_Click(object? sender, RoutedEventArgs e)
     {
-        FileLog.Write($"[SettingsDialog] ApplyOpenAiKeyToRunningOptions: key={(string.IsNullOrWhiteSpace(openAiKey) ? "<cleared>" : "<set>")}");
-        var options = CurrentOptions();
-        options.OpenAiKey = string.IsNullOrWhiteSpace(openAiKey) ? null : openAiKey;
+        var path = CcStorage.ConfigJson();
+        FileLog.Write($"[SettingsDialog] BtnOpenConfig_Click: {path}");
+        if (!File.Exists(path))
+        {
+            StatusText.Text = $"config.json not found yet at {path} - save a setting first to create it.";
+            return;
+        }
+
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path)
+            { UseShellExecute = true });
     }
 
     /// <summary>The alpha-gated wake-word section follows the checkbox live (before Save).</summary>
