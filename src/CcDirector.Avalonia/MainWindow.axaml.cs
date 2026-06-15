@@ -654,28 +654,25 @@ public partial class MainWindow : Window
             var app = (App)global::Avalonia.Application.Current!;
             var options = app.Options;
 
-            var facts = await Task.Run<(bool found, string? claudeVersion, bool keyPresent,
-                                        string keyMessage, bool usesGateway, int built, int total)>(async () =>
+            var facts = await Task.Run<(List<AgentCliFact> clis, int built, int total)>(() =>
             {
-                var det = new ToolDetectionService().DetectTool(AgentKind.ClaudeCode, options);
-                var validation = ToolDetectionService.ReadValidationStatus(AgentKind.ClaudeCode, options);
-                var claudeVersion = validation?.Ok == true ? validation.Version : null;
+                var detector = new ToolDetectionService();
+                var clis = ToolDetectionService.SupportedTools.Select(tool =>
+                {
+                    var det = detector.DetectTool(tool, options);
+                    var validation = ToolDetectionService.ReadValidationStatus(tool, options);
+                    var version = validation?.Ok == true ? validation.Version : null;
+                    return new AgentCliFact(ToolDetectionService.DisplayName(tool), det.Found, version);
+                }).ToList();
 
                 var catalog = new ToolCatalogService().GetCatalog();
                 var built = catalog.Count(d => d.IsBuilt);
                 var total = catalog.Count;
 
-                var resolver = new OpenAiKeyResolver(options);
-                string? key = await resolver.ResolveAsync();
-                var keyPresent = !string.IsNullOrWhiteSpace(key);
-
-                return (det.Found, claudeVersion, keyPresent, resolver.UnavailableMessage,
-                        resolver.UsesGateway, built, total);
+                return (clis, built, total);
             });
 
-            _lastHomeStatus = HomeStatusBuilder.Build(
-                facts.found, facts.claudeVersion, facts.keyPresent, facts.keyMessage,
-                facts.usesGateway, facts.built, facts.total, AppVersion.Display);
+            _lastHomeStatus = HomeStatusBuilder.Build(facts.clis, facts.built, facts.total);
 
             ApplyHomeHealth();
 

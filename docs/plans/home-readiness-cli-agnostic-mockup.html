@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Home Readiness - CLI-agnostic redesign (before / after)</title>
+<style>
+  :root{
+    --bg:#1e1e1e; --panel:#242424; --panel-border:#333333;
+    --hair:#343434; --title:#DDDDDD; --detail:#888888;
+    --ok:#4CAF50; --warn:#F0B848; --bad:#E05656;
+    --amber:#F0B848; --fix-border:#2563EB; --fix-text:#3B82F6;
+    --muted:#666666;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:#151515; color:var(--title);
+    font-family:"Segoe UI",system-ui,sans-serif; padding:32px;
+  }
+  h1{font-weight:300; letter-spacing:1px; font-size:22px; text-align:center; color:#cfcfcf;}
+  .lead{text-align:center; color:var(--detail); max-width:760px; margin:0 auto 28px; font-size:14px; line-height:1.5;}
+  .grid{display:flex; gap:28px; justify-content:center; align-items:flex-start; flex-wrap:wrap;}
+  .col{width:430px;}
+  .col h2{font-size:13px; letter-spacing:2px; text-transform:uppercase; color:#9a9a9a; text-align:center; margin:0 0 12px;}
+  .tag{display:block; text-align:center; font-size:12px; margin:-6px 0 14px; }
+  .tag.before{color:#bd6b6b;}
+  .tag.after{color:#6bbd7e;}
+
+  /* readiness card -- mirrors HomeView.axaml */
+  .card{
+    background:var(--panel); border:1px solid var(--panel-border);
+    border-radius:8px; padding:16px 18px;
+  }
+  .card-head{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px;}
+  .card-head .h{font-size:12px; letter-spacing:2px; color:#9a9a9a;}
+  .card-head .s{font-size:12px; font-weight:600;}
+  .s.notready{color:var(--amber);}
+  .s.ready{color:var(--ok);}
+
+  .row{display:flex; align-items:center; padding:10px 0; gap:0;}
+  .row + .row{border-top:1px solid var(--hair);}
+  .glyph{width:28px; font-weight:700; font-size:12px; flex:0 0 28px;}
+  .glyph.ok{color:var(--ok);}
+  .glyph.warn{color:var(--warn);}
+  .glyph.bad{color:var(--bad);}
+  .rtitle{width:150px; flex:0 0 150px; font-size:13px; color:var(--title);}
+  .rdetail{flex:1; font-size:12px; color:var(--detail); line-height:1.4;}
+  .fix{
+    border:1px solid var(--fix-border); color:var(--fix-text);
+    background:transparent; border-radius:5px; padding:4px 12px;
+    font-size:11px; cursor:default; white-space:nowrap; margin-left:8px;
+  }
+  .note{margin-top:18px; font-size:12px; color:var(--detail); line-height:1.6;}
+  .note b{color:#cdcdcd; font-weight:600;}
+  .note .del{color:#bd6b6b;}
+  .note .keep{color:#6bbd7e;}
+  .legend{max-width:880px; margin:34px auto 0; border-top:1px solid #2a2a2a; padding-top:18px;}
+</style>
+</head>
+<body>
+  <h1>CC DIRECTOR &mdash; Home Readiness Card</h1>
+  <p class="lead">
+    The readiness card no longer hard-requires Claude Code. It now reports <b>whichever agent CLIs are installed</b>
+    (Claude Code, Pi, Codex, Gemini, OpenCode) and only goes red when <b>none</b> are present. The OpenAI key and
+    Director rows are removed.
+  </p>
+
+  <div class="grid">
+
+    <!-- ============ BEFORE ============ -->
+    <div class="col">
+      <h2>Before</h2>
+      <span class="tag before">4 rows &bull; Claude hard-required &bull; key miscolors card red</span>
+      <div class="card">
+        <div class="card-head">
+          <span class="h">READINESS</span>
+          <span class="s notready">3 of 4 ready</span>
+        </div>
+
+        <div class="row">
+          <span class="glyph ok">OK</span>
+          <span class="rtitle">claude CLI</span>
+          <span class="rdetail">2.1.177 (Claude Code) - on PATH</span>
+        </div>
+        <div class="row">
+          <span class="glyph ok">OK</span>
+          <span class="rtitle">OpenAI key</span>
+          <span class="rdetail">Set (Gateway vault)</span>
+        </div>
+        <div class="row">
+          <span class="glyph bad">X</span>
+          <span class="rtitle">cc-* tools</span>
+          <span class="rdetail">0 of 32 on PATH</span>
+          <button class="fix">Fix it</button>
+        </div>
+        <div class="row">
+          <span class="glyph ok">OK</span>
+          <span class="rtitle">Director</span>
+          <span class="rdetail">v0.6.23 (7f64108) - running</span>
+        </div>
+      </div>
+
+      <div class="note">
+        Problems:<br>
+        &bull; <span class="del">claude CLI</span> assumes Claude specifically &mdash; a Codex/Pi-only box reads as broken.<br>
+        &bull; <span class="del">OpenAI key</span> is voice-only, yet a missing key paints the whole card red / "not ready".<br>
+        &bull; <span class="del">Director</span> is always OK &mdash; pure filler; version is already in the footer.
+      </div>
+    </div>
+
+    <!-- ============ AFTER ============ -->
+    <div class="col">
+      <h2>After</h2>
+      <span class="tag after">2 rows &bull; any CLI counts &bull; red only if none installed</span>
+      <div class="card">
+        <div class="card-head">
+          <span class="h">SYSTEM STATUS</span>
+          <span class="s ready">ALL GREEN</span>
+        </div>
+
+        <div class="row">
+          <span class="glyph ok">OK</span>
+          <span class="rtitle">Agent CLIs</span>
+          <span class="rdetail">Claude Code 2.1.177, Codex - on PATH</span>
+        </div>
+        <div class="row">
+          <span class="glyph warn">!</span>
+          <span class="rtitle">cc-* tools</span>
+          <span class="rdetail">0 of 32 on PATH</span>
+          <button class="fix">Fix it</button>
+        </div>
+      </div>
+
+      <div class="note">
+        <span class="keep">Agent CLIs</span> = green when one or more of the five are installed (lists them).
+        cc-* tools is a soft capability line (warn, never blocks). With at least one CLI present and tools
+        ignorable, the card reads <b>ALL GREEN</b>.
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ AFTER (failure case) ============ -->
+  <div class="grid" style="margin-top:38px;">
+    <div class="col">
+      <h2>After &mdash; the only red case</h2>
+      <span class="tag after">no agent CLI at all</span>
+      <div class="card">
+        <div class="card-head">
+          <span class="h">READINESS</span>
+          <span class="s notready">1 of 2 ready</span>
+        </div>
+        <div class="row">
+          <span class="glyph bad">X</span>
+          <span class="rtitle">Agent CLIs</span>
+          <span class="rdetail">No agent CLI found - install Claude Code, Codex, Pi, Gemini, or OpenCode</span>
+          <button class="fix">Fix it</button>
+        </div>
+        <div class="row">
+          <span class="glyph warn">!</span>
+          <span class="rtitle">cc-* tools</span>
+          <span class="rdetail">0 of 32 on PATH</span>
+          <button class="fix">Fix it</button>
+        </div>
+      </div>
+      <div class="note">
+        The Agent CLIs row only goes red when <b>zero</b> of the five are detected. "Fix it" opens Settings &gt; Tools.
+      </div>
+    </div>
+
+    <div class="col">
+      <h2>After &mdash; Codex-only box</h2>
+      <span class="tag after">no Claude, still ready</span>
+      <div class="card">
+        <div class="card-head">
+          <span class="h">SYSTEM STATUS</span>
+          <span class="s ready">ALL GREEN</span>
+        </div>
+        <div class="row">
+          <span class="glyph ok">OK</span>
+          <span class="rtitle">Agent CLIs</span>
+          <span class="rdetail">Codex 0.21.0 - on PATH</span>
+        </div>
+        <div class="row">
+          <span class="glyph ok">OK</span>
+          <span class="rtitle">cc-* tools</span>
+          <span class="rdetail">32 of 32 on PATH</span>
+        </div>
+      </div>
+      <div class="note">
+        No Claude Code installed, but Codex is &mdash; the box is fully ready. This is the case that was
+        impossible before.
+      </div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <p class="lead" style="margin-bottom:0;">
+      Gateway card (the green "GATEWAY CONNECTED" panel above the readiness card) is unchanged &mdash; still its own
+      card, still informational, not a counted requirement.
+    </p>
+  </div>
+</body>
+</html>

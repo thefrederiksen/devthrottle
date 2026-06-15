@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Linq;
 using CcDirector.Core.Home;
 using Xunit;
@@ -6,15 +7,18 @@ namespace CcDirector.Core.Tests.Home;
 
 /// <summary>
 /// Covers the pure readiness logic behind the full-screen home page: how raw service facts
-/// (claude on PATH, OpenAI key, cc-* tool count) map to rows, levels, fix-it actions, and the
-/// overall ready count. No Avalonia, no I/O.
+/// (which agent CLIs are installed, cc-* tool count) map to rows, levels, fix-it actions, and
+/// the overall ready count. The Director is CLI-agnostic - any one supported CLI satisfies
+/// the requirement. No OpenAI-key or Director row. No Avalonia, no I/O.
 /// </summary>
 public class HomeStatusBuilderTests
 {
+    private static AgentCliFact Cli(string name, bool found, string? version = null) =>
+        new(name, found, version);
+
     private static HomeStatus FullyHealthy() => HomeStatusBuilder.Build(
-        claudeFound: true, claudeVersion: "2.1.168",
-        keyPresent: true, keyUnavailableMessage: "", keyUsesGateway: true,
-        toolsBuilt: 31, toolsTotal: 31, directorVersion: "v0.6.23");
+        new[] { Cli("Claude Code", true, "2.1.168"), Cli("Codex", false) },
+        toolsBuilt: 31, toolsTotal: 31);
 
     private static HomeCheck Row(HomeStatus s, string title) => s.Checks.Single(c => c.Title == title);
 
@@ -24,69 +28,81 @@ public class HomeStatusBuilderTests
         var status = FullyHealthy();
 
         Assert.True(status.AllReady);
-        Assert.Equal(4, status.TotalCount);
-        Assert.Equal(4, status.ReadyCount);
+        Assert.Equal(2, status.TotalCount);
+        Assert.Equal(2, status.ReadyCount);
         Assert.All(status.Checks, c => Assert.Equal(HomeCheckLevel.Ok, c.Level));
         Assert.All(status.Checks, c => Assert.Equal(HomeCheckAction.None, c.Action));
     }
 
     [Fact]
-    public void Build_ClaudeMissing_BadRowRoutesToSettings()
+    public void Build_NoCliInstalled_BadRowRoutesToSettings()
     {
         var status = HomeStatusBuilder.Build(
-            claudeFound: false, claudeVersion: null,
-            keyPresent: true, keyUnavailableMessage: "", keyUsesGateway: false,
-            toolsBuilt: 31, toolsTotal: 31, directorVersion: "v0.6.23");
+            new[] { Cli("Claude Code", false), Cli("Codex", false), Cli("Pi", false) },
+            toolsBuilt: 31, toolsTotal: 31);
 
-        var claude = Row(status, "claude CLI");
-        Assert.Equal(HomeCheckLevel.Bad, claude.Level);
-        Assert.Equal(HomeCheckAction.OpenSettings, claude.Action);
+        var clis = Row(status, "Agent CLIs");
+        Assert.Equal(HomeCheckLevel.Bad, clis.Level);
+        Assert.Equal(HomeCheckAction.OpenSettings, clis.Action);
+        Assert.Contains("No agent CLI found", clis.Detail);
         Assert.False(status.AllReady);
-        Assert.Equal(3, status.ReadyCount);
+        Assert.Equal(1, status.ReadyCount);
     }
 
     [Fact]
-    public void Build_ClaudeFoundWithoutVersion_OkAndOnPath()
+    public void Build_SingleCliInstalled_OkAndListsItWithVersion()
     {
         var status = HomeStatusBuilder.Build(
-            claudeFound: true, claudeVersion: null,
-            keyPresent: true, keyUnavailableMessage: "", keyUsesGateway: false,
-            toolsBuilt: 1, toolsTotal: 1, directorVersion: "v0.6.23");
+            new[] { Cli("Codex", true, "0.21.0"), Cli("Claude Code", false) },
+            toolsBuilt: 31, toolsTotal: 31);
 
-        var claude = Row(status, "claude CLI");
-        Assert.Equal(HomeCheckLevel.Ok, claude.Level);
-        Assert.Equal("on PATH", claude.Detail);
+        var clis = Row(status, "Agent CLIs");
+        Assert.Equal(HomeCheckLevel.Ok, clis.Level);
+        Assert.Equal("Codex 0.21.0 - on PATH", clis.Detail);
+        Assert.Equal(HomeCheckAction.None, clis.Action);
     }
 
     [Fact]
-    public void Build_KeyMissing_BadRowKeepsUnavailableMessage()
+    public void Build_MultipleClisInstalled_ListsAllInstalled()
     {
-        const string msg = "OpenAI key is not set. Open Settings > Voice and add your OpenAI API key.";
         var status = HomeStatusBuilder.Build(
-            claudeFound: true, claudeVersion: "2.1.168",
-            keyPresent: false, keyUnavailableMessage: msg, keyUsesGateway: false,
-            toolsBuilt: 31, toolsTotal: 31, directorVersion: "v0.6.23");
+            new[] { Cli("Claude Code", true, "2.1.177"), Cli("Codex", true), Cli("Gemini", false) },
+            toolsBuilt: 31, toolsTotal: 31);
 
-        var key = Row(status, "OpenAI key");
-        Assert.Equal(HomeCheckLevel.Bad, key.Level);
-        Assert.Equal(msg, key.Detail);
-        Assert.Equal(HomeCheckAction.OpenSettings, key.Action);
+        var clis = Row(status, "Agent CLIs");
+        Assert.Equal(HomeCheckLevel.Ok, clis.Level);
+        Assert.Equal("Claude Code 2.1.177, Codex - on PATH", clis.Detail);
     }
 
     [Fact]
-    public void Build_KeyPresentFromGateway_LabelsVaultSource()
+    public void Build_ClaudeVersionWithProductParenthetical_NotPrintedTwice()
     {
-        var status = FullyHealthy();
-        Assert.Equal("Set (Gateway vault)", Row(status, "OpenAI key").Detail);
+        // Claude reports "2.1.177 (Claude Code)" - the name must not appear twice.
+        var status = HomeStatusBuilder.Build(
+            new[] { Cli("Claude Code", true, "2.1.177 (Claude Code)") },
+            toolsBuilt: 31, toolsTotal: 31);
+
+        Assert.Equal("Claude Code 2.1.177 - on PATH", Row(status, "Agent CLIs").Detail);
+    }
+
+    [Fact]
+    public void Build_CliFoundWithoutVersion_OkAndNameOnly()
+    {
+        var status = HomeStatusBuilder.Build(
+            new[] { Cli("Claude Code", true) },
+            toolsBuilt: 1, toolsTotal: 1);
+
+        var clis = Row(status, "Agent CLIs");
+        Assert.Equal(HomeCheckLevel.Ok, clis.Level);
+        Assert.Equal("Claude Code - on PATH", clis.Detail);
     }
 
     [Fact]
     public void Build_PartialTools_WarnAndRoutesToTools()
     {
         var status = HomeStatusBuilder.Build(
-            claudeFound: true, claudeVersion: "2.1.168",
-            keyPresent: true, keyUnavailableMessage: "", keyUsesGateway: true,
-            toolsBuilt: 12, toolsTotal: 31, directorVersion: "v0.6.23");
+            new[] { Cli("Claude Code", true, "2.1.168") },
+            toolsBuilt: 12, toolsTotal: 31);
 
         var tools = Row(status, "cc-* tools");
         Assert.Equal(HomeCheckLevel.Warn, tools.Level);
@@ -99,9 +115,8 @@ public class HomeStatusBuilderTests
     public void Build_NoTools_BadAndRoutesToTools()
     {
         var status = HomeStatusBuilder.Build(
-            claudeFound: true, claudeVersion: "2.1.168",
-            keyPresent: true, keyUnavailableMessage: "", keyUsesGateway: true,
-            toolsBuilt: 0, toolsTotal: 31, directorVersion: "v0.6.23");
+            new[] { Cli("Claude Code", true, "2.1.168") },
+            toolsBuilt: 0, toolsTotal: 31);
 
         var tools = Row(status, "cc-* tools");
         Assert.Equal(HomeCheckLevel.Bad, tools.Level);
@@ -109,12 +124,10 @@ public class HomeStatusBuilderTests
     }
 
     [Fact]
-    public void Build_DirectorRow_AlwaysOkAndShowsVersion()
+    public void Build_NoOpenAiKeyOrDirectorRow()
     {
         var status = FullyHealthy();
-        var director = Row(status, "Director");
-        Assert.Equal(HomeCheckLevel.Ok, director.Level);
-        Assert.Equal("v0.6.23 - running", director.Detail);
-        Assert.Equal(HomeCheckAction.None, director.Action);
+        Assert.DoesNotContain(status.Checks, c => c.Title == "OpenAI key");
+        Assert.DoesNotContain(status.Checks, c => c.Title == "Director");
     }
 }

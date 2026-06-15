@@ -24,6 +24,13 @@ public sealed record HomeCheck(
     HomeCheckAction Action);
 
 /// <summary>
+/// One agent CLI's detection result, fed into the readiness "Agent CLIs" row. Director is
+/// CLI-agnostic: any one of the supported CLIs (Claude Code, Pi, Codex, Gemini, OpenCode)
+/// satisfies the requirement, so the row reports the set rather than a single binary.
+/// </summary>
+public sealed record AgentCliFact(string DisplayName, bool Found, string? Version);
+
+/// <summary>
 /// The computed readiness of a Director, shown on the full-screen home page when no
 /// session is running. Pure data: <see cref="HomeStatusBuilder.Build"/> turns raw
 /// service facts (gathered off the UI thread) into the rows the view renders, so the
@@ -36,29 +43,23 @@ public sealed record HomeStatus(
     int TotalCount);
 
 /// <summary>
-/// Builds the home page status rows from raw facts. The gateway is intentionally NOT a
-/// row here: a local-only Director with no gateway is a legitimate configuration, not a
-/// setup gap, so the gateway is surfaced as its own card and only its error states count
-/// against readiness (decided by the caller).
+/// Builds the home page status rows from raw facts. Two intentional omissions:
+/// the gateway is NOT a row (a local-only Director is a legitimate configuration, so it is
+/// its own card and only its error states count against readiness, decided by the caller);
+/// and there is no OpenAI-key or "Director running" row (the key is a voice-only feature,
+/// not a setup gap, and a running Director is a tautology when you can see this page).
 /// </summary>
 public static class HomeStatusBuilder
 {
     public static HomeStatus Build(
-        bool claudeFound,
-        string? claudeVersion,
-        bool keyPresent,
-        string keyUnavailableMessage,
-        bool keyUsesGateway,
+        IReadOnlyList<AgentCliFact> agentClis,
         int toolsBuilt,
-        int toolsTotal,
-        string directorVersion)
+        int toolsTotal)
     {
         var checks = new List<HomeCheck>
         {
-            BuildClaude(claudeFound, claudeVersion),
-            BuildKey(keyPresent, keyUnavailableMessage, keyUsesGateway),
+            BuildAgentClis(agentClis),
             BuildTools(toolsBuilt, toolsTotal),
-            new HomeCheck("Director", HomeCheckLevel.Ok, $"{directorVersion} - running", HomeCheckAction.None),
         };
 
         var readyCount = checks.Count(c => c.Level == HomeCheckLevel.Ok);
@@ -66,28 +67,37 @@ public static class HomeStatusBuilder
         return new HomeStatus(checks, allReady, readyCount, checks.Count);
     }
 
-    private static HomeCheck BuildClaude(bool found, string? version)
+    /// <summary>
+    /// Director is CLI-agnostic: ready when ANY supported agent CLI is installed. Red only
+    /// when none of them are. The detail lists what was found (with versions where known).
+    /// </summary>
+    private static HomeCheck BuildAgentClis(IReadOnlyList<AgentCliFact> agentClis)
     {
-        if (!found)
-            return new HomeCheck("claude CLI", HomeCheckLevel.Bad,
-                "Not found - set the path in Settings > Tools", HomeCheckAction.OpenSettings);
+        var installed = agentClis.Where(c => c.Found).ToList();
+        if (installed.Count == 0)
+            return new HomeCheck("Agent CLIs", HomeCheckLevel.Bad,
+                "No agent CLI found - install Claude Code, Codex, Pi, Gemini, or OpenCode",
+                HomeCheckAction.OpenSettings);
 
-        var detail = string.IsNullOrWhiteSpace(version) ? "on PATH" : $"{version} - on PATH";
-        return new HomeCheck("claude CLI", HomeCheckLevel.Ok, detail, HomeCheckAction.None);
+        var names = installed.Select(CliLabel);
+        return new HomeCheck("Agent CLIs", HomeCheckLevel.Ok,
+            $"{string.Join(", ", names)} - on PATH", HomeCheckAction.None);
     }
 
-    private static HomeCheck BuildKey(bool present, string unavailableMessage, bool usesGateway)
+    /// <summary>
+    /// "Claude Code 2.1.177" from a CLI fact. Some CLIs (e.g. Claude) report their version as
+    /// "2.1.177 (Claude Code)"; we drop a trailing parenthetical so the product name is not
+    /// printed twice.
+    /// </summary>
+    private static string CliLabel(AgentCliFact cli)
     {
-        if (!present)
-        {
-            var detail = string.IsNullOrWhiteSpace(unavailableMessage)
-                ? "Not set - voice and dictation are disabled"
-                : unavailableMessage;
-            return new HomeCheck("OpenAI key", HomeCheckLevel.Bad, detail, HomeCheckAction.OpenSettings);
-        }
+        if (string.IsNullOrWhiteSpace(cli.Version)) return cli.DisplayName;
 
-        return new HomeCheck("OpenAI key", HomeCheckLevel.Ok,
-            usesGateway ? "Set (Gateway vault)" : "Set", HomeCheckAction.None);
+        var version = cli.Version.Trim();
+        var paren = version.IndexOf('(');
+        if (paren > 0) version = version[..paren].Trim();
+
+        return version.Length == 0 ? cli.DisplayName : $"{cli.DisplayName} {version}";
     }
 
     private static HomeCheck BuildTools(int built, int total)
