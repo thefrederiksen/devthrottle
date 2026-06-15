@@ -3,182 +3,83 @@
              x:Class="CcDirector.Avalonia.Controls.HomeView"
              Background="#1E1E1E">
 
-    <UserControl.Styles>
-        <!-- Quick-action rows: flat, full-width, left-aligned text with a subtle hover. -->
-        <Style Selector="Button.homeQuickAction">
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="Foreground" Value="#CFCFCF" />
-            <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="Padding" Value="0,7" />
-            <Setter Property="FontSize" Value="13" />
-            <Setter Property="HorizontalAlignment" Value="Stretch" />
-            <Setter Property="HorizontalContentAlignment" Value="Left" />
-        </Style>
-        <Style Selector="Button.homeQuickAction:pointerover /template/ ContentPresenter">
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="Foreground" Value="#FFFFFF" />
-        </Style>
-    </UserControl.Styles>
-
-    <!-- Full-screen empty-state home. Shown when this Director has zero sessions:
-         it is the "nothing is running, here is the state, start something" screen.
-         Only the window menu bar sits above it; the session rail and toolbar are
-         hidden by MainWindow while this is visible. Everything is painted from
-         code-behind off the live services (gateway, tools, key, version). -->
+    <!-- Status screen, shown in the main content area when no session is selected (or on
+         demand via View > Status). The window chrome (toolbar + session rail, with the
+         gateway indicator at the bottom of the rail) stays visible around it. It is quiet
+         when everything is healthy and only speaks up when something needs attention.
+         Painted from code-behind off the live services. -->
     <ScrollViewer HorizontalScrollBarVisibility="Disabled"
                   VerticalScrollBarVisibility="Auto">
         <StackPanel HorizontalAlignment="Center"
-                    MaxWidth="760"
-                    Margin="24,44,24,28"
+                    VerticalAlignment="Center"
+                    MaxWidth="520"
+                    Margin="24,40"
                     Spacing="0">
 
-            <!-- Wordmark + tagline -->
+            <!-- Wordmark -->
             <TextBlock Text="CC DIRECTOR"
                        HorizontalAlignment="Center"
                        Foreground="#D6D6D6"
-                       FontSize="26" FontWeight="Light"
-                       LetterSpacing="7" />
-            <TextBlock x:Name="HomeTagline"
-                       Text="Mission critical for multiple agents"
+                       FontSize="24" FontWeight="Light"
+                       LetterSpacing="7"
+                       Margin="0,0,0,22" />
+
+            <!-- Healthy: quiet all-clear. Hidden when there is a problem. -->
+            <StackPanel x:Name="HomeAllClear" HorizontalAlignment="Center" Spacing="4">
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="10">
+                    <Ellipse Width="13" Height="13" Fill="#4CAF50" VerticalAlignment="Center" />
+                    <TextBlock Text="All systems go"
+                               Foreground="#BFE6C4"
+                               FontSize="16" FontWeight="SemiBold"
+                               VerticalAlignment="Center" />
+                </StackPanel>
+                <TextBlock x:Name="HomeAllClearSub"
+                           Text=""
+                           HorizontalAlignment="Center"
+                           Foreground="#888888"
+                           FontSize="12.5"
+                           Margin="0,0,0,4" />
+            </StackPanel>
+
+            <!-- Problem: needs-attention header + only the failing rows. Hidden when healthy. -->
+            <StackPanel x:Name="HomeProblems" IsVisible="False" Spacing="0">
+                <TextBlock Text="NEEDS ATTENTION"
+                           Foreground="#F0B848"
+                           FontSize="12" FontWeight="Bold" LetterSpacing="1.5"
+                           HorizontalAlignment="Center"
+                           Margin="0,0,0,14" />
+                <!-- Rows injected from code-behind -->
+                <StackPanel x:Name="HomeStatusRows" Spacing="10" />
+            </StackPanel>
+
+            <!-- Busy placeholder while the readiness probe runs. -->
+            <TextBlock x:Name="HomeBusyText"
+                       Text="Checking..."
+                       IsVisible="False"
                        HorizontalAlignment="Center"
                        Foreground="#888888"
-                       FontSize="13" LetterSpacing="1"
-                       Margin="0,8,0,30" />
+                       FontSize="13" />
 
-            <!-- Hero: the single entry point. Always present; this is the first
-                 thing you do. -->
+            <!-- The single entry point. -->
             <Button x:Name="HomeNewSessionButton"
                     Click="HomeNewSessionButton_Click"
                     HorizontalAlignment="Center"
                     Background="{DynamicResource AccentBrush}"
                     Foreground="White"
                     BorderThickness="0"
-                    CornerRadius="10"
-                    Padding="56,20"
+                    CornerRadius="8"
+                    Padding="40,14"
+                    Margin="0,28,0,0"
                     Cursor="Hand"
                     ToolTip.Tip="Create a new session">
-                <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                    <Viewbox Width="17" Height="17">
+                <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                    <Viewbox Width="15" Height="15">
                         <Path Fill="White" Data="M6,0 H8 V6 H14 V8 H8 V14 H6 V8 H0 V6 H6 Z" />
                     </Viewbox>
-                    <TextBlock Text="New Session" FontSize="19" FontWeight="SemiBold"
+                    <TextBlock Text="New Session" FontSize="16" FontWeight="SemiBold"
                                VerticalAlignment="Center" />
                 </StackPanel>
             </Button>
-            <TextBlock x:Name="HomeHeroCaption"
-                       Text="Start a Claude session -- it's the first thing you do"
-                       HorizontalAlignment="Center"
-                       Foreground="#888888"
-                       FontSize="12"
-                       Margin="0,10,0,30" />
-
-            <!-- Gateway card (lifted from the old bottom-left indicator). Click opens
-                 the troubleshooter. Colours set from code-behind. -->
-            <Border x:Name="HomeGatewayCard"
-                    Background="#2A2A2A"
-                    BorderBrush="#3C3C3C" BorderThickness="1"
-                    CornerRadius="10"
-                    Padding="16,14"
-                    Cursor="Hand"
-                    Margin="0,0,0,18"
-                    PointerPressed="HomeGatewayCard_PointerPressed">
-                <DockPanel>
-                    <Border x:Name="HomeGatewayRing"
-                            DockPanel.Dock="Left"
-                            Width="34" Height="34" CornerRadius="17"
-                            BorderBrush="#777777" BorderThickness="4"
-                            VerticalAlignment="Center"
-                            Margin="0,0,14,0" />
-                    <Button x:Name="HomeGatewayFix"
-                            DockPanel.Dock="Right"
-                            Content="Fix it"
-                            Click="HomeGatewayFix_Click"
-                            VerticalAlignment="Center"
-                            Background="Transparent"
-                            BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1"
-                            Foreground="#3B82F6"
-                            CornerRadius="5" Padding="12,4" FontSize="11"
-                            Cursor="Hand"
-                            IsVisible="False" />
-                    <StackPanel VerticalAlignment="Center" Spacing="2">
-                        <TextBlock x:Name="HomeGatewayLabel"
-                                   Text="NO GATEWAY"
-                                   Foreground="#777777"
-                                   FontSize="14" FontWeight="Bold" />
-                        <TextBlock x:Name="HomeGatewaySub"
-                                   Text="local-only Director"
-                                   Foreground="#888888"
-                                   FontSize="12" />
-                    </StackPanel>
-                </DockPanel>
-            </Border>
-
-            <!-- System status / readiness card -->
-            <Border Background="#2A2A2A"
-                    BorderBrush="#3C3C3C" BorderThickness="1"
-                    CornerRadius="10"
-                    Padding="18,16">
-                <StackPanel Spacing="0">
-                    <DockPanel Margin="0,0,0,4">
-                        <TextBlock x:Name="HomeStatusHeader"
-                                   Text="SYSTEM STATUS"
-                                   Foreground="#888888"
-                                   FontSize="11" FontWeight="SemiBold"
-                                   LetterSpacing="1.5" />
-                        <TextBlock x:Name="HomeStatusSummary"
-                                   DockPanel.Dock="Right"
-                                   HorizontalAlignment="Right"
-                                   Text=""
-                                   Foreground="#4CAF50"
-                                   FontSize="11" FontWeight="SemiBold" />
-                    </DockPanel>
-                    <!-- Rows injected from code-behind -->
-                    <StackPanel x:Name="HomeStatusRows" Spacing="0" />
-                </StackPanel>
-            </Border>
-
-            <!-- Recent repositories + Quick actions, side by side -->
-            <Grid ColumnDefinitions="*,16,*" Margin="0,18,0,0">
-
-                <!-- Recent: one row per repo, most recent first. Click launches a Claude
-                     session in that repo. Hidden entirely when there is no history. -->
-                <Border x:Name="HomeRecentCard"
-                        Grid.Column="0"
-                        Background="#2A2A2A"
-                        BorderBrush="#3C3C3C" BorderThickness="1"
-                        CornerRadius="10"
-                        Padding="18,16"
-                        VerticalAlignment="Top">
-                    <StackPanel Spacing="0">
-                        <TextBlock Text="RECENT"
-                                   Foreground="#888888"
-                                   FontSize="11" FontWeight="SemiBold"
-                                   LetterSpacing="1.5"
-                                   Margin="0,0,0,4" />
-                        <StackPanel x:Name="HomeRecentRows" Spacing="0" />
-                    </StackPanel>
-                </Border>
-
-                <!-- Quick actions: the same destinations the (hidden) toolbar offered. -->
-                <Border Grid.Column="2"
-                        Background="#2A2A2A"
-                        BorderBrush="#3C3C3C" BorderThickness="1"
-                        CornerRadius="10"
-                        Padding="18,16"
-                        VerticalAlignment="Top">
-                    <StackPanel Spacing="0">
-                        <TextBlock Text="QUICK ACTIONS"
-                                   Foreground="#888888"
-                                   FontSize="11" FontWeight="SemiBold"
-                                   LetterSpacing="1.5"
-                                   Margin="0,0,0,6" />
-                        <Button Classes="homeQuickAction" Click="HomeOpenCockpit_Click" Content="Open Cockpit" />
-                        <Button Classes="homeQuickAction" Click="HomeOpenTools_Click" Content="Tools" />
-                        <Button Classes="homeQuickAction" Click="HomeOpenSettings_Click" Content="Settings" />
-                    </StackPanel>
-                </Border>
-            </Grid>
 
             <!-- Version footer -->
             <TextBlock x:Name="HomeVersionText"
@@ -186,7 +87,7 @@
                        HorizontalAlignment="Center"
                        Foreground="#555555"
                        FontSize="11"
-                       Margin="0,22,0,0" />
+                       Margin="0,24,0,0" />
         </StackPanel>
     </ScrollViewer>
 </UserControl>

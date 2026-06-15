@@ -255,9 +255,7 @@ public partial class MainWindow : Window
         HomeView.NewSessionRequested += (_, _) => { FileLog.Write("[MainWindow] Home -> New Session"); _ = ShowNewSessionDialog(); };
         HomeView.OpenToolsRequested += (_, _) => BtnTools_Click(this, new RoutedEventArgs());
         HomeView.OpenSettingsRequested += (_, _) => BtnSettings_Click(this, new RoutedEventArgs());
-        HomeView.OpenCockpitRequested += (_, _) => BtnCockpit_Click(this, new RoutedEventArgs());
         HomeView.GatewayClicked += (_, _) => OpenGatewayTroubleshooter();
-        HomeView.RecentRepoSelected += (_, path) => { FileLog.Write($"[MainWindow] Home -> recent repo {path}"); _ = StartSessionInRepoAsync(path); };
         UpdateHomeVisibility();
 
         // Start session git status polling (15s interval)
@@ -532,12 +530,11 @@ public partial class MainWindow : Window
         tip += "\nClick to open the troubleshooter.";
         ToolTip.SetTip(GatewayIndicator, tip);
 
-        // Mirror the same gateway state onto the home-page card (shown at zero sessions),
-        // so both surfaces always agree. A missing gateway is NOT an error (legitimate
-        // local-only Director), so the Fix-it affordance shows for the error states only.
+        // The gateway light lives only in the rail now (GatewayIndicator, above). A missing
+        // gateway is NOT an error (legitimate local-only Director); only the failure states
+        // count against readiness and surface a problem row on the status screen.
         var gatewayError = m.Status is GatewayConnectionStatus.Failed or GatewayConnectionStatus.NoTailnetIdentity;
         _gatewayError = gatewayError;
-        HomeView.SetGateway(accent, bg, border, label, sub, gatewayError);
         ApplyHomeHealth();
 
         // #223: auto-pop the troubleshooter ONCE per distinct failure. A failure that
@@ -596,6 +593,18 @@ public partial class MainWindow : Window
     /// A simply-absent gateway is NOT an error - a local-only Director is legitimate.</summary>
     private bool _gatewayError;
 
+    /// <summary>True when the user asked to see the status screen (View &gt; Status) while a
+    /// session is open. Cleared the moment a session is selected, so the terminal returns.</summary>
+    private bool _statusRequested;
+
+    /// <summary>Show the status screen over the content area without closing any session.</summary>
+    private void ShowStatusView()
+    {
+        FileLog.Write("[MainWindow] ShowStatusView");
+        _statusRequested = true;
+        UpdateHomeVisibility();
+    }
+
     /// <summary>
     /// True when any full-content in-window overlay (Tools / Comms / Connections / Scheduler)
     /// is open. The Home page must not paint over an open overlay, so UpdateHomeVisibility
@@ -613,15 +622,15 @@ public partial class MainWindow : Window
     /// </summary>
     private void UpdateHomeVisibility()
     {
-        // Home covers the whole window at ZIndex 30; the content overlays (Tools/Comms/etc.)
-        // sit lower in the same grid. If Home paints while an overlay is open, the overlay is
-        // hidden behind it and its actions look dead (issue #447). So Home shows only at zero
-        // sessions AND when no overlay is up; opening/closing an overlay re-runs this method.
+        // The status screen sits in the main content cell (ZIndex 30, over the terminal). The
+        // window chrome - toolbar and session rail - stays visible around it. It shows when
+        // there are no sessions, or on demand (View > Status, _statusRequested). The content
+        // overlays (Tools/Comms/etc.) sit lower in the same cell; if the status screen paints
+        // over an open overlay its actions look dead (issue #447), so it yields while one is up.
         var overlayOpen = IsContentOverlayOpen();
-        var showHome = _sessions.Count == 0 && !overlayOpen;
-        MainToolbar.IsVisible = !showHome;
+        var showHome = (_sessions.Count == 0 || _statusRequested) && !overlayOpen;
         HomeView.IsVisible = showHome;
-        FileLog.Write($"[MainWindow] UpdateHomeVisibility: showHome={showHome}, sessions={_sessions.Count}, overlayOpen={overlayOpen}");
+        FileLog.Write($"[MainWindow] UpdateHomeVisibility: showHome={showHome}, sessions={_sessions.Count}, statusRequested={_statusRequested}, overlayOpen={overlayOpen}");
 
         if (!showHome) return;
 
@@ -666,10 +675,6 @@ public partial class MainWindow : Window
             _lastHomeStatus = HomeStatusBuilder.Build(facts.clis, facts.built, facts.total);
 
             ApplyHomeHealth();
-
-            // Recent repos are file I/O (a folder of history JSON), so load them off the UI thread too.
-            var recent = await Task.Run(BuildRecentRepos);
-            HomeView.SetRecent(recent);
         }
         catch (Exception ex)
         {
@@ -678,85 +683,21 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// The most recently used repositories, newest first, one per repo path. Drawn from the
-    /// session history store; the swatch reuses the colour of that repo's latest session.
-    /// </summary>
-    private List<FileViewerControls.RecentRepoItem> BuildRecentRepos()
-    {
-        var app = (App)global::Avalonia.Application.Current!;
-        return app.SessionHistoryStore.LoadAll()
-            .Where(e => !string.IsNullOrWhiteSpace(e.RepoPath))
-            .GroupBy(e => e.RepoPath, StringComparer.OrdinalIgnoreCase)
-            .Select(g => g.OrderByDescending(e => e.LastUsedAt).First())
-            .OrderByDescending(e => e.LastUsedAt)
-            .Take(5)
-            .Select(e => new FileViewerControls.RecentRepoItem(
-                RepoDisplayName(e.RepoPath),
-                e.RepoPath,
-                e.CustomColor is { } color && !string.IsNullOrWhiteSpace(color) ? color : "#3C3C3C",
-                RelativeTime.Ago(DateTimeOffset.UtcNow - e.LastUsedAt.ToUniversalTime())))
-            .ToList();
-    }
-
-    private static string RepoDisplayName(string repoPath)
-    {
-        var name = Path.GetFileName(repoPath.TrimEnd('\\', '/'));
-        return string.IsNullOrEmpty(name) ? repoPath : name;
-    }
-
-    /// <summary>
-    /// One-click launch from the home Recent card: start a Claude session in the given repo
-    /// with the configured defaults (no dialog). Mirrors the non-group, non-resume path of
-    /// <see cref="ShowNewSessionDialog"/>, including the missing-CLI preflight.
-    /// </summary>
-    private async Task StartSessionInRepoAsync(string repoPath)
-    {
-        FileLog.Write($"[MainWindow] StartSessionInRepoAsync: {repoPath}");
-        if (string.IsNullOrWhiteSpace(repoPath) || !Directory.Exists(repoPath))
-        {
-            await MessageBox.ShowAsync(this, "Folder not found",
-                $"This repository folder no longer exists:\n\n{repoPath}\n\nUse New Session to pick another.");
-            return;
-        }
-
-        var app = (App)global::Avalonia.Application.Current!;
-        var agent = CreateAgent(AgentKind.ClaudeCode);
-        var agentExe = agent.ExecutablePath;
-        if (ExecutableResolver.Resolve(agentExe) is null)
-        {
-            var (agentName, installHint) = AgentInstallInfo(AgentKind.ClaudeCode);
-            FileLog.Write($"[MainWindow] StartSessionInRepoAsync: {agentName} '{agentExe}' not found on PATH; aborting");
-            await MessageBox.ShowAsync(this, $"{agentName} is not installed",
-                $"CC Director could not find its command line tool.\n\nLooked for: {agentExe}\n\n{installHint}");
-            return;
-        }
-
-        var vm = CreateSession(repoPath, null, null, agent, SessionType.Developer);
-        if (vm == null)
-        {
-            FileLog.Write("[MainWindow] StartSessionInRepoAsync: CreateSession returned null");
-            await MessageBox.ShowAsync(this, "Could not start session",
-                _lastSessionCreateError ?? "See the Director log for details.");
-            return;
-        }
-
-        app.RepositoryRegistry?.MarkUsed(repoPath);
-        SaveSessionToHistory(vm);
-        FileLog.Write($"[MainWindow] StartSessionInRepoAsync: started session {vm.Session.Id} in {repoPath}");
-    }
-
-    /// <summary>
-    /// Combine the cached readiness with the live gateway state into the home's tagline and
-    /// status header. "Healthy" requires every check green AND the gateway not in an error
-    /// state. Cheap and idempotent: called after a refresh and on every gateway change.
+    /// Combine the cached readiness with the live gateway state into the status screen.
+    /// "Healthy" requires every check green AND the gateway not in an error state. When
+    /// healthy the screen is quiet (all-clear); otherwise it lists only the failing checks.
+    /// Cheap and idempotent: called after a refresh and on every gateway change.
     /// </summary>
     private void ApplyHomeHealth()
     {
         if (_lastHomeStatus is not { } status) return;
 
         var healthy = status.AllReady && !_gatewayError;
-        HomeView.SetTagline(healthy ? "Mission critical for multiple agents" : "Let's finish setting up");
-        HomeView.SetStatus(status, healthy);
+        var gw = GatewayIndicatorLabel.Text ?? "";
+        var summary = gw.Contains("CONNECTED", StringComparison.OrdinalIgnoreCase)
+            ? "Gateway connected - ready to work"
+            : "Ready to start a session";
+        HomeView.SetStatus(status, healthy, _gatewayError, summary);
     }
 
     private global::Avalonia.Threading.DispatcherTimer? _schedulerLeaderTimer;
@@ -1119,6 +1060,13 @@ public partial class MainWindow : Window
 
     private void SelectSession(SessionViewModel? vm)
     {
+        // Selecting a session returns to its terminal, dismissing an on-demand status view.
+        if (vm != null && _statusRequested)
+        {
+            _statusRequested = false;
+            HomeView.IsVisible = false;
+        }
+
         // Close overlays when switching to any session
         if (CommsOverlay.IsVisible)
         {
@@ -2620,12 +2568,21 @@ public partial class MainWindow : Window
         App AppRef() => global::Avalonia.Application.Current as App
             ?? throw new InvalidOperationException("Application.Current is not the CC Director App");
 
+        // Ruthless default menu (2026-06-15): only items known to work are visible by
+        // default. Anything experimental or not yet verified is gated behind alpha mode
+        // (AlphaMode.IsEnabled) rather than deleted, so it stays recoverable and can be
+        // un-gated once proven. The menu is rebuilt on AlphaMode.Changed.
+        var alpha = AlphaMode.IsEnabled;
         var menu = new NativeMenu();
 
         // ===== File =====
         var file = new NativeMenuItem("File") { Menu = new NativeMenu() };
         file.Menu.Items.Add(Item("New Session", () => BtnNewSession_Click(this, new RoutedEventArgs()),
             new KeyGesture(Key.N, KeyModifiers.Control)));
+        // Settings lives here so it is reachable from the Home (empty-state) page, where
+        // the session toolbar (which also has a Settings button) is hidden.
+        file.Menu.Items.Add(Item("Settings...", () => BtnSettings_Click(this, new RoutedEventArgs()),
+            new KeyGesture(Key.OemComma, KeyModifiers.Control)));
         file.Menu.Items.Add(new NativeMenuItemSeparator());
         file.Menu.Items.Add(Item("Save Workspace...", async () =>
         {
@@ -2652,33 +2609,6 @@ public partial class MainWindow : Window
             await CloseAllSessionsAsync();
         }));
         file.Menu.Items.Add(new NativeMenuItemSeparator());
-        file.Menu.Items.Add(Item("Open Sessions File", () =>
-        {
-            var filePath = AppRef().SessionStateStore.FilePath;
-            if (File.Exists(filePath))
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(filePath)
-                    { UseShellExecute = true });
-            else
-                ShowNotification($"Sessions file not found: {filePath}");
-        }));
-        file.Menu.Items.Add(Item("Open History Folder", () =>
-        {
-            var folder = AppRef().SessionHistoryStore.FolderPath;
-            if (Directory.Exists(folder))
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                    { FileName = folder, UseShellExecute = true });
-            else
-                ShowNotification($"History folder not found: {folder}");
-        }));
-        file.Menu.Items.Add(Item("History in VS Code", () =>
-        {
-            var folder = AppRef().SessionHistoryStore.FolderPath;
-            if (Directory.Exists(folder))
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("code", $"\"{folder}\"")
-                    { UseShellExecute = true });
-            else
-                ShowNotification($"History folder not found: {folder}");
-        }));
         file.Menu.Items.Add(Item("Open Logs", () =>
         {
             var logDir = Path.GetDirectoryName(FileLog.CurrentLogPath);
@@ -2686,15 +2616,43 @@ public partial class MainWindow : Window
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
                     { FileName = logDir, UseShellExecute = true });
         }));
+        if (alpha)
+        {
+            // Debug/utility file openers - useful for development, noise for users.
+            file.Menu.Items.Add(Item("Open Sessions File", () =>
+            {
+                var filePath = AppRef().SessionStateStore.FilePath;
+                if (File.Exists(filePath))
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(filePath)
+                        { UseShellExecute = true });
+                else
+                    ShowNotification($"Sessions file not found: {filePath}");
+            }));
+            file.Menu.Items.Add(Item("Open History Folder", () =>
+            {
+                var folder = AppRef().SessionHistoryStore.FolderPath;
+                if (Directory.Exists(folder))
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                        { FileName = folder, UseShellExecute = true });
+                else
+                    ShowNotification($"History folder not found: {folder}");
+            }));
+            file.Menu.Items.Add(Item("History in VS Code", () =>
+            {
+                var folder = AppRef().SessionHistoryStore.FolderPath;
+                if (Directory.Exists(folder))
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("code", $"\"{folder}\"")
+                        { UseShellExecute = true });
+                else
+                    ShowNotification($"History folder not found: {folder}");
+            }));
+        }
         file.Menu.Items.Add(new NativeMenuItemSeparator());
         file.Menu.Items.Add(Item("Exit", Close));
         menu.Items.Add(file);
 
         // ===== Session =====
         var session = new NativeMenuItem("Session") { Menu = new NativeMenu() };
-        if (AlphaMode.IsEnabled) // Start FIFO is an alpha feature
-            session.Menu.Items.Add(Item("Start FIFO", () => BtnFifo_Click(this, new RoutedEventArgs())));
-        session.Menu.Items.Add(new NativeMenuItemSeparator());
         session.Menu.Items.Add(Item("Repositories...", async () =>
         {
             FileLog.Write("[MainWindow] Menu: Repositories");
@@ -2711,38 +2669,47 @@ public partial class MainWindow : Window
                 }
             }
         }));
-        session.Menu.Items.Add(Item("Accounts...", async () =>
+        if (alpha)
         {
-            FileLog.Write("[MainWindow] Menu: Accounts");
-            var dialog = new AccountsDialog(AppRef().ClaudeAccountStore);
-            await dialog.ShowDialog<bool?>(this);
-        }));
-        session.Menu.Items.Add(new NativeMenuItemSeparator());
-        session.Menu.Items.Add(Item("Show Reviews", async () =>
-        {
-            FileLog.Write("[MainWindow] Menu: Show Reviews");
-            var dialog = new TurnReviewDialog();
-            await dialog.ShowDialog(this);
-        }));
+            session.Menu.Items.Add(new NativeMenuItemSeparator());
+            session.Menu.Items.Add(Item("Start FIFO", () => BtnFifo_Click(this, new RoutedEventArgs())));
+            session.Menu.Items.Add(Item("Accounts...", async () =>
+            {
+                FileLog.Write("[MainWindow] Menu: Accounts");
+                var dialog = new AccountsDialog(AppRef().ClaudeAccountStore);
+                await dialog.ShowDialog<bool?>(this);
+            }));
+            session.Menu.Items.Add(Item("Show Reviews", async () =>
+            {
+                FileLog.Write("[MainWindow] Menu: Show Reviews");
+                var dialog = new TurnReviewDialog();
+                await dialog.ShowDialog(this);
+            }));
+        }
         menu.Items.Add(session);
 
         // ===== View =====
         var view = new NativeMenuItem("View") { Menu = new NativeMenu() };
+        view.Menu.Items.Add(Item("Status", ShowStatusView));
+        view.Menu.Items.Add(new NativeMenuItemSeparator());
         view.Menu.Items.Add(Item("Toggle Right Panel", () => RightPanelToggle_Click(this, new RoutedEventArgs())));
         view.Menu.Items.Add(Item("Reset Terminal View", () => TabBarRefreshButton_Click(this, new RoutedEventArgs())));
         menu.Items.Add(view);
 
-        // ===== Tools =====
-        var tools = new NativeMenuItem("Tools") { Menu = new NativeMenu() };
-        tools.Menu.Items.Add(Item("Communications", () => BtnComms_Click(this, new RoutedEventArgs())));
-        tools.Menu.Items.Add(Item("Connections", () => BtnConnections_Click(this, new RoutedEventArgs())));
-        tools.Menu.Items.Add(Item("Scheduler", () => BtnScheduler_Click(this, new RoutedEventArgs())));
-        tools.Menu.Items.Add(new NativeMenuItemSeparator());
-        tools.Menu.Items.Add(Item("Claude View...", () => BtnClaudeView_Click(this, new RoutedEventArgs())));
-        tools.Menu.Items.Add(Item("MCP Servers...", () => BtnMcpServers_Click(this, new RoutedEventArgs())));
-        tools.Menu.Items.Add(Item("Agent Templates...", () => BtnAgentTemplates_Click(this, new RoutedEventArgs())));
-        tools.Menu.Items.Add(Item("Claude Code Settings...", () => BtnClaudeConfig_Click(this, new RoutedEventArgs())));
-        menu.Items.Add(tools);
+        // ===== Tools (alpha only - none of these are verified working yet) =====
+        if (alpha)
+        {
+            var tools = new NativeMenuItem("Tools") { Menu = new NativeMenu() };
+            tools.Menu.Items.Add(Item("Communications", () => BtnComms_Click(this, new RoutedEventArgs())));
+            tools.Menu.Items.Add(Item("Connections", () => BtnConnections_Click(this, new RoutedEventArgs())));
+            tools.Menu.Items.Add(Item("Scheduler", () => BtnScheduler_Click(this, new RoutedEventArgs())));
+            tools.Menu.Items.Add(new NativeMenuItemSeparator());
+            tools.Menu.Items.Add(Item("Claude View...", () => BtnClaudeView_Click(this, new RoutedEventArgs())));
+            tools.Menu.Items.Add(Item("MCP Servers...", () => BtnMcpServers_Click(this, new RoutedEventArgs())));
+            tools.Menu.Items.Add(Item("Agent Templates...", () => BtnAgentTemplates_Click(this, new RoutedEventArgs())));
+            tools.Menu.Items.Add(Item("Claude Code Settings...", () => BtnClaudeConfig_Click(this, new RoutedEventArgs())));
+            menu.Items.Add(tools);
+        }
 
         // ===== Help =====
         var help = new NativeMenuItem("Help") { Menu = new NativeMenu() };
@@ -4479,18 +4446,10 @@ public partial class MainWindow : Window
         FileLog.Write("[MainWindow] RightPanelToggle_Click");
         _rightPanelExpanded = !_rightPanelExpanded;
 
-        if (_rightPanelExpanded)
-        {
-            RightPanel.IsVisible = true;
-            RightPanel.Width = 280;
-            RightPanelToggle.Content = "<<";
-        }
-        else
-        {
-            RightPanel.IsVisible = false;
-            RightPanel.Width = 0;
-            RightPanelToggle.Content = ">>";
-        }
+        // Full panel and the slim strip share the Auto column; swap which one is visible.
+        // The collapse chevron lives in the panel header; the expand chevron in the strip.
+        RightPanel.IsVisible = _rightPanelExpanded;
+        RightPanelCollapsedStrip.IsVisible = !_rightPanelExpanded;
     }
 
     // ==================== QUEUE ====================
