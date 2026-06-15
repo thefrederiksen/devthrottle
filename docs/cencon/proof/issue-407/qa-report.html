@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QA Report - Issue #407 (resumable reply audio)</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; color: #1a1f29; line-height: 1.5; }
+  h1 { border-bottom: 3px solid #2d7d46; padding-bottom: .4rem; }
+  h2 { margin-top: 2rem; color: #2d3748; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: .92rem; }
+  th, td { border: 1px solid #cbd5e0; padding: .5rem .6rem; text-align: left; vertical-align: top; }
+  th { background: #edf2f7; }
+  .pass { color: #1a7f37; font-weight: 700; }
+  .fail { color: #b42318; font-weight: 700; }
+  .warn { color: #9a6700; font-weight: 700; }
+  code, pre { background: #f6f8fa; border-radius: 4px; }
+  code { padding: .1rem .35rem; }
+  pre { padding: .8rem; overflow-x: auto; font-size: .82rem; border: 1px solid #e2e8f0; }
+  .banner { padding: .9rem 1.1rem; border-radius: 6px; margin: 1rem 0; }
+  .banner.human { background: #fff7e6; border: 1px solid #d9a40a; }
+  .banner.verified { background: #e9f7ec; border: 1px solid #2d7d46; }
+  .meta { color: #4a5568; font-size: .88rem; }
+</style>
+</head>
+<body>
+<h1>QA Report - Issue #407</h1>
+<p class="meta">
+  <strong>[Voice] Move reply audio out of the poll JSON into a dedicated resumable fetch</strong><br>
+  PR #446 - branch <code>issue-407-resumable-audio</code> - verified at branch tip <code>d1bd9b4</code><br>
+  QA identity: independent context, did NOT reuse the Developer's binary or screenshots.<br>
+  Verification: fresh detached worktree off <code>origin/issue-407-resumable-audio</code>; own build; own test runs; own live <code>curl</code> battery against a GatewayHost I launched.
+</p>
+
+<div class="banner verified">
+  <strong>Feature verdict: VERIFIED.</strong> Every acceptance criterion is met by the code on the branch tip - clean build (0/0), 24/24 server tests, 31/31 client tests, and an independent live curl battery (200 full / 206 byte-correct range / 416 unsatisfiable / 404 expired-unknown-no-audio / 401 / slim poll / back-compat) all pass.
+</div>
+
+<div class="banner human">
+  <strong>Merge outcome: PARKED for human (flow:needs-human).</strong> PR #446 has a real content merge conflict with <code>main</code> and CANNOT be auto-merged. The branch forked from an older <code>main</code>; PR #429 ("mobile Voice mode - guaranteed audio-turn backend", commit <code>9c0073c</code>) has since rewritten the SAME three files this branch changes (a 335-line rewrite of <code>GatewayVoiceTurnEndpoint.cs</code> and a 170-line rewrite of <code>GatewayVoiceTurnAsyncTests.cs</code>). Reconciling the two independent evolutions of the voice-turn backend is a design decision, not a mechanical merge - per the QA contract a conflict is NEVER force-merged; it is escalated. The feature code itself is correct; only the rebase/merge against #429 is outstanding.
+</div>
+
+<h2>Build &amp; test (run by QA, this branch tip)</h2>
+<table>
+  <tr><th>Check</th><th>Command</th><th>Result</th><th>Verdict</th></tr>
+  <tr><td>Full solution build</td><td><code>dotnet build cc-director.sln</code></td><td>Build succeeded. 0 Warning(s) / 0 Error(s)</td><td class="pass">PASS</td></tr>
+  <tr><td>Server tests (Gateway)</td><td><code>dotnet test ... --filter ~GatewayVoiceTurnAsyncTests</code></td><td>Passed! Failed: 0, Passed: 24, Total: 24</td><td class="pass">PASS</td></tr>
+  <tr><td>Client tests (phone)</td><td><code>dotnet test ... --filter ~VoiceTurnRunnerTests|~VoiceTurnResultTests</code></td><td>Passed! Failed: 0, Passed: 31, Total: 31</td><td class="pass">PASS</td></tr>
+</table>
+
+<h2>Acceptance criteria - independently verified</h2>
+<table>
+  <tr><th>#</th><th>Criterion</th><th>How QA verified (own evidence)</th><th>Verdict</th></tr>
+  <tr>
+    <td>1</td>
+    <td>Status polls no longer carry audio bytes; response small &amp; constant regardless of reply length.</td>
+    <td>Live curl of the default poll returned <code>audioBase64:null</code> with <code>audioReady:true</code>, <code>audioLength:4096</code>; the whole body was <strong>221 bytes</strong> - the megabyte audio is absent. Server test <code>Poll_SlimByDefault_DoesNotCarryAudioBytes</code> proves the same shape at audioLength 8192 (bytes still absent), confirming constant size.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td>Dedicated audio endpoint <code>GET /sessions/{sid}/voice-turn/{turnId}/audio</code> supports range: 200 full, 206 range/resume (byte-correct), 404 expired/unknown.</td>
+    <td>Live curl: full fetch = <strong>200</strong> <code>audio/mpeg</code> + <code>Accept-Ranges: bytes</code>, 4096 bytes. <code>Range: bytes=1000-</code> = <strong>206</strong>, <code>Content-Range: bytes 1000-4095/4096</code>, 3096-byte tail whose <strong>sha256 is byte-identical</strong> to the full clip[1000..]. Middle range <code>1000-1999</code> = 206, exactly 1000 bytes. Unsatisfiable <code>99999-</code> = <strong>416</strong>. Unknown turn, wrong-sid, and no-audio job each = <strong>404</strong>. Missing token = <strong>401</strong>. Server tests cover full/206/404-unknown/404-TTL-expiry/404-no-audio/401.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td>Reply still plays end-to-end (no regression), single- and multi-chunk.</td>
+    <td>Client path verified by test: <code>FetchAudio_FullBodyInOneGo_ReturnsWholeClip</code> (single chunk) and <code>FetchAudio_MidDownloadDrop_ResumesFromOffset_NotRestart</code> + <code>FetchAudio_TransientServerError_IsRetriedThenCompletes</code> (multi-chunk reassembly) all assert the reassembled clip equals the original byte-for-byte. The slim poll keeps <code>audioReady</code>/<code>audioLength</code> so the conductor knows when to fetch; the live endpoint serves the exact bytes the player consumes. No regression in the unchanged transcribe/chat/tts paths (no source touched there).</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td>Server tests cover the new endpoint; client tests cover poll-then-fetch with mid-download drop + resume.</td>
+    <td>Server: 24 tests including the 6 new #407 cases (slim poll, back-compat includeAudio, 200 full, 206 range with exact Content-Range + byte equality, 404 unknown/TTL/no-audio, 401). Client: <code>FetchAudio_MidDownloadDrop_ResumesFromOffset_NotRestart</code> scripts deliver-40 -> DROP -> resume-from-40 -> rest, asserting <code>Assert.Equal(clip, audio)</code> (no corruption) and that the resume re-requests from the offset (4 audio calls), not a restart. All green.</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Regression / method sweep</h2>
+<ul>
+  <li>Slim-by-default poll is back-compatible: the field <code>audioBase64</code> is always present (shape unchanged), null by default, populated only for <code>?includeAudio=1</code> / <code>X-Include-Audio</code> - an old phone keeps working for one release. <span class="pass">OK</span></li>
+  <li>No fallback programming: a base64 that fails to decode stores zero bytes and the endpoint returns an honest 404 (logged), not invented audio. <span class="pass">OK</span></li>
+  <li>Token gate enforced at the endpoint even with <code>authEnabled=false</code> (production tray mode) - missing token = 401 on both poll and audio routes. <span class="pass">OK</span></li>
+  <li>No security rule (DT-*) implicated; the change is an in-memory transport refactor of already-authorized data. <span class="pass">OK</span></li>
+</ul>
+
+<h2>Live curl transcript</h2>
+<p class="meta">Captured against a real <code>GatewayHost</code> (built from this branch) on loopback port 18407, seeded with a 4096-byte deterministic audio job via the public <code>TurnJobs</code> API. Full log: <code>docs/cencon/proof/issue-407/qa-live-curl.txt</code>.</p>
+<pre>
+Token gate (no auth header)            -> HTTP 401
+Slim poll (default)                    -> audioBase64:null, audioReady:true, audioLength:4096  (body 221 bytes)
+Back-compat poll ?includeAudio=1       -> audioBase64 present
+Full audio fetch                       -> 200 audio/mpeg, Accept-Ranges: bytes, 4096 bytes
+Range bytes=1000-                      -> 206, Content-Range bytes 1000-4095/4096, 3096-byte tail
+Byte-correct resume                    -> range tail sha256 == full[1000:] sha256  (cmp: identical)
+Middle range bytes=1000-1999           -> 206, Content-Range bytes 1000-1999/4096, 1000 bytes
+404 cases (unknown / wrong-sid / no-audio) -> 404, 404, 404
+No-audio slim poll                     -> 200, audioReady:false, audioLength:0
+Unsatisfiable range bytes=99999-       -> 416, Content-Range bytes */4096
+</pre>
+
+<h2>Merge conflict detail (why parked)</h2>
+<p>Merge-base <code>765c877</code>; <code>main</code> at <code>6efb582</code>; branch at <code>d1bd9b4</code>. <code>git merge-tree origin/main origin/issue-407-resumable-audio</code> reports content conflicts in:</p>
+<ul>
+  <li><code>src/CcDirector.Gateway/Api/GatewayVoiceTurnEndpoint.cs</code></li>
+  <li><code>src/CcDirector.Gateway.Tests/GatewayVoiceTurnAsyncTests.cs</code></li>
+  <li><code>docs/architecture/gateway/VOICE_TURN_ARCHITECTURE.md</code></li>
+</ul>
+<p>(<code>GatewayTurnJobStore.cs</code> auto-merges cleanly.) The conflicts are caused by PR #429 (<code>9c0073c</code>), which rewrote these same files on <code>main</code> after this branch forked. A developer must rebase #407 onto current <code>main</code> and re-apply the slim-poll + resumable-audio change on top of #429's voice-turn backend, then re-run the suites. QA does not force-resolve a design-level conflict.</p>
+
+<p class="meta"><strong>VERIFIED - all four acceptance criteria met on the branch tip. NOT merged: parked flow:needs-human for the #429 merge reconciliation.</strong></p>
+</body>
+</html>

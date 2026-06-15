@@ -1,0 +1,54 @@
+===== Independent QA live curl proof - issue #407 (gateway built from branch tip d1bd9b4) =====
+Seeded: turnId=23c14f4f-31d6-4cc7-84e7-0eabc3fc82d5 (4096-byte audio), noAudioTurnId=b0f370ef-5846-4689-8f60-a297ed1719e0 (reply, empty audio)
+
+--- 0) Token gate: NO Authorization header on audio endpoint -> expect 401 ---
+HTTP 401
+
+--- 1) SLIM POLL (default): audioReady=true, audioLength=4096, audioBase64=null, NO bytes ---
+{"turn_id":"23c14f4f-31d6-4cc7-84e7-0eabc3fc82d5","stage":"reply","transcript":null,"summary":"All done.","audioReady":true,"audioLength":4096,"audioBase64":null,"message":null,"expires_at":"2026-06-15T14:45:11.1155701Z"}
+poll response size (bytes):
+221
+
+--- 2) BACK-COMPAT poll ?includeAudio=1 -> audioBase64 present (one-release back-compat) ---
+{"turn_id":"23c14f4f-31d6-4cc7-84e7-0eabc3fc82d5","stage":"reply","transcript":null,"summary":"All done.","audioReady":true,"audioLength":4096,"audioBase64":"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh ...(truncated)
+
+--- 3) FULL AUDIO FETCH (no Range) -> 200, audio/mpeg, Accept-Ranges: bytes, 4096 bytes ---
+HTTP/1.1 200 OK
+Content-Length: 4096
+Content-Type: audio/mpeg
+Accept-Ranges: bytes
+downloaded full size: 4096 bytes
+
+--- 4) RANGE REQUEST bytes=1000- -> 206 Partial Content, Content-Range bytes 1000-4095/4096 ---
+HTTP/1.1 206 Partial Content
+Content-Length: 3096
+Content-Type: audio/mpeg
+Content-Range: bytes 1000-4095/4096
+downloaded tail size: 3096 bytes (expect 3096)
+
+--- 5) BYTE-CORRECT RESUME: tail (range 1000-) must equal full[1000:] exactly ---
+RESULT: range tail is BYTE-IDENTICAL to full clip[1000..4095]  (cmp: identical)
+sha256 full-tail: 18b17e4803fb9a5732e290355b27b0189ebc48f90a8684378063a8d69226f219
+sha256 rangetail: 18b17e4803fb9a5732e290355b27b0189ebc48f90a8684378063a8d69226f219
+
+--- 6) MIDDLE RANGE bytes=1000-1999 -> 206, Content-Range bytes 1000-1999/4096, 1000 bytes ---
+HTTP/1.1 206 Partial Content
+Content-Length: 1000
+Content-Range: bytes 1000-1999/4096
+mid size: 1000 (expect 1000)
+
+--- 7) 404 cases ---
+unknown turnId -> expect 404:
+  HTTP 404
+wrong sid for valid turn -> expect 404:
+  HTTP 404
+reply WITHOUT audio (no TTS) -> expect 404:
+  HTTP 404
+no-audio job slim poll still 200 with audioReady=false:
+{"turn_id":"b0f370ef-5846-4689-8f60-a297ed1719e0","stage":"reply","transcript":null,"summary":"No audio here.","audioReady":false,"audioLength":0,"audioBase64":null,"message":null,"expires_at":"2026-06-15T14:45:11.1179242Z"}
+
+--- 8) Unsatisfiable range bytes=99999- -> expect 416 Range Not Satisfiable ---
+HTTP/1.1 416 Range Not Satisfiable
+Content-Range: bytes */4096
+
+===== ALL LIVE CURL CHECKS PASSED =====
