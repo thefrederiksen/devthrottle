@@ -23,6 +23,7 @@ public partial class HomeView : UserControl
     public event EventHandler? OpenToolsRequested;
     public event EventHandler? OpenSettingsRequested;
     public event EventHandler? GatewayClicked;
+    public event EventHandler? RepairToolsRequested;
 
     public HomeView()
     {
@@ -84,6 +85,7 @@ public partial class HomeView : UserControl
             {
                 HomeCheckAction.OpenTools => () => OpenToolsRequested?.Invoke(this, EventArgs.Empty),
                 HomeCheckAction.OpenSettings => () => OpenSettingsRequested?.Invoke(this, EventArgs.Empty),
+                HomeCheckAction.RepairTools => () => RepairToolsRequested?.Invoke(this, EventArgs.Empty),
                 _ => null,
             };
             HomeStatusRows.Children.Add(BuildProblemRow(
@@ -157,5 +159,20 @@ public partial class HomeView : UserControl
             Padding = new global::Avalonia.Thickness(14, 12),
             Child = dock,
         };
+    }
+
+    /// <summary>
+    /// Show the cc-* tools check in a "repairing" state while the one-click Fix rebuild runs.
+    /// MainWindow pushes live progress text here; a normal status refresh restores the screen
+    /// when it finishes. Reuses the problem-card style with no fix button (the repair is running).
+    /// </summary>
+    public void SetToolsRepairing(string detail)
+    {
+        HomeBusyText.IsVisible = false;
+        HomeAllClear.IsVisible = false;
+        HomeProblems.IsVisible = true;
+        HomeStatusRows.Children.Clear();
+        HomeStatusRows.Children.Add(BuildProblemRow(
+            "cc-* tools", $"Repairing... {detail}", null, null, warn: true));
     }
 }
