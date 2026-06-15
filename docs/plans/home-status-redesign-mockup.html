@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CC Director - Home -> Status screen redesign (before / after)</title>
+<style>
+  :root{
+    --bg:#141414; --win:#1e1e1e; --rail:#1b1b1b; --panel:#242424; --panel2:#2a2a2a;
+    --border:#333; --hair:#343434; --text:#dcdcdc; --muted:#8a8a8a; --dim:#666;
+    --accent:#2563EB; --accentText:#3B82F6; --blue:#1f6feb;
+    --ok:#4CAF50; --warn:#F0B848; --bad:#E05656;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#0f0f0f;color:var(--text);
+       font-family:"Segoe UI",system-ui,sans-serif;line-height:1.5;padding:30px}
+  h1{font-weight:300;letter-spacing:1px;text-align:center;font-size:24px;margin:0 0 4px}
+  h1 b{font-weight:600;color:#fff}
+  .lead{text-align:center;color:var(--muted);max-width:820px;margin:0 auto 26px;font-size:14px}
+  h2{font-size:12px;letter-spacing:2px;text-transform:uppercase;color:#9a9a9a;margin:34px 0 12px;
+     border-bottom:1px solid var(--border);padding-bottom:7px}
+  .tag{display:inline-block;font-size:11px;padding:2px 9px;border-radius:11px;margin-left:8px;vertical-align:middle}
+  .tag.before{background:#3a2424;color:#d99}
+  .tag.after{background:#23341f;color:#9d9}
+  .row{display:flex;gap:22px;flex-wrap:wrap;justify-content:center}
+  .cap{font-size:12.5px;color:var(--muted);text-align:center;margin:8px 0 0}
+  .cap b{color:#cdcdcd}
+
+  /* window frame */
+  .win{width:560px;background:var(--win);border:1px solid #000;border-radius:7px;overflow:hidden;
+       box-shadow:0 10px 30px rgba(0,0,0,.5)}
+  .titlebar{height:30px;background:#181818;display:flex;align-items:center;padding:0 10px;
+            font-size:12px;color:#bbb;border-bottom:1px solid #000}
+  .titlebar .dot{width:13px;height:13px;margin-right:7px;opacity:.8}
+  .titlebar .ctl{margin-left:auto;color:#777;letter-spacing:3px}
+  .menubar{height:28px;background:#1f1f1f;display:flex;align-items:center;gap:18px;
+           padding:0 12px;font-size:12.5px;color:#cfcfcf;border-bottom:1px solid #2a2a2a}
+  .body{display:flex;height:360px}
+
+  /* left rail */
+  .rail{width:188px;background:var(--rail);border-right:1px solid #2a2a2a;padding:10px;flex:0 0 188px;
+        display:flex;flex-direction:column}
+  .railspace{flex:1}
+  .gwbottom{margin-top:8px;border-top:1px solid #2a2a2a;padding-top:8px}
+  .newbtn{background:var(--accent);color:#fff;border-radius:6px;text-align:center;
+          padding:8px;font-size:13px;font-weight:600;margin-bottom:12px}
+  .gw{display:flex;align-items:center;gap:7px;font-size:12px;padding:6px 4px;border-radius:5px;
+      background:#202020;border:1px solid #2c2c2c;margin-bottom:10px}
+  .gw .led{width:11px;height:11px;border-radius:50%;flex:0 0 11px}
+  .gw.ok .led{background:var(--ok);box-shadow:0 0 6px #4CAF5066}
+  .gw.bad .led{background:var(--bad);box-shadow:0 0 6px #E0565666}
+  .gw.ok{color:#bfe6c4} .gw.bad{color:#e8b6b6;border-color:#4a2a2a;background:#241a1a}
+  .railhdr{font-size:10px;letter-spacing:1.5px;color:var(--dim);margin:6px 4px 6px}
+  .railempty{font-size:12px;color:var(--dim);padding:4px}
+  .srow{display:flex;align-items:center;gap:7px;font-size:12.5px;padding:7px 6px;border-radius:5px;color:#cdcdcd}
+  .srow.active{background:#243; background:#1d2b3a;color:#fff}
+  .srow .sled{width:8px;height:8px;border-radius:2px;flex:0 0 8px}
+
+  /* main area */
+  .main{flex:1;background:#1e1e1e;position:relative;display:flex;flex-direction:column}
+  .center{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+          text-align:center;padding:20px}
+  .brand{font-weight:300;letter-spacing:5px;color:#cfcfcf;font-size:20px;margin-bottom:14px}
+  .allgo{display:flex;align-items:center;gap:9px;font-size:15px;color:#bfe6c4;font-weight:600;margin-bottom:4px}
+  .allgo .led{width:13px;height:13px;border-radius:50%;background:var(--ok);box-shadow:0 0 8px #4CAF5077}
+  .subq{font-size:12.5px;color:var(--muted);margin-bottom:18px}
+  .ns{background:var(--accent);color:#fff;border-radius:6px;padding:9px 18px;font-size:13px;font-weight:600}
+  .hint{font-size:11.5px;color:var(--dim);margin-top:12px}
+
+  /* problem state */
+  .prob{align-items:stretch;justify-content:flex-start;text-align:left;padding:18px 22px}
+  .probhdr{display:flex;align-items:center;gap:8px;font-size:12px;letter-spacing:1.5px;
+           color:var(--warn);font-weight:700;margin-bottom:14px}
+  .pcard{background:#241a1a;border:1px solid #4a2a2a;border-left:3px solid var(--bad);border-radius:7px;
+         padding:12px 14px;margin-bottom:12px}
+  .pcard .t{font-size:13.5px;color:#f0c9c9;font-weight:600;display:flex;align-items:center;gap:8px}
+  .pcard .d{font-size:12px;color:var(--muted);margin-top:4px;display:flex;align-items:center;gap:10px}
+  .fix{border:1px solid var(--accent);color:var(--accentText);border-radius:5px;padding:2px 11px;font-size:11px}
+  .pnote{font-size:11.5px;color:var(--dim);margin-top:4px}
+
+  /* full-screen BEFORE recreation */
+  .fs{min-height:360px;display:flex;flex-direction:column;align-items:center;padding:22px 18px;overflow:auto}
+  .fs .brand{font-size:22px;letter-spacing:6px;margin-bottom:2px}
+  .fs .tagline{font-size:12px;color:var(--muted);margin-bottom:16px}
+  .fs .ns{margin-bottom:6px}
+  .fs .card{width:86%;background:var(--panel);border:1px solid var(--border);border-radius:8px;
+            padding:12px 14px;margin-top:12px}
+  .fs .gwcard{border-color:#2f5e38;background:#16241a}
+  .fs .gwcard .h{color:var(--ok);font-weight:700;font-size:13px}
+  .fs .gwcard .s{color:#8fb89a;font-size:11px}
+  .fs .ck{display:flex;align-items:center;font-size:12px;padding:5px 0}
+  .fs .ck .g{width:26px;font-weight:700}
+  .fs .ck .nm{width:90px;color:#ddd}
+  .fs .ck .dt{flex:1;color:var(--muted)}
+  .twocol{display:flex;gap:12px;width:86%;margin-top:12px}
+  .twocol .card{width:50%;margin-top:0}
+  .hd{font-size:10px;letter-spacing:1.5px;color:var(--dim);margin-bottom:6px}
+  .rr{font-size:12px;color:#cdcdcd;padding:4px 0;border-top:1px solid var(--hair);display:flex;justify-content:space-between}
+  .rr:first-of-type{border-top:0}
+  .strike{position:relative}
+  .badge{display:inline-block;background:#3a2424;color:#e0a0a0;font-size:10px;padding:1px 7px;border-radius:8px;margin-left:6px}
+
+  /* terminal mock */
+  .term{flex:1;margin:10px;background:#0e0e0e;border:1px solid #2a2a2a;border-radius:6px;
+        padding:10px;font-family:Consolas,monospace;font-size:11px;color:#bdbdbd}
+  .term .o{color:#e0795a}
+  .promptbar{display:flex;gap:8px;padding:0 10px 10px}
+  .promptbar .box{flex:1;background:#1e1e1e;border:1px solid #3c3c3c;border-radius:5px;
+                  padding:7px 9px;font-size:12px;color:var(--dim)}
+  .promptbar .b{background:var(--accent);color:#fff;border-radius:5px;padding:7px 12px;font-size:12px}
+  .tabrow{display:flex;gap:6px;align-items:center;padding:8px 10px;font-size:12px;color:#cfcfcf}
+  .tabrow .ttl{font-weight:600;color:#fff}
+  .tabrow .tabs{margin-left:auto;display:flex;gap:4px}
+  .tabrow .tb{background:#2563EB;color:#fff;border-radius:4px;padding:2px 9px;font-size:11px}
+  .tabrow .tb.off{background:#2a2a2a;color:#aaa}
+  .peek{position:absolute;right:10px;bottom:8px;font-size:11px;color:var(--dim)}
+</style>
+</head>
+<body>
+
+<h1>CC Director &mdash; <b>Home becomes a Status screen</b></h1>
+<p class="lead">
+  Stop the full-screen takeover. Keep the normal window chrome (left rail always present, with a live gateway light).
+  The main area shows a session's terminal when one is selected, or a <b>quiet status</b> when none is &mdash; loud
+  only when something is wrong. Recent/history leaves the local Director (moves to the Gateway).
+</p>
+
+<!-- ============ BEFORE ============ -->
+<h2>Before <span class="tag before">today: full-screen takeover, recent + quick actions, chrome hidden</span></h2>
+<div class="row">
+  <div>
+    <div class="win">
+      <div class="titlebar"><span class="dot">≪</span>CC Director<span class="ctl">&minus; □ ✕</span></div>
+      <div class="menubar"><span>File</span><span>Session</span><span>View</span><span>Help</span></div>
+      <div class="fs">
+        <div class="brand">CC DIRECTOR</div>
+        <div class="tagline">Let's finish setting up</div>
+        <div class="ns">+ New Session</div>
+        <div class="card gwcard"><div class="h">● GATEWAY CONNECTED</div><div class="s">two-way verified 13:25:39</div></div>
+        <div class="card">
+          <div class="hd">READINESS &nbsp;&nbsp; <span style="color:var(--warn)">1 of 2 ready</span></div>
+          <div class="ck"><span class="g" style="color:var(--ok)">OK</span><span class="nm">Agent CLIs</span><span class="dt">Claude Code, Pi, Codex, Gemini, OpenCode</span></div>
+          <div class="ck"><span class="g" style="color:var(--bad)">X</span><span class="nm">cc-* tools</span><span class="dt">0 of 32 on PATH</span></div>
+        </div>
+        <div class="twocol">
+          <div class="card">
+            <div class="hd">RECENT</div>
+            <div class="rr"><span>cc-director</span><span style="color:#555">6m</span></div>
+            <div class="rr"><span>cc-consult</span><span style="color:#555">1h</span></div>
+            <div class="rr"><span>private</span><span style="color:#555">3h</span></div>
+          </div>
+          <div class="card">
+            <div class="hd">QUICK ACTIONS</div>
+            <div class="rr" style="border:0">Open Cockpit</div>
+            <div class="rr" style="border:0">Tools</div>
+            <div class="rr" style="border:0">Settings</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="cap"><b>Problem:</b> takes over the whole window &bull; no rail/chrome &bull; carries Recent + Quick Actions (smarts that belong on the Gateway) &bull; shouts even when all is well</p>
+  </div>
+</div>
+
+<!-- ============ AFTER ============ -->
+<h2>After <span class="tag after">chrome kept &bull; status in main area &bull; quiet when healthy &bull; no recent</span></h2>
+<div class="row">
+
+  <!-- A. healthy, no session -->
+  <div>
+    <div class="win">
+      <div class="titlebar"><span class="dot">≪</span>CC Director<span class="ctl">&minus; □ ✕</span></div>
+      <div class="menubar"><span>File</span><span>Session</span><span>View</span><span>Help</span></div>
+      <div class="body">
+        <div class="rail">
+          <div class="newbtn">+ New Session</div>
+          <div class="railhdr">SESSIONS</div>
+          <div class="railempty">No sessions yet</div>
+          <div class="railspace"></div>
+          <div class="gw ok gwbottom"><span class="led"></span>Gateway connected</div>
+        </div>
+        <div class="main">
+          <div class="center">
+            <div class="brand">CC DIRECTOR</div>
+            <div class="allgo"><span class="led"></span>All systems go</div>
+            <div class="subq">Gateway connected &bull; 1 agent CLI ready</div>
+            <div class="ns">+ New Session</div>
+            <div class="hint">Pick a repo, or start a session.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="cap"><b>A &mdash; healthy, no session.</b> Rail stays; gateway light is green. Main area is a quiet "all good" + the one action. No cards, no recent.</p>
+  </div>
+
+  <!-- B. problem, no session -->
+  <div>
+    <div class="win">
+      <div class="titlebar"><span class="dot">≪</span>CC Director<span class="ctl">&minus; □ ✕</span></div>
+      <div class="menubar"><span>File</span><span>Session</span><span>View</span><span>Help</span></div>
+      <div class="body">
+        <div class="rail">
+          <div class="newbtn">+ New Session</div>
+          <div class="railhdr">SESSIONS</div>
+          <div class="railempty">No sessions yet</div>
+          <div class="railspace"></div>
+          <div class="gw bad gwbottom"><span class="led"></span>Gateway offline</div>
+        </div>
+        <div class="main">
+          <div class="center prob">
+            <div class="probhdr">⚠ NEEDS ATTENTION</div>
+            <div class="pcard">
+              <div class="t"><span style="color:var(--bad)">✕</span> Gateway not connected</div>
+              <div class="d">Last seen 13:02 <span class="fix">Reconnect</span></div>
+            </div>
+            <div class="pcard">
+              <div class="t"><span style="color:var(--bad)">✕</span> No agent CLI found</div>
+              <div class="d">Install Claude Code, Codex, Pi… <span class="fix">Fix</span></div>
+            </div>
+            <div class="pnote">Only failing checks appear here. When all pass, this screen goes quiet (state A).</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="cap"><b>B &mdash; a problem exists.</b> Rail light turns red; main area lists <i>only</i> what's broken, each with a fix action.</p>
+  </div>
+
+  <!-- C. session active -->
+  <div>
+    <div class="win">
+      <div class="titlebar"><span class="dot">≪</span>CC Director<span class="ctl">&minus; □ ✕</span></div>
+      <div class="menubar"><span>File</span><span>Session</span><span>View</span><span>Help</span></div>
+      <div class="body">
+        <div class="rail">
+          <div class="newbtn">+ New Session</div>
+          <div class="railhdr">SESSIONS</div>
+          <div class="srow active"><span class="sled" style="background:#4CAF50"></span>cc-director</div>
+          <div class="srow"><span class="sled" style="background:#888"></span>cc-consult</div>
+          <div class="railspace"></div>
+          <div class="gw ok gwbottom"><span class="led"></span>Gateway connected</div>
+        </div>
+        <div class="main">
+          <div class="tabrow"><span class="ttl">cc-director</span>
+            <span class="tabs"><span class="tb">Terminal</span><span class="tb off">Source Control</span></span></div>
+          <div class="term">Claude Code v2.1.177<br><span class="o">&gt;</span> _<br><br>bypass permissions on</div>
+          <div class="promptbar"><span class="box">Type a message...</span><span class="b">Send</span></div>
+          <div class="peek">click the ● dot or View ▸ Status to peek</div>
+        </div>
+      </div>
+    </div>
+    <p class="cap"><b>C &mdash; session open.</b> Main area is the terminal; status collapses to the rail's green dot. Get the full status back via the rail dot, View ▸ Status, or by deselecting the session &mdash; without closing it.</p>
+  </div>
+
+</div>
+
+<h2>Behavior summary</h2>
+<div class="lead" style="max-width:900px;text-align:left">
+  <ul style="line-height:1.8">
+    <li><b>Chrome always on.</b> The left rail (New Session, gateway light, session list) is present whether or not a session exists. No more full-window takeover.</li>
+    <li><b>Status = the main area when no session is selected.</b> Like VS Code's Welcome tab &mdash; it's not a mode, it's just what fills the pane when nothing else is focused.</li>
+    <li><b>Quiet when healthy, loud when not.</b> All-green = one line. Any failure = only the failing checks, with fixes.</li>
+    <li><b>Recent / history removed</b> from the local Director &mdash; that moves to the Gateway. Local keeps only must-haves.</li>
+    <li><b>Gateway indicator stays at the bottom of the rail</b> (unchanged from today) &mdash; glanceable health at all times. The full Status screen is summonable any time (View ▸ Status, or deselect the session) without closing your session.</li>
+  </ul>
+</div>
+
+</body>
+</html>
