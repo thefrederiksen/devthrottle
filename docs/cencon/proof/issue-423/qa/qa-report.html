@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>QA Proof - Issue #423: Voice per-session turn history with replay</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; color: #1a1a2e; }
+  h1 { border-bottom: 3px solid #2d6a4f; padding-bottom: .4rem; }
+  h2 { margin-top: 2rem; color: #2d6a4f; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #2d6a4f; color: #fff; }
+  .pass { color: #2d6a4f; font-weight: bold; }
+  code { background: #eef; padding: 1px 4px; border-radius: 3px; }
+  img { max-width: 100%; border: 1px solid #ccc; margin: .5rem 0; }
+  .verdict { background: #d8f3dc; border: 2px solid #2d6a4f; padding: 1rem; font-size: 1.1rem; margin: 1.5rem 0; }
+  pre { background: #f5f5f5; padding: .7rem; overflow-x: auto; border-left: 3px solid #2d6a4f; }
+</style>
+</head>
+<body>
+<h1>QA Proof - Issue #423</h1>
+<p><strong>[cockpit] Voice: per-session turn/response history with replay</strong><br/>
+PR #433 (branch <code>feat/423-voice-history</code>, stacked on <code>feat/422-voice-turncount</code>)<br/>
+QA verified independently against the LIVE Gateway data on 2026-06-15.</p>
+
+<h2>How QA reproduced it (independent of the Developer's binary)</h2>
+<p>The change is front-end only (<code>wwwroot/pages/voice/*</code>); the backend
+<code>/voice-turns</code> and <code>/voice-turn/{id}/audio</code> endpoints already shipped. QA built and
+ran the PR branch itself in the real topology:</p>
+<ul>
+  <li>Built <code>CcDirector.Cockpit</code> from the PR-branch worktree (<code>dotnet build</code> -> 0 warnings / 0 errors) and ran it on a spare port (7951).</li>
+  <li>Built and ran a dev <code>CcDirector.Gateway</code> from the same branch on a spare port (7952), with <code>CC_COCKPIT_PORT=7951</code> so the Gateway front door proxies <code>/voice</code> + <code>/pages/voice/*</code> to QA's Cockpit, while the API (<code>/sessions</code>, <code>/voice-turns</code>, <code>/audio</code>) is served same-origin by the Gateway from the real on-disk voice-turn archive. This is the production topology (browser talks only to the Gateway front door).</li>
+  <li>Drove the page in a real browser (cc-playwright, trusted events) and captured network + DOM proof.</li>
+  <li>The session named <strong>"Cockpit app"</strong> (<code>18e2a901-...</code>) carries one real archived voice turn (<code>turn_id 8b128ff6-...</code>, <code>has_audio: true</code>), used for the history + replay checks.</li>
+</ul>
+
+<h2>Acceptance criteria - Expected vs Actual</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (QA-observed)</th><th>Verdict</th></tr>
+<tr>
+  <td>1</td>
+  <td>Scrollable history of completed turns (transcript + reply summary), newest first, from <code>GET /sessions/{id}/voice-turns</code></td>
+  <td>History list populated from the archive endpoint, newest-first, each row showing the spoken summary + transcript</td>
+  <td>Opening "Cockpit app" rendered a scrollable HISTORY section with the archived turn: summary text present, transcript "Okay, so what can you do here?" present, <code>data-turn-id=8b128ff6-...</code> (matches the archive). em-dashes render correctly (no encoding leak). See 02-history-list.png.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td>Each entry has a Play button that plays that turn's reply audio from the durable <code>/audio</code> endpoint</td>
+  <td>Clicking Play issues <code>GET /sessions/{id}/voice-turn/{turnId}/audio</code> returning the audio bytes</td>
+  <td>Play button present on the entry. Clicking it fired <code>GET .../voice-turn/8b128ff6-.../audio</code> -> HTTP <strong>200</strong>, <strong>2,416,140 bytes</strong> (the full MP3, matching the backend), captured via PerformanceObserver. See network log below + 03-after-play-audio-get.png.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>3</td>
+  <td>A newly completed turn appears at the top of the history without a manual refresh</td>
+  <td><code>onReply</code> prepends the just-completed turn at the top (newest-first) with no reload</td>
+  <td>Code path verified: <code>pollTurn</code> -> <code>onReply</code> -> <code>prependHistory(sid, {turn_id, summary, transcript, has_audio, created_at})</code> -> <code>list.insertBefore(item, list.firstChild)</code> with a <code>data-turn-id</code> dedupe guard. Observed live: inserting a new turn placed it at index 0, ABOVE the existing <code>8b128ff6</code> entry, with no page reload. See 05-live-prepend.png.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>4</td>
+  <td>Clear empty state when there is no history</td>
+  <td>A session with 0 turns shows a visible empty message</td>
+  <td>Opening "product" (0 turns) showed the visible empty state "No turns yet. Tap Speak to start." (<code>history-empty</code> not hidden, <code>history-list</code> count 0). See 04-empty-state.png.</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>5</td>
+  <td>Proof: screenshots of the history list + Play on an older entry plays its audio (network log shows the <code>/audio</code> GET)</td>
+  <td>Screenshots + network evidence</td>
+  <td>Screenshots 02/03/04/05 attached; the <code>/audio</code> GET 200 (2.4MB) is recorded in the network log below.</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Network evidence for criterion 2 (the /audio GET on Play)</h2>
+<pre>
+performance resource entry after clicking Play:
+  name:   /sessions/18e2a901-4351-49c0-b0ff-209aff6903a6/voice-turn/8b128ff6-e6b8-4347-8bcf-182bd705c034/audio
+  status: 200
+  size:   2,416,140 bytes  (matches backend MP3 size 2,415,840 + headers)
+</pre>
+
+<h2>Regression / method sweep</h2>
+<ul>
+  <li>Existing voice controls intact alongside the new History section: Speak button, "Play reply" button, reply box, stage line all present and rendering.</li>
+  <li>#422 turn-count pill still correct ("1 turn" on Cockpit app, "0 turns" on product).</li>
+  <li>Build clean: <code>dotnet build CcDirector.Cockpit.csproj</code> -> 0 warnings, 0 errors. No security/PII concerns (read-only front-end; token injected server-side as the page already did).</li>
+  <li>No CenCon doc drift (no architecture/security change).</li>
+</ul>
+
+<h2>Screenshots</h2>
+<p><strong>02 - History list (Cockpit app, 1 archived turn, Play button):</strong><br/>
+<img src="02-history-list.png" alt="history list"/></p>
+<p><strong>03 - After clicking Play (the /audio GET fired, 200 / 2.4MB):</strong><br/>
+<img src="03-after-play-audio-get.png" alt="after play"/></p>
+<p><strong>04 - Empty state (product session, 0 turns):</strong><br/>
+<img src="04-empty-state.png" alt="empty state"/></p>
+<p><strong>05 - Live prepend (new turn lands at the top, above the existing one, no refresh):</strong><br/>
+<img src="05-live-prepend.png" alt="live prepend"/></p>
+
+<div class="verdict">
+VERIFIED - all 5 acceptance criteria met. QA PASS.<br/>
+Option A: not merged. Issue stays <code>flow:ready-qa</code>, PR #433 left OPEN for human merge.
+</div>
+</body>
+</html>
