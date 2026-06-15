@@ -168,6 +168,50 @@ public class ToolCatalogServiceTests : IDisposable
         }
     }
 
+    // ---------- IsExpected: installed-but-broken vs never-installed (over-nag fix) ----------
+
+    [Fact]
+    public void GetCatalog_ShimWithoutExe_ExpectedButNotBuilt()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var (root, binDir) = NewInstallLayout();
+        try
+        {
+            // The installer left the bin shim, but the venv exe is gone: the broken half-install.
+            File.WriteAllText(Path.Combine(binDir, "cc-vault.cmd"), "@echo off\r\n");
+
+            var vault = new ToolCatalogService(binDir).GetCatalog().Single(d => d.Name == "cc-vault");
+
+            Assert.True(vault.IsExpected, "a shim means this install was expected to provide the tool");
+            Assert.False(vault.IsBuilt, "the backing exe is missing, so it is broken");
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch { /* best-effort */ }
+        }
+    }
+
+    [Fact]
+    public void GetCatalog_NoShimNoExe_NotExpected()
+    {
+        // Never installed here (extras tier / other bundle / drift): the home must not nag about it.
+        var vault = new ToolCatalogService(_binDir).GetCatalog().Single(d => d.Name == "cc-vault");
+
+        Assert.False(vault.IsExpected);
+        Assert.False(vault.IsBuilt);
+    }
+
+    [Fact]
+    public void GetCatalog_BuiltTool_IsExpected()
+    {
+        StubBuilt("cc-vault");
+
+        var vault = new ToolCatalogService(_binDir).GetCatalog().Single(d => d.Name == "cc-vault");
+
+        Assert.True(vault.IsExpected);
+        Assert.True(vault.IsBuilt);
+    }
+
     [Fact]
     public void GetUnmanagedBinaries_BuiltCcBinaryNotInManifest_Reported()
     {

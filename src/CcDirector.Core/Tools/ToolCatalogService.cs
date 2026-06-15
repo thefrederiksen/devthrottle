@@ -101,6 +101,13 @@ public sealed class ToolCatalogService
         var binaryPath = resolved ?? Path.Combine(_binDir, ResolveBinaryFileName(entry.Name));
         var isBuilt = resolved is not null;
 
+        // "Expected here" = the installer placed a shim (bin\<name>.cmd) or the tool is built. A tool
+        // with neither was never installed on this machine (extras tier, a different bundle, or drift),
+        // so the home readiness must not nag about it. A shim WITHOUT a built binary is the broken
+        // half-install case (the shim survives a venv wipe, the pyenv\Scripts exe does not).
+        var hasShim = File.Exists(Path.Combine(_binDir, entry.Name + ".cmd"));
+        var isExpected = hasShim || isBuilt;
+
         var tests = new List<ToolTest>
         {
             new(ToolTestKind.OnPath, Array.Empty<string>(), null),
@@ -117,6 +124,7 @@ public sealed class ToolCatalogService
             note: entry.Note,
             binaryPath: binaryPath,
             isBuilt: isBuilt,
+            isExpected: isExpected,
             tests: tests);
     }
 

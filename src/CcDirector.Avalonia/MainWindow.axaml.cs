@@ -666,10 +666,13 @@ public partial class MainWindow : Window
                     return new AgentCliFact(ToolDetectionService.DisplayName(tool), det.Found, version);
                 }).ToList();
 
+                // Only consider tools this install is EXPECTED to provide (shim or built); tools never
+                // installed here (extras tier, other bundles, manifest drift) must not raise a warning.
                 var catalog = new ToolCatalogService().GetCatalog();
-                var built = catalog.Count(d => d.IsBuilt);
-                var total = catalog.Count;
-                var missing = catalog.Where(d => !d.IsBuilt).Select(d => d.Name).ToList();
+                var expected = catalog.Where(d => d.IsExpected).ToList();
+                var built = expected.Count(d => d.IsBuilt);
+                var total = expected.Count;
+                var missing = expected.Where(d => !d.IsBuilt).Select(d => d.Name).ToList();
 
                 return (clis, built, total, missing);
             });

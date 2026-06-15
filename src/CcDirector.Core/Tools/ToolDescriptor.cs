@@ -32,6 +32,7 @@ public sealed class ToolDescriptor
         string? note,
         string binaryPath,
         bool isBuilt,
+        bool isExpected,
         IReadOnlyList<ToolTest> tests)
     {
         Name = name;
@@ -40,6 +41,7 @@ public sealed class ToolDescriptor
         Note = note;
         BinaryPath = binaryPath;
         IsBuilt = isBuilt;
+        IsExpected = isExpected;
         Tests = tests;
     }
 
@@ -63,6 +65,14 @@ public sealed class ToolDescriptor
 
     /// <summary>True when <see cref="BinaryPath"/> exists on disk.</summary>
     public bool IsBuilt { get; }
+
+    /// <summary>
+    /// True when this machine's install is expected to provide the tool: it has an installer shim
+    /// (<c>bin\&lt;name&gt;.cmd</c>) or a built binary. Distinguishes "installed but broken" (expected
+    /// and not built) from "never installed here" (e.g. the extras tier, or tools not in this bundle).
+    /// The home readiness only flags expected-but-broken tools, so optional tools never raise a warning.
+    /// </summary>
+    public bool IsExpected { get; }
 
     /// <summary>The declared health checks (always OnPath + Version; Smoke when the manifest has one).</summary>
     public IReadOnlyList<ToolTest> Tests { get; }

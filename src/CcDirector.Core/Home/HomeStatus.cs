@@ -61,12 +61,12 @@ public static class HomeStatusBuilder
         IReadOnlyList<AgentCliFact> agentClis,
         int toolsBuilt,
         int toolsTotal,
-        IReadOnlyList<string>? missingTools = null)
+        IReadOnlyList<string>? brokenTools = null)
     {
         var checks = new List<HomeCheck>
         {
             BuildAgentClis(agentClis),
-            BuildTools(toolsBuilt, toolsTotal, missingTools ?? Array.Empty<string>()),
+            BuildTools(toolsBuilt, toolsTotal, brokenTools ?? Array.Empty<string>()),
         };
 
         var readyCount = checks.Count(c => c.Level == HomeCheckLevel.Ok);
@@ -108,25 +108,30 @@ public static class HomeStatusBuilder
     }
 
     /// <summary>
-    /// The cc-* tools row. Green when every tool's runnable exe is present. When some are missing it
-    /// names them (so the warning is specific, not just "25 of 32") and offers a one-click in-place
-    /// repair (<see cref="HomeCheckAction.RepairTools"/>) instead of merely opening the Tools page.
+    /// The cc-* tools row. Reports only tools this install is EXPECTED to provide (it placed a shim or
+    /// built them): <paramref name="total"/> is that expected count, <paramref name="built"/> is how many
+    /// actually run, and <paramref name="broken"/> names the expected-but-not-runnable ones. Tools that
+    /// were never installed here (the extras tier, other bundles, manifest drift) are excluded by the
+    /// caller, so a healthy machine is GREEN instead of nagging "25 of 32". When something is genuinely
+    /// broken it names the tools and offers a one-click repair (<see cref="HomeCheckAction.RepairTools"/>).
     /// </summary>
-    private static HomeCheck BuildTools(int built, int total, IReadOnlyList<string> missing)
+    private static HomeCheck BuildTools(int built, int total, IReadOnlyList<string> broken)
     {
-        if (total > 0 && built == total)
-            return new HomeCheck("cc-* tools", HomeCheckLevel.Ok, $"{built} of {total} on PATH", HomeCheckAction.None);
+        if (total == 0)
+            return new HomeCheck("cc-* tools", HomeCheckLevel.Ok, "no tools installed", HomeCheckAction.None);
+        if (built == total)
+            return new HomeCheck("cc-* tools", HomeCheckLevel.Ok, $"{total} installed, all working", HomeCheckAction.None);
 
         string detail;
-        if (missing.Count > 0)
+        if (broken.Count > 0)
         {
-            var shown = string.Join(", ", missing.Take(4));
-            if (missing.Count > 4) shown += $", +{missing.Count - 4} more";
-            detail = $"{total - built} of {total} not installed: {shown}";
+            var shown = string.Join(", ", broken.Take(4));
+            if (broken.Count > 4) shown += $", +{broken.Count - 4} more";
+            detail = $"{total - built} of {total} need repair: {shown}";
         }
         else
         {
-            detail = $"{built} of {total} on PATH";
+            detail = $"{built} of {total} working";
         }
 
         var level = built == 0 ? HomeCheckLevel.Bad : HomeCheckLevel.Warn;

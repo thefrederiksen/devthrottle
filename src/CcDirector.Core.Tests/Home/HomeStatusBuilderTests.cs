@@ -106,9 +106,36 @@ public class HomeStatusBuilderTests
 
         var tools = Row(status, "cc-* tools");
         Assert.Equal(HomeCheckLevel.Warn, tools.Level);
-        Assert.Equal("12 of 31 on PATH", tools.Detail);
+        Assert.Equal("12 of 31 working", tools.Detail);
         Assert.Equal(HomeCheckAction.RepairTools, tools.Action);
         Assert.False(status.AllReady);
+    }
+
+    [Fact]
+    public void Build_AllExpectedToolsWorking_GreenNoNag()
+    {
+        // The over-nag fix: when every EXPECTED tool runs, the row is green - no warning, no Fix button -
+        // even though the full catalog has more (uninstalled extras the caller already excluded).
+        var status = HomeStatusBuilder.Build(
+            new[] { Cli("Claude Code", true, "2.1.168") },
+            toolsBuilt: 25, toolsTotal: 25);
+
+        var tools = Row(status, "cc-* tools");
+        Assert.Equal(HomeCheckLevel.Ok, tools.Level);
+        Assert.Equal(HomeCheckAction.None, tools.Action);
+        Assert.Equal("25 installed, all working", tools.Detail);
+    }
+
+    [Fact]
+    public void Build_NoExpectedTools_GreenAndQuiet()
+    {
+        var status = HomeStatusBuilder.Build(
+            new[] { Cli("Claude Code", true, "2.1.168") },
+            toolsBuilt: 0, toolsTotal: 0);
+
+        var tools = Row(status, "cc-* tools");
+        Assert.Equal(HomeCheckLevel.Ok, tools.Level);
+        Assert.Equal(HomeCheckAction.None, tools.Action);
     }
 
     [Fact]
@@ -117,7 +144,7 @@ public class HomeStatusBuilderTests
         var status = HomeStatusBuilder.Build(
             new[] { Cli("Claude Code", true, "2.1.168") },
             toolsBuilt: 29, toolsTotal: 32,
-            missingTools: new[] { "cc-html", "cc-pdf", "cc-word" });
+            brokenTools: new[] { "cc-html", "cc-pdf", "cc-word" });
 
         var tools = Row(status, "cc-* tools");
         Assert.Equal(HomeCheckLevel.Warn, tools.Level);
@@ -133,7 +160,7 @@ public class HomeStatusBuilderTests
         var missing = new[] { "cc-a", "cc-b", "cc-c", "cc-d", "cc-e", "cc-f" };
         var status = HomeStatusBuilder.Build(
             new[] { Cli("Claude Code", true, "2.1.168") },
-            toolsBuilt: 26, toolsTotal: 32, missingTools: missing);
+            toolsBuilt: 26, toolsTotal: 32, brokenTools: missing);
 
         var tools = Row(status, "cc-* tools");
         Assert.Contains("+2 more", tools.Detail);
