@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Issue #420 - Developer Proof - Voice nav entry</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font-family: "Segoe UI", system-ui, sans-serif; background:#0b1220; color:#dbe4f0;
+         margin:0; padding:32px; line-height:1.5; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  h2 { font-size:16px; margin:28px 0 8px; color:#9db4d8; border-bottom:1px solid #1e2a44; padding-bottom:6px; }
+  .sub { color:#7d8aa5; margin:0 0 16px; font-size:13px; }
+  table { border-collapse:collapse; width:100%; margin:8px 0; font-size:13px; }
+  th, td { border:1px solid #1e2a44; padding:8px 10px; text-align:left; vertical-align:top; }
+  th { background:#13203a; color:#9db4d8; }
+  code { background:#13203a; padding:1px 5px; border-radius:3px; font-size:12px; }
+  .pass { color:#4ade80; font-weight:600; }
+  figure { margin:14px 0; }
+  img { max-width:100%; border:1px solid #1e2a44; border-radius:6px; display:block; }
+  figcaption { color:#7d8aa5; font-size:12px; margin-top:6px; }
+  .verdict { background:#10261a; border:1px solid #1f5135; border-radius:6px; padding:14px 16px; margin-top:24px; }
+</style>
+</head>
+<body>
+  <h1>Issue #420 - [cockpit] Voice: add a Voice entry to the Cockpit navigation</h1>
+  <p class="sub">Developer Agent proof | branch <code>feat/420-voice-nav</code> | CenCon Development Method</p>
+
+  <h2>What was implemented</h2>
+  <p>The mobile-first Voice Mode page (<code>/voice</code>) was reachable only by typing the URL. A
+     "Voice" navigation entry was added so it is discoverable and openable from the Cockpit.</p>
+  <ul>
+    <li><code>src/CcDirector.Cockpit/Components/Layout/NavMenu.razor</code> - added a visible "Voice"
+        item linking to <code>/voice</code> (a plain anchor with <code>data-enhance-nav="false"</code>
+        because <code>/voice</code> is served outside the Blazor router as a static PWA, so it needs a
+        full document load - matching the existing <code>/settings</code> and <code>/keys</code>
+        anchors). Icon is a 16x16 microphone/headset SVG consistent with the sibling
+        <code>nv-item</code> entries.</li>
+    <li>To avoid two items both labelled "Voice", the pre-existing hidden item at
+        <code>/transcripts</code> (the recordings + transcripts page) was renamed from "Voice" to
+        "Recordings" in both surfaces - its purpose is recordings, and the new <code>/voice</code>
+        item now owns the "Voice" label.</li>
+    <li><code>src/CcDirector.Cockpit/wwwroot/pages/tool-nav.js</code> - added the same "Voice" item to
+        the shared static tool-nav rail (so the plain-HTML tool pages show it too) and renamed the
+        <code>/transcripts</code> entry to "Recordings", keeping the two rails in sync as the file's
+        own comment requires.</li>
+  </ul>
+
+  <h2>UI surface / style</h2>
+  <p>Cockpit web dashboard. Followed the existing <code>NavMenu.razor</code> / <code>tool-nav.js</code>
+     conventions: <code>nv-item</code> anchor pattern, 16x16 <code>viewBox</code> stroke-only SVG icon,
+     and the same separator/visibility structure as siblings. No hard-coded colours; reuses the
+     existing <code>.nv-*</code> design tokens.</p>
+
+  <h2>Build</h2>
+  <p><code>dotnet build cc-director.sln</code> -> <span class="pass">Build succeeded. 0 Warning(s), 0 Error(s).</span></p>
+
+  <h2>Acceptance criteria - Expected vs Actual</h2>
+  <table>
+    <tr><th>Criterion</th><th>Expected</th><th>Actual (proof)</th><th></th></tr>
+    <tr>
+      <td>Nav rail shows a "Voice" item with a sensible icon, consistent with other entries</td>
+      <td>"Voice" item visible in the Cockpit left rail with a microphone icon</td>
+      <td>Screenshot 01: "Voice" item present between "Wingman" and "About", microphone icon,
+          matching sibling styling. Selector check: <code>NAV_VOICE_LABEL = "Voice"</code></td>
+      <td class="pass">PASS</td>
+    </tr>
+    <tr>
+      <td>Clicking it navigates to <code>/voice</code> and the Voice page renders (session list visible)</td>
+      <td>Click -> URL <code>/voice</code>, Voice page renders with its session list</td>
+      <td>Screenshot 02: after click, <code>AFTER_CLICK_URL = http://127.0.0.1:7492/voice</code>,
+          <code>PAGE_TITLE = "Voice - CC Director"</code>; the Voice heading and session-list region
+          render ("No sessions yet." in this standalone Cockpit with no live Director sessions)</td>
+      <td class="pass">PASS</td>
+    </tr>
+    <tr>
+      <td>The item also appears in the shared static tool-nav rail (<code>tool-nav.js</code>)</td>
+      <td>Static tool pages show the "Voice" item too</td>
+      <td>Screenshot 03 (static <code>/keys</code> page): injected rail shows "Voice" with the same
+          icon. Selector check: <code>TOOLNAV_VOICE_LABEL = "Voice"</code></td>
+      <td class="pass">PASS</td>
+    </tr>
+  </table>
+
+  <h2>Screenshots</h2>
+  <figure>
+    <img src="01-cockpit-nav-voice-item.png" alt="Cockpit Blazor nav rail with Voice item" />
+    <figcaption>01 - Cockpit (Blazor NavMenu): the "Voice" item is present in the left rail. The former
+       "Voice"-labelled <code>/transcripts</code> entry is now "Recordings".</figcaption>
+  </figure>
+  <figure>
+    <img src="02-voice-page-after-click.png" alt="Voice page after clicking the nav item" />
+    <figcaption>02 - After clicking "Voice": navigated to <code>/voice</code>; the Voice Mode page
+       renders (heading, Refresh, session list region).</figcaption>
+  </figure>
+  <figure>
+    <img src="03-static-toolnav-voice-item.png" alt="Static tool-nav rail with Voice item" />
+    <figcaption>03 - Static tool page (<code>/keys</code>): the shared tool-nav rail also shows the
+       "Voice" item.</figcaption>
+  </figure>
+
+  <h2>CenCon impact</h2>
+  <p>No drift. This is a navigation-only Cockpit UI change - no architecture container, data flow, or
+     security boundary changes. No <code>docs/cencon/</code> manifest or security_profile update
+     required.</p>
+
+  <h2>Verification method note</h2>
+  <p>The Cockpit's home/nav is an <code>InteractiveServerRenderMode(prerender: false)</code> Blazor
+     surface, so the nav only exists after the SignalR circuit connects in a real browser. Proof was
+     captured by running the built <code>cc-director-cockpit.dll</code> standalone on a spare port
+     (7492) and driving it with Playwright (local-only page, no bot detection), waiting for the circuit
+     to hydrate before asserting. The test instance was torn down after capture.</p>
+
+  <div class="verdict">
+    <strong>I believe this is finished.</strong> All three acceptance criteria are met with proof,
+    the solution builds clean (0 errors / 0 warnings), and there is no CenCon drift.
+  </div>
+</body>
+</html>
