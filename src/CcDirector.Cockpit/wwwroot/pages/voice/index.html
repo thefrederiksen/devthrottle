@@ -48,6 +48,10 @@
       <span id="session-repo" class="muted"></span>
     </div>
 
+    <div class="controls-row">
+      <button id="wingman-btn" class="secondary">Talk to Wingman</button>
+    </div>
+
     <div class="stage" id="stage-line">Tap Speak and talk.</div>
 
     <div class="controls">
@@ -61,6 +65,47 @@
       <h2 class="history-title">History</h2>
       <p id="history-empty" class="history-empty">No turns yet. Tap Speak to start.</p>
       <ul id="history-list" class="hist"></ul>
+    </div>
+  </section>
+
+  <!-- Wingman Chat view (issue #424): read-only by default.
+       Free-text questions go to POST /sessions/{id}/wingman/ask and NEVER touch the
+       session. "Read last N lines" reads GET /sessions/{id}/buffer. The explicit
+       actions (send text / stop / escape) are the ONLY things that reach the session,
+       and each is gated behind a confirm. -->
+  <section id="wingman-view" class="view hidden">
+    <header class="bar">
+      <button id="wm-back-btn" class="ghost">&larr; Back</button>
+      <h1 id="wm-title" class="session-name">Wingman</h1>
+    </header>
+
+    <p class="wm-note">Questions here are read-only and do not touch the session. Only the
+      explicit actions below reach it, and each asks you to confirm first.</p>
+
+    <div class="wm-chat" id="wm-chat"></div>
+
+    <div class="wm-ask">
+      <textarea id="wm-question" class="wm-input" rows="2" inputmode="text"
+                autocomplete="off" placeholder="Ask the Wingman about this session..."></textarea>
+      <button id="wm-ask-btn" class="primary">Ask</button>
+    </div>
+
+    <div class="wm-tools">
+      <h2 class="wm-section">Quick tools (read-only)</h2>
+      <button id="wm-read20-btn" class="secondary">Read last 20 lines</button>
+    </div>
+
+    <div class="wm-actions">
+      <h2 class="wm-section">Explicit actions (touch the session)</h2>
+      <div class="wm-send">
+        <textarea id="wm-send-text" class="wm-input" rows="2" inputmode="text"
+                  autocomplete="off" placeholder="Text to send to the session..."></textarea>
+        <button id="wm-send-btn" class="danger">Send text</button>
+      </div>
+      <div class="wm-action-row">
+        <button id="wm-interrupt-btn" class="danger">Stop (interrupt)</button>
+        <button id="wm-escape-btn" class="danger">Escape</button>
+      </div>
     </div>
   </section>
 

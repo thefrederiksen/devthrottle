@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Issue #424 - Developer Proof - Voice: Wingman Chat (read-only by default)</title>
+<style>
+  :root{--bg:#0B1020;--panel:#141B2E;--panel2:#1B2540;--ink:#E6EAF2;--muted:#8A93A6;
+        --line:#27324d;--green:#5FD08A;--blue:#5B8DEF;--amber:#E8B339;--red:#E5484D;}
+  *{box-sizing:border-box}
+  body{background:var(--bg);color:var(--ink);font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+       line-height:1.55;margin:0;padding:32px;max-width:1000px;margin:0 auto}
+  h1{font-size:26px;margin:0 0 6px}
+  h2{font-size:19px;margin:30px 0 10px;border-bottom:1px solid var(--line);padding-bottom:6px}
+  h3{font-size:15px;margin:18px 0 6px;color:var(--blue)}
+  .sub{color:var(--muted);margin:0 0 18px}
+  table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:var(--panel2)}
+  td.pass{color:var(--green);font-weight:600}
+  code{background:var(--panel2);padding:2px 6px;border-radius:6px;font-size:13px}
+  pre{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;
+      overflow-x:auto;font-size:13px}
+  img{max-width:100%;border:1px solid var(--line);border-radius:10px;margin:10px 0;display:block}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin:14px 0}
+  .ok{color:var(--green)}
+  .muted{color:var(--muted)}
+  .verdict{background:#10301f;border:1px solid var(--green);border-radius:12px;padding:16px 18px;margin:24px 0}
+</style>
+</head>
+<body>
+  <h1>Issue #424 - Voice: Wingman Chat screen + Talk to Wingman buttons (read-only by default)</h1>
+  <p class="sub">Developer Agent proof | Surface: <code>CcDirector.Cockpit</code> (wwwroot/pages/voice/*)
+     | Branch: <code>feat/424-voice-wingman</code> (stacks on <code>feat/423-voice-history</code>)</p>
+
+  <div class="panel">
+    <strong>What was implemented</strong>
+    <ul>
+      <li>A "Wingman" button on every <code>/voice</code> list row and a "Talk to Wingman" button in the
+          single-session view header - both open the new Wingman Chat for that session.</li>
+      <li>A Wingman Chat view that, by default, sends free-text questions to
+          <code>POST /sessions/{id}/wingman/ask</code> (read-only) and shows the answer with its model +
+          context digest.</li>
+      <li>A "Read last 20 lines" quick tool calling <code>GET /sessions/{id}/buffer?lines=20</code>
+          (read-only), rendered as monospace terminal output.</li>
+      <li>Three explicit actions, EACH gated behind a <code>confirm()</code>: Send text
+          (<code>POST /sessions/{id}/prompt</code>), Stop/interrupt
+          (<code>POST /sessions/{id}/interrupt</code>), Escape
+          (<code>POST /sessions/{id}/escape</code>).</li>
+    </ul>
+    <p class="muted">Pure front-end change. No backend code touched; all endpoints already existed.
+       Reuses the page's existing <code>api()</code> / <code>authHeaders()</code> helpers.</p>
+  </div>
+
+  <h2>Build</h2>
+  <pre>dotnet build cc-director.sln
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)</pre>
+
+  <h2>How it was proven</h2>
+  <p>The modified static page was served by the Cockpit's own <code>/voice</code> route (token injected
+     exactly as in production) and driven in a real browser, with every <code>/sessions/*</code> call
+     forwarded to the <strong>live Gateway on port 7878</strong> (real sessions). A disposable test
+     session was created on an isolated test Director (slot 8, torn down afterwards) so the
+     explicit-send proof never touched the user's working sessions. The test session was deleted and the
+     test Director torn down after the run.</p>
+
+  <h2>Acceptance criteria</h2>
+  <table>
+    <tr><th>Criterion</th><th>Result</th><th>Evidence</th></tr>
+    <tr>
+      <td>"Talk to Wingman" entry points on both list rows and the session view, opening the Wingman Chat.</td>
+      <td class="pass">PASS</td>
+      <td>Screenshot 01 (a "Wingman" button on every list row). The session view also has a "Talk to
+          Wingman" button (<code>#wingman-btn</code>). Both call <code>openWingman(session)</code>.</td>
+    </tr>
+    <tr>
+      <td>Typing a question and sending shows the answer from <code>wingman/ask</code>.</td>
+      <td class="pass">PASS</td>
+      <td>Screenshot 03 - question "What is the agent doing right now..." answered by the wingman
+          (opus), meta line <code>opus - terminal:8076ch, repo:cc-director, read-only session</code>.</td>
+    </tr>
+    <tr>
+      <td>"Read last 20 lines" shows terminal output from <code>buffer?lines=20</code>.</td>
+      <td class="pass">PASS</td>
+      <td>Screenshots 03 / 04 - the monospace tool bubble shows the live terminal tail
+          (<code>last 20 lines of the terminal</code>).</td>
+    </tr>
+    <tr>
+      <td>Send / interrupt / escape each require explicit confirm and only then call the endpoint;
+          nothing reaches the session without the user explicitly invoking it.</td>
+      <td class="pass">PASS</td>
+      <td>Confirm message captured verbatim:
+          <code>Send this text to the session? It WILL reach the agent.\n\necho THIS_SHOULD_NOT_BE_SENT</code>.
+          When the confirm was <strong>cancelled</strong> the session buffer stayed at 41291 bytes
+          (nothing sent). On <strong>accept</strong> the buffer grew (text reached the session).
+          Screenshot 06 shows the happy-path "sent to the session" bubble.</td>
+    </tr>
+    <tr>
+      <td>Isolation: while the agent is mid-turn, asking questions does NOT change session state; only
+          an explicit send/stop does.</td>
+      <td class="pass">PASS</td>
+      <td>See the byte-level isolation log below.</td>
+    </tr>
+  </table>
+
+  <h2>Isolation proof (the load-bearing criterion)</h2>
+  <p>The session was put into a mid-turn / Working state, then driven entirely through the same calls
+     the page's buttons make. <code>totalBufferBytes</code> is the session's monotonically-growing output
+     counter - it advances only when the session actually receives input and produces output.</p>
+  <pre>BASELINE (mid-turn):                 state=Working          totalBytes=16034
+ASK wingman/ask (read-only):         status=ok  model=opus  digest="terminal:2859ch, repo:cc-director, read-only session"
+STATE AFTER ASK:                     state=WaitingForInput  totalBytes=16034   &lt;-- UNCHANGED
+READ buffer?lines=20 (read-only):    4629 chars returned
+STATE AFTER 3x buffer reads + ask:   state=WaitingForInput  totalBytes=16034   &lt;-- UNCHANGED
+
+--- explicit action contrast ---
+BEFORE explicit send (prompt):       totalBytes=16034
+EXPLICIT prompt accepted:            accepted=true  state=Working
+AFTER explicit send:                 totalBytes=21031   &lt;-- GREW (only the explicit action advanced it)
+
+--- confirm-gate contrast (in-browser) ---
+bytes before cancelled send:         41291
+confirm() shown:                     "Send this text to the session? It WILL reach the agent.\n\necho THIS_SHOULD_NOT_BE_SENT"
+bytes after CANCELLED send:          41291   &lt;-- UNCHANGED (cancel = nothing sent)
+bytes after CONFIRMED send:          45480   &lt;-- GREW (accept = text reached the session)</pre>
+  <p class="ok">Conclusion: read-only questions (wingman/ask, buffer) never advance the session; only an
+     explicitly-confirmed send/interrupt/escape does. Isolation holds.</p>
+
+  <h2>Screenshots</h2>
+  <h3>01 - List view: a "Wingman" button on every row</h3>
+  <img src="01-list-with-wingman-buttons.png" alt="voice list with wingman buttons" />
+
+  <h3>02 - Wingman Chat opened (read-only note + read-only tools + clearly separated explicit actions)</h3>
+  <img src="02-wingman-chat-opened.png" alt="wingman chat opened" />
+
+  <h3>03 - Asking a question -> the wingman's answer (with model + read-only context digest)</h3>
+  <img src="03-wingman-answer.png" alt="wingman answer" />
+
+  <h3>04 - "Read last 20 lines" -> live terminal output</h3>
+  <img src="04-read-last-20-lines.png" alt="read last 20 lines" />
+
+  <h3>05 - Send-text confirm gate (cancelled - nothing sent)</h3>
+  <img src="05-send-confirm-gate.png" alt="send confirm gate" />
+
+  <h3>06 - Explicit send accepted -> "sent to the session"</h3>
+  <img src="06-explicit-send-sent.png" alt="explicit send sent" />
+
+  <h2>CenCon impact</h2>
+  <p>No architecture or security drift. Front-end only; all five endpoints
+     (<code>wingman/ask</code>, <code>buffer</code>, <code>prompt</code>, <code>interrupt</code>,
+     <code>escape</code>) already exist on the Gateway and Director Control API. No new container, no new
+     surface, no change to the auth model (the page keeps using the injected Gateway Bearer token via the
+     existing <code>authHeaders()</code> helper).</p>
+
+  <div class="verdict">
+    <strong>I believe this is finished.</strong> Every acceptance criterion is met and proven against the
+    live Gateway (7878) with real sessions, including the load-bearing isolation criterion shown at the
+    byte level. The build is clean (0 warnings, 0 errors). The test session was deleted and the isolated
+    test Director torn down.
+  </div>
+</body>
+</html>

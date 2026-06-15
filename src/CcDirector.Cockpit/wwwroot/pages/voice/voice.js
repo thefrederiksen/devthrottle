@@ -33,6 +33,7 @@
     $("list-view").classList.toggle("hidden", view !== "list");
     $("session-view").classList.toggle("hidden", view !== "session");
     $("newsession-view").classList.toggle("hidden", view !== "newsession");
+    $("wingman-view").classList.toggle("hidden", view !== "wingman");
   }
 
   async function api(path, opts) {
@@ -166,9 +167,18 @@
       turns.className = "s-turns";
       fillTurnCount(turns, s.sessionId);
 
+      // "Talk to Wingman" entry point on the row. stopPropagation so it does NOT also
+      // open the voice session view (the row's own click).
+      var wm = document.createElement("button");
+      wm.className = "secondary s-wingman";
+      wm.textContent = "Wingman";
+      wm.title = "Talk to Wingman (read-only)";
+      wm.addEventListener("click", function (ev) { ev.stopPropagation(); openWingman(s); });
+
       li.appendChild(dot);
       li.appendChild(main);
       li.appendChild(turns);
+      li.appendChild(wm);
       li.addEventListener("click", function () { openSession(s); });
       ul.appendChild(li);
     });
@@ -660,6 +670,149 @@
     openSession(r.data);
   }
 
+  // ===== Wingman Chat (issue #424) =====
+  // Strictly non-committal by default. Free-text questions go to wingman/ask and the
+  // quick "read N lines" tool goes to /buffer - neither sends keystrokes to the session,
+  // so an agent mid-turn is never advanced by asking. Only the three explicit actions
+  // (send text / interrupt / escape) touch the session, and each one is gated by a
+  // confirm() the user must accept.
+  var wmSession = null; // the session the Wingman chat is bound to
+
+  function openWingman(s) {
+    wmSession = s;
+    $("wm-title").textContent = sessionTitle(s);
+    $("wm-chat").innerHTML = "";
+    $("wm-question").value = "";
+    $("wm-send-text").value = "";
+    wmAppend("wingman", "Ask me anything about this session. I read its terminal, history "
+      + "and repo, but I will not type anything into it.", "");
+    show("wingman");
+  }
+
+  // Append a chat bubble. kind: "you" | "wingman" | "tool" | "error" | "pending".
+  // Returns the element so a pending bubble can be replaced in place.
+  function wmAppend(kind, text, meta) {
+    var chat = $("wm-chat");
+    var div = document.createElement("div");
+    div.className = "wm-msg " + kind;
+    var body = document.createElement("div");
+    body.className = "wm-body";
+    body.textContent = text;
+    div.appendChild(body);
+    if (meta) {
+      var m = document.createElement("div");
+      m.className = "wm-meta";
+      m.textContent = meta;
+      div.appendChild(m);
+    }
+    chat.appendChild(div);
+    chat.scrollTop = chat.scrollHeight;
+    return div;
+  }
+
+  // Ask the Wingman a free-text question. READ-ONLY: POST /sessions/{id}/wingman/ask
+  // never sends keystrokes to the session.
+  async function wmAsk() {
+    if (!wmSession) return;
+    var q = ($("wm-question").value || "").trim();
+    if (!q) return;
+    var btn = $("wm-ask-btn");
+    btn.disabled = true;
+    wmAppend("you", q, "");
+    $("wm-question").value = "";
+    var pending = wmAppend("pending", "Wingman is thinking...", "");
+
+    var r = await api("/sessions/" + wmSession.sessionId + "/wingman/ask", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question: q }),
+    });
+    pending.remove();
+    btn.disabled = false;
+
+    if (!r.ok || !r.data) {
+      wmAppend("error", "Wingman call failed (" + r.status + ").", "");
+      return;
+    }
+    if (r.data.status && r.data.status !== "ok") {
+      wmAppend("error", "Wingman: " + (r.data.error || r.data.status), "");
+      return;
+    }
+    var answer = r.data.answer || "(no answer)";
+    var meta = [];
+    if (r.data.model) meta.push(r.data.model);
+    if (r.data.contextDigest) meta.push(r.data.contextDigest);
+    wmAppend("wingman", answer, meta.join("  -  "));
+  }
+
+  // Quick tool: read the last N lines of the session's terminal. READ-ONLY:
+  // GET /sessions/{id}/buffer does not advance the session.
+  async function wmReadLines(n) {
+    if (!wmSession) return;
+    var btn = $("wm-read20-btn");
+    btn.disabled = true;
+    var pending = wmAppend("pending", "Reading last " + n + " lines...", "");
+    var r = await api("/sessions/" + wmSession.sessionId + "/buffer?lines=" + n);
+    pending.remove();
+    btn.disabled = false;
+    if (!r.ok || !r.data) {
+      wmAppend("error", "Could not read the terminal (" + r.status + ").", "");
+      return;
+    }
+    var text = (r.data.text || "").replace(/\s+$/, "");
+    wmAppend("tool", text || "(terminal is empty)", "last " + n + " lines of the terminal");
+  }
+
+  // Explicit action: send text to the session. Gated behind a confirm so nothing reaches
+  // the session unless the user accepts. POST /sessions/{id}/prompt.
+  async function wmSendText() {
+    if (!wmSession) return;
+    var text = ($("wm-send-text").value || "").trim();
+    if (!text) { wmAppend("error", "Type the text to send first.", ""); return; }
+    if (!confirm("Send this text to the session? It WILL reach the agent.\n\n" + text)) return;
+    var btn = $("wm-send-btn");
+    btn.disabled = true;
+    var r = await api("/sessions/" + wmSession.sessionId + "/prompt", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: text, appendEnter: true }),
+    });
+    btn.disabled = false;
+    if (!r.ok || !r.data || r.data.accepted === false) {
+      wmAppend("error", "Send failed (" + r.status + ")"
+        + (r.data && r.data.error ? ": " + r.data.error : "") + ".", "");
+      return;
+    }
+    $("wm-send-text").value = "";
+    wmAppend("you", text, "sent to the session");
+  }
+
+  // Explicit action: interrupt (Ctrl+C) the session. Gated behind a confirm.
+  // POST /sessions/{id}/interrupt.
+  async function wmInterrupt() {
+    if (!wmSession) return;
+    if (!confirm("Stop (interrupt) the session? This sends Ctrl+C to the agent.")) return;
+    var btn = $("wm-interrupt-btn");
+    btn.disabled = true;
+    var r = await api("/sessions/" + wmSession.sessionId + "/interrupt", { method: "POST" });
+    btn.disabled = false;
+    if (!r.ok) { wmAppend("error", "Interrupt failed (" + r.status + ").", ""); return; }
+    wmAppend("wingman", "Interrupt (Ctrl+C) sent to the session.", "explicit action");
+  }
+
+  // Explicit action: send Escape to the session. Gated behind a confirm.
+  // POST /sessions/{id}/escape.
+  async function wmEscape() {
+    if (!wmSession) return;
+    if (!confirm("Send Escape to the session?")) return;
+    var btn = $("wm-escape-btn");
+    btn.disabled = true;
+    var r = await api("/sessions/" + wmSession.sessionId + "/escape", { method: "POST" });
+    btn.disabled = false;
+    if (!r.ok) { wmAppend("error", "Escape failed (" + r.status + ").", ""); return; }
+    wmAppend("wingman", "Escape sent to the session.", "explicit action");
+  }
+
   // ===== util =====
   function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
@@ -686,6 +839,15 @@
   $("back-btn").addEventListener("click", function () { show("list"); loadSessions(); });
   $("speak-btn").addEventListener("click", function () { toggleSpeak(); });
   $("play-btn").addEventListener("click", playReply);
+
+  // Wingman Chat (issue #424)
+  $("wingman-btn").addEventListener("click", function () { if (current) openWingman(current); });
+  $("wm-back-btn").addEventListener("click", function () { show("list"); loadSessions(); });
+  $("wm-ask-btn").addEventListener("click", function () { wmAsk(); });
+  $("wm-read20-btn").addEventListener("click", function () { wmReadLines(20); });
+  $("wm-send-btn").addEventListener("click", function () { wmSendText(); });
+  $("wm-interrupt-btn").addEventListener("click", function () { wmInterrupt(); });
+  $("wm-escape-btn").addEventListener("click", function () { wmEscape(); });
 
   show("list");
   loadSessions();
