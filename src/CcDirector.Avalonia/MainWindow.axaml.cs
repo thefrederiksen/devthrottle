@@ -606,6 +606,15 @@ public partial class MainWindow : Window
     private bool _gatewayError;
 
     /// <summary>
+    /// True when any full-content in-window overlay (Tools / Comms / Connections / Scheduler)
+    /// is open. The Home page must not paint over an open overlay, so UpdateHomeVisibility
+    /// consults this (issue #447).
+    /// </summary>
+    private bool IsContentOverlayOpen()
+        => ToolsOverlay.IsVisible || CommsOverlay.IsVisible
+           || ConnectionsOverlay.IsVisible || SchedulerOverlay.IsVisible;
+
+    /// <summary>
     /// Show the full-screen home page exactly when this Director has zero sessions - it is
     /// the "nothing is running, here is the state, start something" screen. The window menu
     /// bar stays; the toolbar is hidden so only the home shows beneath it. The home appears
@@ -613,10 +622,15 @@ public partial class MainWindow : Window
     /// </summary>
     private void UpdateHomeVisibility()
     {
-        var showHome = _sessions.Count == 0;
+        // Home covers the whole window at ZIndex 30; the content overlays (Tools/Comms/etc.)
+        // sit lower in the same grid. If Home paints while an overlay is open, the overlay is
+        // hidden behind it and its actions look dead (issue #447). So Home shows only at zero
+        // sessions AND when no overlay is up; opening/closing an overlay re-runs this method.
+        var overlayOpen = IsContentOverlayOpen();
+        var showHome = _sessions.Count == 0 && !overlayOpen;
         MainToolbar.IsVisible = !showHome;
         HomeView.IsVisible = showHome;
-        FileLog.Write($"[MainWindow] UpdateHomeVisibility: showHome={showHome}, sessions={_sessions.Count}");
+        FileLog.Write($"[MainWindow] UpdateHomeVisibility: showHome={showHome}, sessions={_sessions.Count}, overlayOpen={overlayOpen}");
 
         if (!showHome) return;
 
@@ -3518,6 +3532,7 @@ public partial class MainWindow : Window
         }
 
         CommsOverlay.IsVisible = true;
+        UpdateHomeVisibility(); // hide Home so the overlay is not buried behind it (#447)
 
         if (!_commsInitialized)
         {
@@ -3533,6 +3548,7 @@ public partial class MainWindow : Window
         CommsOverlay.IsVisible = false;
         if (_commsInitialized)
             CommManagerView.StopPolling();
+        UpdateHomeVisibility(); // restore Home if still at zero sessions (#447)
     }
 
     private bool _connectionsInitialized;
@@ -3559,6 +3575,7 @@ public partial class MainWindow : Window
         ConnectionsOverlay.IsVisible = true;
         _connectionsInitialized = true;
         ConnectionsView.StartPolling();
+        UpdateHomeVisibility(); // hide Home so the overlay is not buried behind it (#447)
     }
 
     private void BtnConnectionsClose_Click(object? sender, RoutedEventArgs e)
@@ -3567,6 +3584,7 @@ public partial class MainWindow : Window
         ConnectionsOverlay.IsVisible = false;
         if (_connectionsInitialized)
             ConnectionsView.StopPolling();
+        UpdateHomeVisibility(); // restore Home if still at zero sessions (#447)
     }
 
     private void BtnScheduler_Click(object? sender, RoutedEventArgs e)
@@ -3589,6 +3607,7 @@ public partial class MainWindow : Window
         SchedulerOverlay.IsVisible = true;
         _schedulerInitialized = true;
         SchedulerView.StartPolling();
+        UpdateHomeVisibility(); // hide Home so the overlay is not buried behind it (#447)
     }
 
     private void BtnSchedulerClose_Click(object? sender, RoutedEventArgs e)
@@ -3597,6 +3616,7 @@ public partial class MainWindow : Window
         SchedulerOverlay.IsVisible = false;
         if (_schedulerInitialized)
             SchedulerView.StopPolling();
+        UpdateHomeVisibility(); // restore Home if still at zero sessions (#447)
     }
 
     private void BtnTools_Click(object? sender, RoutedEventArgs e)
@@ -3624,12 +3644,14 @@ public partial class MainWindow : Window
         }
 
         ToolsOverlay.IsVisible = true;
+        UpdateHomeVisibility(); // hide Home so the overlay is not buried behind it (#447)
     }
 
     private void BtnToolsClose_Click(object? sender, RoutedEventArgs e)
     {
         FileLog.Write("[MainWindow] BtnToolsClose_Click: closing Tools overlay");
         ToolsOverlay.IsVisible = false;
+        UpdateHomeVisibility(); // restore Home if still at zero sessions (#447)
     }
 
     private void SwitchLeftTab(string tab)
