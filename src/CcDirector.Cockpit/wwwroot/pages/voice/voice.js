@@ -195,6 +195,7 @@
     setStage("Tap Speak and talk.", "");
     $("reply-box").textContent = "";
     setPlayable(null);
+    loadHistory(s.sessionId);
     show("session");
   }
 
@@ -210,6 +211,128 @@
     el.textContent = turnLabel(n);
     el.classList.remove("hidden");
   }
+
+  // ===== per-session turn history (issue #423) =====
+  // historySid guards against a late /voice-turns response landing after the user
+  // has navigated to a different session - we only render when the response is for
+  // the session currently open.
+  var historySid = null;
+
+  // Load and render the open session's completed turns, newest first (the archive
+  // already returns them newest-first). Empty state shows when there are none.
+  async function loadHistory(sid) {
+    historySid = sid;
+    var list = $("history-list");
+    var empty = $("history-empty");
+    list.innerHTML = "";
+    empty.textContent = "Loading history...";
+    empty.classList.remove("hidden");
+
+    var r = await api("/sessions/" + sid + "/voice-turns");
+    if (sid !== historySid) return; // user switched sessions mid-flight
+
+    if (!r.ok || !r.data || !Array.isArray(r.data.turns)) {
+      empty.textContent = "Could not load history.";
+      empty.classList.remove("hidden");
+      return;
+    }
+    renderHistory(sid, r.data.turns);
+  }
+
+  function renderHistory(sid, turns) {
+    var list = $("history-list");
+    var empty = $("history-empty");
+    list.innerHTML = "";
+    if (!turns.length) {
+      empty.textContent = "No turns yet. Tap Speak to start.";
+      empty.classList.remove("hidden");
+      return;
+    }
+    empty.classList.add("hidden");
+    turns.forEach(function (t) { list.appendChild(historyItem(sid, t)); });
+  }
+
+  // Prepend a freshly-completed turn to the top of the history without a full reload,
+  // so a new reply appears immediately. Skipped if the turn is already listed (e.g. a
+  // later refresh raced ahead) so it never double-lists.
+  function prependHistory(sid, turn) {
+    if (sid !== historySid || !turn || !turn.turn_id) return;
+    var list = $("history-list");
+    if (list.querySelector('[data-turn-id="' + cssAttr(turn.turn_id) + '"]')) return;
+    $("history-empty").classList.add("hidden");
+    list.insertBefore(historyItem(sid, turn), list.firstChild);
+  }
+
+  function historyItem(sid, t) {
+    var li = document.createElement("li");
+    li.setAttribute("data-turn-id", t.turn_id || "");
+
+    var main = document.createElement("div");
+    main.className = "hist-main";
+
+    var summary = document.createElement("div");
+    summary.className = "hist-summary";
+    summary.textContent = (t.summary && t.summary.trim()) || "(no spoken summary)";
+    main.appendChild(summary);
+
+    if (t.transcript && t.transcript.trim()) {
+      var tr = document.createElement("div");
+      tr.className = "hist-transcript";
+      tr.textContent = t.transcript.trim();
+      main.appendChild(tr);
+    }
+
+    var time = document.createElement("div");
+    time.className = "hist-time";
+    time.textContent = formatWhen(t.created_at);
+    main.appendChild(time);
+
+    li.appendChild(main);
+
+    // Replay button only when the turn has durable reply audio to fetch.
+    if (t.has_audio && t.turn_id) {
+      var play = document.createElement("button");
+      play.className = "secondary hist-play";
+      play.textContent = "Play";
+      play.addEventListener("click", function () { playTurnAudio(sid, t.turn_id, play); });
+      li.appendChild(play);
+    }
+    return li;
+  }
+
+  // Fetch and play a past turn's reply audio. The /audio endpoint is token-gated, so we
+  // fetch with auth headers and play the bytes as a blob URL (same approach as the live
+  // reply's base64 path) rather than pointing an <audio src> at the URL.
+  async function playTurnAudio(sid, turnId, btn) {
+    var prev = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "...";
+    var resp = await fetch("/sessions/" + sid + "/voice-turn/" + turnId + "/audio", {
+      headers: authHeaders(),
+    });
+    if (!resp.ok) {
+      btn.textContent = "No audio";
+      setTimeout(function () { btn.textContent = prev; btn.disabled = false; }, 1500);
+      return;
+    }
+    var buf = await resp.arrayBuffer();
+    var url = URL.createObjectURL(new Blob([buf], { type: "audio/mpeg" }));
+    var audio = new Audio(url);
+    audio.addEventListener("ended", function () { URL.revokeObjectURL(url); });
+    audio.play().catch(function () { /* a tap already gestured; ignore autoplay edge */ });
+    btn.textContent = prev;
+    btn.disabled = false;
+  }
+
+  function formatWhen(iso) {
+    if (!iso) return "";
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return "";
+    return d.toLocaleString();
+  }
+
+  // Escape a value for safe use inside an attribute-selector string.
+  function cssAttr(v) { return String(v).replace(/["\\]/g, "\\$&"); }
 
   function setStage(text, kind) {
     var el = $("stage-line");
@@ -382,6 +505,18 @@
     setStage(summary ? "Reply ready." : "Done.", "");
 
     var b64 = data && data.audioBase64;
+
+    // Show the just-completed turn at the top of the history immediately - no manual
+    // refresh. The same turn is now in the durable archive, so its Play button replays
+    // from the /audio endpoint just like any older entry.
+    prependHistory(sid, {
+      turn_id: turnId,
+      summary: summary,
+      transcript: (data && data.transcript) || "",
+      has_audio: !!(b64 && b64.length),
+      created_at: new Date().toISOString(),
+    });
+
     if (b64 && b64.length) {
       var url = base64ToBlobUrl(b64, "audio/mpeg");
       setPlayable(url);

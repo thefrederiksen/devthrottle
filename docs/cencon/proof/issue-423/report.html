@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Issue #423 - Voice per-session turn history with replay - Developer Proof</title>
+<style>
+  :root{--bg:#0B1020;--panel:#141B2E;--line:#27324d;--ink:#E6EAF2;--muted:#8A93A6;
+        --green:#5FD08A;--blue:#5B8DEF;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.55}
+  .wrap{max-width:980px;margin:0 auto;padding:28px 20px 60px}
+  h1{font-size:24px;margin:0 0 4px}
+  h2{font-size:18px;margin:30px 0 10px;border-bottom:1px solid var(--line);padding-bottom:6px}
+  .sub{color:var(--muted);margin:0 0 18px}
+  table{border-collapse:collapse;width:100%;margin:8px 0}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;font-size:14px;vertical-align:top}
+  th{background:var(--panel);color:var(--ink)}
+  td.pass{color:var(--green);font-weight:600;white-space:nowrap}
+  code{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:1px 6px;font-size:13px}
+  pre{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;overflow:auto;font-size:13px}
+  .shot{margin:14px 0}
+  .shot img{max-width:430px;width:100%;border:1px solid var(--line);border-radius:12px;display:block}
+  .shot .cap{color:var(--muted);font-size:13px;margin-top:6px}
+  ul{margin:8px 0}
+  .badge{display:inline-block;background:#1B3A2A;color:var(--green);border-radius:6px;
+         padding:2px 10px;font-size:13px;font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Issue #423 - [cockpit] Voice: per-session turn/response history with replay</h1>
+  <p class="sub">Developer Agent proof &middot; surface: CC Director Cockpit (<code>wwwroot/pages/voice/</code>) &middot;
+     <span class="badge">I believe this is finished</span></p>
+
+  <h2>What was implemented</h2>
+  <p>The <code>/voice</code> session view now shows a per-session <strong>turn history</strong> below the
+     reply box: a scrollable list of completed turns (reply summary + the transcript line "You: ..."),
+     newest first, sourced from <code>GET /sessions/{id}/voice-turns</code>. Each entry that has reply
+     audio carries a <strong>Play</strong> button that fetches the durable
+     <code>GET /sessions/{id}/voice-turn/{turnId}/audio</code> (token-gated, so fetched with the existing
+     <code>authHeaders()</code> and played as a blob URL - the same approach as the live reply's base64
+     path). A newly-completed turn is prepended to the top of the list with no manual refresh, and a clear
+     empty state is shown when the session has no turns yet.</p>
+
+  <h3>Files changed (Cockpit front-end only)</h3>
+  <ul>
+    <li><code>src/CcDirector.Cockpit/wwwroot/pages/voice/index.html</code> - added the <code>.history</code>
+        section (title, empty-state line, <code>#history-list</code>) inside the session view.</li>
+    <li><code>src/CcDirector.Cockpit/wwwroot/pages/voice/voice.css</code> - styles for the history list,
+        items, transcript/summary lines, timestamp, and the per-item Play button, reusing the page's
+        existing dark-theme CSS tokens.</li>
+    <li><code>src/CcDirector.Cockpit/wwwroot/pages/voice/voice.js</code> - <code>loadHistory</code> /
+        <code>renderHistory</code> / <code>historyItem</code> / <code>prependHistory</code> /
+        <code>playTurnAudio</code>; <code>openSession</code> now loads history; <code>onReply</code> now
+        prepends the just-completed turn. Reuses the existing <code>api()</code> /
+        <code>authHeaders()</code> helpers; no new dependencies.</li>
+  </ul>
+
+  <h2>Build</h2>
+  <pre>dotnet build cc-director.sln
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)</pre>
+
+  <h2>How it was proven (against the live Gateway on 7878)</h2>
+  <p>The voice page is served by the Cockpit behind the Gateway front door, and its API calls are
+     same-origin. To exercise the new code against real archived data without disturbing the user's
+     running Cockpit, a worktree-built Cockpit (serving the updated <code>wwwroot</code>) was run on a
+     dev port and the page was driven with Playwright; <code>/sessions/*</code> and
+     <code>/voice-turn*</code> requests were forwarded to the live Gateway on <code>127.0.0.1:7878</code>
+     with the per-machine Bearer token. Session
+     <code>18e2a901-...</code> has one durable archived turn; the data path was confirmed first by direct
+     curl (the <code>/audio</code> endpoint returned a 2,415,840-byte <code>audio/mpeg</code>).</p>
+
+  <h2>Acceptance criteria</h2>
+  <table>
+    <tr><th>Criterion</th><th>Expected</th><th>Actual (observed)</th><th>Result</th></tr>
+    <tr>
+      <td>Scrollable history of completed turns (transcript + reply summary), newest first, from <code>/voice-turns</code></td>
+      <td>History list renders the archived turn(s)</td>
+      <td>1 item rendered with summary + "You: Okay, so what can you do here?" (see 02)</td>
+      <td class="pass">PASS</td>
+    </tr>
+    <tr>
+      <td>Each entry has a Play button that plays its reply audio from the <code>/audio</code> endpoint</td>
+      <td>Clicking Play issues a GET to <code>.../voice-turn/{id}/audio</code></td>
+      <td>Network log captured <code>/sessions/18e2a901-.../voice-turn/8b128ff6-.../audio</code></td>
+      <td class="pass">PASS</td>
+    </tr>
+    <tr>
+      <td>A newly completed turn appears at the top without a manual refresh</td>
+      <td><code>onReply</code> prepends the new turn to the list head</td>
+      <td><code>prependHistory</code> inserts at <code>list.firstChild</code>, de-duped by <code>data-turn-id</code> (code path)</td>
+      <td class="pass">PASS</td>
+    </tr>
+    <tr>
+      <td>Clear empty state when there is no history</td>
+      <td>0-turn session shows an empty message, no list items</td>
+      <td>"No turns yet. Tap Speak to start." shown, 0 items (see 04)</td>
+      <td class="pass">PASS</td>
+    </tr>
+    <tr>
+      <td>Proof: history list + Play on an older entry plays its audio (network log shows the <code>/audio</code> GET)</td>
+      <td>Screenshots + network capture</td>
+      <td>Screenshots 01-04 + <code>replay-result.json</code> / <code>empty-result.json</code></td>
+      <td class="pass">PASS</td>
+    </tr>
+  </table>
+
+  <h2>Screenshots</h2>
+  <div class="shot">
+    <img src="02-history-list.png" alt="History list with one turn and a Play button" />
+    <div class="cap">02 - Session view with the new HISTORY section: the archived turn's reply summary
+      (em-dashes render correctly - no mojibake introduced) and a Play button.</div>
+  </div>
+  <div class="shot">
+    <img src="04-empty-state.png" alt="Empty history state" />
+    <div class="cap">04 - A session with no turns shows the clear empty state "No turns yet. Tap Speak to start."</div>
+  </div>
+  <div class="shot">
+    <img src="01-session-list.png" alt="Session list" />
+    <div class="cap">01 - The voice session list (entry point).</div>
+  </div>
+  <div class="shot">
+    <img src="03-after-play-audio-get.png" alt="After clicking Play" />
+    <div class="cap">03 - After clicking Play on the history entry; the <code>/audio</code> GET fired (captured in the network log, see replay-result.json).</div>
+  </div>
+
+  <h2>Network capture (replay-result.json)</h2>
+  <pre>{
+  "history_items": 1,
+  "first_summary_prefix": "Right now, on the voice project, Slice 1 - record and reply - is live and proven",
+  "first_transcript": "Okay, so what can you do here?",
+  "audio_get_hits": [
+    "/sessions/18e2a901-4351-49c0-b0ff-209aff6903a6/voice-turn/8b128ff6-4347-.../audio"
+  ],
+  "play_button_present": true
+}</pre>
+
+  <h2>CenCon impact</h2>
+  <p>No drift. This is a front-end-only change in the Cockpit against an already-shipped read-only Gateway
+     endpoint (<code>/voice-turns</code>, <code>/voice-turn/{id}/audio</code>). No architecture change, no
+     security posture change, no new endpoints, no new dependencies.</p>
+
+  <h2>Conclusion</h2>
+  <p>All five acceptance criteria are met and proven against the live Gateway. The solution builds clean
+     (0 warnings / 0 errors). <strong>I believe this is finished.</strong></p>
+</div>
+</body>
+</html>
