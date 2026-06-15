@@ -139,7 +139,13 @@ public sealed class PythonToolsInstaller
             // it was installed so we can restore it afterwards (issue #174).
             var hadExtras = installedAtStart.Get(ExtrasComponentId) is not null;
             var venvPython = Path.Combine(_layout.PyenvBinDir, OperatingSystem.IsWindows() ? "python.exe" : "python3");
-            if (installedBundle == manifest.BundleVersion && File.Exists(venvPython))
+            // Trust installed.json only when the venv is actually HEALTHY: python present AND every tool's
+            // console script on disk. A version match alone is not enough - a venv whose site-packages was
+            // stripped or half-built (python.exe present, packages gone) is the exact "half-installed" state
+            // that left tools broken in the field (wrappers in bin\ pointing at missing pyenv\Scripts exes).
+            // Rejecting it here makes simply re-running the installer repair the venv.
+            var venvHealthy = File.Exists(venvPython) && VenvHasAllTools(manifest.Scripts);
+            if (installedBundle == manifest.BundleVersion && venvHealthy)
             {
                 Step($"Python tools bundle {manifest.BundleVersion} already installed; skipping rebuild");
                 percent?.Report(100);
@@ -147,6 +153,8 @@ public sealed class PythonToolsInstaller
                     $"Python tools bundle {manifest.BundleVersion} already installed.",
                     steps, manifest.Dists.Count, manifest.BundleVersion);
             }
+            if (installedBundle == manifest.BundleVersion && !venvHealthy)
+                Step($"installed.json claims bundle {manifest.BundleVersion}, but the venv is missing tool scripts; rebuilding to repair");
 
             // 3. Create the shared venv from the bundled python (on-target, so console-script paths are correct).
             Step("creating the shared Python venv");
@@ -360,6 +368,20 @@ public sealed class PythonToolsInstaller
         OperatingSystem.IsWindows()
             ? Path.Combine(_layout.PyenvScriptsDir, $"{script}.exe")
             : Path.Combine(_layout.PyenvBinDir, script);
+
+    /// <summary>
+    /// True only when every tool console script the bundle promises is actually on disk in the venv.
+    /// This is the health probe that distinguishes a real install from a half-installed venv (empty or
+    /// stripped site-packages). An empty script list returns false so a manifest with nothing to verify
+    /// forces a rebuild rather than a false "already installed".
+    /// </summary>
+    private bool VenvHasAllTools(IReadOnlyList<string> scripts)
+    {
+        if (scripts.Count == 0) return false;
+        foreach (var script in scripts)
+            if (!File.Exists(ConsoleScriptPath(script))) return false;
+        return true;
+    }
 
     /// <summary>Create the tool shims: bin\&lt;script&gt;.cmd on Windows, ~/.local/bin symlinks on macOS.</summary>
     private void WriteShims(IReadOnlyList<string> scripts)

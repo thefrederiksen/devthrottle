@@ -85,6 +85,20 @@ public sealed class PythonToolsInstallerTests : IDisposable
         var (exit, _) = ProcessRunnerTestProbe.Run(shim, "--help");
         Assert.Equal(0, exit);
 
+        // --- REGRESSION (#453): a half-installed venv must REBUILD on re-install, not early-out. ---
+        // Simulate the field failure: the version stamp + python.exe survive, but a tool console script
+        // is gone (stripped/empty site-packages). The old early-out trusted (version match + python.exe)
+        // and skipped, leaving the tool broken. The hardened early-out verifies the scripts are on disk,
+        // so re-running the installer repairs it.
+        var strippedScript = Path.Combine(layout.PyenvScriptsDir, "cc-pdf.exe");
+        File.Delete(strippedScript);
+        Assert.False(File.Exists(strippedScript), "precondition: tool script removed");
+
+        var repair = await installer.InstallAsync(release, new ReleaseSource());
+        Assert.True(repair.Success, $"repair re-install failed: {repair.Message}\n{string.Join("\n", repair.Steps)}");
+        Assert.DoesNotContain("already installed", repair.Message); // must NOT take the early-out
+        Assert.True(File.Exists(strippedScript), "stripped tool script was not repaired by re-install");
+
         if (!hasExtras)
             return; // older bundle dir without the extras asset; core coverage only.
 

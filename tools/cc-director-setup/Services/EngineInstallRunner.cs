@@ -228,12 +228,48 @@ public sealed class EngineInstallRunner
         return planItems;
     }
 
-    private static bool IsDirectorRunning()
+    /// <summary>
+    /// True only when the Director WE are about to overwrite (the canonical app\ exe) is running.
+    /// Scoped to the target install path on purpose: a second Director running from a different
+    /// location (e.g. a dev/test build under local_builds\) must NOT block this install. Matching by
+    /// process name alone would falsely block whenever any cc-director was alive on the machine.
+    /// </summary>
+    private bool IsDirectorRunning()
     {
+        var target = NormalizePath(AppExePath);
+        if (target is null) return false;
+
         var procs = Process.GetProcessesByName("cc-director");
-        var running = procs.Length > 0;
-        foreach (var p in procs) p.Dispose();
-        return running;
+        try
+        {
+            foreach (var p in procs)
+            {
+                try
+                {
+                    var exe = NormalizePath(p.MainModule?.FileName);
+                    if (exe is not null && string.Equals(exe, target, StringComparison.OrdinalIgnoreCase))
+                        return true;
+                }
+                catch
+                {
+                    // MainModule can throw (access denied / different bitness). A process we cannot
+                    // introspect is not assumed to be our target; a genuine same-path conflict would
+                    // still surface as a file lock during the swap.
+                }
+            }
+            return false;
+        }
+        finally
+        {
+            foreach (var p in procs) p.Dispose();
+        }
+    }
+
+    private static string? NormalizePath(string? path)
+    {
+        if (string.IsNullOrEmpty(path)) return null;
+        try { return Path.GetFullPath(path); }
+        catch { return null; }
     }
 
     /// <summary>
