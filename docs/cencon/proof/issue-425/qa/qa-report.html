@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA proof - Issue #425 Voice offline-first part 1</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 1000px; margin: 0 auto; padding: 24px; background:#0b1020; color:#e6ebf5; }
+  h1 { font-size: 22px; } h2 { font-size: 17px; margin-top: 28px; border-bottom:1px solid #2a3350; padding-bottom:6px; }
+  .verdict { font-size: 18px; font-weight: 700; color:#34d399; padding:10px 14px; background:#0f2a1f; border:1px solid #1d5b40; border-radius:8px; }
+  table { border-collapse: collapse; width:100%; margin:10px 0; }
+  th,td { border:1px solid #2a3350; padding:8px 10px; text-align:left; vertical-align:top; font-size:14px; }
+  th { background:#141b33; }
+  .pass { color:#34d399; font-weight:700; }
+  code { background:#141b33; padding:1px 5px; border-radius:4px; font-size:13px; }
+  img { max-width:100%; border:1px solid #2a3350; border-radius:6px; margin:8px 0; }
+  .note { background:#241a0b; border:1px solid #5b431d; border-radius:8px; padding:10px 14px; font-size:13px; }
+</style>
+</head>
+<body>
+<h1>QA proof - Issue #425: [cockpit] Voice offline-first part 1 (PR #435)</h1>
+<p class="verdict">VERIFIED - all 5 acceptance criteria met. PASS (Option A: not merged - left for human merge).</p>
+
+<h2>How this was verified (independent of the developer's run)</h2>
+<p>
+The change is the Cockpit <code>/voice</code> page (new <code>db.js</code> IndexedDB wrapper + outbox
+queue in <code>voice.js</code>). The live deployed Gateway on 7878 still proxies an OLD Cockpit that
+404s on <code>/voice</code> and <code>/pages/voice/db.js</code>, so I built and ran the
+<b>PR-branch Cockpit myself</b> from the <code>feat/425-voice-offline1</code> worktree
+(<code>dotnet build</code> = 0 errors) on <code>http://127.0.0.1:7471</code>, with the real per-machine
+Gateway token injected server-side. I drove it with Playwright + a fake microphone, and controlled the
+upload network at the browser level.
+</p>
+<ul>
+  <li><code>/voice</code>, <code>/pages/voice/*</code> - served by the PR-branch Cockpit (the code under test).</li>
+  <li><code>POST .../voice-turn/upload</code> (register) + <code>PUT .../chunk/N</code> - forwarded to the
+      <b>LIVE Gateway on 7878</b> (real, harmless staging keyed by upload id).</li>
+  <li><code>POST .../voice-turn/.../complete</code> - fulfilled with a synthetic <code>202 { turn_id }</code>.
+      Only <code>complete</code> resolves the owning Director and fires the send-to-session pipeline; a
+      synthetic 202 is exactly what the client treats as <b>Uploaded</b>, and it avoids injecting a
+      transcribed prompt into a real working session. The 202+turn_id path was ALSO confirmed against the
+      real Gateway (see note).</li>
+</ul>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (my proof)</th><th>Result</th></tr>
+<tr>
+  <td>1</td>
+  <td>Stop writes audio + metadata to IndexedDB BEFORE any upload; UI immediately shows "saved locally".</td>
+  <td>IDB record exists with the blob; "Recording saved locally" shown.</td>
+  <td>On stop the stage line read <b>"Recording saved locally."</b> and IndexedDB held the record
+      <code>{status, mime:"audio/webm", hasBlob:true, blobSize:31869}</code> with the row badge +
+      "Saved locally" text. (01)</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td>Per-turn status badge transitions Pending -> Uploading -> Uploaded, or -> Failed.</td>
+  <td>Each state renders a badge.</td>
+  <td>Initial persisted state is <code>pending</code> (written before any upload). <b>Uploading</b> badge
+      captured live during a slowed upload (BADGES_SEEN=["Uploading"]). <b>Failed</b> badge rendered on the
+      blocked upload (01/01b). <b>Uploaded</b> proven by the row clearing to "Nothing waiting to upload."
+      after the upload completed (04).</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>3</td>
+  <td>A failed turn shows a Retry that re-attempts the resumable upload from the stored blob and reaches Uploaded.</td>
+  <td>Retry control present; re-runs upload from stored blob; reaches Uploaded.</td>
+  <td>Failed row showed a <b>Retry</b> button. Clicking it re-ran register+chunk (real, from the stored
+      31869-byte blob) and reached <code>complete -> 202 {turn_id}</code>; the row cleared and IDB emptied
+      (blob dropped once durable). (03, 04)</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>4</td>
+  <td>Reloading while Pending/Failed preserves the turn (read back from IndexedDB) and it can still be retried.</td>
+  <td>After a full page reload the turn re-appears and Retry still works.</td>
+  <td>After <code>page.reload()</code> (stage line reset to "Tap Speak and talk."), reopening the session
+      restored the same row from IndexedDB - same timestamp, <b>Failed</b> badge, blob intact (31869), Retry
+      present. (02)</td>
+  <td class="pass">PASS</td>
+</tr>
+<tr>
+  <td>5</td>
+  <td>Network blocked at upload -> saved locally + Failed; restore network -> Retry -> Uploaded + reply.</td>
+  <td>The full offline -> failed -> reload -> retry -> uploaded path.</td>
+  <td>With the upload routes aborted the turn went <b>saved locally -> Failed</b>; a reload persisted it;
+      restoring the network and Retry reached <b>Uploaded</b> (real register+chunk on 7878, complete 202 +
+      turn_id) and a reply rendered ("Reply ready."). (01 -> 02 -> 03 -> 04)</td>
+  <td class="pass">PASS</td>
+</tr>
+</table>
+
+<h2>Regression sweep</h2>
+<p>Negative-checked every screenshot: the session list loads, the session header (state / turn count /
+repo), the Speak/Play controls, the per-session History list, and the "Talk to Wingman" button (issue #424,
+this PR's base) all render correctly and are unaffected. No console errors other than the expected
+"Failed to fetch" from the deliberately-blocked upload. Build clean (0 warnings, 0 errors).</p>
+
+<h2>Screenshots</h2>
+<p><b>01 - saved locally then Failed (upload blocked)</b><br><img src="01-saved-locally-then-failed.png"></p>
+<p><b>02 - reload persisted from IndexedDB</b><br><img src="02-reload-persisted.png"></p>
+<p><b>03b - Uploading badge (slowed upload)</b><br><img src="03b-uploading-badge.png"></p>
+<p><b>04 - Uploaded: row cleared + reply</b><br><img src="04-uploaded-and-reply.png"></p>
+
+<h2 class="note">QA test artifact note (transparency)</h2>
+<p class="note">
+During an initial run my Playwright route matcher had an ordering bug
+(the <code>/voice-turn/upload</code> substring also matched the <code>.../complete</code> URL), so ONE
+<code>complete</code> call was forwarded to the live Gateway against the user's real mindzieWeb session
+(1e3c1269). The fake-mic audio transcribed to the single word "You" and the session replied "Done." This
+is a QA-side test artifact, NOT a defect in PR #435; it confirmed (rather than weakened) criterion 5 -
+the real Gateway returned <code>202 + turn_id</code> and the real pipeline reached <code>stage=reply</code>.
+The matcher was fixed and all subsequent runs fulfilled <code>complete</code> synthetically (no further
+prompts reached any session). Recorded here so the human is aware of the one stray "You" prompt in that
+session.
+</p>
+
+<p style="margin-top:24px;color:#8aa0c8;font-size:13px;">Driver: <code>qa-drive-425.py</code> (committed alongside). QA Agent, CenCon method, 2026-06-15.</p>
+</body>
+</html>

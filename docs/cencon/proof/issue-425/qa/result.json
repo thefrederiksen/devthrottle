@@ -1,0 +1,10 @@
+{
+  "crit1_saved_locally": true,
+  "crit2_status_badges_seen": true,
+  "crit3_retry_present": true,
+  "crit4_persisted_after_reload": true,
+  "crit5_complete_hit_and_cleared": true,
+  "reply": "QA synthetic reply: turn uploaded.",
+  "stage": "Reply ready.",
+  "stored_blob_size": 31869
+}
