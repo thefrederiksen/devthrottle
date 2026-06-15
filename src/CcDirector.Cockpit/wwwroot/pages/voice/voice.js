@@ -47,9 +47,41 @@
   // ===== session list =====
   var current = null; // { sessionId, name, repoPath, ... }
 
-  function colorClass(c) {
-    if (c === "green" || c === "blue" || c === "amber" || c === "red") return c;
-    return "";
+  // The ONE effective status color every client renders, mirroring the Gateway's
+  // SessionOrdering.EffectiveColor: on-hold sinks to grey, a user "explain" deep-dive is
+  // orange, an in-flight brief on a red turn is yellow, otherwise the Director's raw color.
+  // (Previously this page used s.statusColor directly, so an on-hold session - whose raw
+  // color is still red - showed a red dot identical to a needs-you session.)
+  function effectiveColor(s) {
+    if (s.onHold) return "grey";
+    if (s.briefingState === "Explaining") return "orange";
+    if (s.briefingState === "Briefing" && (s.statusColor || "").toLowerCase() === "red") return "yellow";
+    return s.statusColor || "unknown";
+  }
+
+  // Mirror SessionRail.razor DotColor exactly so the dot matches the desktop/Cockpit.
+  function dotHex(c) {
+    switch (c) {
+      case "green":  return "#22C55E";
+      case "blue":   return "#3B82F6";
+      case "yellow": return "#F59E0B";
+      case "orange": return "#F97316";
+      case "red":    return "#F14C4C";
+      default:       return "#6B7280"; // grey / unknown / on-hold
+    }
+  }
+
+  // Human-friendly status line, honoring on-hold and the effective color.
+  function statusLabel(s) {
+    if (s.onHold) return "On hold";
+    switch (effectiveColor(s)) {
+      case "red":    return "Needs you";
+      case "yellow": return "Reading...";
+      case "orange": return "Explaining...";
+      case "blue":   return "Working";
+      case "green":  return "Ready";
+      default:       return s.activityState || s.status || "-";
+    }
   }
 
   function sessionTitle(s) {
@@ -60,8 +92,7 @@
   }
 
   function sessionSubtitle(s) {
-    var parts = [];
-    if (s.activityState) parts.push(s.activityState);
+    var parts = [statusLabel(s)];
     if (s.machineName) parts.push(s.machineName);
     if (typeof s.idleSeconds === "number" && s.idleSeconds > 0) {
       parts.push("idle " + formatIdle(s.idleSeconds));
@@ -98,7 +129,8 @@
       var li = document.createElement("li");
 
       var dot = document.createElement("span");
-      dot.className = "dot " + colorClass(s.statusColor);
+      dot.className = "dot";
+      dot.style.background = dotHex(effectiveColor(s));
 
       var main = document.createElement("div");
       main.className = "s-main";
@@ -124,7 +156,7 @@
   function openSession(s) {
     current = s;
     $("session-name").textContent = sessionTitle(s);
-    $("session-state").textContent = s.activityState || s.status || "-";
+    $("session-state").textContent = statusLabel(s);
     $("session-repo").textContent = s.repoPath || "";
     setStage("Tap Speak and talk.", "");
     $("reply-box").textContent = "";
