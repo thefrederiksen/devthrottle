@@ -85,6 +85,17 @@ public sealed class PythonToolsInstallerTests : IDisposable
         var (exit, _) = ProcessRunnerTestProbe.Run(shim, "--help");
         Assert.Equal(0, exit);
 
+        // The doc tools the user actually relies on (cc-html/cc-pdf/cc-word) must all be present and
+        // runnable from their bin shim - cc-html is the one whose missing exe started this whole fix.
+        foreach (var tool in new[] { "cc-html", "cc-word" })
+        {
+            Assert.True(File.Exists(Path.Combine(layout.PyenvScriptsDir, $"{tool}.exe")), $"{tool} console script missing");
+            var toolShim = Path.Combine(layout.BinDir, $"{tool}.cmd");
+            Assert.True(File.Exists(toolShim), $"{tool} shim missing");
+            var (te, _) = ProcessRunnerTestProbe.Run(toolShim, "--help");
+            Assert.Equal(0, te);
+        }
+
         // --- REGRESSION (#453): a half-installed venv must REBUILD on re-install, not early-out. ---
         // Simulate the field failure: the version stamp + python.exe survive, but a tool console script
         // is gone (stripped/empty site-packages). The old early-out trusted (version match + python.exe)
