@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof - Issue #422 (Voice turn count on rows + header)</title>
+<style>
+ body{font-family:Segoe UI,Arial,sans-serif;max-width:980px;margin:24px auto;padding:0 16px;color:#1a1a2e;background:#fff}
+ h1{border-bottom:3px solid #5319e7;padding-bottom:8px}
+ table{border-collapse:collapse;width:100%;margin:16px 0}
+ th,td{border:1px solid #ccc;padding:8px;text-align:left;vertical-align:top;font-size:14px}
+ th{background:#f0edff}
+ .pass{color:#0a7a0a;font-weight:700}
+ .fail{color:#b00020;font-weight:700}
+ code{background:#f4f4f8;padding:1px 5px;border-radius:4px}
+ img{max-width:680px;border:1px solid #ddd;border-radius:6px;margin:8px 0;display:block}
+ .verdict{background:#e8ffe8;border:2px solid #0a7a0a;padding:12px 16px;border-radius:8px;font-size:16px;font-weight:700;color:#0a7a0a}
+</style>
+</head>
+<body>
+<h1>QA Proof Report - Issue #422</h1>
+<p><strong>Title:</strong> [cockpit] Voice: show turn count on session rows and header<br>
+<strong>PR:</strong> #432 (branch <code>feat/422-voice-turncount</code>, stacked on <code>feat/421-voice-newsession</code>)<br>
+<strong>QA identity:</strong> independent QA Agent (separate from Developer)<br>
+<strong>Method:</strong> PR-branch modified <code>pages/voice/</code> static files served behind the LIVE Gateway
+(127.0.0.1:7878) via an independent QA harness on port 8423; real browser render; DOM read + screenshots;
+cross-checked against the authoritative Gateway API.</p>
+
+<h2>How the count was sourced</h2>
+<p>The Developer read the count from <code>GET /sessions/{id}/voice-turns</code> (the pre-existing Gateway
+voice-turn archive endpoint, <code>GatewayVoiceTurnEndpoint.cs</code>). PR #432 touches NO backend / no
+<code>.cs</code> files - it is purely client-side (HTML/CSS/JS). Acceptance criterion 3 allows "an existing
+endpoint ... or an existing DTO field - no new backend", and the Assumptions say "Prefer reading an existing
+turns endpoint." For the Voice page, voice turns are the relevant turns, so this is a faithful satisfaction
+of the criteria, not a miss.</p>
+
+<h2>Authoritative API baseline (live Gateway 7878)</h2>
+<table>
+<tr><th>Session</th><th>sessionId</th><th><code>/voice-turns</code> length</th></tr>
+<tr><td>mindzieWeb</td><td>1e3c1269</td><td>0</td></tr>
+<tr><td>cc-director</td><td>c748027a</td><td>0</td></tr>
+<tr><td>mindzieWeb - QA</td><td>269e6a0d</td><td>0</td></tr>
+<tr><td><strong>Cockpit app</strong></td><td>18e2a901</td><td><strong>1</strong></td></tr>
+<tr><td>cc-director</td><td>f3897ed0</td><td>0</td></tr>
+<tr><td>product</td><td>e4ef441d</td><td>0</td></tr>
+</table>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+<tr><td>1</td><td>Each <code>/voice</code> list row shows a turn count</td><td>Every row shows "N turns"</td>
+<td>All 6 rows show a turn count; "Cockpit app" = "1 turn", others = "0 turns" (see list screenshot, DOM read)</td>
+<td class="pass">PASS</td></tr>
+<tr><td>2</td><td>Open session header shows the same count</td><td>Header pill = same "N turns"</td>
+<td>"Cockpit app" header = "1 turn"; "product" header = "0 turns" (see header screenshot, DOM read)</td>
+<td class="pass">PASS</td></tr>
+<tr><td>3</td><td>Count from an existing endpoint, no new backend</td><td>Existing endpoint; no backend change</td>
+<td>Uses pre-existing <code>/voice-turns</code>; PR changes 0 <code>.cs</code> files</td>
+<td class="pass">PASS</td></tr>
+<tr><td>4</td><td>Count matches the session's actual turns</td><td>UI count == API count</td>
+<td>UI: Cockpit app=1, all others=0 -- exactly matches the API baseline above</td>
+<td class="pass">PASS</td></tr>
+</table>
+
+<h2>Evidence</h2>
+<h3>List rows (criterion 1 + 4)</h3>
+<img src="qa-list-turncount.png" alt="voice list with turn counts">
+<h3>Session header - "Cockpit app", 1 turn (criterion 2 + 4)</h3>
+<img src="qa-header-turncount.png" alt="session header with 1 turn pill">
+
+<h2>Regression / method checks</h2>
+<ul>
+<li>Pluralization correct: singular "1 turn" vs plural "0 turns" / "N turns".</li>
+<li>Client-only change; Cockpit project builds clean (0 warnings, 0 errors).</li>
+<li>No CenCon drift: no backend, no architecture/security change.</li>
+<li>Negative sweep of both screenshots: no broken layout, no other rows mis-rendered.</li>
+</ul>
+
+<p class="verdict">VERIFIED - all 4 acceptance criteria met. QA PASS. (Option A: not merged; left for human merge.)</p>
+</body>
+</html>
