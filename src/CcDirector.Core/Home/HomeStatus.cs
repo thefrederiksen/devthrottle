@@ -14,6 +14,12 @@ public enum HomeCheckAction
     None,
     OpenTools,
     OpenSettings,
+
+    /// <summary>
+    /// Repair the cc-* tools in place (rebuild the shared Python venv) rather than just navigating.
+    /// The Home tools row uses this so its "Fix it" button actually fixes the problem in one click.
+    /// </summary>
+    RepairTools,
 }
 
 /// <summary>One row in the home page's system-status / readiness card.</summary>
@@ -54,12 +60,13 @@ public static class HomeStatusBuilder
     public static HomeStatus Build(
         IReadOnlyList<AgentCliFact> agentClis,
         int toolsBuilt,
-        int toolsTotal)
+        int toolsTotal,
+        IReadOnlyList<string>? missingTools = null)
     {
         var checks = new List<HomeCheck>
         {
             BuildAgentClis(agentClis),
-            BuildTools(toolsBuilt, toolsTotal),
+            BuildTools(toolsBuilt, toolsTotal, missingTools ?? Array.Empty<string>()),
         };
 
         var readyCount = checks.Count(c => c.Level == HomeCheckLevel.Ok);
@@ -100,13 +107,29 @@ public static class HomeStatusBuilder
         return version.Length == 0 ? cli.DisplayName : $"{cli.DisplayName} {version}";
     }
 
-    private static HomeCheck BuildTools(int built, int total)
+    /// <summary>
+    /// The cc-* tools row. Green when every tool's runnable exe is present. When some are missing it
+    /// names them (so the warning is specific, not just "25 of 32") and offers a one-click in-place
+    /// repair (<see cref="HomeCheckAction.RepairTools"/>) instead of merely opening the Tools page.
+    /// </summary>
+    private static HomeCheck BuildTools(int built, int total, IReadOnlyList<string> missing)
     {
-        var detail = $"{built} of {total} on PATH";
         if (total > 0 && built == total)
-            return new HomeCheck("cc-* tools", HomeCheckLevel.Ok, detail, HomeCheckAction.None);
-        if (built == 0)
-            return new HomeCheck("cc-* tools", HomeCheckLevel.Bad, detail, HomeCheckAction.OpenTools);
-        return new HomeCheck("cc-* tools", HomeCheckLevel.Warn, detail, HomeCheckAction.OpenTools);
+            return new HomeCheck("cc-* tools", HomeCheckLevel.Ok, $"{built} of {total} on PATH", HomeCheckAction.None);
+
+        string detail;
+        if (missing.Count > 0)
+        {
+            var shown = string.Join(", ", missing.Take(4));
+            if (missing.Count > 4) shown += $", +{missing.Count - 4} more";
+            detail = $"{total - built} of {total} not installed: {shown}";
+        }
+        else
+        {
+            detail = $"{built} of {total} on PATH";
+        }
+
+        var level = built == 0 ? HomeCheckLevel.Bad : HomeCheckLevel.Warn;
+        return new HomeCheck("cc-* tools", level, detail, HomeCheckAction.RepairTools);
     }
 }

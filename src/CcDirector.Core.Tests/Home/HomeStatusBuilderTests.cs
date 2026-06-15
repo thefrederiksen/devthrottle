@@ -98,7 +98,7 @@ public class HomeStatusBuilderTests
     }
 
     [Fact]
-    public void Build_PartialTools_WarnAndRoutesToTools()
+    public void Build_PartialTools_WarnAndOffersRepair()
     {
         var status = HomeStatusBuilder.Build(
             new[] { Cli("Claude Code", true, "2.1.168") },
@@ -107,12 +107,40 @@ public class HomeStatusBuilderTests
         var tools = Row(status, "cc-* tools");
         Assert.Equal(HomeCheckLevel.Warn, tools.Level);
         Assert.Equal("12 of 31 on PATH", tools.Detail);
-        Assert.Equal(HomeCheckAction.OpenTools, tools.Action);
+        Assert.Equal(HomeCheckAction.RepairTools, tools.Action);
         Assert.False(status.AllReady);
     }
 
     [Fact]
-    public void Build_NoTools_BadAndRoutesToTools()
+    public void Build_PartialTools_NamesTheMissingToolsAndOffersRepair()
+    {
+        var status = HomeStatusBuilder.Build(
+            new[] { Cli("Claude Code", true, "2.1.168") },
+            toolsBuilt: 29, toolsTotal: 32,
+            missingTools: new[] { "cc-html", "cc-pdf", "cc-word" });
+
+        var tools = Row(status, "cc-* tools");
+        Assert.Equal(HomeCheckLevel.Warn, tools.Level);
+        Assert.Equal(HomeCheckAction.RepairTools, tools.Action);
+        Assert.Contains("cc-html", tools.Detail);
+        Assert.Contains("cc-pdf", tools.Detail);
+        Assert.Contains("cc-word", tools.Detail);
+    }
+
+    [Fact]
+    public void Build_ManyMissingTools_TruncatesTheList()
+    {
+        var missing = new[] { "cc-a", "cc-b", "cc-c", "cc-d", "cc-e", "cc-f" };
+        var status = HomeStatusBuilder.Build(
+            new[] { Cli("Claude Code", true, "2.1.168") },
+            toolsBuilt: 26, toolsTotal: 32, missingTools: missing);
+
+        var tools = Row(status, "cc-* tools");
+        Assert.Contains("+2 more", tools.Detail);
+    }
+
+    [Fact]
+    public void Build_NoTools_BadAndOffersRepair()
     {
         var status = HomeStatusBuilder.Build(
             new[] { Cli("Claude Code", true, "2.1.168") },
@@ -120,7 +148,7 @@ public class HomeStatusBuilderTests
 
         var tools = Row(status, "cc-* tools");
         Assert.Equal(HomeCheckLevel.Bad, tools.Level);
-        Assert.Equal(HomeCheckAction.OpenTools, tools.Action);
+        Assert.Equal(HomeCheckAction.RepairTools, tools.Action);
     }
 
     [Fact]

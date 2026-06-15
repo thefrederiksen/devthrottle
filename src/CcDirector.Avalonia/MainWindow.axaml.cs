@@ -254,6 +254,7 @@ public partial class MainWindow : Window
         // so the very first frame at zero sessions is the home, not a blank content area.
         HomeView.NewSessionRequested += (_, _) => { FileLog.Write("[MainWindow] Home -> New Session"); _ = ShowNewSessionDialog(); };
         HomeView.OpenToolsRequested += (_, _) => BtnTools_Click(this, new RoutedEventArgs());
+        HomeView.RepairToolsRequested += (_, _) => _ = RepairToolsAsync();
         HomeView.OpenSettingsRequested += (_, _) => BtnSettings_Click(this, new RoutedEventArgs());
         HomeView.GatewayClicked += (_, _) => OpenGatewayTroubleshooter();
         UpdateHomeVisibility();
@@ -654,7 +655,7 @@ public partial class MainWindow : Window
             var app = (App)global::Avalonia.Application.Current!;
             var options = app.Options;
 
-            var facts = await Task.Run<(List<AgentCliFact> clis, int built, int total)>(() =>
+            var facts = await Task.Run<(List<AgentCliFact> clis, int built, int total, List<string> missing)>(() =>
             {
                 var detector = new ToolDetectionService();
                 var clis = ToolDetectionService.SupportedTools.Select(tool =>
@@ -668,17 +669,52 @@ public partial class MainWindow : Window
                 var catalog = new ToolCatalogService().GetCatalog();
                 var built = catalog.Count(d => d.IsBuilt);
                 var total = catalog.Count;
+                var missing = catalog.Where(d => !d.IsBuilt).Select(d => d.Name).ToList();
 
-                return (clis, built, total);
+                return (clis, built, total, missing);
             });
 
-            _lastHomeStatus = HomeStatusBuilder.Build(facts.clis, facts.built, facts.total);
+            _lastHomeStatus = HomeStatusBuilder.Build(facts.clis, facts.built, facts.total, facts.missing);
 
             ApplyHomeHealth();
         }
         catch (Exception ex)
         {
             FileLog.Write($"[MainWindow] RefreshHomeAsync FAILED: {ex.Message}");
+        }
+    }
+
+    private bool _repairingTools;
+
+    /// <summary>
+    /// One-click, health-based repair of the cc-* Python tools from the Home "Fix it" button. Forces a
+    /// venv rebuild via <see cref="CcDirector.Setup.Engine.ToolUpdater.RepairPythonToolsAsync"/> (which is
+    /// NOT version-gated, so it actually fixes a half-installed toolset the silent auto-update would skip),
+    /// streams live progress onto the tools row, then re-runs the readiness check so the card flips green.
+    /// Runs the slow pip work off the UI thread; guarded so a double-click cannot start two rebuilds.
+    /// </summary>
+    private async Task RepairToolsAsync()
+    {
+        if (_repairingTools) return;
+        _repairingTools = true;
+        FileLog.Write("[MainWindow] Tools repair requested from Home");
+        try
+        {
+            HomeView.SetToolsRepairing("starting...");
+            var layout = CcDirector.Setup.Engine.InstallLayout.Default();
+            var progress = new Progress<string>(msg => HomeView.SetToolsRepairing(msg));
+            var result = await Task.Run(() =>
+                new CcDirector.Setup.Engine.ToolUpdater(layout).RepairPythonToolsAsync(progress));
+            FileLog.Write($"[MainWindow] Tools repair done: success={result.Success}, count={result.ToolCount}, msg={result.Message}");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] RepairToolsAsync FAILED: {ex.Message}");
+        }
+        finally
+        {
+            _repairingTools = false;
+            await RefreshHomeAsync();
         }
     }
 

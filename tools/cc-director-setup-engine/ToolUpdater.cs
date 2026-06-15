@@ -104,5 +104,24 @@ public sealed class ToolUpdater
         return result;
     }
 
+    /// <summary>
+    /// On-demand, version-INDEPENDENT repair of the shared Python tools venv (e.g. the Home "Fix it"
+    /// button). Unlike <see cref="RefreshPythonToolsAsync"/>, this does not gate on the installed bundle
+    /// version - it calls <see cref="PythonToolsInstaller.InstallAsync"/> directly, whose health-check
+    /// early-out rebuilds an unhealthy/empty venv and cheaply no-ops a healthy one. This is the path that
+    /// actually fixes a half-installed toolset, which the version-gated refresh would silently skip.
+    /// Fetches the latest release for the wheelhouse; reports progress for a UI repair affordance.
+    /// </summary>
+    public async Task<PythonToolsResult> RepairPythonToolsAsync(
+        IProgress<string>? progress = null, IProgress<int>? percent = null, CancellationToken ct = default)
+    {
+        EngineLog.Write("[ToolUpdater] on-demand Python tools repair requested");
+        var source = new ReleaseSource();
+        var release = await source.FetchLatestAsync(ct);
+        var result = await new PythonToolsInstaller(_layout).InstallAsync(release, source, progress, percent, ct);
+        EngineLog.Write($"[ToolUpdater] Python tools repair: success={result.Success}, count={result.ToolCount}");
+        return result;
+    }
+
     private static UpdateRunResult Empty() => new() { Results = Array.Empty<ApplyResult>() };
 }
