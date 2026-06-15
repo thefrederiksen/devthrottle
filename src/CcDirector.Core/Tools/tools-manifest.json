@@ -44,13 +44,6 @@
       "note": "Diagram generation needs Graphviz and a source tree. Presence + version only."
     },
     {
-      "name": "cc-markdown",
-      "category": "Documents",
-      "description": "Markdown utilities and conversions.",
-      "smoke": null,
-      "note": "No zero-arg read-only command. Presence + version only."
-    },
-    {
       "name": "cc-vault",
       "category": "Data",
       "description": "Personal contacts/secrets vault CLI. The only sanctioned way to query the vault.",
@@ -86,13 +79,6 @@
       "note": null
     },
     {
-      "name": "cc-launcher",
-      "category": "System",
-      "description": "Out-of-band launcher that starts a sibling Director outside any Director's ConPTY, so a running Director can spawn another without the nested-ConPTY crash.",
-      "smoke": { "args": ["status"], "expectContains": null },
-      "note": "Bootstrap tool. Replaces the cc-director-launch Task Scheduler workaround."
-    },
-    {
       "name": "cc-gmail",
       "category": "Email",
       "description": "Gmail CLI: read, send, search and manage email.",
@@ -112,13 +98,6 @@
       "description": "Reddit CLI with human-like pacing. The only sanctioned way to drive Reddit.",
       "smoke": null,
       "note": "Drives a browser session. Presence + version only (no auto-launch in tests)."
-    },
-    {
-      "name": "cc-linkedin",
-      "category": "Social",
-      "description": "LinkedIn browser automation: post, message, search.",
-      "smoke": null,
-      "note": "Browser + auth. Presence + version only."
     },
     {
       "name": "cc-twitter",

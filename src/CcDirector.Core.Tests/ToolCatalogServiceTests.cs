@@ -168,6 +168,16 @@ public class ToolCatalogServiceTests : IDisposable
         }
     }
 
+    [Fact]
+    public void GetCatalog_DoesNotContainPhantomTools()
+    {
+        // These were in the embedded manifest but never shipped (not in tools/registry.json, no source),
+        // so they showed as permanent false "NOT BUILT" entries. Removed; guard against re-introduction.
+        var names = new ToolCatalogService(_binDir).GetCatalog().Select(d => d.Name).ToHashSet();
+        foreach (var phantom in new[] { "cc-markdown", "cc-linkedin", "cc-launcher" })
+            Assert.DoesNotContain(phantom, names);
+    }
+
     // ---------- IsExpected: installed-but-broken vs never-installed (over-nag fix) ----------
 
     [Fact]
