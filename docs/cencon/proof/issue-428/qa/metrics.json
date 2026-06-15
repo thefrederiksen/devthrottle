@@ -1,0 +1,50 @@
+{
+  "light": {
+    "bodyBg": "rgb(243, 244, 246)",
+    "bodyColor": "rgb(27, 34, 51)",
+    "ink_on_bg_contrast": 14.42,
+    "muted_on_bg_contrast": 5.41,
+    "primaryInk_on_primaryBg_contrast": 5.34,
+    "stageErr_on_bg_contrast": 5.01,
+    "speakRect": {
+      "w": 388,
+      "h": 87
+    },
+    "playRect": {
+      "w": 388,
+      "h": 50
+    },
+    "wingmanRect": {
+      "w": 156,
+      "h": 50
+    },
+    "primaryBg": "rgb(31, 122, 71)",
+    "dangerBg": "rgb(179, 52, 58)",
+    "badgeStaleBg": "rgb(251, 241, 214)",
+    "badgePendingBorder": "rgb(226, 201, 138)"
+  },
+  "dark": {
+    "bodyBg": "rgb(11, 16, 32)",
+    "bodyColor": "rgb(230, 234, 242)",
+    "ink_on_bg_contrast": 15.7,
+    "muted_on_bg_contrast": 6.13,
+    "primaryInk_on_primaryBg_contrast": 5.34,
+    "stageErr_on_bg_contrast": 4.84,
+    "speakRect": {
+      "w": 388,
+      "h": 87
+    },
+    "playRect": {
+      "w": 388,
+      "h": 50
+    },
+    "wingmanRect": {
+      "w": 156,
+      "h": 50
+    },
+    "primaryBg": "rgb(31, 122, 71)",
+    "dangerBg": "rgb(90, 34, 38)",
+    "badgeStaleBg": "rgb(58, 47, 18)",
+    "badgePendingBorder": "rgb(90, 74, 31)"
+  }
+}

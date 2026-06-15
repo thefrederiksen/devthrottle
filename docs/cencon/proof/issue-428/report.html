@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Issue #428 - Developer Proof - Voice light/dark theme</title>
+<style>
+  :root{--bg:#0B1020;--panel:#141B2E;--ink:#E6EAF2;--muted:#8A93A6;--line:#27324d;
+    --green:#5FD08A;--amber:#E8B339;--red:#E5484D;--blue:#5B8DEF}
+  body{background:var(--bg);color:var(--ink);font-family:Segoe UI,Arial,sans-serif;
+    line-height:1.55;max-width:1100px;margin:0 auto;padding:28px}
+  h1{font-size:24px} h2{font-size:18px;margin-top:30px;border-bottom:1px solid var(--line);padding-bottom:6px}
+  code{background:var(--panel);padding:2px 6px;border-radius:6px;font-family:Consolas,monospace}
+  table{border-collapse:collapse;width:100%;margin:12px 0}
+  th,td{border:1px solid var(--line);padding:9px 11px;text-align:left;vertical-align:top;font-size:14px}
+  th{background:var(--panel);color:var(--muted)}
+  .pass{color:var(--green);font-weight:600}
+  .muted{color:var(--muted)}
+  img{max-width:100%;border:1px solid var(--line);border-radius:10px;margin:8px 0}
+  pre{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;overflow:auto;font-size:13px}
+  .grid{display:flex;gap:18px;flex-wrap:wrap}
+  .grid figure{flex:1 1 380px;margin:0}
+  figcaption{color:var(--muted);font-size:13px;margin-bottom:6px}
+</style>
+</head>
+<body>
+  <h1>Issue #428 - [cockpit] Voice: light/dark theme to match Cockpit</h1>
+  <p class="muted">Developer Agent proof. PR base: <code>feat/427-voice-mobiledetect</code> (stacking).
+    Branch: <code>feat/428-voice-theme</code>. Option A: NOT merged.</p>
+
+  <h2>Release notes</h2>
+  <p>The <code>/voice</code> Cockpit page now follows the OS/Cockpit theme preference instead of being
+  dark-only. On a system set to light, the page renders in a light VS Code-style palette; on a system
+  set to dark it keeps the existing dark appearance unchanged. The switch is automatic via
+  <code>prefers-color-scheme</code> - there is no manual in-page toggle (out of scope per the issue).
+  Text contrast and the large touch targets are preserved in both schemes.</p>
+
+  <h2>Changes</h2>
+  <ul>
+    <li><code>src/CcDirector.Cockpit/wwwroot/pages/voice/voice.css</code> - the only file changed.
+      <ul>
+        <li>Every color the page paints was already, or was refactored to be, a CSS custom property
+          in <code>:root</code>. The handful of colors that were still hard-coded in rules
+          (the <code>.primary</code>/<code>.primary.recording</code>/<code>.danger</code> action
+          buttons, the <code>.stage.error</code> and <code>.ns-error</code> and <code>.wm-msg.error</code>
+          borders, and the five <code>.ob-badge.*</code> outbox status outlines) were moved into new
+          tokens (<code>--primary-bg</code>, <code>--danger-bg</code>, <code>--error-line</code>,
+          <code>--badge-*-line</code>, etc.). After this refactor the page contains no hard-coded
+          color outside <code>:root</code> and the light override block (per VisualStyle.md "don't
+          hard-code, use tokens").</li>
+        <li>A single <code>@media (prefers-color-scheme: light)</code> block re-points those same
+          tokens to a light palette. Only colors change - no layout, padding, or font-size is touched,
+          so the large touch targets are identical in both schemes. Semantic colors
+          (green/blue/amber/red) are darkened in the light scheme so they stay legible on white;
+          badge/error outlines become light tints of each semantic color so the 1px borders read on
+          white rather than vanishing; filled action buttons keep white ink on their darker fills.</li>
+      </ul>
+    </li>
+  </ul>
+  <p class="muted">No C#, no other CSS, no markup changed. The dark default is byte-for-byte the same
+  appearance as before (same token values), so existing dark users see no change.</p>
+
+  <h2>How to test</h2>
+  <ol>
+    <li>Open <code>/voice</code> in the Cockpit (or any browser) with the OS set to <strong>dark</strong>.</li>
+    <li>Switch the OS (or the browser dev-tools "Emulate CSS prefers-color-scheme") to <strong>light</strong> and reload <code>/voice</code>.</li>
+    <li>Confirm the page re-themes: light surfaces, dark text, accessible semantic colors, and that
+      every button is the same size as in dark.</li>
+  </ol>
+  <p class="muted">Proof below was produced by rendering the real <code>voice.css</code> against the
+  real <code>/voice</code> markup (session list, single-session view, outbox with all five status
+  badges, Wingman view, error surfaces) in a 430px mobile viewport with Chromium's
+  <code>color_scheme</code> emulation set to dark and then light.</p>
+
+  <h2>Acceptance criteria - Expected vs Actual</h2>
+  <table>
+    <tr><th>Criterion</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+    <tr>
+      <td><code>/voice</code> renders correctly in both light and dark, following <code>prefers-color-scheme</code>.</td>
+      <td>Dark scheme = current dark look; light scheme = light look, switched purely by the OS preference.</td>
+      <td>Dark render unchanged; light render shows light surfaces/dark ink. The only difference between the two screenshots is the emulated <code>prefers-color-scheme</code> value.</td>
+      <td class="pass">PASS</td>
+    </tr>
+    <tr>
+      <td>Text contrast and button sizes remain accessible in both themes.</td>
+      <td>Ink/muted text legible on both backgrounds; buttons same size in both.</td>
+      <td>Light: ink <code>#1B2233</code> on bg <code>#F3F4F6</code> (~13:1), muted <code>#5A6478</code> (~4.7:1). Dark unchanged. No size rules changed, so the Speak/Play/Retry/danger targets are identical in both screenshots.</td>
+      <td class="pass">PASS</td>
+    </tr>
+    <tr>
+      <td>Proof: side-by-side screenshots of <code>/voice</code> in light and dark.</td>
+      <td>Both screenshots committed.</td>
+      <td><code>voice-dark.png</code> + <code>voice-light.png</code> below.</td>
+      <td class="pass">PASS</td>
+    </tr>
+  </table>
+
+  <h2>Side-by-side</h2>
+  <div class="grid">
+    <figure>
+      <figcaption>Dark (<code>prefers-color-scheme: dark</code>) - unchanged</figcaption>
+      <img src="voice-dark.png" alt="Voice page in dark theme" />
+    </figure>
+    <figure>
+      <figcaption>Light (<code>prefers-color-scheme: light</code>) - new</figcaption>
+      <img src="voice-light.png" alt="Voice page in light theme" />
+    </figure>
+  </div>
+
+  <h2>Build</h2>
+  <pre>dotnet build cc-director.sln
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)</pre>
+
+  <h2>CenCon impact</h2>
+  <p>No drift. This is a presentation-only CSS change to one Cockpit static asset - no architecture,
+  no container, no security posture changes. No <code>docs/cencon/</code> update required.</p>
+
+  <h2>Conclusion</h2>
+  <p class="pass">I believe this is finished.</p>
+  <p class="muted">All three acceptance criteria are met, the full solution builds clean (0/0), and the
+  light/dark side-by-side proof is committed. PR base is <code>feat/427-voice-mobiledetect</code> and
+  is NOT merged (Option A).</p>
+</body>
+</html>

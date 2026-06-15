@@ -1,6 +1,21 @@
+/* Theme tokens (issue #428): the page follows the OS/Cockpit preference via
+   prefers-color-scheme. The dark palette below is the default; the light override
+   block at the foot of this file re-points the same tokens for a light scheme.
+   Every color the page paints comes from a token here so a single override re-themes
+   the whole page (no hard-coded colors scattered through the rules). */
 :root{
   --bg:#0B1020; --panel:#141B2E; --panel2:#1B2540; --ink:#E6EAF2; --muted:#8A93A6;
   --line:#27324d; --green:#5FD08A; --blue:#5B8DEF; --amber:#E8B339; --red:#E5484D;
+  /* Action buttons */
+  --primary-bg:#1f7a47; --primary-line:#2a9c5b; --primary-ink:#fff;
+  --primary-rec-bg:#9c2a2f; --primary-rec-line:#c0393f;
+  --danger-bg:#5a2226; --danger-line:#8a3036; --danger-ink:#fff;
+  /* Error surfaces */
+  --error-line:#5a2a2d;
+  /* Outbox status badge tints (text color reuses --amber/--blue/--green/--red) */
+  --badge-pending-line:#5a4a1f; --badge-uploading-line:#2a4170;
+  --badge-uploaded-line:#1f5a37; --badge-failed-line:#5a2a2d;
+  --badge-stale-line:#7a5a1f; --badge-stale-bg:#3a2f12;
 }
 *{box-sizing:border-box}
 html,body{margin:0;height:100%}
@@ -45,11 +60,11 @@ button:disabled{opacity:.45;cursor:default}
   padding:18px;text-align:center;font-size:15px;color:var(--muted);min-height:58px;
   display:flex;align-items:center;justify-content:center}
 .stage.active{color:var(--ink);border-color:var(--blue)}
-.stage.error{color:var(--red);border-color:#5a2a2d}
+.stage.error{color:var(--red);border-color:var(--error-line)}
 
 .controls{display:flex;flex-direction:column;gap:14px;margin:18px 0}
-.primary{background:#1f7a47;border-color:#2a9c5b;color:#fff}
-.primary.recording{background:#9c2a2f;border-color:#c0393f}
+.primary{background:var(--primary-bg);border-color:var(--primary-line);color:var(--primary-ink)}
+.primary.recording{background:var(--primary-rec-bg);border-color:var(--primary-rec-line)}
 .secondary{background:var(--panel2)}
 .big{font-size:22px;padding:26px;border-radius:18px}
 
@@ -88,13 +103,13 @@ button:disabled{opacity:.45;cursor:default}
 .ob-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .ob-badge{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;
   font-weight:600;border:1px solid var(--line);background:var(--panel2);color:var(--muted)}
-.ob-badge.pending{color:var(--amber);border-color:#5a4a1f}
-.ob-badge.uploading{color:var(--blue);border-color:#2a4170}
-.ob-badge.uploaded{color:var(--green);border-color:#1f5a37}
-.ob-badge.failed{color:var(--red);border-color:#5a2a2d}
+.ob-badge.pending{color:var(--amber);border-color:var(--badge-pending-line)}
+.ob-badge.uploading{color:var(--blue);border-color:var(--badge-uploading-line)}
+.ob-badge.uploaded{color:var(--green);border-color:var(--badge-uploaded-line)}
+.ob-badge.failed{color:var(--red);border-color:var(--badge-failed-line)}
 /* Stale (issue #426): a turn pending past the 30-min rule. Distinct from failed - it is
    still retrying, so it reads as a warning, not an error. */
-.ob-badge.stale{color:var(--amber);border-color:#7a5a1f;background:#3a2f12}
+.ob-badge.stale{color:var(--amber);border-color:var(--badge-stale-line);background:var(--badge-stale-bg)}
 .ob-saved{color:var(--muted);font-size:13px}
 .ob-time{color:var(--muted);font-size:12px;margin-top:6px}
 .ob-error{color:var(--red);font-size:13px;margin-top:6px;white-space:pre-wrap}
@@ -119,7 +134,7 @@ button:disabled{opacity:.45;cursor:default}
 .wm-msg.tool{background:var(--panel);align-self:stretch;font-family:ui-monospace,Menlo,Consolas,monospace;
   font-size:13px;color:var(--ink)}
 .wm-msg.tool .wm-meta{color:var(--muted);font-size:12px;margin-bottom:8px;font-family:inherit}
-.wm-msg.error{border-color:#5a2a2d;color:var(--red)}
+.wm-msg.error{border-color:var(--error-line);color:var(--red)}
 .wm-msg.pending{color:var(--muted)}
 
 .wm-ask{display:flex;gap:10px;align-items:flex-end;margin-bottom:8px}
@@ -136,7 +151,7 @@ button:disabled{opacity:.45;cursor:default}
 .wm-actions{margin-top:22px;border-top:1px solid var(--line);padding-top:16px}
 .wm-send{display:flex;gap:10px;align-items:flex-end;margin-bottom:12px}
 .wm-action-row{display:flex;gap:10px;flex-wrap:wrap}
-.danger{background:#5a2226;border-color:#8a3036;color:#fff}
+.danger{background:var(--danger-bg);border-color:var(--danger-line);color:var(--danger-ink)}
 .danger:active{transform:translateY(1px)}
 
 /* New session view */
@@ -145,6 +160,30 @@ button:disabled{opacity:.45;cursor:default}
   border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin:0 0 12px}
 .ns-search::placeholder{color:var(--muted)}
 .ns-search:focus{outline:none;border-color:var(--blue)}
-.ns-error{background:var(--panel);border:1px solid #5a2a2d;border-radius:14px;
+.ns-error{background:var(--panel);border:1px solid var(--error-line);border-radius:14px;
   padding:16px;color:var(--red);font-size:15px;margin-top:14px}
 .ns-error.hidden{display:none}
+
+/* Light theme (issue #428): when the OS/Cockpit preference is light, re-point the
+   same tokens to a light VS Code-style palette. Only colors change here - every
+   layout, padding, and font-size (i.e. the large touch targets) is shared with the
+   dark default above, so accessibility is preserved in both schemes. Contrast targets:
+   ink on bg ~13:1; muted on bg ~4.7:1; semantic colors darkened so they stay legible
+   on light surfaces (the dark-scheme tints are too bright on white). */
+@media (prefers-color-scheme: light){
+  :root{
+    --bg:#F3F4F6; --panel:#FFFFFF; --panel2:#EAEDF2; --ink:#1B2233; --muted:#5A6478;
+    --line:#D2D8E2; --green:#1F8A4C; --blue:#2563EB; --amber:#B57608; --red:#C0353A;
+    /* Action buttons keep their bold filled identity; white ink stays readable on the
+       darker fills. */
+    --primary-bg:#1f7a47; --primary-line:#176236; --primary-ink:#fff;
+    --primary-rec-bg:#b3343a; --primary-rec-line:#902a2f;
+    --danger-bg:#b3343a; --danger-line:#902a2f; --danger-ink:#fff;
+    /* Error + badge outlines: light tints of each semantic color so the 1px borders
+       read on white instead of vanishing. */
+    --error-line:#E4B6B8;
+    --badge-pending-line:#E2C98A; --badge-uploading-line:#A9C2F6;
+    --badge-uploaded-line:#A6D7BB; --badge-failed-line:#E4B6B8;
+    --badge-stale-line:#D9BE7F; --badge-stale-bg:#FBF1D6;
+  }
+}
