@@ -109,7 +109,7 @@ End state: the Director exposes a dumb `POST /sessions/{sid}/execute-action` ver
 
 `TerminalStateDetector` + `SessionStatusWingman.ColorFromActivityState` produce a Director-local badge; the Gateway pushes `AssessedState` down as an override. Two interpreters, coordination complexity, and the known coarse-signal problem (10s silence cannot distinguish done / stuck / awaiting-permission - all go red).
 
-**Fix:** Director emits raw activity transitions as events; the Gateway's `AssessedState` becomes the *only* interpreted state; every surface (Cockpit and the desktop fallback) renders what the Gateway says. The raw timer survives only as the degraded-mode badge when no Gateway is reachable (section 6).
+**Fix (DECIDED 2026-06-15):** The Director permanently owns exactly one interpretation - a deliberately stupid **two-state activity signal** computed from raw terminal activity: **Working** the moment the terminal changes, **Waiting-for-user (red)** after **5 seconds** of silence (today's threshold is 10s; reduce to 5s). This is **always on - not a degraded-mode fallback**; the Director computes and emits it whether or not a Gateway is connected. It is the only state the Director ever sets - it never distinguishes done / stuck / awaiting-permission / needs-you. The Gateway's `AssessedState` is the **richer interpretation layered on top** (done vs. stuck vs. needs-you, briefs, recommendations); when a Gateway is connected the Cockpit renders that richer state, but the Director's two-state signal is always the raw truth underneath. This replaces the earlier "raw timer survives only as the degraded fallback" framing. See [CC_DIRECTOR_CAPABILITIES.md](CC_DIRECTOR_CAPABILITIES.md) section 5.
 
 ### 4.3 The desktop app is a second smart UI (instead of a small permanent fallback)
 
@@ -161,15 +161,20 @@ Three consequences worth stating explicitly:
 
 ---
 
-## 6. Degradation story
+## 6. The Gateway is required; the floor never depends on it
 
-Dumbness must never mean dependency. A Director with no Gateway configured (or an unreachable one) must still work as a complete local terminal manager:
+**The Gateway is a hard requirement, not an optional add-on, and there are no fallbacks.** We built this with the Gateway and we enforce it. The main reason is keys: dictation/transcription and the other super-features run through the Gateway so a machine never needs its own API keys (the fungibility payoff in 4.5). This supersedes the earlier "standalone is a fully supported mode" framing. See [CC_DIRECTOR_CAPABILITIES.md](CC_DIRECTOR_CAPABILITIES.md) for the must-have / Gateway-required split.
 
-- Sessions run; the desktop Terminal and Source Control tabs are fully functional; keystrokes flow; persistence and crash recovery work; any agent runs in raw terminal mode.
-- The raw silence timer drives a local badge (the only place the Director is allowed an opinion, and only because nobody smarter is home).
-- No briefs, no assessments, no scheduled sends, no wingman actions, no voice. Fine.
+Two rules hold simultaneously, and they do not conflict:
 
-What the Director must never do is *block* on the Gateway. Conversely, the Gateway being the single brain is acceptable because it is the always-on box, and the Cockpit on top of it is stateless - the oversight layer can restart freely without touching work in progress (proven property; keep it). The desktop fallback is the floor under all of it: every layer above the Director can break simultaneously and the user still has raw metal.
+1. **The smart layer requires the Gateway, with no fallback.** When the Gateway is unreachable, the super-features are *unavailable* - not degraded, not faked, not approximated locally. No briefs, no assessments, no scheduled sends, no wingman actions, no dictation, no voice. They light up again only when the Gateway reconnects.
+2. **The floor never depends on the Gateway.** Dumbness must never mean dependency. With no Gateway configured (or an unreachable one) the Director still runs as a complete *terminal + multi-session* manager:
+   - Sessions run; the desktop Terminal and Source Control tabs are fully functional; keystrokes flow; persistence and crash recovery work; any agent runs in raw terminal mode.
+   - The raw silence timer drives a local badge (the only place the Director is allowed an opinion, and only because nobody smarter is home).
+
+**No nagging - just a red corner.** Gateway-disconnected is communicated by a single big red indicator in the bottom corner, never a dialog or warning popup. (CURRENT GAP: today the app raises large warnings / a dialog on disconnect; replacing that with the silent red-corner indicator is a small known fix.)
+
+What the Director must never do is *block* on the Gateway. Conversely, the Gateway being the single brain is acceptable because it is the always-on box, and the Cockpit on top of it is stateless - the oversight layer can restart freely without touching work in progress (proven property; keep it). The terminal floor is the bedrock under all of it: every smart layer can be down simultaneously and the user still has raw metal.
 
 **Tested property (issue #336):** the degradation story is a scripted, repeatable check - not prose. The canonical script is [`scripts/test-degradation.ps1`](../../scripts/test-degradation.ps1). It exercises two cases: (A) no `gateway.url` configured, (B) `gateway.url` set but the Gateway unreachable. Both cases assert session lifecycle, terminal I/O, resize, git facts, stage/unstage, clean kill, and crash recovery - all via Control API only. Run transcript: [`docs/cencon/proof/issue-336/degradation-test-transcript.txt`](../cencon/proof/issue-336/degradation-test-transcript.txt).
 
