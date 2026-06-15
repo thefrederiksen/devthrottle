@@ -11,8 +11,16 @@
  * shows "Recording saved locally". The upload then reads the blob back from IndexedDB and
  * each turn carries a status badge (Pending -> Uploading -> Uploaded, or Failed with a
  * manual Retry). A Pending/Failed turn survives a page reload because it lives in
- * IndexedDB. Service Worker / Background Sync / auto-sync / 30-min stale are part 2 (#426).
- * The chunked upload contract is already resume-safe on the server.
+ * IndexedDB.
+ *
+ * Offline-first part 2 (issue #426): a Service Worker scoped to /voice drains the outbox
+ * AUTOMATICALLY when connectivity returns - no manual Retry tap. Background Sync (where
+ * supported) wakes the page to drain even when the tab is backgrounded; on browsers without
+ * Background Sync we fall back to an "online" event + a periodic connectivity probe and drain
+ * in-page. On reconnect we also re-fetch any pending reply. A turn that has been waiting
+ * longer than the 30-minute rule is badged "Stale" but keeps retrying (the threshold can be
+ * shortened for proof via window.__VOICE_STALE_MS__). The chunked upload contract is already
+ * resume-safe on the server.
  */
 (function () {
   "use strict";
@@ -571,7 +579,27 @@
     uploading: { label: "Uploading", cls: "uploading" },
     uploaded:  { label: "Uploaded",  cls: "uploaded" },
     failed:    { label: "Failed",    cls: "failed" },
+    stale:     { label: "Stale",     cls: "stale" },
   };
+
+  // The 30-minute rule (issue #426): a turn still not durably uploaded after this long is
+  // shown as "Stale" - but it KEEPS retrying, so Stale is a display state layered over the
+  // underlying pending/uploading/failed status, not a terminal one. The threshold can be
+  // shortened for proof via window.__VOICE_STALE_MS__ (a test hook only - production uses
+  // the 30-minute default).
+  var STALE_MS_DEFAULT = 30 * 60 * 1000;
+  function staleMs() {
+    var override = (typeof window !== "undefined") ? Number(window.__VOICE_STALE_MS__) : NaN;
+    return (isFinite(override) && override > 0) ? override : STALE_MS_DEFAULT;
+  }
+
+  // A record is stale when it is not yet uploaded and its age exceeds the threshold.
+  function isStale(rec) {
+    if (!rec || rec.status === "uploaded") return false;
+    var created = Date.parse(rec.createdAt || "");
+    if (isNaN(created)) return false;
+    return (Date.now() - created) >= staleMs();
+  }
 
   // Insert or update the row for one stored turn. Only rows for the currently-open
   // session are shown (a row for another session is ignored here; it is read back when
@@ -589,7 +617,10 @@
 
     var top = document.createElement("div");
     top.className = "ob-top";
-    var s = OUTBOX_STATUS[rec.status] || OUTBOX_STATUS.pending;
+    // Stale wins the badge over the underlying status (it is still retrying); the row also
+    // keeps a Stale marker so the user understands it has been waiting a long time.
+    var stale = isStale(rec);
+    var s = stale ? OUTBOX_STATUS.stale : (OUTBOX_STATUS[rec.status] || OUTBOX_STATUS.pending);
     var badge = document.createElement("span");
     badge.className = "ob-badge " + s.cls;
     badge.textContent = s.label;
@@ -659,6 +690,128 @@
       }
     });
   }
+
+  // ===== automatic drain on reconnect (issue #426) =====
+  // The outbox is drained automatically - no manual Retry tap - whenever connectivity
+  // returns. Three triggers cover the matrix of browser capabilities:
+  //   1. Service Worker Background Sync ("sync" event) wakes the page even when backgrounded.
+  //   2. The window "online" event drains immediately when the tab is foregrounded.
+  //   3. A periodic probe is the floor for browsers without Background Sync (and catches the
+  //      case where the connection comes back without an "online" event firing).
+  // draining guards against overlapping drains; a re-entrant trigger just no-ops.
+  var draining = false;
+
+  // Drain every not-yet-uploaded turn in IndexedDB by running the same resumable upload the
+  // manual Retry uses. Returns true when the outbox is empty afterwards (nothing left to
+  // upload), false when at least one turn is still pending - the Service Worker uses this to
+  // decide whether to ask the browser to retry the Background Sync later.
+  async function drainOutbox() {
+    if (draining) return false;
+    draining = true;
+    try {
+      var rows = await VoiceDb.getAll();
+      var pending = rows.filter(function (r) { return r.status !== "uploaded"; });
+      for (var i = 0; i < pending.length; i++) {
+        // Sequential, not parallel: each turn's upload is several round-trips and we do not
+        // want to hammer a just-restored (possibly still-weak) connection.
+        try {
+          await processOutboxItem(pending[i].localId);
+        } catch (e) {
+          // Left "failed" on its row by processOutboxItem; keep draining the rest.
+        }
+      }
+      var after = await VoiceDb.getAll();
+      return after.filter(function (r) { return r.status !== "uploaded"; }).length === 0;
+    } finally {
+      draining = false;
+    }
+  }
+
+  // Register the Service Worker for the /voice scope and wire the auto-drain triggers. The
+  // worker is served at /voice/sw.js with Service-Worker-Allowed:/ so it can control /voice.
+  // A browser without Service Worker / Background Sync still gets the online-event + periodic
+  // drain below, so offline-first never depends on the worker being present.
+  function initAutoDrain() {
+    // Trigger 1: Service Worker + Background Sync.
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/voice/sw.js", { scope: "/voice" })
+        .then(function () { return navigator.serviceWorker.ready; })
+        .then(function (reg) {
+          // The worker asks the page to drain via a MessageChannel; reply with the outcome
+          // so it can let the browser retry the sync when work remains.
+          navigator.serviceWorker.addEventListener("message", onSwMessage);
+          // Register the one-shot sync so a drain fires when connectivity returns even if the
+          // tab is backgrounded. Harmless where SyncManager is absent.
+          if (reg.sync) reg.sync.register("ccd-voice-drain").catch(function () { });
+        })
+        .catch(function () {
+          // Registration can fail (insecure context, etc.). The online-event + periodic
+          // probe below still drain in-page; nothing hidden.
+        });
+    }
+
+    // Trigger 2: the window comes back online (tab foregrounded). Drain immediately and ask
+    // the worker to (re)register a sync so a later background reconnect is covered too.
+    window.addEventListener("online", function () {
+      drainOutbox().catch(function () { });
+      askWorkerToRegisterSync();
+    });
+
+    // Trigger 3: periodic probe - the floor for browsers without Background Sync, and a catch
+    // for a connection that returns without an "online" event. Only acts when the browser
+    // reports it is online and there is something to drain.
+    setInterval(function () {
+      if (navigator.onLine === false) return;
+      VoiceDb.getAll().then(function (rows) {
+        var hasPending = rows.some(function (r) { return r.status !== "uploaded"; });
+        if (hasPending) drainOutbox().catch(function () { });
+      }).catch(function () { });
+    }, PROBE_INTERVAL_MS);
+  }
+
+  // The periodic-probe cadence. A test hook (window.__VOICE_PROBE_MS__) shortens it for proof
+  // so a reconnect drain is observable quickly; production uses the 15-second default.
+  var PROBE_INTERVAL_MS = (function () {
+    var override = (typeof window !== "undefined") ? Number(window.__VOICE_PROBE_MS__) : NaN;
+    return (isFinite(override) && override > 0) ? override : 15 * 1000;
+  })();
+
+  // Handle a drain request from the Service Worker: drain, then reply on the worker's port
+  // with whether the outbox is now empty so it can let the browser retry the sync if not.
+  function onSwMessage(event) {
+    var data = event.data || {};
+    if (data.type !== "drain-outbox") return;
+    var port = event.ports && event.ports[0];
+    drainOutbox().then(function (done) {
+      if (port) port.postMessage({ done: done });
+    }).catch(function () {
+      if (port) port.postMessage({ done: false });
+    });
+  }
+
+  // Ask the active worker to register a Background Sync (used after an online event so a
+  // subsequent backgrounded reconnect still drains).
+  function askWorkerToRegisterSync() {
+    if ("serviceWorker" in navigator && navigator.serviceWorker.controller) {
+      navigator.serviceWorker.controller.postMessage({ type: "register-sync" });
+    }
+  }
+
+  // Re-badge stale rows without a status change: a row crosses the 30-minute threshold purely
+  // by the passage of time, so re-render the visible outbox on a timer. Cheap (DOM only).
+  function startStaleTicker() {
+    setInterval(function () {
+      if (!current) return;
+      VoiceDb.getAll().then(function (rows) {
+        rows.filter(function (r) { return r.sessionId === current.sessionId; })
+          .forEach(function (rec) { renderOutboxItem(rec); });
+      }).catch(function () { });
+    }, STALE_TICK_MS);
+  }
+
+  // How often to re-evaluate staleness for the displayed rows. Shortened with the same probe
+  // hook so the Stale badge appears promptly in proof; production re-checks every 30 seconds.
+  var STALE_TICK_MS = Math.min(PROBE_INTERVAL_MS, 30 * 1000);
 
   var STAGE_TEXT = {
     submitted: "Sent. Waiting...",
@@ -1030,6 +1183,12 @@
   $("wm-send-btn").addEventListener("click", function () { wmSendText(); });
   $("wm-interrupt-btn").addEventListener("click", function () { wmInterrupt(); });
   $("wm-escape-btn").addEventListener("click", function () { wmEscape(); });
+
+  // Auto-drain on reconnect (issue #426): register the Service Worker + wire the
+  // online/Background-Sync/periodic-probe triggers, and start the ticker that re-badges a
+  // turn as Stale once it crosses the 30-minute rule. Both are page-lifetime, set up once.
+  initAutoDrain();
+  startStaleTicker();
 
   show("list");
   loadSessions();
