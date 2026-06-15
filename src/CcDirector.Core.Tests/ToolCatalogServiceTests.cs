@@ -174,7 +174,9 @@ public class ToolCatalogServiceTests : IDisposable
         // These were in the embedded manifest but never shipped (not in tools/registry.json, no source),
         // so they showed as permanent false "NOT BUILT" entries. Removed; guard against re-introduction.
         var names = new ToolCatalogService(_binDir).GetCatalog().Select(d => d.Name).ToHashSet();
-        foreach (var phantom in new[] { "cc-markdown", "cc-linkedin", "cc-launcher" })
+        // cc-markdown/cc-linkedin/cc-launcher: never shipped. cc-director-setup: the installer itself
+        // (a .NET exe), never a venv tool, so it could never be "built" in the catalog.
+        foreach (var phantom in new[] { "cc-markdown", "cc-linkedin", "cc-launcher", "cc-director-setup" })
             Assert.DoesNotContain(phantom, names);
     }
 
