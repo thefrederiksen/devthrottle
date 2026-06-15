@@ -680,6 +680,16 @@ public partial class MainWindow : Window
             _lastHomeStatus = HomeStatusBuilder.Build(facts.clis, facts.built, facts.total, facts.missing);
 
             ApplyHomeHealth();
+
+            // Startup auto self-heal: if any EXPECTED tool is broken (installed but not runnable), repair
+            // it automatically - no click needed. Guarded to fire at most once per run and never loop: a
+            // failed repair leaves the manual "Fix" button for a retry rather than re-triggering forever.
+            if (facts.missing.Count > 0 && !_autoRepairAttempted && !_repairingTools)
+            {
+                _autoRepairAttempted = true;
+                FileLog.Write($"[MainWindow] startup auto self-heal: {facts.missing.Count} broken tool(s) detected, repairing automatically");
+                _ = RepairToolsAsync(auto: true);
+            }
         }
         catch (Exception ex)
         {
@@ -689,21 +699,25 @@ public partial class MainWindow : Window
 
     private bool _repairingTools;
 
+    /// <summary>Set once a run when startup auto self-heal has fired, so a failed repair never loops.</summary>
+    private bool _autoRepairAttempted;
+
     /// <summary>
-    /// One-click, health-based repair of the cc-* Python tools from the Home "Fix it" button. Forces a
-    /// venv rebuild via <see cref="CcDirector.Setup.Engine.ToolUpdater.RepairPythonToolsAsync"/> (which is
-    /// NOT version-gated, so it actually fixes a half-installed toolset the silent auto-update would skip),
+    /// Health-based repair of the cc-* Python tools - from the Home "Fix it" button (<paramref name="auto"/>
+    /// false) or fired automatically on startup when a broken tool is detected (<paramref name="auto"/> true).
+    /// Forces a venv rebuild via <see cref="CcDirector.Setup.Engine.ToolUpdater.RepairPythonToolsAsync"/> (which
+    /// is NOT version-gated, so it actually fixes a half-installed toolset the silent auto-update would skip),
     /// streams live progress onto the tools row, then re-runs the readiness check so the card flips green.
     /// Runs the slow pip work off the UI thread; guarded so a double-click cannot start two rebuilds.
     /// </summary>
-    private async Task RepairToolsAsync()
+    private async Task RepairToolsAsync(bool auto = false)
     {
         if (_repairingTools) return;
         _repairingTools = true;
-        FileLog.Write("[MainWindow] Tools repair requested from Home");
+        FileLog.Write(auto ? "[MainWindow] Tools auto self-heal started" : "[MainWindow] Tools repair requested from Home");
         try
         {
-            HomeView.SetToolsRepairing("starting...");
+            HomeView.SetToolsRepairing(auto ? "auto-repairing..." : "starting...");
             var layout = CcDirector.Setup.Engine.InstallLayout.Default();
             var progress = new Progress<string>(msg => HomeView.SetToolsRepairing(msg));
             var result = await Task.Run(() =>
