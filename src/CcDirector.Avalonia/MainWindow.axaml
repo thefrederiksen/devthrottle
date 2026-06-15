@@ -51,62 +51,6 @@
                 <!-- Right group: global destinations + Settings -->
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"
                             Spacing="2" VerticalAlignment="Center">
-                    <!-- Comms (with pending-count badge) -->
-                    <Grid IsVisible="False">
-                        <Button x:Name="BtnComms" Classes="toolbarBtn"
-                                Click="BtnComms_Click"
-                                ToolTip.Tip="Communication Manager">
-                            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                                <Viewbox Width="15" Height="13">
-                                    <Path Stroke="#CCCCCC" StrokeThickness="1.3"
-                                          Data="M1,1 H15 V11 H1 Z M1,1 L8,7 L15,1" />
-                                </Viewbox>
-                                <TextBlock Text="Comms" FontSize="12" VerticalAlignment="Center" />
-                            </StackPanel>
-                        </Button>
-                        <Border x:Name="CommsBadge"
-                                Background="#DC2626" CornerRadius="8" Padding="5,1"
-                                HorizontalAlignment="Right" VerticalAlignment="Top"
-                                Margin="0,-2,-2,0" IsHitTestVisible="False" IsVisible="False">
-                            <TextBlock x:Name="CommsBadgeText" Text="0"
-                                       Foreground="White" FontSize="10" FontWeight="SemiBold" />
-                        </Border>
-                    </Grid>
-                    <!-- Connections -->
-                    <Button x:Name="BtnConnections" Classes="toolbarBtn"
-                            Click="BtnConnections_Click"
-                            IsVisible="False"
-                            ToolTip.Tip="Browser Connections">
-                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                            <Viewbox Width="15" Height="13">
-                                <Path Stroke="#CCCCCC" StrokeThickness="1.3"
-                                      Data="M1,1 H15 V11 H1 Z M1,4 H15" />
-                            </Viewbox>
-                            <TextBlock Text="Conns" FontSize="12" VerticalAlignment="Center" />
-                        </StackPanel>
-                    </Button>
-                    <!-- Scheduler (with LEADER pill) -->
-                    <Grid IsVisible="False">
-                        <Button x:Name="BtnScheduler" Classes="toolbarBtn"
-                                Click="BtnScheduler_Click"
-                                ToolTip.Tip="Scheduler -- view registered runners and run them on demand">
-                            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                                <Viewbox Width="15" Height="15">
-                                    <Path Stroke="#CCCCCC" StrokeThickness="1.3" Fill="Transparent"
-                                          Data="M1,8 A7,7 0 1 1 15,8 A7,7 0 1 1 1,8 M8,4 V8 L11,10" />
-                                </Viewbox>
-                                <TextBlock Text="Sched" FontSize="12" VerticalAlignment="Center" />
-                            </StackPanel>
-                        </Button>
-                        <Border x:Name="SchedulerLeaderPill"
-                                Background="#22C55E" CornerRadius="8" Padding="5,1"
-                                HorizontalAlignment="Right" VerticalAlignment="Top"
-                                Margin="0,-2,-2,0" IsHitTestVisible="False" IsVisible="False"
-                                ToolTip.Tip="This Director holds the scheduler lease (LEADER)">
-                            <TextBlock Text="L" Foreground="White" FontSize="9" FontWeight="Bold" />
-                        </Border>
-                    </Grid>
-
                     <!-- Tools catalog -->
                     <Button x:Name="BtnTools" Classes="toolbarBtn"
                             Click="BtnTools_Click"
@@ -823,12 +767,6 @@
                 <!-- Left tab content area -->
                 <Panel Grid.Row="1" Background="#1E1E1E">
 
-                    <!-- Agent panel (legacy, retired - the Clean view moved to the
-                         Wingman tab below). Kept as an empty hidden panel because the
-                         legacy Agent tab button is hidden but still referenced. -->
-                    <Panel x:Name="AgentPanel" IsVisible="False" />
-
-
                     <!-- Terminal panel -->
                     <Panel x:Name="TerminalPanel" IsVisible="True">
                         <!-- Placeholder when no session -->
@@ -1111,8 +1049,8 @@
                                      Watermark="Type a message..."
                                      AcceptsReturn="True"
                                      TextWrapping="Wrap"
-                                     MinHeight="65"
-                                     MaxHeight="160"
+                                     MinHeight="98"
+                                     MaxHeight="200"
                                      Background="#1E1E1E"
                                      Foreground="{DynamicResource TextForeground}"
                                      BorderBrush="#3C3C3C"
@@ -1160,39 +1098,35 @@
                                     Cursor="Hand"
                                     ToolTip.Tip="Have the Wingman read this session and explain what's happening" />
 
-                            <!-- 2x2 button grid: top row = primary (Speak, Send),
-                                 bottom row = secondary (Queue, Handover). Fixed
-                                 width/height on every button so the bar can't
-                                 grow vertically when PromptInput expands. -->
-                            <Grid Grid.Column="1"
-                                  ColumnDefinitions="Auto,Auto"
-                                  RowDefinitions="Auto,Auto"
-                                  VerticalAlignment="Bottom"
-                                  Margin="8,0,0,0"
-                                  ColumnSpacing="4"
-                                  RowSpacing="4">
-                                <Button x:Name="BtnSpeak"
-                                        Grid.Row="0" Grid.Column="0"
-                                        Content="Speak"
-                                        Width="80" Height="30"
-                                        Background="#16A34A"
-                                        Foreground="White"
-                                        HorizontalContentAlignment="Center"
-                                        FontSize="13"
-                                        FontWeight="SemiBold"
-                                        Click="BtnSpeak_Click"
-                                        ToolTip.Tip="Dictate (Ctrl+H from anywhere on the Terminal tab)" />
+                            <!-- Vertical action stack: Send (primary) on top, then
+                                 Speak, then Queue. Handover is alpha-gated and stays
+                                 collapsed unless enabled, so the visible stack is three
+                                 buttons tall - matching PromptInput's height. Fixed
+                                 width/height per button so the bar can't grow when
+                                 PromptInput expands. -->
+                            <StackPanel Grid.Column="1"
+                                        VerticalAlignment="Bottom"
+                                        Margin="8,0,0,0"
+                                        Spacing="4">
                                 <Button x:Name="BtnSend"
-                                        Grid.Row="0" Grid.Column="1"
                                         Content="Send"
                                         Width="80" Height="30"
                                         Background="{DynamicResource AccentBrush}"
                                         Foreground="White"
                                         HorizontalContentAlignment="Center"
                                         FontSize="13"
+                                        FontWeight="SemiBold"
                                         Click="BtnSend_Click" />
+                                <Button x:Name="BtnSpeak"
+                                        Content="Speak"
+                                        Width="80" Height="30"
+                                        Background="#16A34A"
+                                        Foreground="White"
+                                        HorizontalContentAlignment="Center"
+                                        FontSize="13"
+                                        Click="BtnSpeak_Click"
+                                        ToolTip.Tip="Dictate (Ctrl+H from anywhere on the Terminal tab)" />
                                 <Button x:Name="BtnQueuePrompt"
-                                        Grid.Row="1" Grid.Column="0"
                                         Content="Queue"
                                         Width="80" Height="30"
                                         Background="{DynamicResource ButtonBackground}"
@@ -1202,7 +1136,6 @@
                                         Click="BtnQueuePrompt_Click"
                                         ToolTip.Tip="Add to prompt queue (Ctrl+Shift+Enter)" />
                                 <Button x:Name="BtnHandover"
-                                        Grid.Row="1" Grid.Column="1"
                                         Content="Handover"
                                         Width="80" Height="30"
                                         Background="#2D2D30"
@@ -1211,7 +1144,7 @@
                                         FontSize="13"
                                         Click="BtnHandover_Click"
                                         ToolTip.Tip="Create a handover document for this session" />
-                            </Grid>
+                            </StackPanel>
                         </Grid>
 
                         <!-- Slash command autocomplete popup -->
@@ -1415,11 +1348,6 @@
                         </DockPanel>
                     </TabItem>
 
-                    <!-- ===== Wingman Tab (per-session state observability) ===== -->
-                    <TabItem Header="Wingman" IsVisible="False">
-                        <controls:WingmanView x:Name="WingmanView" />
-                    </TabItem>
-
                     <!-- ===== Queue Tab ===== -->
                     <TabItem x:Name="QueueTab" Header="Queue">
                         <DockPanel>
@@ -1529,20 +1457,6 @@
                         </DockPanel>
                     </TabItem>
 
-                    <!-- ===== Sessions Tab (hidden for now) ===== -->
-                    <TabItem Header="Sessions" IsVisible="False">
-                        <controls:SessionBrowserView x:Name="SessionBrowserView" />
-                    </TabItem>
-
-                    <!-- ===== Usage Tab (hidden for now) ===== -->
-                    <TabItem Header="Usage" IsVisible="False">
-                        <controls:UsageDashboardView x:Name="UsageDashboardView" />
-                    </TabItem>
-
-                    <!-- ===== Director Tab ===== -->
-                    <TabItem Header="Director" x:Name="TabItemDirector" IsVisible="False">
-                        <mgr:DirectorView x:Name="DirectorView" />
-                    </TabItem>
                 </TabControl>
             </Border>
         </Grid>

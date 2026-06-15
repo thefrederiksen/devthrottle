@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CC Director - Screen Feature Review</title>
+<style>
+  :root {
+    --bg: #1e1e1e;
+    --panel: #252526;
+    --panel2: #2a2a2a;
+    --border: #3c3c3c;
+    --fg: #d4d4d4;
+    --muted: #888888;
+    --accent: #2563eb;
+    --green: #16a34a;
+    --amber: #f0b848;
+    --red: #cc4444;
+    --teal: #0e7c6b;
+    --purple: #9db4dd;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0;
+    background: var(--bg); color: var(--fg);
+    font-family: "Segoe UI", system-ui, sans-serif;
+    font-size: 14px; line-height: 1.5;
+  }
+  header {
+    background: linear-gradient(90deg, #1e3a8a, #2563eb);
+    padding: 28px 40px; color: #fff;
+    border-bottom: 1px solid var(--border);
+  }
+  header h1 { margin: 0 0 6px; font-size: 26px; }
+  header p { margin: 0; opacity: 0.9; font-size: 14px; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 32px 40px 80px; }
+  h2 {
+    font-size: 19px; margin: 40px 0 10px;
+    border-bottom: 1px solid var(--border); padding-bottom: 8px;
+  }
+  h3 { font-size: 15px; margin: 26px 0 8px; color: #fff; }
+  p.lead { color: var(--fg); }
+  .principle {
+    background: var(--panel); border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 6px; padding: 16px 20px; margin: 18px 0;
+  }
+  .principle strong { color: #fff; }
+  code { background: #111; padding: 1px 5px; border-radius: 3px; font-size: 12.5px; color: #ce9178; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0 6px; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 11px; letter-spacing: 0.4px; }
+  td.feat { white-space: nowrap; font-weight: 600; color: #fff; }
+  .tag {
+    display: inline-block; font-size: 10.5px; font-weight: 700;
+    padding: 2px 8px; border-radius: 10px; letter-spacing: 0.3px;
+    text-transform: uppercase; white-space: nowrap;
+  }
+  .keep    { background: #14361f; color: #4ade80; border: 1px solid #1f5130; }
+  .simplify{ background: #3a3410; color: #fde047; border: 1px solid #5c4f12; }
+  .moveup  { background: #102a3a; color: #60a5fa; border: 1px solid #1d4663; }
+  .remove  { background: #3a1414; color: #f87171; border: 1px solid #5c1f1f; }
+  .done    { background: #14361f; color: #86efac; border: 1px solid #2f7d4d; }
+  .hidden-note { color: var(--muted); font-style: italic; font-size: 12px; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; margin: 14px 0 4px; }
+  .legend span { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 18px 0; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 14px 16px; }
+  .card .n { font-size: 26px; font-weight: 700; color: #fff; }
+  .card .l { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.3px; }
+  footer { color: var(--muted); font-size: 12px; padding: 24px 40px; border-top: 1px solid var(--border); }
+</style>
+</head>
+<body>
+<header>
+  <h1>CC Director - Screen Feature Review</h1>
+  <p>Simplification pass &middot; 2026-06-15 &middot; build v0.6.23</p>
+</header>
+
+<div class="wrap">
+
+  <div class="principle">
+    <p style="margin:0 0 8px"><strong>Architecture principle.</strong> CC Director is a <strong>dumb, thin wrapper around the Claude Code CLI</strong> - the always-available "go through the metal" escape hatch. It must stay simple and never break, so that whatever else fails, the user can always drive a session directly.</p>
+    <p style="margin:0"><strong>The Cockpit is where we want to spend our time.</strong> Everything that is supervisory, fleet-wide, cross-machine, or "rich dashboard" in nature belongs <em>up a level</em> in the Cockpit. The Director keeps only: the raw terminal, send / speak / queue, minimal local session management, and the CLI-configuration plumbing.</p>
+  </div>
+
+  <div class="legend">
+    <span><span class="tag keep">Keep</span> core to the thin wrapper</span>
+    <span><span class="tag simplify">Simplify</span> keep but reduce / consolidate</span>
+    <span><span class="tag moveup">Move up</span> belongs in the Cockpit</span>
+    <span><span class="tag remove">Remove</span> dead / legacy / hidden clutter</span>
+    <span><span class="tag done">Done</span> changed in this pass</span>
+  </div>
+
+  <div class="summary-grid">
+    <div class="card"><div class="n">6</div><div class="l">Screen regions</div></div>
+    <div class="card"><div class="n">1</div><div class="l">Fixed today</div></div>
+    <div class="card"><div class="n">~12</div><div class="l">Already hidden</div></div>
+    <div class="card"><div class="n">Thin</div><div class="l">Target shape</div></div>
+  </div>
+
+  <p class="lead">Below: every feature visible (or wired) on the main Director window, region by region, with a recommendation. "Already hidden" means the control exists in XAML with <code>IsVisible="False"</code> - it is invisible to the user but still ships as code and, in several cases, is still reachable from a menu.</p>
+
+  <!-- ============ 1. TOP TOOLBAR ============ -->
+  <h2>1. Top toolbar (full-width, above everything)</h2>
+  <table>
+    <tr><th>Feature</th><th>What it does</th><th>Verdict</th><th>Notes</th></tr>
+    <tr><td class="feat">New Session</td><td>Primary accent button - create a session.</td><td><span class="tag keep">Keep</span></td><td>The one true primary action.</td></tr>
+    <tr><td class="feat">Start FIFO</td><td>Step through every session that needs you.</td><td><span class="tag moveup">Move up</span></td><td>Alpha-gated (hidden by default). "Triage across sessions" is a Cockpit job.</td></tr>
+    <tr><td class="feat">Tools</td><td>Browse / test / showcase the cc-* toolset.</td><td><span class="tag moveup">Move up</span></td><td>A showcase catalog, not metal. Already exists as a Cockpit page.</td></tr>
+    <tr><td class="feat">Cockpit</td><td>Opens the Cockpit (fleet UI) over Tailscale.</td><td><span class="tag keep">Keep</span></td><td>The doorway to where we want users to go. Make it prominent.</td></tr>
+    <tr><td class="feat">Settings</td><td>CC Director settings dialog.</td><td><span class="tag keep">Keep</span></td><td>Local app config.</td></tr>
+    <tr><td class="feat">Comms</td><td>Communication Manager (pending-count badge).</td><td><span class="tag moveup">Move up</span></td><td><span class="hidden-note">Already hidden.</span> Approval workflow is fleet-level - Cockpit.</td></tr>
+    <tr><td class="feat">Connections</td><td>Browser connections manager.</td><td><span class="tag moveup">Move up</span></td><td><span class="hidden-note">Already hidden.</span> Cockpit / tooling concern.</td></tr>
+    <tr><td class="feat">Scheduler</td><td>Registered runners + LEADER pill.</td><td><span class="tag moveup">Move up</span></td><td><span class="hidden-note">Already hidden.</span> Fleet scheduling = Cockpit.</td></tr>
+  </table>
+
+  <!-- ============ 2. MENU BAR ============ -->
+  <h2>2. Window menu bar (File / Session / View / Tools / Help)</h2>
+  <h3>File</h3>
+  <table>
+    <tr><th>Item</th><th>Verdict</th><th>Notes</th></tr>
+    <tr><td class="feat">New Session <code>Ctrl+N</code></td><td><span class="tag keep">Keep</span></td><td></td></tr>
+    <tr><td class="feat">Save / Load / Clear Workspace</td><td><span class="tag keep">Keep</span></td><td>Local multi-session convenience. Could collapse Save+Load into one "Workspace..." item.</td></tr>
+    <tr><td class="feat">Open Sessions File</td><td><span class="tag simplify">Simplify</span></td><td>Power-user file access. Group all four "open X" items under one place.</td></tr>
+    <tr><td class="feat">Open History Folder</td><td><span class="tag simplify">Simplify</span></td><td>See above.</td></tr>
+    <tr><td class="feat">History in VS Code</td><td><span class="tag simplify">Simplify</span></td><td>Niche; fold into "Open History Folder".</td></tr>
+    <tr><td class="feat">Open Logs</td><td><span class="tag keep">Keep</span></td><td>Essential for the "always works" escape hatch.</td></tr>
+    <tr><td class="feat">Exit</td><td><span class="tag keep">Keep</span></td><td></td></tr>
+  </table>
+  <h3>Session</h3>
+  <table>
+    <tr><th>Item</th><th>Verdict</th><th>Notes</th></tr>
+    <tr><td class="feat">New Session</td><td><span class="tag remove">Remove</span></td><td>Duplicate of File &gt; New Session and the toolbar button.</td></tr>
+    <tr><td class="feat">Start FIFO</td><td><span class="tag moveup">Move up</span></td><td>Alpha only. Cockpit triage.</td></tr>
+    <tr><td class="feat">Repositories...</td><td><span class="tag keep">Keep</span></td><td>Pick the repo to launch the CLI in - core.</td></tr>
+    <tr><td class="feat">Accounts...</td><td><span class="tag keep">Keep</span></td><td>Which Claude account the CLI runs as - metal.</td></tr>
+    <tr><td class="feat">Show Reviews</td><td><span class="tag moveup">Move up</span></td><td>Wingman turn-review / learning harness - Cockpit.</td></tr>
+  </table>
+  <h3>View</h3>
+  <table>
+    <tr><th>Item</th><th>Verdict</th><th>Notes</th></tr>
+    <tr><td class="feat">Toggle Right Panel</td><td><span class="tag keep">Keep</span></td><td>Also has a toggle button - fine.</td></tr>
+    <tr><td class="feat">Reset Terminal View</td><td><span class="tag keep">Keep</span></td><td>Rebuilds the terminal from the PTY buffer - a genuine metal recovery tool.</td></tr>
+  </table>
+  <h3>Tools</h3>
+  <table>
+    <tr><th>Item</th><th>Verdict</th><th>Notes</th></tr>
+    <tr><td class="feat">Communications</td><td><span class="tag moveup">Move up</span></td><td>Mirrors hidden toolbar button - Cockpit.</td></tr>
+    <tr><td class="feat">Connections</td><td><span class="tag moveup">Move up</span></td><td>Cockpit.</td></tr>
+    <tr><td class="feat">Scheduler</td><td><span class="tag moveup">Move up</span></td><td>Cockpit.</td></tr>
+    <tr><td class="feat">Director (multi-session)</td><td><span class="tag remove">Remove</span></td><td>Opens a hidden right-panel tab. Legacy multi-session view - the Cockpit replaced it.</td></tr>
+    <tr><td class="feat">Claude View...</td><td><span class="tag keep">Keep</span></td><td>Inspects the CLI's view - metal.</td></tr>
+    <tr><td class="feat">MCP Servers...</td><td><span class="tag keep">Keep</span></td><td>Configures the CLI - metal.</td></tr>
+    <tr><td class="feat">Agent Templates...</td><td><span class="tag keep">Keep</span></td><td>Configures the CLI - metal.</td></tr>
+    <tr><td class="feat">Claude Code Settings...</td><td><span class="tag keep">Keep</span></td><td>Configures the CLI - metal.</td></tr>
+    <tr><td class="feat">Settings...</td><td><span class="tag remove">Remove</span></td><td>Duplicate of toolbar Settings + Tools menu is the wrong home for app settings.</td></tr>
+  </table>
+  <h3>Help</h3>
+  <table>
+    <tr><th>Item</th><th>Verdict</th><th>Notes</th></tr>
+    <tr><td class="feat">About CC Director</td><td><span class="tag keep">Keep</span></td><td></td></tr>
+  </table>
+
+  <!-- ============ 3. LEFT SIDEBAR ============ -->
+  <h2>3. Left sidebar (SESSIONS)</h2>
+  <table>
+    <tr><th>Feature</th><th>What it does</th><th>Verdict</th><th>Notes</th></tr>
+    <tr><td class="feat">Session list</td><td>Rows w/ status dot, title, badges, queue count, kebab; groups; drag-reorder.</td><td><span class="tag keep">Keep</span></td><td>The heart of local session management.</td></tr>
+    <tr><td class="feat">Needs-you count</td><td>Amber count of red (needs-you) sessions.</td><td><span class="tag keep">Keep</span></td><td>Cheap, local, useful.</td></tr>
+    <tr><td class="feat">Collapse toggle</td><td>Collapse rail to slim status strip.</td><td><span class="tag keep">Keep</span></td><td></td></tr>
+    <tr><td class="feat">Gateway indicator</td><td>Two-way handshake status (green/yellow/red/gray).</td><td><span class="tag keep">Keep</span></td><td>Tells you if the Cockpit can see this Director.</td></tr>
+    <tr><td class="feat">Update indicator</td><td>Auto-update progress; click = check now.</td><td><span class="tag keep">Keep</span></td><td>Never make updates silent.</td></tr>
+    <tr><td class="feat">Version footer</td><td>Build + commit, build time in tooltip.</td><td><span class="tag keep">Keep</span></td><td></td></tr>
+    <tr><td class="feat">Session kebab (...)</td><td>Rename, Copy Handover Info, Open .jsonl, Open in Explorer / VS Code, New GitHub Issue, Relink, Hold, Add/Remove Wingman, Close.</td><td><span class="tag simplify">Simplify</span></td><td>10 items is a lot. "Add/Remove Wingman" and "New GitHub Issue" lean Cockpit; the rest are metal. Audit which actually earn a slot.</td></tr>
+  </table>
+
+  <!-- ============ 4. CENTER HEADER ============ -->
+  <h2>4. Center session header (blue identity bar)</h2>
+  <table>
+    <tr><th>Feature</th><th>What it does</th><th>Verdict</th><th>Notes</th></tr>
+    <tr><td class="feat">Session name + msg badge</td><td>Active session title and message count.</td><td><span class="tag keep">Keep</span></td><td></td></tr>
+    <tr><td class="feat">Director info + Copy</td><td>Copies Control API URL so other agents can reach this Director.</td><td><span class="tag keep">Keep</span></td><td>This <em>is</em> the metal/mesh hook. Keep, but consider relocating off the title bar.</td></tr>
+    <tr><td class="feat">Remote links (thread / Actions)</td><td>Open the GitHub issue/PR/Actions driving a remote session.</td><td><span class="tag moveup">Move up</span></td><td><span class="hidden-note">Already hidden unless a GH Actions session.</span> Remote orchestration = Cockpit.</td></tr>
+    <tr><td class="feat">Refresh terminal</td><td>Header refresh button.</td><td><span class="tag remove">Remove</span></td><td><span class="hidden-note">Already hidden.</span> Duplicated by View &gt; Reset Terminal View.</td></tr>
+  </table>
+
+  <!-- ============ 5. TERMINAL + TABS + PROMPT ============ -->
+  <h2>5. Terminal area, tab bar &amp; prompt bar (the core)</h2>
+  <h3>Left tab bar</h3>
+  <table>
+    <tr><th>Feature</th><th>Verdict</th><th>Notes</th></tr>
+    <tr><td class="feat">Terminal tab</td><td><span class="tag keep">Keep</span></td><td>The metal. The whole point.</td></tr>
+    <tr><td class="feat">Source Control tab</td><td><span class="tag keep">Keep</span></td><td>Local git view alongside the session.</td></tr>
+    <tr><td class="feat">Voice tab</td><td><span class="tag moveup">Move up</span></td><td><span class="hidden-note">Already hidden.</span> Voice mode is a Cockpit/phone surface.</td></tr>
+    <tr><td class="feat">Wingman tab</td><td><span class="tag moveup">Move up</span></td><td><span class="hidden-note">Already hidden.</span> Supervisory brief = Cockpit.</td></tr>
+    <tr><td class="feat">Agent (legacy)</td><td><span class="tag remove">Remove</span></td><td><span class="hidden-note">Already hidden; panel is an empty stub.</span> Dead code.</td></tr>
+    <tr><td class="feat">Open Wingman / Capture / Reset View</td><td><span class="tag simplify">Simplify</span></td><td><span class="hidden-note">All hidden.</span> Reset View duplicates the menu; Capture is a diagnostic; Open Wingman is Cockpit.</td></tr>
+    <tr><td class="feat">Document tabs + Close All</td><td><span class="tag keep">Keep</span></td><td><span class="hidden-note">Hidden until docs open.</span> Viewing files the agent produced - fine.</td></tr>
+  </table>
+  <h3>Prompt bar (bottom)</h3>
+  <table>
+    <tr><th>Feature</th><th>Verdict</th><th>Notes</th></tr>
+    <tr><td class="feat">Action bar: Stop / Interrupt / Clear context / History</td><td><span class="tag keep">Keep</span></td><td>Driver-capability actions - core metal control.</td></tr>
+    <tr><td class="feat">Message text box</td><td><span class="tag done">Done</span></td><td>Grown to match the 3-button stack (MinHeight 65 &rarr; 98) - more room to type.</td></tr>
+    <tr><td class="feat">Send / Speak / Queue</td><td><span class="tag done">Done</span></td><td>Re-stacked vertically: <strong>Send</strong> (top, accent) &rarr; <strong>Speak</strong> &rarr; <strong>Queue</strong>. Was a 2x2 grid w/ an empty cell.</td></tr>
+    <tr><td class="feat">Expand</td><td><span class="tag keep">Keep</span></td><td>Opens the large editor (text + image). Overlaid, no clutter.</td></tr>
+    <tr><td class="feat">Explain</td><td><span class="tag moveup">Move up</span></td><td>Wingman "what's happening" brief. Supervisory - leans Cockpit, but handy inline. Revisit.</td></tr>
+    <tr><td class="feat">Handover</td><td><span class="tag moveup">Move up</span></td><td>Alpha-gated. Sits 4th in the stack, collapsed unless alpha on.</td></tr>
+    <tr><td class="feat">Slash-command autocomplete</td><td><span class="tag keep">Keep</span></td><td>Pure CLI affordance.</td></tr>
+  </table>
+
+  <!-- ============ 6. RIGHT PANEL ============ -->
+  <h2>6. Right panel (tabs)</h2>
+  <table>
+    <tr><th>Tab</th><th>What it shows</th><th>Verdict</th><th>Notes</th></tr>
+    <tr><td class="feat">Screenshots</td><td>Captured screenshots; View / Copy / Issue / Del; Refresh / Clear All.</td><td><span class="tag keep">Keep</span></td><td>Local, useful, tied to "Issue" filing.</td></tr>
+    <tr><td class="feat">Queue</td><td>Queued prompts; reorder / edit / pop; Clear.</td><td><span class="tag keep">Keep</span></td><td>Directly tied to the Queue button.</td></tr>
+    <tr><td class="feat">Wingman</td><td>Per-session state observability.</td><td><span class="tag moveup">Move up</span></td><td><span class="hidden-note">Already hidden.</span> Cockpit.</td></tr>
+    <tr><td class="feat">Sessions</td><td>Session browser.</td><td><span class="tag moveup">Move up</span></td><td><span class="hidden-note">Already hidden.</span> Cockpit.</td></tr>
+    <tr><td class="feat">Usage</td><td>Usage dashboard.</td><td><span class="tag moveup">Move up</span></td><td><span class="hidden-note">Already hidden.</span> Cockpit.</td></tr>
+    <tr><td class="feat">Director (multi-session)</td><td>Legacy multi-session manager.</td><td><span class="tag remove">Remove</span></td><td><span class="hidden-note">Already hidden.</span> Superseded by Cockpit.</td></tr>
+  </table>
+
+  <!-- ============ TODAY ============ -->
+  <h2>Changed in this pass</h2>
+  <table>
+    <tr><th>Change</th><th>File</th></tr>
+    <tr><td class="feat">Send / Speak / Queue re-stacked vertically (Send top, accent; Speak; Queue), removing the empty 2x2 cell.</td><td><code>MainWindow.axaml</code> prompt bar</td></tr>
+    <tr><td class="feat">Message box grown to match the button stack (MinHeight 65&rarr;98, MaxHeight 160&rarr;200) for more typing room.</td><td><code>MainWindow.axaml</code> PromptInput</td></tr>
+  </table>
+
+  <!-- ============ NEXT ============ -->
+  <h2>Recommended next steps (in priority order)</h2>
+  <ol>
+    <li><strong>Delete the dead/legacy.</strong> Remove the Agent (legacy) tab + empty panel, the "Director (multi-session)" Tools item + hidden right-panel tab, the hidden header Refresh button, and the duplicate Session&gt;New Session and Tools&gt;Settings menu items. Pure subtraction, zero user-visible regression.</li>
+    <li><strong>Formalize "moved up" features.</strong> For each <span class="tag moveup">Move up</span> item, confirm the Cockpit covers it, then drop it from the Director menus entirely (rather than leaving it hidden-but-wired).</li>
+    <li><strong>Slim the menus.</strong> Collapse the four File &gt; "Open X" items, and audit the 10-item session kebab.</li>
+    <li><strong>Make Cockpit the obvious destination.</strong> The Cockpit toolbar button is the bridge - give it visual weight so users naturally graduate to it.</li>
+  </ol>
+
+</div>
+
+<footer>
+  CC Director feature review &middot; generated 2026-06-15 &middot; source: <code>src/CcDirector.Avalonia/MainWindow.axaml</code> + <code>MainWindow.axaml.cs</code>
+</footer>
+</body>
+</html>

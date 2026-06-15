@@ -167,12 +167,6 @@ containers:
       - name: GitChangesView
         description: Source control panel showing git changes
         file: Controls/GitChangesView.axaml / Controls/GitChangesView.axaml.cs
-      - name: SessionBrowserView
-        description: Browse and resume previous Claude Code sessions
-        file: Controls/SessionBrowserView.axaml / Controls/SessionBrowserView.axaml.cs
-      - name: UsageDashboardView
-        description: Usage and cost tracking dashboard
-        file: Controls/UsageDashboardView.axaml / Controls/UsageDashboardView.axaml.cs
       - name: File Viewers
         description: Document tab system for viewing images, code, markdown, text, and PDF
         files:
