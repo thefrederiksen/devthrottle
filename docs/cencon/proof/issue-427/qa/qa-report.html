@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof - Issue #427 (Voice: mobile detection - offer Voice Mode to phones)</title>
+<style>
+  body{font-family:Segoe UI,Arial,sans-serif;max-width:980px;margin:24px auto;padding:0 16px;color:#1c2128;line-height:1.5}
+  h1{border-bottom:2px solid #2563eb;padding-bottom:6px}
+  .verdict{background:#0f5132;color:#fff;padding:10px 14px;border-radius:6px;font-weight:600;display:inline-block}
+  table{border-collapse:collapse;width:100%;margin:14px 0}
+  th,td{border:1px solid #d0d7de;padding:8px 10px;text-align:left;vertical-align:top;font-size:14px}
+  th{background:#f6f8fa}
+  .pass{color:#0f5132;font-weight:700}
+  .fail{color:#b91c1c;font-weight:700}
+  img{max-width:100%;border:1px solid #d0d7de;border-radius:6px;margin:8px 0}
+  code{background:#f3f4f6;padding:1px 5px;border-radius:4px}
+  .meta{color:#57606a;font-size:13px}
+  figure{margin:18px 0}
+  figcaption{font-size:13px;color:#57606a;margin-top:4px}
+</style>
+</head>
+<body>
+<h1>QA Proof - Issue #427</h1>
+<p class="meta">
+  [cockpit] Voice: mobile detection - offer Voice Mode to phones &middot;
+  PR #438 (<code>feat/427-voice-mobiledetect</code>, stacked on <code>feat/426-voice-offline2</code>) &middot;
+  Verified by the QA Agent (independent identity), Option A (no merge).
+</p>
+<p class="verdict">VERIFIED - all acceptance criteria met. PASS.</p>
+
+<h2>How this was verified (independent of the Developer's binary)</h2>
+<ul>
+  <li>Checked out the actual PR commit <code>0c26c51</code> in an isolated git worktree (<code>cc-director-wt-427</code>).</li>
+  <li>Built <code>CcDirector.Cockpit</code> from that checkout: <code>Build succeeded. 0 Warning(s), 0 Error(s)</code>.</li>
+  <li>Ran the Cockpit standalone on <code>http://127.0.0.1:7485</code> (a private port, not the shared 7470)
+      in the Development environment so the Blazor interactive circuit and scoped assets serve correctly.</li>
+  <li>Drove three independent browser contexts with Playwright (Chromium): a phone context
+      (390x844 + iPhone user-agent), a fresh phone context with no localStorage, and a desktop context (1440x900, desktop UA).</li>
+  <li>Each screenshot was read and judged (no blank-render passes).</li>
+</ul>
+
+<h2>Acceptance criteria</h2>
+<table>
+  <tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+  <tr>
+    <td>1</td>
+    <td>On a phone-sized viewport / mobile user-agent, the Cockpit home shows an "Open Voice Mode" prompt linking to <code>/voice</code>.</td>
+    <td>Banner visible; "Open Voice Mode" link has <code>href=/voice</code>.</td>
+    <td>Banner "Voice Mode is built for phones" shown; link <code>href=/voice</code>. <code>cockpitMobile.evaluate()</code> returned <code>{isMobile:true, dismissed:false}</code>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td>On desktop, the prompt does not appear.</td>
+    <td>No <code>.voice-offer</code> banner at desktop width / UA.</td>
+    <td>No banner present; dashboard renders normally.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td>Dismissing the prompt is remembered (does not reappear on next visit in the same browser).</td>
+    <td>Banner gone after clicking Dismiss AND still gone after a reload of the same browser; a fresh browser (no flag) shows it again.</td>
+    <td>Gone after Dismiss; still gone after reload (localStorage <code>cockpit.voiceOffer.dismissed=1</code> persisted); control: a fresh phone context with no flag showed the banner again.</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Evidence</h2>
+<figure>
+  <img src="c1-phone-prompt-shown.png" alt="Phone viewport - banner shown">
+  <figcaption>C1 - Phone (390px + iPhone UA): "Voice Mode is built for phones" banner with "Open Voice Mode" (href=/voice) and "Dismiss".</figcaption>
+</figure>
+<figure>
+  <img src="c2-desktop-no-prompt.png" alt="Desktop viewport - no banner">
+  <figcaption>C2 - Desktop (1440px, desktop UA): no Voice Mode offer; full Cockpit dashboard with nav rail.</figcaption>
+</figure>
+<figure>
+  <img src="c3a-phone-dismissed.png" alt="Phone - immediately after dismiss">
+  <figcaption>C3a - Same phone browser immediately after clicking Dismiss: banner removed.</figcaption>
+</figure>
+<figure>
+  <img src="c3b-phone-dismissed-persisted.png" alt="Phone - after reload, still dismissed">
+  <figcaption>C3b - Same phone browser after a page reload: banner still absent (dismissal persisted via localStorage).</figcaption>
+</figure>
+<figure>
+  <img src="c3c-fresh-phone-shows-again.png" alt="Fresh phone browser - banner reappears">
+  <figcaption>C3c (control) - A new phone browser context with no dismissal flag: banner appears again, proving the dismissal is per-browser and not a global hide.</figcaption>
+</figure>
+
+<h2>Regression / method sweep</h2>
+<ul>
+  <li>Build clean: 0 warnings, 0 errors.</li>
+  <li>Negative sweep: desktop dashboard (stat cards, NEEDS YOU hotlist, Directors table, nav rail) renders unchanged with the feature present.</li>
+  <li>CenCon: client-side viewport/UA detection + a localStorage flag; no security surface, no architecture/security-profile change - no DT rule implicated, no <code>docs/cencon/</code> doc update required.</li>
+  <li>Detection logic (<code>cockpit-mobile.js</code>): mobile UA OR viewport &le; 720px; localStorage <code>cockpit.voiceOffer.dismissed</code>; storage-unavailable falls through to "show" (offer is non-destructive). Offer, not forced redirect - matches issue scope.</li>
+</ul>
+
+<p class="meta">Option A: verified and reported as PASS; NOT merged. Issue remains <code>flow:ready-qa</code>, PR #438 left OPEN for human merge.</p>
+</body>
+</html>
