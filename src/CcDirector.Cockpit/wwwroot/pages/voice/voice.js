@@ -32,6 +32,7 @@
   function show(view) {
     $("list-view").classList.toggle("hidden", view !== "list");
     $("session-view").classList.toggle("hidden", view !== "session");
+    $("newsession-view").classList.toggle("hidden", view !== "newsession");
   }
 
   async function api(path, opts) {
@@ -46,6 +47,7 @@
 
   // ===== session list =====
   var current = null; // { sessionId, name, repoPath, ... }
+  var lastSessions = []; // the most recent /sessions snapshot (used to pick a Director id)
 
   // The ONE effective status color every client renders, mirroring the Gateway's
   // SessionOrdering.EffectiveColor: on-hold sinks to grey, a user "explain" deep-dive is
@@ -118,6 +120,7 @@
       return;
     }
     var sessions = Array.isArray(r.data) ? r.data : (r.data && r.data.sessions) || [];
+    lastSessions = sessions;
     renderSessions(sessions);
     status.textContent = sessions.length ? (sessions.length + " session(s)") : "No sessions yet.";
   }
@@ -353,6 +356,131 @@
     audio.play().catch(function () { /* autoplay may require a tap; Play button covers it */ });
   }
 
+  // ===== new session: pick a repo, create, open =====
+  // The page is served behind the Gateway, so a session is created on a chosen Director
+  // via POST /directors/{id}/sessions; the repo list comes from GET /directors/{id}/repos.
+  var nsDirectorId = null; // the Director we create on
+  var nsRepos = [];        // [{ name, path, lastUsed }]
+  var nsSelectedPath = null;
+  var nsCreating = false;
+
+  function nsSetStatus(text) { $("ns-status").textContent = text; }
+
+  function nsSetError(text) {
+    var el = $("ns-error");
+    if (!text) { el.classList.add("hidden"); el.textContent = ""; return; }
+    el.textContent = text;
+    el.classList.remove("hidden");
+  }
+
+  // Choose the Director to create on. Prefer one we already see owning a listed session
+  // (the phone's own Director); otherwise ask the Gateway. With exactly one Director, use
+  // it; with several, use the first (scope: this issue is single-Director "pick repo ->
+  // create -> open"; multi-Director selection is out of scope per the issue).
+  async function nsPickDirector() {
+    for (var i = 0; i < lastSessions.length; i++) {
+      var did = lastSessions[i] && lastSessions[i].directorId;
+      if (did) return did;
+    }
+    var r = await api("/directors");
+    if (!r.ok) return null;
+    var dirs = Array.isArray(r.data) ? r.data : [];
+    if (!dirs.length) return null;
+    return dirs[0].directorId || null;
+  }
+
+  async function openNewSession() {
+    show("newsession");
+    nsSelectedPath = null;
+    $("ns-search").value = "";
+    nsSetError("");
+    nsSetStatus("Loading repos...");
+    $("ns-repo-list").innerHTML = "";
+    $("ns-target").textContent = "";
+
+    nsDirectorId = await nsPickDirector();
+    if (!nsDirectorId) {
+      nsSetStatus("");
+      nsSetError("No Director is connected. Pair this phone with a running CC Director first.");
+      return;
+    }
+    $("ns-target").textContent = "On Director " + nsDirectorId.slice(0, 8);
+    await loadRepos();
+  }
+
+  async function loadRepos() {
+    var r = await api("/directors/" + nsDirectorId + "/repos");
+    if (!r.ok) {
+      nsSetStatus("");
+      nsSetError("Could not load repos (" + r.status + ").");
+      return;
+    }
+    nsRepos = Array.isArray(r.data) ? r.data : [];
+    if (!nsRepos.length) {
+      nsSetStatus("No repos registered on this Director yet. Add one from the desktop app first.");
+      return;
+    }
+    nsSetStatus(nsRepos.length + " repo(s) - tap one to create a session.");
+    renderRepos("");
+  }
+
+  function renderRepos(filter) {
+    var ul = $("ns-repo-list");
+    ul.innerHTML = "";
+    var f = (filter || "").trim().toLowerCase();
+    var shown = nsRepos.filter(function (repo) {
+      if (!f) return true;
+      return ((repo.name || "") + " " + (repo.path || "")).toLowerCase().indexOf(f) >= 0;
+    });
+    shown.forEach(function (repo) {
+      var li = document.createElement("li");
+      var main = document.createElement("div");
+      main.className = "s-main";
+      var name = document.createElement("div");
+      name.className = "s-name";
+      name.textContent = repo.name || repoBase(repo.path);
+      var sub = document.createElement("div");
+      sub.className = "s-sub";
+      sub.textContent = repo.path || "";
+      main.appendChild(name);
+      main.appendChild(sub);
+      li.appendChild(main);
+      li.addEventListener("click", function () { createSession(repo); });
+      ul.appendChild(li);
+    });
+  }
+
+  function repoBase(p) {
+    var s = (p || "").replace(/[\\/]+$/, "");
+    return s.split(/[\\/]/).pop() || "repo";
+  }
+
+  async function createSession(repo) {
+    if (nsCreating) return;
+    var path = repo && repo.path;
+    if (!path) { nsSetError("That repo has no path."); return; }
+    nsCreating = true;
+    nsSelectedPath = path;
+    nsSetError("");
+    nsSetStatus("Creating session in " + (repo.name || repoBase(path)) + "...");
+
+    var r = await api("/directors/" + nsDirectorId + "/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repoPath: path, agent: "ClaudeCode" }),
+    });
+    nsCreating = false;
+
+    if (!r.ok || !r.data || !r.data.sessionId) {
+      nsSetStatus("");
+      nsSetError("Could not create session (" + r.status + ").");
+      return;
+    }
+    // The created SessionDto is the same shape the list/open flow uses - open it directly.
+    lastSessions = [];
+    openSession(r.data);
+  }
+
   // ===== util =====
   function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
@@ -373,6 +501,9 @@
 
   // ===== wire up =====
   $("refresh-btn").addEventListener("click", loadSessions);
+  $("new-session-btn").addEventListener("click", function () { openNewSession(); });
+  $("ns-back-btn").addEventListener("click", function () { show("list"); loadSessions(); });
+  $("ns-search").addEventListener("input", function () { renderRepos($("ns-search").value); });
   $("back-btn").addEventListener("click", function () { show("list"); loadSessions(); });
   $("speak-btn").addEventListener("click", function () { toggleSpeak(); });
   $("play-btn").addEventListener("click", playReply);
