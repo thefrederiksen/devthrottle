@@ -109,6 +109,20 @@
     return Math.floor(sec / 3600) + "h";
   }
 
+  function turnLabel(n) {
+    return n + (n === 1 ? " turn" : " turns");
+  }
+
+  // The session's completed voice-turn count, read from the Gateway's durable archive
+  // (GET /sessions/{id}/voice-turns -> { turns: [...] }). Lightweight: an archive read,
+  // no JSONL parse. Returns the count, or null when the count cannot be read (so the
+  // caller shows nothing rather than a misleading "0").
+  async function fetchTurnCount(sid) {
+    var r = await api("/sessions/" + sid + "/voice-turns");
+    if (!r.ok || !r.data || !Array.isArray(r.data.turns)) return null;
+    return r.data.turns.length;
+  }
+
   async function loadSessions() {
     var status = $("list-status");
     status.textContent = "Loading sessions...";
@@ -146,11 +160,27 @@
       main.appendChild(name);
       main.appendChild(sub);
 
+      // Turn count fills in asynchronously so the row appears immediately (no blocking
+      // on a per-row fetch); the count lands when the archive read returns.
+      var turns = document.createElement("div");
+      turns.className = "s-turns";
+      fillTurnCount(turns, s.sessionId);
+
       li.appendChild(dot);
       li.appendChild(main);
+      li.appendChild(turns);
       li.addEventListener("click", function () { openSession(s); });
       ul.appendChild(li);
     });
+  }
+
+  // Fill an element with "N turns" once the voice-turn count is read; leave it empty
+  // (and unseen) when the count cannot be read, so a stale/failed fetch shows nothing
+  // rather than a misleading "0 turns".
+  async function fillTurnCount(el, sid) {
+    var n = await fetchTurnCount(sid);
+    if (n === null) { el.textContent = ""; return; }
+    el.textContent = turnLabel(n);
   }
 
   // ===== session voice view =====
@@ -161,10 +191,24 @@
     $("session-name").textContent = sessionTitle(s);
     $("session-state").textContent = statusLabel(s);
     $("session-repo").textContent = s.repoPath || "";
+    setHeaderTurns(s.sessionId);
     setStage("Tap Speak and talk.", "");
     $("reply-box").textContent = "";
     setPlayable(null);
     show("session");
+  }
+
+  // Show the same voice-turn count in the open session header. Hidden until the count
+  // is read (and stays hidden if it cannot be read), so the header never shows a
+  // misleading "0 turns" from a failed fetch.
+  async function setHeaderTurns(sid) {
+    var el = $("session-turns");
+    el.textContent = "";
+    el.classList.add("hidden");
+    var n = await fetchTurnCount(sid);
+    if (n === null) return;
+    el.textContent = turnLabel(n);
+    el.classList.remove("hidden");
   }
 
   function setStage(text, kind) {
