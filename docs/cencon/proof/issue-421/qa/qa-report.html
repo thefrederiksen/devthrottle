@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>QA Proof - Issue #421 - Voice list New session button</title>
+<style>
+  body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:980px;margin:24px auto;
+       padding:0 16px;color:#1a1f2b;line-height:1.5}
+  h1{border-bottom:3px solid #2563eb;padding-bottom:8px}
+  h2{margin-top:32px;color:#0f172a}
+  .verdict{background:#ecfdf5;border:1px solid #10b981;border-radius:8px;padding:14px 18px;font-weight:600;color:#065f46}
+  table{border-collapse:collapse;width:100%;margin:12px 0}
+  th,td{border:1px solid #d1d5db;padding:8px 10px;text-align:left;vertical-align:top;font-size:14px}
+  th{background:#f1f5f9}
+  .pass{color:#065f46;font-weight:700}
+  code{background:#f1f5f9;padding:1px 5px;border-radius:4px;font-size:13px}
+  img{max-width:100%;border:1px solid #cbd5e1;border-radius:8px;margin:8px 0;display:block}
+  .crit{margin-top:28px;padding-top:8px;border-top:1px solid #e5e7eb}
+  pre{background:#0b1020;color:#e6edf6;padding:12px;border-radius:8px;overflow:auto;font-size:12px}
+</style>
+</head>
+<body>
+<h1>QA Proof - Issue #421</h1>
+<p><strong>Title:</strong> [cockpit] Voice list: New session button (pick repo, create, open)<br>
+<strong>PR:</strong> #431 (<code>feat/421-voice-newsession</code>, stacked on <code>feat/420-voice-nav</code>)<br>
+<strong>QA method:</strong> The PR-branch <code>wwwroot/pages/voice/*</code> files were served unchanged and
+exercised against the live running Gateway (port 7878) so every API call hit real endpoints and real data.
+The currently DEPLOYED Gateway page does not yet contain the button, confirming this proof is of the PR code,
+not a stale deployment. A real session was created and then DELETED to leave no junk in the fleet.</p>
+
+<div class="verdict">VERIFIED - all 5 acceptance criteria met. PASS. (Option A: not merged - left for human merge.)</div>
+
+<h2>Acceptance criteria</h2>
+<table>
+<tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+<tr><td>1</td><td>Clearly visible "New session" button on /voice list</td>
+<td>Button visible in list header</td>
+<td>"+ New" button visible next to Refresh; <code>offsetParent!=null</code></td><td class="pass">PASS</td></tr>
+<tr><td>2</td><td>Tapping it shows a repo chooser from the repos endpoint</td>
+<td>Repo list populated from GET repos</td>
+<td>New-session view opened; 73 real repos loaded from <code>GET /directors/{id}/repos</code>, each name+path</td><td class="pass">PASS</td></tr>
+<tr><td>3</td><td>Choosing a repo POSTs and opens the new session</td>
+<td>POST /directors/{id}/sessions, success opens voice view</td>
+<td><code>POST .../sessions</code> returned <strong>201</strong> with sessionId 6c307cac...; UI switched to session view (cc-director)</td><td class="pass">PASS</td></tr>
+<tr><td>4</td><td>Errors (no repos / create failed) show a clear message</td>
+<td>Visible error, no silent failure</td>
+<td>No-Director: "No Director is connected. Pair this phone...". Create-fail: "Could not create session (500)." and user stays on the view</td><td class="pass">PASS</td></tr>
+<tr><td>5</td><td>Proof: button -> repo list -> created open + 201 in network log</td>
+<td>Screenshots + create response</td>
+<td>All captured below; 201 response body captured in-page</td><td class="pass">PASS</td></tr>
+</table>
+
+<p><strong>Note on endpoint naming:</strong> the criteria text says <code>GET /repos</code>; the implementation uses
+<code>GET /directors/{id}/repos</code> and <code>POST /directors/{id}/sessions</code>. The issue's own
+<em>Assumptions</em> section explicitly authorizes reusing those existing Gateway endpoints, so this is per-spec, not a defect.</p>
+
+<h2>Regression / method check</h2>
+<ul>
+<li>Diff is front-end only: 3 files under <code>wwwroot/pages/voice/</code> + proof. No <code>.cs</code>, no server change.</li>
+<li>No CenCon architecture/security change -> no <code>docs/cencon/</code> doc update required. No DT security rule touched.</li>
+<li>Reuses existing endpoints already used by desktop/phone clients; no new attack surface.</li>
+<li>Adjacent voice list/open/Speak flow still renders and works (sweep across every screenshot).</li>
+</ul>
+
+<h2>Evidence</h2>
+<div class="crit"><h3>1. List with "+ New" button</h3><img src="01-list-new-button.png" alt="list with new button"></div>
+<div class="crit"><h3>2. Repo chooser (73 real repos from GET /directors/{id}/repos)</h3><img src="02-repo-chooser.png" alt="repo chooser"></div>
+<div class="crit"><h3>3. Session created (201) and opened in voice view</h3>
+<img src="03-session-open.png" alt="session open">
+<pre>POST /directors/c99a103c-.../sessions  ->  HTTP 201
+{ "sessionId":"6c307cac-ac13-4b72-a6ff-ef2ef71933b2",
+  "repoPath":"D:\\ReposFred\\cc-director", "status":"Running", ... }
+(test session DELETEd afterward; fleet left at its original 6 sessions)</pre></div>
+<div class="crit"><h3>4a. Error - no Director connected</h3><img src="04-error-no-director.png" alt="no director error"></div>
+<div class="crit"><h3>4b. Error - create failed (forced 500)</h3>
+<p>DOM probe confirmed visible banner "Could not create session (500)." with the user kept on the new-session view (screenshot shows the chooser scrolled to top; banner renders below the list).</p>
+<img src="05-error-create-failed.png" alt="create failed"></div>
+
+<p style="margin-top:32px;color:#64748b;font-size:13px">QA Agent - CenCon Development Method - independent verification against live Gateway 7878.</p>
+</body>
+</html>
