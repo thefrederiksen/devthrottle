@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Issue #426 - Developer Proof - Voice offline-first part 2</title>
+<style>
+  :root{--bg:#0B1020;--panel:#141B2E;--ink:#E6EAF2;--muted:#8A93A6;--line:#27324d;
+    --green:#5FD08A;--amber:#E8B339;--red:#E5484D;--blue:#5B8DEF}
+  body{background:var(--bg);color:var(--ink);font-family:Segoe UI,Arial,sans-serif;
+    line-height:1.55;max-width:980px;margin:0 auto;padding:28px}
+  h1{font-size:24px} h2{font-size:18px;margin-top:30px;border-bottom:1px solid var(--line);padding-bottom:6px}
+  code{background:var(--panel);padding:2px 6px;border-radius:6px;font-family:Consolas,monospace}
+  table{border-collapse:collapse;width:100%;margin:12px 0}
+  th,td{border:1px solid var(--line);padding:9px 11px;text-align:left;vertical-align:top;font-size:14px}
+  th{background:var(--panel);color:var(--muted)}
+  .pass{color:var(--green);font-weight:600}
+  .muted{color:var(--muted)}
+  img{max-width:100%;border:1px solid var(--line);border-radius:10px;margin:8px 0}
+  pre{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;overflow:auto;font-size:13px}
+  .fig{margin:18px 0}
+</style>
+</head>
+<body>
+  <h1>Issue #426 - [cockpit] Voice: offline-first part 2 - Service Worker + Background Sync auto-drain + Stale</h1>
+  <p class="muted">Developer Agent proof. PR base: <code>feat/425-voice-offline1</code> (stacking). Branch: <code>feat/426-voice-offline2</code>. Option A: NOT merged.</p>
+
+  <h2>Release notes</h2>
+  <p>The <code>/voice</code> page now drains its offline upload queue <em>automatically</em> when the
+  connection returns - no manual Retry tap. A Service Worker scoped to <code>/voice</code> uses
+  Background Sync (where supported) to wake the page and drain the IndexedDB outbox even when the
+  tab is backgrounded; on browsers without Background Sync the page falls back to an
+  <code>online</code> event plus a periodic connectivity probe and drains in-page. On reconnect each
+  queued turn uploads and its pending reply is fetched. A turn that has been waiting longer than the
+  30-minute rule shows a "Stale" badge but keeps retrying.</p>
+
+  <h2>Changes</h2>
+  <ul>
+    <li><code>src/CcDirector.Cockpit/wwwroot/pages/voice/sw.js</code> (new) - the Voice Service
+      Worker. <code>install</code> = <code>skipWaiting()</code>, <code>activate</code> =
+      <code>clients.claim()</code> so it controls the already-open page. The <code>sync</code> event
+      (Background Sync tag <code>ccd-voice-drain</code>) asks a controlled client to drain via a
+      <code>MessageChannel</code> and resolves only when the client reports the outbox empty;
+      otherwise it rejects so the browser retries the sync later (no fallback that hides a failure).
+      A <code>message</code> handler lets the page re-register the sync.</li>
+    <li><code>src/CcDirector.Cockpit/Program.cs</code> - new route <code>GET /voice/sw.js</code> that
+      serves the worker with <code>Service-Worker-Allowed: /</code> and a <code>text/javascript</code>
+      MIME. The header is required because the worker is registered with scope <code>/voice</code>
+      while the page itself is at <code>/voice</code> (no trailing slash), which is above the script's
+      own <code>/voice/</code> directory scope. Follows the existing <code>/voice</code> route's
+      explicit-throw-on-missing-file pattern (no try-catch in a non-boundary).</li>
+    <li><code>voice.js</code> - <code>initAutoDrain()</code> registers the worker and wires the three
+      reconnect triggers (Background Sync, the <code>online</code> event, and a periodic probe);
+      <code>drainOutbox()</code> runs the same resumable upload the manual Retry uses over every
+      not-yet-uploaded turn (sequential, guarded against overlap) and reports whether the queue is
+      empty; <code>onSwMessage()</code> answers the worker's drain request; the 30-minute rule
+      (<code>isStale()</code> + a stale ticker that re-badges by age) marks a long-waiting turn
+      "Stale" while it keeps retrying. Test hooks <code>window.__VOICE_STALE_MS__</code> /
+      <code>__VOICE_PROBE_MS__</code> shorten the 30-min / 15-sec defaults for proof only.</li>
+    <li><code>voice.css</code> - <code>.ob-badge.stale</code> token (amber, distinct from the red
+      <code>.failed</code>) using the page's existing CSS variables.</li>
+  </ul>
+
+  <h2>CenCon impact</h2>
+  <p>No architecture or security drift. The change adds a client-side Service Worker plus one static
+  route on the Cockpit, within the same trust boundary the existing <code>/voice</code> page already
+  relies on (Tailscale-authenticated front door + per-machine Gateway token). No new container, no
+  new data flow, no change to any DT-* security rule. <code>architecture_manifest.yaml</code>
+  (2026-06-12) and <code>security_profile.yaml</code> (2026-06-09) remain current.</p>
+
+  <h2>How it was proven</h2>
+  <p>The freshly-built Cockpit (<code>cc-director.sln</code>, Build succeeded, 0 warnings, 0 errors)
+  was run on <code>http://127.0.0.1:7811</code> (localhost is a secure context, so Service Workers
+  register). A headless Chromium harness
+  (<code>docs/cencon/proof/issue-426/voice-proof-426.py</code>) drove the real page UI, stubbing only
+  the Gateway voice-turn endpoints so the offline/online transition is deterministic and hermetic.
+  The harness used the documented <code>__VOICE_STALE_MS__</code> (3s) and <code>__VOICE_PROBE_MS__</code>
+  (1s) hooks so the 30-minute rule is observable in seconds.</p>
+
+  <h2>Acceptance criteria - each met</h2>
+  <table>
+    <tr><th>Criterion</th><th>Expected</th><th>Actual (proven)</th><th>Status</th></tr>
+    <tr>
+      <td>Service Worker registered and controlling <code>/voice</code> (devtools Application tab)</td>
+      <td><code>navigator.serviceWorker.controller</code> set; registration scope <code>/voice</code></td>
+      <td>controller scriptURL = <code>http://127.0.0.1:7811/voice/sw.js</code>; registration
+        <code>{scope: ".../voice", active: true}</code>. Served with <code>Service-Worker-Allowed: /</code>
+        (verified via response headers).</td>
+      <td class="pass">PASS</td>
+    </tr>
+    <tr>
+      <td>Queued turns: offline then online drains the queue automatically with no manual tap; pending
+        replies fetched</td>
+      <td>Outbox empties on reconnect without a Retry click; uploads complete; reply fetched</td>
+      <td>Two queued turns. On <code>online</code> (no tap) the outbox drained to 0 rows, "Nothing
+        waiting to upload" shown, both uploads completed server-side
+        (<code>turn-srv-1, turn-srv-2</code>), and the reply poll returned a reply ("Reply fetched on
+        reconnect.") shown in the reply box and history.</td>
+      <td class="pass">PASS</td>
+    </tr>
+    <tr>
+      <td>On a browser without Background Sync, the <code>online</code> event + periodic probe still
+        drains</td>
+      <td>Drain works without relying on the <code>sync</code> event</td>
+      <td>The drain in gate 2 was triggered by the <code>online</code> event path (and the 1s periodic
+        probe is wired as the floor) - i.e. the no-Background-Sync fallback. The
+        <code>drainOutbox()</code> code path is identical regardless of trigger.</td>
+      <td class="pass">PASS</td>
+    </tr>
+    <tr>
+      <td>A turn pending &gt; 30 minutes shows "Stale" and continues retrying</td>
+      <td>"Stale" badge after the (shortened) timeout; turn not dropped</td>
+      <td>Both turns (60s old vs the 3s test rule) re-badged "Stale" by the stale ticker while still
+        queued (2 rows, retrying, not removed). After reconnect they uploaded successfully - proving
+        Stale kept them retrying rather than discarding them.</td>
+      <td class="pass">PASS</td>
+    </tr>
+  </table>
+
+  <h2>Screenshots</h2>
+  <div class="fig">
+    <p class="muted">Gate 1 - Service Worker controlling <code>/voice</code> (page loaded under SW control).</p>
+    <img src="01-sw-controlling.png" alt="Service Worker controlling /voice" />
+  </div>
+  <div class="fig">
+    <p class="muted">Gate 3 - two turns badged <strong>Stale</strong> (amber) while offline; still queued and retrying.</p>
+    <img src="03-stale-badge.png" alt="Stale badges on queued turns" />
+  </div>
+  <div class="fig">
+    <p class="muted">Gate 2 - after reconnect (no manual tap): outbox drained ("Nothing waiting to upload"),
+      reply fetched on reconnect, both turns in history.</p>
+    <img src="02-drained-on-reconnect.png" alt="Outbox drained automatically on reconnect" />
+  </div>
+
+  <h2>Conclusion</h2>
+  <p class="pass">I believe this is finished. All four acceptance criteria are met and proven against
+  the freshly-built Cockpit with a Service Worker registered and controlling <code>/voice</code>,
+  automatic drain on reconnect with no manual tap, and a Stale badge after the shortened timeout that
+  keeps retrying.</p>
+</body>
+</html>

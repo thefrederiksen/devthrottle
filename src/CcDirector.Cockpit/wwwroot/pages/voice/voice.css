@@ -92,6 +92,9 @@ button:disabled{opacity:.45;cursor:default}
 .ob-badge.uploading{color:var(--blue);border-color:#2a4170}
 .ob-badge.uploaded{color:var(--green);border-color:#1f5a37}
 .ob-badge.failed{color:var(--red);border-color:#5a2a2d}
+/* Stale (issue #426): a turn pending past the 30-min rule. Distinct from failed - it is
+   still retrying, so it reads as a warning, not an error. */
+.ob-badge.stale{color:var(--amber);border-color:#7a5a1f;background:#3a2f12}
 .ob-saved{color:var(--muted);font-size:13px}
 .ob-time{color:var(--muted);font-size:12px;margin-top:6px}
 .ob-error{color:var(--red);font-size:13px;margin-top:6px;white-space:pre-wrap}

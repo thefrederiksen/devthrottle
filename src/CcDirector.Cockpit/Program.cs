@@ -122,6 +122,22 @@ app.MapGet("/voice", () =>
     return Results.Content(html, "text/html; charset=utf-8");
 });
 
+// /voice/sw.js is the Voice Mode Service Worker (issue #426): it drains the offline upload
+// outbox automatically when connectivity returns. A Service Worker may only control URLs at
+// or below its own script path UNLESS the script is served with the Service-Worker-Allowed
+// header naming a wider scope. The worker is registered with scope "/voice", but the page
+// itself is at "/voice" (no trailing slash) which is ABOVE the script's own "/voice/"
+// directory - so we send "Service-Worker-Allowed: /" to authorize the wider scope. Served
+// via a route (not the static handler) so we can set that header and the correct JS MIME.
+app.MapGet("/voice/sw.js", (HttpContext ctx) =>
+{
+    var file = app.Environment.WebRootFileProvider.GetFileInfo("pages/voice/sw.js");
+    if (!file.Exists)
+        throw new InvalidOperationException("Voice Service Worker missing from wwwroot: pages/voice/sw.js");
+    ctx.Response.Headers["Service-Worker-Allowed"] = "/";
+    return Results.File(file.CreateReadStream(), "text/javascript; charset=utf-8");
+});
+
 // Read the per-machine Gateway token written by the Gateway at
 // {root}\config\director\gateway-token.txt, where {root} is CC_DIRECTOR_ROOT or
 // %LOCALAPPDATA%\cc-director (the same resolution CcStorage uses; the Cockpit does not
