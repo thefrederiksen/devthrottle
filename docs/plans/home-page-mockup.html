@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>CC Director - Home Page mockup (full screen)</title>
+<style>
+  :root{
+    --bg:#1E1E1E; --sidebar:#252526; --panel:#2A2A2A; --border:#3C3C3C;
+    --accent:#2563EB; --accent-hi:#3B82F6; --text:#E0E0E0; --muted:#888888;
+    --faint:#555555; --green:#4CAF50; --green-dim:#2E7D32; --amber:#F0B848;
+    --red:#E05656;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;background:#111;color:var(--text);
+    font-family:"Segoe UI",system-ui,sans-serif;font-size:13px;}
+  .toolbar{display:flex;gap:8px;align-items:center;padding:10px 16px;background:#1b1b1b;
+    border-bottom:1px solid var(--border);}
+  .toolbar h1{font-size:14px;margin:0;font-weight:600;color:#bbb;}
+  .seg{margin-left:auto;display:flex;gap:6px;}
+  .seg button{background:var(--panel);color:var(--text);border:1px solid var(--border);
+    padding:6px 12px;border-radius:5px;cursor:pointer;font-size:12px;}
+  .seg button.active{background:var(--accent);border-color:var(--accent);color:#fff;}
+  .note{padding:6px 16px;color:var(--muted);font-size:12px;background:#161616;
+    border-bottom:1px solid var(--border);}
+
+  /* ---- app shell ---- */
+  .app{height:calc(100vh - 92px);display:flex;flex-direction:column;background:var(--bg);}
+  .menubar{display:flex;gap:18px;padding:6px 12px;font-size:12px;color:#cfcfcf;
+    border-bottom:1px solid #2a2a2a;background:#1b1b1b;}
+  .stage{flex:1;min-width:0;overflow:auto;}
+
+  /* BEFORE shell extras */
+  .apptop{display:flex;align-items:center;padding:8px 14px;border-bottom:1px solid var(--border);}
+  .newbtn{background:var(--accent);color:#fff;border:none;border-radius:5px;
+    padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;}
+  .apptop .right{margin-left:auto;display:flex;gap:18px;color:#bbb;font-size:12px;}
+  .before{height:100%;display:flex;}
+  .rail{width:210px;border-right:1px solid var(--border);background:var(--sidebar);
+    display:flex;flex-direction:column;}
+  .rail .hd{padding:10px;font-size:12px;font-weight:700;letter-spacing:.5px;
+    display:flex;justify-content:space-between;color:var(--text);}
+  .rail .empty{flex:1;display:flex;align-items:center;justify-content:center;
+    color:var(--faint);font-size:11px;}
+  .gw{margin:8px;padding:9px 10px;border:1px solid var(--green-dim);border-radius:5px;
+    background:#16321c;display:flex;gap:9px;align-items:center;}
+  .gw .dot{width:10px;height:10px;border-radius:50%;background:var(--green);flex:none;}
+  .gw .l{font-size:11px;font-weight:600;color:#cfe6cf;}
+  .gw .s{font-size:10px;color:var(--muted);}
+  .ver{padding:6px;text-align:center;color:var(--faint);font-size:10px;}
+  .before .tabs{display:flex;gap:4px;height:36px;align-items:center;padding:0 10px;
+    background:var(--sidebar);border-bottom:1px solid var(--border);}
+  .before .tabs .t{padding:5px 12px;font-size:12px;border-radius:4px;color:var(--muted);}
+  .before .tabs .t.on{background:var(--accent);color:#fff;}
+  .before .center{flex:1;display:flex;flex-direction:column;}
+  .before .stagebody{display:flex;flex:1;}
+  .before .term{flex:1;display:flex;align-items:center;justify-content:center;
+    color:var(--faint);font-size:16px;}
+  .before .shots{width:230px;border-left:1px solid var(--border);background:#202020;padding:10px;}
+  .before .shots h4{margin:0 0 8px;font-size:11px;color:var(--muted);letter-spacing:.5px;}
+  .before .shot{height:70px;background:#2a2a2a;border:1px solid var(--border);
+    border-radius:3px;margin-bottom:10px;}
+
+  /* ---- AFTER full-screen home ---- */
+  .home{min-height:100%;display:flex;flex-direction:column;align-items:center;
+    padding:40px 24px 28px;}
+  .brand{letter-spacing:7px;font-size:26px;font-weight:300;color:#d6d6d6;}
+  .sub{color:var(--muted);margin:8px 0 30px;font-size:13px;letter-spacing:1px;}
+  .wrap{width:100%;max-width:760px;}
+
+  .hero{display:flex;flex-direction:column;align-items:center;margin-bottom:30px;}
+  .herobtn{background:var(--accent);color:#fff;border:none;border-radius:10px;
+    padding:20px 56px;font-size:19px;font-weight:600;cursor:pointer;
+    box-shadow:0 6px 22px rgba(37,99,235,.38);}
+  .herobtn.secondary{padding:12px 34px;font-size:15px;box-shadow:none;opacity:.92;}
+  .hero .cap{color:var(--muted);font-size:12px;margin-top:10px;}
+
+  /* gateway hero card moved up from bottom-left */
+  .gwcard{display:flex;align-items:center;gap:14px;background:#16321c;
+    border:1px solid var(--green-dim);border-radius:10px;padding:14px 18px;margin-bottom:18px;}
+  .gwcard.red{background:#321616;border-color:#5a2222;}
+  .gwcard .ring{width:34px;height:34px;border-radius:50%;border:4px solid var(--green);flex:none;}
+  .gwcard.red .ring{border-color:var(--red);}
+  .gwcard .gl{font-size:14px;font-weight:700;color:#d4ecd4;}
+  .gwcard.red .gl{color:#ecd4d4;}
+  .gwcard .gs{font-size:12px;color:var(--muted);margin-top:2px;}
+  .gwcard .act{margin-left:auto;}
+
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;
+    padding:16px 18px;margin-bottom:18px;}
+  .card h3{margin:0 0 10px;font-size:11px;letter-spacing:1.5px;color:var(--muted);
+    display:flex;justify-content:space-between;}
+  .row{display:flex;align-items:center;padding:8px 0;border-top:1px solid #343434;}
+  .row:first-of-type{border-top:none;}
+  .row .ic{width:26px;font-size:12px;font-weight:700;}
+  .ic.ok{color:var(--green);} .ic.warn{color:var(--amber);} .ic.bad{color:var(--red);}
+  .row .k{width:150px;color:#ddd;}
+  .row .v{flex:1;color:var(--muted);font-size:12px;}
+  .fix{background:transparent;border:1px solid var(--accent);color:var(--accent-hi);
+    border-radius:5px;padding:4px 12px;font-size:11px;cursor:pointer;}
+  .banner{background:#2a2410;border:1px solid #5a4d18;border-radius:10px;padding:12px 16px;
+    color:#e8d9a8;font-size:12px;margin-bottom:20px;width:100%;max-width:760px;}
+  .pill{font-size:11px;color:var(--amber);font-weight:600;}
+  .footer{margin-top:auto;padding-top:22px;color:var(--faint);font-size:11px;}
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <h1>CC Director &mdash; Home Page mockup (full screen)</h1>
+  <div class="seg">
+    <button id="b-before" class="active" onclick="show('before')">Before (current)</button>
+    <button id="b-healthy" onclick="show('healthy')">After &mdash; Healthy</button>
+    <button id="b-setup" onclick="show('setup')">After &mdash; Needs setup</button>
+  </div>
+</div>
+<div class="note" id="note"></div>
+
+<div class="app">
+  <div class="menubar"><span>File</span><span>Session</span><span>View</span><span>Tools</span><span>Help</span></div>
+  <div class="stage" id="stage"></div>
+</div>
+
+<script>
+const BEFORE = `
+<div class="apptop">
+  <button class="newbtn">+ New Session</button>
+  <div class="right"><span>Tools</span><span>Cockpit</span><span>Settings</span></div>
+</div>
+<div class="before">
+  <div class="rail">
+    <div class="hd"><span>SESSIONS</span><span style="color:#888">&laquo;</span></div>
+    <div class="empty">(no sessions)</div>
+    <div class="gw"><div class="dot"></div><div><div class="l">GATEWAY CONNECTED</div><div class="s">two-way verified 09:23:10</div></div></div>
+    <div class="ver">v0.6.23 (e6f6af8)</div>
+  </div>
+  <div class="center">
+    <div class="tabs"><span class="t on">Terminal</span><span class="t">Source Control</span></div>
+    <div class="stagebody">
+      <div class="term">Select or create a session to begin</div>
+      <div class="shots"><h4>SCREENSHOTS</h4><div class="shot"></div><div class="shot"></div><div class="shot"></div></div>
+    </div>
+  </div>
+</div>`;
+
+const HEALTHY = `
+<div class="home">
+  <div class="brand">CC DIRECTOR</div>
+  <div class="sub">Mission critical for multiple agents</div>
+
+  <div class="wrap">
+    <div class="hero">
+      <button class="herobtn">+ New Session</button>
+      <div class="cap">Start a Claude session &mdash; it&rsquo;s the first thing you do</div>
+    </div>
+
+    <div class="gwcard">
+      <div class="ring"></div>
+      <div><div class="gl">GATEWAY CONNECTED</div><div class="gs">two-way verified 09:23:10</div></div>
+    </div>
+
+    <div class="card">
+      <h3>SYSTEM STATUS <span style="color:var(--green)">ALL GREEN</span></h3>
+      <div class="row"><span class="ic ok">OK</span><span class="k">claude CLI</span><span class="v">2.1.168 &middot; on PATH</span></div>
+      <div class="row"><span class="ic ok">OK</span><span class="k">OpenAI key</span><span class="v">Set (Gateway vault)</span></div>
+      <div class="row"><span class="ic ok">OK</span><span class="k">cc-* tools</span><span class="v">31 of 31 on PATH</span></div>
+      <div class="row"><span class="ic ok">OK</span><span class="k">Director</span><span class="v">v0.6.23 &middot; up to date</span></div>
+    </div>
+  </div>
+  <div class="footer">v0.6.23 (e6f6af8)</div>
+</div>`;
+
+const SETUP = `
+<div class="home">
+  <div class="brand">CC DIRECTOR</div>
+  <div class="sub">Let&rsquo;s finish setting up</div>
+
+  <div class="banner"><span class="pill">3 of 5 ready.</span>
+    Until these are green, voice, wingman, and remote control won&rsquo;t work. Each button jumps to the right screen.</div>
+
+  <div class="wrap">
+    <div class="gwcard red">
+      <div class="ring"></div>
+      <div><div class="gl">NO GATEWAY</div><div class="gs">local-only Director &middot; no gateway.url set</div></div>
+      <div class="act"><button class="fix">Fix it</button></div>
+    </div>
+
+    <div class="card">
+      <h3>READINESS</h3>
+      <div class="row"><span class="ic ok">OK</span><span class="k">Director</span><span class="v">v0.6.23 &middot; running</span></div>
+      <div class="row"><span class="ic ok">OK</span><span class="k">claude CLI</span><span class="v">2.1.168 &middot; on PATH</span></div>
+      <div class="row"><span class="ic bad">X</span><span class="k">OpenAI key</span><span class="v">Not set &middot; voice &amp; dictation disabled</span><button class="fix">Set key</button></div>
+      <div class="row"><span class="ic warn">!</span><span class="k">cc-* tools</span><span class="v">12 of 31 on PATH</span><button class="fix">Install</button></div>
+    </div>
+
+    <div class="hero">
+      <button class="herobtn secondary">+ New Session</button>
+      <div class="cap">You can still start a local session now</div>
+    </div>
+  </div>
+  <div class="footer">v0.6.23 (e6f6af8)</div>
+</div>`;
+
+const NOTES = {
+  before:'Current state: sessions rail + New Session toolbar + blank Terminal/Screenshots. Gateway card lives bottom-left.',
+  healthy:'After (healthy): FULL SCREEN home, only the File menu above it. No left rail, no toolbar. Gateway card pulled up onto the home; big New Session hero is the single entry point.',
+  setup:'After (needs setup): same full-screen home; gateway card turns red with Fix-it, status becomes a readiness checklist, New Session demoted but usable.'
+};
+
+function show(which){
+  document.getElementById('stage').innerHTML =
+    which==='before'?BEFORE:which==='healthy'?HEALTHY:SETUP;
+  document.getElementById('note').textContent = NOTES[which];
+  for(const id of ['before','healthy','setup'])
+    document.getElementById('b-'+id).classList.toggle('active', id===which);
+}
+show('before');
+</script>
+</body>
+</html>

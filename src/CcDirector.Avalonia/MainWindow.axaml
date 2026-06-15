@@ -42,7 +42,8 @@
         <!-- ==================== TOOLBAR (full width) ====================
              High-frequency actions + the badge/pill bearers that cannot live inside
              a collapsed menu (Comms pending count, Scheduler LEADER pill). -->
-        <Border DockPanel.Dock="Top"
+        <Border x:Name="MainToolbar"
+                DockPanel.Dock="Top"
                 Background="{DynamicResource SidebarBackground}"
                 BorderBrush="#3C3C3C" BorderThickness="0,0,0,1"
                 Padding="8,4">
@@ -1719,6 +1720,17 @@
                 </StackPanel>
             </DockPanel>
         </Border>
+
+        <!-- ==================== HOME (empty-state) ====================
+             Full-screen home shown when this Director has zero sessions. It covers the
+             session rail and the content column (all rows/columns); MainWindow also
+             hides the toolbar while it is visible, so only the window menu bar shows
+             above it. Topmost child so it sits over everything; opaque background. -->
+        <controls:HomeView x:Name="HomeView"
+                           Grid.Row="0" Grid.RowSpan="2"
+                           Grid.Column="0" Grid.ColumnSpan="3"
+                           ZIndex="30"
+                           IsVisible="False" />
 
     </Grid>
     </DockPanel>
