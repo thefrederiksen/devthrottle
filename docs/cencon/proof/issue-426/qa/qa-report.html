@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA Proof - Issue #426 Voice offline-first part 2</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; background: #0b1020; color: #e6e9f2; margin: 0; padding: 32px; }
+  h1 { font-size: 22px; }
+  h2 { font-size: 17px; margin-top: 28px; border-bottom: 1px solid #232a44; padding-bottom: 6px; }
+  .meta { color: #9aa3bd; font-size: 13px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 14px; }
+  th, td { border: 1px solid #232a44; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #141a30; }
+  .pass { color: #46c07a; font-weight: 700; }
+  .fail { color: #e0556b; font-weight: 700; }
+  code { background: #141a30; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  img { max-width: 900px; width: 100%; border: 1px solid #232a44; border-radius: 6px; margin: 8px 0; display: block; }
+  .verdict { background: #10331f; border: 1px solid #1f6b3f; padding: 14px 16px; border-radius: 8px; margin: 20px 0; }
+  pre { background: #0e1426; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 12px; }
+</style>
+</head>
+<body>
+<h1>QA Proof - Issue #426: Voice offline-first part 2 (Service Worker + Background Sync auto-drain + Stale)</h1>
+<p class="meta">
+  PR #437 (branch <code>feat/426-voice-offline2</code>, base <code>feat/425-voice-offline1</code>).
+  Verified independently by the QA Agent against a QA-built Cockpit on <code>127.0.0.1:7912</code>
+  (localhost = secure context, so Service Workers register). The QA harness
+  (<code>qa-proof-426.py</code>) was written from scratch - it does NOT reuse the developer's harness.
+  Gateway voice-turn endpoints are stubbed via Playwright routing so the offline/online transition
+  is deterministic; only the documented <code>__VOICE_*</code> test knobs are used.
+</p>
+
+<h2>Acceptance criteria</h2>
+<table>
+  <tr><th>#</th><th>Criterion</th><th>Expected</th><th>Actual (QA-observed)</th><th>Result</th></tr>
+  <tr>
+    <td>1</td>
+    <td>A Service Worker is registered and controlling <code>/voice</code>.</td>
+    <td><code>navigator.serviceWorker.controller.scriptURL</code> ends with <code>/voice/sw.js</code>;
+        registration scope is <code>/voice</code> and active.</td>
+    <td>controller = <code>http://127.0.0.1:7912/voice/sw.js</code>; registration =
+        <code>{scope: .../voice, active: true}</code>. Also verified at the HTTP layer:
+        <code>GET /voice/sw.js</code> returns <code>200</code>, <code>Content-Type:
+        text/javascript</code>, <code>Service-Worker-Allowed: /</code>.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td>With queued turns, offline then online drains the queue automatically (no manual tap);
+        pending replies are fetched.</td>
+    <td>On the <code>online</code> event the outbox drains to 0 rows with no Retry tap; both turns
+        complete the resumable upload and the reply is fetched.</td>
+    <td>Outbox went 2 -> 0 rows automatically; both turns reached server <code>complete</code>
+        (<code>turn-srv-1</code>, <code>turn-srv-2</code>); reply box showed
+        "QA: reply fetched on reconnect."; empty-state "Nothing waiting to upload." shown.</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td>On a browser WITHOUT Background Sync, the <code>online</code> event + periodic probe still
+        drain the queue.</td>
+    <td>With Background Sync removed, the queue still drains via the fallback path.</td>
+    <td>QA removed the <code>sync</code> accessor on
+        <code>ServiceWorkerRegistration.prototype</code> before any page script ran, so
+        <code>reg.sync</code> was <code>false</code> (verified in G1). The drain in criterion 2
+        then still occurred - proving it came from the online-event / periodic-probe fallback, not
+        Background Sync. While offline, the periodic probe kept retrying (upload attempts 0 -> 8).</td>
+    <td class="pass">PASS</td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td>A turn pending past the 30-minute rule shows "Stale" and keeps retrying.</td>
+    <td>After the (shortened) threshold a "Stale" badge appears; the turn stays queued and keeps
+        retrying.</td>
+    <td>With <code>__VOICE_STALE_MS__=3000</code> both 60s-old turns re-badged "Stale"; rows stayed
+        queued (2 rows, not dropped) and upload attempts climbed 0 -> 8 over the offline window
+        (still retrying).</td>
+    <td class="pass">PASS</td>
+  </tr>
+</table>
+
+<h2>Evidence</h2>
+<h3>G1 - Service Worker controlling /voice</h3>
+<img src="g1-sw-controlling.png" alt="Voice page rendered on the SW-controlled session">
+
+<h3>G4 - Stale badge while offline (still retrying)</h3>
+<img src="g4-stale-badge.png" alt="Two turns badged Stale, Saved locally, Failed to fetch, Retry buttons">
+
+<h3>G2 + G3 - Automatic drain on reconnect via the fallback path (Background Sync removed)</h3>
+<img src="g2-g3-drained-fallback.png" alt="Outbox empty, reply fetched, turns moved to history">
+
+<h2>Regression / method checks</h2>
+<ul>
+  <li>Full Cockpit project builds clean: <code>dotnet build CcDirector.Cockpit.csproj</code> -> Build succeeded, 0 Warning(s), 0 Error(s).</li>
+  <li><code>/voice</code>, <code>/pages/voice/voice.js</code>, <code>/pages/voice/db.js</code> all still serve 200 (no adjacent breakage).</li>
+  <li>No architecture/security model change: <code>/voice/sw.js</code> serves a static wwwroot file with the standard <code>Service-Worker-Allowed</code> header; the page's bearer-token auth is unchanged. No CenCon DT security rule affected; no <code>docs/cencon/</code> update required.</li>
+  <li>No fallback-that-hides-failure: the SW reports "not done" so Background Sync retries; the in-page fallback drains explicitly. Consistent with the no-fallback rule.</li>
+</ul>
+
+<div class="verdict">
+  <strong>VERIFIED - all 4 acceptance criteria met.</strong> QA PASS. Per Option A this PR is NOT
+  merged; it is left OPEN for human merge with the issue remaining at <code>flow:ready-qa</code>.
+</div>
+
+<h2>Reproduce</h2>
+<pre>cd src/CcDirector.Cockpit
+dotnet build CcDirector.Cockpit.csproj -c Debug
+dotnet run --no-build --no-launch-profile --urls http://127.0.0.1:7912
+# then, from the repo root:
+python docs/cencon/proof/issue-426/qa/qa-proof-426.py docs/cencon/proof/issue-426/qa
+# -> "QA RESULT: PASS - all 4 acceptance criteria verified"</pre>
+</body>
+</html>
