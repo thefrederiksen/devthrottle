@@ -626,18 +626,6 @@
                                    VerticalAlignment="Center"
                                    IsVisible="False"
                                    Margin="0,0,8,0" />
-                        <!-- Refresh terminal button -->
-                        <Button x:Name="BtnRefreshTerminal"
-                                Content="Refresh"
-                                Click="BtnRefreshTerminal_Click"
-                                IsVisible="False"
-                                Background="Transparent"
-                                Foreground="White"
-                                BorderThickness="0"
-                                Cursor="Hand"
-                                Padding="6,4"
-                                FontSize="11"
-                                ToolTip.Tip="Refresh terminal display" />
                     </StackPanel>
 
                     <!-- Session name -->
@@ -800,14 +788,6 @@
                                     Padding="12,4"
                                     FontSize="12"
                                     Click="WingmanTabButton_Click" />
-                            <Button x:Name="AgentTabButton"
-                                    Content="Agent (legacy)"
-                                    Background="Transparent"
-                                    Foreground="#888888"
-                                    Padding="12,4"
-                                    FontSize="12"
-                                    IsVisible="False"
-                                    Click="AgentTabButton_Click" />
                             <!-- Separator between fixed tabs and document tabs -->
                             <Border x:Name="DocTabSeparator"
                                     Width="1" Height="16"
